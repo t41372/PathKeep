@@ -21,26 +21,28 @@ use axum::{
     http::{HeaderValue, Method, StatusCode},
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::net::{Ipv4Addr, SocketAddr};
 use tauri::AppHandle;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest, AppConfig, AppUpdateInstallRequest, CategoryFilteredDateRangeRequest,
-    CompareSetDetailRequest, CoreIntelligenceRebuildRequest, DayInsightsRequest,
-    DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest, ExplainRefindRequest,
-    ExportRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
-    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
-    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
+    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
+    RefindPagesRequest, RetentionPruneRequest, ScopedDateRangeRequest, SearchEffectivenessRequest,
     SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
-    TopSitesRequest, UnlockAppSessionRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest,
+    UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
+
+mod payloads;
+
+use payloads::*;
 
 /// Env var flag that enables the localhost dev IPC bridge.
 pub(crate) const DEV_IPC_BRIDGE_ENABLED_ENV: &str = "PATHKEEP_ENABLE_DEV_IPC_BRIDGE";
@@ -62,182 +64,6 @@ struct DevIpcBridgeState {
 struct DevIpcBridgeConfig {
     port: u16,
     allowed_origins: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct InitializeArchivePayload {
-    config: AppConfig,
-    database_key: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WrappedRequest<T> {
-    request: T,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DatabaseKeyPayload {
-    database_key: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunBackupPayload {
-    #[serde(default)]
-    due_only: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct QueryHistoryPayload {
-    query: HistoryQuery,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HistoryFaviconPayload {
-    entries: Vec<HistoryFaviconLookupEntry>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RunIdPayload {
-    run_id: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportPayload {
-    request: ExportRequest,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BundlePathPayload {
-    bundle_path: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TakeoutPayload {
-    request: TakeoutRequest,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BatchIdPayload {
-    batch_id: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlatformPayload {
-    platform: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PlanPayload {
-    plan: SchedulePlan,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CredentialsPayload {
-    credentials: S3CredentialInput,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AiProviderSecretPayload {
-    input: AiProviderSecretInput,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct InputPayload<T> {
-    input: T,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderIdPayload {
-    provider_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MaxJobsPayload {
-    max_jobs: Option<u32>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct JobIdPayload {
-    job_id: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VisitIdPayload {
-    visit_id: i64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileIdPayload {
-    profile_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionIdPayload {
-    session_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrailIdPayload {
-    trail_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RuleIdPayload {
-    rule_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PathPayload {
-    path: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UrlPayload {
-    url: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LockReasonPayload {
-    reason: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ValuePayload {
-    value: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AppUpdateInstallPayload {
-    request: Option<AppUpdateInstallRequest>,
 }
 
 /// Starts the localhost dev bridge when the feature flag and env vars allow it.
@@ -1018,12 +844,6 @@ async fn dispatch_command(
             Err(format!("PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."))
         }
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WrappedConfigPayload {
-    config: AppConfig,
 }
 
 fn require_app_handle(state: &DevIpcBridgeState) -> Result<AppHandle, String> {

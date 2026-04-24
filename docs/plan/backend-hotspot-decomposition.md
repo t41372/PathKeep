@@ -10,15 +10,15 @@
 
 ## Current hotspot snapshot
 
-| File                                                                  | Current line count | Primary risk                                                            |
-| --------------------------------------------------------------------- | -----------------: | ----------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split  |
-| `src-tauri/src/dev_ipc_bridge.rs`                                     |               1141 | Dev-only command mirror still mixes routing, payload DTOs, and dispatch |
-| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`      |                991 | Trusted local host builder near the 1000-line review threshold          |
-| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`         |                966 | Chromium parser still owns streaming, collection, and legacy batch API  |
-| `src-tauri/crates/vault-platform/src/scheduler.rs`                    |                870 | Platform schedule preview/apply/status helpers remain concentrated      |
-| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs` |                601 | Largest Core Intelligence regression owner; below new-file hard limit   |
-| `src-tauri/crates/vault-core/src/remote/tests.rs`                     |                567 | Largest remote-backup owner after split; below current file-size limits |
+| File                                                                  | Current line count | Primary risk                                                             |
+| --------------------------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split   |
+| `src-tauri/src/dev_ipc_bridge.rs`                                     |                961 | Dev-only command mirror still mixes routing and dispatch after DTO split |
+| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`      |                991 | Trusted local host builder near the 1000-line review threshold           |
+| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`         |                966 | Chromium parser still owns streaming, collection, and legacy batch API   |
+| `src-tauri/crates/vault-platform/src/scheduler.rs`                    |                870 | Platform schedule preview/apply/status helpers remain concentrated       |
+| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs` |                601 | Largest Core Intelligence regression owner; below new-file hard limit    |
+| `src-tauri/crates/vault-core/src/remote/tests.rs`                     |                567 | Largest remote-backup owner after split; below current file-size limits  |
 
 ## Sequencing
 
@@ -98,6 +98,7 @@
 
 - 2026-04-23 progress audit result: the original backend mega-file campaign is materially complete for `intelligence/mod.rs`, `ai.rs`, `remote.rs`, `models/core_intelligence`, `site_dictionary`, `takeout`, and archive ingest, but the backend is not globally "done". A live line-count and rustdoc sweep still found `src-tauri/src/dev_ipc_bridge.rs` above 1000 lines, `src-tauri/crates/vault-core/src/ai_queue.rs` at 1019 lines because it embedded its regression suite, several 800-1000 line follow-up candidates, and declaration-level rustdoc gaps in the command / worker-bridge intelligence façade.
 - 2026-04-23 AI queue test-boundary slice landed: `vault-core/src/ai_queue.rs` now delegates its regression suite to `ai_queue/tests.rs`, dropping the runtime module to `768` lines while preserving persistent queue schema, lifecycle transitions, serde payloads, worker callers, and queue tests.
+- 2026-04-23 dev bridge payload slice landed: `src-tauri/src/dev_ipc_bridge.rs` now delegates localhost command DTOs to `dev_ipc_bridge/payloads.rs`, dropping the parent bridge module to `961` lines while preserving devtools-bridge command strings, camelCase request bodies, response envelopes, and the feature-gated localhost-only boundary.
 - Next active backend block should treat `src-tauri/src/dev_ipc_bridge.rs` plus `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` as the first follow-through. The goal is to split or document the command mirror/facade without changing Tauri command names, payloads, worker export surface, or the dev-only localhost boundary.
 
 ## Non-negotiable invariants
