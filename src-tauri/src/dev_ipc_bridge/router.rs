@@ -35,7 +35,7 @@ use axum::{
 use serde_json::{Value, json};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
-use super::{DevIpcBridgeState, config::DevIpcBridgeConfig, dispatch_command};
+use super::{DevIpcBridgeState, config::DevIpcBridgeConfig, dispatch::dispatch_command};
 use crate::PRODUCT_DISPLAY_NAME;
 
 /// Builds the health and command routes for the local browser mirror.

@@ -860,3 +860,16 @@
   - 這輪 code slice 把 `src-tauri/crates/vault-core/src/ai_queue.rs` 內嵌 queue lifecycle regression suite 下沉到 [`src-tauri/crates/vault-core/src/ai_queue/tests.rs`](../../src-tauri/crates/vault-core/src/ai_queue/tests.rs)，讓 runtime module 從 `1019` 行降到 `768` 行；新 test owner 帶檔頭責任說明與 test-level doc comments，既有 queue tests / schema / payload / worker caller contract 維持不變。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把「backend 主戰役完成但全域未完成」的 truth、`WORK-BE-D` closeout，以及下一個 active block `WORK-BE-E` 寫回 source-of-truth。
   - 驗收：pre-slice `bun run check`、post-slice targeted Rust / full check / build gates
+
+- [x] **WORK-BE-E** — Command Facade Rustdoc And Dev Bridge Boundary
+  - 讀先：
+    `docs/plan/backend-hotspot-decomposition.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/architecture/module-boundary-map.md`
+    `docs/architecture/tech-stack.md`
+  - 目標：處理後端 progress audit 暴露的下一個真 hotspot：`src-tauri/src/dev_ipc_bridge.rs` 超過 1000 行，且 `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` 仍有大量 command façade declaration-level rustdoc gaps。優先把 dev-only localhost bridge 的 payload DTO、router/dispatch table、command adapters 拆成 focused owners，並補齊 command / worker bridge 檔頭與 declaration comments。
+  - 契約：維持現有 Tauri command names、devtools-bridge command strings、request/response payload shape、worker export surface、feature-gated + env-gated localhost-only 安全邊界，以及 `run_blocking_command` off-main-thread contract；不得把 dev automation mirror 擴寫成產品 remote-control API。
+  - 2026-04-24：`src-tauri/src/dev_ipc_bridge.rs` 現在只保留 feature-gated listener startup / state handoff；command dispatch 與 desktop-layer updater/file-manager adapters 已抽到 [`src-tauri/src/dev_ipc_bridge/dispatch.rs`](../../src-tauri/src/dev_ipc_bridge/dispatch.rs)，並把 session round-trip / unknown command coverage 下沉到 [`src-tauri/src/dev_ipc_bridge/dispatch/tests.rs`](../../src-tauri/src/dev_ipc_bridge/dispatch/tests.rs)。
+  - `dev_ipc_bridge/{config,router,payloads,dispatch}` 現在分別 owning env parsing、HTTP/CORS/error envelope、camelCase DTO、以及 command dispatch；command strings、payload shape、worker bridge implementation calls、updater/file-manager adapters 與 localhost-only feature+env gate 均未改 contract。父檔降到 `94` 行，dispatch owner 為 `764` 行。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md) 與 [`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)，把 `WORK-BE-E` closeout、current line-count truth、以及 BACKLOG 暫無可提升 block 寫回 source-of-truth。
+  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml --features devtools-bridge dispatch_command`、`bun run check`、`bun run build`

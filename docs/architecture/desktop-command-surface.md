@@ -54,6 +54,7 @@
 - 前端 runtime 也因此正式分成三種：`tauri`、`browser-desktop-bridge`、`browser-preview`。不要再把「不是 Tauri」直接等同於 static preview fixture。
 - 這條 mirror 只覆蓋 command façade，不承諾所有 WebView plugin guest API 都能從 Chrome 使用。`browser-desktop-bridge` 現在可以透過 mirrored desktop command transport 驅動 update check / install / relaunch，但 updater progress event、Stronghold guest binding、或其他直接依賴 Tauri event/plugin 的 surface，仍需實際 Tauri window 驗證。
 - 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
+- 2026-04-24 backend follow-up：dev bridge implementation 已拆成 `config` / `router` / `payloads` / `dispatch` focused owners。這只是 desktop-layer ownership cleanup；現有 command strings、payload shape、worker bridge export surface、feature gate、env gate 與 localhost-only safety boundary 不變。
 
 ## Implemented Command Map（2026-04-09 / `WORK-QC-C`）
 

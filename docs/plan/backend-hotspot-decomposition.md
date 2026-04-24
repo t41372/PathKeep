@@ -13,7 +13,8 @@
 | File                                                                  | Current line count | Primary risk                                                            |
 | --------------------------------------------------------------------- | -----------------: | ----------------------------------------------------------------------- |
 | `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split  |
-| `src-tauri/src/dev_ipc_bridge.rs`                                     |                851 | Dev-only command mirror still has a concentrated dispatch table         |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                            |                764 | Dev-only command mirror dispatch table; bounded below current file cap  |
+| `src-tauri/src/dev_ipc_bridge.rs`                                     |                 94 | Thin listener / state handoff after focused bridge-owner split          |
 | `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`      |                991 | Trusted local host builder near the 1000-line review threshold          |
 | `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`         |                966 | Chromium parser still owns streaming, collection, and legacy batch API  |
 | `src-tauri/crates/vault-platform/src/scheduler.rs`                    |                870 | Platform schedule preview/apply/status helpers remain concentrated      |
@@ -101,7 +102,8 @@
 - 2026-04-23 dev bridge payload slice landed: `src-tauri/src/dev_ipc_bridge.rs` now delegates localhost command DTOs to `dev_ipc_bridge/payloads.rs`, dropping the parent bridge module to `961` lines while preserving devtools-bridge command strings, camelCase request bodies, response envelopes, and the feature-gated localhost-only boundary.
 - 2026-04-23 dev bridge router/config slice landed: router, CORS, health, HTTP error envelopes, and env parsing now live in `dev_ipc_bridge/{router,config}.rs`, dropping the parent bridge module to `851` lines while preserving the same listener startup, localhost-only boundary, and command dispatch behavior.
 - 2026-04-23 command façade rustdoc slice landed: `src-tauri/src/commands/intelligence/{ai,core,runtime}.rs` and `src-tauri/src/worker_bridge/intelligence/{ai,core,runtime}.rs` now have file-level boundary comments and declaration-level rustdoc for the previously bare Core Intelligence read/runtime façade functions. This is documentation-only and preserves command names, payload shapes, and worker export surface.
-- Next active backend block should treat `src-tauri/src/dev_ipc_bridge.rs` plus `src-tauri/src/commands/intelligence/*` / `src-tauri/src/worker_bridge/intelligence/*` as the first follow-through. The goal is to split or document the command mirror/facade without changing Tauri command names, payloads, worker export surface, or the dev-only localhost boundary.
+- 2026-04-24 dev bridge dispatch slice landed: command dispatch and desktop-layer adapters now live in `dev_ipc_bridge/dispatch.rs`, with focused regression coverage in `dispatch/tests.rs`. The parent bridge module is down to `94` lines and owns only feature-gated listener startup plus state handoff; command strings, camelCase payloads, worker export surface, updater/file-manager adapters, and the localhost-only feature/env gate are unchanged.
+- `WORK-BE-E` is complete. Remaining backend follow-up candidates are now the lower-priority 800-1000 line support owners (`host_artifacts.rs`, `browser-history-parser::chromium`, `vault-platform::scheduler`) and any future command façade drift exposed by a fresh planning pass, not an active current-focus block.
 
 ## Non-negotiable invariants
 
