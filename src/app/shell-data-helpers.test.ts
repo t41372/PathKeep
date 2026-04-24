@@ -90,10 +90,6 @@ function buildSnapshot(overrides: Partial<AppSnapshot> = {}): AppSnapshot {
         passcodeConfigured: false,
         recoveryHint: null,
       },
-      analytics: {
-        enabled: false,
-        consentGrantedAt: null,
-      },
       remoteBackup: {
         enabled: false,
         bucket: '',

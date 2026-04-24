@@ -6,7 +6,7 @@
  * ## Responsibilities
  * - Preserve the unlock recovery state assertions for the Settings route.
  * - Keep the localized Settings group dividers under regression coverage.
- * - Verify the extracted general and analytics sections still stay wired to the route owner.
+ * - Verify the extracted general section still stays wired to the route owner.
  *
  * ## Non-Responsibilities
  * - Does not own runtime review, external outputs, or search-rule flows.
@@ -23,7 +23,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { CONFIGURED_ANALYTICS_ENDPOINT } from '../../lib/analytics'
 import { backend } from '../../lib/backend-client'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import { SettingsPage } from '../settings'
@@ -106,6 +105,18 @@ describe('intelligence surfaces settings core sections', () => {
     expect(
       document.getElementById('settings-external-outputs'),
     ).not.toBeInTheDocument()
+    const remotePanel = document.getElementById('settings-remote')
+    if (!(remotePanel instanceof HTMLElement)) {
+      throw new Error('expected settings remote preferences panel')
+    }
+    expect(
+      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
+    ).toBeVisible()
+    expect(
+      within(remotePanel).queryByRole('button', {
+        name: settingsT('previewRemoteBackup'),
+      }),
+    ).not.toBeInTheDocument()
     expect(
       screen
         .getAllByRole('link', {
@@ -156,9 +167,6 @@ describe('intelligence surfaces settings core sections', () => {
       within(nav).getByRole('link', { name: settingsT('general') }),
     ).toHaveAttribute('href', '#settings-general')
     expect(
-      within(nav).getByRole('link', { name: settingsT('analyticsTitle') }),
-    ).toHaveAttribute('href', '#settings-analytics')
-    expect(
       within(nav).getByRole('link', { name: settingsT('browserProfiles') }),
     ).toHaveAttribute('href', '#settings-profiles')
     expect(
@@ -194,76 +202,6 @@ describe('intelligence surfaces settings core sections', () => {
           explorerBackgroundPrefetchPages: 0,
         }),
       ),
-    )
-  })
-
-  test('keeps extracted analytics section dirty-state and save behavior truthful', async () => {
-    const user = userEvent.setup()
-    const { snapshot, dashboard } = await seedArchiveState()
-    const settingsT = createNamespaceTranslator('en', 'settings')
-
-    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
-      createEmptyRuntimeSnapshot(),
-    )
-    const shellValue = createShellValue(snapshot, dashboard)
-    shellValue.saveConfig = vi.fn().mockResolvedValue({
-      ...snapshot,
-      config: {
-        ...snapshot.config,
-        analytics: {
-          enabled: true,
-          consentGrantedAt: '2026-04-20T18:20:00.000Z',
-        },
-      },
-    })
-
-    renderSurface(<SettingsPage />, {
-      dashboard,
-      language: 'en',
-      route: '/settings',
-      shellValue,
-      snapshot,
-    })
-
-    const analyticsPanel = document.getElementById('settings-analytics')
-    if (!(analyticsPanel instanceof HTMLElement)) {
-      throw new Error('expected settings analytics panel')
-    }
-
-    const saveButton = within(analyticsPanel).getByRole('button', {
-      name: settingsT('analyticsSave'),
-    })
-    expect(saveButton).toBeDisabled()
-    if (CONFIGURED_ANALYTICS_ENDPOINT) {
-      expect(
-        within(analyticsPanel).queryByText(
-          settingsT('analyticsEndpointMissingTitle'),
-        ),
-      ).not.toBeInTheDocument()
-    } else {
-      expect(
-        within(analyticsPanel).getByText(
-          settingsT('analyticsEndpointMissingTitle'),
-        ),
-      ).toBeVisible()
-    }
-
-    await user.click(
-      within(analyticsPanel).getByRole('checkbox', {
-        name: settingsT('analyticsEnabled'),
-      }),
-    )
-    expect(saveButton).toBeEnabled()
-
-    await user.click(saveButton)
-    await waitFor(() => expect(shellValue.saveConfig).toHaveBeenCalledTimes(1))
-    expect(shellValue.saveConfig).toHaveBeenCalledWith(
-      expect.objectContaining({
-        analytics: expect.objectContaining({
-          enabled: true,
-          consentGrantedAt: expect.any(String),
-        }),
-      }),
     )
   })
 })

@@ -6,7 +6,7 @@
 
 - release workflow has version-sync preflight and produces updater `latest.json`, signatures, `SHA256SUMS.txt`, plus `RELEASE-MANIFEST.json`
 - README / CONTRIBUTING / DEVELOPMENT / TESTING / RELEASE / TROUBLESHOOTING / SUPPORT are aligned with real product boundaries
-- Settings exposes release and support diagnostics needed by the docs: data root, archive DB, audit repo, version, git short SHA, analytics consent posture, and updater review state
+- Settings and Maintenance expose release and support diagnostics needed by the docs: data root, archive DB, audit repo, version, git short SHA, and updater review state
 - platform validation is explicit about what is stable, what is preview, and what is deferred
 - bundle / keyring / data-root namespace is consistently `com.yi-ting.pathkeep`, with no automatic migration from `dev.codex.pathkeep`
 

@@ -8,7 +8,7 @@
  * - Keep the derived-state search-rule editor and rebuild queue contract under regression coverage.
  *
  * ## Non-Responsibilities
- * - Does not own the Settings general, analytics, or external-outputs suites.
+ * - Does not own the Settings general or external-outputs suites.
  * - Does not redefine shared archive seeding, i18n, or render helpers.
  *
  * ## Dependencies

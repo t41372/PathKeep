@@ -59,10 +59,6 @@ const initializedConfig: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
-  analytics: {
-    enabled: false,
-    consentGrantedAt: null,
-  },
   remoteBackup: {
     enabled: false,
     bucket: '',

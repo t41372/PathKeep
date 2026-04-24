@@ -257,7 +257,6 @@ function renderWarningGlyph() {
 }
 
 const glyphVectors = {
-  analytics: renderBarChartGlyph,
   auto_stories: renderBookGlyph,
   bar_chart: renderBarChartGlyph,
   build: renderWrenchGlyph,

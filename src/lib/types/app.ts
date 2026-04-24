@@ -12,7 +12,6 @@
  * - `AppLockStatus`
  * - `UnlockAppSessionRequest`
  * - `SetAppLockPasscodeRequest`
- * - `AnalyticsConfig`
  * - `AppConfig`
  * - `UpdateAvailability`
  * - `UpdateInstallPhase`
@@ -113,16 +112,6 @@ export interface SetAppLockPasscodeRequest {
 }
 
 /**
- * Represents persisted configuration for analytics.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AnalyticsConfig {
-  enabled: boolean
-  consentGrantedAt?: string | null
-}
-
-/**
  * Represents persisted configuration for app.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
@@ -141,7 +130,6 @@ export interface AppConfig {
   appAutostart: boolean
   explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
-  analytics: AnalyticsConfig
   remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
   deterministic: DeterministicSettings
@@ -216,32 +204,6 @@ export interface AppUpdateCheckResult {
   availability: UpdateAvailability
   pendingUpdate: PendingAppUpdate | null
 }
-
-/**
- * Defines the type-level contract for analytics event.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export type AnalyticsEvent =
-  | {
-      type: 'route-view'
-      route: string
-      screen: string
-      language: LanguagePreference
-    }
-  | {
-      type: 'cta-click'
-      screen: string
-      action: string
-      feature: string
-    }
-  | {
-      type: 'update-lifecycle'
-      screen: string
-      action: string
-      status: string
-      version?: string | null
-    }
 
 /**
  * Defines the typed shape for app directories.

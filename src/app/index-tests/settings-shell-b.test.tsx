@@ -1,10 +1,9 @@
 /**
  * @file settings-shell-b.test.tsx
- * @description Split app-shell settings tests for analytics consent and updater recovery flows.
+ * @description Split app-shell settings tests for updater recovery flows.
  * @module app/index-tests
  *
  * ## Responsibilities
- * - Preserve the original app-shell route contract for the settings analytics consent save flow.
  * - Preserve the original updater review and recovery assertions from `src/app/index.test.tsx`.
  * - Reuse the shared shell-test helpers instead of introducing parallel harness logic.
  *
@@ -28,7 +27,6 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from '../index'
 import { appRoutes } from '../router'
-import { backend } from '../../lib/backend-client'
 import * as updateLib from '../../lib/update'
 import {
   expectHtmlElement,
@@ -42,10 +40,9 @@ describe('App shell', () => {
     resetAppShellHarness()
   })
 
-  test('saves analytics consent in settings and runs updater review from maintenance', async () => {
+  test('runs updater review from maintenance', async () => {
     await seedArchiveRun()
     const user = userEvent.setup()
-    const saveConfigSpy = vi.spyOn(backend, 'saveConfig')
     const checkForAppUpdateSpy = vi
       .spyOn(updateLib, 'checkForAppUpdate')
       .mockResolvedValue({
@@ -84,20 +81,6 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     const settingsPage = await screen.findByTestId('settings-page')
-    const analyticsPanel = expectHtmlElement(
-      document.getElementById('settings-analytics'),
-    )
-    await user.click(
-      within(analyticsPanel).getByRole('checkbox', {
-        name: settingsT('analyticsEnabled'),
-      }),
-    )
-    await user.click(
-      within(analyticsPanel).getByRole('button', {
-        name: settingsT('analyticsSave'),
-      }),
-    )
-
     const maintenanceLink = expectHtmlElement(
       within(settingsPage)
         .getAllByRole('link', {
@@ -110,18 +93,6 @@ describe('App shell', () => {
     await screen.findByTestId('maintenance-page')
     const updatePanel = expectHtmlElement(
       document.getElementById('settings-updater'),
-    )
-
-    await waitFor(() => {
-      expect(saveConfigSpy).toHaveBeenCalled()
-    })
-    expect(saveConfigSpy).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        analytics: expect.objectContaining({
-          enabled: true,
-          consentGrantedAt: expect.any(String),
-        }),
-      }),
     )
 
     await user.click(

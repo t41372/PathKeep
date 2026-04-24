@@ -50,10 +50,6 @@ export const previewConfigFixture: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
-  analytics: {
-    enabled: false,
-    consentGrantedAt: null,
-  },
   remoteBackup: {
     enabled: false,
     bucket: '',

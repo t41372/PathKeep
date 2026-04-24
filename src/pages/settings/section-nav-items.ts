@@ -29,7 +29,6 @@ import type { GlyphIconName } from '../../components/ui'
  */
 export type SettingsSectionKey =
   | 'general'
-  | 'analytics'
   | 'updater'
   | 'retention'
   | 'applock'
@@ -50,11 +49,6 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     id: 'settings-general',
     icon: 'settings',
     labelKey: 'settings.general',
-  },
-  analytics: {
-    id: 'settings-analytics',
-    icon: 'analytics',
-    labelKey: 'settings.analyticsTitle',
   },
   updater: {
     id: 'settings-updater',
@@ -100,7 +94,6 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
 
 const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'general',
-  'analytics',
   'updater',
   'retention',
   'applock',

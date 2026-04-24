@@ -113,14 +113,6 @@ pub struct SetAppLockPasscodeRequest {
     pub recovery_hint: Option<String>,
 }
 
-/// User analytics consent settings.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct AnalyticsConfig {
-    pub enabled: bool,
-    pub consent_granted_at: Option<String>,
-}
-
 /// Persisted application configuration owned by Settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -138,7 +130,6 @@ pub struct AppConfig {
     pub app_autostart: bool,
     pub explorer_background_prefetch_pages: u64,
     pub app_lock: AppLockConfig,
-    pub analytics: AnalyticsConfig,
     pub remote_backup: RemoteBackupConfig,
     pub enrichment: EnrichmentSettings,
     pub deterministic: DeterministicSettings,
@@ -162,7 +153,6 @@ impl Default for AppConfig {
             app_autostart: false,
             explorer_background_prefetch_pages: DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES,
             app_lock: AppLockConfig::default(),
-            analytics: AnalyticsConfig::default(),
             remote_backup: RemoteBackupConfig::default(),
             enrichment: EnrichmentSettings::default(),
             deterministic: DeterministicSettings::default(),

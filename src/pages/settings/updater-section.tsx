@@ -10,7 +10,7 @@
  *
  * ## 不負責
  * - 不直接檢查更新，也不管理下載狀態。
- * - 不追蹤 analytics event。
+ * - 不收集或傳送產品使用資料。
  * - 不決定 release source 或 updater backend contract。
  *
  * ## 依賴關係

@@ -112,10 +112,6 @@ export const mockSnapshot: AppSnapshot = {
       passcodeConfigured: false,
       recoveryHint: null,
     },
-    analytics: {
-      enabled: false,
-      consentGrantedAt: null,
-    },
     remoteBackup: {
       enabled: false,
       bucket: '',

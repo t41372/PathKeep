@@ -82,7 +82,7 @@
 - troubleshooting / support 文檔必須和真實 UI 一起演進；不接受文檔要求使用者提供畫面上根本沒有的資訊。
 - 預設支援診斷是 metadata-first：優先收集 run id、audit path、checksum / verify 結果、sanitized screenshot，而不是直接要求 archive DB、raw history export 或秘密值。
 - 不可要求使用者分享 master password、API key、S3 secret、完整 archive DB；除非是最小化 repro fixture，而且使用者明確同意。
-- support bundle strategy 在當前版本仍是 manual-first，不做自動上傳、不做隱形 telemetry。
+- support bundle strategy 在當前版本仍是 manual-first，不做自動上傳，也不做使用行為資料收集。
 
 ---
 
@@ -102,5 +102,4 @@
 - 不寫回瀏覽器的 live 數據庫。
 - 不做背景常駐的 autonomous agent。
 - 不做 SaaS 或 subscription model。
-- 不做 hidden telemetry。
-- 若明確 shipping frontend analytics，必須同時滿足：使用者 opt-in、first-party JSON endpoint、coarse event family、browser preview / dev / test 不送、且 payload 不得包含 archive content、URL、query、profile id、run id、prompt 或 filesystem path。
+- 不做使用行為資料收集或自動診斷上傳；support / bug report 一律由使用者手動整理與分享。

@@ -42,10 +42,10 @@ import { platformNamespaceCatalog } from './platform'
 import { scheduleNamespaceCatalog } from './schedule'
 import { securityNamespaceCatalog } from './security'
 import { settingsAiProvidersNamespace } from './settings-ai-providers'
-import { settingsAnalyticsAndUpdatesNamespace } from './settings-analytics-and-updates'
 import { settingsCoreAndPlatformNamespace } from './settings-core-and-platform'
 import { settingsDerivedAndRuntimeNamespace } from './settings-derived-and-runtime'
 import { settingsRemoteAndOutputsNamespace } from './settings-remote-and-outputs'
+import { settingsUpdatesNamespace } from './settings-updates'
 import { shellNamespaceCatalog } from './shell'
 import {
   supportedLanguages,
@@ -75,7 +75,7 @@ const catalog = {
     security: securityNamespaceCatalog.en,
     settings: {
       ...settingsCoreAndPlatformNamespace.en,
-      ...settingsAnalyticsAndUpdatesNamespace.en,
+      ...settingsUpdatesNamespace.en,
       ...settingsRemoteAndOutputsNamespace.en,
       ...settingsDerivedAndRuntimeNamespace.en,
       ...settingsAiProvidersNamespace.en,
@@ -105,7 +105,7 @@ const catalog = {
     security: securityNamespaceCatalog['zh-CN'],
     settings: {
       ...settingsCoreAndPlatformNamespace['zh-CN'],
-      ...settingsAnalyticsAndUpdatesNamespace['zh-CN'],
+      ...settingsUpdatesNamespace['zh-CN'],
       ...settingsRemoteAndOutputsNamespace['zh-CN'],
       ...settingsDerivedAndRuntimeNamespace['zh-CN'],
       ...settingsAiProvidersNamespace['zh-CN'],
@@ -135,7 +135,7 @@ const catalog = {
     security: securityNamespaceCatalog['zh-TW'],
     settings: {
       ...settingsCoreAndPlatformNamespace['zh-TW'],
-      ...settingsAnalyticsAndUpdatesNamespace['zh-TW'],
+      ...settingsUpdatesNamespace['zh-TW'],
       ...settingsRemoteAndOutputsNamespace['zh-TW'],
       ...settingsDerivedAndRuntimeNamespace['zh-TW'],
       ...settingsAiProvidersNamespace['zh-TW'],

@@ -596,8 +596,8 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 
 目前是：
 
-- Settings：language、Explorer background prefetch、browser profile selection、analytics consent、App Lock preferences、AI provider / API-key configuration、remote backup saved configuration / credentials
-- Maintenance：updates、retention cleanup、remote backup PME、derived-state rebuild / clear、plugin / module enable-disable、diagnostics、platform troubleshooting
+- Settings：language、Explorer background prefetch、browser profile selection、App Lock preferences、AI provider / API-key configuration、remote backup saved configuration / credentials。Bucket、endpoint、自動上傳與 credential 編輯只在這裡。
+- Maintenance：updates、retention cleanup、remote backup PME using the saved read-only configuration, derived-state rebuild / clear、plugin / module enable-disable、diagnostics、platform troubleshooting
 - Integrations：manual external-output review / copy-export、trusted local host preview / build / verify（`browser-snippet-v1`）、MCP / skill generated artifact review
 - Jobs：runtime queue / recent jobs / retry / cancel 的 canonical surface
 

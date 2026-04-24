@@ -5,7 +5,7 @@
  *
  * ## 職責
  * - 作為 Settings route 的 canonical state composition point。
- * - 合併 support、analytics/updater、AI、derived-state、與 remote-backup hooks。
+ * - 合併 support、updater、AI、derived-state、與 remote-backup hooks。
  * - 對 `settings/index.tsx` 暴露穩定的 grouped section state。
  *
  * ## 不負責
@@ -29,10 +29,10 @@ import type {
   DashboardSnapshot,
 } from '../../lib/types'
 import { useSettingsAiState } from './use-settings-ai-state'
-import { useSettingsAnalyticsUpdaterState } from './use-settings-analytics-updater-state'
 import { useSettingsDerivedState } from './use-settings-derived-state'
 import { useSettingsRemoteState } from './use-settings-remote-state'
 import { useSettingsSupportState } from './use-settings-support-state'
+import { useSettingsUpdaterState } from './use-settings-updater-state'
 
 interface UseSettingsRouteStateArgs {
   appLockStatus: AppLockStatus | null
@@ -73,9 +73,8 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
     setLanguagePreference: args.setLanguagePreference,
     snapshot: args.snapshot,
   })
-  const analyticsUpdaterState = useSettingsAnalyticsUpdaterState({
+  const updaterState = useSettingsUpdaterState({
     buildInfo: args.buildInfo,
-    saveConfig: args.saveConfig,
     snapshot: args.snapshot,
   })
   const aiState = useSettingsAiState({
@@ -100,7 +99,7 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
 
   return {
     ...supportState,
-    ...analyticsUpdaterState,
+    ...updaterState,
     ...aiState,
     ...derivedState,
     ...remoteState,

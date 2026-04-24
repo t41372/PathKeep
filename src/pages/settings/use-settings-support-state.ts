@@ -9,7 +9,7 @@
  * - 管理 retention、App Lock、與 browser profile selection 的 draft state 和 handlers。
  *
  * ## 不負責
- * - 不管理 analytics、updater、AI、derived runtime、或 remote backup。
+ * - 不管理 updater、AI、derived runtime、或 remote backup。
  * - 不渲染任何 section UI。
  * - 不建立新的 shell-level polling source。
  *

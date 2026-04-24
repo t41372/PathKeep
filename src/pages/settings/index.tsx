@@ -27,7 +27,6 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
-import { AnalyticsSection } from './analytics-section'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
@@ -81,7 +80,6 @@ export function SettingsPage() {
   const settingsSectionNavItems = createSettingsSectionNavItems(t, [
     'general',
     'profiles',
-    'analytics',
     'applock',
     'ai',
     'remote',
@@ -181,17 +179,6 @@ export function SettingsPage() {
         <div className="settings-group__label">
           {t('settings.groupPrivacyAccess')}
         </div>
-        <AnalyticsSection
-          analyticsAction={routeState.analytics.action}
-          analyticsConfigDirty={routeState.analytics.configDirty}
-          analyticsEndpointConfigured={routeState.analytics.endpointConfigured}
-          currentAnalyticsSettings={
-            routeState.analytics.currentSettings ?? snapshot.config.analytics
-          }
-          navItem={settingsSection('analytics')}
-          onAnalyticsEnabledChange={routeState.analytics.onEnabledChange}
-          onSaveAnalyticsConsent={routeState.analytics.onSave}
-        />
         <AppLockSection
           navItem={settingsSection('applock')}
           state={routeState.appLock}
