@@ -1,3 +1,27 @@
+//! Tauri command façade for optional AI provider, queue, search, and assistant flows.
+//!
+//! ## Responsibilities
+//!
+//! - Preserve frontend-facing command names for optional AI features.
+//! - Pass the current session key into the worker bridge.
+//! - Keep provider secret, queue, semantic search, and assistant commands thin.
+//!
+//! ## Not responsible for
+//!
+//! - Calling LLM or embedding providers directly.
+//! - Managing AI queue lifecycle transitions or semantic index writes.
+//! - Treating optional AI failures as Core Intelligence availability failures.
+//!
+//! ## Dependencies
+//!
+//! - `SessionState` for the optional in-memory database key.
+//! - `worker_bridge` for provider, queue, index, search, and assistant behavior.
+//!
+//! ## Performance notes
+//!
+//! Commands in this file must not run model/index work on the Tauri UI thread;
+//! heavy work stays behind worker-owned queue and index entrypoints.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]

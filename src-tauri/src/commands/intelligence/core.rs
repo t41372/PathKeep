@@ -1,3 +1,28 @@
+//! Tauri command façade for Core Intelligence read models.
+//!
+//! ## Responsibilities
+//!
+//! - Preserve the frontend-facing command names for deterministic intelligence reads.
+//! - Pull the current session database key from Tauri state.
+//! - Delegate all archive/query behavior to the worker bridge.
+//!
+//! ## Not responsible for
+//!
+//! - Opening archive databases or interpreting Core Intelligence schema details.
+//! - Building derived-state projections or running rebuild jobs.
+//! - Changing payload shape for existing frontend callers.
+//!
+//! ## Dependencies
+//!
+//! - `SessionState` for the optional in-memory database key.
+//! - `worker_bridge` for the string-error desktop envelope.
+//!
+//! ## Performance notes
+//!
+//! Commands in this file must stay as thin read-model façades. Large result
+//! sets are expected to be paginated or section-bounded in `vault-core`; this
+//! layer must not add full-archive materialization.
+
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -35,6 +60,7 @@ pub(crate) fn get_search_trails(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the evidence trail and grouped visits for one search trail id.
 pub(crate) fn get_trail_detail(
     trail_id: String,
     state: State<'_, SessionState>,
@@ -44,6 +70,7 @@ pub(crate) fn get_trail_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the typed navigation context anchored at one canonical visit.
 pub(crate) fn get_navigation_path(
     visit_id: i64,
     state: State<'_, SessionState>,
@@ -53,6 +80,7 @@ pub(crate) fn get_navigation_path(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads high-traffic hub pages for the requested scope without exposing raw SQL.
 pub(crate) fn get_hub_pages(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
@@ -62,6 +90,7 @@ pub(crate) fn get_hub_pages(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads search-engine ranking metrics for a bounded date/profile scope.
 pub(crate) fn get_search_engine_ranking(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -71,6 +100,7 @@ pub(crate) fn get_search_engine_ranking(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads top search concepts after taxonomy-level navigational-noise filtering.
 pub(crate) fn get_top_search_concepts(
     request: vault_core::TopSearchConceptsRequest,
     state: State<'_, SessionState>,
@@ -80,6 +110,7 @@ pub(crate) fn get_top_search_concepts(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads normalized search-query rows for the requested list scope.
 pub(crate) fn get_search_queries(
     request: vault_core::SearchQueryListRequest,
     state: State<'_, SessionState>,
@@ -89,6 +120,7 @@ pub(crate) fn get_search_queries(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads query-family summaries with pagination handled by the request object.
 pub(crate) fn get_query_families(
     request: vault_core::PagedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -98,6 +130,7 @@ pub(crate) fn get_query_families(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads one query-family detail page using the shared family identity.
 pub(crate) fn get_query_family_detail(
     request: vault_core::QueryFamilyDetailRequest,
     state: State<'_, SessionState>,
@@ -107,6 +140,7 @@ pub(crate) fn get_query_family_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads top-site rollups for the requested scope.
 pub(crate) fn get_top_sites(
     request: vault_core::TopSitesRequest,
     state: State<'_, SessionState>,
@@ -116,6 +150,7 @@ pub(crate) fn get_top_sites(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads a domain trend series for route and card drilldowns.
 pub(crate) fn get_domain_trend(
     request: vault_core::DomainTrendRequest,
     state: State<'_, SessionState>,
@@ -125,6 +160,7 @@ pub(crate) fn get_domain_trend(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads refind candidates for the requested scope.
 pub(crate) fn get_refind_pages(
     request: vault_core::RefindPagesRequest,
     state: State<'_, SessionState>,
@@ -134,6 +170,7 @@ pub(crate) fn get_refind_pages(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the evidence-backed detail payload for one refind candidate.
 pub(crate) fn get_refind_page_detail(
     request: vault_core::RefindPageDetailRequest,
     state: State<'_, SessionState>,
@@ -143,6 +180,7 @@ pub(crate) fn get_refind_page_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Explains why a page is considered a refind candidate.
 pub(crate) fn explain_refind(
     request: vault_core::ExplainRefindRequest,
     state: State<'_, SessionState>,
@@ -152,6 +190,7 @@ pub(crate) fn explain_refind(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Explains one shared intelligence entity using deterministic evidence only.
 pub(crate) fn explain_entity(
     request: vault_core::EntityExplanationRequest,
     state: State<'_, SessionState>,
@@ -161,6 +200,7 @@ pub(crate) fn explain_entity(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads category activity mix for the requested scope.
 pub(crate) fn get_activity_mix(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -170,6 +210,7 @@ pub(crate) fn get_activity_mix(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads activity-mix trend buckets at the requested granularity.
 pub(crate) fn get_activity_mix_trend(
     request: vault_core::GranularityDateRangeRequest,
     state: State<'_, SessionState>,
@@ -179,6 +220,7 @@ pub(crate) fn get_activity_mix_trend(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the deterministic digest summary for the current intelligence overview.
 pub(crate) fn get_digest_summary(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -188,6 +230,7 @@ pub(crate) fn get_digest_summary(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads stable source domains that repeatedly appear in the selected scope.
 pub(crate) fn get_stable_sources(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -197,6 +240,7 @@ pub(crate) fn get_stable_sources(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads search effectiveness counters and ratios for a bounded scope.
 pub(crate) fn get_search_effectiveness(
     request: vault_core::SearchEffectivenessRequest,
     state: State<'_, SessionState>,
@@ -206,6 +250,7 @@ pub(crate) fn get_search_effectiveness(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads friction signals inferred from deterministic browsing evidence.
 pub(crate) fn get_friction_signals(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -215,6 +260,7 @@ pub(crate) fn get_friction_signals(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads reopened investigation candidates without running any assistant model.
 pub(crate) fn get_reopened_investigations(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -225,6 +271,7 @@ pub(crate) fn get_reopened_investigations(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the domain deep-dive read model for a canonical domain target.
 pub(crate) fn get_domain_deep_dive(
     request: vault_core::DomainDeepDiveRequest,
     state: State<'_, SessionState>,
@@ -234,6 +281,7 @@ pub(crate) fn get_domain_deep_dive(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads exact-day insights for the shared day entity route.
 pub(crate) fn get_day_insights(
     request: vault_core::DayInsightsRequest,
     state: State<'_, SessionState>,
@@ -243,6 +291,7 @@ pub(crate) fn get_day_insights(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads calendar rhythm buckets, optionally filtered by activity category.
 pub(crate) fn get_browsing_rhythm(
     request: vault_core::CategoryFilteredDateRangeRequest,
     state: State<'_, SessionState>,
@@ -252,6 +301,7 @@ pub(crate) fn get_browsing_rhythm(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads discovery trend buckets for Dashboard and Intelligence surfaces.
 pub(crate) fn get_discovery_trend(
     request: vault_core::GranularityDateRangeRequest,
     state: State<'_, SessionState>,
@@ -261,6 +311,7 @@ pub(crate) fn get_discovery_trend(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads historical same-day entries for the optional profile scope.
 pub(crate) fn get_on_this_day(
     profile_id: Option<String>,
     state: State<'_, SessionState>,
@@ -270,6 +321,7 @@ pub(crate) fn get_on_this_day(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the breadth index for the selected date/profile scope.
 pub(crate) fn get_breadth_index(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -279,6 +331,7 @@ pub(crate) fn get_breadth_index(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads recurring habit patterns from deterministic visit rollups.
 pub(crate) fn get_habit_patterns(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -288,6 +341,7 @@ pub(crate) fn get_habit_patterns(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads interrupted habit candidates for a profile-scoped request.
 pub(crate) fn get_interrupted_habits(
     request: vault_core::ProfileScopedRequest,
     state: State<'_, SessionState>,
@@ -297,6 +351,7 @@ pub(crate) fn get_interrupted_habits(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads typed path-flow sequences with stable flow identities.
 pub(crate) fn get_path_flows(
     request: vault_core::PathFlowRequest,
     state: State<'_, SessionState>,
@@ -306,6 +361,7 @@ pub(crate) fn get_path_flows(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads observed interaction signals for the selected scope.
 pub(crate) fn get_observed_interactions(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -316,6 +372,7 @@ pub(crate) fn get_observed_interactions(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads compare-set summaries for route promotion and overview cards.
 pub(crate) fn get_compare_sets(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -325,6 +382,7 @@ pub(crate) fn get_compare_sets(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads one compare-set detail using the shared compare-set id.
 pub(crate) fn get_compare_set_detail(
     request: vault_core::CompareSetDetailRequest,
     state: State<'_, SessionState>,
@@ -334,6 +392,7 @@ pub(crate) fn get_compare_set_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads multi-browser divergence signals for the selected scope.
 pub(crate) fn get_multi_browser_diff(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,

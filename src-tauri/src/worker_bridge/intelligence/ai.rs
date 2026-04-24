@@ -1,3 +1,27 @@
+//! Worker bridge adapters for optional AI provider, queue, search, and assistant flows.
+//!
+//! ## Responsibilities
+//!
+//! - Keep desktop command handlers independent from `vault-worker` AI function names.
+//! - Preserve the `Result<_, String>` desktop error envelope.
+//! - Forward provider, queue, index, search, and assistant payloads without reshaping them.
+//!
+//! ## Not responsible for
+//!
+//! - Running provider network calls directly in the desktop façade.
+//! - Owning semantic index schema or queue lifecycle transitions.
+//! - Blurring optional AI availability with deterministic Core Intelligence availability.
+//!
+//! ## Dependencies
+//!
+//! - `vault_worker` for provider, queue, index, search, and assistant orchestration.
+//! - `worker_result` for error normalization.
+//!
+//! ## Performance notes
+//!
+//! This layer stays a thin adapter; expensive provider/index work must remain in
+//! worker-owned jobs or bounded worker calls.
+
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
     AiSearchRequest,

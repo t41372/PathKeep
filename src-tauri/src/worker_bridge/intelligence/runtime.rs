@@ -1,3 +1,28 @@
+//! Worker bridge adapters for Core Intelligence runtime and export commands.
+//!
+//! ## Responsibilities
+//!
+//! - Keep Tauri command handlers decoupled from `vault-worker` function names.
+//! - Preserve the `Result<_, String>` desktop error envelope.
+//! - Forward runtime, search-rule, and trusted-output requests without reshaping payloads.
+//!
+//! ## Not responsible for
+//!
+//! - Running rebuild stages or managing queue leases directly.
+//! - Generating local host artifacts in the desktop façade.
+//! - Owning Settings or Jobs presentation decisions.
+//!
+//! ## Dependencies
+//!
+//! - `vault_worker` for runtime orchestration and output builders.
+//! - `worker_result` for error envelope normalization.
+//!
+//! ## Performance notes
+//!
+//! Adapters here must not do blocking work themselves; expensive reads and
+//! rebuilds are handled by worker/core code and, where needed, the command layer
+//! wraps them in `run_blocking_command`.
+
 use vault_core::{
     CoreIntelligenceRebuildRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
     ScopedDateRangeRequest, SearchEngineRuleInput,
@@ -33,6 +58,7 @@ pub(crate) fn queue_core_intelligence_rebuild_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Lists search-engine rules after applying archive-specific customizations.
 pub(crate) fn list_search_engine_rules_impl(
     session_database_key: Option<&str>,
 ) -> Result<Vec<vault_core::SearchEngineRule>, String> {
@@ -40,6 +66,7 @@ pub(crate) fn list_search_engine_rules_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Upserts one custom search-engine rule and returns the refreshed rule list.
 pub(crate) fn upsert_search_engine_rule_impl(
     input: SearchEngineRuleInput,
     session_database_key: Option<&str>,
@@ -48,6 +75,7 @@ pub(crate) fn upsert_search_engine_rule_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Deletes one custom search-engine rule and returns the refreshed rule list.
 pub(crate) fn delete_search_engine_rule_impl(
     rule_id: String,
     session_database_key: Option<&str>,
@@ -56,6 +84,7 @@ pub(crate) fn delete_search_engine_rule_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the first-paint intelligence overview payload.
 pub(crate) fn get_intelligence_primary_overview_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
@@ -64,6 +93,7 @@ pub(crate) fn get_intelligence_primary_overview_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads secondary overview sections after the primary route payload is visible.
 pub(crate) fn get_intelligence_secondary_overview_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
@@ -72,6 +102,7 @@ pub(crate) fn get_intelligence_secondary_overview_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads trusted embed-card payloads for manual external-output review.
 pub(crate) fn get_intelligence_embed_cards_impl(
     request: IntelligenceEmbedCardsRequest,
     session_database_key: Option<&str>,
@@ -80,6 +111,7 @@ pub(crate) fn get_intelligence_embed_cards_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads a trusted widget snapshot payload without building a host artifact.
 pub(crate) fn get_intelligence_widget_snapshot_impl(
     request: IntelligenceEmbedCardsRequest,
     session_database_key: Option<&str>,
@@ -88,6 +120,7 @@ pub(crate) fn get_intelligence_widget_snapshot_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads the public redacted snapshot payload for manual review/export.
 pub(crate) fn get_intelligence_public_snapshot_impl(
     request: ScopedDateRangeRequest,
     session_database_key: Option<&str>,
@@ -96,6 +129,7 @@ pub(crate) fn get_intelligence_public_snapshot_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Previews the files that would be generated for a trusted local host build.
 pub(crate) fn preview_intelligence_local_host_impl(
     request: IntelligenceLocalHostRequest,
     session_database_key: Option<&str>,
@@ -104,6 +138,7 @@ pub(crate) fn preview_intelligence_local_host_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Builds the trusted local host artifact after manual review.
 pub(crate) fn build_intelligence_local_host_impl(
     request: IntelligenceLocalHostRequest,
     session_database_key: Option<&str>,

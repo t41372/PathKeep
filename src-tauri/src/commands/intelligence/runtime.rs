@@ -1,3 +1,27 @@
+//! Tauri command façade for Core Intelligence runtime and export surfaces.
+//!
+//! ## Responsibilities
+//!
+//! - Preserve command names for rebuilds, runtime status, search rules, and trusted outputs.
+//! - Pull session keys from Tauri state and pass them into the worker bridge.
+//! - Keep heavy overview/runtime reads on the blocking-command path where required.
+//!
+//! ## Not responsible for
+//!
+//! - Executing rebuild stages or mutating derived-state tables directly.
+//! - Owning Settings UI grammar for integration/export review.
+//! - Changing external-output payload contracts.
+//!
+//! ## Dependencies
+//!
+//! - `run_blocking_command` for read paths that can touch SQLite or derived runtime state.
+//! - `worker_bridge` for all domain behavior and string error mapping.
+//!
+//! ## Performance notes
+//!
+//! Overview/runtime reads can touch derived SQLite state, so they must remain
+//! off the Tauri UI thread. Command handlers in this file should stay thin.
+
 #[cfg(not(test))]
 use super::super::blocking::run_blocking_command;
 #[cfg(not(test))]
@@ -28,6 +52,7 @@ pub(crate) fn queue_core_intelligence_rebuild(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Lists search-engine rules after applying archive-specific customizations.
 pub(crate) fn list_search_engine_rules(
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::SearchEngineRule>, String> {
@@ -36,6 +61,7 @@ pub(crate) fn list_search_engine_rules(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Upserts one custom search-engine rule and returns the refreshed rule list.
 pub(crate) fn upsert_search_engine_rule(
     input: vault_core::SearchEngineRuleInput,
     state: State<'_, SessionState>,
@@ -45,6 +71,7 @@ pub(crate) fn upsert_search_engine_rule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Deletes one custom search-engine rule and returns the refreshed rule list.
 pub(crate) fn delete_search_engine_rule(
     rule_id: String,
     state: State<'_, SessionState>,
@@ -54,6 +81,7 @@ pub(crate) fn delete_search_engine_rule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the first-paint intelligence overview through the blocking bridge.
 pub(crate) async fn get_intelligence_primary_overview(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -70,6 +98,7 @@ pub(crate) async fn get_intelligence_primary_overview(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads secondary overview sections after the primary route payload is visible.
 pub(crate) async fn get_intelligence_secondary_overview(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -86,6 +115,7 @@ pub(crate) async fn get_intelligence_secondary_overview(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads trusted embed-card payloads for manual external-output review.
 pub(crate) fn get_intelligence_embed_cards(
     request: vault_core::IntelligenceEmbedCardsRequest,
     state: State<'_, SessionState>,
@@ -95,6 +125,7 @@ pub(crate) fn get_intelligence_embed_cards(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads a trusted widget snapshot payload without building a host artifact.
 pub(crate) fn get_intelligence_widget_snapshot(
     request: vault_core::IntelligenceEmbedCardsRequest,
     state: State<'_, SessionState>,
@@ -104,6 +135,7 @@ pub(crate) fn get_intelligence_widget_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads the public redacted snapshot payload for manual review/export.
 pub(crate) fn get_intelligence_public_snapshot(
     request: vault_core::ScopedDateRangeRequest,
     state: State<'_, SessionState>,
@@ -113,6 +145,7 @@ pub(crate) fn get_intelligence_public_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Previews the files that would be generated for a trusted local host build.
 pub(crate) fn preview_intelligence_local_host(
     request: vault_core::IntelligenceLocalHostRequest,
     state: State<'_, SessionState>,
@@ -122,6 +155,7 @@ pub(crate) fn preview_intelligence_local_host(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Builds the trusted local host artifact after manual review.
 pub(crate) fn build_intelligence_local_host(
     request: vault_core::IntelligenceLocalHostRequest,
     state: State<'_, SessionState>,
