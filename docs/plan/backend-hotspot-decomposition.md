@@ -13,8 +13,7 @@
 | File                                                  | Current line count | Primary risk                                                             |
 | ----------------------------------------------------- | -----------------: | ------------------------------------------------------------------------ |
 | `src-tauri/crates/vault-core/src/intelligence/mod.rs` |               2583 | Export surface, core record types, and regression suite still co-located |
-| `src-tauri/crates/vault-core/src/remote.rs`           |               1165 | Bundle build, upload, verify, and endpoint helpers still mixed           |
-| `src-tauri/crates/vault-worker/src/intelligence.rs`   |                124 | Thin façade after queue/runtime and read-surface splits                  |
+| `src-tauri/crates/vault-core/src/remote/tests.rs`     |                567 | Largest remote-backup owner after split; below current file-size limits  |
 
 ## Sequencing
 
@@ -86,7 +85,8 @@
 - 2026-04-23 visit-taxonomy slice landed: the old `deterministic` module is now `src-tauri/crates/vault-core/src/visit_taxonomy/{mod,types,url,text,rules,classification,tests}.rs`. The public `crate::visit_taxonomy::*` façade stayed stable, the taxonomy version / rule-pack semantics stayed unchanged, and the largest new owner is `rules.rs` at `535` lines.
 - 2026-04-23 site-dictionary slice landed: `src-tauri/crates/vault-core/src/intelligence/site_dictionary.rs` is now `site_dictionary/{mod,types,overrides,search_rules,classification,tests}.rs`. Search-engine rule persistence, user overrides, and per-visit classification now have separate owners, and the largest new owner is `search_rules.rs` at `436` lines.
 - 2026-04-23 Core Intelligence DTO slice landed: `src-tauri/crates/vault-core/src/models/core_intelligence.rs` is now `models/core_intelligence/{mod,shared,requests,reads,analytics,overview,exports,tests}.rs`. Request payloads, section envelopes, read rows, advanced analytics, overview batches, and trusted-output bundles now have separate owners, and the largest new owner is `analytics.rs` at `376` lines.
-- Next support-file order: `remote.rs`, then the still-embedded `intelligence/mod.rs` regression suite / support-type split.
+- 2026-04-23 remote-backup slice landed: `src-tauri/crates/vault-core/src/remote.rs` is now `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`. Bundle creation, manifest schema, upload URL / curl execution, restore verification, and regression coverage now have separate owners while preserving the public `preview_remote_backup`, `run_remote_backup`, and `verify_remote_backup` façade. The bundle write and verify paths now stream large SQLite entries through chunked SHA-256 / zip copy instead of loading whole database files into memory.
+- Next support-file order: the still-embedded `intelligence/mod.rs` regression suite / support-type split.
 
 ## Non-negotiable invariants
 
