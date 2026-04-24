@@ -168,9 +168,10 @@ reference/
 - **大文件重構的兩階段原則**：任何超過 1000 行的文件，必須先完成審查階段（輸出架構地圖、職責清單、拆分方案），詳細審查影響，並確認或補充自動化測試，確保拆壞了也能發現後，才能進入執行階段。審查階段不改一行代碼。這條規則同樣適用於 AI agent 主動發現的大文件，不只是被明確指派的重構任務。
 
 - **文件行數硬限制**：
-  - 單文件超過 **600 行**：必須在當前 work block 的收工步驟裡，在 `BACKLOG.md` 新增一條拆分任務
-  - 單文件超過 **1000 行**：當前 work block **不允許**再往該文件新增業務邏輯；只允許 bug fix 或臨時性的最小改動，並在 `BACKLOG.md` 標記為高優先級
-  - 新創建的文件不得在初始版本就超過 600 行；超過說明職責邊界沒有想清楚，先拆模塊再寫代碼
+  - 單文件超過 **1200 行**：必須在當前 work block 的收工步驟裡，在 `BACKLOG.md` 新增一條可維護性分析任務，評估是否拆分。
+  - 單文件超過 **1400 行**：當前 work block **不允許**再往該文件新增業務邏輯；只允許 bug fix 或臨時性的最小改動，並在 `BACKLOG.md` 標記為高優先級
+  - 新創建的文件不得在初始版本就超過 800 行；超過說明職責邊界沒有想清楚，先拆模塊再寫代碼
+  - 注意: 不要為了拆而拆。如果很明顯不拆是更好的架構設計，且評估過拆與不拆的架構設計，可以不拆並忽略文件行數的硬限制。
 
 - **Doc Comments 標準**：所有新建或整段重寫的模塊，必須在交付時附帶完整 doc comments，不允許事後補充：
   - **文件頂部**：一句話職責說明 + `## Responsibilities`（列舉） + `## Not responsible for`（明確排除，防止邊界蔓延） + `## Dependencies` + `## Performance notes`（如有大數據量注意事項）
@@ -183,7 +184,6 @@ reference/
 ## 常用命令
 
 ```bash
-bun run dev              # browser-only Vite preview (127.0.0.1:1420)
 bun run desktop:dev      # 完整 Tauri 桌面 app
 bun run build            # TypeScript + Vite bundle
 bun run check            # 所有 quality gate
