@@ -33,6 +33,7 @@
 > 2026-04-21 M13 inventory closeout：`WORK-M13-A` 已完成。`docs/plan/m13-broad-reuse-audit/README.md` 現在正式記錄 app-wide single-source map、extraction priority 與 remaining hotspot；`PG-RD-UX-016` 也把 runtime-boundary review grammar 收斂成 `src/components/review/runtime-boundary-card.tsx` 的 canonical owner。這輪同步落地的第一個 code slice 讓 Jobs runtime health / plugin / module summary 與 Settings derived runtime review 共用同一套 runtime-boundary card shell，但 `WORK-M13-B` 仍保持 active，後續 focus 改成 shell-data、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
 > 2026-04-21 backend track note：使用者明確要求並行開啟後端 hotspot 拆分，不等 `WORK-M13-B` front-end reuse 收束。這輪新增 `WORK-BE-A` 作為 user-directed parallel block；frontend reuse 與 backend decomposition 分開推進，彼此都不得覆寫對方未提交中的工作樹。
 > 2026-04-22 backend closeout：`WORK-BE-A` 已完成。這輪把 import boundary 真正收進 bounded-memory / streamed contract，並完成 `intelligence_runtime` 與 `intelligence/mod.rs` 的第三輪 giant-file 拆分；最新 execution slice 又把 structural rebuild internals 拆成 `intelligence_structural_{state,build,aggregates,persist,stream,stage}.rs`，讓 `intelligence/mod.rs` 再降到 `5561` 行，且所有新文件都回到 `600` 行硬限制內。下一輪 backend active current-focus 轉到 `WORK-BE-B`，專門收剩餘 query/read-model helper clusters，以及 `vault-worker/src/intelligence.rs` / `ai.rs` 的 follow-through。
+> 2026-04-23 M13-B closeout：`WORK-M13-B` 已完成 shell runtime owner、Security workflow owner、Dashboard fallback owner、Browsing Rhythm state owner、以及 Import workflow follow-through；最後的 legacy `PathRow` 候選經 repo search 確認已無 active component / consumer，實際 owner 是 `ReviewPathActionRow`。`BACKLOG.md` 目前沒有可提升的未阻塞 work block。
 
 - [x] **WORK-BE-C** — Remaining Backend Hotspot Decomposition Beyond Core Intelligence Parent
   - 讀先：
@@ -51,7 +52,7 @@
   - 2026-04-23 regression-suite closeout：`intelligence/mod.rs` 內嵌 regression suite 已下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`，parent module 降到 `418` 行，只剩 module map、public façade、core records、batch cursors 與 constants；最大新 test owner 是 `stage_rebuild.rs` (`601` 行)。`WORK-BE-C` 後端支援檔拆分範圍已完成。
   - 驗收：relevant targeted Rust regressions、`bun run check && bun run build`
 
-- [ ] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
+- [x] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
   - 讀先：
     `docs/plan/m13-broad-reuse-audit/README.md`
     `docs/design/screens-and-nav.md`
@@ -65,6 +66,7 @@
   - 2026-04-23 Security workflow owner slice：`src/pages/security/index.tsx` 已把 posture load、unlock/keyring、lock 與 rekey mutation state machine 下沉到 `src/pages/security/use-security-workflow.ts`；route shell 現在只保留 fallback、deep-link focus、path-copy feedback 與 panels composition。下一步改看 Dashboard fallback owner 與 `Browsing Rhythm` layering smell。
   - 2026-04-23 Dashboard fallback owner slice：Dashboard 的 bootstrap error path 已把 Security status probe 下沉到 `src/pages/dashboard/route-fallback-access.ts`，fallback resolver / renderer / archive-access probe 現在同屬 Dashboard fallback owner；route shell 不再直接知道 Security DTO 的 fallback fields。下一步改看 `Browsing Rhythm` layering smell。
   - 2026-04-23 Browsing Rhythm state owner slice：shared calendar card 已把 discovery-trend load、selected-year / selected-day state、range summary 與 lazy day-preview 下沉到 `src/components/intelligence/browsing-rhythm-card-state.ts`；`BrowsingRhythmCard` 現在回到 Dashboard / `/intelligence` 共用 render shell。下一步只剩 legacy `PathRow` retirement 候選。
+  - 2026-04-23 PathRow retirement audit：`src/components/ui.tsx` 已無 `PathRow` export，repo 內也沒有 active `PathRow` consumer；M12 推出的 `ReviewPathActionRow` 已是 path/copy/open grammar 的唯一實作 owner，因此這一項收口為 stale-planning cleanup 而不是新增代碼。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

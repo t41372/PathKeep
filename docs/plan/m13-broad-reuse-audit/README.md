@@ -71,7 +71,7 @@
 
 ### 仍維持後續 priority 的 hotspot
 
-1. `src/components/ui.tsx` 的 legacy `PathRow` retirement
+- 無。`src/components/ui.tsx` 已無 `PathRow` export 或 active consumer；path/copy/open grammar 目前由 `src/components/review/support-actions.tsx` 的 `ReviewPathActionRow` 承接。
 
 ### 這輪刻意不做
 
@@ -94,4 +94,5 @@
 - 2026-04-23 Security workflow owner slice landed：`src/pages/security/index.tsx` 不再內嵌 posture load、unlock/keyring、lock 與 rekey mutation state machine；這些責任已抽到 `src/pages/security/use-security-workflow.ts`，route shell 現在只保留 fallback、deep-link focus、path-copy feedback 與 panel composition。
 - 2026-04-23 Dashboard fallback owner slice landed：Dashboard bootstrap error path 不再在 route shell 內直接探 Security status；`src/pages/dashboard/route-fallback-access.ts` 現在 owns archive-access probe，與 existing fallback resolver / renderer 合成同一個 fallback owner。
 - 2026-04-23 Browsing Rhythm state owner slice landed：`src/components/intelligence/browsing-rhythm-card.tsx` 不再同時 owns API load、selected-year/day state、calendar derivation 與 JSX composition；這些 state / derived-model responsibilities 已抽到 `src/components/intelligence/browsing-rhythm-card-state.ts`，Dashboard 與 `/intelligence` 的 public behavior 不變。
-- `WORK-M13-B` 仍保留 active，後續 focus 改為 legacy `PathRow` retirement 候選。
+- 2026-04-23 PathRow retirement audit landed：legacy `PathRow` 已不是 active source；repo search 只剩 M13 planning references 與 `ReviewPathActionRow` 的 explanatory comment，因此 M13-B 不再需要新增 code slice 來 retire it。
+- `WORK-M13-B` 已收口；`BACKLOG.md` 目前沒有可提升的未阻塞 work block。

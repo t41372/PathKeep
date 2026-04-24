@@ -42,7 +42,7 @@
 >
 > **2026-04-19 M12 closeout note**：`WORK-M12-A` 與 `WORK-M12-B` 已完成。repo 現在正式有 app-wide shared support-action / clipboard grammar，Settings general diagnostics / App Lock、Audit、Import、Schedule、Security / Lock 與 Explorer export path 都已接到 `src/components/review/` 的 canonical owner；Jobs plugin / module summary rows與 transport parity follow-up 則明確移交給 `M13 — Broad Reuse Audit Across Support / Trust / Workflow Surfaces`。
 >
-> **2026-04-21 M13 inventory note**：`WORK-M13-A` 已完成。repo 現在除了既有 neutral review 與 support-action grammar，也正式有 shared runtime-boundary card grammar；Jobs runtime health / plugin / module summary 與 Settings derived runtime review 是第一批 consumer。`WORK-M13-B` 仍維持 active，下一輪 priority 改成 shell-data owner、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
+> **2026-04-21 M13 inventory note**：`WORK-M13-A` 已完成。repo 現在除了既有 neutral review 與 support-action grammar，也正式有 shared runtime-boundary card grammar；Jobs runtime health / plugin / module summary 與 Settings derived runtime review 是第一批 consumer。`WORK-M13-B` 後續 priority 改成 shell-data owner、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering。
 >
 > **2026-04-21 backend decomposition note**：使用者另行開啟平行的 backend hotspot 拆分軌道，source of truth 在 [backend-hotspot-decomposition.md](backend-hotspot-decomposition.md)。這條軌道和 `WORK-M13-B` frontend reuse 並行，但要求保持 transport / schema contract 穩定，並以 `takeout` / parser / archive ingest 這條大數據量 import boundary 作為第一個 execution slice。
 >
@@ -97,6 +97,8 @@
 > **2026-04-23 remote-backup boundary note**：`WORK-BE-C` 的下一個 execution slice 已把 `src-tauri/crates/vault-core/src/remote.rs` 拆成 `remote/{mod,bundle,manifest,transfer,verify,tests}.rs`。`preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` public façade、remote bundle manifest、curl upload、restore-verification DTO contract 都維持不變；bundle build / verify 同步改成 chunked streaming SHA + zip copy，避免大 SQLite bundle payload 被整檔載入記憶體。下一個 backend support hotspot 改成 `intelligence/mod.rs` 內嵌 regression suite。
 
 > **2026-04-23 backend support-file closeout note**：`WORK-BE-C` 最後一刀已把 `src-tauri/crates/vault-core/src/intelligence/mod.rs` 內嵌 regression suite 下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`。parent module 現在降到 `418` 行，只保留 module map、public façade、core records、batch cursors 與 constants；`WORK-BE-C` 的後端 support-file decomposition 範圍已完成，下一個未完成 current-focus block 回到 `WORK-M13-B`。
+>
+> **2026-04-23 M13 closeout note**：`WORK-M13-B` 已完成。M13-B 先後收 shell runtime polling owner、Security workflow owner、Dashboard fallback owner、Browsing Rhythm state owner，以及 Import workflow follow-through；legacy `PathRow` 經 repo search 確認已退場，path/copy/open grammar 由 `ReviewPathActionRow` 承接。`STATUS.md` / `BACKLOG.md` 目前沒有可提升的未阻塞 work block。
 
 ---
 
@@ -251,7 +253,7 @@ BE  Backend Hotspot Decomposition And Rustdoc Hardening
 | `M10`  | 收斂 workbench review row reuse，並盤點 route / desktop glue decomposition                            | `[x]` | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                                 |
 | `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift   | `[x]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
 | `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分      | `[x]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
-| `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[/]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
+| `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[x]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
 
 ---
 

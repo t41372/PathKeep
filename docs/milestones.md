@@ -146,8 +146,8 @@
 
 ## M13 — Broad Reuse Audit Across Support, Trust, And Workflow Surfaces
 
-- 以 support / trust / workflow surface 為主題繼續盤點 reusable grammar，而不是再把 reuse 只局限在單一路由或單一 primitive
-- 延續 M12 的 support-action single-source 方法，擴到 Jobs summary、Settings split、Explorer / Import / Audit / Schedule follow-through
-- 讓 transport parity 繼續保持 subordinate inventory；除非 owner drift / maintenance cost 證據升高，否則不重開 codegen / manifest 主線
+- 已完成 support / trust / workflow surface 的 broad reuse audit，並保持 reuse scope 不退化成單一路由或單一 primitive
+- 已延續 M12 的 support-action single-source 方法，收斂 Jobs runtime summary、Import workflow、Security workflow、Dashboard fallback 與 Browsing Rhythm state owner
+- transport parity 維持 subordinate inventory；legacy `PathRow` 已無 active consumer，path/copy/open grammar 由 `ReviewPathActionRow` 承接
 
 📋 詳細待辦 → [plan/m13-broad-reuse-audit/README.md](plan/m13-broad-reuse-audit/README.md)

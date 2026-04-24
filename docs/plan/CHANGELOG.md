@@ -833,3 +833,17 @@
   - 最後的 regression-suite closeout 把 `intelligence/mod.rs` 內嵌 28 個 regression 與 fixture helpers 下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`。parent module 因而從 `2584` 行降到 `418` 行，只剩 module map、public façade、core records、batch cursors 與 constants；最大新 test owner 是 `stage_rebuild.rs` (`601` 行)。
   - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md,README.md,backend-hotspot-decomposition.md}`](STATUS.md)，把 `WORK-BE-C` closeout truth 與下一個 current-focus 回到 `WORK-M13-B` 寫回 source-of-truth。
   - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core remote`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core intelligence`、`bun run check`、`bun run build`
+
+- [x] **WORK-M13-B** — Shared Support / Workflow Composition Extraction
+  - 讀先：
+    `docs/plan/m13-broad-reuse-audit/README.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/plan/e2e-workflow-tests.md`
+  - 目標：根據 `WORK-M13-A` 的 inventory，把至少一輪高價值的 support / trust / workflow composition 抽離，優先處理 Jobs plugin/module summary、workflow follow-through 與剩餘 support summary drift。
+  - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M6–M12 已收斂的 route / payload / review / support-action contract。
+  - 2026-04-21 到 2026-04-23：M13-B 先把 Jobs runtime health / plugin / module summary 接回 shared `runtime-boundary-card` / review grammar，再把 Import workflow reading order、file classification summary、recent batch review 與 doctor repair surface 收斂成較清楚的 route composition。
+  - 同一輪後續把 shell shared AI queue / Core Intelligence runtime refresh、in-flight dedupe、active/idle polling cadence 下沉到 `src/app/shell-runtime-status.ts`；Security route 的 posture load、unlock/keyring、lock 與 rekey mutation state machine 下沉到 `src/pages/security/use-security-workflow.ts`；Dashboard bootstrap error 的 Security status probe 下沉到 `src/pages/dashboard/route-fallback-access.ts`；`BrowsingRhythmCard` 的 discovery-trend load、selected-year/day state、summary / range hint 與 lazy day-preview 下沉到 `src/components/intelligence/browsing-rhythm-card-state.ts`。
+  - 最後的 legacy `PathRow` retirement 候選經 repo search 確認已無 active component / consumer；path/copy/open grammar 的實際 single source 是 `src/components/review/support-actions.tsx` 的 `ReviewPathActionRow`，因此這項以 stale-planning cleanup 收口，而不是新增無意義代碼。
+  - 同步回寫 [`docs/plan/{STATUS.md,BACKLOG.md}`](STATUS.md) 與 [`docs/plan/m13-broad-reuse-audit/README.md`](m13-broad-reuse-audit/README.md)，把 M13-B closeout、剩餘 hotspot 歸零、以及 BACKLOG 暫無可提升 block 寫回 source-of-truth。
+  - 驗收：focused Vitest slices、`git diff --check`、`bun run check`、`bun run build`
