@@ -25,7 +25,7 @@
 
 .jobs-overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
@@ -37,12 +37,20 @@
 }
 
 .jobs-hero-card--wide {
+  grid-column: 1 / -1;
   min-height: 100%;
+}
+
+.jobs-state-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: var(--space-4);
+  align-items: start;
 }
 
 .jobs-hero-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
@@ -67,6 +75,7 @@
 }
 
 .jobs-callout-strip {
+  grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -133,6 +142,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.jobs-page .intelligence-job-list,
+.jobs-page .jobs-status-grid {
+  max-height: min(56vh, 680px);
+  overflow-y: auto;
+  padding-right: var(--space-1);
+  scrollbar-gutter: stable;
 }
 
 .assistant-inline-actions {

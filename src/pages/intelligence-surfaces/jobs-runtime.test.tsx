@@ -210,7 +210,7 @@ describe('intelligence surfaces', () => {
 
     expect(await screen.findByText(jobsT('failedTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
-    expect(screen.getByText('Derived-data queue')).toBeVisible()
+    expect(screen.getByText(jobsT('runtimeSummaryTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('runtimeHealthTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('pluginsTitle'))).toBeVisible()
     expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
@@ -367,7 +367,19 @@ describe('intelligence surfaces', () => {
           cancelled: 0,
           lastActivityAt: '2026-04-10T16:30:00Z',
         },
-        plugins: [],
+        plugins: [
+          {
+            pluginId: 'readable-content-refetch',
+            sourceKind: 'network',
+            enabled: true,
+            storedRecords: 4,
+            queuedJobs: 0,
+            runningJobs: 0,
+            failedJobs: 0,
+            lastCompletedAt: '2026-04-10T16:20:00Z',
+            lastError: null,
+          },
+        ],
         modules: [],
         recentJobs: [],
         notes: [],
@@ -387,6 +399,10 @@ describe('intelligence surfaces', () => {
     })
 
     expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
+    expect(
+      screen.getAllByText(jobsT('contentFetchReadyBody', { stored: 4 })).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('jobs.contentFetchHealthyBody')).toBeNull()
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
     expect(loadRuntimeSpy).not.toHaveBeenCalled()
 
@@ -397,5 +413,52 @@ describe('intelligence surfaces', () => {
     )
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
     expect(loadRuntimeSpy).not.toHaveBeenCalled()
+  })
+
+  test('keeps the idle Jobs header focused on refresh and settings', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: null,
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(await screen.findByText(jobsT('readyTitle'))).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: jobsT('pauseQueue') }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('link', { name: jobsT('openSettings') }),
+    ).toBeVisible()
   })
 })

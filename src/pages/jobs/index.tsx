@@ -303,6 +303,10 @@ export function JobsPage() {
     : queueCounts.failed > 0
       ? jobsT('needsReviewBacklog', { count: queueCounts.failed })
       : jobsT('needsReviewIdle')
+  const showQueueToggle =
+    snapshot.config.ai.jobQueuePaused ||
+    queueCounts.queued > 0 ||
+    queueCounts.running > 0
 
   return (
     <section className="page-shell jobs-page" data-testid="jobs-page">
@@ -322,18 +326,20 @@ export function JobsPage() {
               >
                 {jobsT('refresh')}
               </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() =>
-                  void handlePauseChange(!snapshot.config.ai.jobQueuePaused)
-                }
-                disabled={Boolean(action)}
-              >
-                {snapshot.config.ai.jobQueuePaused
-                  ? jobsT('resumeQueue')
-                  : jobsT('pauseQueue')}
-              </button>
+              {showQueueToggle ? (
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() =>
+                    void handlePauseChange(!snapshot.config.ai.jobQueuePaused)
+                  }
+                  disabled={Boolean(action)}
+                >
+                  {snapshot.config.ai.jobQueuePaused
+                    ? jobsT('resumeQueue')
+                    : jobsT('pauseQueue')}
+                </button>
+              ) : null}
               <Link className="btn-secondary" to="/settings">
                 {jobsT('openSettings')}
               </Link>
@@ -367,48 +373,50 @@ export function JobsPage() {
                   : jobsT('sidebarIdleDetail')}
               </span>
             </div>
-            <div className="panel-body jobs-panel-stack">
-              <div className="jobs-hero-copy">
-                <h2>{jobsT('overviewHeadline')}</h2>
-                <p>{jobsT('overviewBody')}</p>
-                <p className="mono-support">{contentQueueMessage}</p>
-              </div>
-              <div className="jobs-hero-stats">
-                <div className="jobs-hero-stat">
-                  <span className="dim">{jobsT('runningCount')}</span>
-                  <strong className="mono">
-                    {queueCounts.running.toLocaleString(language)}
-                  </strong>
+            <div className="panel-body">
+              <div className="jobs-state-board">
+                <div className="jobs-hero-copy">
+                  <h2>{jobsT('overviewHeadline')}</h2>
+                  <p>{jobsT('overviewBody')}</p>
+                  <p className="mono-support">{contentQueueMessage}</p>
                 </div>
-                <div className="jobs-hero-stat">
-                  <span className="dim">{jobsT('queuedCount')}</span>
-                  <strong className="mono">
-                    {queueCounts.queued.toLocaleString(language)}
-                  </strong>
+                <div className="jobs-hero-stats">
+                  <div className="jobs-hero-stat">
+                    <span className="dim">{jobsT('runningCount')}</span>
+                    <strong className="mono">
+                      {queueCounts.running.toLocaleString(language)}
+                    </strong>
+                  </div>
+                  <div className="jobs-hero-stat">
+                    <span className="dim">{jobsT('queuedCount')}</span>
+                    <strong className="mono">
+                      {queueCounts.queued.toLocaleString(language)}
+                    </strong>
+                  </div>
+                  <div className="jobs-hero-stat">
+                    <span className="dim">{jobsT('failedCount')}</span>
+                    <strong className="mono">
+                      {queueCounts.failed.toLocaleString(language)}
+                    </strong>
+                  </div>
+                  <div className="jobs-hero-stat">
+                    <span className="dim">{jobsT('savedReadableContent')}</span>
+                    <strong className="mono">
+                      {(contentPlugin?.storedRecords ?? 0).toLocaleString(
+                        language,
+                      )}
+                    </strong>
+                  </div>
                 </div>
-                <div className="jobs-hero-stat">
-                  <span className="dim">{jobsT('failedCount')}</span>
-                  <strong className="mono">
-                    {queueCounts.failed.toLocaleString(language)}
-                  </strong>
-                </div>
-                <div className="jobs-hero-stat">
-                  <span className="dim">{jobsT('savedReadableContent')}</span>
-                  <strong className="mono">
-                    {(contentPlugin?.storedRecords ?? 0).toLocaleString(
-                      language,
-                    )}
-                  </strong>
-                </div>
-              </div>
-              <div className="jobs-callout-strip">
-                <div className="jobs-mini-callout">
-                  <span className="dim">{jobsT('focusNow')}</span>
-                  <p>{focusNowMessage}</p>
-                </div>
-                <div className="jobs-mini-callout">
-                  <span className="dim">{jobsT('needsReviewNow')}</span>
-                  <p>{needsReviewMessage}</p>
+                <div className="jobs-callout-strip">
+                  <div className="jobs-mini-callout">
+                    <span className="dim">{jobsT('focusNow')}</span>
+                    <p>{focusNowMessage}</p>
+                  </div>
+                  <div className="jobs-mini-callout">
+                    <span className="dim">{jobsT('needsReviewNow')}</span>
+                    <p>{needsReviewMessage}</p>
+                  </div>
                 </div>
               </div>
             </div>

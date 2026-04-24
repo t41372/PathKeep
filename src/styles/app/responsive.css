@@ -39,6 +39,7 @@
   .assistant-layout,
   .intelligence-grid,
   .insights-hero-grid,
+  .jobs-state-board,
   .jobs-overview-grid,
   .jobs-focus-grid {
     grid-template-columns: 1fr;

@@ -98,7 +98,20 @@ export function JobsRuntimeHealthSection({
   )
   const contentQueueMessage = contentPlugin?.lastError
     ? summarizePluginError(contentPlugin, jobsT)
-    : jobsT('contentFetchHealthyBody')
+    : contentPlugin
+      ? contentPlugin.queuedJobs > 0
+        ? jobsT('contentFetchBacklogBody', {
+            queued: contentPlugin.queuedJobs,
+            stored: contentPlugin.storedRecords,
+          })
+        : contentPlugin.runningJobs > 0
+          ? jobsT('contentFetchRunningBody', {
+              stored: contentPlugin.storedRecords,
+            })
+          : jobsT('contentFetchReadyBody', {
+              stored: contentPlugin.storedRecords,
+            })
+      : jobsT('contentFetchFallbackBody')
 
   return (
     <>
