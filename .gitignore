@@ -12,6 +12,7 @@ dist
 dist-ssr
 coverage
 playwright-report
+.playwright-mcp
 reports
 src-tauri/mutants.out
 src-tauri/mutants.out.old
