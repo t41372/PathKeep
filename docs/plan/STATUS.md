@@ -61,6 +61,7 @@
   - 契約：只抽明確跨 consumer 重複且能降低 drift 的 grammar；不得為了抽象而重開 M6–M12 已收斂的 route / payload / review / support-action contract。
   - 2026-04-21 progress：shared runtime-boundary card grammar 已落到 `src/components/review/runtime-boundary-card.tsx`，Jobs runtime health / plugin / module summary 與 Settings derived runtime review 是第一批 consumer；Jobs route shell 也因此降到 `1000` 行以下。下一輪優先處理 shell-data owner split、Security / Import workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering smell。
   - 2026-04-22 Import workflow slice：`/import` 現在已把 `new import wizard -> grouped scan report -> recent imports / selected batch / doctor repair` 的閱讀順序落地，並直接吃 backend 新增的 `will-import / known-but-ignored / needs-review / parse-error` file classification、detected locale 與 preview time range；Takeout UI 不再只把檔案全塞進一個雜亂 preview list，而是能說清楚目前 shipping 的 Chrome-first scope。
+  - 2026-04-23 shell runtime owner slice：`src/app/shell-data.tsx` 已把 shared AI queue / Core Intelligence runtime refresh、in-flight dedupe、active/idle polling cadence 下沉到 `src/app/shell-runtime-status.ts`；`useShellData()` 對外 shape 不變，Jobs / Sidebar / digest 仍走 shell shared runtime source。下一步改看 Security workflow follow-through、Dashboard fallback owner 與 `Browsing Rhythm` layering smell。
   - 驗收：`bun run check && bun run build`
 
 - [x] **WORK-UI-D** — Dashboard Rhythm Merge And Intelligence IA Cleanup

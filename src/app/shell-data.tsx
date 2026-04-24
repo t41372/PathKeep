@@ -30,20 +30,14 @@ import type {
   AppSnapshot,
   DashboardSnapshot,
 } from '../lib/types'
-import {
-  type BusyOverlayState,
-  ShellDataContext,
-  type ShellRuntimeStatus,
-} from './shell-data-context'
+import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
 import { createShellDataActions } from './shell-data-actions'
 import {
   buildUninitializedDashboardFallback,
-  countActiveRuntimeJobs,
-  emptyRuntimeStatus,
   isAppLockError,
-  runtimeStatusScopeKey,
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
+import { useShellRuntimeStatus } from './shell-runtime-status'
 
 /**
  * Provides the front-end shell read model and shell-level actions to the rest
@@ -60,8 +54,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null)
   const [dashboardLoading, setDashboardLoading] = useState(false)
-  const [runtimeStatus, setRuntimeStatus] =
-    useState<ShellRuntimeStatus>(emptyRuntimeStatus)
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
@@ -72,11 +64,13 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
-  const runtimeRefreshPromiseRef = useRef<Promise<ShellRuntimeStatus> | null>(
-    null,
-  )
-  const runtimeRefreshScopeKeyRef = useRef<string | null>(null)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
+  const { runtimeStatus, refreshRuntimeStatus, resetRuntimeStatus } =
+    useShellRuntimeStatus({
+      snapshot,
+      refreshKey,
+      t,
+    })
 
   /**
    * Shows the shell-wide busy overlay for a long-running action.
@@ -110,8 +104,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setSnapshot(null)
     setDashboard(null)
     setDashboardLoading(false)
-    setRuntimeStatus(emptyRuntimeStatus())
-  }, [])
+    resetRuntimeStatus()
+  }, [resetRuntimeStatus])
 
   const refreshDashboardSnapshot = useCallback(
     async (
@@ -157,74 +151,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       }
     },
     [loadingLatestArchiveState],
-  )
-
-  const refreshRuntimeStatus = useCallback(
-    async (nextSnapshot: AppSnapshot | null = snapshot) => {
-      const nextScopeKey = runtimeStatusScopeKey(nextSnapshot)
-      if (
-        !nextSnapshot?.config.initialized ||
-        !nextSnapshot.archiveStatus.unlocked
-      ) {
-        const nextStatus = emptyRuntimeStatus()
-        runtimeRefreshPromiseRef.current = null
-        runtimeRefreshScopeKeyRef.current = nextScopeKey
-        setRuntimeStatus(nextStatus)
-        return nextStatus
-      }
-
-      if (
-        runtimeRefreshPromiseRef.current &&
-        runtimeRefreshScopeKeyRef.current === nextScopeKey
-      ) {
-        return runtimeRefreshPromiseRef.current
-      }
-
-      setRuntimeStatus((current) => ({
-        ...current,
-        loading: true,
-        error: null,
-      }))
-
-      const nextRequest = Promise.all([
-        backend.loadAiQueueStatus(),
-        backend.loadIntelligenceRuntime(),
-      ])
-        .then(([nextAiQueue, nextRuntime]) => {
-          const nextStatus: ShellRuntimeStatus = {
-            aiQueue: nextAiQueue,
-            intelligence: nextRuntime,
-            loading: false,
-            error: null,
-          }
-          setRuntimeStatus(nextStatus)
-          return nextStatus
-        })
-        .catch((nextError) => {
-          const message =
-            nextError instanceof Error
-              ? nextError.message
-              : t('common.notAvailable')
-          const nextStatus: ShellRuntimeStatus = {
-            aiQueue: null,
-            intelligence: null,
-            loading: false,
-            error: message,
-          }
-          setRuntimeStatus(nextStatus)
-          return nextStatus
-        })
-        .finally(() => {
-          if (runtimeRefreshPromiseRef.current === nextRequest) {
-            runtimeRefreshPromiseRef.current = null
-          }
-        })
-
-      runtimeRefreshScopeKeyRef.current = nextScopeKey
-      runtimeRefreshPromiseRef.current = nextRequest
-      return nextRequest
-    },
-    [snapshot, t],
   )
 
   const refreshAppData = useCallback(
@@ -338,44 +264,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refreshAppData().catch(() => undefined)
   }, [refreshAppData])
-
-  useEffect(() => {
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
-      setRuntimeStatus(emptyRuntimeStatus())
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') return
-      timeoutId = window.setTimeout(() => {
-        void load()
-      }, delayMs)
-    }
-
-    const load = async () => {
-      const next = await refreshRuntimeStatus(snapshot)
-      if (cancelled) return
-      scheduleNext(countActiveRuntimeJobs(next) > 0 ? 3000 : 15000)
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [
-    refreshKey,
-    refreshRuntimeStatus,
-    snapshot,
-    snapshot?.archiveStatus.unlocked,
-    snapshot?.config.initialized,
-  ])
 
   useEffect(() => {
     const crashReportPath =
