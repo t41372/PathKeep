@@ -46,19 +46,20 @@
 
 ## Single-Source Map
 
-| 契約 / 能力                                   | canonical owner                                   | M13 結論                                                                               |
-| --------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| neutral review shell                          | `src/components/review/`                          | 延續 M11，不重開 owner                                                                 |
-| support-action / clipboard grammar            | `src/components/review/`                          | 延續 M12，不重開 owner                                                                 |
-| runtime-boundary review card grammar          | `src/components/review/runtime-boundary-card.tsx` | M13 正式升格；Jobs 與 Settings derived runtime review 共用                             |
-| Jobs route orchestration                      | `src/pages/jobs/index.tsx`                        | 保留 route owner，只移走 runtime health / boundary composition                         |
-| Jobs runtime health composition               | `src/pages/jobs/runtime-health-section.tsx`       | M13 第一輪 extraction 已落地                                                           |
-| Settings derived runtime detail orchestration | `src/pages/settings/derived-runtime-review.tsx`   | 仍是 consumer owner，但已改吃 shared runtime-boundary card shell                       |
-| shell bootstrap provider                      | `src/app/shell-data.tsx`                          | 保留 public provider facade；不改 `useShellData()` 對外 contract                       |
-| shell runtime polling owner                   | `src/app/shell-runtime-status.ts`                 | M13-B follow-up 已落地；Sidebar / Jobs / digest runtime truth 仍走 shell shared source |
-| Security workflow follow-through              | `src/pages/security/use-security-workflow.ts`     | M13-B follow-up 已落地；route shell 保留 fallback / focus / panel composition          |
-| Dashboard route fallback owner                | `src/pages/dashboard/route-fallback-*`            | M13-B follow-up 已落地；resolver / renderer / archive-access probe 同屬 fallback owner |
-| transport parity / worker pass-through        | existing Rust owners                              | 維持 subordinate inventory，不升格成 M13 主線                                          |
+| 契約 / 能力                                   | canonical owner                                             | M13 結論                                                                                                  |
+| --------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| neutral review shell                          | `src/components/review/`                                    | 延續 M11，不重開 owner                                                                                    |
+| support-action / clipboard grammar            | `src/components/review/`                                    | 延續 M12，不重開 owner                                                                                    |
+| runtime-boundary review card grammar          | `src/components/review/runtime-boundary-card.tsx`           | M13 正式升格；Jobs 與 Settings derived runtime review 共用                                                |
+| Jobs route orchestration                      | `src/pages/jobs/index.tsx`                                  | 保留 route owner，只移走 runtime health / boundary composition                                            |
+| Jobs runtime health composition               | `src/pages/jobs/runtime-health-section.tsx`                 | M13 第一輪 extraction 已落地                                                                              |
+| Settings derived runtime detail orchestration | `src/pages/settings/derived-runtime-review.tsx`             | 仍是 consumer owner，但已改吃 shared runtime-boundary card shell                                          |
+| shell bootstrap provider                      | `src/app/shell-data.tsx`                                    | 保留 public provider facade；不改 `useShellData()` 對外 contract                                          |
+| shell runtime polling owner                   | `src/app/shell-runtime-status.ts`                           | M13-B follow-up 已落地；Sidebar / Jobs / digest runtime truth 仍走 shell shared source                    |
+| Security workflow follow-through              | `src/pages/security/use-security-workflow.ts`               | M13-B follow-up 已落地；route shell 保留 fallback / focus / panel composition                             |
+| Dashboard route fallback owner                | `src/pages/dashboard/route-fallback-*`                      | M13-B follow-up 已落地；resolver / renderer / archive-access probe 同屬 fallback owner                    |
+| Browsing Rhythm card state owner              | `src/components/intelligence/browsing-rhythm-card-state.ts` | M13-B follow-up 已落地；API load / selected-year-day state / derived calendar model 不再混在 render shell |
+| transport parity / worker pass-through        | existing Rust owners                                        | 維持 subordinate inventory，不升格成 M13 主線                                                             |
 
 ## Inventory Snapshot
 
@@ -70,8 +71,7 @@
 
 ### 仍維持後續 priority 的 hotspot
 
-1. `src/components/intelligence/browsing-rhythm-card.tsx`
-2. `src/components/ui.tsx` 的 legacy `PathRow` retirement
+1. `src/components/ui.tsx` 的 legacy `PathRow` retirement
 
 ### 這輪刻意不做
 
@@ -93,4 +93,5 @@
 - 2026-04-23 shell runtime owner slice landed：`src/app/shell-data.tsx` 不再內嵌 queue/runtime refresh、in-flight dedupe 與 active/idle polling cadence；這些責任已抽到 `src/app/shell-runtime-status.ts`，並新增 focused hook tests 保護 locked neutral state、dedupe、fallback error 與 3s/15s polling backoff。
 - 2026-04-23 Security workflow owner slice landed：`src/pages/security/index.tsx` 不再內嵌 posture load、unlock/keyring、lock 與 rekey mutation state machine；這些責任已抽到 `src/pages/security/use-security-workflow.ts`，route shell 現在只保留 fallback、deep-link focus、path-copy feedback 與 panel composition。
 - 2026-04-23 Dashboard fallback owner slice landed：Dashboard bootstrap error path 不再在 route shell 內直接探 Security status；`src/pages/dashboard/route-fallback-access.ts` 現在 owns archive-access probe，與 existing fallback resolver / renderer 合成同一個 fallback owner。
-- `WORK-M13-B` 仍保留 active，後續 focus 改為 `Browsing Rhythm` layering smell。
+- 2026-04-23 Browsing Rhythm state owner slice landed：`src/components/intelligence/browsing-rhythm-card.tsx` 不再同時 owns API load、selected-year/day state、calendar derivation 與 JSX composition；這些 state / derived-model responsibilities 已抽到 `src/components/intelligence/browsing-rhythm-card-state.ts`，Dashboard 與 `/intelligence` 的 public behavior 不變。
+- `WORK-M13-B` 仍保留 active，後續 focus 改為 legacy `PathRow` retirement 候選。
