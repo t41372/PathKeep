@@ -45,6 +45,12 @@ export const onboardingNamespaceCatalog = {
     errorNeedPassword: 'Enter a master password to use encrypted mode.',
     errorPasswordMismatch: "Passwords don't match. Try again.",
     errorFinishFailed: 'Something went wrong during setup. You can try again.',
+    errorSelectedProfilesNeedAccess:
+      'The selected browser profiles are not readable yet. Grant access first, or go back and choose a readable source.',
+    errorOpenFullDiskAccessSettings:
+      'Could not open System Settings. Go to System Settings → Privacy & Security → Full Disk Access manually.',
+    errorSafariNeedsFullDiskAccess:
+      'Safari is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
     welcomeTagline1: 'Your browsing history is yours.',
     welcomeTagline2: 'Back it up. Search it. Learn from it.',
     featureBackupTitle: 'AUTOMATIC BACKUP',
@@ -69,10 +75,20 @@ export const onboardingNamespaceCatalog = {
     found: '{count} found',
     historyFound: 'READY',
     actionRequired: 'NEEDS ATTENTION',
+    permissionRequired: 'PERMISSION REQUIRED',
     versionUnknown: 'Version unknown',
     browserEngineLabel: '{version} · {engine} engine',
+    browserEngineChromium: 'Chromium',
+    browserEngineSafari: 'Safari',
+    browserEngineFirefox: 'Firefox',
+    browserEngineUnknown: 'unknown',
     safariAccessHint:
       'Safari needs Full Disk Access permission. Open System Settings → Privacy & Security → Full Disk Access.',
+    browserProfileAccessHint:
+      'PathKeep cannot read this browser history yet. Check file permissions or close the browser before retrying.',
+    selectedProfilesNeedAccess:
+      'Some selected browsers cannot be read yet. Grant access, then come back and check again.',
+    openFullDiskAccessSettings: 'Open Full Disk Access settings',
     cannotReadHint: "Can't read {fileName} yet. Check file permissions.",
     firefoxSafariInfo:
       'Google Chrome, ChatGPT Atlas on macOS, and Perplexity Comet on macOS are part of the validated setup path today. Safari joins that path on macOS after Full Disk Access is granted. Firefox-family and other adapters may appear here before they become public support commitments.',
@@ -124,6 +140,11 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours}h',
     previewingSchedule: 'Generating schedule preview…',
     schedulePreview: 'Preview',
+    platform: {
+      macosLabel: 'macOS',
+      windowsLabel: 'Windows',
+      linuxLabel: 'Linux',
+    },
     scheduleManualStepLaunchAgentSave:
       'Save the plist to ~/Library/LaunchAgents/{label}.plist.',
     scheduleManualStepLaunchAgentBootstrap:
@@ -144,6 +165,9 @@ export const onboardingNamespaceCatalog = {
       'Run `systemctl --user list-timers {label}.timer` to verify the next scheduled run.',
     readyTitle: 'All Set',
     readyDesc: 'Review your choices below, then start the first backup.',
+    readyAccessWarningTitle: 'Some browsers still need access',
+    readyAccessWarningBody:
+      'The first backup will process readable browsers now. Safari needs macOS Full Disk Access for PathKeep or the running development process before it can be included.',
     configSummary: 'YOUR CHOICES',
     reviewBeforeInit: 'Review',
     configProfiles: 'Browsers',
@@ -181,11 +205,17 @@ export const onboardingNamespaceCatalog = {
     errorNeedPassword: '选择加密模式需要设置密码。',
     errorPasswordMismatch: '两次输入的密码不一致，请重试。',
     errorFinishFailed: '设置过程出错了，可以再试一次。',
+    errorSelectedProfilesNeedAccess:
+      '已选择的浏览器目前都不能读取。请先授予权限，或返回浏览器步骤选择可读取的来源。',
+    errorOpenFullDiskAccessSettings:
+      '无法打开系统设置。请手动前往“系统设置 → 隐私与安全性 → 完全磁盘访问权限”。',
+    errorSafariNeedsFullDiskAccess:
+      'Safari 目前还不能读取。请在 macOS“完全磁盘访问权限”中授权 PathKeep 或当前开发进程，然后再执行备份。',
     welcomeTagline1: '你的浏览历史属于你。',
     welcomeTagline2: '备份它，搜索它，从中发现规律。',
     featureBackupTitle: '自动备份',
     featureBackupDesc:
-      '当前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作为已验证路径；在 macOS 上授予完全磁盘访问权限后，也可验证 Safari 的基础备份。其他浏览器适配器可能会先出现在设置里，但还不算公开支持承诺。',
+      '当前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作为已验证路径；在 macOS 上授予完全磁盘访问权限后，也可验证 Safari 的基础备份。其他浏览器支持模块可能会先出现在设置里，但还不算公开支持承诺。',
     featureSearchTitle: '强大的搜索',
     featureSearchDesc:
       '搜索你所有的浏览历史，哪怕是几年前访问的页面，也能通过关键词或自然语言找到。',
@@ -199,19 +229,29 @@ export const onboardingNamespaceCatalog = {
     beginSetup: '开始设置 →',
     browserDetectionTitle: '选择浏览器',
     browserDetectionDesc:
-      '我们在这台设备上找到了浏览器 profile，选择要纳入首次备份审查的来源。',
+      '我们在这台设备上找到了浏览器配置，选择要纳入首次备份审查的来源。',
     scanStatus: '找到 {count} 个 · 已选 {selected} 个',
     detectedProfiles: '你的浏览器',
     found: '找到 {count} 个',
     historyFound: '就绪',
     actionRequired: '需要处理',
+    permissionRequired: '需要权限',
     versionUnknown: '版本未知',
     browserEngineLabel: '{version} · {engine} 内核',
+    browserEngineChromium: 'Chromium',
+    browserEngineSafari: 'Safari',
+    browserEngineFirefox: 'Firefox',
+    browserEngineUnknown: '未知',
     safariAccessHint:
       'Safari 需要完全磁盘访问权限。打开系统设置 → 隐私与安全性 → 完全磁盘访问权限。',
+    browserProfileAccessHint:
+      'PathKeep 目前无法读取这个浏览器的历史数据。请先确认文件权限，或关闭正在使用它的浏览器。',
+    selectedProfilesNeedAccess:
+      '已选的浏览器中有来源还不能读取。授予权限后再回来重新检查。',
+    openFullDiskAccessSettings: '打开完全磁盘访问权限设置',
     cannotReadHint: '暂时无法读取 {fileName}，请检查文件权限。',
     firefoxSafariInfo:
-      '当前公开验证的设置路径是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。Firefox 系和其他适配器可能会先显示在这里，但还不算公开支持承诺。',
+      '当前公开验证的设置路径是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完全磁盘访问权限后，Safari 也属于已验证的基础支持。Firefox 系和其他支持模块可能会先显示在这里，但还不算公开支持承诺。',
     backButton: '← 返回',
     continueButton: '继续 →',
     storageTitle: '数据存储位置',
@@ -256,6 +296,11 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours} 小时',
     previewingSchedule: '生成定时备份预览…',
     schedulePreview: '预览',
+    platform: {
+      macosLabel: 'macOS',
+      windowsLabel: 'Windows',
+      linuxLabel: 'Linux',
+    },
     scheduleManualStepLaunchAgentSave:
       '将 plist 保存到 ~/Library/LaunchAgents/{label}.plist。',
     scheduleManualStepLaunchAgentBootstrap:
@@ -276,6 +321,9 @@ export const onboardingNamespaceCatalog = {
       '运行 `systemctl --user list-timers {label}.timer`，确认下一次计划执行时间。',
     readyTitle: '一切就绪',
     readyDesc: '检查下方的设置，然后开始首次备份。',
+    readyAccessWarningTitle: '有浏览器还需要权限',
+    readyAccessWarningBody:
+      '首次备份会先处理可读取的浏览器；Safari 需要在 macOS“完全磁盘访问权限”中授权 PathKeep 或当前开发进程。',
     configSummary: '你的设置',
     reviewBeforeInit: '检查',
     configProfiles: '浏览器',
@@ -313,11 +361,17 @@ export const onboardingNamespaceCatalog = {
     errorNeedPassword: '選擇加密模式需要設定密碼。',
     errorPasswordMismatch: '兩次輸入的密碼不一致，請重試。',
     errorFinishFailed: '設定過程出了問題，可以再試一次。',
+    errorSelectedProfilesNeedAccess:
+      '已選的瀏覽器目前都不能讀取。請先授予權限，或回到瀏覽器步驟選擇可讀取的來源。',
+    errorOpenFullDiskAccessSettings:
+      '無法開啟系統設定。請手動前往「系統設定 → 隱私權與安全性 → 完整磁碟取用權」。',
+    errorSafariNeedsFullDiskAccess:
+      'Safari 目前還不能讀取。請在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程，然後再執行備份。',
     welcomeTagline1: '你的瀏覽歷史屬於你。',
     welcomeTagline2: '備份它，搜尋它，從中發現規律。',
     featureBackupTitle: '自動備份',
     featureBackupDesc:
-      '目前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作為已驗證路徑；在 macOS 上授予完整磁碟取用權限後，也可驗證 Safari 的基礎備份。其他瀏覽器 adapter 可能會先出現在設定裡，但還不算公開支援承諾。',
+      '目前先以 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet 作為已驗證路徑；在 macOS 上授予完整磁碟取用權限後，也可驗證 Safari 的基礎備份。其他瀏覽器支援模組可能會先出現在設定裡，但還不算公開支援承諾。',
     featureSearchTitle: '強大的搜尋',
     featureSearchDesc:
       '搜尋你所有的瀏覽歷史，即使是好幾年前看過的頁面，也能透過關鍵字或自然語言找到。',
@@ -331,19 +385,29 @@ export const onboardingNamespaceCatalog = {
     beginSetup: '開始設定 →',
     browserDetectionTitle: '選擇瀏覽器',
     browserDetectionDesc:
-      '我們在這台裝置上找到了瀏覽器 profile，選擇要納入首次備份審查的來源。',
+      '我們在這台裝置上找到了瀏覽器設定檔，選擇要納入首次備份審查的來源。',
     scanStatus: '找到 {count} 個 · 已選 {selected} 個',
     detectedProfiles: '你的瀏覽器',
     found: '找到 {count} 個',
     historyFound: '就緒',
     actionRequired: '需要處理',
+    permissionRequired: '需要權限',
     versionUnknown: '版本未知',
     browserEngineLabel: '{version} · {engine} 核心',
+    browserEngineChromium: 'Chromium',
+    browserEngineSafari: 'Safari',
+    browserEngineFirefox: 'Firefox',
+    browserEngineUnknown: '未知',
     safariAccessHint:
       'Safari 需要完整磁碟取用權限。前往系統設定 → 隱私權與安全性 → 完整磁碟取用權限。',
+    browserProfileAccessHint:
+      'PathKeep 目前無法讀取這個瀏覽器的歷史資料。請先確認檔案權限，或關閉正在使用它的瀏覽器。',
+    selectedProfilesNeedAccess:
+      '已選的瀏覽器中有來源還不能讀取。授予權限後再回來重新檢查。',
+    openFullDiskAccessSettings: '開啟完整磁碟取用權設定',
     cannotReadHint: '暫時無法讀取 {fileName}，請確認檔案權限。',
     firefoxSafariInfo:
-      '目前公開驗證的設定路徑是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。Firefox 系與其他 adapter 可能會先顯示在這裡，但還不算公開支援承諾。',
+      '目前公開驗證的設定路徑是 Google Chrome、macOS 上的 ChatGPT Atlas 和 Perplexity Comet；在 macOS 上授予完整磁碟取用權限後，Safari 也屬於已驗證的基礎支援。Firefox 系與其他支援模組可能會先顯示在這裡，但還不算公開支援承諾。',
     backButton: '← 返回',
     continueButton: '繼續 →',
     storageTitle: '資料儲存位置',
@@ -388,6 +452,11 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours} 小時',
     previewingSchedule: '產生定時備份預覽…',
     schedulePreview: '預覽',
+    platform: {
+      macosLabel: 'macOS',
+      windowsLabel: 'Windows',
+      linuxLabel: 'Linux',
+    },
     scheduleManualStepLaunchAgentSave:
       '將 plist 儲存到 ~/Library/LaunchAgents/{label}.plist。',
     scheduleManualStepLaunchAgentBootstrap:
@@ -407,6 +476,9 @@ export const onboardingNamespaceCatalog = {
       '執行 `systemctl --user list-timers {label}.timer`，確認下一次排程執行時間。',
     readyTitle: '一切就緒',
     readyDesc: '檢查下方的設定，然後開始首次備份。',
+    readyAccessWarningTitle: '有瀏覽器還需要權限',
+    readyAccessWarningBody:
+      '首次備份會先處理可讀取的瀏覽器；Safari 需要在 macOS「完整磁碟取用權」中授權 PathKeep 或目前的開發行程。',
     configSummary: '你的設定',
     reviewBeforeInit: '檢查',
     configProfiles: '瀏覽器',

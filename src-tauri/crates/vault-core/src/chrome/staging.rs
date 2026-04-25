@@ -43,7 +43,8 @@ pub fn stage_profile_snapshot(
         .with_context(|| format!("creating temp dir in {}", paths.staging_dir.display()))?;
     let source_dir = PathBuf::from(&profile.profile_path);
     let history_path =
-        copy_database_with_sidecars(&source_dir, &profile.history_file_name, temp_dir.path())?;
+        copy_database_with_sidecars(&source_dir, &profile.history_file_name, temp_dir.path())
+            .with_context(|| staging_access_hint(profile))?;
     let favicons_path = profile
         .favicons_path
         .as_ref()
@@ -112,4 +113,12 @@ fn copy_with_context(source: &Path, destination: &Path) -> Result<()> {
     fs::copy(source, destination)
         .with_context(|| format!("copying {} to {}", source.display(), destination.display()))?;
     Ok(())
+}
+
+fn staging_access_hint(profile: &BrowserProfile) -> String {
+    if profile.browser_family == "safari" {
+        return "Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.".to_string();
+    }
+
+    format!("staging {} history database from {}", profile.browser_name, profile.profile_path)
 }

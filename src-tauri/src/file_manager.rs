@@ -42,6 +42,23 @@ mod tests {
         }
     }
 
+    fn wait_for_capture(path: &std::path::Path, expected: &[&str]) -> String {
+        let mut last_capture = String::new();
+        for _ in 0..250 {
+            if let Ok(captured) = fs::read_to_string(path) {
+                if expected.iter().all(|value| captured.contains(value)) {
+                    return captured;
+                }
+                last_capture = captured;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!(
+            "launcher capture did not contain expected values {:?}; last capture: {:?}",
+            expected, last_capture
+        );
+    }
+
     #[test]
     fn wrapper_surfaces_validation_errors() {
         let error = open_path_in_file_manager_impl("/tmp/pathkeep-does-not-exist".to_string())
@@ -98,13 +115,10 @@ mod tests {
             open_path_in_file_manager_impl(target_dir.display().to_string()).expect("open path");
         let opened_url =
             open_external_url_impl("https://example.com/pathkeep".to_string()).expect("open url");
-        for _ in 0..50 {
-            if capture_path.exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        let captured = fs::read_to_string(&capture_path).expect("read capture");
+        let captured = wait_for_capture(
+            &capture_path,
+            &[&target_dir.display().to_string(), "https://example.com/pathkeep"],
+        );
 
         restore_env_var("PATH", original_path.as_deref());
 

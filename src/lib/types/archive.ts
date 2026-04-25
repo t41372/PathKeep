@@ -58,6 +58,8 @@ export interface BrowserProfile {
   historyPath?: string | null
   faviconsPath?: string | null
   historyExists: boolean
+  historyReadable?: boolean
+  accessIssue?: string | null
   browserVersion?: string | null
   historyFileName: string
   historyBytes: number
@@ -144,6 +146,12 @@ export interface BackupProgressEvent {
   progressTotal?: number | null
   progressPercent?: number | null
   logLines?: string[]
+  sourceLabel?: string | null
+  processedRecords?: number | null
+  totalRecords?: number | null
+  importedRecords?: number | null
+  duplicateRecords?: number | null
+  skippedRecords?: number | null
 }
 
 /**

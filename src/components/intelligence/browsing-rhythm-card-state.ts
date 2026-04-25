@@ -22,7 +22,7 @@
  * - Selected-day detail is lazy and only requested after the user clicks a populated calendar day.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../lib/core-intelligence/api'
 import {
   dateRangeForCalendarYear,
@@ -114,12 +114,44 @@ export function useBrowsingRhythmCardState({
   const currentCalendarYear = new Date().getFullYear()
   const [selectedYear, setSelectedYear] = useState(() => currentCalendarYear)
   const [manualYearSelection, setManualYearSelection] = useState(false)
+  const [knownDataYears, setKnownDataYears] = useState<number[]>([])
   const effectiveDateRange = useMemo(() => {
     if (mode === 'year') {
       return dateRangeForCalendarYear(selectedYear)
     }
     return dateRange ?? dateRangeForCalendarYear(selectedYear)
   }, [dateRange, mode, selectedYear])
+  const trendRangeKey = `${mode}:${effectiveDateRange.start}:${effectiveDateRange.end}:${
+    profileId ?? 'archive-wide'
+  }`
+  const lastRefreshTokenRef = useRef(refreshToken)
+  const [forceRefreshRequest, setForceRefreshRequest] = useState<{
+    nonce: number
+    rangeKey: string
+  } | null>(null)
+  useEffect(() => {
+    if (refreshToken === lastRefreshTokenRef.current) {
+      return
+    }
+    lastRefreshTokenRef.current = refreshToken
+    if (refreshToken === null || refreshToken === undefined) {
+      return
+    }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+      setForceRefreshRequest((current) => ({
+        nonce: (current?.nonce ?? 0) + 1,
+        rangeKey: trendRangeKey,
+      }))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshToken, trendRangeKey])
+  const forceTrendRefresh = forceRefreshRequest?.rangeKey === trendRangeKey
   const selectionScopeKey = `${mode}:${effectiveDateRange.start}:${effectiveDateRange.end}:${
     profileId ?? 'archive-wide'
   }`
@@ -129,19 +161,23 @@ export function useBrowsingRhythmCardState({
   } | null>(null)
   const trendResult = useAsyncData(
     () =>
-      api.getDiscoveryTrend(effectiveDateRange, profileId, 'day', {
-        force: refreshToken !== null && refreshToken !== undefined,
-      }),
+      api.getDiscoveryTrend(
+        effectiveDateRange,
+        profileId,
+        'day',
+        forceTrendRefresh ? { force: true } : undefined,
+      ),
     [
       effectiveDateRange.start,
       effectiveDateRange.end,
       mode,
       profileId,
-      refreshToken,
+      forceTrendRefresh,
+      forceRefreshRequest?.nonce,
     ],
     {
       getCached: () =>
-        refreshToken === null || refreshToken === undefined
+        !forceTrendRefresh
           ? api.peekDiscoveryTrend(effectiveDateRange, profileId, 'day')
           : null,
     },
@@ -150,7 +186,7 @@ export function useBrowsingRhythmCardState({
     () => trendResult.data?.data.points ?? [],
     [trendResult.data],
   )
-  const dataYears = useMemo(
+  const loadedDataYears = useMemo(
     () =>
       Array.from(
         new Set([
@@ -161,6 +197,32 @@ export function useBrowsingRhythmCardState({
         ]),
       ).sort((left, right) => right - left),
     [points, trendResult.data],
+  )
+  useEffect(() => {
+    if (loadedDataYears.length === 0) {
+      return
+    }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) {
+        return
+      }
+      setKnownDataYears((current) =>
+        Array.from(new Set([...current, ...loadedDataYears])).sort(
+          (left, right) => right - left,
+        ),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loadedDataYears])
+  const dataYears = useMemo(
+    () =>
+      Array.from(
+        new Set([...knownDataYears, ...loadedDataYears, selectedYear]),
+      ).sort((left, right) => right - left),
+    [knownDataYears, loadedDataYears, selectedYear],
   )
   const yearOptions = useMemo(
     () => buildYearOptions(dataYears, currentCalendarYear),
@@ -288,7 +350,6 @@ export function useBrowsingRhythmCardState({
   const canResetToCurrentYear =
     showCurrentYearShortcut &&
     mode === 'year' &&
-    yearOptions.includes(currentCalendarYear) &&
     selectedYear !== currentCalendarYear
 
   useEffect(() => {

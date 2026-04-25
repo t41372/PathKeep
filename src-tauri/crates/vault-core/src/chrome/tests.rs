@@ -4,6 +4,8 @@ use crate::{
     config::{ProjectPaths, project_paths_with_root},
     utils::{restore_test_env_var, test_env_lock},
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{io::Write, sync::MutexGuard};
 use tempfile::tempdir;
 
@@ -129,6 +131,35 @@ fn discover_safari_profile_marks_missing_history_without_hiding_the_profile() {
     assert!(profile.history_path.is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let history_path = dir.path().join("History.db");
+    fs::write(&history_path, b"safari").expect("write safari history");
+    let mut permissions = fs::metadata(&history_path).expect("metadata").permissions();
+    permissions.set_mode(0o000);
+    fs::set_permissions(&history_path, permissions).expect("deny read");
+
+    unsafe {
+        std::env::set_var(SAFARI_ROOT_OVERRIDE_ENV, dir.path());
+    }
+    let profile = discover_safari_profile().expect("discover safari").expect("safari profile");
+    unsafe {
+        std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
+    }
+
+    let mut restore_permissions =
+        fs::metadata(&history_path).expect("metadata for restore").permissions();
+    restore_permissions.set_mode(0o600);
+    fs::set_permissions(&history_path, restore_permissions).expect("restore read");
+
+    assert!(profile.history_exists);
+    assert!(!profile.history_readable);
+    assert_eq!(profile.access_issue.as_deref(), Some("macos-full-disk-access"));
+}
+
 #[test]
 fn firefox_root_candidate_helpers_cover_override_default_and_missing_roots() {
     let _guard = lock_env();
@@ -187,6 +218,8 @@ fn stage_profile_snapshot_copies_database_and_sidecars() {
         history_path: Some(profile_dir.join("places.sqlite").display().to_string()),
         favicons_path: None,
         history_exists: true,
+        history_readable: true,
+        access_issue: None,
         browser_version: None,
         history_file_name: "places.sqlite".to_string(),
         history_bytes: 10,

@@ -29,8 +29,8 @@
 use super::{
     SnapshotArtifact,
     ingest::{
-        collect_skipped_profiles, persist_source_evidence_plans, process_profile_snapshot,
-        select_supported_profiles, snapshot_source_hashes,
+        ArchiveIngestProgress, collect_skipped_profiles, persist_source_evidence_plans,
+        process_profile_snapshot_with_progress, select_supported_profiles, snapshot_source_hashes,
     },
     run_support::{
         BackupManifest, archive_row_counts, backup_due_skip_reason, backup_run_summary,
@@ -42,7 +42,7 @@ use crate::{
     chrome::discover_profiles,
     config::{ProjectPaths, ensure_paths},
     git_audit,
-    models::{AppConfig, BackupProgressEvent, BackupReport, BackupRunOverview},
+    models::{AppConfig, BackupProgressEvent, BackupReport, BackupRunOverview, BrowserProfile},
     utils::{now_rfc3339, sha256_hex},
 };
 use anyhow::{Context, Result};
@@ -125,6 +125,7 @@ where
         progress_total: Some(total_profiles),
         progress_percent: Some(0.0),
         log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
+        ..BackupProgressEvent::default()
     });
 
     connection.execute(
@@ -176,8 +177,44 @@ where
                     Some((index as f32 / total_profiles as f32) * 100.0)
                 },
                 log_lines: vec![format!("Staging {}.", profile.profile_id)],
+                source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
+                ..BackupProgressEvent::default()
             });
-            let snapshot = crate::chrome::stage_profile_snapshot(paths, profile)?;
+            let snapshot = match crate::chrome::stage_profile_snapshot(paths, profile) {
+                Ok(snapshot) => snapshot,
+                Err(error) if is_skippable_staging_access_error(profile, &error) => {
+                    let warning = staging_access_skip_warning(profile);
+                    warnings.push(warning.clone());
+                    report_progress(BackupProgressEvent {
+                        phase: "stage-profile".to_string(),
+                        label: "Skip unreadable profile".to_string(),
+                        detail: warning.clone(),
+                        step: 1,
+                        total_steps: 3,
+                        completed_profiles: index + 1,
+                        total_profiles,
+                        profile_id: Some(profile.profile_id.clone()),
+                        progress_current: Some(index + 1),
+                        progress_total: Some(total_profiles),
+                        progress_percent: if total_profiles == 0 {
+                            None
+                        } else {
+                            Some((((index + 1) as f32) / total_profiles as f32) * 100.0)
+                        },
+                        log_lines: vec![warning],
+                        source_label: Some(format!(
+                            "{} / {}",
+                            profile.browser_name, profile.profile_name
+                        )),
+                        ..BackupProgressEvent::default()
+                    });
+                    continue;
+                }
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("staging profile {}", profile.profile_id));
+                }
+            };
             report_progress(BackupProgressEvent {
                 phase: "ingest-profile".to_string(),
                 label: "Write canonical archive facts".to_string(),
@@ -199,8 +236,44 @@ where
                     Some((((index + 1) as f32) / total_profiles as f32) * 100.0)
                 },
                 log_lines: vec![format!("Writing canonical facts for {}.", profile.profile_id)],
+                source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
+                ..BackupProgressEvent::default()
             });
-            let profile_summary = process_profile_snapshot(
+            let mut last_processed_records = 0usize;
+            let report_profile_progress = |progress: ArchiveIngestProgress| {
+                if progress.processed_records == last_processed_records {
+                    return;
+                }
+                last_processed_records = progress.processed_records;
+                report_progress(BackupProgressEvent {
+                    phase: "ingest-profile".to_string(),
+                    label: "Write canonical archive facts".to_string(),
+                    detail: format!("Processing {} and writing archive rows.", profile.profile_id),
+                    step: 1,
+                    total_steps: 3,
+                    completed_profiles: index,
+                    total_profiles,
+                    profile_id: Some(profile.profile_id.clone()),
+                    progress_current: Some(index + 1),
+                    progress_total: Some(total_profiles),
+                    progress_percent: None,
+                    log_lines: vec![format!(
+                        "{} ({}/{total_profiles})",
+                        profile.profile_id,
+                        index + 1
+                    )],
+                    source_label: Some(format!(
+                        "{} / {}",
+                        profile.browser_name, profile.profile_name
+                    )),
+                    processed_records: Some(progress.processed_records),
+                    total_records: None,
+                    imported_records: Some(progress.imported_records),
+                    duplicate_records: Some(progress.duplicate_records),
+                    skipped_records: Some(progress.skipped_records),
+                });
+            };
+            let profile_summary = process_profile_snapshot_with_progress(
                 &transaction,
                 run_id,
                 paths,
@@ -210,6 +283,7 @@ where
                 &mut source_evidence_plans,
                 true,
                 true,
+                Some(Box::new(report_profile_progress)),
             )
             .with_context(|| format!("processing profile {}", profile.profile_id))?;
             source_hashes.insert(profile.profile_id.clone(), snapshot_source_hashes(&snapshot));
@@ -231,6 +305,7 @@ where
             progress_total: Some(total_profiles),
             progress_percent: Some(100.0),
             log_lines: vec!["Refreshing run ledger and cached summaries.".to_string()],
+            ..BackupProgressEvent::default()
         });
         transaction.commit()?;
         Ok(())
@@ -319,4 +394,16 @@ where
         warnings,
         remote_backup: None,
     })
+}
+
+fn is_skippable_staging_access_error(profile: &BrowserProfile, error: &anyhow::Error) -> bool {
+    profile.browser_family == "safari"
+        && format!("{error:#}").contains("Safari History.db is not readable yet")
+}
+
+fn staging_access_skip_warning(profile: &BrowserProfile) -> String {
+    format!(
+        "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
+        profile.profile_id
+    )
 }

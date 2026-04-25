@@ -15,7 +15,7 @@
   - `Google Chrome` 的 `Favicons` sidecar 屬正式 backup 範圍；Explorer row / detail 目前會顯示 archive 中已保存的 exact-page favicon。
   - `ChatGPT Atlas` 只承諾 browser-history profile：`~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Atlas workspace data、chats、tabs、bookmarks 或 suggestions。
   - `Perplexity Comet` 只承諾 browser-history profile：`~/Library/Application Support/Comet/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Comet AI memory、Perplexity account / workspace data、chats、tabs、bookmarks 或 suggestions。
-  - Safari 為基礎支持：profile 會被偵測並保留在 UI 中；若缺少 Full Disk Access，必須顯示 needs-access guidance，而不是把 profile 靜默隱藏。
+  - Safari 為基礎支持：profile 會被偵測並保留在 UI 中；若缺少 Full Disk Access，必須顯示 needs-access guidance，而不是把 profile 靜默隱藏；backup 執行時若 Safari staging 才發現權限不足，必須以 profile-level warning 略過 Safari，不能回滾其他已可讀 profile 的備份結果。
   - Safari richer favicon coverage 仍保持 deferred follow-up；day-one archive / Explorer truth 只承諾 Safari history baseline，不假裝 `History.db` 已自帶完整 icon payload。
   - Firefox 與其他 Chromium / Firefox-family adapter 可以繼續保留實作與 discovery，但在補齊獨立驗證 evidence 前，不應被寫進 README / onboarding / release docs 的 public support promise。
   - Firefox richer favicon coverage 同樣保持 additive follow-up，不把 visits / URLs baseline 誤寫成 full favicon parity。
@@ -125,7 +125,7 @@
 - path recognition 不能再只靠檔名 substring；已知 English / German 檔名可以走 fast path，但對 direct JSON 與未知語言檔名也必須靠 payload header sniff 辨識 dedicated Chrome history shape，而不是繼續擴張 hardcoded locale tables。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - dry-run / preview 必須回報 candidate item 數量、preview entries、preview time range、detected locale、以及依 `will-import / known-but-ignored / needs-review / parse-error` 分組的 file report。batch review 仍要保留可回看的 audit artifact 路徑。
-- import / onboarding finalization 的 progress surface 必須持續回報 typed phase、current/total、percent、detail、目前 source/profile label、record-level processed/imported/duplicate/skipped counters 與近期本地化 log lines；若單一大型檔案或 SQLite profile 在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress 並持續顯示遞增的 record counter，而不是長時間停在假 `0 / 1 · 0%` 或只顯示 `1 / 1` 檔案進度。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
+- import / onboarding finalization / manual backup 的 progress surface 必須持續回報 typed phase、current/total、percent、detail、目前 source/profile label、record-level processed/imported/duplicate/skipped counters 與近期本地化 log lines；若單一大型檔案或 SQLite profile 在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress 並持續顯示遞增的 record counter，而不是長時間停在假 `0 / 1 · 0%`、假 `1 / 2 · 50%`、或只顯示 `1 / 1` 檔案 / profile 進度。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
@@ -144,7 +144,7 @@
 - Perplexity Comet Browser Direct 導入範圍只包含 `<profile>/History` 與 Chromium sidecars such as `<profile>/Favicons`；不讀 Comet AI memory、Perplexity account / workspace data、chat、tab、bookmark、suggestion 或其他 app-state 資料。
 - Safari local `History.db` 導入必須包含 staging snapshot、`PRAGMA quick_check`、schema detection、preview rows、canonical URL / visit 寫入、import batch、source evidence / capability snapshot、bounded search projection refresh、re-import dedupe，以及 import batch revert / restore；source evidence 必須隨 parser batch 流式交給 spool builder，不得把三個月或更大的 typed/native evidence 全部留在 parser return payload。
 - Safari 只承諾 `History.db` 能提供的 history baseline 與 source-native evidence。不得偽造 Chrome 才有的 Favicons sidecar、downloads、或 keyword-search sidecar。
-- Safari 缺少 Full Disk Access 時，detected profile 必須保留在 UI 中並顯示 needs-access guidance，且提供直達 macOS Full Disk Access 設定的 action；手動選取不可讀 `History.db` 時，錯誤訊息也必須指出 Full Disk Access 並提供同一個設定 action，而不是 generic parse failure。
+- Safari 缺少 Full Disk Access 時，detected profile 必須保留在 Import / Onboarding UI 中並顯示 needs-access guidance，且提供直達 macOS Full Disk Access 設定的 action；discovery payload 要區分 `historyExists` 與 `historyReadable`，不能把「檔案存在」誤當成「可備份」。手動選取不可讀 `History.db` 時，錯誤訊息也必須指出 Full Disk Access 並提供同一個設定 action，而不是 generic parse failure；manual backup / onboarding backup 若只有 Safari staging 失敗，必須讓其他可讀 profile 成功 commit，並以本地化 warning/notice 說明 Safari 本次被略過，不能把 raw backend error 直接顯示在中文 UI。
 - Step-by-step UI：
   - 每個步驟都說明我們在做什麼、為什麼要做這件事。
   - 自動化模式下：逐步展示進度，且 phase/log/progress 需要在整個執行期間持續更新。

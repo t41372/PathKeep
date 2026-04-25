@@ -62,6 +62,11 @@ describe('ShellDataProvider', () => {
     vi.spyOn(backend, 'runBackupNow')
       .mockRejectedValueOnce(new Error('backup failed'))
       .mockRejectedValueOnce('not-an-error')
+      .mockRejectedValueOnce(
+        new Error(
+          'processing profile safari:Default: Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
+        ),
+      )
 
     renderShellProbe()
 
@@ -105,6 +110,14 @@ describe('ShellDataProvider', () => {
         translator('shell.manualBackupFailed'),
       ),
     )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.safariFullDiskAccessBackupError'),
+      ),
+    )
+    expect(screen.getByTestId('busy-label')).toHaveTextContent('none')
 
     getBackupProgressMock().mockRejectedValueOnce(new Error('subscribe failed'))
     await user.click(screen.getByRole('button', { name: 'backup' }))

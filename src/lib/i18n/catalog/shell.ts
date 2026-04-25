@@ -35,18 +35,23 @@ export const shellNamespaceCatalog = {
       'Creating the archive database, applying migrations, and locking in the current setup choices.',
     runningManualBackup: 'Running a manual backup',
     runningManualBackupDetail:
-      'Inspecting the selected browser profiles before PathKeep writes the canonical archive run.',
-    backupWritingArchive: 'Writing archive facts',
+      'Inspecting the selected browser profiles before PathKeep writes archive records.',
+    backupWritingArchive: 'Writing archive records',
     backupWritingArchiveDetail:
       'Normalizing visits, URLs, and audit artifacts. Large real-world profiles can take a while here.',
     backupProfileProgress: '{profileId} ({current}/{total})',
+    backupProgressPending: 'Waiting for backup progress',
+    backupRecordProgressPending: 'Waiting for record batches',
+    backupRecordProgress: '{count} records processed',
+    backupRecordStats: '{imported} new · {duplicates} duplicates',
+    backupSkippedRecords: '{count} skipped',
     backupFinalizeProgress:
       'Processed {current} of {total} selected profiles. Preparing the manifest and cached totals.',
     refreshingArchiveViews: 'Refreshing archive views',
     refreshingArchiveViewsDetail:
       'Reloading dashboard totals, recent runs, and other shell surfaces with the latest archive state.',
     backupStepPrepare: 'Inspect selected browser profiles',
-    backupStepArchive: 'Write the canonical archive run',
+    backupStepArchive: 'Write archive records',
     backupStepRefresh: 'Refresh dashboard and shell state',
     loadingLatestArchiveState:
       'PathKeep could not load the latest archive state.',
@@ -60,6 +65,10 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: 'The archive is still inside the due window.',
     manualBackupFinished: 'Manual backup finished as run #{runId}.',
     manualBackupFailed: 'PathKeep could not complete the manual backup.',
+    safariFullDiskAccessBackupError:
+      'Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
+    safariFullDiskAccessBackupWarning:
+      'Backup run #{runId} finished for readable profiles, but Safari was skipped because it still needs Full Disk Access.',
     settingAppLockPasscode: 'Saving app lock passcode',
     settingAppLockPasscodeDetail:
       'Storing the session passcode and refreshing the app lock state.',
@@ -114,19 +123,23 @@ export const shellNamespaceCatalog = {
     preparingArchiveDetail:
       '正在创建归档数据库、应用迁移，并锁定当前的初始化选择。',
     runningManualBackup: '正在运行手动备份',
-    runningManualBackupDetail:
-      '正在检查所选浏览器配置文件，然后 PathKeep 才会写入 canonical archive run。',
-    backupWritingArchive: '正在写入归档事实',
+    runningManualBackupDetail: '正在检查所选浏览器配置文件，然后写入归档记录。',
+    backupWritingArchive: '正在写入归档记录',
     backupWritingArchiveDetail:
-      '正在规范化 visits、URL 和审计工件。真实的大型配置文件在这一步可能会花一些时间。',
+      '正在整理访问记录、网址和审计工件。真实的大型配置文件在这一步可能会花一些时间。',
     backupProfileProgress: '{profileId}（{current}/{total}）',
+    backupProgressPending: '等待备份进度',
+    backupRecordProgressPending: '等待记录批次',
+    backupRecordProgress: '已处理 {count} 条记录',
+    backupRecordStats: '新增 {imported} · 重复 {duplicates}',
+    backupSkippedRecords: '已跳过 {count} 条',
     backupFinalizeProgress:
-      '已处理 {current}/{total} 个选定配置文件，正在准备 manifest 与缓存总计。',
+      '已处理 {current}/{total} 个选定配置文件，正在准备清单与缓存总计。',
     refreshingArchiveViews: '正在刷新归档视图',
     refreshingArchiveViewsDetail:
       '正在重新加载仪表盘统计、最近运行和其他 shell 视图。',
     backupStepPrepare: '检查所选浏览器配置文件',
-    backupStepArchive: '写入 canonical archive run',
+    backupStepArchive: '写入归档记录',
     backupStepRefresh: '刷新仪表盘与 shell 状态',
     loadingLatestArchiveState: 'PathKeep 无法加载最新的归档状态。',
     runtimeCrashNotice:
@@ -137,6 +150,10 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: '归档仍处于未到期窗口内。',
     manualBackupFinished: '手动备份已完成，运行编号 #{runId}。',
     manualBackupFailed: 'PathKeep 无法完成手动备份。',
+    safariFullDiskAccessBackupError:
+      'Safari History.db 目前还不能读取。请在系统设置里授予 PathKeep 或当前开发进程“完全磁盘访问权限”，然后再运行备份。',
+    safariFullDiskAccessBackupWarning:
+      '备份运行 #{runId} 已完成可读取的配置文件，但 Safari 仍缺少“完全磁盘访问权限”，本次已跳过。',
     settingAppLockPasscode: '正在保存应用锁密码',
     settingAppLockPasscodeDetail: '写入会话密码并刷新应用锁状态。',
     setAppLockPasscodeFailed: 'PathKeep 无法保存应用锁密码。',
@@ -185,19 +202,23 @@ export const shellNamespaceCatalog = {
     preparingArchiveDetail:
       '正在建立歸檔資料庫、套用 migration，並鎖定目前的初始化選擇。',
     runningManualBackup: '正在執行手動備份',
-    runningManualBackupDetail:
-      '正在檢查所選的瀏覽器設定檔，接著 PathKeep 才會寫入 canonical archive run。',
-    backupWritingArchive: '正在寫入歸檔 facts',
+    runningManualBackupDetail: '正在檢查所選的瀏覽器設定檔，接著寫入封存紀錄。',
+    backupWritingArchive: '正在寫入封存紀錄',
     backupWritingArchiveDetail:
-      '正在正規化 visits、URL 與審計工件。真實的大型設定檔在這一步可能會花一些時間。',
+      '正在整理瀏覽紀錄、網址與稽核工件。真實的大型設定檔在這一步可能會花一些時間。',
     backupProfileProgress: '{profileId}（{current}/{total}）',
+    backupProgressPending: '等待備份進度',
+    backupRecordProgressPending: '等待紀錄批次',
+    backupRecordProgress: '已處理 {count} 筆紀錄',
+    backupRecordStats: '新增 {imported} · 重複 {duplicates}',
+    backupSkippedRecords: '已略過 {count} 筆',
     backupFinalizeProgress:
-      '已處理 {current}/{total} 個選定設定檔，正在準備 manifest 與快取總計。',
+      '已處理 {current}/{total} 個選定設定檔，正在準備清單與快取總計。',
     refreshingArchiveViews: '正在刷新歸檔視圖',
     refreshingArchiveViewsDetail:
       '正在重新載入儀表板統計、最近執行與其他 shell 畫面。',
     backupStepPrepare: '檢查所選瀏覽器設定檔',
-    backupStepArchive: '寫入 canonical archive run',
+    backupStepArchive: '寫入封存紀錄',
     backupStepRefresh: '刷新儀表板與 shell 狀態',
     loadingLatestArchiveState: 'PathKeep 無法載入最新的歸檔狀態。',
     runtimeCrashNotice:
@@ -208,6 +229,10 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: '歸檔仍處於未到期窗口內。',
     manualBackupFinished: '手動備份已完成，執行編號 #{runId}。',
     manualBackupFailed: 'PathKeep 無法完成手動備份。',
+    safariFullDiskAccessBackupError:
+      'Safari History.db 目前還不能讀取。請在系統設定裡授予 PathKeep 或目前開發行程「完整磁碟取用權」，然後再執行備份。',
+    safariFullDiskAccessBackupWarning:
+      '備份執行 #{runId} 已完成可讀取的設定檔，但 Safari 仍缺少「完整磁碟取用權」，本次已略過。',
     settingAppLockPasscode: '正在儲存應用鎖密碼',
     settingAppLockPasscodeDetail: '寫入會話密碼並刷新應用鎖狀態。',
     setAppLockPasscodeFailed: 'PathKeep 無法儲存應用鎖密碼。',

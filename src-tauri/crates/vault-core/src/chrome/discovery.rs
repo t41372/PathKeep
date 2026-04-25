@@ -12,6 +12,7 @@ use super::paths::{
 };
 use super::staging::profile_storage_bytes;
 use super::*;
+use std::io::ErrorKind;
 
 /// Discovers supported browser profiles across the current host roots and overrides.
 pub fn discover_profiles() -> Result<Vec<BrowserProfile>> {
@@ -79,6 +80,8 @@ pub(super) fn discover_chromium_profiles(
             let history_path = profile_path.join("History");
             let favicons_path = profile_path.join("Favicons");
             let history_exists = history_path.exists();
+            let (history_readable, access_issue) =
+                history_access_state(&history_path, history_exists, definition.family);
             let favicons_exists = favicons_path.exists();
             let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
                 &history_path,
@@ -101,6 +104,8 @@ pub(super) fn discover_chromium_profiles(
                 history_path: history_exists.then(|| history_path.display().to_string()),
                 favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
                 history_exists,
+                history_readable,
+                access_issue,
                 browser_version: chrome_version.clone(),
                 history_file_name: "History".to_string(),
                 history_bytes,
@@ -160,6 +165,8 @@ pub(super) fn fallback_chromium_profiles(
         let raw_profile_id = entry.file_name().to_string_lossy().to_string();
         let favicons_path = profile_path.join("Favicons");
         let favicons_exists = favicons_path.exists();
+        let (history_readable, access_issue) =
+            history_access_state(&history_path, true, definition.family);
         let (history_bytes, favicons_bytes, supporting_bytes) = profile_storage_bytes(
             &history_path,
             favicons_exists.then_some(favicons_path.as_path()),
@@ -174,6 +181,8 @@ pub(super) fn fallback_chromium_profiles(
             history_path: Some(history_path.display().to_string()),
             favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
             history_exists: true,
+            history_readable,
+            access_issue,
             browser_version: browser_version.map(ToString::to_string),
             history_file_name: "History".to_string(),
             history_bytes,
@@ -200,6 +209,8 @@ pub(super) fn direct_root_chromium_profile(
     let profile_suffix = if definition.key.starts_with("opera") { "default" } else { "root" };
     let favicons_path = root.join("Favicons");
     let favicons_exists = favicons_path.exists();
+    let (history_readable, access_issue) =
+        history_access_state(&history_path, true, definition.family);
     let (history_bytes, favicons_bytes, supporting_bytes) =
         profile_storage_bytes(&history_path, favicons_exists.then_some(favicons_path.as_path()));
 
@@ -213,6 +224,8 @@ pub(super) fn direct_root_chromium_profile(
         history_path: Some(history_path.display().to_string()),
         favicons_path: favicons_exists.then(|| favicons_path.display().to_string()),
         history_exists: true,
+        history_readable,
+        access_issue,
         browser_version: browser_version.map(ToString::to_string),
         history_file_name: "History".to_string(),
         history_bytes,
@@ -247,6 +260,8 @@ pub(super) fn discover_firefox_profiles(
             }
 
             let raw_profile_id = entry.file_name().to_string_lossy().to_string();
+            let (history_readable, access_issue) =
+                history_access_state(&history_path, true, "firefox");
             let (history_bytes, favicons_bytes, supporting_bytes) =
                 profile_storage_bytes(&history_path, None);
             profiles.push(BrowserProfile {
@@ -262,6 +277,8 @@ pub(super) fn discover_firefox_profiles(
                 history_path: Some(history_path.display().to_string()),
                 favicons_path: None,
                 history_exists: true,
+                history_readable,
+                access_issue,
                 browser_version: None,
                 history_file_name: "places.sqlite".to_string(),
                 history_bytes,
@@ -323,6 +340,8 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
 
     let history_path = safari_root.join("History.db");
     let history_exists = history_path.exists();
+    let (history_readable, access_issue) =
+        history_access_state(&history_path, history_exists, "safari");
     let (history_bytes, favicons_bytes, supporting_bytes) =
         profile_storage_bytes(&history_path, None);
     Ok(Some(BrowserProfile {
@@ -335,6 +354,8 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
         history_path: history_exists.then(|| history_path.display().to_string()),
         favicons_path: None,
         history_exists,
+        history_readable,
+        access_issue,
         browser_version: None,
         history_file_name: "History.db".to_string(),
         history_bytes,
@@ -342,4 +363,28 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
         supporting_bytes,
         retention_boundary: retention_boundary_for_browser("safari"),
     }))
+}
+
+fn history_access_state(
+    history_path: &Path,
+    history_exists: bool,
+    browser_family: &str,
+) -> (bool, Option<String>) {
+    if !history_exists {
+        return (false, None);
+    }
+
+    match fs::File::open(history_path) {
+        Ok(_) => (true, None),
+        Err(error) => {
+            let issue = if browser_family == "safari"
+                && matches!(error.kind(), ErrorKind::PermissionDenied)
+            {
+                "macos-full-disk-access"
+            } else {
+                "history-file-not-readable"
+            };
+            (false, Some(issue.to_string()))
+        }
+    }
 }

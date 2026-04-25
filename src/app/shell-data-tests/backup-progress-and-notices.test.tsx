@@ -173,6 +173,27 @@ describe('ShellDataProvider', () => {
         warnings: [],
         remoteBackup: null,
       })
+      .mockResolvedValueOnce({
+        dueSkipped: false,
+        run: {
+          id: 88,
+          startedAt: '2026-04-20T08:00:00Z',
+          finishedAt: '2026-04-20T08:05:00Z',
+          status: 'success',
+          manifestHash: 'manifest-88',
+          profileScope: ['chrome:Default'],
+          profilesProcessed: 1,
+          newVisits: 3,
+          newUrls: 1,
+          newDownloads: 0,
+          runType: 'backup',
+        },
+        profiles: [],
+        warnings: [
+          'Skipped `safari:default` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.',
+        ],
+        remoteBackup: null,
+      })
 
     renderShellProbe()
 
@@ -198,6 +219,13 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('notice')).toHaveTextContent(
         translator('common.complete'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('shell.safariFullDiskAccessBackupWarning', { runId: 88 }),
       ),
     )
   })
@@ -238,10 +266,10 @@ describe('ShellDataProvider', () => {
         translator('shell.backupWritingArchive'),
       ),
     )
-    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('2 / 3')
-    expect(
-      Number(screen.getByTestId('busy-progress-value').textContent),
-    ).toBeCloseTo(67, 0)
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+      translator('shell.backupRecordProgressPending'),
+    )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
       listener?.({
@@ -257,9 +285,10 @@ describe('ShellDataProvider', () => {
     })
     await waitFor(() =>
       expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
-        '0 / 3',
+        translator('shell.backupProgressPending'),
       ),
     )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
       listener?.({
@@ -271,16 +300,18 @@ describe('ShellDataProvider', () => {
         completedProfiles: 0,
         totalProfiles: 3,
         profileId: 'chrome:Default',
+        sourceLabel: 'Google Chrome / Default',
       })
     })
     await waitFor(() =>
       expect(screen.getByTestId('busy-detail')).toHaveTextContent(
-        'chrome:Default (1/3)',
+        'Google Chrome / Default',
       ),
     )
-    expect(
-      Number(screen.getByTestId('busy-progress-value').textContent),
-    ).toBeCloseTo(33, 0)
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+      translator('shell.backupRecordProgressPending'),
+    )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
       listener?.({
@@ -299,6 +330,7 @@ describe('ShellDataProvider', () => {
         translator('shell.backupWritingArchive'),
       ),
     )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
       listener?.({
@@ -336,10 +368,10 @@ describe('ShellDataProvider', () => {
         translator('shell.runningManualBackup'),
       ),
     )
-    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('1 / 3')
-    expect(
-      Number(screen.getByTestId('busy-progress-value').textContent),
-    ).toBeCloseTo(33, 0)
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+      translator('shell.backupProgressPending'),
+    )
+    expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
       listener?.({
@@ -358,7 +390,9 @@ describe('ShellDataProvider', () => {
         translator('shell.backupWritingArchive'),
       ),
     )
-    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('0 / 0')
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent(
+      translator('shell.backupRecordProgressPending'),
+    )
     expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {
@@ -378,7 +412,7 @@ describe('ShellDataProvider', () => {
         translator('shell.refreshingArchiveViews'),
       ),
     )
-    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('0 / 0')
+    expect(screen.getByTestId('busy-progress-label')).toHaveTextContent('none')
     expect(screen.getByTestId('busy-progress-value')).toHaveTextContent('none')
 
     act(() => {

@@ -29,6 +29,8 @@ import App from '../index'
 import { appRoutes } from '../router'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
+import { createNamespaceTranslator } from '../../lib/i18n'
+import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
 import {
   dashboardT,
   onboardingT,
@@ -152,6 +154,141 @@ describe('App shell', () => {
     expect(
       await screen.findByRole('heading', { name: onboardingT('storageTitle') }),
     ).toBeVisible()
+  })
+
+  test('keeps unreadable Safari visible in localized onboarding permission recovery', async () => {
+    const user = userEvent.setup()
+    const zhTwOnboarding = createNamespaceTranslator('zh-TW', 'onboarding')
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.preferredLanguage = 'zh-TW'
+      state.snapshot.config.selectedProfileIds = ['safari:default']
+      state.snapshot.browserProfiles = state.snapshot.browserProfiles.map(
+        (profile) =>
+          profile.profileId === 'safari:default'
+            ? {
+                ...profile,
+                historyExists: true,
+                historyReadable: false,
+                accessIssue: 'macos-full-disk-access',
+              }
+            : profile,
+      )
+    })
+    const openSettingsSpy = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockResolvedValue(macosFullDiskAccessSettingsUrl)
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('beginSetup'),
+      }),
+    )
+
+    expect(
+      await screen.findByText(zhTwOnboarding('permissionRequired')),
+    ).toBeVisible()
+    expect(
+      screen.getByText(zhTwOnboarding('selectedProfilesNeedAccess')),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(/Grant Full Disk Access/i),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: zhTwOnboarding('continueButton') }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      zhTwOnboarding('errorSelectedProfilesNeedAccess'),
+    )
+
+    await user.click(
+      screen.getByRole('button', {
+        name: zhTwOnboarding('openFullDiskAccessSettings'),
+      }),
+    )
+    await waitFor(() =>
+      expect(openSettingsSpy).toHaveBeenCalledWith(
+        macosFullDiskAccessSettingsUrl,
+      ),
+    )
+  })
+
+  test('localizes Safari access failures raised during the first onboarding backup', async () => {
+    const user = userEvent.setup()
+    const zhTwOnboarding = createNamespaceTranslator('zh-TW', 'onboarding')
+    backendTestHarness.mutateState((state) => {
+      state.snapshot.config.preferredLanguage = 'zh-TW'
+      state.snapshot.config.archiveMode = 'Plaintext'
+      state.snapshot.config.selectedProfileIds = [
+        'chrome:Default',
+        'safari:default',
+      ]
+      state.snapshot.browserProfiles = state.snapshot.browserProfiles.map(
+        (profile) =>
+          profile.profileId === 'safari:default'
+            ? {
+                ...profile,
+                historyExists: true,
+                historyReadable: false,
+                accessIssue: 'macos-full-disk-access',
+              }
+            : profile,
+      )
+    })
+    vi.spyOn(backend, 'runBackupNow').mockRejectedValue(
+      new Error(
+        'Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
+      ),
+    )
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/onboarding'],
+    })
+
+    render(<App router={router} />)
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument()
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('beginSetup'),
+      }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: zhTwOnboarding('continueButton') }),
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('continueButton'),
+      }),
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('continueButton'),
+      }),
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: zhTwOnboarding('continueButton'),
+      }),
+    )
+    await user.click(
+      await screen.findByRole('button', { name: zhTwOnboarding('initButton') }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      zhTwOnboarding('errorSafariNeedsFullDiskAccess'),
+    )
+    expect(
+      screen.queryByText(/Safari History\.db is not readable yet/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/Grant Full Disk Access/i),
+    ).not.toBeInTheDocument()
   })
 
   test('switches archive mode from the onboarding security step', async () => {

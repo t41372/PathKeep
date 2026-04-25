@@ -57,7 +57,7 @@ export function DashboardZeroState({
         tone="info"
         eyebrow={t('dashboard.zeroStateEyebrow')}
         title={t('dashboard.zeroStateTitle')}
-        body={dashboard.nextAction ?? t('dashboard.zeroStateBody')}
+        body={localizedDashboardNextAction(dashboard.nextAction, t)}
         actions={
           <Link className="btn-primary" to="/onboarding">
             {t('dashboard.openOnboardingFlow')}
@@ -82,4 +82,28 @@ export function DashboardZeroState({
       </div>
     </>
   )
+}
+
+function localizedDashboardNextAction(
+  nextAction: string | null | undefined,
+  t: Translate,
+) {
+  const normalized = nextAction?.trim()
+  if (!normalized) {
+    return t('dashboard.zeroStateBody')
+  }
+
+  if (normalized.includes('Initialize the archive')) {
+    return t('dashboard.nextActionInitializeArchive')
+  }
+
+  if (
+    normalized.includes(
+      'Run a manual backup to create the first manifest and snapshot artifacts',
+    )
+  ) {
+    return t('dashboard.nextActionRunFirstBackup')
+  }
+
+  return normalized
 }

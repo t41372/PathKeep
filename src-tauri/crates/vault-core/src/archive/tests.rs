@@ -276,6 +276,12 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert!(progress_events.iter().any(|event| event.phase == "prepare"));
     assert!(progress_events.iter().any(|event| event.phase == "stage-profile"));
     assert!(progress_events.iter().any(|event| event.phase == "ingest-profile"));
+    assert!(progress_events.iter().any(|event| {
+        event.phase == "ingest-profile"
+            && event.processed_records == Some(2)
+            && event.imported_records == Some(2)
+            && event.progress_percent.is_none()
+    }));
     assert!(progress_events.iter().any(|event| event.phase == "finalize"));
 
     let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
@@ -764,6 +770,58 @@ fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
     assert_eq!(history.total, 2);
     assert!(history.items.iter().all(|entry| entry.profile_id.starts_with("chrome:")));
 
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
+    restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let safari_root = dir.path().join("Safari");
+    fs::create_dir_all(&safari_root).expect("create safari root");
+    let safari_history = safari_root.join("History.db");
+    fs::write(&safari_history, b"safari exists but cannot be copied").expect("write safari db");
+    let mut locked_permissions =
+        fs::metadata(&safari_history).expect("safari metadata").permissions();
+    locked_permissions.set_mode(0o000);
+    fs::set_permissions(&safari_history, locked_permissions).expect("lock safari db");
+    let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+        std::env::set_var("CHB_SAFARI_ROOT", &safari_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string(), "safari:default".to_string()],
+        ..AppConfig::default()
+    };
+
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let report = run_backup(&paths, &config, None, false).expect("run backup");
+    assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
+    assert_eq!(report.profiles.len(), 1);
+    assert_eq!(report.profiles[0].profile_id, "chrome:Default");
+    assert!(report.warnings.iter().any(|warning| {
+        warning.contains("safari:default")
+            && warning.contains("grant Full Disk Access before the next backup")
+    }));
+
+    let history = list_history(&paths, &config, None, HistoryQuery::default()).expect("history");
+    assert_eq!(history.total, 2);
+    assert!(history.items.iter().all(|entry| entry.profile_id.starts_with("chrome:")));
+
+    let mut restored_permissions =
+        fs::metadata(&safari_history).expect("safari metadata").permissions();
+    restored_permissions.set_mode(0o600);
+    fs::set_permissions(&safari_history, restored_permissions).expect("unlock safari db");
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
 }

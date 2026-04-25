@@ -80,6 +80,10 @@ export const dashboardNamespaceCatalog = {
     reviewSecurity: 'Check security',
     reviewSchedule: 'Check schedule',
     nextActionEyebrow: 'NEXT STEP',
+    nextActionInitializeArchive:
+      'Initialize the archive before running your first manual backup.',
+    nextActionRunFirstBackup:
+      'Run a manual backup to create the first manifest and snapshot artifacts.',
     zeroStateNoBrowsers: 'Select browsers in the setup wizard to get started.',
     zeroStateChecklist: 'GETTING STARTED',
     zeroStep1: 'Complete the setup wizard',
@@ -144,6 +148,9 @@ export const dashboardNamespaceCatalog = {
     reviewSecurity: '检查安全设置',
     reviewSchedule: '检查定时备份',
     nextActionEyebrow: '下一步',
+    nextActionInitializeArchive:
+      '请先完成归档初始化，然后再运行第一次手动备份。',
+    nextActionRunFirstBackup: '运行第一次手动备份，建立首份清单与快照。',
     zeroStateNoBrowsers: '在设置向导中选择浏览器后即可开始。',
     zeroStateChecklist: '快速开始',
     zeroStep1: '完成初始设置',
@@ -208,6 +215,9 @@ export const dashboardNamespaceCatalog = {
     reviewSecurity: '檢查安全設定',
     reviewSchedule: '檢查定時備份',
     nextActionEyebrow: '下一步',
+    nextActionInitializeArchive:
+      '請先完成封存初始化，然後再執行第一次手動備份。',
+    nextActionRunFirstBackup: '執行第一次手動備份，建立第一份清單與快照。',
     zeroStateNoBrowsers: '在設定精靈中選擇瀏覽器後即可開始。',
     zeroStateChecklist: '快速開始',
     zeroStep1: '完成初始設定',

@@ -964,3 +964,16 @@
   - Dashboard rhythm 現在接收 shell `refreshKey` 並以 force read / cache bypass 重新讀取 discovery trend；匯入成功後也會清 Core Intelligence overview cache，再 refresh shell data。`回到今年` 已移到 year pager 左側，activity mix `video` / `ai` 等 category 不再引用不存在的 `--danger` token，並補齊 opaque fallback palette。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/design/ui-review-guardrails.md`](../design/ui-review-guardrails.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
   - 驗收：targeted Rust progress tests、targeted Vitest import/dashboard/i18n tests、`bun run check`、`bun run build`、fresh desktop Computer Use truth pass。
+
+- [x] **WORK-UI-OPT-B** — Dashboard Pager And Backup Progress Regression Repair
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+  - 目標：修復 `WORK-UI-OPT-A` 後續實機回報的 regressions：Dashboard heatmap 年份 pager 被初始 refresh force path 折回只剩當前年份；onboarding / manual backup overlay 仍顯示 profile-level `1 / 2 · 50%`，且中文 UI 仍露出 raw backend / English progress copy。
+  - 契約：`BackupProgressEvent` 只新增 optional record/source 欄位；manual backup 與 onboarding finalization 要和 import 一樣回報真實 processed/imported/duplicate/skipped record counters。未知 record total 時不得偽造 percent；Dashboard 初次載入不得因 `refreshToken` 初值就 bypass cache 並丟失 available-year continuity，只有實際 refresh token 變更才 force reread。
+  - 2026-04-24：archive ingest consumer 現在支援 backup progress callback，manual backup 在每個 visit batch 後發出 `sourceLabel`、`processedRecords`、`importedRecords`、`duplicateRecords`、`skippedRecords`；shell busy overlay 會優先顯示本地化 record counter / stats，並在未知 total 時保持 indeterminate progress，不再把 profile count 當成 active write percent。
+  - 實機回歸補修：Topbar / Audit 的 manual backup 觸發不再留下 unhandled rejection；Safari 在 staging 階段才遇到 Full Disk Access 權限失敗時會被記為 profile-level warning 並略過，Chrome / Comet 等可讀 profile 仍會成功 commit。shell 成功 notice 會用三語 copy 明確說 Safari 本次被略過，不再卡在 overlay 或靜默回滾整筆 run。
+  - Dashboard `BrowsingRhythmCard` state owner 會保留已知 data years，初次 render 不再把 `refreshToken=0` 視為 force refresh；year pager 使用連續年份帶，`回到當前年份` 不依賴 backend 是否回傳今年。deterministic runtime jobs 從 active 轉 idle 時 shell 會再推一次 dashboard / rhythm refresh，避免 backup 完成後 heatmap 還卡在舊 cache。Dashboard zero-state / next-action 也把 backend English action 摘要映射成三語 UI copy。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/design/ux-principles.md`](../design/ux-principles.md)。
+  - 驗收：targeted Rust / Vitest regression tests、`bun run check`、`bun run build`、fresh desktop Computer Use truth pass。

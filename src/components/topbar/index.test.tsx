@@ -14,7 +14,7 @@
  */
 
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import {
   createHashRouter,
   MemoryRouter,
@@ -31,6 +31,7 @@ import {
 } from '../../app/shell-data-context'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
+import type { AppSnapshot } from '../../lib/types'
 import { Topbar } from './index'
 
 describe('Topbar', () => {
@@ -138,6 +139,84 @@ describe('Topbar', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Check security' })).toBeEnabled()
+  })
+
+  test('starts manual backups without leaking rejected promises from chrome buttons', async () => {
+    const user = userEvent.setup()
+    const runBackup = vi.fn().mockRejectedValue(new Error('backup failed'))
+    const unhandledRejection = vi.fn((event: PromiseRejectionEvent) => {
+      event.preventDefault()
+    })
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: {
+        config: {
+          initialized: true,
+          selectedProfileIds: ['chrome:Default'],
+        },
+        browserProfiles: [],
+      } as unknown as AppSnapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup,
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    window.addEventListener('unhandledrejection', unhandledRejection)
+
+    try {
+      render(
+        <I18nProvider>
+          <ProfileScopeProvider>
+            <ShellDataContext.Provider value={shellValue}>
+              <MemoryRouter>
+                <Topbar
+                  screen={{
+                    ...onboardingScreen,
+                    labelKey: 'navigation.dashboardLabel',
+                    titleKey: 'navigation.dashboardTitle',
+                    subtitleKey: 'navigation.dashboardSubtitle',
+                  }}
+                />
+              </MemoryRouter>
+            </ShellDataContext.Provider>
+          </ProfileScopeProvider>
+        </I18nProvider>,
+      )
+
+      await user.click(screen.getByRole('button', { name: 'Backup now' }))
+      await waitFor(() => expect(runBackup).toHaveBeenCalledTimes(1))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(unhandledRejection).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('unhandledrejection', unhandledRejection)
+    }
   })
 
   test('tracks in-app route history for the global back and forward buttons', async () => {

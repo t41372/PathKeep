@@ -34,6 +34,11 @@ import {
 } from '../../lib/build-info'
 import { useI18n } from '../../lib/i18n'
 import { estimateOnboardingStorage } from '../../lib/onboarding-estimates'
+import {
+  hasBrowserProfileAccessIssue,
+  isBrowserProfileReadable,
+  macosFullDiskAccessSettingsUrl,
+} from '../../lib/platform-guidance'
 import type { AppConfig, SchedulePlan } from '../../lib/types'
 import { BrowserDetectionStep } from './browser-detection-step'
 import { ReadyStep } from './ready-step'
@@ -153,10 +158,16 @@ export function OnboardingPage() {
   }
 
   const currentConfig = snapshot.config
-  const selectedCount = currentConfig.selectedProfileIds.filter((id) =>
-    snapshot.browserProfiles.some(
-      (profile) => profile.profileId === id && profile.historyExists,
-    ),
+  const selectedProfiles = currentConfig.selectedProfileIds
+    .map((id) =>
+      snapshot.browserProfiles.find((profile) => profile.profileId === id),
+    )
+    .filter((profile): profile is NonNullable<typeof profile> =>
+      Boolean(profile),
+    )
+  const selectedCount = selectedProfiles.filter(isBrowserProfileReadable).length
+  const selectedAccessIssueCount = selectedProfiles.filter(
+    hasBrowserProfileAccessIssue,
   ).length
   const storageEstimate = estimateOnboardingStorage(
     snapshot.browserProfiles,
@@ -184,10 +195,23 @@ export function OnboardingPage() {
   function handleBrowsersContinue() {
     setLocalError(null)
     if (selectedCount === 0) {
-      setLocalError(t('errorSelectProfile'))
+      setLocalError(
+        selectedAccessIssueCount > 0
+          ? t('errorSelectedProfilesNeedAccess')
+          : t('errorSelectProfile'),
+      )
       return
     }
     setStep(2)
+  }
+
+  async function handleOpenFullDiskAccessSettings() {
+    setLocalError(null)
+    try {
+      await backend.openExternalUrl(macosFullDiskAccessSettingsUrl)
+    } catch {
+      setLocalError(t('errorOpenFullDiskAccessSettings'))
+    }
   }
 
   function updateSecurityDraft(next: Partial<SecurityDraftState>) {
@@ -218,7 +242,11 @@ export function OnboardingPage() {
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
-      setLocalError(t('errorSelectProfile'))
+      setLocalError(
+        selectedAccessIssueCount > 0
+          ? t('errorSelectedProfilesNeedAccess')
+          : t('errorSelectProfile'),
+      )
       return
     }
     const encrypted = currentConfig.archiveMode === 'Encrypted'
@@ -245,9 +273,7 @@ export function OnboardingPage() {
       await runBackup()
       void navigate('/')
     } catch (nextError) {
-      setLocalError(
-        nextError instanceof Error ? nextError.message : t('errorFinishFailed'),
-      )
+      setLocalError(formatOnboardingError(nextError, t))
     }
   }
 
@@ -312,10 +338,12 @@ export function OnboardingPage() {
           browserProfiles={snapshot.browserProfiles}
           busyAction={busyAction}
           localError={localError}
+          selectedAccessIssueCount={selectedAccessIssueCount}
           selectedCount={selectedCount}
           selectedProfileIds={currentConfig.selectedProfileIds}
           onBack={() => setStep(0)}
           onContinue={handleBrowsersContinue}
+          onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
           onToggleProfile={handleToggleProfile}
         />
       ) : null}
@@ -366,13 +394,32 @@ export function OnboardingPage() {
           busyAction={busyAction}
           dueAfterHours={currentConfig.dueAfterHours}
           localError={localError}
+          selectedAccessIssueCount={selectedAccessIssueCount}
           selectedCount={selectedCount}
           onBack={() => setStep(4)}
           onFinish={() => {
             void handleFinish()
           }}
+          onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
         />
       ) : null}
     </section>
   )
+}
+
+function formatOnboardingError(
+  nextError: unknown,
+  t: (key: string, params?: Record<string, string | number>) => string,
+) {
+  if (
+    nextError instanceof Error &&
+    (nextError.message.includes('Full Disk Access') ||
+      nextError.message.includes('完全磁盘访问权限') ||
+      nextError.message.includes('完整磁碟取用權') ||
+      nextError.message.includes('Safari History.db'))
+  ) {
+    return t('errorSafariNeedsFullDiskAccess')
+  }
+
+  return t('errorFinishFailed')
 }

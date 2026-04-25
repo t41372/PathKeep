@@ -312,7 +312,7 @@ export function AuditPage() {
               className="btn-primary"
               type="button"
               onClick={() => {
-                void runBackup()
+                void runBackup().catch(() => undefined)
               }}
             >
               {t('audit.runManualBackup')}

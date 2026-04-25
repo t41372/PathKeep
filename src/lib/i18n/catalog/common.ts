@@ -134,7 +134,7 @@ export const commonNamespaceCatalog = {
     browserRetentionSafariBody:
       '这台 Mac 上的 Safari 历史比你的归档更短命。较早的记录可能会自然过期，即使 PathKeep 从未删除它们。',
     browserRetentionArchiveBoundary:
-      'PathKeep 只会保留备份时看到的记录，之后会以 append-only 方式持续保存。',
+      'PathKeep 只会保留备份时看到的记录，之后会以只追加不覆盖的方式持续保存。',
     coreHistory: '核心浏览记录',
     otherData: '其他数据',
     canonicalArchive: '规范化存档',
@@ -219,7 +219,7 @@ export const commonNamespaceCatalog = {
     browserRetentionSafariBody:
       '這台 Mac 上的 Safari 歷史比你的封存更短命。較早的紀錄可能會自然過期，即使 PathKeep 從未刪除它們。',
     browserRetentionArchiveBoundary:
-      'PathKeep 只會保留備份時看見的紀錄，之後會以 append-only 方式持續保存。',
+      'PathKeep 只會保留備份時看見的紀錄，之後會以只追加不覆蓋的方式持續保存。',
     coreHistory: '核心瀏覽紀錄',
     otherData: '其他資料',
     canonicalArchive: '規範化封存',

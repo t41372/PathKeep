@@ -14,6 +14,8 @@ export interface ReadyStepProps {
   localError: string | null
   onBack: () => void
   onFinish: () => void
+  onOpenFullDiskAccessSettings: () => void
+  selectedAccessIssueCount: number
   selectedCount: number
 }
 
@@ -25,6 +27,8 @@ export function ReadyStep({
   localError,
   onBack,
   onFinish,
+  onOpenFullDiskAccessSettings,
+  selectedAccessIssueCount,
   selectedCount,
 }: ReadyStepProps) {
   const { t, ns } = useI18n('onboarding')
@@ -118,6 +122,24 @@ export function ReadyStep({
           </div>
         </div>
       </div>
+
+      {selectedAccessIssueCount > 0 ? (
+        <div className="ob-info-box ob-info-box--warning">
+          <span className="info-icon">!</span>
+          <span className="info-text">
+            <strong>{t('readyAccessWarningTitle')}</strong>
+            <br />
+            {t('readyAccessWarningBody')}
+          </span>
+          <button
+            className="btn-secondary"
+            type="button"
+            onClick={onOpenFullDiskAccessSettings}
+          >
+            {t('openFullDiskAccessSettings')}
+          </button>
+        </div>
+      ) : null}
 
       {localError ? (
         <p className="inline-error" role="alert">

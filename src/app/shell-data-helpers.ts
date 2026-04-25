@@ -169,36 +169,52 @@ export function backupStepLabels(t: ShellTranslator) {
  * Converts a low-level backup progress event into the human-readable busy-overlay state.
  *
  * The shell uses this to keep PME feedback honest: users should see which phase the
- * run is in, which profile is active, and an approximate completion number without
- * reading raw worker events.
+ * run is in and which source is active without inventing fake step or profile
+ * percentages before the worker can report real record counts.
  */
 export function buildBackupOverlay(
   progress: BackupProgressEvent,
   t: ShellTranslator,
 ): BusyOverlayState {
   const backupSteps = backupStepLabels(t)
-  const stepProgress =
-    progress.totalSteps > 0
-      ? (Math.min(progress.step + 1, progress.totalSteps) /
-          progress.totalSteps) *
-        100
+  const processedRecords = normalizedOptionalCount(progress.processedRecords)
+  const totalRecords = normalizedOptionalCount(progress.totalRecords)
+  const importedRecords = normalizedOptionalCount(progress.importedRecords)
+  const duplicateRecords = normalizedOptionalCount(progress.duplicateRecords)
+  const skippedRecords = normalizedOptionalCount(progress.skippedRecords)
+  const recordProgressLabel =
+    processedRecords !== null
+      ? t('shell.backupRecordProgress', {
+          count: processedRecords.toLocaleString(),
+        })
       : null
+  const recordProgressValue =
+    processedRecords !== null && totalRecords !== null && totalRecords > 0
+      ? (processedRecords / totalRecords) * 100
+      : null
+  const recordLogLines = [
+    recordProgressLabel,
+    importedRecords !== null || duplicateRecords !== null
+      ? t('shell.backupRecordStats', {
+          imported: (importedRecords ?? 0).toLocaleString(),
+          duplicates: (duplicateRecords ?? 0).toLocaleString(),
+        })
+      : null,
+    skippedRecords !== null && skippedRecords > 0
+      ? t('shell.backupSkippedRecords', {
+          count: skippedRecords.toLocaleString(),
+        })
+      : null,
+  ].filter((line): line is string => Boolean(line))
   const profileCurrent =
     progress.phase === 'stage-profile' || progress.phase === 'ingest-profile'
       ? progress.completedProfiles + 1
       : progress.completedProfiles
-  const profileDetail =
-    progress.profileId && progress.totalProfiles > 0
-      ? t('shell.backupProfileProgress', {
-          profileId: progress.profileId,
-          current: profileCurrent,
-          total: progress.totalProfiles,
-        })
-      : null
+  const sourceDetail = progress.sourceLabel ?? progress.profileId ?? null
   const progressLabel =
     progress.totalProfiles > 0
       ? `${profileCurrent.toLocaleString()} / ${progress.totalProfiles.toLocaleString()}`
-      : `${Math.min(progress.step + 1, progress.totalSteps).toLocaleString()} / ${progress.totalSteps.toLocaleString()}`
+      : null
 
   switch (progress.phase) {
     case 'prepare': {
@@ -206,8 +222,8 @@ export function buildBackupOverlay(
       return {
         label: t('shell.runningManualBackup'),
         detail,
-        progressLabel,
-        progressValue: stepProgress,
+        progressLabel: t('shell.backupProgressPending'),
+        progressValue: null,
         steps: backupSteps,
         activeStep: 0,
         logLines: [detail],
@@ -215,18 +231,17 @@ export function buildBackupOverlay(
     }
     case 'stage-profile':
     case 'ingest-profile': {
-      const detail = profileDetail ?? t('shell.backupWritingArchiveDetail')
+      const detail = sourceDetail ?? t('shell.backupWritingArchiveDetail')
       return {
         label: t('shell.backupWritingArchive'),
         detail,
-        progressLabel,
+        progressLabel:
+          recordProgressLabel ?? t('shell.backupRecordProgressPending'),
         progressValue:
-          progress.totalProfiles > 0
-            ? (profileCurrent / progress.totalProfiles) * 100
-            : stepProgress,
+          recordProgressLabel !== null ? recordProgressValue : null,
         steps: backupSteps,
         activeStep: 1,
-        logLines: [detail],
+        logLines: recordLogLines.length > 0 ? recordLogLines : [detail],
       }
     }
     case 'finalize': {
@@ -241,7 +256,7 @@ export function buildBackupOverlay(
         progressValue:
           progress.totalProfiles > 0
             ? (progress.completedProfiles / progress.totalProfiles) * 100
-            : stepProgress,
+            : null,
         steps: backupSteps,
         activeStep: 2,
         logLines: [detail],
@@ -252,12 +267,19 @@ export function buildBackupOverlay(
       return {
         label: t('shell.runningManualBackup'),
         detail,
-        progressLabel,
-        progressValue: stepProgress,
+        progressLabel: t('shell.backupProgressPending'),
+        progressValue: null,
         steps: backupSteps,
         activeStep: 0,
         logLines: [detail],
       }
     }
   }
+}
+
+function normalizedOptionalCount(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null
+  }
+  return value
 }

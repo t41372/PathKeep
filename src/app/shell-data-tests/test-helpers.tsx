@@ -197,6 +197,9 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="dashboard-generated-at">
         {shell.dashboard?.generatedAt ?? 'none'}
       </div>
+      <div data-testid="runtime-running">
+        {shell.runtimeStatus?.intelligence?.queue.running ?? 'none'}
+      </div>
       <div data-testid="app-lock-enabled">
         {String(shell.appLockStatus?.enabled ?? false)}
       </div>
@@ -218,6 +221,14 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
         }}
       >
         refresh
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell.refreshRuntimeStatus().catch(() => undefined)
+        }}
+      >
+        refresh-runtime
       </button>
       <button
         type="button"

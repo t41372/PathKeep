@@ -290,7 +290,7 @@ export const settingsRemoteAndOutputsNamespace = {
       '先检查 Core Intelligence 输出，再带到别处使用',
     externalOutputsSummaryBody:
       '在这里预览嵌入卡片、小组件快照和公开快照，然后把需要的载荷手动复制到你信任的本地宿主。',
-    externalOutputsScopedTitle: '沿用共享 profile 范围',
+    externalOutputsScopedTitle: '沿用共享浏览器范围',
     externalOutputsScopedBody:
       '这些预览现在只会读取 {profile}。如果你想看全存档输出，请先清除顶部的共享浏览器范围。',
     externalOutputsArchiveWideTitle: '当前是全存档预览',
@@ -355,7 +355,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostBadge: '仅限本地',
     externalOutputsLocalHostSummaryTitle: '可复用的浏览器片段',
     externalOutputsLocalHostSummaryBody:
-      '在 app data 目录下生成一个可直接打开的本地浏览器片段。它会沿用上面手动预览同一套共享 profile 范围和本地时间窗口。',
+      '在应用资料目录下生成一个可直接打开的本地浏览器片段。它会沿用上面手动预览同一套共享浏览器范围和本地时间窗口。',
     externalOutputsLocalHostLoading: '正在加载本地宿主预览',
     externalOutputsLocalHostUnavailableTitle: '本地宿主预览暂时不可用',
     externalOutputsLocalHostUnavailableBody:
@@ -474,7 +474,7 @@ export const settingsRemoteAndOutputsNamespace = {
       '先檢查 Core Intelligence 輸出，再帶到別處使用',
     externalOutputsSummaryBody:
       '在這裡預覽嵌入卡片、小工具快照和公開快照，然後把需要的載荷手動複製到你信任的本地宿主。',
-    externalOutputsScopedTitle: '沿用共享 profile 範圍',
+    externalOutputsScopedTitle: '沿用共享瀏覽器範圍',
     externalOutputsScopedBody:
       '這些預覽現在只會讀取 {profile}。如果你想看全封存輸出，請先清除頂部的共享瀏覽器範圍。',
     externalOutputsArchiveWideTitle: '目前是全封存預覽',
@@ -539,7 +539,7 @@ export const settingsRemoteAndOutputsNamespace = {
     externalOutputsLocalHostBadge: '僅限本地',
     externalOutputsLocalHostSummaryTitle: '可重用的瀏覽器片段',
     externalOutputsLocalHostSummaryBody:
-      '在 app data 目錄下產生一個可直接開啟的本地瀏覽器片段。它會沿用上面手動預覽同一套共享 profile 範圍和本地時間視窗。',
+      '在應用資料目錄下產生一個可直接開啟的本地瀏覽器片段。它會沿用上面手動預覽同一套共享瀏覽器範圍和本地時間視窗。',
     externalOutputsLocalHostLoading: '正在載入本地宿主預覽',
     externalOutputsLocalHostUnavailableTitle: '本地宿主預覽暫時無法使用',
     externalOutputsLocalHostUnavailableBody:

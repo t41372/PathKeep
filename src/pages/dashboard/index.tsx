@@ -230,7 +230,10 @@ export function DashboardPage() {
     !readySnapshot.keyringStatus.storedSecret
   const safariNeedsAccess = hasSafariAccessIssue(selectedProfiles)
 
-  const nextActionMessage = readyDashboard.nextAction ?? null
+  const nextActionMessage = localizedDashboardNextAction(
+    readyDashboard.nextAction,
+    t,
+  )
 
   return (
     <section className="page-shell" data-testid="dashboard-page">
@@ -336,4 +339,28 @@ export function DashboardPage() {
       </div>
     </section>
   )
+}
+
+function localizedDashboardNextAction(
+  nextAction: string | null | undefined,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+) {
+  const normalized = nextAction?.trim()
+  if (!normalized) {
+    return null
+  }
+
+  if (normalized.includes('Initialize the archive')) {
+    return t('dashboard.nextActionInitializeArchive')
+  }
+
+  if (
+    normalized.includes(
+      'Run a manual backup to create the first manifest and snapshot artifacts',
+    )
+  ) {
+    return t('dashboard.nextActionRunFirstBackup')
+  }
+
+  return normalized
 }

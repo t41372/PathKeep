@@ -40,6 +40,21 @@ export const macosFullDiskAccessSettingsUrl =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 
 /**
+ * Returns whether a discovered browser profile can be backed up without asking
+ * the user for extra OS permissions first.
+ */
+export function isBrowserProfileReadable(profile: BrowserProfile) {
+  return profile.historyExists && profile.historyReadable !== false
+}
+
+/**
+ * Returns whether the profile exists but cannot be read because of host access policy.
+ */
+export function hasBrowserProfileAccessIssue(profile: BrowserProfile) {
+  return profile.historyExists && profile.historyReadable === false
+}
+
+/**
  * Normalizes platform into the canonical UI shape.
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
@@ -83,8 +98,8 @@ export function hasSafariAccessIssue(profiles: BrowserProfile[]) {
   return profiles.some(
     (profile) =>
       profile.browserFamily === 'safari' &&
-      !profile.historyExists &&
-      Boolean(profile.historyPath),
+      (hasBrowserProfileAccessIssue(profile) ||
+        (!profile.historyExists && Boolean(profile.historyPath))),
   )
 }
 

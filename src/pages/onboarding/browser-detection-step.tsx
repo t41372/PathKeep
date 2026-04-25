@@ -16,16 +16,22 @@
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import { BrowserIcon } from '../../lib/browser-icons'
 import { useI18n } from '../../lib/i18n'
+import {
+  hasBrowserProfileAccessIssue,
+  isBrowserProfileReadable,
+} from '../../lib/platform-guidance'
 import type { BrowserProfile } from '../../lib/types'
 
 export interface BrowserDetectionStepProps {
   browserProfiles: BrowserProfile[]
   busyAction: string | null
   localError: string | null
+  selectedAccessIssueCount: number
   selectedCount: number
   selectedProfileIds: string[]
   onBack: () => void
   onContinue: () => void
+  onOpenFullDiskAccessSettings: () => void
   onToggleProfile: (profileId: string) => void
 }
 
@@ -33,20 +39,26 @@ export function BrowserDetectionStep({
   browserProfiles,
   busyAction,
   localError,
+  selectedAccessIssueCount,
   selectedCount,
   selectedProfileIds,
   onBack,
   onContinue,
+  onOpenFullDiskAccessSettings,
   onToggleProfile,
 }: BrowserDetectionStepProps) {
   const { t, ns } = useI18n('onboarding')
   const commonT = ns('common')
-  const readableProfiles = browserProfiles.filter(
-    (profile) => profile.historyExists,
-  )
+  const readableProfiles = browserProfiles.filter(isBrowserProfileReadable)
   const attentionProfiles = browserProfiles.filter(
-    (profile) => !profile.historyExists,
+    (profile) => !isBrowserProfileReadable(profile),
   )
+  const engineLabel = (engine: string) => {
+    if (engine === 'chromium') return t('browserEngineChromium')
+    if (engine === 'safari') return t('browserEngineSafari')
+    if (engine === 'firefox') return t('browserEngineFirefox')
+    return engine || t('browserEngineUnknown')
+  }
 
   return (
     <div className="ob-panel-container">
@@ -77,6 +89,33 @@ export function BrowserDetectionStep({
             {[...readableProfiles, ...attentionProfiles].map((profile) => {
               const selected = selectedProfileIds.includes(profile.profileId)
               const retention = browserRetentionMeta(profile, commonT)
+              const ready = isBrowserProfileReadable(profile)
+              const accessIssue = hasBrowserProfileAccessIssue(profile)
+              const statusLabel = ready
+                ? t('historyFound')
+                : accessIssue
+                  ? t('permissionRequired')
+                  : t('actionRequired')
+              const statusClass = ready
+                ? 'status-completed'
+                : accessIssue
+                  ? 'status-warning'
+                  : 'status-pending'
+              const detail = ready
+                ? t('browserEngineLabel', {
+                    version: profile.browserVersion ?? t('versionUnknown'),
+                    engine: engineLabel(profile.browserFamily),
+                  })
+                : accessIssue
+                  ? profile.browserFamily === 'safari'
+                    ? t('safariAccessHint')
+                    : t('browserProfileAccessHint')
+                  : profile.browserFamily === 'safari'
+                    ? t('safariAccessHint')
+                    : t('cannotReadHint').replace(
+                        '{fileName}',
+                        profile.historyFileName,
+                      )
 
               return (
                 <label
@@ -106,16 +145,8 @@ export function BrowserDetectionStep({
                     </div>
                   </div>
                   <div className="profile-detection">
-                    <span
-                      className={`status-badge ${
-                        profile.historyExists
-                          ? 'status-completed'
-                          : 'status-pending'
-                      }`}
-                    >
-                      {profile.historyExists
-                        ? t('historyFound')
-                        : t('actionRequired')}
+                    <span className={`status-badge ${statusClass}`}>
+                      {statusLabel}
                     </span>
                     <span
                       className="mono dim"
@@ -125,20 +156,9 @@ export function BrowserDetectionStep({
                         marginTop: '2px',
                       }}
                     >
-                      {profile.historyExists
-                        ? t('browserEngineLabel', {
-                            version:
-                              profile.browserVersion ?? t('versionUnknown'),
-                            engine: profile.browserFamily,
-                          })
-                        : profile.browserFamily === 'safari'
-                          ? t('safariAccessHint')
-                          : t('cannotReadHint').replace(
-                              '{fileName}',
-                              profile.historyFileName,
-                            )}
+                      {detail}
                     </span>
-                    {profile.historyExists ? (
+                    {ready ? (
                       <>
                         <span
                           className="mono dim"
@@ -176,6 +196,20 @@ export function BrowserDetectionStep({
         <div className="ob-info-box">
           <span className="info-icon">ℹ</span>
           <span className="info-text">{t('firefoxSafariInfo')}</span>
+        </div>
+      ) : null}
+
+      {selectedAccessIssueCount > 0 ? (
+        <div className="ob-info-box ob-info-box--warning">
+          <span className="info-icon">!</span>
+          <span className="info-text">{t('selectedProfilesNeedAccess')}</span>
+          <button
+            className="btn-secondary"
+            type="button"
+            onClick={onOpenFullDiskAccessSettings}
+          >
+            {t('openFullDiskAccessSettings')}
+          </button>
         </div>
       ) : null}
 

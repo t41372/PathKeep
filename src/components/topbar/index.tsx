@@ -175,7 +175,7 @@ export function Topbar({ screen }: TopbarProps) {
               navigateToRoute('/onboarding')
               return
             }
-            void runBackup()
+            void runBackup().catch(() => undefined)
           }}
         >
           <span aria-hidden className="backup-icon">

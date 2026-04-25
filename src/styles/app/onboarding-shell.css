@@ -365,6 +365,7 @@ button.stepper-step:disabled {
 
 .ob-info-box {
   display: flex;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--border);
@@ -374,10 +375,24 @@ button.stepper-step:disabled {
   line-height: 1.6;
 }
 
+.ob-info-box--warning {
+  border-color: var(--warning);
+  background: var(--warning-dim);
+}
+
+.ob-info-box .btn-secondary {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .info-icon {
   font-size: 14px;
   color: var(--info);
   flex-shrink: 0;
+}
+
+.ob-info-box--warning .info-icon {
+  color: var(--warning);
 }
 .info-text {
   color: var(--text-muted);

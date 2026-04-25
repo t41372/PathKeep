@@ -45,7 +45,7 @@ interface ShellDataActionDeps {
   t: ShellTranslator
   setLanguagePreference: I18nContextValue['setLanguagePreference']
   refreshDashboardSnapshot: (
-    nextSnapshot: AppSnapshot | null,
+    nextSnapshot: AppSnapshot,
     options?: { surfaceErrors?: boolean },
   ) => Promise<void> | void
   refreshAppData: (showSpinner?: boolean) => Promise<void>
@@ -61,6 +61,43 @@ interface ShellDataActionDeps {
 
 function incrementRefreshKey(setRefreshKey: StateSetter<number>) {
   setRefreshKey((value) => value + 1)
+}
+
+function formatShellActionError(
+  nextError: unknown,
+  fallback: string,
+  t: ShellTranslator,
+) {
+  if (!(nextError instanceof Error)) {
+    return fallback
+  }
+
+  if (isSafariAccessIssueMessage(nextError.message)) {
+    return t('shell.safariFullDiskAccessBackupError')
+  }
+
+  return nextError.message
+}
+
+function isSafariAccessIssueMessage(message: string) {
+  return (
+    message.includes('Safari History.db is not readable yet') ||
+    message.includes('Full Disk Access')
+  )
+}
+
+function backupCompletionNotice(report: BackupReport, t: ShellTranslator) {
+  if (report.dueSkipped) {
+    return report.reason ?? t('shell.manualBackupDueWindow')
+  }
+
+  if (report.run) {
+    return report.warnings.some(isSafariAccessIssueMessage)
+      ? t('shell.safariFullDiskAccessBackupWarning', { runId: report.run.id })
+      : t('shell.manualBackupFinished', { runId: report.run.id })
+  }
+
+  return t('common.complete')
 }
 
 /**
@@ -170,8 +207,8 @@ export function createShellDataActions({
       showBusyOverlay({
         label: t('shell.runningManualBackup'),
         detail: t('shell.runningManualBackupDetail'),
-        progressLabel: `1 / ${backupSteps.length.toLocaleString()}`,
-        progressValue: 33,
+        progressLabel: t('shell.backupProgressPending'),
+        progressValue: null,
         steps: backupSteps,
         activeStep: 0,
       })
@@ -186,8 +223,8 @@ export function createShellDataActions({
         showBusyOverlay({
           label: t('shell.backupWritingArchive'),
           detail: t('shell.backupWritingArchiveDetail'),
-          progressLabel: `2 / ${backupSteps.length.toLocaleString()}`,
-          progressValue: 67,
+          progressLabel: t('shell.backupRecordProgressPending'),
+          progressValue: null,
           steps: backupSteps,
           activeStep: 1,
         })
@@ -201,20 +238,18 @@ export function createShellDataActions({
           activeStep: 2,
         })
         void refreshAppData(false)
-        setNotice(
-          report.dueSkipped
-            ? (report.reason ?? t('shell.manualBackupDueWindow'))
-            : report.run
-              ? t('shell.manualBackupFinished', { runId: report.run.id })
-              : t('common.complete'),
-        )
+        setNotice(backupCompletionNotice(report, t))
         return report
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.manualBackupFailed'),
+        const message = formatShellActionError(
+          nextError,
+          t('shell.manualBackupFailed'),
+          t,
         )
+        setError(message)
+        if (nextError instanceof Error && message !== nextError.message) {
+          throw new Error(message)
+        }
         throw nextError
       } finally {
         unsubscribe()

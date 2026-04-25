@@ -14,6 +14,7 @@
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
  */
 
+import { isBrowserProfileReadable } from './platform-guidance'
 import type { BrowserProfile } from './types'
 
 const MANIFEST_BASE_BYTES = 256 * 1024
@@ -44,7 +45,8 @@ function selectedReadableProfiles(
 ) {
   const selected = new Set(selectedProfileIds)
   return profiles.filter(
-    (profile) => profile.historyExists && selected.has(profile.profileId),
+    (profile) =>
+      isBrowserProfileReadable(profile) && selected.has(profile.profileId),
   )
 }
 

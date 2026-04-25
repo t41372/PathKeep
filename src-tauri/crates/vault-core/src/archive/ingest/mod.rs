@@ -63,6 +63,14 @@ pub(super) struct SourceEvidencePlan {
 
 const ARCHIVE_STREAM_CHUNK_SIZE: usize = 10_000;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ArchiveIngestProgress {
+    pub(super) processed_records: usize,
+    pub(super) imported_records: usize,
+    pub(super) duplicate_records: usize,
+    pub(super) skipped_records: usize,
+}
+
 #[derive(Debug, Default)]
 struct ArchiveStreamProgress {
     url_id_map: HashMap<i64, i64>,
@@ -70,6 +78,7 @@ struct ArchiveStreamProgress {
     new_urls: usize,
     new_visits: usize,
     new_downloads: usize,
+    skipped_visits: usize,
     inserted_search_terms: usize,
     url_count: usize,
     visit_count: usize,
@@ -87,6 +96,7 @@ struct ArchiveChunkConsumer<'a> {
     source_profile_id: i64,
     profile: &'a crate::models::BrowserProfile,
     progress: ArchiveStreamProgress,
+    report_progress: Option<Box<dyn FnMut(ArchiveIngestProgress) + 'a>>,
 }
 
 impl<'a> ArchiveChunkConsumer<'a> {
@@ -95,6 +105,7 @@ impl<'a> ArchiveChunkConsumer<'a> {
         run_id: i64,
         source_profile_id: i64,
         profile: &'a crate::models::BrowserProfile,
+        report_progress: Option<Box<dyn FnMut(ArchiveIngestProgress) + 'a>>,
     ) -> Self {
         Self {
             archive,
@@ -102,6 +113,7 @@ impl<'a> ArchiveChunkConsumer<'a> {
             source_profile_id,
             profile,
             progress: ArchiveStreamProgress::default(),
+            report_progress,
         }
     }
 
@@ -144,6 +156,7 @@ impl HistoryBatchConsumer for ArchiveChunkConsumer<'_> {
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
         for visit in batch {
             let Some(&url_id) = self.progress.url_id_map.get(&visit.source_url_id) else {
+                self.progress.skipped_visits += 1;
                 continue;
             };
             let payload = serialize_payload(&visit)?;
@@ -162,6 +175,17 @@ impl HistoryBatchConsumer for ArchiveChunkConsumer<'_> {
             self.progress.visit_count += 1;
             self.progress.last_visit_id = self.progress.last_visit_id.max(visit.source_visit_id);
             track_url_visit_bounds(&mut self.progress.url_bounds, url_id, &visit);
+        }
+        if let Some(report_progress) = self.report_progress.as_mut() {
+            report_progress(ArchiveIngestProgress {
+                processed_records: self.progress.visit_count + self.progress.skipped_visits,
+                imported_records: self.progress.new_visits,
+                duplicate_records: self
+                    .progress
+                    .visit_count
+                    .saturating_sub(self.progress.new_visits),
+                skipped_records: self.progress.skipped_visits,
+            });
         }
         Ok(())
     }
@@ -430,6 +454,34 @@ pub(super) fn process_profile_snapshot(
     allow_checkpoint: bool,
     use_watermark: bool,
 ) -> Result<BackupProfileSummary> {
+    process_profile_snapshot_with_progress(
+        archive,
+        run_id,
+        paths,
+        config,
+        snapshot,
+        snapshot_artifacts,
+        source_evidence_plans,
+        allow_checkpoint,
+        use_watermark,
+        None,
+    )
+}
+
+/// Ingests one staged profile snapshot and reports parser-batch record progress to the caller.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn process_profile_snapshot_with_progress(
+    archive: &Transaction<'_>,
+    run_id: i64,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    snapshot: &ProfileSnapshot,
+    snapshot_artifacts: &mut Vec<SnapshotArtifact>,
+    source_evidence_plans: &mut Vec<SourceEvidencePlan>,
+    allow_checkpoint: bool,
+    use_watermark: bool,
+    report_progress: Option<Box<dyn FnMut(ArchiveIngestProgress) + '_>>,
+) -> Result<BackupProfileSummary> {
     let source_profile_id = upsert_source_profile(archive, &snapshot.profile)?;
     let schema_payload = collect_schema_payload(&snapshot.history_path)?;
     let schema_string = serde_json::to_string(&schema_payload)?;
@@ -441,8 +493,13 @@ pub(super) fn process_profile_snapshot(
     };
     match snapshot.profile.browser_family.as_str() {
         "chromium" | "firefox" | "safari" => {
-            let mut consumer =
-                ArchiveChunkConsumer::new(archive, run_id, source_profile_id, &snapshot.profile);
+            let mut consumer = ArchiveChunkConsumer::new(
+                archive,
+                run_id,
+                source_profile_id,
+                &snapshot.profile,
+                report_progress,
+            );
             let streamed = match snapshot.profile.browser_family.as_str() {
                 "chromium" => chromium::stream_history(
                     &HistoryDatabaseSet {

@@ -220,7 +220,7 @@ describe('intelligence surfaces', () => {
         { start: '2025-01-01', end: '2025-12-31' },
         null,
         'day',
-        { force: true },
+        undefined,
       ),
     )
     expect(yearLabel).toHaveTextContent('2025')
@@ -246,7 +246,7 @@ describe('intelligence surfaces', () => {
         { start: '2024-01-01', end: '2024-12-31' },
         null,
         'day',
-        { force: true },
+        undefined,
       ),
     )
     expect(yearLabel).toHaveTextContent('2024')
@@ -528,5 +528,25 @@ describe('intelligence surfaces', () => {
     expect(
       screen.getByRole('link', { name: dashboardT('openOnboardingFlow') }),
     ).toHaveAttribute('href', '/onboarding')
+  })
+
+  test('localizes dashboard zero-state backend next actions', async () => {
+    const snapshot = structuredClone(await backend.getAppSnapshot())
+    const dashboard = structuredClone(await backend.loadDashboardSnapshot())
+    const dashboardT = createNamespaceTranslator('zh-TW', 'dashboard')
+
+    renderSurface(<DashboardPage />, {
+      dashboard,
+      language: 'zh-TW',
+      route: '/',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(dashboardT('nextActionInitializeArchive')),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(/Initialize the archive before running/i),
+    ).not.toBeInTheDocument()
   })
 })

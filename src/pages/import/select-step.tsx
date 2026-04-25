@@ -22,6 +22,7 @@ import { Glyph } from '../../components/ui'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { BrowserIcon } from '../../lib/browser-icons'
 import { useI18n } from '../../lib/i18n'
+import { isBrowserProfileReadable } from '../../lib/platform-guidance'
 import type { BrowserProfile } from '../../lib/types'
 import type { ImportMethod } from './shared'
 
@@ -66,7 +67,7 @@ export function ImportSelectStep({
 }: ImportSelectStepProps) {
   const { t } = useI18n()
   const readyBrowserProfileCount = detectedBrowserProfiles.filter(
-    (profile) => profile.historyExists && profile.historyPath,
+    (profile) => isBrowserProfileReadable(profile) && profile.historyPath,
   ).length
 
   return (
@@ -175,7 +176,7 @@ export function ImportSelectStep({
             <div className="import-browser-list">
               {detectedBrowserProfiles.map((profile) => {
                 const ready = Boolean(
-                  profile.historyExists && profile.historyPath,
+                  isBrowserProfileReadable(profile) && profile.historyPath,
                 )
                 const selected = selectedBrowserProfileId === profile.profileId
                 return (

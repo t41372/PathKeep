@@ -46,6 +46,8 @@ pub struct BrowserProfile {
     pub history_path: Option<String>,
     pub favicons_path: Option<String>,
     pub history_exists: bool,
+    pub history_readable: bool,
+    pub access_issue: Option<String>,
     pub browser_version: Option<String>,
     pub history_file_name: String,
     pub history_bytes: u64,
@@ -114,6 +116,12 @@ pub struct BackupProgressEvent {
     pub progress_total: Option<usize>,
     pub progress_percent: Option<f32>,
     pub log_lines: Vec<String>,
+    pub source_label: Option<String>,
+    pub processed_records: Option<usize>,
+    pub total_records: Option<usize>,
+    pub imported_records: Option<usize>,
+    pub duplicate_records: Option<usize>,
+    pub skipped_records: Option<usize>,
 }
 
 /// Disk-usage summary for archive-managed artifacts.

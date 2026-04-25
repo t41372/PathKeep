@@ -26,7 +26,12 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { createTranslator } from '../../lib/i18n'
-import type { AppSnapshot } from '../../lib/types'
+import type {
+  AiQueueStatus,
+  AppSnapshot,
+  DashboardSnapshot,
+  IntelligenceRuntimeSnapshot,
+} from '../../lib/types'
 import {
   getBackupProgressMock,
   getDefaultBuildInfo,
@@ -186,6 +191,103 @@ describe('ShellDataProvider', () => {
     }
   })
 
+  test('localizes non-error dashboard refresh failures during bootstrap', async () => {
+    const translator = createTranslator('en')
+    const { snapshot } = await seedSnapshot()
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockRejectedValueOnce(
+      'dashboard offline',
+    )
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.loadingLatestArchiveState'),
+      ),
+    )
+  })
+
+  test('ignores stale dashboard refresh success after a newer refresh wins', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveStaleRefresh:
+      | ((dashboard: DashboardSnapshot) => void)
+      | undefined
+    const staleRefresh = new Promise<DashboardSnapshot>((resolve) => {
+      resolveStaleRefresh = resolve
+    })
+    const freshDashboard: DashboardSnapshot = {
+      ...dashboard,
+      generatedAt: '2026-04-24T09:00:00.000Z',
+    }
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot')
+      .mockReturnValueOnce(staleRefresh)
+      .mockResolvedValue(freshDashboard)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        freshDashboard.generatedAt,
+      ),
+    )
+
+    resolveStaleRefresh?.({
+      ...dashboard,
+      generatedAt: '2026-04-24T08:00:00.000Z',
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        freshDashboard.generatedAt,
+      ),
+    )
+  })
+
+  test('ignores stale dashboard refresh errors after a newer refresh wins', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let rejectStaleRefresh: ((error: Error) => void) | undefined
+    const staleRefresh = new Promise<DashboardSnapshot>((_, reject) => {
+      rejectStaleRefresh = reject
+    })
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot')
+      .mockReturnValueOnce(staleRefresh)
+      .mockResolvedValue(dashboard)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        dashboard.generatedAt,
+      ),
+    )
+
+    rejectStaleRefresh?.(new Error('stale dashboard failed'))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('none'),
+    )
+  })
+
   test('surfaces initial refresh failures without leaking an unhandled rejection', async () => {
     const { snapshot } = await seedSnapshot()
     vi.spyOn(backend, 'loadAppLockStatus').mockResolvedValue(
@@ -277,5 +379,74 @@ describe('ShellDataProvider', () => {
       expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2),
     )
     expect(screen.getByTestId('error')).toHaveTextContent('none')
+  })
+
+  test('refreshes dashboard rhythm surfaces when runtime jobs drain to idle', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const activeQueue: AiQueueStatus = {
+      paused: false,
+      concurrency: 1,
+      queued: 0,
+      running: 1,
+      failed: 0,
+      recentJobs: [],
+    }
+    const idleQueue: AiQueueStatus = {
+      ...activeQueue,
+      running: 0,
+    }
+    const activeRuntime: IntelligenceRuntimeSnapshot = {
+      queue: {
+        queued: 0,
+        running: 1,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        lastActivityAt: '2026-04-24T08:00:00Z',
+      },
+      plugins: [],
+      modules: [],
+      recentJobs: [],
+      notes: [],
+    }
+    const idleRuntime: IntelligenceRuntimeSnapshot = {
+      ...activeRuntime,
+      queue: {
+        ...activeRuntime.queue,
+        running: 0,
+        succeeded: 1,
+      },
+    }
+    const loadDashboardSnapshotSpy = vi
+      .spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadAiQueueStatus')
+      .mockResolvedValueOnce(activeQueue)
+      .mockResolvedValue(idleQueue)
+    vi.spyOn(backend, 'loadIntelligenceRuntime')
+      .mockResolvedValueOnce(activeRuntime)
+      .mockResolvedValue(idleRuntime)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('runtime-running')).toHaveTextContent('1'),
+    )
+    expect(screen.getByTestId('refresh-key')).toHaveTextContent('1')
+
+    await user.click(screen.getByRole('button', { name: 'refresh-runtime' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('runtime-running')).toHaveTextContent('0'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('refresh-key')).toHaveTextContent('2'),
+    )
+    expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2)
   })
 })

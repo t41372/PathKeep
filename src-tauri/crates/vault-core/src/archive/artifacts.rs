@@ -322,6 +322,8 @@ fn load_snapshot_browser_profile(
             history_path.parent().unwrap_or(history_path).join("Favicons").display().to_string()
         }),
         history_exists: true,
+        history_readable: true,
+        access_issue: None,
         browser_version,
         history_file_name: history_file_name_for_profile(&browser_kind),
         history_bytes,

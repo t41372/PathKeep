@@ -307,13 +307,17 @@ mod tests {
         }
 
         open_path_in_file_manager(target_dir.display().to_string()).expect("open path");
-        for _ in 0..50 {
-            if capture_path.exists() {
-                break;
+        let mut captured = String::new();
+        for _ in 0..250 {
+            if let Ok(next) = fs::read_to_string(&capture_path) {
+                if next.contains(&target_dir.display().to_string()) {
+                    captured = next;
+                    break;
+                }
+                captured = next;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let captured = fs::read_to_string(&capture_path).expect("read capture");
 
         unsafe {
             if let Some(value) = original_path {

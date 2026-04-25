@@ -376,7 +376,8 @@ describe('shell-data helpers', () => {
     expect(prepare).toMatchObject({
       label: t('shell.runningManualBackup'),
       activeStep: 0,
-      progressLabel: '1 / 3',
+      progressLabel: t('shell.backupProgressPending'),
+      progressValue: null,
     })
 
     const fallback = buildBackupOverlay(
@@ -405,7 +406,8 @@ describe('shell-data helpers', () => {
     expect(stage).toMatchObject({
       label: t('shell.backupWritingArchive'),
       activeStep: 1,
-      progressLabel: '2 / 4',
+      progressLabel: t('shell.backupRecordProgressPending'),
+      progressValue: null,
     })
     expect(stage.detail).toContain('chrome:Work')
 
@@ -425,5 +427,35 @@ describe('shell-data helpers', () => {
       progressLabel: '4 / 4',
       progressValue: 100,
     })
+  })
+
+  test('prefers record-level backup progress over profile-level percentages', () => {
+    const overlay = buildBackupOverlay(
+      buildProgress({
+        phase: 'ingest-profile',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 2,
+        profileId: 'chrome:Default',
+        sourceLabel: 'Google Chrome / Default',
+        processedRecords: 10_000,
+        importedRecords: 9_500,
+        duplicateRecords: 500,
+      }),
+      t,
+    )
+
+    expect(overlay).toMatchObject({
+      label: t('shell.backupWritingArchive'),
+      activeStep: 1,
+      detail: 'Google Chrome / Default',
+      progressLabel: '10,000 records processed',
+      progressValue: null,
+    })
+    expect(overlay.logLines).toEqual([
+      '10,000 records processed',
+      '9,500 new · 500 duplicates',
+    ])
   })
 })

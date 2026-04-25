@@ -34,6 +34,7 @@ import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
 import { createShellDataActions } from './shell-data-actions'
 import {
   buildUninitializedDashboardFallback,
+  countActiveRuntimeJobs,
   isAppLockError,
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
@@ -64,6 +65,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
+  const activeRuntimeJobsRef = useRef(0)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
   const { runtimeStatus, refreshRuntimeStatus, resetRuntimeStatus } =
     useShellRuntimeStatus({
@@ -109,16 +111,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
 
   const refreshDashboardSnapshot = useCallback(
     async (
-      nextSnapshot: AppSnapshot | null,
+      nextSnapshot: AppSnapshot,
       options: { surfaceErrors?: boolean } = {},
     ) => {
       const { surfaceErrors = false } = options
-      if (!nextSnapshot) {
-        setDashboard(null)
-        setDashboardLoading(false)
-        return
-      }
-
       const refreshToken = dashboardRefreshTokenRef.current + 1
       dashboardRefreshTokenRef.current = refreshToken
       setDashboardLoading(true)
@@ -324,6 +320,24 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     busyAction,
     clearIdleTimer,
   ])
+
+  useEffect(() => {
+    const activeRuntimeJobs = countActiveRuntimeJobs(runtimeStatus)
+    const hadActiveRuntimeJobs = activeRuntimeJobsRef.current > 0
+    activeRuntimeJobsRef.current = activeRuntimeJobs
+
+    if (
+      !hadActiveRuntimeJobs ||
+      activeRuntimeJobs > 0 ||
+      !snapshot?.config.initialized ||
+      !snapshot.archiveStatus.unlocked
+    ) {
+      return
+    }
+
+    setRefreshKey((value) => value + 1)
+    void refreshDashboardSnapshot(snapshot, { surfaceErrors: true })
+  }, [refreshDashboardSnapshot, runtimeStatus, snapshot])
 
   const {
     saveConfig,

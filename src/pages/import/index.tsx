@@ -23,7 +23,10 @@ import { backend } from '../../lib/backend-client'
 import { clearIntelligenceOverviewCache } from '../../lib/core-intelligence/api'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
-import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
+import {
+  isBrowserProfileReadable,
+  macosFullDiskAccessSettingsUrl,
+} from '../../lib/platform-guidance'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   BrowserHistoryImportRequest,
@@ -114,7 +117,7 @@ export function ImportPage() {
   const readyBrowserProfiles = useMemo(
     () =>
       detectedBrowserProfiles.filter(
-        (profile) => profile.historyExists && profile.historyPath,
+        (profile) => isBrowserProfileReadable(profile) && profile.historyPath,
       ),
     [detectedBrowserProfiles],
   )
