@@ -34,7 +34,7 @@
 - **搜尋走 FTS5 索引**：全文搜尋不走 `LIKE`，走 FTS5 倒排索引，查詢速度不隨數據量線性增長。
 - **Favicon 不進主列表 payload**：Explorer 的主 `query_history` response 只回 row metadata；列表先用 placeholder reveal，再以 page-scoped batched lookup 補 icon，避免 favicon bytes / base64 序列化卡住首屏與翻頁。
 - **Favicon 導入去重**：新導入的 favicon image bytes 必須在 ingest 階段去重存放，避免同一張 icon 在 archive 裡被重複寫入多次，拖高磁盤與後續 recall payload 成本。
-- **Favicon domain fallback 必須是 lazy、indexed、time-aware**：當某筆 history row 沒有可用的 exact page icon 時，hydration 允許依序嘗試同 profile / 跨 profile 的同 host、同 registrable domain 已保存 icon；fallback 查詢必須只走 `favicons` 的 page / host / registrable-domain 索引，不得把 favicon bytes 拉進主列表查詢，也不得做全表掃描。只要 lookup 帶 visit time，所有候選 icon 的 `last_updated_ms` 都必須早於或等於該 visit time，避免網站多年後換 icon 時把舊訪問紀錄在讀取層刷成新 icon。
+- **Favicon domain fallback 必須是 lazy、indexed、time-aware**：當某筆 history row 沒有可用的 exact page icon 時，hydration 允許依序嘗試同 profile / 跨 profile 的同 host、同 registrable domain 已保存 icon；exact page lookup 必須維持快路徑，host / registrable-domain fallback 只能在 miss 後分級嘗試，每級都必須用 indexed `LIMIT 1` 先選出候選後才讀取 `favicon_blobs`。fallback 查詢必須只走 `favicons` 的 page / host / registrable-domain 索引，不得把 favicon bytes 拉進主列表查詢，也不得做全表掃描或把多級候選合成會擴大排序面的 monolithic SQL。只要 lookup 帶 visit time，所有候選 icon 的 `last_updated_ms` 都必須早於或等於該 visit time，避免網站多年後換 icon 時把舊訪問紀錄在讀取層刷成新 icon。
 - `WORK-M4-G` 已將 Explorer day-one keyword recall 收斂到 canonical `history_search` FTS5 projection，索引欄位為 URL、title 與 normalized search term；regex mode 仍維持 post-filter 邊界。
 
 ### 搜尋與篩選

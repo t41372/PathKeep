@@ -582,50 +582,67 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         "fts history query still scans the whole visits table: {plan:?}"
     );
 
-    let mut favicon_statement = connection
-        .prepare(&format!("EXPLAIN QUERY PLAN {}", super::history::LOAD_HISTORY_FAVICON_SQL))
-        .expect("prepare favicon query plan");
-    let favicon_plan = favicon_statement
-        .query_map(
-            params![
-                "chrome:Default",
-                "https://example.com/archive",
-                chrono::DateTime::parse_from_rfc3339("2026-04-05T12:00:00+00:00")
-                    .expect("query plan visit time")
-                    .timestamp_millis(),
-                "example.com",
-                "example.org",
-            ],
-            |row| row.get::<_, String>(3),
-        )
-        .expect("query favicon plan rows")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("collect favicon query plan");
-    assert!(
-        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_recall_lookup")),
-        "unexpected favicon query plan: {favicon_plan:?}"
+    let visit_time = chrono::DateTime::parse_from_rfc3339("2026-04-05T12:00:00+00:00")
+        .expect("query plan visit time")
+        .timestamp_millis();
+    fn assert_favicon_plan_uses<P: rusqlite::Params>(
+        connection: &Connection,
+        sql: &str,
+        expected_index: &str,
+        params: P,
+    ) {
+        let mut favicon_statement = connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .expect("prepare favicon query plan");
+        let favicon_plan = favicon_statement
+            .query_map(params, |row| row.get::<_, String>(3))
+            .expect("query favicon plan rows")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect favicon query plan");
+        assert!(
+            favicon_plan.iter().any(|detail| detail.contains(expected_index)),
+            "favicon query is not using {expected_index}: {favicon_plan:?}"
+        );
+        assert!(
+            !favicon_plan.iter().any(|detail| detail.contains("SCAN favicons")),
+            "favicon lookup still scans the whole table: {favicon_plan:?}"
+        );
+    }
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_SAME_PROFILE_PAGE_SQL,
+        "idx_favicons_recall_lookup",
+        params![1_i64, "https://example.com/archive", visit_time],
     );
-    assert!(
-        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_page_lookup")),
-        "favicon fallback query is not using the cross-profile page lookup index: {favicon_plan:?}"
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_CROSS_PROFILE_PAGE_SQL,
+        "idx_favicons_page_lookup",
+        params![1_i64, "https://example.com/archive", visit_time],
     );
-    assert!(
-        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_host_profile_lookup")),
-        "same-profile same-host fallback is not using the host lookup index: {favicon_plan:?}"
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_SAME_PROFILE_HOST_SQL,
+        "idx_favicons_host_profile_lookup",
+        params![1_i64, "example.com", "https://example.com/archive", visit_time],
     );
-    assert!(
-        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_host_lookup")),
-        "cross-profile same-host fallback is not using the host lookup index: {favicon_plan:?}"
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_CROSS_PROFILE_HOST_SQL,
+        "idx_favicons_host_lookup",
+        params![1_i64, "example.com", "https://example.com/archive", visit_time],
     );
-    assert!(
-        favicon_plan
-            .iter()
-            .any(|detail| detail.contains("idx_favicons_registrable_profile_lookup")),
-        "same-profile registrable-domain fallback is not using the registrable lookup index: {favicon_plan:?}"
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL,
+        "idx_favicons_registrable_profile_lookup",
+        params![1_i64, "example.org", "https://example.com/archive", visit_time],
     );
-    assert!(
-        !favicon_plan.iter().any(|detail| detail.contains("SCAN favicons")),
-        "favicon lookup still scans the whole table: {favicon_plan:?}"
+    assert_favicon_plan_uses(
+        &connection,
+        super::history::LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL,
+        "idx_favicons_registrable_lookup",
+        params![1_i64, "example.org", "https://example.com/archive", visit_time],
     );
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());

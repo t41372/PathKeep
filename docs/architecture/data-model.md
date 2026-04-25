@@ -93,7 +93,7 @@
   - 來源 schema 變更時
   - 每季 checkpoint
 - 記錄每次備份的瀏覽器版本、schema 指紋、profile metadata。
-- `favicons` 保存來源觀測到的 page-level favicon facts，包含 `page_url`、normalized `page_host`、`page_registrable_domain`、`last_updated_ms` 與去重後的 `image_blob_hash`；實際 icon bytes 由 `favicon_blobs` content-addressed 儲存去重。Explorer 只在 lazy hydration path 讀 favicon：不晚於 visit time 的 exact page icon 優先，其次才用 indexed host / registrable-domain fallback；這個 read-time fallback 不改寫 canonical visit 或舊 favicon fact，也不得在 archive open / schema bootstrap 時同步回填舊 favicon metadata。
+- `favicons` 保存來源觀測到的 page-level favicon facts，包含 `page_url`、normalized `page_host`、`page_registrable_domain`、`last_updated_ms` 與去重後的 `image_blob_hash`；實際 icon bytes 由 `favicon_blobs` content-addressed 儲存去重。Explorer 只在 lazy hydration path 讀 favicon：不晚於 visit time 的 exact page icon 優先，其次才用 indexed host / registrable-domain fallback；fallback 必須是 miss-only staged lookup，每級用 indexed `LIMIT 1` 先縮到單一候選後才讀 blob，不得合成會排序大量候選或提前 join blob 的 monolithic SQL。這個 read-time fallback 不改寫 canonical visit 或舊 favicon fact，也不得在 archive open / schema bootstrap 時同步回填舊 favicon metadata。
 
 ### Storage planes
 
