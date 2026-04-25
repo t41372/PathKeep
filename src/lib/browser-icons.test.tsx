@@ -23,6 +23,24 @@ import {
 } from './browser-icons'
 
 describe('browser icons', () => {
+  test('keeps packaged SVG icons free of embedded bitmap data URIs', () => {
+    const svgAssetSources: Record<string, string> = import.meta.glob(
+      '../assets/browser-icons/*.svg',
+      {
+        eager: true,
+        import: 'default',
+        query: '?raw',
+      },
+    )
+    const svgFiles = Object.entries(svgAssetSources)
+
+    expect(svgFiles.length).toBeGreaterThan(0)
+    for (const [, source] of svgFiles) {
+      expect(source).not.toContain('data:image')
+      expect(source.length).toBeLessThan(64 * 1024)
+    }
+  })
+
   test('maps every supported browser to a packaged icon and falls back safely', () => {
     expect(supportedBrowsers).toHaveLength(16)
     expect(new Set(supportedBrowsers.map((browser) => browser.name)).size).toBe(
