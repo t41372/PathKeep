@@ -23,8 +23,6 @@ import type {
 } from '../../lib/types'
 import {
   appendAiProviderDraft,
-  browserIcon,
-  browserIconClass,
   buildRetentionSelection,
   cloneAiSettings,
   localizeAiIntegrationPreview,
@@ -234,12 +232,6 @@ describe('settings helpers', () => {
       staging: false,
       snapshots: true,
     })
-  })
-
-  it('maps browser profile ids to stable glyphs and CSS classes', () => {
-    expect(browserIcon('chrome:Default')).toBe('C')
-    expect(browserIcon('edge:Default')).toBe('E')
-    expect(browserIconClass('safari:default')).toBe('browser-icon safari')
   })
 
   it('updates saved-secret state across both provider lists by provider id', () => {

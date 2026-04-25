@@ -4,7 +4,6 @@
  * @module pages/dashboard
  *
  * ## Responsibilities
- * - Verify browser badge helpers stay stable.
  * - Verify source summaries and stat cards keep the shipped wording and tone behavior.
  *
  * ## Not responsible for
@@ -20,8 +19,6 @@
 
 import { describe, expect, test } from 'vitest'
 import {
-  browserIconClass,
-  browserIconLetter,
   buildDashboardStats,
   buildDashboardStorageSegments,
   summarizeRunSources,
@@ -72,15 +69,6 @@ describe('dashboard helpers', () => {
       return 'Encrypted'
     return key
   }
-
-  test('maps browser profile ids to shipped icon classes and letters', () => {
-    expect(browserIconClass('chrome:Default')).toBe('chrome')
-    expect(browserIconClass('safari:Personal')).toBe('safari')
-    expect(browserIconClass('unknown:profile')).toBe('')
-    expect(browserIconLetter('firefox:Default')).toBe('F')
-    expect(browserIconLetter('arc:Work')).toBe('A')
-    expect(browserIconLetter('unknown:profile')).toBe('?')
-  })
 
   test('summarizeRunSources keeps the shipped source strip order', () => {
     expect(summarizeRunSources(['chrome:Default', 'takeout:Google'], t)).toBe(

@@ -14,9 +14,9 @@
  */
 
 import { browserRetentionMeta } from '../../lib/browser-retention'
+import { BrowserIcon } from '../../lib/browser-icons'
 import { useI18n } from '../../lib/i18n'
 import type { BrowserProfile } from '../../lib/types'
-import { browserIconClass, browserIconLetter } from './shared'
 
 export interface BrowserDetectionStepProps {
   browserProfiles: BrowserProfile[]
@@ -94,10 +94,8 @@ export function BrowserDetectionStep({
                   <div className={`checkbox ${selected ? 'active' : ''}`}>
                     {selected ? '✓' : ''}
                   </div>
-                  <div
-                    className={`browser-icon ${browserIconClass(profile.profileId)}`}
-                  >
-                    {browserIconLetter(profile.profileId)}
+                  <div className="browser-icon">
+                    <BrowserIcon browserName={profile.browserName} />
                   </div>
                   <div className="profile-info">
                     <div className="profile-name">

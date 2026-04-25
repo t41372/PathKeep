@@ -1,27 +1,50 @@
 /**
- * This module resolves browser names into the iconography used across onboarding, dashboard, and scoped review surfaces.
+ * @file browser-icons.tsx
+ * @description Resolves browser product names into bundled official browser icon assets.
+ * @module browser-icons
  *
- * Why this file exists:
- * - Files in `src/lib/` are where UI policy becomes testable without inflating every route component.
- * - If you are trying to understand a front-end contract quickly, these helpers usually explain the reusable part of the story.
+ * ## Responsibilities
+ * - Keep the supported browser name/key list aligned with adapter support docs.
+ * - Map browser names from backend discovery/import metadata to packaged icon assets.
+ * - Render accessible or decorative browser icons through one shared component.
  *
- * Main declarations:
- * - `supportedBrowsers`
- * - `browserIconKeyForName`
- * - `BrowserIcon`
+ * ## Not responsible for
+ * - Promoting an adapter into public-support copy.
+ * - Discovering browser profiles or deciding parser capability.
+ * - Rewriting vendor artwork.
  *
- * Source-of-truth notes:
- * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
- * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
+ * ## Dependencies
+ * - Depends on `docs/architecture/browser-support-and-adapter-playbook.md` for support taxonomy.
+ * - Depends on `src/assets/browser-icons/README.md` for asset provenance and refresh notes.
+ * - Depends on Vite static asset imports so icons are bundled with the desktop app.
+ *
+ * ## Performance notes
+ * - Icon lookup is a fixed-size map lookup; rendering uses small bundled assets and does not fetch remote media at runtime.
  */
 
-import type { ReactNode } from 'react'
+import arcIconUrl from '../assets/browser-icons/arc.png'
+import atlasIconUrl from '../assets/browser-icons/atlas.png'
+import braveIconUrl from '../assets/browser-icons/brave.svg'
+import chromeIconUrl from '../assets/browser-icons/chrome.png'
+import chromiumIconUrl from '../assets/browser-icons/chromium.png'
+import cometIconUrl from '../assets/browser-icons/comet.png'
+import edgeDevIconUrl from '../assets/browser-icons/edge-dev.png'
+import edgeIconUrl from '../assets/browser-icons/edge.png'
+import firefoxIconUrl from '../assets/browser-icons/firefox.svg'
+import floorpIconUrl from '../assets/browser-icons/floorp.svg'
+import librewolfIconUrl from '../assets/browser-icons/librewolf.svg'
+import operaGxIconUrl from '../assets/browser-icons/opera-gx.png'
+import operaIconUrl from '../assets/browser-icons/opera.png'
+import safariIconUrl from '../assets/browser-icons/safari.png'
+import vivaldiIconUrl from '../assets/browser-icons/vivaldi.png'
+import waterfoxIconUrl from '../assets/browser-icons/waterfox.png'
 
 /* eslint-disable react-refresh/only-export-components */
 /**
- * Defines the type-level contract for browser icon key.
+ * Defines the stable browser icon keys shared by support docs, tests, and UI surfaces.
  *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * Unknown browser names intentionally fall back to `generic` so imported archives
+ * from future adapters do not break route rendering.
  */
 type BrowserIconKey =
   | 'arc'
@@ -41,6 +64,8 @@ type BrowserIconKey =
   | 'safari'
   | 'vivaldi'
   | 'waterfox'
+
+type PackagedBrowserIconKey = Exclude<BrowserIconKey, 'generic'>
 
 export const supportedBrowsers = [
   { key: 'chrome', name: 'Google Chrome' },
@@ -65,19 +90,54 @@ const browserIconKeyByName = new Map<string, BrowserIconKey>(
   supportedBrowsers.map((browser) => [browser.name, browser.key]),
 )
 
+const browserIconAssetByKey = {
+  arc: arcIconUrl,
+  atlas: atlasIconUrl,
+  brave: braveIconUrl,
+  chrome: chromeIconUrl,
+  chromium: chromiumIconUrl,
+  comet: cometIconUrl,
+  edge: edgeIconUrl,
+  'edge-dev': edgeDevIconUrl,
+  firefox: firefoxIconUrl,
+  floorp: floorpIconUrl,
+  librewolf: librewolfIconUrl,
+  opera: operaIconUrl,
+  'opera-gx': operaGxIconUrl,
+  safari: safariIconUrl,
+  vivaldi: vivaldiIconUrl,
+  waterfox: waterfoxIconUrl,
+} as const satisfies Record<PackagedBrowserIconKey, string>
+
 /**
- * Explains how browser icon key for name works.
+ * Resolves backend browser display names to stable icon keys.
  *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * @param browserName Browser product display name from discovery/import metadata.
+ * @returns The icon key if the browser is covered by the packaged support list, otherwise `generic`.
  */
 export function browserIconKeyForName(browserName: string): BrowserIconKey {
   return browserIconKeyByName.get(browserName) ?? 'generic'
 }
 
 /**
- * Defines the type-level contract for browser icon props.
+ * Returns the bundled official icon asset for a supported browser name.
  *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * The helper keeps tests and UI call sites focused on package coverage instead
+ * of depending on Vite's hashed runtime asset URL details.
+ *
+ * @param browserName Browser product display name from discovery/import metadata.
+ * @returns A packaged asset URL for supported browsers, or `null` for unknown browser names.
+ */
+export function browserIconAssetForName(browserName: string): string | null {
+  const key = browserIconKeyForName(browserName)
+  return key === 'generic' ? null : browserIconAssetByKey[key]
+}
+
+/**
+ * Defines how call sites request browser icon rendering.
+ *
+ * `decorative` is used when adjacent text already names the browser, avoiding a
+ * repeated accessible name in profile rows.
  */
 type BrowserIconProps = {
   browserName: string
@@ -87,9 +147,9 @@ type BrowserIconProps = {
 }
 
 /**
- * Explains how browser icon works.
+ * Renders a bundled official browser icon while preserving a neutral unknown-browser fallback.
  *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
+ * @returns An image for supported browsers, or a small generic SVG when the browser name is unknown.
  */
 export function BrowserIcon({
   browserName,
@@ -97,295 +157,45 @@ export function BrowserIcon({
   decorative = false,
   title,
 }: BrowserIconProps) {
-  const key = browserIconKeyForName(browserName)
+  const assetUrl = browserIconAssetForName(browserName)
   const accessibilityProps = decorative
-    ? { 'aria-hidden': true }
+    ? { alt: '', 'aria-hidden': true }
     : {
-        role: 'img' as const,
-        'aria-label': title ?? `${browserName} icon`,
+        alt: title ?? `${browserName} icon`,
       }
+  const iconClassName = ['browserIcon', className].filter(Boolean).join(' ')
+
+  if (assetUrl) {
+    return (
+      <img
+        className={iconClassName}
+        src={assetUrl}
+        decoding="async"
+        draggable={false}
+        {...accessibilityProps}
+      />
+    )
+  }
 
   return (
     <svg
       viewBox="0 0 24 24"
-      className={['browserIcon', className].filter(Boolean).join(' ')}
-      {...accessibilityProps}
+      className={iconClassName}
+      {...(decorative
+        ? { 'aria-hidden': true }
+        : {
+            role: 'img' as const,
+            'aria-label': title ?? `${browserName} icon`,
+          })}
     >
-      {renderBrowserIcon(key)}
+      <circle cx="12" cy="12" r="9.5" fill="#334155" />
+      <path
+        d="M4.5 12h15M12 4.5a11 11 0 0 1 0 15M12 4.5a11 11 0 0 0 0 15"
+        fill="none"
+        stroke="#e2e8f0"
+        strokeLinecap="round"
+        strokeWidth="1.2"
+      />
     </svg>
   )
-}
-
-/**
- * Explains how render browser icon works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
- */
-function renderBrowserIcon(key: BrowserIconKey): ReactNode {
-  switch (key) {
-    case 'chrome':
-      return (
-        <>
-          <path d="M12 2a10 10 0 0 1 8.66 5H12Z" fill="#db4437" />
-          <path d="M20.66 7A10 10 0 0 1 11.65 22l4.42-7.67Z" fill="#0f9d58" />
-          <path d="M11.65 22A10 10 0 0 1 12 2l4.83 8.38Z" fill="#f4b400" />
-          <circle
-            cx="12"
-            cy="12"
-            r="4.6"
-            fill="#4285f4"
-            stroke="#fff"
-            strokeWidth="1.1"
-          />
-        </>
-      )
-    case 'chromium':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#174ea6" />
-          <circle cx="12" cy="12" r="6.3" fill="#5b9cf6" />
-          <circle cx="12" cy="12" r="3.5" fill="#dce9ff" />
-        </>
-      )
-    case 'edge':
-      return (
-        <>
-          <path
-            d="M20 15.5A8 8 0 0 1 4.6 18c.8-2.9 3.5-5.2 7.3-5.2 2.2 0 4.2.8 5.9 2.7-.6-3.1-2.9-5.7-6.6-5.7-3.6 0-6.1 2.2-7.1 4.6A8 8 0 0 1 20 15.5Z"
-            fill="#0ea5e9"
-          />
-          <path
-            d="M19.7 15.4c-1.7 2.6-4.4 4.1-7.5 4.1-2.7 0-5-1-6.9-2.8.8 0 1.5-.1 2.3-.1 5.3 0 8.8-2.1 10.8-6.7 1.1 1.3 1.6 3 1.3 5.5Z"
-            fill="#10b981"
-          />
-        </>
-      )
-    case 'edge-dev':
-      return (
-        <>
-          {renderBrowserIcon('edge')}
-          <circle cx="18.7" cy="5.3" r="2.4" fill="#7c3aed" />
-          <path
-            d="M17.4 5.3h2.6M18.7 4v2.6"
-            stroke="#fff"
-            strokeWidth="1"
-            strokeLinecap="round"
-          />
-        </>
-      )
-    case 'brave':
-      return (
-        <>
-          <path
-            d="M12 2.6 18.5 5l1.2 5.1-2.2 8L12 21.4 6.5 18.1l-2.2-8L5.5 5Z"
-            fill="#f97316"
-          />
-          <text
-            x="12"
-            y="15"
-            textAnchor="middle"
-            fontSize="8.5"
-            fontWeight="800"
-            fill="#fff"
-          >
-            B
-          </text>
-        </>
-      )
-    case 'vivaldi':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#ef4444" />
-          <path
-            d="M8 7.2 12 16l4-8.8"
-            fill="none"
-            stroke="#fff"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2.2"
-          />
-        </>
-      )
-    case 'arc':
-      return (
-        <>
-          <rect
-            x="2.5"
-            y="2.5"
-            width="19"
-            height="19"
-            rx="5.2"
-            fill="#111827"
-          />
-          <path
-            d="M7 15.8a5.4 5.4 0 0 1 10 0"
-            fill="none"
-            stroke="#fff"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
-          <path
-            d="M9.2 13.8a3.1 3.1 0 0 1 5.6 0"
-            fill="none"
-            stroke="#9ca3af"
-            strokeLinecap="round"
-            strokeWidth="1.6"
-          />
-        </>
-      )
-    case 'atlas':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#111827" />
-          <path
-            d="M12 5.2c3.5 0 5.9 2.4 5.9 5.6 0 4.1-3.3 7-7.3 7-2.6 0-4.6-1.4-4.6-3.6 0-2.6 2.5-4.2 5.7-4.2h2.1"
-            fill="none"
-            stroke="#f8fafc"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.7"
-          />
-          <path
-            d="M13.8 10c2.5.1 4.2 1.5 4.2 3.7 0 2.9-2.6 5.1-5.9 5.1-3.5 0-6-2.4-6-5.6 0-4.1 3.3-7 7.3-7 2.4 0 4.3 1.2 4.6 3"
-            fill="none"
-            stroke="#10a37f"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="1.7"
-          />
-        </>
-      )
-    case 'comet':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#101828" />
-          <path
-            d="M7.2 7.4h4.8c2.8 0 4.8 1.8 4.8 4.4s-2 4.4-4.8 4.4H7.2Z"
-            fill="none"
-            stroke="#20d3c2"
-            strokeLinejoin="round"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M11.9 7.4v9M7.2 11.8h9.4M12.2 16.2l4.3 3.2"
-            stroke="#f8fafc"
-            strokeLinecap="round"
-            strokeWidth="1.6"
-          />
-        </>
-      )
-    case 'opera':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.3" fill="#ef4444" />
-          <ellipse cx="12" cy="12" rx="4.5" ry="6.7" fill="#fff" />
-          <ellipse cx="12" cy="12" rx="2.8" ry="5" fill="#ef4444" />
-        </>
-      )
-    case 'opera-gx':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.3" fill="#ec4899" />
-          <ellipse cx="12" cy="12" rx="4.6" ry="6.8" fill="#111827" />
-          <ellipse cx="12" cy="12" rx="3.2" ry="5.2" fill="#ec4899" />
-          <path
-            d="M8.6 16.5 15.9 7.5"
-            stroke="#fff"
-            strokeLinecap="round"
-            strokeWidth="1.3"
-          />
-        </>
-      )
-    case 'firefox':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#7c3aed" />
-          <path
-            d="M18 8.5c-1-2.1-3-3.7-5.8-3.7-3.7 0-6.6 3-6.6 6.7 0 3.8 3 6.7 6.9 6.7 3.5 0 6.1-2.4 6.4-5.6-.7.6-1.7 1-2.8 1-.4-2.1-1.4-3.9-3-5.2.1-.5.6-1.1 1.3-1.6.8-.5 1.8-.8 3.6-.3Z"
-            fill="#f59e0b"
-          />
-          <path
-            d="M9 17.7c1.1-.3 2-.9 2.8-1.8-1.9-.3-3.3-1.7-3.3-3.6 0-1.5 1-2.8 2.3-3.4-.2 3.1 1.1 5.5 4.2 6.9-.6 1.2-2.2 2.1-4 2.1-.7 0-1.3-.1-2-.2Z"
-            fill="#fb7185"
-          />
-        </>
-      )
-    case 'librewolf':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#2563eb" />
-          <path
-            d="M6.8 15.7c2-.8 3.6-2.5 4.5-4.7 1.5 1.8 3.4 2.9 5.9 3.3-1 2-3.1 3.4-5.6 3.4-1.8 0-3.5-.7-4.8-2Z"
-            fill="#e5f1ff"
-          />
-          <path d="M9.2 6.5 8 9.1l2.5-.7Z" fill="#c7d2fe" />
-        </>
-      )
-    case 'floorp':
-      return (
-        <>
-          <rect
-            x="2.5"
-            y="2.5"
-            width="19"
-            height="19"
-            rx="5.5"
-            fill="#0f172a"
-          />
-          <path
-            d="M6.2 9.2h11.6M6.2 12h8.8M6.2 14.8h10.2"
-            stroke="#38bdf8"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
-        </>
-      )
-    case 'waterfox':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#0f766e" />
-          <path
-            d="M6.6 7.4 8.5 16.5l3.5-5 3.5 5 1.9-9.1"
-            fill="none"
-            stroke="#fff"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-          />
-        </>
-      )
-    case 'safari':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#e0f2fe" />
-          <circle
-            cx="12"
-            cy="12"
-            r="7.2"
-            fill="#f8fafc"
-            stroke="#0ea5e9"
-            strokeWidth="1.4"
-          />
-          <path d="M12 6.2 14.8 12 12 17.8 9.2 12Z" fill="#ef4444" />
-          <path
-            d="M12 17.8 9.2 12 12 6.2 14.8 12Z"
-            fill="#0f172a"
-            opacity="0.72"
-          />
-        </>
-      )
-    case 'generic':
-      return (
-        <>
-          <circle cx="12" cy="12" r="9.5" fill="#334155" />
-          <path
-            d="M4.5 12h15M12 4.5a11 11 0 0 1 0 15M12 4.5a11 11 0 0 0 0 15"
-            fill="none"
-            stroke="#e2e8f0"
-            strokeLinecap="round"
-            strokeWidth="1.2"
-          />
-        </>
-      )
-  }
 }

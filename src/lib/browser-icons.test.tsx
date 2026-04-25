@@ -17,6 +17,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import {
   BrowserIcon,
+  browserIconAssetForName,
   browserIconKeyForName,
   supportedBrowsers,
 } from './browser-icons'
@@ -33,6 +34,10 @@ describe('browser icons', () => {
     expect(browserIconKeyForName('Microsoft Edge Dev')).toBe('edge-dev')
     expect(browserIconKeyForName('Safari')).toBe('safari')
     expect(browserIconKeyForName('Unknown Browser')).toBe('generic')
+    for (const browser of supportedBrowsers) {
+      expect(browserIconAssetForName(browser.name)).toBeTruthy()
+    }
+    expect(browserIconAssetForName('Unknown Browser')).toBeNull()
 
     const { container } = render(
       <>
@@ -50,9 +55,10 @@ describe('browser icons', () => {
       </>,
     )
 
-    expect(container.querySelectorAll('svg')).toHaveLength(
-      supportedBrowsers.length + 1,
+    expect(container.querySelectorAll('img.browserIcon')).toHaveLength(
+      supportedBrowsers.length,
     )
+    expect(container.querySelectorAll('svg.browserIcon')).toHaveLength(1)
     expect(
       screen.getByRole('img', { name: 'Google Chrome icon' }),
     ).toBeInTheDocument()
@@ -79,6 +85,9 @@ describe('browser icons', () => {
       screen.queryByRole('img', { name: 'Firefox icon' }),
     ).not.toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Arc icon' })).toBeInTheDocument()
-    expect(container.querySelectorAll('svg')).toHaveLength(2)
+    expect(container.querySelectorAll('.browserIcon')).toHaveLength(2)
+    expect(container.querySelector('img[aria-hidden="true"][alt=""]')).toBe(
+      container.querySelector('img.browserIcon'),
+    )
   })
 })

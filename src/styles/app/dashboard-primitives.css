@@ -44,6 +44,16 @@
   overflow: visible;
 }
 
+.browserIcon {
+  width: 24px;
+  height: 24px;
+  display: inline-block;
+  flex-shrink: 0;
+  object-fit: contain;
+  vertical-align: middle;
+  user-select: none;
+}
+
 .panel-header-icon {
   font-size: 14px;
   line-height: 1;

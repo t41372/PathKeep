@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom'
 import { BrowsingRhythmCard } from '../../components/intelligence/browsing-rhythm-card'
 import { Skeleton } from '../../components/primitives/skeleton'
 import { browserRetentionMeta } from '../../lib/browser-retention'
+import { BrowserIcon } from '../../lib/browser-icons'
 import {
   dayInsightsHref,
   domainDayInsightsHref,
@@ -33,7 +34,6 @@ import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import { runStatusKey, runTypeKey } from '../../lib/trust-review'
 import type { DashboardStatItem, DashboardStorageSegment } from './helpers'
-import { browserIconClass, browserIconLetter } from './helpers'
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
 
@@ -162,8 +162,8 @@ export function DashboardArchiveBoundaryPanel({
 
     return (
       <div key={profile.profileId} className="otd-item">
-        <div className={`browser-icon ${browserIconClass(profile.profileId)}`}>
-          {browserIconLetter(profile.profileId)}
+        <div className="browser-icon">
+          <BrowserIcon browserName={profile.browserName} />
         </div>
         <div style={{ minWidth: 0 }}>
           <div className="otd-title">

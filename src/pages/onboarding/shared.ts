@@ -5,7 +5,7 @@
  *
  * ## 職責
  * - 提供 onboarding step keys、security draft 型別、與小型 pure helpers。
- * - 讓多個 step renderer 共用 browser icon 與 schedule manual-step localization 規則。
+ * - 讓多個 step renderer 共用 schedule manual-step localization 規則。
  * - 保持 onboarding step modules 不必各自複製同一組字面值。
  *
  * ## 不負責
@@ -49,28 +49,6 @@ export interface SecurityDraftState {
 }
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string
-
-/**
- * Maps a browser profile ID to the CSS modifier used by onboarding browser cards.
- */
-export function browserIconClass(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'chrome'
-  if (profileId.startsWith('arc:')) return 'arc'
-  if (profileId.startsWith('firefox:')) return 'firefox'
-  if (profileId.startsWith('safari:')) return 'safari'
-  return ''
-}
-
-/**
- * Maps a browser profile ID to the single-letter fallback glyph used by onboarding.
- */
-export function browserIconLetter(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'C'
-  if (profileId.startsWith('arc:')) return 'A'
-  if (profileId.startsWith('firefox:')) return 'F'
-  if (profileId.startsWith('safari:')) return 'S'
-  return '?'
-}
 
 /**
  * Localizes the platform badge shown in the schedule preview step.

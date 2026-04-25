@@ -3,15 +3,13 @@
  *
  * Why this file exists:
  * - These helpers are easy to unit-test in isolation and make the giant Settings route read more like workflow code than like a pile of micro-utilities.
- * - The functions here mostly deal with cloning, comparison, icon labeling, and retention-selection defaults that multiple Settings actions rely on.
+ * - The functions here mostly deal with cloning, comparison, and retention-selection defaults that multiple Settings actions rely on.
  *
  * Main declarations:
  * - `cloneAiProviderConfig`
  * - `cloneAiSettings`
  * - `serializeAiSettings`
  * - `buildRetentionSelection`
- * - `browserIcon`
- * - `browserIconClass`
  *
  * Source-of-truth notes:
  * - Settings is the control tower route described in `docs/design/screens-and-nav.md`, so even small helpers should preserve review-first, explicit behavior.
@@ -361,30 +359,6 @@ export function makeDefaultAiProviderDraft(
     dimensions: purpose === 'embedding' ? 1536 : null,
     notes: null,
   }
-}
-
-/**
- * Resolves the small browser glyph treatment used by the Settings profile review list.
- *
- * This helper is intentionally pure so the Settings route can reuse it without dragging more hidden behavior into an already large page component.
- */
-export function browserIcon(profileId: string): string {
-  const kind = profileId.split(':')[0]
-  if (kind === 'chrome') return 'C'
-  if (kind === 'arc') return 'A'
-  if (kind === 'firefox') return 'F'
-  if (kind === 'safari') return 'S'
-  return kind[0]?.toUpperCase() ?? '?'
-}
-
-/**
- * Resolves the small browser glyph treatment used by the Settings profile review list.
- *
- * This helper is intentionally pure so the Settings route can reuse it without dragging more hidden behavior into an already large page component.
- */
-export function browserIconClass(profileId: string): string {
-  const kind = profileId.split(':')[0]
-  return `browser-icon ${kind}`
 }
 
 /**

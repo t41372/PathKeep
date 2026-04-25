@@ -4,7 +4,7 @@
  * @module pages/dashboard
  *
  * ## Responsibilities
- * - Keep icon, stats, and source-summary derivations deterministic and easy to test.
+ * - Keep stats and source-summary derivations deterministic and easy to test.
  * - Define the small view-model shapes reused by split dashboard panels.
  *
  * ## Not responsible for
@@ -57,28 +57,6 @@ export function isBackupReadyProfile(profile: {
   historyExists: boolean
 }) {
   return profile.historyExists
-}
-
-/**
- * Maps one browser profile id to the dashboard's CSS icon family.
- */
-export function browserIconClass(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'chrome'
-  if (profileId.startsWith('arc:')) return 'arc'
-  if (profileId.startsWith('firefox:')) return 'firefox'
-  if (profileId.startsWith('safari:')) return 'safari'
-  return ''
-}
-
-/**
- * Maps one browser profile id to the dashboard's single-letter fallback glyph.
- */
-export function browserIconLetter(profileId: string) {
-  if (profileId.startsWith('chrome:')) return 'C'
-  if (profileId.startsWith('arc:')) return 'A'
-  if (profileId.startsWith('firefox:')) return 'F'
-  if (profileId.startsWith('safari:')) return 'S'
-  return '?'
 }
 
 /**
