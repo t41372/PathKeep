@@ -41,10 +41,13 @@ import {
   formatTakeoutPreviewRange,
   groupTakeoutFileReports,
   hasTakeoutReasonCode,
+  importProgressValue,
   type ImportMethod,
   type ImportWizardStepDefinition,
+  localizedImportNoteSummary,
   localizedImportProgressDetail,
   localizedImportProgressLabel,
+  localizedImportProgressLogLines,
   takeoutFileGroupBodyKey,
   takeoutFileGroupTitleKey,
   takeoutFileKindLabel,
@@ -128,6 +131,7 @@ export function ImportWizardPanel({
     previewFiles,
     'known-but-ignored',
   )
+  const expectedImportRecords = inspection?.candidateItems ?? null
   const hasChromeMyActivityJson = hasTakeoutReasonCode(
     previewFiles,
     'chrome-my-activity-json',
@@ -366,9 +370,13 @@ export function ImportWizardPanel({
 
               {inspection.notes.length > 0 && (
                 <div className="inline-note-list dim">
-                  {inspection.notes.map((note) => (
-                    <div key={note}>{note}</div>
-                  ))}
+                  <div>
+                    {localizedImportNoteSummary(
+                      inspection.notes.length,
+                      t,
+                      language,
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -448,7 +456,14 @@ export function ImportWizardPanel({
                 label={t('import.importingTitle')}
                 detail={
                   importProgress
-                    ? localizedImportProgressDetail(importProgress, t, language)
+                    ? localizedImportProgressDetail(
+                        importProgress,
+                        t,
+                        language,
+                        {
+                          expectedRecords: expectedImportRecords,
+                        },
+                      )
                     : t('import.importingProgressDetail', {
                         records: (
                           inspection?.candidateItems ?? 0
@@ -460,21 +475,31 @@ export function ImportWizardPanel({
                 }
                 logLines={
                   importProgress
-                    ? [
-                        localizedImportProgressDetail(
-                          importProgress,
-                          t,
-                          language,
-                        ),
-                      ]
+                    ? localizedImportProgressLogLines(
+                        importProgress,
+                        t,
+                        language,
+                        {
+                          expectedRecords: expectedImportRecords,
+                        },
+                      )
                     : []
                 }
                 progressLabel={
                   importProgress
-                    ? localizedImportProgressLabel(importProgress, t, language)
+                    ? localizedImportProgressLabel(
+                        importProgress,
+                        t,
+                        language,
+                        {
+                          expectedRecords: expectedImportRecords,
+                        },
+                      )
                     : `4 / ${wizardSteps.length.toLocaleString(language)}`
                 }
-                progressValue={importProgress?.progressPercent ?? null}
+                progressValue={importProgressValue(importProgress, {
+                  expectedRecords: expectedImportRecords,
+                })}
                 steps={wizardSteps
                   .slice(2)
                   .map((wizardStep) => wizardStep.label)}

@@ -6,7 +6,8 @@ use crate::{
     config::ensure_paths,
     models::BrowserHistoryImportRequest,
     takeout::{
-        import_browser_history, inspect_browser_history, restore_import_batch, revert_import_batch,
+        import_browser_history, import_browser_history_with_progress, inspect_browser_history,
+        restore_import_batch, revert_import_batch,
     },
 };
 use rusqlite::{Connection, params};
@@ -274,6 +275,36 @@ fn import_browser_history_accepts_chromium_history_database() {
         .expect("fts chrome match count");
     assert_eq!(search_documents, 1);
     assert_eq!(chrome_matches, 1);
+}
+
+#[test]
+fn import_browser_history_progress_reports_record_batches() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_chromium_history_db(dir.path());
+    let request = browser_history_request(&source, false, "chromium", "chrome:Primary");
+    let mut events = Vec::new();
+    let inspection =
+        import_browser_history_with_progress(&paths, &config, None, &request, |event| {
+            events.push(event)
+        })
+        .expect("import chromium with progress");
+
+    assert_eq!(inspection.imported_items, 1);
+    let record_event = events
+        .iter()
+        .find(|event| event.phase == "import-file" && event.processed_records == Some(1))
+        .expect("browser-direct record progress event");
+    assert_eq!(record_event.total_records, None);
+    assert_eq!(record_event.imported_records, Some(1));
+    assert_eq!(record_event.duplicate_records, Some(0));
+    assert_eq!(record_event.source_label.as_deref(), Some("Google Chrome / Primary"));
 }
 
 #[test]

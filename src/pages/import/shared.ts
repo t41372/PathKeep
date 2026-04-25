@@ -239,23 +239,43 @@ export function localizedImportProgressDetail(
   progress: ImportProgressEvent,
   t: (key: string, vars?: Record<string, string | number>) => string,
   language: string,
+  options: { expectedRecords?: number | null } = {},
 ) {
+  const source = progress.sourceLabel ?? progress.sourcePath ?? ''
+  const processedRecords = normalizedOptionalCount(progress.processedRecords)
+  const totalRecords =
+    normalizedOptionalCount(progress.totalRecords) ??
+    normalizedOptionalCount(options.expectedRecords)
+
   switch (progress.phase) {
     case 'prepare':
       return t('import.importProgressPrepareDetail', {
         files: progress.total.toLocaleString(language),
       })
     case 'import-file':
+      if (processedRecords !== null) {
+        return totalRecords !== null
+          ? t('import.importProgressRecordDetail', {
+              processed: processedRecords.toLocaleString(language),
+              total: totalRecords.toLocaleString(language),
+              source,
+            })
+          : t('import.importProgressRecordActiveDetail', {
+              processed: processedRecords.toLocaleString(language),
+              source,
+            })
+      }
+
       return progress.progressPercent === null
         ? t('import.importProgressImportActiveDetail', {
             current: progress.current.toLocaleString(language),
             total: progress.total.toLocaleString(language),
-            source: progress.sourcePath ?? '',
+            source,
           })
         : t('import.importProgressImportDetail', {
             current: progress.current.toLocaleString(language),
             total: progress.total.toLocaleString(language),
-            source: progress.sourcePath ?? '',
+            source,
           })
     case 'finalize':
       return t('import.importProgressFinalizeDetail')
@@ -270,7 +290,24 @@ export function localizedImportProgressLabel(
   progress: ImportProgressEvent,
   t: (key: string, vars?: Record<string, string | number>) => string,
   language: string,
+  options: { expectedRecords?: number | null } = {},
 ) {
+  const processedRecords = normalizedOptionalCount(progress.processedRecords)
+  const totalRecords =
+    normalizedOptionalCount(progress.totalRecords) ??
+    normalizedOptionalCount(options.expectedRecords)
+
+  if (processedRecords !== null) {
+    return totalRecords !== null
+      ? t('import.importProgressRecordLabel', {
+          processed: processedRecords.toLocaleString(language),
+          total: totalRecords.toLocaleString(language),
+        })
+      : t('import.importProgressRecordActiveLabel', {
+          processed: processedRecords.toLocaleString(language),
+        })
+  }
+
   if (progress.phase === 'import-file' && progress.progressPercent === null) {
     return t('import.importProgressActiveLabel', {
       current: progress.current.toLocaleString(language),
@@ -279,6 +316,80 @@ export function localizedImportProgressLabel(
   }
 
   return `${progress.current.toLocaleString(language)} / ${progress.total.toLocaleString(language)}`
+}
+
+export function localizedImportProgressLogLines(
+  progress: ImportProgressEvent,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+  options: { expectedRecords?: number | null } = {},
+) {
+  const lines = [localizedImportProgressDetail(progress, t, language, options)]
+  const importedRecords = normalizedOptionalCount(progress.importedRecords)
+  const duplicateRecords = normalizedOptionalCount(progress.duplicateRecords)
+  const skippedRecords = normalizedOptionalCount(progress.skippedRecords)
+
+  if (importedRecords !== null || duplicateRecords !== null) {
+    lines.push(
+      t('import.importProgressRecordStats', {
+        imported: (importedRecords ?? 0).toLocaleString(language),
+        duplicates: (duplicateRecords ?? 0).toLocaleString(language),
+      }),
+    )
+  }
+
+  if (skippedRecords !== null && skippedRecords > 0) {
+    lines.push(
+      t('import.importProgressSkippedRecords', {
+        count: skippedRecords.toLocaleString(language),
+      }),
+    )
+  }
+
+  return lines
+}
+
+export function importProgressValue(
+  progress: ImportProgressEvent | null,
+  options: { expectedRecords?: number | null } = {},
+) {
+  if (!progress) {
+    return null
+  }
+
+  if (
+    progress.progressPercent !== null &&
+    progress.progressPercent !== undefined
+  ) {
+    return progress.progressPercent
+  }
+
+  const processedRecords = normalizedOptionalCount(progress.processedRecords)
+  const totalRecords =
+    normalizedOptionalCount(progress.totalRecords) ??
+    normalizedOptionalCount(options.expectedRecords)
+
+  if (processedRecords === null || totalRecords === null) {
+    return null
+  }
+
+  return Math.min(100, (processedRecords / totalRecords) * 100)
+}
+
+export function localizedImportNoteSummary(
+  noteCount: number,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+) {
+  return t('import.technicalNotesRecorded', {
+    count: noteCount.toLocaleString(language),
+  })
+}
+
+function normalizedOptionalCount(value: number | null | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null
 }
 
 export function groupTakeoutFileReports(

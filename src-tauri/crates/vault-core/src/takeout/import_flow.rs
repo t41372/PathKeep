@@ -21,7 +21,8 @@
 //!   is never half-written if source-evidence persistence fails.
 
 use super::payload_import::{
-    import_supported_payload, persist_takeout_source_evidence_plans, upsert_takeout_profile,
+    TakeoutPayloadImportContext, TakeoutPayloadProgress, import_supported_payload_with_progress,
+    persist_takeout_source_evidence_plans, upsert_takeout_profile,
 };
 use super::{batches, inspect, *};
 
@@ -168,15 +169,49 @@ where
             } else {
                 fs::read(&file.path)?
             };
-            let file_stats = match import_supported_payload(
-                paths,
-                &transaction,
-                run_id,
-                batch_id,
-                source_profile_id,
+            let mut last_processed_records = 0usize;
+            let source_label = file.path.clone();
+            let file_stats = match import_supported_payload_with_progress(
+                TakeoutPayloadImportContext {
+                    paths,
+                    archive: &transaction,
+                    run_id,
+                    batch_id,
+                    source_profile_id,
+                },
                 classified_file,
                 kind,
                 &bytes,
+                Some(Box::new(|progress: TakeoutPayloadProgress| {
+                    if progress.processed_records == last_processed_records {
+                        return;
+                    }
+                    last_processed_records = progress.processed_records;
+                    emit_import_progress_with_records(
+                        &mut report_progress,
+                        ImportProgressEventInput {
+                            phase: "import-file",
+                            detail: format!(
+                                "Processing {} ({imported_file_count}/{})",
+                                source_label,
+                                planned_files.max(1)
+                            ),
+                            current: imported_file_count,
+                            total: planned_files.max(1),
+                            progress_percent: None,
+                            source_path: Some(source_label.clone()),
+                            log_lines: &progress_log_lines,
+                            record_state: ImportProgressRecordState {
+                                source_label: Some(source_label.clone()),
+                                processed_records: Some(progress.processed_records),
+                                total_records: None,
+                                imported_records: Some(progress.imported_records),
+                                duplicate_records: Some(progress.duplicate_records),
+                                skipped_records: Some(progress.skipped_records),
+                            },
+                        },
+                    );
+                })),
             ) {
                 Ok(file_stats) => file_stats,
                 Err(error) => {
@@ -316,6 +351,27 @@ where
     Ok(inspection)
 }
 
+#[derive(Default)]
+struct ImportProgressRecordState {
+    source_label: Option<String>,
+    processed_records: Option<usize>,
+    total_records: Option<usize>,
+    imported_records: Option<usize>,
+    duplicate_records: Option<usize>,
+    skipped_records: Option<usize>,
+}
+
+struct ImportProgressEventInput<'a> {
+    phase: &'a str,
+    detail: String,
+    current: usize,
+    total: usize,
+    progress_percent: Option<f32>,
+    source_path: Option<String>,
+    log_lines: &'a [String],
+    record_state: ImportProgressRecordState,
+}
+
 /// Emits one shell-facing import progress event with a bounded recent log window.
 fn emit_import_progress(
     report_progress: &mut impl FnMut(ImportProgressEvent),
@@ -327,6 +383,35 @@ fn emit_import_progress(
     source_path: Option<String>,
     log_lines: &[String],
 ) {
+    emit_import_progress_with_records(
+        report_progress,
+        ImportProgressEventInput {
+            phase,
+            detail,
+            current,
+            total,
+            progress_percent,
+            source_path,
+            log_lines,
+            record_state: ImportProgressRecordState::default(),
+        },
+    );
+}
+
+fn emit_import_progress_with_records(
+    report_progress: &mut impl FnMut(ImportProgressEvent),
+    input: ImportProgressEventInput<'_>,
+) {
+    let ImportProgressEventInput {
+        phase,
+        detail,
+        current,
+        total,
+        progress_percent,
+        source_path,
+        log_lines,
+        record_state,
+    } = input;
     report_progress(ImportProgressEvent {
         phase: phase.to_string(),
         label: progress_label_for_phase(phase).to_string(),
@@ -344,6 +429,12 @@ fn emit_import_progress(
             .rev()
             .collect(),
         source_path,
+        source_label: record_state.source_label,
+        processed_records: record_state.processed_records,
+        total_records: record_state.total_records,
+        imported_records: record_state.imported_records,
+        duplicate_records: record_state.duplicate_records,
+        skipped_records: record_state.skipped_records,
     });
 }
 

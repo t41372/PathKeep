@@ -594,6 +594,14 @@ fn takeout_import_progress_marks_active_single_file_work_as_indeterminate() {
     assert_eq!(active.total, 1);
     assert_eq!(active.source_path.as_deref(), Some(source.to_string_lossy().as_ref()));
     assert!(active.detail.contains("(1/1)"));
+    let record_event = events
+        .iter()
+        .find(|event| event.phase == "import-file" && event.processed_records == Some(2))
+        .expect("record progress event");
+    assert_eq!(record_event.progress_percent, None);
+    assert_eq!(record_event.total_records, None);
+    assert_eq!(record_event.imported_records, Some(2));
+    assert_eq!(record_event.duplicate_records, Some(0));
 
     let complete =
         events.iter().rev().find(|event| event.phase == "complete").expect("complete event");

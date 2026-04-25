@@ -36,6 +36,23 @@ use browser_history_parser::{
 
 const TAKEOUT_IMPORT_STREAM_CHUNK_SIZE: usize = 10_000;
 
+/// Record-level progress emitted by one streaming Takeout payload import.
+pub(super) struct TakeoutPayloadProgress {
+    pub processed_records: usize,
+    pub imported_records: usize,
+    pub duplicate_records: usize,
+    pub skipped_records: usize,
+}
+
+/// Stable archive context shared by one streamed Takeout payload import.
+pub(super) struct TakeoutPayloadImportContext<'a> {
+    pub paths: &'a ProjectPaths,
+    pub archive: &'a Transaction<'a>,
+    pub run_id: i64,
+    pub batch_id: i64,
+    pub source_profile_id: i64,
+}
+
 /// Streams canonical Takeout URL/visit rows straight into the archive transaction.
 ///
 /// This consumer keeps the import hot path aligned with the streamed parser
@@ -50,6 +67,7 @@ struct TakeoutArchiveChunkConsumer<'a> {
     url_id_map: std::collections::BTreeMap<i64, i64>,
     source_evidence: DeferredSourceEvidenceBuilder,
     stats: ImportStats,
+    progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
 }
 
 impl<'a> TakeoutArchiveChunkConsumer<'a> {
@@ -61,6 +79,7 @@ impl<'a> TakeoutArchiveChunkConsumer<'a> {
         batch_id: i64,
         source_profile_id: i64,
         source_path: &'a str,
+        progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
     ) -> Self {
         Self {
             archive,
@@ -71,6 +90,7 @@ impl<'a> TakeoutArchiveChunkConsumer<'a> {
             url_id_map: std::collections::BTreeMap::new(),
             source_evidence: DeferredSourceEvidenceBuilder::new(paths, source_path),
             stats: ImportStats::default(),
+            progress,
         }
     }
 
@@ -149,8 +169,10 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
     }
 
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+        let batch_len = batch.len();
         for visit in batch {
             let Some(&url_id) = self.url_id_map.get(&visit.source_url_id) else {
+                self.stats.skipped_items += 1;
                 continue;
             };
             let payload_hash = sha256_hex(
@@ -207,6 +229,19 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                 self.stats.duplicate_items += 1;
             }
         }
+        if let Some(progress) = self.progress.as_mut() {
+            progress(TakeoutPayloadProgress {
+                processed_records: self.stats.imported_items
+                    + self.stats.duplicate_items
+                    + self.stats.skipped_items,
+                imported_records: self.stats.imported_items,
+                duplicate_records: self.stats.duplicate_items,
+                skipped_records: self.stats.skipped_items,
+            });
+        }
+        if batch_len == 0 {
+            return Ok(());
+        }
         Ok(())
     }
 }
@@ -220,17 +255,16 @@ impl TakeoutSourceEvidenceConsumer<anyhow::Error> for TakeoutArchiveChunkConsume
     }
 }
 
-/// Imports one recognized payload into canonical archive rows plus source-evidence plans.
-pub(super) fn import_supported_payload(
-    paths: &ProjectPaths,
-    archive: &Transaction<'_>,
-    run_id: i64,
-    batch_id: i64,
-    source_profile_id: i64,
-    classified_file: ClassifiedTakeoutFile<'_>,
+/// Imports one recognized payload while reporting parser-batch record progress.
+pub(super) fn import_supported_payload_with_progress<'a>(
+    context: TakeoutPayloadImportContext<'a>,
+    classified_file: ClassifiedTakeoutFile<'a>,
     kind: &str,
     bytes: &[u8],
+    progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
 ) -> Result<ImportedPayload> {
+    let TakeoutPayloadImportContext { paths, archive, run_id, batch_id, source_profile_id } =
+        context;
     let source_path = &classified_file.file.path;
     let mut consumer = TakeoutArchiveChunkConsumer::new(
         paths,
@@ -239,6 +273,7 @@ pub(super) fn import_supported_payload(
         batch_id,
         source_profile_id,
         source_path,
+        progress,
     );
     let report = stream_takeout_payload_with_sink(
         source_path,

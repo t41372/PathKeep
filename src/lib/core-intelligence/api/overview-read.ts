@@ -32,15 +32,18 @@ export function getDiscoveryTrend(
   dateRange: DateRange,
   profileId?: string | null,
   granularity?: string,
+  options?: { force?: boolean },
 ) {
-  const cached =
-    granularity === 'day'
-      ? cachedPrimaryOverview(dateRange, profileId)?.discoveryTrendDay
-      : granularity === 'week' || granularity === undefined
-        ? cachedSecondaryOverview(dateRange, profileId)?.discoveryTrendWeek
-        : null
-  if (cached) {
-    return Promise.resolve(cached)
+  if (!options?.force) {
+    const cached =
+      granularity === 'day'
+        ? cachedPrimaryOverview(dateRange, profileId)?.discoveryTrendDay
+        : granularity === 'week' || granularity === undefined
+          ? cachedSecondaryOverview(dateRange, profileId)?.discoveryTrendWeek
+          : null
+    if (cached) {
+      return Promise.resolve(cached)
+    }
   }
   return invokeSectionRequest<
     DiscoveryTrend,
@@ -50,5 +53,6 @@ export function getDiscoveryTrend(
     { dateRange, profileId, granularity },
     'discovery-trend',
     { kind: 'date-range', dateRange },
+    options,
   )
 }

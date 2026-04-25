@@ -167,7 +167,11 @@ describe('intelligence surfaces', () => {
             },
           ],
           activityMix: {
-            categories: [{ domainCategory: 'docs', visitCount: 3, share: 1 }],
+            categories: [
+              { domainCategory: 'docs', visitCount: 1, share: 0.34 },
+              { domainCategory: 'video', visitCount: 1, share: 0.33 },
+              { domainCategory: 'ai', visitCount: 1, share: 0.33 },
+            ],
             changeVsPrevious: [],
           },
           refindPages: [],
@@ -216,6 +220,7 @@ describe('intelligence surfaces', () => {
         { start: '2025-01-01', end: '2025-12-31' },
         null,
         'day',
+        { force: true },
       ),
     )
     expect(yearLabel).toHaveTextContent('2025')
@@ -229,6 +234,11 @@ describe('intelligence surfaces', () => {
     expect(
       screen.getByTestId('browsing-rhythm-current-year-shortcut'),
     ).toBeVisible()
+    const currentYearShortcut = screen.getByTestId(
+      'browsing-rhythm-current-year-shortcut',
+    )
+    const yearPager = screen.getByTestId('browsing-rhythm-year-pager')
+    expect(currentYearShortcut.nextElementSibling).toBe(yearPager)
 
     await user.click(screen.getByTestId('browsing-rhythm-year-previous'))
     await waitFor(() =>
@@ -236,6 +246,7 @@ describe('intelligence surfaces', () => {
         { start: '2024-01-01', end: '2024-12-31' },
         null,
         'day',
+        { force: true },
       ),
     )
     expect(yearLabel).toHaveTextContent('2024')
@@ -252,6 +263,17 @@ describe('intelligence surfaces', () => {
     expect(
       await screen.findByTestId('browsing-rhythm-day-detail'),
     ).toBeVisible()
+    const activityMix = screen.getByTestId('rhythm-activity-proportion')
+    expect(
+      activityMix.querySelector(
+        ".rhythm-proportion__legend-swatch[data-category='video']",
+      ),
+    ).not.toBeNull()
+    expect(
+      activityMix.querySelector(
+        ".rhythm-proportion__legend-swatch[data-category='ai']",
+      ),
+    ).not.toBeNull()
     expect(
       screen.queryByTestId('day-insights-route-target'),
     ).not.toBeInTheDocument()

@@ -49,6 +49,7 @@ interface BrowsingRhythmCardProps {
   mode: 'range' | 'year'
   onTrendMetaChange?: (meta: CoreIntelligenceSectionMeta | null) => void
   profileId?: string | null
+  refreshToken?: number | string | null
   showCurrentYearShortcut?: boolean
   summaryPreset?: TimeRangePreset | 'calendar-year'
   t: BrowsingRhythmTranslator
@@ -72,6 +73,7 @@ export function BrowsingRhythmCard({
   mode,
   onTrendMetaChange,
   profileId,
+  refreshToken,
   showCurrentYearShortcut = false,
   summaryPreset,
   t,
@@ -107,6 +109,7 @@ export function BrowsingRhythmCard({
     mode,
     onTrendMetaChange,
     profileId,
+    refreshToken,
     showCurrentYearShortcut,
     summaryPreset,
     t,

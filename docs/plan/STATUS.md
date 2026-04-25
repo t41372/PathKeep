@@ -218,6 +218,19 @@
 
 > 2026-04-18 locked-archive follow-up note：`WORK-CI-O` 已完成 source-level修補。worker `app_snapshot` 現在對已初始化但未解鎖的 encrypted archive 會回傳 usable locked snapshot，Security unlock flow 也會先驗 candidate key 是否真的解鎖，再決定要不要進 full shell refresh；sidebar 背景工作 strip 在 archive 未解鎖時不再輪詢 runtime，shell / onboarding / lock / diagnostics 也已補回 compact `version · short-sha[+]` build label。但這台主機 fresh `bun run desktop:dev` 重啟後仍顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome，同時 worker log 已明確打出 encrypted-archive key warnings；這應先視為 current-host stale WebView / bundle cache drift，`WORK-CI-N` 仍保持 blocked，等待 host-side cache noise 或 reset 決策被解掉。
 
+- [x] **WORK-UI-OPT-A** — Import Progress, i18n, And Dashboard Rhythm Repair
+  - 讀先：
+    `/Users/tim/Library/Mobile Documents/com~apple~CloudDocs/0-iCloud/Notes/core-v2/02_Projects/0 子項目/2026/4 chrome_history_backup/source_prompts/32 UI 优化.md`
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/ux-principles.md`
+  - 目標：修復使用者實測回報的 UI blockers：大型單檔 / 單 profile 匯入時 progress overlay 長時間無變化、中文介面露出英文說明句、Dashboard Browsing Rhythm 的 `回到今年` 位置、匯入後 heatmap 需重啟才刷新，以及 activity mix 圖例顏色不可見。
+  - 契約：不新增 Tauri command、不改 import command 必填 payload；`ImportProgressEvent` 只做 additive optional fields；Takeout / Browser Direct foreground import 必須回報真實 parser-batch record counters，未知總量時維持 indeterminate progress；Browser / Dashboard 可見 copy 必須走三語 i18n；Dashboard rhythm 必須跟隨 shell refresh token 重新讀取資料。
+  - 2026-04-24：`ImportProgressEvent` 新增 `sourceLabel`、`processedRecords`、`totalRecords`、`importedRecords`、`duplicateRecords`、`skippedRecords`。Takeout payload consumer 與 Browser Direct archive consumer 現在會在 parser visit batch 後發 record-level progress；前端 import overlay 用預覽的 candidate count 補足 total，未知 total 則顯示遞增 record counter + indeterminate bar。raw backend notes 不再直接出現在中文 import preview，改成本地化 audit-note summary。
+  - Dashboard rhythm 現在接收 shell `refreshKey` 並以 force read / cache bypass 重新讀取 discovery trend；匯入成功後也會清 Core Intelligence overview cache，再 refresh shell data。`回到今年` 已移到 year pager 左側，activity mix `video` / `ai` 等 category 不再引用不存在的 `--danger` token，並補齊 opaque fallback palette。
+  - 驗收：targeted Rust progress tests、targeted Vitest import/dashboard/i18n tests、`bun run check`、`bun run build`、fresh desktop Computer Use truth pass。
+
 ---
 
 > 2026-04-10 unblock：使用者已對 `ADR-006` 明確 sign off，`WORK-M5-A` 因此從 proposal / blocked 轉為 active。M4 closeout 仍維持完成，但 2026-04-10 也補修了 onboarding archive-mode IPC 契約與 insights refresh queue regression。

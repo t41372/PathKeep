@@ -156,10 +156,20 @@ export const importNamespaceCatalog = {
     importProgressImportActiveDetail:
       'Writing file {current} of {total}: {source}',
     importProgressImportDetail: 'Finished file {current} of {total}: {source}',
+    importProgressRecordActiveDetail:
+      'Writing {processed} records from {source}.',
+    importProgressRecordDetail:
+      'Writing {processed} of {total} records from {source}.',
+    importProgressRecordActiveLabel: '{processed} records processed',
+    importProgressRecordLabel: '{processed} / {total} records',
+    importProgressRecordStats: '{imported} new · {duplicates} duplicates',
+    importProgressSkippedRecords: '{count} skipped',
     importProgressFinalizeDetail:
       'Updating search recall and import review data.',
     importProgressCompleteDetail:
       'Import review is ready. Follow-up rebuild work continues in Background Jobs.',
+    technicalNotesRecorded:
+      '{count} technical note(s) were recorded in the audit artifact.',
     importingBody: 'Writing records to the archive. This may take a moment.',
     completeTitle: 'Step 5: Import Complete',
     completeBody:
@@ -401,8 +411,17 @@ export const importNamespaceCatalog = {
     importProgressImportActiveDetail:
       '正在写入第 {current} / {total} 个文件：{source}',
     importProgressImportDetail: '已完成第 {current} / {total} 个文件：{source}',
+    importProgressRecordActiveDetail:
+      '正在从 {source} 写入，已处理 {processed} 条记录。',
+    importProgressRecordDetail:
+      '正在从 {source} 写入，已处理 {processed} / {total} 条记录。',
+    importProgressRecordActiveLabel: '已处理 {processed} 条记录',
+    importProgressRecordLabel: '{processed} / {total} 条记录',
+    importProgressRecordStats: '新增 {imported} · 重复 {duplicates}',
+    importProgressSkippedRecords: '已跳过 {count} 条',
     importProgressFinalizeDetail: '正在更新搜索检索和导入复核数据。',
     importProgressCompleteDetail: '导入复核已就绪，后续重建会在后台继续进行。',
+    technicalNotesRecorded: '有 {count} 条技术备注已记录到审计文件。',
     importingBody: '正在写入记录，请稍候。',
     completeTitle: '第 5 步：完成',
     completeBody: '记录已写入存档。下面可以继续核对这次导入。',
@@ -622,9 +641,18 @@ export const importNamespaceCatalog = {
     importProgressImportActiveDetail:
       '正在寫入第 {current} / {total} 個檔案：{source}',
     importProgressImportDetail: '已完成第 {current} / {total} 個檔案：{source}',
+    importProgressRecordActiveDetail:
+      '正在從 {source} 寫入，已處理 {processed} 筆紀錄。',
+    importProgressRecordDetail:
+      '正在從 {source} 寫入，已處理 {processed} / {total} 筆紀錄。',
+    importProgressRecordActiveLabel: '已處理 {processed} 筆紀錄',
+    importProgressRecordLabel: '{processed} / {total} 筆紀錄',
+    importProgressRecordStats: '新增 {imported} · 重複 {duplicates}',
+    importProgressSkippedRecords: '已略過 {count} 筆',
     importProgressFinalizeDetail: '正在更新搜尋檢索和匯入複核資料。',
     importProgressCompleteDetail:
       '匯入複核已就緒，後續重建會在背景工作中繼續進行。',
+    technicalNotesRecorded: '有 {count} 條技術備註已記錄到稽核檔案。',
     importingBody: '正在寫入紀錄，請稍候。',
     completeTitle: '第 5 步：完成',
     completeBody: '紀錄已寫入封存。下面可以繼續核對這次匯入。',

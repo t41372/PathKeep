@@ -125,7 +125,7 @@
 - path recognition 不能再只靠檔名 substring；已知 English / German 檔名可以走 fast path，但對 direct JSON 與未知語言檔名也必須靠 payload header sniff 辨識 dedicated Chrome history shape，而不是繼續擴張 hardcoded locale tables。
 - 導入前的預覽：用戶能看到將導入多少筆記錄、時間範圍、會不會與現有記錄重複。
 - dry-run / preview 必須回報 candidate item 數量、preview entries、preview time range、detected locale、以及依 `will-import / known-but-ignored / needs-review / parse-error` 分組的 file report。batch review 仍要保留可回看的 audit artifact 路徑。
-- import / onboarding finalization 的 progress surface 必須持續回報 typed phase、current/total、percent、detail 與近期 log lines；若單一大型檔案在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress，而不是長時間停在假 `0 / 1 · 0%`。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
+- import / onboarding finalization 的 progress surface 必須持續回報 typed phase、current/total、percent、detail、目前 source/profile label、record-level processed/imported/duplicate/skipped counters 與近期本地化 log lines；若單一大型檔案或 SQLite profile 在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress 並持續顯示遞增的 record counter，而不是長時間停在假 `0 / 1 · 0%` 或只顯示 `1 / 1` 檔案進度。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。

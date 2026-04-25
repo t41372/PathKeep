@@ -89,6 +89,13 @@ struct BrowserImportCounts {
     visits: usize,
 }
 
+struct BrowserImportProgress {
+    processed_records: usize,
+    imported_records: usize,
+    duplicate_records: usize,
+    skipped_records: usize,
+}
+
 struct BrowserEvidencePersistInput<'a> {
     paths: &'a ProjectPaths,
     config: &'a AppConfig,
@@ -111,6 +118,7 @@ struct BrowserHistoryArchiveConsumer<'a> {
     preview_range: PreviewRangeSummary,
     stats: ImportStats,
     counts: BrowserImportCounts,
+    progress: Option<Box<dyn FnMut(BrowserImportProgress) + 'a>>,
 }
 
 impl<'a> BrowserHistoryArchiveConsumer<'a> {
@@ -122,6 +130,7 @@ impl<'a> BrowserHistoryArchiveConsumer<'a> {
         source_profile_id: i64,
         source_kind: &'static str,
         source_label: &str,
+        progress: Option<Box<dyn FnMut(BrowserImportProgress) + 'a>>,
     ) -> Self {
         Self {
             archive,
@@ -134,6 +143,7 @@ impl<'a> BrowserHistoryArchiveConsumer<'a> {
             preview_range: PreviewRangeSummary::default(),
             stats: ImportStats::default(),
             counts: BrowserImportCounts::default(),
+            progress,
         }
     }
 
@@ -288,6 +298,14 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
                 self.stats.duplicate_items += 1;
             }
         }
+        if let Some(progress) = self.progress.as_mut() {
+            progress(BrowserImportProgress {
+                processed_records: self.counts.visits,
+                imported_records: self.stats.imported_items,
+                duplicate_records: self.stats.duplicate_items,
+                skipped_records: self.stats.skipped_items,
+            });
+        }
         Ok(())
     }
 
@@ -430,6 +448,7 @@ where
             source_evidence_counts,
         ) = {
             let source_label = staged.requested_path.display().to_string();
+            let mut last_processed_records = 0usize;
             let mut consumer = BrowserHistoryArchiveConsumer::new(
                 paths,
                 &transaction,
@@ -438,6 +457,35 @@ where
                 source_profile_id,
                 staged.family.source_kind(),
                 &source_label,
+                Some(Box::new(|progress: BrowserImportProgress| {
+                    if progress.processed_records == last_processed_records {
+                        return;
+                    }
+                    last_processed_records = progress.processed_records;
+                    emit_browser_import_progress_with_records(
+                        &mut report_progress,
+                        BrowserImportProgressEventInput {
+                            phase: "import-file",
+                            detail: format!("Processing {}", source_label),
+                            current: 1,
+                            total: 1,
+                            progress_percent: None,
+                            source_path: Some(source_label.clone()),
+                            log_lines: &progress_log_lines,
+                            record_state: BrowserImportProgressState {
+                                source_label: Some(format!(
+                                    "{} / {}",
+                                    staged.browser_name, staged.profile_name
+                                )),
+                                processed_records: Some(progress.processed_records),
+                                total_records: None,
+                                imported_records: Some(progress.imported_records),
+                                duplicate_records: Some(progress.duplicate_records),
+                                skipped_records: Some(progress.skipped_records),
+                            },
+                        },
+                    );
+                })),
             );
             let streamed = stream_browser_history(&staged, &mut consumer)?;
             let (
@@ -688,6 +736,27 @@ fn persist_browser_source_evidence_plan(
     Ok(())
 }
 
+#[derive(Default)]
+struct BrowserImportProgressState {
+    source_label: Option<String>,
+    processed_records: Option<usize>,
+    total_records: Option<usize>,
+    imported_records: Option<usize>,
+    duplicate_records: Option<usize>,
+    skipped_records: Option<usize>,
+}
+
+struct BrowserImportProgressEventInput<'a> {
+    phase: &'a str,
+    detail: String,
+    current: usize,
+    total: usize,
+    progress_percent: Option<f32>,
+    source_path: Option<String>,
+    log_lines: &'a [String],
+    record_state: BrowserImportProgressState,
+}
+
 fn emit_browser_import_progress(
     report_progress: &mut impl FnMut(ImportProgressEvent),
     phase: &str,
@@ -698,6 +767,35 @@ fn emit_browser_import_progress(
     source_path: Option<String>,
     log_lines: &[String],
 ) {
+    emit_browser_import_progress_with_records(
+        report_progress,
+        BrowserImportProgressEventInput {
+            phase,
+            detail,
+            current,
+            total,
+            progress_percent,
+            source_path,
+            log_lines,
+            record_state: BrowserImportProgressState::default(),
+        },
+    );
+}
+
+fn emit_browser_import_progress_with_records(
+    report_progress: &mut impl FnMut(ImportProgressEvent),
+    input: BrowserImportProgressEventInput<'_>,
+) {
+    let BrowserImportProgressEventInput {
+        phase,
+        detail,
+        current,
+        total,
+        progress_percent,
+        source_path,
+        log_lines,
+        record_state,
+    } = input;
     let label = match phase {
         "prepare" => "Preparing import",
         "import-file" => "Importing browser history",
@@ -722,5 +820,11 @@ fn emit_browser_import_progress(
             .rev()
             .collect(),
         source_path,
+        source_label: record_state.source_label,
+        processed_records: record_state.processed_records,
+        total_records: record_state.total_records,
+        imported_records: record_state.imported_records,
+        duplicate_records: record_state.duplicate_records,
+        skipped_records: record_state.skipped_records,
     });
 }

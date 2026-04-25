@@ -267,6 +267,7 @@ interface DashboardRhythmPanelProps {
   activeProfileId: string | null
   intelligenceT: Translate
   language: ResolvedLanguage
+  refreshToken: number
   t: Translate
 }
 
@@ -277,6 +278,7 @@ export function DashboardRhythmPanel({
   activeProfileId,
   intelligenceT,
   language,
+  refreshToken,
   t,
 }: DashboardRhythmPanelProps) {
   return (
@@ -296,6 +298,7 @@ export function DashboardRhythmPanel({
           mode="year"
           language={language}
           profileId={activeProfileId}
+          refreshToken={refreshToken}
           showCurrentYearShortcut
           summaryPreset="calendar-year"
           t={intelligenceT}

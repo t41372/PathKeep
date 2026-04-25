@@ -59,6 +59,16 @@ export function BrowsingRhythmYearControls({
       {mode === 'year' ? (
         yearNavigation === 'pager' ? (
           <div className="browsing-rhythm-card__year-actions">
+            {canResetToCurrentYear ? (
+              <button
+                className="browsing-rhythm-card__current-year-button"
+                data-testid="browsing-rhythm-current-year-shortcut"
+                type="button"
+                onClick={onResetToCurrentYear}
+              >
+                {t('rhythmCurrentYearAction')}
+              </button>
+            ) : null}
             <div
               className="browsing-rhythm-card__year-pager"
               data-testid="browsing-rhythm-year-pager"
@@ -108,16 +118,6 @@ export function BrowsingRhythmYearControls({
                 {'>'}
               </button>
             </div>
-            {canResetToCurrentYear ? (
-              <button
-                className="browsing-rhythm-card__current-year-button"
-                data-testid="browsing-rhythm-current-year-shortcut"
-                type="button"
-                onClick={onResetToCurrentYear}
-              >
-                {t('rhythmCurrentYearAction')}
-              </button>
-            ) : null}
           </div>
         ) : (
           <label className="browsing-rhythm-card__selector">

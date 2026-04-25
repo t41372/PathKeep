@@ -950,3 +950,17 @@
   - `derived/history-search.sqlite` finalization 新增 import-batch scoped refresh：Takeout / Browser Direct import 只 upsert 本次 batch 影響到的 URL-document FTS rows。`rebuild_search_projection` 仍保留給 rollback / restore / backup / repair 顯式維護路徑，但不再卡在 import foreground path。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
   - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser --lib`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core takeout::tests::browser_history --lib`
+
+- [x] **WORK-UI-OPT-A** — Import Progress, i18n, And Dashboard Rhythm Repair
+  - 讀先：
+    `/Users/tim/Library/Mobile Documents/com~apple~CloudDocs/0-iCloud/Notes/core-v2/02_Projects/0 子項目/2026/4 chrome_history_backup/source_prompts/32 UI 优化.md`
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/ux-principles.md`
+  - 目標：修復使用者實測回報的 UI blockers：大型單檔 / 單 profile 匯入時 progress overlay 長時間無變化、中文介面露出英文說明句、Dashboard Browsing Rhythm 的 `回到今年` 位置、匯入後 heatmap 需重啟才刷新，以及 activity mix 圖例顏色不可見。
+  - 契約：不新增 Tauri command、不改 import command 必填 payload；`ImportProgressEvent` 只做 additive optional fields；Takeout / Browser Direct foreground import 必須回報真實 parser-batch record counters，未知總量時維持 indeterminate progress；Browser / Dashboard 可見 copy 必須走三語 i18n；Dashboard rhythm 必須跟隨 shell refresh token 重新讀取資料。
+  - 2026-04-24：`ImportProgressEvent` 新增 `sourceLabel`、`processedRecords`、`totalRecords`、`importedRecords`、`duplicateRecords`、`skippedRecords`。Takeout payload consumer 與 Browser Direct archive consumer 現在會在 parser visit batch 後發 record-level progress；前端 import overlay 用預覽的 candidate count 補足 total，未知 total 則顯示遞增 record counter + indeterminate bar。raw backend notes 不再直接出現在中文 import preview，改成本地化 audit-note summary。
+  - Dashboard rhythm 現在接收 shell `refreshKey` 並以 force read / cache bypass 重新讀取 discovery trend；匯入成功後也會清 Core Intelligence overview cache，再 refresh shell data。`回到今年` 已移到 year pager 左側，activity mix `video` / `ai` 等 category 不再引用不存在的 `--danger` token，並補齊 opaque fallback palette。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/design/ui-review-guardrails.md`](../design/ui-review-guardrails.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
+  - 驗收：targeted Rust progress tests、targeted Vitest import/dashboard/i18n tests、`bun run check`、`bun run build`、fresh desktop Computer Use truth pass。

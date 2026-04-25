@@ -113,4 +113,10 @@ pub struct ImportProgressEvent {
     pub progress_percent: Option<f32>,
     pub log_lines: Vec<String>,
     pub source_path: Option<String>,
+    pub source_label: Option<String>,
+    pub processed_records: Option<usize>,
+    pub total_records: Option<usize>,
+    pub imported_records: Option<usize>,
+    pub duplicate_records: Option<usize>,
+    pub skipped_records: Option<usize>,
 }

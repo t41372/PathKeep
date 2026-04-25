@@ -286,6 +286,7 @@ export function DashboardPage() {
         activeProfileId={activeProfileId}
         intelligenceT={intelligenceT}
         language={language}
+        refreshToken={refreshKey}
         t={t}
       />
 

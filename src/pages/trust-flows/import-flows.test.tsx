@@ -83,6 +83,18 @@ describe('trust flows/import flows', () => {
 
     expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
     expect(await screen.findByText('PathKeep trust UX notes')).toBeVisible()
+    expect(
+      screen.getByText(
+        importT('technicalNotesRecorded', {
+          count: '1',
+        }),
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText(
+        'Preview includes recognized BrowserHistory rows and quarantined unsupported files.',
+      ),
+    ).not.toBeInTheDocument()
 
     await user.click(
       screen.getByRole('button', { name: importT('confirmImport') }),
@@ -705,17 +717,23 @@ describe('trust flows/import flows', () => {
             'Importing browser-history from /tmp/takeout/BrowserHistory.json.',
           ],
           sourcePath: '/tmp/takeout/BrowserHistory.json',
+          sourceLabel: '/tmp/takeout/BrowserHistory.json',
+          processedRecords: 1,
+          importedRecords: 1,
+          duplicateRecords: 0,
+          skippedRecords: 0,
         })
       })
 
       await waitFor(() =>
         expect(
           screen.getAllByText(
-            'Writing file 1 of 1: /tmp/takeout/BrowserHistory.json',
+            'Writing 1 of 1 records from /tmp/takeout/BrowserHistory.json.',
           ).length,
         ).toBeGreaterThan(0),
       )
-      expect(screen.getByText('File 1 of 1')).toBeVisible()
+      expect(screen.getByText('1 / 1 records')).toBeVisible()
+      expect(screen.getByText('1 new · 0 duplicates')).toBeVisible()
 
       await act(async () => {
         resolveImport?.(importedInspection)

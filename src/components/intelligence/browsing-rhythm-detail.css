@@ -60,6 +60,7 @@
 
 .rhythm-proportion__segment {
   min-width: 1px;
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--bg-surface) 30%);
 }
 
 .rhythm-proportion__segment[data-category='developer'] {
@@ -70,7 +71,7 @@
 }
 
 .rhythm-proportion__segment[data-category='video'] {
-  background: var(--activity-video, var(--danger));
+  background: var(--activity-video, var(--error));
 }
 
 .rhythm-proportion__segment[data-category='social'] {
@@ -98,14 +99,14 @@
 .rhythm-proportion__segment[data-category='ai'] {
   background: var(
     --activity-ai,
-    color-mix(in srgb, var(--danger) 50%, var(--accent))
+    color-mix(in srgb, var(--error) 50%, var(--accent))
   );
 }
 
 .rhythm-proportion__segment[data-category='news'] {
   background: var(
     --activity-news,
-    color-mix(in srgb, var(--warning) 70%, var(--danger))
+    color-mix(in srgb, var(--warning) 70%, var(--error))
   );
 }
 
@@ -122,6 +123,18 @@
 
 .rhythm-proportion__segment[data-category='community'] {
   background: color-mix(in srgb, var(--info) 45%, var(--success) 55%);
+}
+
+.rhythm-proportion__segment[data-category='education'] {
+  background: color-mix(in srgb, var(--info) 72%, var(--bg-surface) 28%);
+}
+
+.rhythm-proportion__segment[data-category='travel'] {
+  background: color-mix(in srgb, var(--success) 65%, var(--info) 35%);
+}
+
+.rhythm-proportion__segment[data-category='work'] {
+  background: color-mix(in srgb, var(--accent) 72%, var(--warning) 28%);
 }
 
 .rhythm-proportion__segment[data-category='unknown'] {
@@ -150,7 +163,9 @@
 .rhythm-proportion__legend-swatch {
   width: 10px;
   height: 10px;
+  min-width: 10px;
   border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--text-bright) 24%, transparent);
   flex-shrink: 0;
 }
 

@@ -55,6 +55,7 @@ export interface BrowsingRhythmCardStateOptions {
   mode: 'range' | 'year'
   onTrendMetaChange?: (meta: CoreIntelligenceSectionMeta | null) => void
   profileId?: string | null
+  refreshToken?: number | string | null
   showCurrentYearShortcut: boolean
   summaryPreset?: TimeRangePreset | 'calendar-year'
   t: BrowsingRhythmTranslator
@@ -105,6 +106,7 @@ export function useBrowsingRhythmCardState({
   mode,
   onTrendMetaChange,
   profileId,
+  refreshToken,
   showCurrentYearShortcut,
   summaryPreset,
   t,
@@ -126,11 +128,22 @@ export function useBrowsingRhythmCardState({
     scopeKey: string
   } | null>(null)
   const trendResult = useAsyncData(
-    () => api.getDiscoveryTrend(effectiveDateRange, profileId, 'day'),
-    [effectiveDateRange.start, effectiveDateRange.end, mode, profileId],
+    () =>
+      api.getDiscoveryTrend(effectiveDateRange, profileId, 'day', {
+        force: refreshToken !== null && refreshToken !== undefined,
+      }),
+    [
+      effectiveDateRange.start,
+      effectiveDateRange.end,
+      mode,
+      profileId,
+      refreshToken,
+    ],
     {
       getCached: () =>
-        api.peekDiscoveryTrend(effectiveDateRange, profileId, 'day'),
+        refreshToken === null || refreshToken === undefined
+          ? api.peekDiscoveryTrend(effectiveDateRange, profileId, 'day')
+          : null,
     },
   )
   const points = useMemo(

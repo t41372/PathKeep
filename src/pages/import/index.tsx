@@ -20,6 +20,7 @@ import { copyReviewValue } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import { clearIntelligenceOverviewCache } from '../../lib/core-intelligence/api'
 import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import { macosFullDiskAccessSettingsUrl } from '../../lib/platform-guidance'
@@ -350,6 +351,7 @@ export function ImportPage() {
             )
       setImportResult(result)
       setStep('done')
+      clearIntelligenceOverviewCache()
       void refreshAppData().catch((nextError) => {
         reportActionError(nextError)
       })

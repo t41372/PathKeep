@@ -147,4 +147,10 @@ export interface ImportProgressEvent {
   progressPercent?: number | null
   logLines: string[]
   sourcePath?: string | null
+  sourceLabel?: string | null
+  processedRecords?: number | null
+  totalRecords?: number | null
+  importedRecords?: number | null
+  duplicateRecords?: number | null
+  skippedRecords?: number | null
 }
