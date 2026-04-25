@@ -15,7 +15,7 @@
 use super::*;
 use std::collections::HashSet;
 
-const LOAD_HISTORY_FAVICON_SQL: &str = r#"
+pub(super) const LOAD_HISTORY_FAVICON_SQL: &str = r#"
 SELECT
   (
     SELECT favicon_candidates.image_data
@@ -32,6 +32,7 @@ SELECT
         ON favicon_blobs.blob_hash = favicons.image_blob_hash
       WHERE favicons.source_profile_id = source_profiles.id
         AND favicons.page_url = ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
         AND (
           favicons.image_blob_hash IS NOT NULL
           OR favicons.image_data IS NOT NULL
@@ -49,6 +50,89 @@ SELECT
         ON favicon_blobs.blob_hash = favicons.image_blob_hash
       WHERE favicons.source_profile_id != source_profiles.id
         AND favicons.page_url = ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+      UNION ALL
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        2 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE ?4 IS NOT NULL
+        AND favicons.source_profile_id = source_profiles.id
+        AND favicons.page_host = ?4
+        AND favicons.page_url != ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+      UNION ALL
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        3 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE ?4 IS NOT NULL
+        AND favicons.source_profile_id != source_profiles.id
+        AND favicons.page_host = ?4
+        AND favicons.page_url != ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+      UNION ALL
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        4 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE ?5 IS NOT NULL
+        AND ?5 != ?4
+        AND favicons.source_profile_id = source_profiles.id
+        AND favicons.page_registrable_domain = ?5
+        AND favicons.page_url != ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
+        AND (
+          favicons.image_blob_hash IS NOT NULL
+          OR favicons.image_data IS NOT NULL
+        )
+      UNION ALL
+      SELECT
+        COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
+        5 AS match_priority,
+        favicons.last_updated_ms,
+        favicons.width,
+        favicons.height,
+        favicons.id
+      FROM favicons
+      LEFT JOIN favicon_blobs
+        ON favicon_blobs.blob_hash = favicons.image_blob_hash
+      WHERE ?5 IS NOT NULL
+        AND ?5 != ?4
+        AND favicons.source_profile_id != source_profiles.id
+        AND favicons.page_registrable_domain = ?5
+        AND favicons.page_url != ?2
+        AND (?3 <= 0 OR favicons.last_updated_ms <= ?3)
         AND (
           favicons.image_blob_hash IS NOT NULL
           OR favicons.image_data IS NOT NULL
@@ -180,21 +264,30 @@ pub fn load_history_favicons(
     let mut results = Vec::with_capacity(entries.len());
 
     for entry in entries {
-        let cache_key = format!("{}\n{}", entry.profile_id, entry.url);
+        let cache_key = format!("{}\n{}\n{}", entry.profile_id, entry.url, entry.visit_time);
         if !seen.insert(cache_key) {
             continue;
         }
 
+        let metadata = super::schema::favicon_url_metadata(&entry.url);
         let image_data = statement
-            .query_row(params![&entry.profile_id, &entry.url], |row| {
-                row.get::<_, Option<Vec<u8>>>(0)
-            })
+            .query_row(
+                params![
+                    &entry.profile_id,
+                    &entry.url,
+                    entry.visit_time,
+                    metadata.host.as_deref(),
+                    metadata.registrable_domain.as_deref(),
+                ],
+                |row| row.get::<_, Option<Vec<u8>>>(0),
+            )
             .optional()?
             .flatten();
 
         results.push(HistoryFaviconLookupResult {
             profile_id: entry.profile_id,
             url: entry.url,
+            visit_time: entry.visit_time,
             favicon: image_data
                 .as_deref()
                 .and_then(image_data_to_data_url)

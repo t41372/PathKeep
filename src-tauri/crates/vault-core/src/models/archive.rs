@@ -258,6 +258,8 @@ pub struct HistoryFavicon {
 pub struct HistoryFaviconLookupEntry {
     pub profile_id: String,
     pub url: String,
+    #[serde(default)]
+    pub visit_time: i64,
 }
 
 /// One resolved favicon payload returned by the lazy Explorer icon lookup command.
@@ -266,6 +268,7 @@ pub struct HistoryFaviconLookupEntry {
 pub struct HistoryFaviconLookupResult {
     pub profile_id: String,
     pub url: String,
+    pub visit_time: i64,
     pub favicon: Option<HistoryFavicon>,
 }
 

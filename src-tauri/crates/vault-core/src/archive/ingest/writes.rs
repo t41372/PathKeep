@@ -20,6 +20,7 @@
 //!   allocations that would scale with total archive size.
 
 use super::super::*;
+use crate::archive::schema::favicon_url_metadata;
 use browser_history_parser::{
     ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit,
 };
@@ -310,6 +311,7 @@ pub(super) fn insert_favicon(
     payload_hash: &str,
 ) -> Result<usize> {
     let image_blob_hash = favicon.image_data.as_deref().map(sha256_hex);
+    let metadata = favicon_url_metadata(&favicon.page_url);
     if let (Some(blob_hash), Some(image_data)) =
         (image_blob_hash.as_deref(), favicon.image_data.as_deref())
     {
@@ -336,12 +338,14 @@ pub(super) fn insert_favicon(
            last_updated_iso,
            image_data,
            image_blob_hash,
+           page_host,
+           page_registrable_domain,
            source_profile_id,
            created_by_run_id,
            payload_hash,
            recorded_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 favicon.page_url,
                 favicon.icon_url,
@@ -352,6 +356,8 @@ pub(super) fn insert_favicon(
                 favicon.last_updated_iso,
                 Option::<Vec<u8>>::None,
                 image_blob_hash,
+                metadata.host,
+                metadata.registrable_domain,
                 source_profile_id,
                 run_id,
                 payload_hash,

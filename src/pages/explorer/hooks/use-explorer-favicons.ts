@@ -62,7 +62,12 @@ export function useExplorerFavicons({
 
   const visibleEntries = useMemo(() => {
     if (!results?.items.length) {
-      return [] as { cacheKey: string; profileId: string; url: string }[]
+      return [] as {
+        cacheKey: string
+        profileId: string
+        url: string
+        visitTime: number
+      }[]
     }
 
     const seen = new Set<string>()
@@ -70,9 +75,14 @@ export function useExplorerFavicons({
       cacheKey: string
       profileId: string
       url: string
+      visitTime: number
     }[] = []
     for (const item of results.items) {
-      const cacheKey = historyFaviconLookupKey(item.profileId, item.url)
+      const cacheKey = historyFaviconLookupKey(
+        item.profileId,
+        item.url,
+        item.visitTime,
+      )
       if (seen.has(cacheKey)) {
         continue
       }
@@ -81,6 +91,7 @@ export function useExplorerFavicons({
         cacheKey,
         profileId: item.profileId,
         url: item.url,
+        visitTime: item.visitTime,
       })
     }
     return dedupedEntries
@@ -110,6 +121,7 @@ export function useExplorerFavicons({
         missingEntries.map((entry) => ({
           profileId: entry.profileId,
           url: entry.url,
+          visitTime: entry.visitTime,
         })),
       )
       .then((loadedFavicons) => {
@@ -128,7 +140,11 @@ export function useExplorerFavicons({
           }
           for (const faviconEntry of loadedFavicons) {
             next.set(
-              historyFaviconLookupKey(faviconEntry.profileId, faviconEntry.url),
+              historyFaviconLookupKey(
+                faviconEntry.profileId,
+                faviconEntry.url,
+                faviconEntry.visitTime,
+              ),
               faviconEntry.favicon ?? null,
             )
           }

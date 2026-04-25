@@ -247,7 +247,9 @@ export function ExplorerPage() {
         ...item,
         favicon:
           item.favicon ??
-          faviconCache.get(historyFaviconLookupKey(item.profileId, item.url)) ??
+          faviconCache.get(
+            historyFaviconLookupKey(item.profileId, item.url, item.visitTime),
+          ) ??
           null,
       })),
     }

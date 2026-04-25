@@ -44,9 +44,13 @@ describe('buildHistoryPrefetchPages', () => {
 })
 
 describe('historyFaviconLookupKey', () => {
-  test('keeps profile and url in the cache identity', () => {
+  test('keeps profile, url, and visit time in the cache identity', () => {
     expect(
-      historyFaviconLookupKey('chrome:Default', 'https://example.com/path'),
-    ).toBe('chrome:Default\nhttps://example.com/path')
+      historyFaviconLookupKey(
+        'chrome:Default',
+        'https://example.com/path',
+        1770000000000,
+      ),
+    ).toBe('chrome:Default\nhttps://example.com/path\n1770000000000')
   })
 })

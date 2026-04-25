@@ -223,8 +223,12 @@ export function buildHistoryPrefetchPages(
 /**
  * Builds the stable cache key used by Explorer's lazy favicon hydration path.
  */
-export function historyFaviconLookupKey(profileId: string, url: string) {
-  return `${profileId}\n${url}`
+export function historyFaviconLookupKey(
+  profileId: string,
+  url: string,
+  visitTime?: number | null,
+) {
+  return `${profileId}\n${url}\n${visitTime ?? 0}`
 }
 
 function compactMiddle(text: string, maxLength: number) {

@@ -8,7 +8,8 @@ use crate::{
     archive::search_projection::{attach_search_database, seed_search_projection_if_missing},
     config::{ProjectPaths, ensure_paths},
     models::{AppConfig, ArchiveMode},
-    utils::{now_rfc3339, sha256_hex},
+    utils::{now_rfc3339, sha256_hex, url_domain},
+    visit_taxonomy::{normalize_visit_url, registrable_domain_for_host},
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -37,6 +38,9 @@ const MIGRATION_008_FAVICON_PAGE_LOOKUP_SQL: &str =
     include_str!("../migrations/008_favicon_page_lookup.sql");
 const MIGRATION_009_FAVICON_BLOB_DEDUP_SQL: &str =
     include_str!("../migrations/009_favicon_blob_dedup.sql");
+const MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL: &str =
+    include_str!("../migrations/010_favicon_domain_fallback.sql");
+const FAVICON_METADATA_BACKFILL_BATCH_SIZE: usize = 1_000;
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -74,6 +78,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 7, sql: MIGRATION_007_VISIBLE_PROFILE_TIME_INDEX_SQL },
     MigrationSpec { version: 8, sql: MIGRATION_008_FAVICON_PAGE_LOOKUP_SQL },
     MigrationSpec { version: 9, sql: MIGRATION_009_FAVICON_BLOB_DEDUP_SQL },
+    MigrationSpec { version: 10, sql: MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -134,6 +139,7 @@ pub(crate) fn export_archive_database(
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
+    ensure_favicon_url_metadata(connection)?;
     connection.execute_batch("BEGIN IMMEDIATE").context("acquiring archive bootstrap lock")?;
 
     let result = (|| -> Result<()> {
@@ -247,6 +253,99 @@ fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, Stri
     Ok(applied)
 }
 
+fn ensure_favicon_url_metadata(connection: &Connection) -> Result<()> {
+    if !table_exists(connection, "favicons")?
+        || !column_exists(connection, "favicons", "page_host")?
+        || !column_exists(connection, "favicons", "page_registrable_domain")?
+    {
+        return Ok(());
+    }
+
+    loop {
+        let rows = {
+            let mut statement = connection.prepare(
+                "SELECT id, page_url
+                 FROM favicons
+                 WHERE page_host IS NULL
+                    OR page_registrable_domain IS NULL
+                 ORDER BY id ASC
+                 LIMIT ?1",
+            )?;
+            statement
+                .query_map([FAVICON_METADATA_BACKFILL_BATCH_SIZE as i64], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let transaction = connection.unchecked_transaction()?;
+        {
+            let mut update = transaction.prepare(
+                "UPDATE favicons
+                 SET page_host = ?2,
+                     page_registrable_domain = ?3
+                 WHERE id = ?1",
+            )?;
+            for (id, page_url) in rows {
+                let metadata = favicon_url_metadata(&page_url);
+                update.execute(params![id, metadata.host, metadata.registrable_domain])?;
+            }
+        }
+        transaction.commit()?;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FaviconUrlMetadata {
+    pub(crate) host: Option<String>,
+    pub(crate) registrable_domain: Option<String>,
+}
+
+pub(crate) fn favicon_url_metadata(page_url: &str) -> FaviconUrlMetadata {
+    if let Some(normalized) = normalize_visit_url(page_url) {
+        return FaviconUrlMetadata {
+            host: Some(normalized.host),
+            registrable_domain: Some(normalized.registrable_domain),
+        };
+    }
+
+    let host = url_domain(page_url)
+        .split('@')
+        .next_back()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return FaviconUrlMetadata { host: None, registrable_domain: None };
+    }
+
+    let registrable_domain = registrable_domain_for_host(&host);
+    FaviconUrlMetadata {
+        host: Some(host),
+        registrable_domain: (!registrable_domain.is_empty()).then_some(registrable_domain),
+    }
+}
+
+fn column_exists(connection: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column_name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
     let exists = connection
         .query_row(
@@ -299,7 +398,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 9);
+        assert_eq!(current_version(&connection).expect("schema version"), 10);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -308,6 +407,8 @@ mod tests {
         assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(has_index(&connection, "idx_favicons_page_lookup"));
         assert!(has_index(&connection, "idx_favicons_blob_hash"));
+        assert!(has_index(&connection, "idx_favicons_host_profile_lookup"));
+        assert!(has_index(&connection, "idx_favicons_registrable_profile_lookup"));
         assert!(!has_table(&connection, "history_search"));
         let legacy_surface_count: i64 = connection
             .query_row(
@@ -331,7 +432,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 9);
+        assert_eq!(count, 10);
     }
 
     #[test]
@@ -359,7 +460,25 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 9);
+        assert_eq!(current_version(&connection).expect("migrated version"), 10);
+    }
+
+    #[test]
+    fn favicon_url_metadata_normalizes_host_and_registrable_domain() {
+        assert_eq!(
+            favicon_url_metadata("https://docs.news.bbc.co.uk/path"),
+            FaviconUrlMetadata {
+                host: Some("docs.news.bbc.co.uk".to_string()),
+                registrable_domain: Some("bbc.co.uk".to_string()),
+            }
+        );
+        assert_eq!(
+            favicon_url_metadata("example.com:443/path"),
+            FaviconUrlMetadata {
+                host: Some("example.com".to_string()),
+                registrable_domain: Some("example.com".to_string()),
+            }
+        );
     }
 
     #[test]
@@ -388,7 +507,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 9);
+                assert_eq!(join.join().expect("thread join"), 10);
             }
         });
 

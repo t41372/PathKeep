@@ -241,6 +241,7 @@ describe('intelligence surfaces', () => {
         {
           profileId: 'chrome:Default',
           url: 'https://example.com/alpha',
+          visitTime: Date.parse('2026-04-17T10:00:00Z'),
         },
       ]),
     )
@@ -254,6 +255,7 @@ describe('intelligence surfaces', () => {
       {
         profileId: 'chrome:Default',
         url: 'https://example.com/alpha',
+        visitTime: Date.parse('2026-04-17T10:00:00Z'),
         favicon: {
           dataUrl: 'data:image/png;base64,AQI=',
         },

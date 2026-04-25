@@ -925,3 +925,15 @@
   - 同步回寫 [`README.md`](../../README.md)、[`RELEASE.md`](../../RELEASE.md)、[`TESTING.md`](../../TESTING.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/browser-support-and-adapter-playbook.md`](../architecture/browser-support-and-adapter-playbook.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/reference-review.md`](../reference-review.md)、[`docs/plan/{STATUS.md,BACKLOG.md,README.md,program/research-and-decisions.md}`](STATUS.md) 與 [`docs/plan/m4-full-polish/release-readiness-runbook.md`](m4-full-polish/release-readiness-runbook.md)。
   - Current archive validation：透過 dev IPC bridge 用本機 Comet profile 完成 preview / import / re-import / revert / restore。sanitized artifact 落在 [`artifacts/browser-support/2026-04-24-perplexity-comet/README.md`](../../artifacts/browser-support/2026-04-24-perplexity-comet/README.md)，只記 schema coverage、aggregate counts、time range、batch outcome 與 source-evidence counts；不記私人 URL / title / raw profile path。驗證後 Comet 主 import batch 已 restore，current archive 保持 visible。
   - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core comet -- --nocapture`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`、`bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`、`bun run check`、`bun run build`
+
+- [x] **WORK-EXPLORER-FAVICON-A** — Time-Aware Favicon Domain Fallback
+  - 讀先：
+    `docs/features/recall.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+  - 目標：在 Explorer history row 缺失 exact page favicon 時，高性能、低成本地嘗試同網站可用 icon，同時維持主列表 row-only payload、favicon blob 去重與舊訪問紀錄的 icon 時間語義。
+  - 契約：不新增 Tauri command、不把 favicon bytes 塞回 `query_history`、不做 unbounded favicon scan、不在 read path 改寫 canonical visit / favicon facts；domain fallback 只能由 indexed page / host / registrable-domain lookup 提供，且 host / domain fallback 不得使用晚於該 visit time 的 icon。
+  - 2026-04-24：新增 migration `010_favicon_domain_fallback.sql`，在 `favicons` 保存 normalized `page_host` / `page_registrable_domain` 並建立 profile-aware / cross-profile lookup indexes；schema bootstrap 會分批 backfill 既有 favicon metadata，新 ingest 直接寫入 metadata，favicon bytes 仍透過 `favicon_blobs` / `image_blob_hash` 去重。
+  - Explorer lazy favicon hydration 現在傳入 `visitTime` 並把 cache key 擴成 `profileId + url + visitTime`。後端 lookup 先找 exact page icon，再按同 host / 同 registrable domain fallback；只要 request 帶 visit time，所有候選 icon 的 `last_updated_ms` 都必須早於或等於該 visit time，避免網站改 icon 後污染較早歷史紀錄。
+  - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
+  - 驗收：targeted Rust / Vitest slices、`bun run check`、`bun run build`

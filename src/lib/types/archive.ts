@@ -306,6 +306,7 @@ export interface HistoryEntry {
 export interface HistoryFaviconLookupEntry {
   profileId: string
   url: string
+  visitTime: number
 }
 
 /**
@@ -317,6 +318,7 @@ export interface HistoryFaviconLookupEntry {
 export interface HistoryFaviconLookupResult {
   profileId: string
   url: string
+  visitTime: number
   favicon?: {
     dataUrl: string
   } | null

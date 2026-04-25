@@ -289,8 +289,9 @@ export function handlePreviewShellCommand<T>(
     case 'load_history_favicons':
       return loadMockHistoryFavicons(
         state,
-        (args?.entries as { profileId: string; url: string }[] | undefined) ??
-          [],
+        (args?.entries as
+          | { profileId: string; url: string; visitTime: number }[]
+          | undefined) ?? [],
       ) as T
     case 'load_dashboard_snapshot':
       return buildMockDashboardSnapshot(state) as T

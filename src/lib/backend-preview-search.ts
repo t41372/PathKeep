@@ -302,19 +302,23 @@ export function loadMockHistoryFavicons(
   const seen = new Set<string>()
 
   return entries.flatMap((entry) => {
-    const cacheKey = `${entry.profileId}\n${entry.url}`
+    const cacheKey = `${entry.profileId}\n${entry.url}\n${entry.visitTime}`
     if (seen.has(cacheKey)) {
       return []
     }
     seen.add(cacheKey)
 
     const matchedItem = state.history.items.find(
-      (item) => item.profileId === entry.profileId && item.url === entry.url,
+      (item) =>
+        item.profileId === entry.profileId &&
+        item.url === entry.url &&
+        item.visitTime === entry.visitTime,
     )
 
     return {
       profileId: entry.profileId,
       url: entry.url,
+      visitTime: entry.visitTime,
       favicon: matchedItem?.favicon ?? null,
     }
   })

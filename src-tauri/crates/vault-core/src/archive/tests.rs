@@ -302,13 +302,31 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
             .map(|entry| HistoryFaviconLookupEntry {
                 profile_id: entry.profile_id.clone(),
                 url: entry.url.clone(),
+                visit_time: entry.visit_time,
             })
             .collect(),
     )
     .expect("load history favicons");
-    assert!(loaded_favicons.iter().all(|entry| {
-        entry.favicon.as_ref().is_some_and(|favicon| favicon.data_url.starts_with("data:image/"))
-    }));
+    assert_eq!(loaded_favicons.len(), 2);
+    let second_visit_favicon = loaded_favicons
+        .iter()
+        .find(|entry| entry.visit_time == history.items[0].visit_time)
+        .expect("second visit favicon result");
+    assert!(
+        second_visit_favicon
+            .favicon
+            .as_ref()
+            .is_some_and(|favicon| favicon.data_url.starts_with("data:image/")),
+        "expected the visit at the icon observation time to load the exact page icon"
+    );
+    let first_visit_favicon = loaded_favicons
+        .iter()
+        .find(|entry| entry.visit_time == history.items[1].visit_time)
+        .expect("first visit favicon result");
+    assert!(
+        first_visit_favicon.favicon.is_none(),
+        "favicon lookup must not use an exact page icon first observed after the visit"
+    );
 
     let connection = open_archive_connection(&paths, &config, None).expect("open archive");
     let favicon_blob_count: i64 = connection
@@ -468,12 +486,49 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         vec![HistoryFaviconLookupEntry {
             profile_id: cross_profile_favicon.items[0].profile_id.clone(),
             url: cross_profile_favicon.items[0].url.clone(),
+            visit_time: cross_profile_favicon.items[0].visit_time,
         }],
     )
     .expect("cross-profile favicon lookup");
     assert!(
         cross_profile_favicon_lookup[0].favicon.is_some(),
         "expected favicon lookup to fall back across source profiles for the same page URL"
+    );
+
+    let same_host_favicon_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Default".to_string(),
+            url: "https://example.com/missing-page".to_string(),
+            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T12:00:00+00:00")
+                .expect("same-host visit time")
+                .timestamp_millis(),
+        }],
+    )
+    .expect("same-host favicon lookup");
+    assert!(
+        same_host_favicon_lookup[0].favicon.is_some(),
+        "expected same-host fallback to reuse a historical icon without requiring exact page_url"
+    );
+
+    let future_host_favicon_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Default".to_string(),
+            url: "https://example.com/before-icon".to_string(),
+            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T09:00:00+00:00")
+                .expect("future-host visit time")
+                .timestamp_millis(),
+        }],
+    )
+    .expect("future-host favicon lookup");
+    assert!(
+        future_host_favicon_lookup[0].favicon.is_none(),
+        "domain fallback must not use an icon first observed after the visit"
     );
 
     let paged_export = export_history(
@@ -528,64 +583,21 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     );
 
     let mut favicon_statement = connection
-        .prepare(
-            "EXPLAIN QUERY PLAN
-             SELECT
-                    (
-                      SELECT favicon_candidates.image_data
-                      FROM (
-                        SELECT
-                          COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
-                          0 AS match_priority,
-                          favicons.last_updated_ms,
-                          favicons.width,
-                          favicons.height,
-                          favicons.id
-                        FROM favicons
-                        LEFT JOIN favicon_blobs
-                          ON favicon_blobs.blob_hash = favicons.image_blob_hash
-                        WHERE favicons.source_profile_id = source_profiles.id
-                          AND favicons.page_url = ?2
-                          AND (
-                            favicons.image_blob_hash IS NOT NULL
-                            OR favicons.image_data IS NOT NULL
-                          )
-                        UNION ALL
-                        SELECT
-                          COALESCE(favicon_blobs.image_data, favicons.image_data) AS image_data,
-                          1 AS match_priority,
-                          favicons.last_updated_ms,
-                          favicons.width,
-                          favicons.height,
-                          favicons.id
-                        FROM favicons
-                        LEFT JOIN favicon_blobs
-                          ON favicon_blobs.blob_hash = favicons.image_blob_hash
-                        WHERE favicons.source_profile_id != source_profiles.id
-                          AND favicons.page_url = ?2
-                          AND (
-                            favicons.image_blob_hash IS NOT NULL
-                            OR favicons.image_data IS NOT NULL
-                          )
-                      ) AS favicon_candidates
-                      ORDER BY
-                        favicon_candidates.match_priority ASC,
-                        favicon_candidates.last_updated_ms DESC,
-                        favicon_candidates.width DESC,
-                        favicon_candidates.height DESC,
-                        favicon_candidates.id DESC
-                      LIMIT 1
-                    ) AS favicon_image_data
-             FROM visits
-             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             JOIN urls ON urls.id = visits.url_id
-             WHERE visits.reverted_at IS NULL
-             ORDER BY visits.visit_time_ms DESC, visits.id DESC
-             LIMIT 150",
-        )
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", super::history::LOAD_HISTORY_FAVICON_SQL))
         .expect("prepare favicon query plan");
     let favicon_plan = favicon_statement
-        .query_map(["chrome:Default", "https://example.com/archive"], |row| row.get::<_, String>(3))
+        .query_map(
+            params![
+                "chrome:Default",
+                "https://example.com/archive",
+                chrono::DateTime::parse_from_rfc3339("2026-04-05T12:00:00+00:00")
+                    .expect("query plan visit time")
+                    .timestamp_millis(),
+                "example.com",
+                "example.org",
+            ],
+            |row| row.get::<_, String>(3),
+        )
         .expect("query favicon plan rows")
         .collect::<rusqlite::Result<Vec<_>>>()
         .expect("collect favicon query plan");
@@ -596,6 +608,20 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert!(
         favicon_plan.iter().any(|detail| detail.contains("idx_favicons_page_lookup")),
         "favicon fallback query is not using the cross-profile page lookup index: {favicon_plan:?}"
+    );
+    assert!(
+        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_host_profile_lookup")),
+        "same-profile same-host fallback is not using the host lookup index: {favicon_plan:?}"
+    );
+    assert!(
+        favicon_plan.iter().any(|detail| detail.contains("idx_favicons_host_lookup")),
+        "cross-profile same-host fallback is not using the host lookup index: {favicon_plan:?}"
+    );
+    assert!(
+        favicon_plan
+            .iter()
+            .any(|detail| detail.contains("idx_favicons_registrable_profile_lookup")),
+        "same-profile registrable-domain fallback is not using the registrable lookup index: {favicon_plan:?}"
     );
     assert!(
         !favicon_plan.iter().any(|detail| detail.contains("SCAN favicons")),
