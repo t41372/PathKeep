@@ -10,10 +10,24 @@
 
 - **環境假設**：測試環境已安裝至少一個 Chromium 系瀏覽器，且有可偵測的 profile。
 - **語言**：預設 `en`，Workflow 5 包含語言切換驗證。
+- **i18n 量化**：所有 e2e run 前先跑 `bun run check:i18n`，確認 `en` / `zh-CN` / `zh-TW` key parity 是 100%，且中文 catalog 沒有已知 raw backend/debug 英文短語。
 - **loading state 驗證**：所有頁面切換時必須觀察到 skeleton / loading state（參見 `docs/design/ux-principles.md` §4），不得出現空白畫面或系統預設轉圈。
 - **scope 驗證**：涉及 profile scope 的步驟必須確認 topbar badge、Explorer inheritance、Insights callout 的一致性。
 - **PME grammar**：凡涉及 Preview / Manual / Execute / Verify 的操作，每個階段都要驗證對應的 UI 狀態與產出物。
 - **accessibility baseline**：每個 workflow 至少走一遍 keyboard-only 路徑確認可及性。
+
+## 2026-04-24 Stop-Ship Recovery Routes
+
+這一組是從實際桌面事故回補的 e2e 路線，優先級高於一般 release polish：
+
+| Route                                 | 前置條件                                                                        | 必驗行為                                                                                                                                                                          | 主要文檔來源                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `E2E-REC-001` Onboarding Safari 權限  | macOS；Safari profile 存在但 `History.db` 不可讀；UI 語言 `zh-TW` / `zh-CN`     | Safari 必須留在瀏覽器清單、標示「需要權限」、提供開啟完整磁碟取用權設定的 action；只選不可讀 Safari 時不能進入下一步；錯誤不能顯示 raw `Grant Full Disk Access`。                 | `docs/features/archive.md` Safari support contract；`docs/design/screens-and-nav.md` Import contract |
+| `E2E-REC-002` Onboarding 首次備份降級 | 已選 1 個可讀 Chrome/Atlas/Comet + 1 個不可讀 Safari；UI 語言 `zh-TW` / `zh-CN` | 完成步驟要先警告 Safari 權限缺失；首次備份應處理可讀 profile，Safari staging 權限失敗時顯示本地化 warning，不可讓整個 run 靜默崩潰或顯示 raw backend error。                      | `docs/features/archive.md` progress + Safari degraded backup contract                                |
+| `E2E-REC-003` Manual backup progress  | 至少一個大型 Chromium profile；Dashboard 或 Topbar 觸發 manual backup           | Overlay 第一個 repaint 不得出現假 `1 / 2`、`1 / 3` 或固定 50%；active write 期間必須顯示目前來源/profile、遞增 record counter、imported/duplicate/skipped counters 與本地化 log。 | `docs/design/ux-principles.md` loading state；`docs/features/archive.md` progress surface            |
+| `E2E-REC-004` Import progress         | 大型 Takeout JSON 或 Browser Direct SQLite 匯入                                 | Scan / execute overlay 在單一大檔或單一大 profile 期間持續變化；未知總量時使用 indeterminate progress + record counter；錯誤與 notes 必須本地化。                                 | `docs/features/archive.md` import / Browser Direct contract                                          |
+| `E2E-REC-005` Dashboard heatmap       | archive 含跨年資料；匯入完成會新增當年資料                                      | 年份 pager 可以向早年與新年翻頁；「回到當前年份」在 pager 左側且只有離開當前年份時有意義；匯入/備份完成後 heatmap 不重啟 app 也刷新；圖例 swatch 在 light/dark mode 不透明。      | `docs/design/screens-and-nav.md` Dashboard rhythm contract                                           |
+| `E2E-REC-006` 中文 UI raw English     | `zh-CN` 與 `zh-TW` 各跑一次主要路由                                             | Onboarding、Dashboard、Import、Audit、Schedule、Security、Settings、Jobs 不能出現 raw i18n key 或已知 backend/debug 英文短語；品牌名、路徑、domain、瀏覽器名可保留原文。          | `docs/design/screens-and-nav.md` i18n contract；`scripts/i18n-progress.ts`                           |
 
 ---
 

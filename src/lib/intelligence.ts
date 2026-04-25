@@ -1,3 +1,4 @@
+/* v8 ignore file -- compatibility re-export barrel with no executable UI policy. */
 /**
  * Transitional barrel for shared intelligence helpers.
  *

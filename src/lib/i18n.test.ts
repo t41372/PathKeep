@@ -53,6 +53,27 @@ function collectLeafKeys(
   return keys.sort()
 }
 
+function collectLeafEntries(
+  node: Record<string, string | Record<string, unknown>>,
+  prefix = '',
+  entries: Array<{ key: string; value: string }> = [],
+) {
+  for (const [key, value] of Object.entries(node)) {
+    const next = prefix ? `${prefix}.${key}` : key
+    if (typeof value === 'string') {
+      entries.push({ key: next, value })
+      continue
+    }
+    collectLeafEntries(
+      value as Record<string, string | Record<string, unknown>>,
+      next,
+      entries,
+    )
+  }
+
+  return entries.sort((left, right) => left.key.localeCompare(right.key))
+}
+
 describe('i18n helpers', () => {
   test('detects traditional and simplified Chinese variants correctly', () => {
     expect(detectSystemLanguage(['zh-Hant-TW'])).toBe('zh-TW')
@@ -159,6 +180,48 @@ describe('i18n helpers', () => {
     expect(traditional('featureBackupDesc')).toContain('Safari')
     expect(traditional('featureBackupDesc')).not.toContain('Edge')
     expect(traditional('firefoxSafariInfo')).toContain('公開支援承諾')
+  })
+
+  test('blocks known raw English backend/debug phrases from Chinese UI catalogs', () => {
+    const catalog = translationCatalog()
+    const blocked = [
+      /\bFull Disk Access\b/i,
+      /Safari History\.db is not readable yet/i,
+      /Grant Full Disk Access/i,
+      /\barchive facts\b/i,
+      /\bcanonical archive run\b/i,
+      /\bshell state\b/i,
+      /\bcopying\s+\/Users\//i,
+      /\bprofile\b/i,
+      /\badapter\b/i,
+      /\bappend-only\b/i,
+      /^[a-z]+(?:\.[a-z][a-z0-9]*){1,}$/i,
+      /\bapp data\b/i,
+    ]
+
+    for (const language of ['zh-CN', 'zh-TW'] as const) {
+      const offenders = collectLeafEntries(catalog[language]).filter(
+        (entry) => {
+          const visibleValue = entry.value.replace(/\{[a-zA-Z0-9_]+\}/g, '')
+          return blocked.some((pattern) => pattern.test(visibleValue))
+        },
+      )
+
+      expect(offenders).toEqual([])
+    }
+  })
+
+  test('resolves onboarding platform and browser-engine labels instead of leaking keys', () => {
+    for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
+      const onboarding = createNamespaceTranslator(language, 'onboarding')
+
+      expect(onboarding('platform.macosLabel')).toBe('macOS')
+      expect(onboarding('platform.windowsLabel')).toBe('Windows')
+      expect(onboarding('platform.linuxLabel')).toBe('Linux')
+      expect(onboarding('browserEngineChromium')).toBe('Chromium')
+      expect(onboarding('browserEngineSafari')).toBe('Safari')
+      expect(onboarding('browserEngineFirefox')).toBe('Firefox')
+    }
   })
 
   test('keeps intelligence archive-wide and category copy available in every shipping locale', () => {

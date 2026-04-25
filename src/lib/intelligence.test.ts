@@ -30,18 +30,14 @@ import {
   sessionInsightsHref,
   trailInsightsHref,
   visitDayInsightsHref,
-} from './core-intelligence/routes'
-import {
   aiStatusMeta,
-  assistantResponseMeta,
-  scoreBand,
-  selectedAiProvider,
-} from './intelligence-ai-presentation'
-import {
   assistantHref,
+  assistantResponseMeta,
   dedupeEvidence,
   evidenceHref,
-} from './intelligence-links'
+  scoreBand,
+  selectedAiProvider,
+} from './intelligence'
 import type { AiAssistantResponse, AiIndexStatus, AppConfig } from './types'
 import { createNamespaceTranslator } from './i18n/catalog'
 

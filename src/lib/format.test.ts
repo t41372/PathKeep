@@ -63,6 +63,7 @@ describe('format utilities', () => {
     const iso = '2026-04-07T00:30:00.000Z'
 
     expect(calendarDayKey(iso, 'UTC')).toBe('04-07')
+    expect(calendarDayKey(new Date(iso), 'UTC')).toBe('04-07')
     expect(calendarDayKey(iso, 'America/Phoenix')).toBe('04-06')
     expect(calendarDayKey(iso, 'Asia/Tokyo')).toBe('04-07')
   })

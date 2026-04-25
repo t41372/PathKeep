@@ -15,7 +15,8 @@ use vault_core::{
 };
 #[cfg(coverage)]
 use vault_core::{
-    AiIndexReport, AiProviderConnectionTestRequest, AiSearchRequest, RemoteBackupResult,
+    AiIndexReport, AiProviderConnectionTestRequest, AiSearchRequest,
+    CoreIntelligenceRebuildRequest, RemoteBackupResult,
 };
 use vault_platform::keyring_set_provider_api_key;
 
@@ -1232,7 +1233,7 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         },
     )
     .expect("refind pages should load");
-    if let Some(page) = refind_pages.first() {
+    if let Some(page) = refind_pages.data.first() {
         let explain_report = explain_refind(
             Some("vault-passphrase"),
             &vault_core::ExplainRefindRequest { canonical_url: page.canonical_url.clone() },

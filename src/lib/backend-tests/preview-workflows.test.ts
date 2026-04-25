@@ -586,4 +586,87 @@ describe('backend facade preview workflows', () => {
       backendTestHarness.call('open_path_in_file_manager'),
     ).resolves.toEqual(expect.stringContaining('com.yi-ting.pathkeep'))
   })
+
+  test('covers Browser Direct and search-rule facade methods through preview commands', async () => {
+    const snapshot = await backend.getAppSnapshot()
+    const safariProfile = snapshot.browserProfiles.find(
+      (profile) => profile.profileId === 'safari:default',
+    )
+    expect(safariProfile?.historyPath).toBeTruthy()
+
+    await expect(
+      backend.inspectBrowserHistory({
+        sourcePath: safariProfile?.historyPath ?? '/tmp/History.db',
+        dryRun: true,
+        browserFamily: 'safari',
+        profileId: 'safari:default',
+        browserName: 'Safari',
+        profileName: 'Safari',
+      }),
+    ).resolves.toMatchObject({
+      dryRun: true,
+      sourcePath: safariProfile?.historyPath,
+    })
+
+    await expect(
+      backend.importBrowserHistory({
+        sourcePath: safariProfile?.historyPath ?? '/tmp/History.db',
+        dryRun: false,
+        browserFamily: 'safari',
+        profileId: 'safari:default',
+        browserName: 'Safari',
+        profileName: 'Safari',
+      }),
+    ).resolves.toMatchObject({
+      dryRun: false,
+      importBatch: expect.objectContaining({ status: 'imported' }),
+    })
+
+    await expect(
+      backend.loadHistoryFavicons([
+        {
+          profileId: 'chrome:Default',
+          url: 'https://developer.chrome.com/docs/devtools/storage/sqlite',
+          visitTime: Date.now(),
+        },
+      ]),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileId: 'chrome:Default',
+        }),
+      ]),
+    )
+
+    await expect(backend.listSearchEngineRules()).resolves.toEqual(
+      expect.any(Array),
+    )
+    await expect(
+      backend.upsertSearchEngineRule({
+        ruleId: 'custom:test',
+        engineId: 'test',
+        displayName: 'Test Search',
+        hostPattern: 'search.example.test',
+        pathPrefix: '/search',
+        queryParamKey: 'q',
+        enabled: true,
+        note: null,
+        exampleUrl: 'https://search.example.test/search?q=pathkeep',
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ruleId: 'custom:test',
+          displayName: 'Test Search',
+        }),
+      ]),
+    )
+    await expect(
+      backend.deleteSearchEngineRule('custom:test'),
+    ).resolves.not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ruleId: 'custom:test' }),
+      ]),
+    )
+  })
 })
