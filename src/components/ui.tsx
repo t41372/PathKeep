@@ -256,14 +256,46 @@ function renderWarningGlyph() {
   )
 }
 
+function renderDownloadGlyph() {
+  return (
+    <>
+      <path d="M12 4v9.5" {...glyphStrokeProps} />
+      <path d="m8 13 4 4 4-4" {...glyphStrokeProps} />
+      <path d="M4 20h16" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderDatabaseGlyph() {
+  return (
+    <>
+      <ellipse cx="12" cy="6" rx="7" ry="3" {...glyphStrokeProps} />
+      <path d="M5 6v6c0 2 3 3 7 3s7-1 7-3V6" {...glyphStrokeProps} />
+      <path d="M5 12v6c0 2 3 3 7 3s7-1 7-3v-6" {...glyphStrokeProps} />
+    </>
+  )
+}
+
+function renderArrowForwardGlyph() {
+  return <path d="M5 12h14M13 6l6 6-6 6" {...glyphStrokeProps} />
+}
+
+function renderArrowBackGlyph() {
+  return <path d="M19 12H5M11 18l-6-6 6-6" {...glyphStrokeProps} />
+}
+
 const glyphVectors = {
+  arrow_back: renderArrowBackGlyph,
+  arrow_forward: renderArrowForwardGlyph,
   auto_stories: renderBookGlyph,
   bar_chart: renderBarChartGlyph,
   build: renderWrenchGlyph,
   check: renderCheckGlyph,
   cloud_upload: renderCloudUploadGlyph,
   content_copy: renderCopyGlyph,
+  database: renderDatabaseGlyph,
   delete_sweep: renderTrashGlyph,
+  download: renderDownloadGlyph,
   folder_open: renderFolderGlyph,
   history: renderHistoryGlyph,
   language: renderGlobeGlyph,
