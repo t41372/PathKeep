@@ -10,7 +10,8 @@ use crate::{
     types::{
         CapabilityCoverage, ContextEvidence, DatabaseInspection, EngagementEvidence,
         HistoryBatchConsumer, NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning,
-        SchemaObservation, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
+        SchemaObservation, SourceEvidenceChunk, StreamHistoryError, StreamedHistory,
+        TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
@@ -123,6 +124,72 @@ fn stream_sql<T, E>(result: Result<T, rusqlite::Error>) -> Result<T, StreamHisto
     result.map_err(ParseError::from).map_err(StreamHistoryError::Parse)
 }
 
+fn flush_source_evidence<C>(
+    consumer: &mut C,
+    retain_source_evidence: bool,
+    typed_evidence: &mut TypedEvidenceBatch,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+    chunk: &mut SourceEvidenceChunk,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    if chunk.is_empty() {
+        return Ok(());
+    }
+
+    let chunk = std::mem::take(chunk);
+    if retain_source_evidence {
+        merge_typed_evidence(typed_evidence, chunk.typed_evidence);
+        native_entities.extend(chunk.native_entities);
+    } else {
+        consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
+fn merge_typed_evidence(target: &mut TypedEvidenceBatch, next: TypedEvidenceBatch) {
+    target.search.extend(next.search);
+    target.navigation.extend(next.navigation);
+    target.engagement.extend(next.engagement);
+    target.context.extend(next.context);
+}
+
+fn stream_native_table_source_evidence<C>(
+    connection: &Connection,
+    sql: &str,
+    entity_kind: &str,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let mut statement = stream_sql(connection.prepare(sql))?;
+    let column_names =
+        statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
+    let mut rows = stream_sql(statement.query([]))?;
+    let mut chunk = SourceEvidenceChunk::default();
+    while let Some(row) = stream_sql(rows.next())? {
+        chunk.native_entities.push(stream_sql(capture_native_row(
+            row,
+            &column_names,
+            entity_kind,
+            "id",
+            None,
+        ))?);
+        if chunk.native_entities.len() >= chunk_size {
+            consumer
+                .source_evidence(std::mem::take(&mut chunk))
+                .map_err(StreamHistoryError::Consumer)?;
+        }
+    }
+    if !chunk.is_empty() {
+        consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
 /// Inspects a Safari `History.db` file and reports required-table coverage.
 pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
     let connection = open_readonly(path)?;
@@ -203,6 +270,7 @@ where
     let mut typed_evidence = TypedEvidenceBatch::default();
     let mut evidence_stats = SafariVisitEvidenceStats::default();
     let mut native_entities = Vec::new();
+    let retain_source_evidence = consumer.retain_source_evidence_in_report();
 
     {
         let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
@@ -211,9 +279,10 @@ where
         let mut rows =
             stream_sql(statement.query(params![unix_ms_to_safari_time(after_url_last_visit_ms)]))?;
         let mut batch = Vec::with_capacity(chunk_size);
+        let mut source_evidence = SourceEvidenceChunk::default();
         while let Some(row) = stream_sql(rows.next())? {
             batch.push(stream_sql(parsed_url_from_row(row))?);
-            native_entities.push(stream_sql(capture_native_row(
+            source_evidence.native_entities.push(stream_sql(capture_native_row(
                 row,
                 &column_names,
                 "safari-history-item-row",
@@ -222,11 +291,25 @@ where
             ))?);
             if batch.len() >= chunk_size {
                 consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+                flush_source_evidence(
+                    consumer,
+                    retain_source_evidence,
+                    &mut typed_evidence,
+                    &mut native_entities,
+                    &mut source_evidence,
+                )?;
             }
         }
         if !batch.is_empty() {
             consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
         }
+        flush_source_evidence(
+            consumer,
+            retain_source_evidence,
+            &mut typed_evidence,
+            &mut native_entities,
+            &mut source_evidence,
+        )?;
     }
 
     {
@@ -236,19 +319,22 @@ where
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
         let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
         let mut batch = Vec::with_capacity(chunk_size);
+        let mut source_evidence = SourceEvidenceChunk::default();
         while let Some(row) = stream_sql(rows.next())? {
             let visit = stream_sql(parsed_visit_from_row(row))?;
             visit_count += 1;
+            let mut visit_typed_evidence = TypedEvidenceBatch::default();
             extend_typed_evidence_from_visit_row(
                 row,
                 &visit,
                 &extra_visit_columns,
-                &mut typed_evidence,
+                &mut visit_typed_evidence,
                 &mut evidence_stats,
             )
             .map_err(ParseError::from)
             .map_err(StreamHistoryError::Parse)?;
-            native_entities.push(stream_sql(capture_native_row(
+            merge_typed_evidence(&mut source_evidence.typed_evidence, visit_typed_evidence);
+            source_evidence.native_entities.push(stream_sql(capture_native_row(
                 row,
                 &column_names,
                 "safari-history-visit-row",
@@ -260,25 +346,49 @@ where
                 consumer
                     .visits(std::mem::take(&mut batch))
                     .map_err(StreamHistoryError::Consumer)?;
+                flush_source_evidence(
+                    consumer,
+                    retain_source_evidence,
+                    &mut typed_evidence,
+                    &mut native_entities,
+                    &mut source_evidence,
+                )?;
             }
         }
         if !batch.is_empty() {
             consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
         }
+        flush_source_evidence(
+            consumer,
+            retain_source_evidence,
+            &mut typed_evidence,
+            &mut native_entities,
+            &mut source_evidence,
+        )?;
     }
 
     for optional_table in ["history_tombstones", "history_tags", "history_items_to_tags"] {
         if inspection.table_names.iter().any(|existing| existing == optional_table) {
             let sql = format!("SELECT * FROM {optional_table}");
             let entity_kind = format!("safari-{}", optional_table.replace('_', "-"));
-            native_entities.extend(capture_native_rows(
-                &connection,
-                &sql,
-                &[],
-                &entity_kind,
-                "id",
-                None,
-            )?);
+            if retain_source_evidence {
+                native_entities.extend(capture_native_rows(
+                    &connection,
+                    &sql,
+                    &[],
+                    &entity_kind,
+                    "id",
+                    None,
+                )?);
+            } else {
+                stream_native_table_source_evidence(
+                    &connection,
+                    &sql,
+                    &entity_kind,
+                    chunk_size,
+                    consumer,
+                )?;
+            }
         }
     }
 
@@ -561,7 +671,46 @@ fn build_capability_snapshot(
 mod tests {
     use super::*;
     use rusqlite::params;
+    use std::convert::Infallible;
     use tempfile::tempdir;
+
+    #[derive(Default)]
+    struct NonRetainingEvidenceSink {
+        urls: usize,
+        visits: usize,
+        source_evidence_chunks: usize,
+        navigation_evidence: usize,
+        engagement_evidence: usize,
+        context_evidence: usize,
+        native_entities: usize,
+    }
+
+    impl HistoryBatchConsumer for NonRetainingEvidenceSink {
+        type Error = Infallible;
+
+        fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            self.urls += batch.len();
+            Ok(())
+        }
+
+        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visits += batch.len();
+            Ok(())
+        }
+
+        fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
+            self.source_evidence_chunks += 1;
+            self.navigation_evidence += chunk.typed_evidence.navigation.len();
+            self.engagement_evidence += chunk.typed_evidence.engagement.len();
+            self.context_evidence += chunk.typed_evidence.context.len();
+            self.native_entities += chunk.native_entities.len();
+            Ok(())
+        }
+
+        fn retain_source_evidence_in_report(&self) -> bool {
+            false
+        }
+    }
 
     fn write_history_fixture(path: &Path) {
         let connection = Connection::open(path).expect("open safari fixture");
@@ -714,6 +863,35 @@ mod tests {
         assert!(parsed.capability_snapshot.items.iter().any(|item| {
             item.key == "safari.redirect_edges" && item.available && item.populated_rows == 2
         }));
+    }
+
+    #[test]
+    fn stream_history_can_move_source_evidence_out_of_the_returned_report() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        write_current_schema_fixture(&history_path);
+        let mut sink = NonRetainingEvidenceSink::default();
+
+        let streamed = stream_history(&history_path, 0, 0, 1, &mut sink).expect("stream safari");
+
+        assert_eq!(sink.urls, 1);
+        assert_eq!(sink.visits, 2);
+        assert!(sink.source_evidence_chunks >= 3);
+        assert_eq!(sink.navigation_evidence, 2);
+        assert_eq!(sink.engagement_evidence, 2);
+        assert!(sink.context_evidence >= 6);
+        assert!(sink.native_entities >= 3);
+        assert!(streamed.native_entities.is_empty());
+        assert!(streamed.typed_evidence.navigation.is_empty());
+        assert!(streamed.typed_evidence.engagement.is_empty());
+        assert!(streamed.typed_evidence.context.is_empty());
+        assert!(
+            streamed
+                .capability_snapshot
+                .items
+                .iter()
+                .any(|item| { item.key == "safari.redirect_edges" && item.populated_rows == 2 })
+        );
     }
 
     #[test]

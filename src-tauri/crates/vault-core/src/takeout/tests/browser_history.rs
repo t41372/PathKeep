@@ -260,6 +260,20 @@ fn import_browser_history_accepts_chromium_history_database() {
     assert_eq!(inspection.duplicate_items, 0);
     assert_eq!(inspection.recognized_files[0].kind, "chromium-history-db");
     assert_eq!(inspection.import_batch.expect("import batch").source_kind, "browser-history");
+
+    let search = Connection::open(&paths.search_database_path).expect("open search projection");
+    let search_documents: i64 = search
+        .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
+        .expect("search document count");
+    let chrome_matches: i64 = search
+        .query_row(
+            "SELECT COUNT(*) FROM history_search WHERE history_search MATCH ?1",
+            ["chrome"],
+            |row| row.get(0),
+        )
+        .expect("fts chrome match count");
+    assert_eq!(search_documents, 1);
+    assert_eq!(chrome_matches, 1);
 }
 
 #[test]

@@ -201,7 +201,8 @@ where
     if chunk.is_empty() {
         return Ok(());
     }
-    consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)
+    TakeoutSourceEvidenceConsumer::source_evidence(consumer, chunk)
+        .map_err(StreamHistoryError::Consumer)
 }
 
 fn empty_stream_report(

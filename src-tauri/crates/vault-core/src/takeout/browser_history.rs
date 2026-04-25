@@ -26,7 +26,9 @@ use super::{
     import_flow::{create_import_run, finalize_failed_import_run, finalize_successful_import_run},
     *,
 };
-use browser_history_parser::{HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamedHistory};
+use browser_history_parser::{
+    HistoryBatchConsumer, ParsedUrl, ParsedVisit, SourceEvidenceChunk, StreamedHistory,
+};
 use staging::{
     StagedBrowserHistorySource, browser_file_report, stage_browser_history_source,
     stream_browser_history,
@@ -75,6 +77,10 @@ impl HistoryBatchConsumer for BrowserPreviewCollector {
         }
         Ok(())
     }
+
+    fn retain_source_evidence_in_report(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Default)]
@@ -101,17 +107,21 @@ struct BrowserHistoryArchiveConsumer<'a> {
     source_profile_id: i64,
     source_kind: &'static str,
     url_id_map: std::collections::BTreeMap<i64, i64>,
+    source_evidence: DeferredSourceEvidenceBuilder,
+    preview_range: PreviewRangeSummary,
     stats: ImportStats,
     counts: BrowserImportCounts,
 }
 
 impl<'a> BrowserHistoryArchiveConsumer<'a> {
     fn new(
+        paths: &ProjectPaths,
         archive: &'a Transaction<'a>,
         run_id: i64,
         batch_id: i64,
         source_profile_id: i64,
         source_kind: &'static str,
+        source_label: &str,
     ) -> Self {
         Self {
             archive,
@@ -120,9 +130,31 @@ impl<'a> BrowserHistoryArchiveConsumer<'a> {
             source_profile_id,
             source_kind,
             url_id_map: std::collections::BTreeMap::new(),
+            source_evidence: DeferredSourceEvidenceBuilder::new(paths, source_label),
+            preview_range: PreviewRangeSummary::default(),
             stats: ImportStats::default(),
             counts: BrowserImportCounts::default(),
         }
+    }
+
+    fn finish(
+        self,
+    ) -> Result<(
+        BrowserImportCounts,
+        ImportStats,
+        PreviewRangeSummary,
+        DeferredSourceEvidencePayload,
+        SourceEvidenceCounts,
+    )> {
+        let source_evidence_counts = self.source_evidence.counts();
+        let source_evidence_payload = self.source_evidence.finish()?;
+        Ok((
+            self.counts,
+            self.stats,
+            self.preview_range,
+            source_evidence_payload,
+            source_evidence_counts,
+        ))
     }
 }
 
@@ -192,6 +224,11 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
         self.counts.visits += batch.len();
         for visit in batch {
+            merge_preview_range(
+                &mut self.preview_range,
+                Some(&visit.visit_time_iso),
+                Some(&visit.visit_time_iso),
+            );
             let Some(&url_id) = self.url_id_map.get(&visit.source_url_id) else {
                 self.stats.skipped_items += 1;
                 continue;
@@ -252,6 +289,17 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
             }
         }
         Ok(())
+    }
+
+    fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
+        self.source_evidence.push(SourceEvidencePayload {
+            typed_evidence: chunk.typed_evidence,
+            native_entities: chunk.native_entities,
+        })
+    }
+
+    fn retain_source_evidence_in_report(&self) -> bool {
+        false
     }
 }
 
@@ -354,7 +402,14 @@ where
         &progress_log_lines,
     );
 
-    let import_result = (|| -> Result<(StreamedHistory, BrowserImportCounts, ImportStats)> {
+    let import_result = (|| -> Result<(
+        StreamedHistory,
+        BrowserImportCounts,
+        ImportStats,
+        PreviewRangeSummary,
+        DeferredSourceEvidencePayload,
+        SourceEvidenceCounts,
+    )> {
         progress_log_lines.push(format!("Importing {} rows.", staged.family.as_str()));
         emit_browser_import_progress(
             &mut report_progress,
@@ -366,23 +421,61 @@ where
             Some(staged.requested_path.display().to_string()),
             &progress_log_lines,
         );
-        let (streamed, counts, stats) = {
+        let (
+            streamed,
+            counts,
+            stats,
+            preview_range,
+            source_evidence_payload,
+            source_evidence_counts,
+        ) = {
+            let source_label = staged.requested_path.display().to_string();
             let mut consumer = BrowserHistoryArchiveConsumer::new(
+                paths,
                 &transaction,
                 run_id,
                 batch_id,
                 source_profile_id,
                 staged.family.source_kind(),
+                &source_label,
             );
             let streamed = stream_browser_history(&staged, &mut consumer)?;
-            (streamed, consumer.counts, consumer.stats)
+            let (
+                counts,
+                stats,
+                preview_range,
+                source_evidence_payload,
+                source_evidence_counts,
+            ) = consumer.finish()?;
+            (
+                streamed,
+                counts,
+                stats,
+                preview_range,
+                source_evidence_payload,
+                source_evidence_counts,
+            )
         };
         transaction.commit()?;
-        Ok((streamed, counts, stats))
+        Ok((
+            streamed,
+            counts,
+            stats,
+            preview_range,
+            source_evidence_payload,
+            source_evidence_counts,
+        ))
     })();
 
     match import_result {
-        Ok((streamed, counts, stats)) => {
+        Ok((
+            streamed,
+            counts,
+            stats,
+            preview_range,
+            source_evidence_payload,
+            source_evidence_counts,
+        )) => {
             inspection.candidate_items = counts.visits;
             inspection.imported_items = stats.imported_items;
             inspection.duplicate_items = stats.duplicate_items;
@@ -396,17 +489,6 @@ where
                     stats.skipped_items
                 ));
             }
-            let mut preview_range = PreviewRangeSummary::default();
-            let mut preview_collector = BrowserPreviewCollector {
-                source_path: staged.requested_path.display().to_string(),
-                ..BrowserPreviewCollector::default()
-            };
-            stream_browser_history(&staged, &mut preview_collector)?;
-            merge_preview_range(
-                &mut preview_range,
-                preview_collector.preview_range.start.as_deref(),
-                preview_collector.preview_range.end.as_deref(),
-            );
             inspection.preview_range_start = preview_range.start;
             inspection.preview_range_end = preview_range.end;
 
@@ -422,6 +504,8 @@ where
                     counts: &counts,
                 },
                 streamed,
+                source_evidence_payload,
+                source_evidence_counts,
             ) {
                 inspection.notes.push(format!(
                     "Canonical Browser Direct import completed, but the source-evidence archive needs a rebuild: {error}"
@@ -429,7 +513,9 @@ where
             }
             batches::finalize_import_batch(&archive, batch_id, &inspection)?;
             finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-            if let Err(error) = rebuild_search_projection(paths, config, key) {
+            if let Err(error) =
+                refresh_search_projection_for_import_batch(paths, config, key, batch_id)
+            {
                 inspection.notes.push(format!(
                     "Import completed, but the keyword-recall projection needs a rebuild: {error}"
                 ));
@@ -527,6 +613,8 @@ fn upsert_browser_history_profile(
 fn persist_browser_source_evidence_plan(
     input: BrowserEvidencePersistInput<'_>,
     streamed: StreamedHistory,
+    source_evidence_payload: DeferredSourceEvidencePayload,
+    source_evidence_counts: SourceEvidenceCounts,
 ) -> Result<()> {
     let BrowserEvidencePersistInput {
         paths,
@@ -538,19 +626,7 @@ fn persist_browser_source_evidence_plan(
         staged,
         counts,
     } = input;
-    let mut builder =
-        DeferredSourceEvidenceBuilder::new(paths, &staged.requested_path.display().to_string());
-    let StreamedHistory {
-        schema_observation,
-        capability_snapshot,
-        typed_evidence,
-        native_entities,
-        warnings,
-        ..
-    } = streamed;
-    builder.push(SourceEvidencePayload { typed_evidence, native_entities })?;
-    let evidence_counts = builder.counts();
-    let source_evidence_payload = builder.finish()?;
+    let StreamedHistory { schema_observation, capability_snapshot, warnings, .. } = streamed;
     let observation_json = serde_json::to_string(&schema_observation)?;
     let source_batch = SourceBatchInput {
         source_profile_id,
@@ -566,7 +642,7 @@ fn persist_browser_source_evidence_plan(
             counts.visits,
             0,
             0,
-            &evidence_counts,
+            &source_evidence_counts,
         ),
         artifact_refs_json: Some(
             json!({

@@ -209,6 +209,24 @@ pub struct NativeEntity {
     pub metadata: BTreeMap<String, String>,
 }
 
+/// One bounded source-evidence chunk emitted while parser rows are still streaming.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SourceEvidenceChunk {
+    pub typed_evidence: TypedEvidenceBatch,
+    pub native_entities: Vec<NativeEntity>,
+}
+
+impl SourceEvidenceChunk {
+    /// Keeps streaming callers from writing empty source-evidence chunks.
+    pub fn is_empty(&self) -> bool {
+        self.typed_evidence.search.is_empty()
+            && self.typed_evidence.navigation.is_empty()
+            && self.typed_evidence.engagement.is_empty()
+            && self.typed_evidence.context.is_empty()
+            && self.native_entities.is_empty()
+    }
+}
+
 /// Full parsed Chromium-style history payload returned by the parser crate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChromiumHistory {
@@ -258,6 +276,22 @@ pub trait HistoryBatchConsumer {
 
     fn favicons(&mut self, _batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
         Ok(())
+    }
+
+    /// Receives cold source evidence while the parser is still scanning the source.
+    ///
+    /// Import callers override this with a bounded spool sink. Read-only parser
+    /// callers keep the default and let evidence remain in the returned report.
+    fn source_evidence(&mut self, _chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Signals whether typed evidence/native rows should be retained in `StreamedHistory`.
+    ///
+    /// Large import consumers return `false` so source evidence flows through
+    /// `source_evidence` instead of accumulating one full in-memory report.
+    fn retain_source_evidence_in_report(&self) -> bool {
+        true
     }
 }
 

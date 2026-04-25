@@ -93,7 +93,7 @@
   - 來源 schema 變更時
   - 每季 checkpoint
 - 記錄每次備份的瀏覽器版本、schema 指紋、profile metadata。
-- `favicons` 保存來源觀測到的 page-level favicon facts，包含 `page_url`、normalized `page_host`、`page_registrable_domain`、`last_updated_ms` 與去重後的 `image_blob_hash`；實際 icon bytes 由 `favicon_blobs` content-addressed 儲存去重。Explorer 只在 lazy hydration path 讀 favicon：不晚於 visit time 的 exact page icon 優先，其次才用 indexed host / registrable-domain fallback；這個 read-time fallback 不改寫 canonical visit 或舊 favicon fact。
+- `favicons` 保存來源觀測到的 page-level favicon facts，包含 `page_url`、normalized `page_host`、`page_registrable_domain`、`last_updated_ms` 與去重後的 `image_blob_hash`；實際 icon bytes 由 `favicon_blobs` content-addressed 儲存去重。Explorer 只在 lazy hydration path 讀 favicon：不晚於 visit time 的 exact page icon 優先，其次才用 indexed host / registrable-domain fallback；這個 read-time fallback 不改寫 canonical visit 或舊 favicon fact，也不得在 archive open / schema bootstrap 時同步回填舊 favicon metadata。
 
 ### Storage planes
 
@@ -126,6 +126,7 @@
 - lexical recall 不再與 canonical archive 共住同一個 SQLite。FTS 只存在 `derived/history-search.sqlite`，作為 canonical URL-document 的 projection。
 - FTS 只索引 **URL、title、search term**，以及後續明確挑選的 bounded enrichment projection 欄位。
 - 一筆 canonical `urls.id` 對應一份 URL-document search projection，Explorer keyword recall 透過 `MATCH` 命中 projection 後再 join 回可見 `visits`，避免 rollback hidden rows 洩漏回主查詢。
+- Takeout / Browser Direct import 成功後只刷新該 import batch 影響到的 URL-document projection；不得在導入主路徑同步 delete-all / rebuild 全部 search projection。rollback / restore 仍可用 full rebuild 作為顯式維護動作。
 - 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。
 - 若某個 enrichment 需要被全文搜尋，先經 projection / truncation / field whitelist 進入獨立 projection table，再由 FTS 索引。
 
@@ -151,6 +152,7 @@
   - `visit_engagement_evidence`
   - `visit_context_evidence`
 - `native_entities` 用來保存非 visit 粒度、尚未 promotion、或 browser-family-specific 的來源資料，例如 Firefox `moz_inputhistory` / metadata、Chromium clusters / annotations / task graph、Safari tombstones / tags、Takeout Session / tab navigation。
+- 大型 import 的 source-native evidence 必須是 parser batch → bounded spool builder 的流式 contract；parser 可為 read-only `parse_history` API 保留完整 report，但 execute/import path 不得把全量 `TypedEvidenceBatch` / `native_entities` 常駐到 `StreamedHistory`。
 - extractor 遇到新欄位時，預設應保留到 typed/native evidence；只有明確證明低價值且能從 retained raw artifact 無損重建的資料，才可不進 source-evidence archive。
 - source-evidence 讀路徑預設是 cold path：rebuild、explainability、debug attach、field promotion / re-extract 可以讀；Explorer / Dashboard / default shell query path 不得直接退化成掃 native payload。
 

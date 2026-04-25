@@ -933,7 +933,20 @@
     `docs/architecture/browser-support-and-adapter-playbook.md`
   - 目標：在 Explorer history row 缺失 exact page favicon 時，高性能、低成本地嘗試同網站可用 icon，同時維持主列表 row-only payload、favicon blob 去重與舊訪問紀錄的 icon 時間語義。
   - 契約：不新增 Tauri command、不把 favicon bytes 塞回 `query_history`、不做 unbounded favicon scan、不在 read path 改寫 canonical visit / favicon facts；domain fallback 只能由 indexed page / host / registrable-domain lookup 提供，且 host / domain fallback 不得使用晚於該 visit time 的 icon。
-  - 2026-04-24：新增 migration `010_favicon_domain_fallback.sql`，在 `favicons` 保存 normalized `page_host` / `page_registrable_domain` 並建立 profile-aware / cross-profile lookup indexes；schema bootstrap 會分批 backfill 既有 favicon metadata，新 ingest 直接寫入 metadata，favicon bytes 仍透過 `favicon_blobs` / `image_blob_hash` 去重。
+  - 2026-04-24：新增 migration `010_favicon_domain_fallback.sql`，在 `favicons` 保存 normalized `page_host` / `page_registrable_domain` 並建立 profile-aware / cross-profile lookup indexes；schema bootstrap 不同步掃描舊 favicon rows，新 ingest 直接寫入 metadata，favicon bytes 仍透過 `favicon_blobs` / `image_blob_hash` 去重。
   - Explorer lazy favicon hydration 現在傳入 `visitTime` 並把 cache key 擴成 `profileId + url + visitTime`。後端 lookup 先找 exact page icon，再按同 host / 同 registrable domain fallback；只要 request 帶 visit time，所有候選 icon 的 `last_updated_ms` 都必須早於或等於該 visit time，避免網站改 icon 後污染較早歷史紀錄。
   - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
   - 驗收：targeted Rust / Vitest slices、`bun run check`、`bun run build`
+
+- [x] **WORK-IMPORT-PERF-A** — Browser Direct Import Bounded-Memory Finalization
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/data-model.md`
+    `docs/plan/program/repo-baseline.md`
+  - 目標：回應三個月真實資料導入後 app 崩潰、清資料後再導入卡死的 stop-ship 回報，審查 favicon fallback 與 import finalization 是否符合 1440 萬筆 baseline，並修掉導入主路徑的 unbounded memory / full rebuild 熱點。
+  - 契約：導入 execute path 不得把 full source-native evidence 常駐在 parser return payload；導入成功後不得同步二次 stream 同一個 source DB；導入主路徑不得為了 keyword recall 重建整個 derived search projection。
+  - 2026-04-24：`browser-history-parser` 的 shared `HistoryBatchConsumer` 新增 bounded `SourceEvidenceChunk` sink。Chromium / Safari parser 在 import consumer 選擇 `retain_source_evidence_in_report = false` 時，會把 typed evidence / native entities 隨 parser batch 流給 consumer；read-only `parse_history` API 仍保留完整 report，避免破壞既有 parser/debug 調用。
+  - `vault-core::takeout::browser_history` 現在讓 Browser Direct archive consumer 直接持有 `DeferredSourceEvidenceBuilder`，source evidence 邊 parse 邊進 spool；preview range 也在寫 visits 時同步累計，不再 commit 後重新 `stream_browser_history` 一次。這把 Browser Direct execute path 從「canonical rows stream，但 cold evidence 全量常駐」修成真正 bounded-memory。
+  - `derived/history-search.sqlite` finalization 新增 import-batch scoped refresh：Takeout / Browser Direct import 只 upsert 本次 batch 影響到的 URL-document FTS rows。`rebuild_search_projection` 仍保留給 rollback / restore / backup / repair 顯式維護路徑，但不再卡在 import foreground path。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md) 與 [`docs/plan/STATUS.md`](STATUS.md)。
+  - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser --lib`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core takeout::tests::browser_history --lib`

@@ -281,7 +281,7 @@ where
     }
     batches::finalize_import_batch(&archive, batch_id, &inspection)?;
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-    if let Err(error) = rebuild_search_projection(paths, config, key) {
+    if let Err(error) = refresh_search_projection_for_import_batch(paths, config, key, batch_id) {
         inspection.notes.push(format!(
             "Import completed, but the keyword-recall projection needs a rebuild: {error}"
         ));

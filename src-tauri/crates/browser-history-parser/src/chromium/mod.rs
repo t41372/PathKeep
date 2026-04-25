@@ -11,8 +11,8 @@ use crate::{
         CapabilityCoverage, ChromiumHistory, ChromiumReadCursor, ContextEvidence,
         DatabaseInspection, EngagementEvidence, HistoryBatchConsumer, HistoryDatabaseSet,
         NavigationEvidence, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl,
-        ParsedVisit, ParserWarning, SearchEvidence, StreamHistoryError, StreamedHistory,
-        TypedEvidenceBatch,
+        ParsedVisit, ParserWarning, SearchEvidence, SourceEvidenceChunk, StreamHistoryError,
+        StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
@@ -67,6 +67,8 @@ struct VisitCapabilityStats {
     external_referrer_count: usize,
     visit_duration_count: usize,
     sync_state_count: usize,
+    search_evidence_count: usize,
+    engagement_evidence_count: usize,
 }
 
 /// Incremental URL ingest query used by the archive pipeline.
@@ -181,12 +183,15 @@ where
     let mut typed_evidence = TypedEvidenceBatch::default();
     let mut native_entities = Vec::new();
     let mut visit_stats = VisitCapabilityStats::default();
+    let retain_source_evidence = consumer.retain_source_evidence_in_report();
 
     stream_url_batches(
         &history,
         cursor.after_url_last_visit_time,
         chunk_size,
         consumer,
+        retain_source_evidence,
+        &mut typed_evidence,
         &mut native_entities,
     )?;
     stream_visit_batches(
@@ -194,6 +199,7 @@ where
         cursor.after_visit_id,
         chunk_size,
         consumer,
+        retain_source_evidence,
         &mut typed_evidence,
         &mut visit_stats,
         &mut native_entities,
@@ -205,6 +211,8 @@ where
             cursor.after_download_id,
             chunk_size,
             consumer,
+            retain_source_evidence,
+            &mut typed_evidence,
             &mut native_entities,
         )?;
     } else {
@@ -220,8 +228,10 @@ where
             cursor.after_url_last_visit_time,
             chunk_size,
             consumer,
+            retain_source_evidence,
             &mut typed_evidence,
             &mut native_entities,
+            &mut visit_stats,
         )?;
     } else {
         warnings.push(ParserWarning {
@@ -240,7 +250,7 @@ where
         }),
     }
 
-    let capability_snapshot = build_capability_snapshot(&inspection, &typed_evidence, &visit_stats);
+    let capability_snapshot = build_capability_snapshot(&inspection, &visit_stats);
     Ok(StreamedHistory {
         inspection,
         schema_observation,
@@ -300,11 +310,40 @@ fn has_table(inspection: &DatabaseInspection, table_name: &str) -> bool {
     inspection.table_names.iter().any(|existing| existing == table_name)
 }
 
+fn flush_source_evidence<C>(
+    consumer: &mut C,
+    retain_source_evidence: bool,
+    typed_evidence: &mut TypedEvidenceBatch,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+    chunk: &mut SourceEvidenceChunk,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    if chunk.is_empty() {
+        return Ok(());
+    }
+
+    let chunk = std::mem::take(chunk);
+    if retain_source_evidence {
+        typed_evidence.search.extend(chunk.typed_evidence.search);
+        typed_evidence.navigation.extend(chunk.typed_evidence.navigation);
+        typed_evidence.engagement.extend(chunk.typed_evidence.engagement);
+        typed_evidence.context.extend(chunk.typed_evidence.context);
+        native_entities.extend(chunk.native_entities);
+    } else {
+        consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
+}
+
 fn stream_url_batches<C>(
     connection: &Connection,
     last_visit_time: i64,
     chunk_size: usize,
     consumer: &mut C,
+    retain_source_evidence: bool,
+    typed_evidence: &mut TypedEvidenceBatch,
     native_entities: &mut Vec<crate::types::NativeEntity>,
 ) -> Result<(), StreamHistoryError<C::Error>>
 where
@@ -315,9 +354,10 @@ where
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
     let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
     let mut batch = Vec::with_capacity(chunk_size);
+    let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
         batch.push(stream_sql(parsed_url_from_row(row))?);
-        native_entities.push(stream_sql(capture_native_row(
+        source_evidence.native_entities.push(stream_sql(capture_native_row(
             row,
             &column_names,
             "chromium-url-row",
@@ -326,11 +366,25 @@ where
         ))?);
         if batch.len() >= chunk_size {
             consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+            flush_source_evidence(
+                consumer,
+                retain_source_evidence,
+                typed_evidence,
+                native_entities,
+                &mut source_evidence,
+            )?;
         }
     }
     if !batch.is_empty() {
         consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
     }
+    flush_source_evidence(
+        consumer,
+        retain_source_evidence,
+        typed_evidence,
+        native_entities,
+        &mut source_evidence,
+    )?;
     Ok(())
 }
 
@@ -339,6 +393,7 @@ fn stream_visit_batches<C>(
     last_visit_id: i64,
     chunk_size: usize,
     consumer: &mut C,
+    retain_source_evidence: bool,
     typed_evidence: &mut TypedEvidenceBatch,
     visit_stats: &mut VisitCapabilityStats,
     native_entities: &mut Vec<crate::types::NativeEntity>,
@@ -351,17 +406,19 @@ where
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
     let mut rows = stream_sql(statement.query(params![last_visit_id]))?;
     let mut batch = Vec::with_capacity(chunk_size);
+    let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
         let visit = stream_sql(parsed_visit_from_row(row))?;
         track_visit_capability_stats(visit_stats, &visit);
         if let Some(evidence) = navigation_evidence_for_visit(&visit) {
-            typed_evidence.navigation.push(evidence);
+            source_evidence.typed_evidence.navigation.push(evidence);
         }
         if let Some(evidence) = engagement_evidence_for_visit(&visit) {
-            typed_evidence.engagement.push(evidence);
+            visit_stats.engagement_evidence_count += 1;
+            source_evidence.typed_evidence.engagement.push(evidence);
         }
-        typed_evidence.context.extend(context_evidence_for_visit(&visit));
-        native_entities.push(stream_sql(capture_native_row(
+        source_evidence.typed_evidence.context.extend(context_evidence_for_visit(&visit));
+        source_evidence.native_entities.push(stream_sql(capture_native_row(
             row,
             &column_names,
             "chromium-visit-row",
@@ -371,11 +428,25 @@ where
         batch.push(visit);
         if batch.len() >= chunk_size {
             consumer.visits(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+            flush_source_evidence(
+                consumer,
+                retain_source_evidence,
+                typed_evidence,
+                native_entities,
+                &mut source_evidence,
+            )?;
         }
     }
     if !batch.is_empty() {
         consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
     }
+    flush_source_evidence(
+        consumer,
+        retain_source_evidence,
+        typed_evidence,
+        native_entities,
+        &mut source_evidence,
+    )?;
     Ok(())
 }
 
@@ -384,6 +455,8 @@ fn stream_download_batches<C>(
     last_download_id: i64,
     chunk_size: usize,
     consumer: &mut C,
+    retain_source_evidence: bool,
+    typed_evidence: &mut TypedEvidenceBatch,
     native_entities: &mut Vec<crate::types::NativeEntity>,
 ) -> Result<(), StreamHistoryError<C::Error>>
 where
@@ -394,9 +467,10 @@ where
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
     let mut rows = stream_sql(statement.query(params![last_download_id]))?;
     let mut batch = Vec::with_capacity(chunk_size);
+    let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
         batch.push(stream_sql(parsed_download_from_row(row))?);
-        native_entities.push(stream_sql(capture_native_row(
+        source_evidence.native_entities.push(stream_sql(capture_native_row(
             row,
             &column_names,
             "chromium-download-row",
@@ -405,11 +479,25 @@ where
         ))?);
         if batch.len() >= chunk_size {
             consumer.downloads(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+            flush_source_evidence(
+                consumer,
+                retain_source_evidence,
+                typed_evidence,
+                native_entities,
+                &mut source_evidence,
+            )?;
         }
     }
     if !batch.is_empty() {
         consumer.downloads(batch).map_err(StreamHistoryError::Consumer)?;
     }
+    flush_source_evidence(
+        consumer,
+        retain_source_evidence,
+        typed_evidence,
+        native_entities,
+        &mut source_evidence,
+    )?;
     Ok(())
 }
 
@@ -418,8 +506,10 @@ fn stream_search_term_batches<C>(
     last_visit_time: i64,
     chunk_size: usize,
     consumer: &mut C,
+    retain_source_evidence: bool,
     typed_evidence: &mut TypedEvidenceBatch,
     native_entities: &mut Vec<crate::types::NativeEntity>,
+    visit_stats: &mut VisitCapabilityStats,
 ) -> Result<(), StreamHistoryError<C::Error>>
 where
     C: HistoryBatchConsumer,
@@ -429,9 +519,10 @@ where
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
     let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
     let mut batch = Vec::with_capacity(chunk_size);
+    let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
         let term = stream_sql(parsed_search_term_from_row(row))?;
-        typed_evidence.search.push(SearchEvidence {
+        source_evidence.typed_evidence.search.push(SearchEvidence {
             source_visit_id: None,
             source_url_id: Some(term.url_id),
             evidence_key: "search.native_terms".to_string(),
@@ -439,7 +530,8 @@ where
             normalized_value: Some(term.normalized_term.clone()),
             source_field: "keyword_search_terms.term".to_string(),
         });
-        native_entities.push(stream_sql(capture_native_row(
+        visit_stats.search_evidence_count += 1;
+        source_evidence.native_entities.push(stream_sql(capture_native_row(
             row,
             &column_names,
             "chromium-search-term-row",
@@ -451,11 +543,25 @@ where
             consumer
                 .search_terms(std::mem::take(&mut batch))
                 .map_err(StreamHistoryError::Consumer)?;
+            flush_source_evidence(
+                consumer,
+                retain_source_evidence,
+                typed_evidence,
+                native_entities,
+                &mut source_evidence,
+            )?;
         }
     }
     if !batch.is_empty() {
         consumer.search_terms(batch).map_err(StreamHistoryError::Consumer)?;
     }
+    flush_source_evidence(
+        consumer,
+        retain_source_evidence,
+        typed_evidence,
+        native_entities,
+        &mut source_evidence,
+    )?;
     Ok(())
 }
 
@@ -566,15 +672,14 @@ fn context_evidence_for_visit(visit: &ParsedVisit) -> Vec<ContextEvidence> {
 
 fn build_capability_snapshot(
     inspection: &DatabaseInspection,
-    typed_evidence: &TypedEvidenceBatch,
     visit_stats: &VisitCapabilityStats,
 ) -> crate::types::CapabilitySnapshot {
     capability_snapshot(vec![
         CapabilityCoverage {
             key: "search.native_terms".to_string(),
             available: has_table(inspection, "keyword_search_terms"),
-            populated_rows: typed_evidence.search.len(),
-            total_rows: typed_evidence.search.len(),
+            populated_rows: visit_stats.search_evidence_count,
+            total_rows: visit_stats.search_evidence_count,
             notes: vec!["Chromium keyword_search_terms table".to_string()],
         },
         CapabilityCoverage {
@@ -594,7 +699,7 @@ fn build_capability_snapshot(
         CapabilityCoverage {
             key: "engagement.visit_duration_ms".to_string(),
             available: visit_stats.visit_duration_count > 0,
-            populated_rows: typed_evidence.engagement.len(),
+            populated_rows: visit_stats.engagement_evidence_count,
             total_rows: visit_stats.total_visits,
             notes: vec!["Chromium visits.visit_duration".to_string()],
         },
@@ -684,7 +789,56 @@ fn parsed_favicon_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedFavicon> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::Infallible;
     use tempfile::tempdir;
+
+    #[derive(Default)]
+    struct NonRetainingEvidenceSink {
+        urls: usize,
+        visits: usize,
+        downloads: usize,
+        search_terms: usize,
+        source_evidence_chunks: usize,
+        search_evidence: usize,
+        engagement_evidence: usize,
+        native_entities: usize,
+    }
+
+    impl HistoryBatchConsumer for NonRetainingEvidenceSink {
+        type Error = Infallible;
+
+        fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            self.urls += batch.len();
+            Ok(())
+        }
+
+        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visits += batch.len();
+            Ok(())
+        }
+
+        fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+            self.downloads += batch.len();
+            Ok(())
+        }
+
+        fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+            self.search_terms += batch.len();
+            Ok(())
+        }
+
+        fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
+            self.source_evidence_chunks += 1;
+            self.search_evidence += chunk.typed_evidence.search.len();
+            self.engagement_evidence += chunk.typed_evidence.engagement.len();
+            self.native_entities += chunk.native_entities.len();
+            Ok(())
+        }
+
+        fn retain_source_evidence_in_report(&self) -> bool {
+            false
+        }
+    }
 
     fn write_history_fixture(path: &Path) {
         let connection = Connection::open(path).expect("open history fixture");
@@ -891,6 +1045,45 @@ mod tests {
         assert_eq!(parsed.search_terms[0].normalized_term, "pathkeep");
         assert!(parsed.visits[0].is_known_to_sync);
         assert_eq!(parsed.favicons[0].width, 32);
+    }
+
+    #[test]
+    fn stream_history_can_move_source_evidence_out_of_the_returned_report() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let favicons_path = directory.path().join("Favicons");
+        write_history_fixture(&history_path);
+        write_favicons_fixture(&favicons_path);
+        let mut sink = NonRetainingEvidenceSink::default();
+
+        let streamed = stream_history(
+            &HistoryDatabaseSet { history_path, favicons_path: Some(favicons_path) },
+            ChromiumReadCursor::default(),
+            1,
+            &mut sink,
+        )
+        .expect("stream history");
+
+        assert_eq!(sink.urls, 1);
+        assert_eq!(sink.visits, 1);
+        assert_eq!(sink.downloads, 1);
+        assert_eq!(sink.search_terms, 1);
+        assert!(sink.source_evidence_chunks >= 4);
+        assert_eq!(sink.search_evidence, 1);
+        assert_eq!(sink.engagement_evidence, 1);
+        assert!(sink.native_entities >= 4);
+        assert!(streamed.native_entities.is_empty());
+        assert!(streamed.typed_evidence.search.is_empty());
+        assert!(streamed.typed_evidence.navigation.is_empty());
+        assert!(streamed.typed_evidence.engagement.is_empty());
+        assert!(streamed.typed_evidence.context.is_empty());
+        assert!(
+            streamed
+                .capability_snapshot
+                .items
+                .iter()
+                .any(|item| { item.key == "search.native_terms" && item.populated_rows == 1 })
+        );
     }
 
     #[test]

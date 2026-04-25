@@ -224,9 +224,11 @@ impl<'a> BrowserHistoryAccumulator<'a> {
                 .map_err(StreamHistoryError::Consumer)?;
         }
         if !self.pending_source_evidence.is_empty() {
-            consumer
-                .source_evidence(std::mem::take(&mut self.pending_source_evidence))
-                .map_err(StreamHistoryError::Consumer)?;
+            TakeoutSourceEvidenceConsumer::source_evidence(
+                consumer,
+                std::mem::take(&mut self.pending_source_evidence),
+            )
+            .map_err(StreamHistoryError::Consumer)?;
         }
         Ok(())
     }

@@ -40,7 +40,6 @@ const MIGRATION_009_FAVICON_BLOB_DEDUP_SQL: &str =
     include_str!("../migrations/009_favicon_blob_dedup.sql");
 const MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL: &str =
     include_str!("../migrations/010_favicon_domain_fallback.sql");
-const FAVICON_METADATA_BACKFILL_BATCH_SIZE: usize = 1_000;
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -139,7 +138,6 @@ pub(crate) fn export_archive_database(
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
-    ensure_favicon_url_metadata(connection)?;
     connection.execute_batch("BEGIN IMMEDIATE").context("acquiring archive bootstrap lock")?;
 
     let result = (|| -> Result<()> {
@@ -253,52 +251,6 @@ fn load_applied_migrations(connection: &Connection) -> Result<BTreeMap<i64, Stri
     Ok(applied)
 }
 
-fn ensure_favicon_url_metadata(connection: &Connection) -> Result<()> {
-    if !table_exists(connection, "favicons")?
-        || !column_exists(connection, "favicons", "page_host")?
-        || !column_exists(connection, "favicons", "page_registrable_domain")?
-    {
-        return Ok(());
-    }
-
-    loop {
-        let rows = {
-            let mut statement = connection.prepare(
-                "SELECT id, page_url
-                 FROM favicons
-                 WHERE page_host IS NULL
-                    OR page_registrable_domain IS NULL
-                 ORDER BY id ASC
-                 LIMIT ?1",
-            )?;
-            statement
-                .query_map([FAVICON_METADATA_BACKFILL_BATCH_SIZE as i64], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        let transaction = connection.unchecked_transaction()?;
-        {
-            let mut update = transaction.prepare(
-                "UPDATE favicons
-                 SET page_host = ?2,
-                     page_registrable_domain = ?3
-                 WHERE id = ?1",
-            )?;
-            for (id, page_url) in rows {
-                let metadata = favicon_url_metadata(&page_url);
-                update.execute(params![id, metadata.host, metadata.registrable_domain])?;
-            }
-        }
-        transaction.commit()?;
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FaviconUrlMetadata {
     pub(crate) host: Option<String>,
@@ -332,18 +284,6 @@ pub(crate) fn favicon_url_metadata(page_url: &str) -> FaviconUrlMetadata {
         host: Some(host),
         registrable_domain: (!registrable_domain.is_empty()).then_some(registrable_domain),
     }
-}
-
-fn column_exists(connection: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
-    let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == column_name {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
@@ -433,6 +373,47 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
         assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn create_schema_does_not_backfill_existing_favicon_url_metadata() {
+        let connection = Connection::open_in_memory().expect("memory db");
+
+        create_schema(&connection).expect("create schema");
+        connection
+            .execute(
+                "INSERT INTO runs (id, run_type, trigger, started_at, status)
+                 VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'success')",
+                [],
+            )
+            .expect("insert parent run");
+        connection
+            .execute(
+                "INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at)
+                 VALUES (1, 'chrome', 'Default', '/tmp/Default', '2026-04-24T00:00:00Z')",
+                [],
+            )
+            .expect("insert parent profile");
+        connection
+            .execute(
+                "INSERT INTO favicons (page_url, icon_url, source_profile_id, created_by_run_id)
+                 VALUES ('https://docs.example.com/start', 'https://docs.example.com/icon.png', 1, 1)",
+                [],
+            )
+            .expect("insert legacy favicon row");
+
+        create_schema(&connection).expect("reopen schema");
+
+        let metadata = connection
+            .query_row(
+                "SELECT page_host, page_registrable_domain
+                 FROM favicons
+                 WHERE page_url = 'https://docs.example.com/start'",
+                [],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .expect("read favicon metadata");
+        assert_eq!(metadata, (None, None));
     }
 
     #[test]

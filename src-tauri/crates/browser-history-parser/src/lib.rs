@@ -26,5 +26,5 @@ pub use types::{
     DatabaseInspection, EngagementEvidence, HistoryBatchConsumer, HistoryDatabaseSet, NativeEntity,
     NavigationEvidence, ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon,
     ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence,
-    StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
+    SourceEvidenceChunk, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
 };
