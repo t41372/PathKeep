@@ -188,15 +188,42 @@ describe('intelligence surfaces settings core sections', () => {
     const nav = await screen.findByRole('navigation', {
       name: navigationT('settingsLabel'),
     })
-    expect(
-      within(nav).getByRole('link', { name: settingsT('general') }),
-    ).toHaveAttribute('href', '#/settings#settings-general')
-    expect(
-      within(nav).getByRole('link', { name: settingsT('browserProfiles') }),
-    ).toHaveAttribute('href', '#/settings#settings-profiles')
-    expect(
-      within(nav).getByRole('link', { name: settingsT('remoteBackup') }),
-    ).toHaveAttribute('href', '#/settings#settings-remote')
+    const generalNavLink = within(nav).getByRole('link', {
+      name: settingsT('general'),
+    })
+    const profilesNavLink = within(nav).getByRole('link', {
+      name: settingsT('browserProfiles'),
+    })
+    const remoteNavLink = within(nav).getByRole('link', {
+      name: settingsT('remoteBackup'),
+    })
+    expect(generalNavLink).toHaveAttribute(
+      'href',
+      '#/settings#settings-general',
+    )
+    expect(profilesNavLink).toHaveAttribute(
+      'href',
+      '#/settings#settings-profiles',
+    )
+    expect(remoteNavLink).toHaveAttribute('href', '#/settings#settings-remote')
+
+    const remotePanel = document.getElementById('settings-remote')
+    if (!(remotePanel instanceof HTMLElement)) {
+      throw new Error('expected settings remote panel')
+    }
+    const scrollDoubles = installImmediateSectionScrollDoubles()
+    try {
+      await user.click(remoteNavLink)
+      await waitFor(() =>
+        expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          block: 'start',
+        }),
+      )
+      expect(remotePanel).toHaveAttribute('tabindex', '-1')
+      expect(scrollDoubles.focus).toHaveBeenCalled()
+    } finally {
+      scrollDoubles.restore()
+    }
 
     const generalPanel = document.getElementById('settings-general')
     if (!(generalPanel instanceof HTMLElement)) {
@@ -229,4 +256,62 @@ describe('intelligence surfaces settings core sections', () => {
       ),
     )
   })
+
+  test('scrolls initial settings hash links after the target panel mounts', async () => {
+    const { snapshot, dashboard } = await seedArchiveState()
+    const scrollDoubles = installImmediateSectionScrollDoubles()
+
+    try {
+      renderSurface(<SettingsPage />, {
+        dashboard,
+        language: 'en',
+        route: '/settings#settings-profiles',
+        snapshot,
+      })
+
+      await screen.findByTestId('settings-page')
+      await waitFor(() =>
+        expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          block: 'start',
+        }),
+      )
+      expect(document.getElementById('settings-profiles')).toHaveAttribute(
+        'tabindex',
+        '-1',
+      )
+    } finally {
+      scrollDoubles.restore()
+    }
+  })
 })
+
+function installImmediateSectionScrollDoubles() {
+  const originalScrollIntoView = Reflect.get(
+    Element.prototype,
+    'scrollIntoView',
+  )
+  const originalRequestAnimationFrame = window.requestAnimationFrame
+  const originalCancelAnimationFrame = window.cancelAnimationFrame
+  const scrollIntoView = vi.fn()
+  const focus = vi
+    .spyOn(HTMLElement.prototype, 'focus')
+    .mockImplementation(() => undefined)
+
+  Element.prototype.scrollIntoView = scrollIntoView
+  window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+    callback(0)
+    return 1
+  })
+  window.cancelAnimationFrame = vi.fn()
+
+  return {
+    focus,
+    scrollIntoView,
+    restore: () => {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
+      focus.mockRestore()
+    },
+  }
+}

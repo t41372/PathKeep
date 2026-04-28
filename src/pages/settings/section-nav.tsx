@@ -19,6 +19,7 @@
  * - 本模組只渲染少量 anchors，不做資料查詢或重計算。
  */
 
+import { useCallback, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Glyph } from '../../components/ui'
 import type { SettingsSectionNavItem } from './section-nav-items'
@@ -31,6 +32,45 @@ export interface SettingsSectionNavProps {
   label: string
 }
 
+function focusSection(element: HTMLElement) {
+  if (!element.hasAttribute('tabindex')) {
+    element.setAttribute('tabindex', '-1')
+  }
+
+  try {
+    element.focus({ preventScroll: true })
+  } catch {
+    element.focus()
+  }
+}
+
+function scrollSectionIntoView(sectionId: string) {
+  const target = document.getElementById(sectionId)
+  if (!(target instanceof HTMLElement)) {
+    return
+  }
+
+  target.scrollIntoView({ block: 'start' })
+  focusSection(target)
+}
+
+function scheduleSectionScroll(sectionId: string) {
+  if (typeof window.requestAnimationFrame === 'function') {
+    const frame = window.requestAnimationFrame(() =>
+      scrollSectionIntoView(sectionId),
+    )
+    return () => window.cancelAnimationFrame?.(frame)
+  }
+
+  const timeout = window.setTimeout(() => scrollSectionIntoView(sectionId), 0)
+  return () => window.clearTimeout(timeout)
+}
+
+function sectionIdFromLocationHash(hash: string, sectionIds: string[]) {
+  const sectionId = hash.replace(/^#/, '')
+  return sectionIds.includes(sectionId) ? sectionId : null
+}
+
 /**
  * Renders the sticky Settings section nav with translated visible labels.
  *
@@ -39,6 +79,19 @@ export interface SettingsSectionNavProps {
  */
 export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
   const location = useLocation()
+  const sectionIds = useMemo(() => items.map((item) => item.id), [items])
+  const handleSectionClick = useCallback((sectionId: string) => {
+    scheduleSectionScroll(sectionId)
+  }, [])
+
+  useEffect(() => {
+    const sectionId = sectionIdFromLocationHash(location.hash, sectionIds)
+    if (!sectionId) {
+      return
+    }
+
+    return scheduleSectionScroll(sectionId)
+  }, [location.hash, sectionIds])
 
   return (
     <nav className="settings-nav" aria-label={label}>
@@ -48,6 +101,7 @@ export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
           aria-label={item.label}
           className="settings-nav__link"
           href={`#${location.pathname}${location.search}#${item.id}`}
+          onClick={() => handleSectionClick(item.id)}
           title={item.label}
         >
           <Glyph icon={item.icon} filled />

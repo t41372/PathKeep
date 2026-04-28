@@ -102,12 +102,29 @@ describe('App shell', () => {
     const nav = within(maintenancePage).getByRole('navigation', {
       name: navigationT('maintenanceLabel'),
     })
-    expect(
-      within(nav).getByRole('link', { name: settingsT('remoteBackup') }),
-    ).toHaveAttribute('href', '#/maintenance#settings-remote')
+    const remoteNavLink = within(nav).getByRole('link', {
+      name: settingsT('remoteBackup'),
+    })
+    expect(remoteNavLink).toHaveAttribute(
+      'href',
+      '#/maintenance#settings-remote',
+    )
     const remotePanel = expectHtmlElement(
       document.getElementById('settings-remote'),
     )
+    const scrollDoubles = installImmediateSectionScrollDoubles()
+    try {
+      await user.click(remoteNavLink)
+      await waitFor(() =>
+        expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          block: 'start',
+        }),
+      )
+      expect(remotePanel).toHaveAttribute('tabindex', '-1')
+      expect(scrollDoubles.focus).toHaveBeenCalled()
+    } finally {
+      scrollDoubles.restore()
+    }
     const derivedPanel = expectHtmlElement(
       document.getElementById('settings-derived'),
     )
@@ -257,6 +274,31 @@ describe('App shell', () => {
     ).toBe(true)
   })
 
+  test('scrolls initial maintenance hash links after panels mount', async () => {
+    await seedArchiveRun()
+    const scrollDoubles = installImmediateSectionScrollDoubles()
+    const router = createMemoryRouter(appRoutes, {
+      initialEntries: ['/maintenance#settings-derived'],
+    })
+
+    try {
+      render(<App router={router} />)
+
+      await screen.findByTestId('maintenance-page')
+      await waitFor(() =>
+        expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          block: 'start',
+        }),
+      )
+      expect(document.getElementById('settings-derived')).toHaveAttribute(
+        'tabindex',
+        '-1',
+      )
+    } finally {
+      scrollDoubles.restore()
+    }
+  })
+
   test('keeps AI provider field edits local until save is confirmed', async () => {
     await seedArchiveRun()
     await seedAiProviders()
@@ -352,3 +394,34 @@ describe('App shell', () => {
     expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeInTheDocument()
   })
 })
+
+function installImmediateSectionScrollDoubles() {
+  const originalScrollIntoView = Reflect.get(
+    Element.prototype,
+    'scrollIntoView',
+  )
+  const originalRequestAnimationFrame = window.requestAnimationFrame
+  const originalCancelAnimationFrame = window.cancelAnimationFrame
+  const scrollIntoView = vi.fn()
+  const focus = vi
+    .spyOn(HTMLElement.prototype, 'focus')
+    .mockImplementation(() => undefined)
+
+  Element.prototype.scrollIntoView = scrollIntoView
+  window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+    callback(0)
+    return 1
+  })
+  window.cancelAnimationFrame = vi.fn()
+
+  return {
+    focus,
+    scrollIntoView,
+    restore: () => {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
+      focus.mockRestore()
+    },
+  }
+}
