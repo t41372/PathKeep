@@ -30,6 +30,7 @@ import type {
   BackupRunOverview,
 } from '../lib/types'
 import { createShellDataActions } from './shell-data-actions'
+import { createShellTask } from './shell-tasks'
 
 const { backendMock, subscribeToBackupProgressMock, waitForNextPaintMock } =
   vi.hoisted(() => ({
@@ -344,6 +345,91 @@ describe('createShellDataActions', () => {
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(1)
   })
 
+  test('mirrors backup lifecycle into shell archive-task hooks', async () => {
+    const task = createShellTask({
+      id: 'backup-task',
+      kind: 'backup',
+      title: 'Backup',
+      detail: 'Queued backup',
+      timestamp: '2026-04-27T10:00:00.000Z',
+    })
+    const archiveTasks = {
+      beginBackupTask: vi.fn(() => ({ task })),
+      updateBackupTask: vi.fn(),
+      finishBackupTask: vi.fn(),
+      failBackupTask: vi.fn(),
+    }
+    const harness = createActionHarness({ archiveTasks })
+    const progress: BackupProgressEvent = {
+      phase: 'stage-profile',
+      label: 'Stage profile',
+      detail: 'Copying profile',
+      step: 1,
+      totalSteps: 3,
+      completedProfiles: 0,
+      totalProfiles: 1,
+      profileId: 'chrome:Default',
+      progressCurrent: 0,
+      progressTotal: 1,
+      progressPercent: 0,
+      logLines: [],
+    }
+    subscribeToBackupProgressMock.mockImplementationOnce((listener) => {
+      listener(progress)
+      return Promise.resolve(vi.fn())
+    })
+    const report = buildBackupReport({ run: buildBackupRun({ id: 77 }) })
+    backendMock.runBackupNow.mockResolvedValueOnce(report)
+
+    await expect(harness.actions.runBackup()).resolves.toBe(report)
+
+    expect(archiveTasks.beginBackupTask).toHaveBeenCalledTimes(1)
+    expect(archiveTasks.updateBackupTask).toHaveBeenCalledWith(
+      'backup-task',
+      progress,
+    )
+    expect(archiveTasks.finishBackupTask).toHaveBeenCalledWith(
+      'backup-task',
+      report,
+    )
+    expect(archiveTasks.failBackupTask).not.toHaveBeenCalled()
+
+    backendMock.runBackupNow.mockRejectedValueOnce(new Error('backup failed'))
+    subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    await expect(harness.actions.runBackup()).rejects.toThrow('backup failed')
+    expect(archiveTasks.failBackupTask).toHaveBeenCalledWith(
+      'backup-task',
+      'backup failed',
+    )
+  })
+
+  test('does not start a second backup when an archive-write task is already active', async () => {
+    const activeTask = createShellTask({
+      id: 'import-task',
+      kind: 'import',
+      title: 'Import Chrome',
+      detail: 'Importing',
+      timestamp: '2026-04-27T10:00:00.000Z',
+    })
+    const harness = createActionHarness({
+      archiveTasks: {
+        beginBackupTask: vi.fn(() => ({ blockedBy: activeTask })),
+        updateBackupTask: vi.fn(),
+        finishBackupTask: vi.fn(),
+        failBackupTask: vi.fn(),
+      },
+    })
+
+    await expect(harness.actions.runBackup()).rejects.toThrow(
+      t('jobs.archiveTaskAlreadyRunningBody', {
+        task: activeTask.title,
+      }),
+    )
+
+    expect(subscribeToBackupProgressMock).not.toHaveBeenCalled()
+    expect(backendMock.runBackupNow).not.toHaveBeenCalled()
+  })
+
   test('updates app-lock status actions and keeps refresh side effects scoped', async () => {
     const harness = createActionHarness()
     const lockedStatus = buildAppLockStatus({ locked: true })
@@ -477,7 +563,11 @@ describe('createShellDataActions', () => {
   })
 })
 
-function createActionHarness() {
+function createActionHarness(
+  options: {
+    archiveTasks?: Parameters<typeof createShellDataActions>[0]['archiveTasks']
+  } = {},
+) {
   let refreshKey = 0
   const setRefreshKey = vi.fn((value) => {
     refreshKey = typeof value === 'function' ? value(refreshKey) : value
@@ -514,6 +604,7 @@ function createActionHarness() {
       setSnapshot: harness.setSnapshot,
       setAppLockStatus: harness.setAppLockStatus,
       setRefreshKey,
+      archiveTasks: options.archiveTasks,
     }),
   }
 }

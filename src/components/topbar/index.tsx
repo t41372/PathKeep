@@ -22,8 +22,10 @@ import {
 import type { AppScreen } from '../../app/router'
 import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { useI18n } from '../../lib/i18n'
+import { formatRelativeTime } from '../../lib/format'
 import { ProfileSwitcher } from '../profile-switcher'
 import { useShellData } from '../../app/shell-data-context'
+import { Glyph } from '../ui'
 import { readRouteHistoryIndex } from './history'
 
 /**
@@ -43,22 +45,28 @@ interface TopbarProps {
 export function Topbar({ screen }: TopbarProps) {
   const navigate = useNavigate()
   const navigationType = useNavigationType()
-  const { t } = useI18n()
+  const { language, t } = useI18n()
   const {
+    activeArchiveTask = null,
     appLockStatus,
     busyAction,
     error,
     lockAppSession,
-    notice,
+    dismissNotification = () => undefined,
+    markNotificationsRead = () => undefined,
+    notifications = [],
     runBackup,
     snapshot,
+    unreadNotificationCount = 0,
   } = useShellData()
-  const [query, setQuery] = useState('')
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [forwardAvailable, setForwardAvailable] = useState(false)
 
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
   const backupDisabled =
-    (!snapshot && !archiveNeedsUnlock) || busyAction !== null
+    (!snapshot && !archiveNeedsUnlock) ||
+    busyAction !== null ||
+    activeArchiveTask !== null
   const backupLabel = archiveNeedsUnlock
     ? t('dashboard.reviewSecurity')
     : snapshot?.config.initialized
@@ -114,31 +122,6 @@ export function Topbar({ screen }: TopbarProps) {
       </div>
 
       <div className="topbar-right">
-        <form
-          className="global-search"
-          onSubmit={(event) => {
-            event.preventDefault()
-            const nextQuery = query.trim()
-            navigateToRoute(
-              nextQuery
-                ? `/explorer?q=${encodeURIComponent(nextQuery)}`
-                : '/explorer',
-            )
-          }}
-        >
-          <span aria-hidden className="search-icon">
-            ⌕
-          </span>
-          <input
-            aria-label={t('navigation.searchHistory')}
-            className="search-input"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('navigation.searchHistoryPlaceholder')}
-            type="search"
-          />
-        </form>
-        <ProfileSwitcher />
         {appLockStatus?.enabled ? (
           <button
             className="btn-secondary"
@@ -151,6 +134,89 @@ export function Topbar({ screen }: TopbarProps) {
             {t('navigation.lockNow')}
           </button>
         ) : null}
+        <div className="topbar-notifications">
+          <button
+            aria-expanded={notificationsOpen}
+            aria-label={
+              unreadNotificationCount > 0
+                ? t('navigation.notificationsUnread', {
+                    count: unreadNotificationCount,
+                  })
+                : t('navigation.notifications')
+            }
+            className={`topbar-notifications__button ${
+              unreadNotificationCount > 0
+                ? 'topbar-notifications__button--unread'
+                : ''
+            }`}
+            type="button"
+            onClick={() => {
+              const nextOpen = !notificationsOpen
+              setNotificationsOpen(nextOpen)
+              if (nextOpen) {
+                markNotificationsRead()
+              }
+            }}
+          >
+            <Glyph icon="notifications" />
+            {unreadNotificationCount > 0 ? (
+              <span className="topbar-notifications__badge">
+                {unreadNotificationCount}
+              </span>
+            ) : null}
+          </button>
+          {notificationsOpen ? (
+            <div className="topbar-notifications__panel">
+              <div className="topbar-notifications__header">
+                <span>{t('navigation.notificationsPanelTitle')}</span>
+              </div>
+              {notifications.length > 0 ? (
+                <div className="topbar-notifications__list">
+                  {notifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      className="topbar-notifications__item"
+                      data-tone={notification.tone}
+                    >
+                      <div className="topbar-notifications__item-main">
+                        <span className="topbar-notifications__time">
+                          {formatRelativeTime(notification.timestamp, language)}
+                        </span>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.body}</p>
+                        {notification.href ? (
+                          <button
+                            className="btn-tiny"
+                            type="button"
+                            onClick={() => {
+                              setNotificationsOpen(false)
+                              navigateToRoute(notification.href!)
+                            }}
+                          >
+                            {t('jobs.archiveTaskOpenJobs')}
+                          </button>
+                        ) : null}
+                      </div>
+                      <button
+                        aria-label={t('navigation.dismissNotification')}
+                        className="topbar-notifications__dismiss"
+                        type="button"
+                        onClick={() => dismissNotification(notification.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="topbar-notifications__empty">
+                  {t('navigation.notificationsEmpty')}
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
+        <ProfileSwitcher />
         <button
           className="btn-backup"
           type="button"
@@ -174,7 +240,6 @@ export function Topbar({ screen }: TopbarProps) {
           {busyAction ?? backupLabel}
         </button>
       </div>
-      {notice ? <p className="topbar-notice">{notice}</p> : null}
     </header>
   )
 }

@@ -110,23 +110,26 @@ where
     let trigger = if due_only { "schedule" } else { "manual" };
     let total_profiles = selected_profiles.len();
 
-    report_progress(BackupProgressEvent {
-        phase: "prepare".to_string(),
-        label: "Inspect selected browser profiles".to_string(),
-        detail: format!(
-            "Queued {total_profiles} readable profile(s) for the canonical backup run."
-        ),
-        step: 0,
-        total_steps: 3,
-        completed_profiles: 0,
-        total_profiles,
-        profile_id: None,
-        progress_current: Some(0),
-        progress_total: Some(total_profiles),
-        progress_percent: Some(0.0),
-        log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
-        ..BackupProgressEvent::default()
-    });
+    report_progress(
+        BackupProgressEvent {
+            phase: "prepare".to_string(),
+            label: "Inspect selected browser profiles".to_string(),
+            detail: format!(
+                "Queued {total_profiles} readable profile(s) for the canonical backup run."
+            ),
+            step: 0,
+            total_steps: 3,
+            completed_profiles: 0,
+            total_profiles,
+            profile_id: None,
+            progress_current: Some(0),
+            progress_total: Some(total_profiles),
+            progress_percent: Some(0.0),
+            log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
+            ..BackupProgressEvent::default()
+        }
+        .with_log_event("info", "backup.prepare"),
+    );
 
     connection.execute(
         "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
@@ -156,52 +159,61 @@ where
     let backup_result = (|| -> Result<()> {
         let transaction = connection.transaction()?;
         for (index, profile) in selected_profiles.iter().enumerate() {
-            report_progress(BackupProgressEvent {
-                phase: "stage-profile".to_string(),
-                label: "Stage source profile".to_string(),
-                detail: format!(
-                    "Copying {} into the staging area ({}/{total_profiles}).",
-                    profile.profile_id,
-                    index + 1,
-                ),
-                step: 1,
-                total_steps: 3,
-                completed_profiles: index,
-                total_profiles,
-                profile_id: Some(profile.profile_id.clone()),
-                progress_current: Some(index),
-                progress_total: Some(total_profiles),
-                progress_percent: Some((index as f32 / total_profiles as f32) * 100.0),
-                log_lines: vec![format!("Staging {}.", profile.profile_id)],
-                source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
-                ..BackupProgressEvent::default()
-            });
+            report_progress(
+                BackupProgressEvent {
+                    phase: "stage-profile".to_string(),
+                    label: "Stage source profile".to_string(),
+                    detail: format!(
+                        "Copying {} into the staging area ({}/{total_profiles}).",
+                        profile.profile_id,
+                        index + 1,
+                    ),
+                    step: 1,
+                    total_steps: 3,
+                    completed_profiles: index,
+                    total_profiles,
+                    profile_id: Some(profile.profile_id.clone()),
+                    progress_current: Some(index),
+                    progress_total: Some(total_profiles),
+                    progress_percent: Some((index as f32 / total_profiles as f32) * 100.0),
+                    log_lines: vec![format!("Staging {}.", profile.profile_id)],
+                    source_label: Some(format!(
+                        "{} / {}",
+                        profile.browser_name, profile.profile_name
+                    )),
+                    ..BackupProgressEvent::default()
+                }
+                .with_log_event("info", "backup.stage-profile"),
+            );
             let snapshot = match crate::chrome::stage_profile_snapshot(paths, profile) {
                 Ok(snapshot) => snapshot,
                 Err(error) if is_skippable_staging_access_error(profile, &error) => {
                     let warning = staging_access_skip_warning(profile);
                     warnings.push(warning.clone());
-                    report_progress(BackupProgressEvent {
-                        phase: "stage-profile".to_string(),
-                        label: "Skip unreadable profile".to_string(),
-                        detail: warning.clone(),
-                        step: 1,
-                        total_steps: 3,
-                        completed_profiles: index + 1,
-                        total_profiles,
-                        profile_id: Some(profile.profile_id.clone()),
-                        progress_current: Some(index + 1),
-                        progress_total: Some(total_profiles),
-                        progress_percent: Some(
-                            (((index + 1) as f32) / total_profiles as f32) * 100.0,
-                        ),
-                        log_lines: vec![warning],
-                        source_label: Some(format!(
-                            "{} / {}",
-                            profile.browser_name, profile.profile_name
-                        )),
-                        ..BackupProgressEvent::default()
-                    });
+                    report_progress(
+                        BackupProgressEvent {
+                            phase: "stage-profile".to_string(),
+                            label: "Skip unreadable profile".to_string(),
+                            detail: warning.clone(),
+                            step: 1,
+                            total_steps: 3,
+                            completed_profiles: index + 1,
+                            total_profiles,
+                            profile_id: Some(profile.profile_id.clone()),
+                            progress_current: Some(index + 1),
+                            progress_total: Some(total_profiles),
+                            progress_percent: Some(
+                                (((index + 1) as f32) / total_profiles as f32) * 100.0,
+                            ),
+                            log_lines: vec![warning],
+                            source_label: Some(format!(
+                                "{} / {}",
+                                profile.browser_name, profile.profile_name
+                            )),
+                            ..BackupProgressEvent::default()
+                        }
+                        .with_log_event("warning", "backup.stage-profile.skip"),
+                    );
                     continue;
                 }
                 Err(error) => {
@@ -209,26 +221,32 @@ where
                         .with_context(|| format!("staging profile {}", profile.profile_id));
                 }
             };
-            report_progress(BackupProgressEvent {
-                phase: "ingest-profile".to_string(),
-                label: "Write canonical archive facts".to_string(),
-                detail: format!(
-                    "Processing {} and writing archive rows ({}/{total_profiles}).",
-                    profile.profile_id,
-                    index + 1,
-                ),
-                step: 1,
-                total_steps: 3,
-                completed_profiles: index,
-                total_profiles,
-                profile_id: Some(profile.profile_id.clone()),
-                progress_current: Some(index + 1),
-                progress_total: Some(total_profiles),
-                progress_percent: Some((((index + 1) as f32) / total_profiles as f32) * 100.0),
-                log_lines: vec![format!("Writing canonical facts for {}.", profile.profile_id)],
-                source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
-                ..BackupProgressEvent::default()
-            });
+            report_progress(
+                BackupProgressEvent {
+                    phase: "ingest-profile".to_string(),
+                    label: "Write canonical archive facts".to_string(),
+                    detail: format!(
+                        "Processing {} and writing archive rows ({}/{total_profiles}).",
+                        profile.profile_id,
+                        index + 1,
+                    ),
+                    step: 1,
+                    total_steps: 3,
+                    completed_profiles: index,
+                    total_profiles,
+                    profile_id: Some(profile.profile_id.clone()),
+                    progress_current: Some(index + 1),
+                    progress_total: Some(total_profiles),
+                    progress_percent: Some((((index + 1) as f32) / total_profiles as f32) * 100.0),
+                    log_lines: vec![format!("Writing canonical facts for {}.", profile.profile_id)],
+                    source_label: Some(format!(
+                        "{} / {}",
+                        profile.browser_name, profile.profile_name
+                    )),
+                    ..BackupProgressEvent::default()
+                }
+                .with_log_event("info", "backup.ingest-profile"),
+            );
             let mut last_processed_records = 0usize;
             let report_profile_progress = |progress: ArchiveIngestProgress| {
                 emit_backup_ingest_progress_if_changed(
@@ -257,23 +275,26 @@ where
             warnings.extend(profile_summary.notes.clone());
             profile_summaries.push(profile_summary);
         }
-        report_progress(BackupProgressEvent {
-            phase: "finalize".to_string(),
-            label: "Finalize manifest and cached totals".to_string(),
-            detail: format!(
-                "Committing run artifacts after {total_profiles} processed profile(s)."
-            ),
-            step: 2,
-            total_steps: 3,
-            completed_profiles: total_profiles,
-            total_profiles,
-            profile_id: None,
-            progress_current: Some(total_profiles),
-            progress_total: Some(total_profiles),
-            progress_percent: Some(100.0),
-            log_lines: vec!["Refreshing run ledger and cached summaries.".to_string()],
-            ..BackupProgressEvent::default()
-        });
+        report_progress(
+            BackupProgressEvent {
+                phase: "finalize".to_string(),
+                label: "Finalize manifest and cached totals".to_string(),
+                detail: format!(
+                    "Committing run artifacts after {total_profiles} processed profile(s)."
+                ),
+                step: 2,
+                total_steps: 3,
+                completed_profiles: total_profiles,
+                total_profiles,
+                profile_id: None,
+                progress_current: Some(total_profiles),
+                progress_total: Some(total_profiles),
+                progress_percent: Some(100.0),
+                log_lines: vec!["Refreshing run ledger and cached summaries.".to_string()],
+                ..BackupProgressEvent::default()
+            }
+            .with_log_event("info", "backup.finalize"),
+        );
         transaction.commit()?;
         Ok(())
     })();
@@ -385,26 +406,30 @@ pub(super) fn emit_backup_ingest_progress_if_changed(
         return;
     }
     *last_processed_records = progress.processed_records;
-    report_progress(BackupProgressEvent {
-        phase: "ingest-profile".to_string(),
-        label: "Write canonical archive facts".to_string(),
-        detail: format!("Processing {} and writing archive rows.", profile.profile_id),
-        step: 1,
-        total_steps: 3,
-        completed_profiles: index,
-        total_profiles,
-        profile_id: Some(profile.profile_id.clone()),
-        progress_current: Some(index + 1),
-        progress_total: Some(total_profiles),
-        progress_percent: None,
-        log_lines: vec![format!("{} ({}/{total_profiles})", profile.profile_id, index + 1)],
-        source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
-        processed_records: Some(progress.processed_records),
-        total_records: None,
-        imported_records: Some(progress.imported_records),
-        duplicate_records: Some(progress.duplicate_records),
-        skipped_records: Some(progress.skipped_records),
-    });
+    report_progress(
+        BackupProgressEvent {
+            phase: "ingest-profile".to_string(),
+            label: "Write canonical archive facts".to_string(),
+            detail: format!("Processing {} and writing archive rows.", profile.profile_id),
+            step: 1,
+            total_steps: 3,
+            completed_profiles: index,
+            total_profiles,
+            profile_id: Some(profile.profile_id.clone()),
+            progress_current: Some(index + 1),
+            progress_total: Some(total_profiles),
+            progress_percent: None,
+            log_lines: vec![format!("{} ({}/{total_profiles})", profile.profile_id, index + 1)],
+            source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
+            processed_records: Some(progress.processed_records),
+            total_records: None,
+            imported_records: Some(progress.imported_records),
+            duplicate_records: Some(progress.duplicate_records),
+            skipped_records: Some(progress.skipped_records),
+            log_events: Vec::new(),
+        }
+        .with_log_event("info", "backup.ingest-profile.records"),
+    );
 }
 
 pub(super) fn source_evidence_rebuild_warning(error: anyhow::Error) -> String {

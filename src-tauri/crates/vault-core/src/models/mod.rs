@@ -10,14 +10,15 @@ pub mod audit;
 pub mod core_intelligence;
 pub mod import;
 pub mod intelligence;
+pub mod progress;
 pub mod remote;
 pub mod schedule;
 pub mod security;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
-    app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*, remote::*,
-    schedule::*, security::*,
+    app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*, progress::*,
+    remote::*, schedule::*, security::*,
 };
 
 #[cfg(test)]

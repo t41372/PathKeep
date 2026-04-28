@@ -359,7 +359,12 @@ describe('ShellDataProvider', () => {
         })
         document.dispatchEvent(new Event('visibilitychange'))
       })
-      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+      await waitFor(() =>
+        expect(setTimeoutSpy).toHaveBeenCalledWith(
+          expect.any(Function),
+          60_000,
+        ),
+      )
       expect(lockSpy).not.toHaveBeenCalled()
     } finally {
       setTimeoutSpy.mockRestore()

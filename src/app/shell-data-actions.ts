@@ -27,6 +27,7 @@ import type {
   AppConfig,
   AppLockStatus,
   AppSnapshot,
+  BackupProgressEvent,
   BackupReport,
   SetAppLockPasscodeRequest,
   UnlockAppSessionRequest,
@@ -38,6 +39,7 @@ import {
   buildBackupOverlay,
   type ShellTranslator,
 } from './shell-data-helpers'
+import type { ShellTask } from './shell-tasks'
 
 type StateSetter<T> = (value: T | ((current: T) => T)) => void
 
@@ -57,6 +59,14 @@ interface ShellDataActionDeps {
   setSnapshot: StateSetter<AppSnapshot | null>
   setAppLockStatus: StateSetter<AppLockStatus | null>
   setRefreshKey: StateSetter<number>
+  archiveTasks?: ShellArchiveTaskActionHooks
+}
+
+interface ShellArchiveTaskActionHooks {
+  beginBackupTask: () => { task: ShellTask } | { blockedBy: ShellTask }
+  updateBackupTask: (taskId: string, progress: BackupProgressEvent) => void
+  finishBackupTask: (taskId: string, report: BackupReport) => void
+  failBackupTask: (taskId: string, message: string) => void
 }
 
 function incrementRefreshKey(setRefreshKey: StateSetter<number>) {
@@ -119,6 +129,7 @@ export function createShellDataActions({
   setSnapshot,
   setAppLockStatus,
   setRefreshKey,
+  archiveTasks,
 }: ShellDataActionDeps) {
   return {
     /**
@@ -203,6 +214,7 @@ export function createShellDataActions({
     runBackup: async (): Promise<BackupReport> => {
       const backupSteps = backupStepLabels(t)
       let unsubscribe = () => {}
+      let taskId: string | null = null
 
       showBusyOverlay({
         label: t('shell.runningManualBackup'),
@@ -216,8 +228,20 @@ export function createShellDataActions({
       setError(null)
 
       try {
+        const taskStart = archiveTasks?.beginBackupTask()
+        if (taskStart && 'blockedBy' in taskStart) {
+          throw new Error(
+            t('jobs.archiveTaskAlreadyRunningBody', {
+              task: taskStart.blockedBy.title,
+            }),
+          )
+        }
+        taskId = taskStart?.task.id ?? null
         unsubscribe = await subscribeToBackupProgress((progress) => {
           showBusyOverlay(buildBackupOverlay(progress, t))
+          if (taskId) {
+            archiveTasks?.updateBackupTask(taskId, progress)
+          }
         })
         await waitForNextPaint()
         showBusyOverlay({
@@ -229,6 +253,9 @@ export function createShellDataActions({
           activeStep: 1,
         })
         const report = await backend.runBackupNow(false)
+        if (taskId) {
+          archiveTasks?.finishBackupTask(taskId, report)
+        }
         showBusyOverlay({
           label: t('shell.refreshingArchiveViews'),
           detail: t('shell.refreshingArchiveViewsDetail'),
@@ -247,6 +274,9 @@ export function createShellDataActions({
           t,
         )
         setError(message)
+        if (taskId) {
+          archiveTasks?.failBackupTask(taskId, message)
+        }
         if (nextError instanceof Error && message !== nextError.message) {
           throw new Error(message)
         }

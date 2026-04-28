@@ -20,7 +20,9 @@
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
+import type { ShellTask } from '../../app/shell-tasks'
 import { I18nProvider, createNamespaceTranslator } from '../../lib/i18n'
 import type { BrowserProfile, TakeoutInspection } from '../../lib/types'
 import { ImportSelectStep } from './select-step'
@@ -135,7 +137,7 @@ describe('Import wizard render modules', () => {
     renderWizard({
       importing: true,
       inspection: null,
-      importProgress: null,
+      importTask: null,
       step: 'confirm',
       stepIndex: 3,
     })
@@ -146,7 +148,22 @@ describe('Import wizard render modules', () => {
         importT('importingProgressDetail', { records: '0', files: '0' }),
       ),
     ).toBeVisible()
-    expect(screen.getByText('4 / 5')).toBeVisible()
+  })
+
+  test('renders global task progress when confirm import has a shell task', () => {
+    renderWizard({
+      importing: true,
+      importTask: taskFixture(),
+      step: 'confirm',
+      stepIndex: 3,
+    })
+
+    expect(screen.getByRole('heading', { name: 'Import Chrome' })).toBeVisible()
+    expect(screen.getAllByText('3 / 12 records')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'Open Jobs' })).toHaveAttribute(
+      'href',
+      '/jobs',
+    )
   })
 
   test('passes directory intent from the Takeout folder picker', async () => {
@@ -276,7 +293,9 @@ describe('Import wizard render modules', () => {
 function renderWizard(overrides: Partial<ImportWizardPanelProps> = {}) {
   return render(
     <I18nProvider>
-      <ImportWizardPanel {...wizardProps(overrides)} />
+      <MemoryRouter>
+        <ImportWizardPanel {...wizardProps(overrides)} />
+      </MemoryRouter>
     </I18nProvider>,
   )
 }
@@ -287,7 +306,7 @@ function wizardProps(
   return {
     detectedBrowserProfiles: [],
     importing: false,
-    importProgress: null,
+    importTask: null,
     importResult: null,
     inspection: null,
     language: 'en',
@@ -316,6 +335,24 @@ function wizardProps(
     onSourcePathChange: vi.fn(),
     onStepChange: vi.fn(),
     ...overrides,
+  }
+}
+
+function taskFixture(): ShellTask {
+  return {
+    id: 'task-import',
+    kind: 'import',
+    state: 'running',
+    title: 'Import Chrome',
+    detail: 'Writing archive records',
+    startedAt: '2026-04-27T10:00:00.000Z',
+    updatedAt: '2026-04-27T10:01:00.000Z',
+    finishedAt: null,
+    progressLabel: '3 / 12',
+    progressValue: 25,
+    processedRecords: 3,
+    totalRecords: 12,
+    logEntries: [],
   }
 }
 

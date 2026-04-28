@@ -22,6 +22,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { ProgressLogEvent } from './import'
 import type { RemoteBackupResult } from './remote'
 
 /**
@@ -146,6 +147,7 @@ export interface BackupProgressEvent {
   progressTotal?: number | null
   progressPercent?: number | null
   logLines?: string[]
+  logEvents?: ProgressLogEvent[]
   sourceLabel?: string | null
   processedRecords?: number | null
   totalRecords?: number | null

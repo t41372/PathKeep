@@ -852,30 +852,41 @@ fn emit_browser_import_progress_with_records(
         "complete" => "Import complete",
         _ => "Importing browser history",
     };
-    report_progress(ImportProgressEvent {
-        phase: phase.to_string(),
-        label: label.to_string(),
-        detail,
-        current,
-        total,
-        progress_percent,
-        log_lines: log_lines
-            .iter()
-            .rev()
-            .take(4)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect(),
-        source_path,
-        source_label: record_state.source_label,
-        processed_records: record_state.processed_records,
-        total_records: record_state.total_records,
-        imported_records: record_state.imported_records,
-        duplicate_records: record_state.duplicate_records,
-        skipped_records: record_state.skipped_records,
-    });
+    report_progress(
+        ImportProgressEvent {
+            phase: phase.to_string(),
+            label: label.to_string(),
+            detail,
+            current,
+            total,
+            progress_percent,
+            log_lines: log_lines
+                .iter()
+                .rev()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+            source_path,
+            source_label: record_state.source_label,
+            processed_records: record_state.processed_records,
+            total_records: record_state.total_records,
+            imported_records: record_state.imported_records,
+            duplicate_records: record_state.duplicate_records,
+            skipped_records: record_state.skipped_records,
+            log_events: Vec::new(),
+        }
+        .with_log_event(progress_log_level_for_browser_phase(phase), &format!("import.{phase}")),
+    );
+}
+
+fn progress_log_level_for_browser_phase(phase: &str) -> &'static str {
+    match phase {
+        "complete" => "success",
+        _ => "info",
+    }
 }
 
 #[cfg(test)]
@@ -1073,6 +1084,8 @@ mod tests {
         assert_eq!(events[0].log_lines, vec!["two", "three", "four", "five"]);
         assert_eq!(events[0].processed_records, Some(5));
         assert_eq!(events[0].source_label.as_deref(), Some("Google Chrome / Primary"));
+        assert_eq!(events[0].log_events[0].code, "import.unexpected-phase");
+        assert_eq!(events[0].log_events[0].processed_records, Some(5));
     }
 
     #[test]
@@ -1114,6 +1127,10 @@ mod tests {
         assert_eq!(progress_events.len(), 1);
         assert_eq!(progress_events[0].processed_records, Some(4));
         assert_eq!(progress_events[0].source_label.as_deref(), Some("Google Chrome / Primary"));
+        assert_eq!(
+            progress_events[0].log_events[0].source_label.as_deref(),
+            Some("Google Chrome / Primary")
+        );
 
         let mut notes = Vec::new();
         append_browser_import_skipped_note(&mut notes, 2);

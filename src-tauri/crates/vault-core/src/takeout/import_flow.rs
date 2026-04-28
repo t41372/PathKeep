@@ -380,30 +380,34 @@ fn emit_import_progress_with_records(
         log_lines,
         record_state,
     } = input;
-    report_progress(ImportProgressEvent {
-        phase: phase.to_string(),
-        label: progress_label_for_phase(phase).to_string(),
-        detail,
-        current,
-        total,
-        progress_percent,
-        log_lines: log_lines
-            .iter()
-            .rev()
-            .take(4)
-            .cloned()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect(),
-        source_path,
-        source_label: record_state.source_label,
-        processed_records: record_state.processed_records,
-        total_records: record_state.total_records,
-        imported_records: record_state.imported_records,
-        duplicate_records: record_state.duplicate_records,
-        skipped_records: record_state.skipped_records,
-    });
+    report_progress(
+        ImportProgressEvent {
+            phase: phase.to_string(),
+            label: progress_label_for_phase(phase).to_string(),
+            detail,
+            current,
+            total,
+            progress_percent,
+            log_lines: log_lines
+                .iter()
+                .rev()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+            source_path,
+            source_label: record_state.source_label,
+            processed_records: record_state.processed_records,
+            total_records: record_state.total_records,
+            imported_records: record_state.imported_records,
+            duplicate_records: record_state.duplicate_records,
+            skipped_records: record_state.skipped_records,
+            log_events: Vec::new(),
+        }
+        .with_log_event(progress_log_level_for_phase(phase), &format!("import.{phase}")),
+    );
 }
 
 pub(super) fn emit_import_record_progress_if_changed(
@@ -456,6 +460,13 @@ pub(super) fn progress_label_for_phase(phase: &str) -> &'static str {
         "finalize" => "Finalizing import",
         "complete" => "Import complete",
         _ => "Importing browser history",
+    }
+}
+
+fn progress_log_level_for_phase(phase: &str) -> &'static str {
+    match phase {
+        "complete" => "success",
+        _ => "info",
     }
 }
 

@@ -284,6 +284,18 @@ function renderArrowBackGlyph() {
   return <path d="M19 12H5M11 18l-6-6 6-6" {...glyphStrokeProps} />
 }
 
+function renderNotificationsGlyph() {
+  return (
+    <>
+      <path
+        d="M18 10.5A6 6 0 0 0 6 10.5c0 4-1.8 5.2-2.5 6h17c-.7-.8-2.5-2-2.5-6Z"
+        {...glyphStrokeProps}
+      />
+      <path d="M9.8 19a2.3 2.3 0 0 0 4.4 0" {...glyphStrokeProps} />
+    </>
+  )
+}
+
 const glyphVectors = {
   arrow_back: renderArrowBackGlyph,
   arrow_forward: renderArrowForwardGlyph,
@@ -300,6 +312,7 @@ const glyphVectors = {
   history: renderHistoryGlyph,
   language: renderGlobeGlyph,
   memory: renderMemoryGlyph,
+  notifications: renderNotificationsGlyph,
   preview: renderPreviewGlyph,
   public: renderGlobeGlyph,
   search: renderSearchGlyph,

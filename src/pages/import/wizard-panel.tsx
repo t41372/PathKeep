@@ -20,20 +20,18 @@
  * - 只渲染 route owner 已有的 wizard / preview state；重工作仍留在 backend 與 progress stream。
  */
 
-import { BusyOverlay } from '../../components/primitives/busy-overlay'
 import { StatusCallout } from '../../components/primitives/status-callout'
+import { TaskProgressCard } from '../../components/progress'
 import { PreviewEntryList } from '../../components/review'
+import { Link } from 'react-router-dom'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
+import type { ShellTask } from '../../app/shell-tasks'
 import {
   importBatchStatusKey,
   importBatchStatusTone,
 } from '../../lib/trust-review'
-import type {
-  BrowserProfile,
-  ImportProgressEvent,
-  TakeoutInspection,
-} from '../../lib/types'
+import type { BrowserProfile, TakeoutInspection } from '../../lib/types'
 import { ImportSelectStep } from './select-step'
 import {
   countTakeoutFilesByClassification,
@@ -41,13 +39,9 @@ import {
   formatTakeoutPreviewRange,
   groupTakeoutFileReports,
   hasTakeoutReasonCode,
-  importProgressValue,
   type ImportMethod,
   type ImportWizardStepDefinition,
   localizedImportNoteSummary,
-  localizedImportProgressDetail,
-  localizedImportProgressLabel,
-  localizedImportProgressLogLines,
   takeoutFileGroupBodyKey,
   takeoutFileGroupTitleKey,
   takeoutFileKindLabel,
@@ -61,7 +55,7 @@ import {
 export interface ImportWizardPanelProps {
   detectedBrowserProfiles: BrowserProfile[]
   importing: boolean
-  importProgress: ImportProgressEvent | null
+  importTask: ShellTask | null
   importResult: TakeoutInspection | null
   inspection: TakeoutInspection | null
   language: ResolvedLanguage
@@ -91,7 +85,7 @@ export interface ImportWizardPanelProps {
 export function ImportWizardPanel({
   detectedBrowserProfiles,
   importing,
-  importProgress,
+  importTask,
   importResult,
   inspection,
   language,
@@ -131,7 +125,6 @@ export function ImportWizardPanel({
     previewFiles,
     'known-but-ignored',
   )
-  const expectedImportRecords = inspection?.candidateItems ?? null
   const hasChromeMyActivityJson = hasTakeoutReasonCode(
     previewFiles,
     'chrome-my-activity-json',
@@ -197,15 +190,10 @@ export function ImportWizardPanel({
 
           {step === 'scan' && (
             <div style={{ position: 'relative', minHeight: '120px' }}>
-              <BusyOverlay
-                label={t('import.scanningTitle')}
-                detail={t('import.workflowPreviewReason')}
-                progressLabel={`2 / ${wizardSteps.length.toLocaleString(language)}`}
-                progressValue={(2 / wizardSteps.length) * 100}
-                steps={wizardSteps
-                  .slice(0, 3)
-                  .map((wizardStep) => wizardStep.label)}
-                activeStep={1}
+              <StatusCallout
+                tone="info"
+                title={t('import.scanningTitle')}
+                body={t('import.workflowPreviewReason')}
               />
             </div>
           )}
@@ -451,61 +439,39 @@ export function ImportWizardPanel({
           )}
 
           {step === 'confirm' && importing && (
-            <div style={{ position: 'relative', minHeight: '120px' }}>
-              <BusyOverlay
-                label={t('import.importingTitle')}
-                detail={
-                  importProgress
-                    ? localizedImportProgressDetail(
-                        importProgress,
-                        t,
-                        language,
-                        {
-                          expectedRecords: expectedImportRecords,
-                        },
-                      )
-                    : t('import.importingProgressDetail', {
-                        records: (
-                          inspection?.candidateItems ?? 0
-                        ).toLocaleString(language),
-                        files: (
-                          inspection?.recognizedFiles.length ?? 0
-                        ).toLocaleString(language),
-                      })
-                }
-                logLines={
-                  importProgress
-                    ? localizedImportProgressLogLines(
-                        importProgress,
-                        t,
-                        language,
-                        {
-                          expectedRecords: expectedImportRecords,
-                        },
-                      )
-                    : []
-                }
-                progressLabel={
-                  importProgress
-                    ? localizedImportProgressLabel(
-                        importProgress,
-                        t,
-                        language,
-                        {
-                          expectedRecords: expectedImportRecords,
-                        },
-                      )
-                    : `4 / ${wizardSteps.length.toLocaleString(language)}`
-                }
-                progressValue={importProgressValue(importProgress, {
-                  expectedRecords: expectedImportRecords,
-                })}
-                steps={wizardSteps
-                  .slice(2)
-                  .map((wizardStep) => wizardStep.label)}
-                activeStep={1}
-              />
-            </div>
+            <>
+              {importTask ? (
+                <TaskProgressCard
+                  task={importTask}
+                  language={language}
+                  labels={{
+                    started: t('jobs.archiveTaskStarted'),
+                    updated: t('jobs.archiveTaskUpdated'),
+                    records: t('jobs.archiveTaskRecords'),
+                    console: t('jobs.archiveTaskConsole'),
+                    noLogs: t('jobs.archiveTaskNoLogs'),
+                  }}
+                  actions={
+                    <Link className="btn-secondary" to="/jobs">
+                      {t('jobs.archiveTaskOpenJobs')}
+                    </Link>
+                  }
+                />
+              ) : (
+                <StatusCallout
+                  tone="info"
+                  title={t('import.importingTitle')}
+                  body={t('import.importingProgressDetail', {
+                    records: (inspection?.candidateItems ?? 0).toLocaleString(
+                      language,
+                    ),
+                    files: (
+                      inspection?.recognizedFiles.length ?? 0
+                    ).toLocaleString(language),
+                  })}
+                />
+              )}
+            </>
           )}
 
           {step === 'done' && importResult && (

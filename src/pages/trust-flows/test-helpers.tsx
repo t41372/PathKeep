@@ -27,6 +27,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { expect, vi } from 'vitest'
 import {
   ShellDataContext,
+  type ShellImportTaskRequest,
   type ShellDataContextValue,
 } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
@@ -38,6 +39,7 @@ import {
 } from '../../lib/i18n'
 import { I18nContext, type I18nContextValue } from '../../lib/i18n/context'
 import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
+import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import type { AppConfig, AppSnapshot, DashboardSnapshot } from '../../lib/types'
 
@@ -190,6 +192,16 @@ export function createShellValue(
       profiles: [],
       warnings: [],
       remoteBackup: null,
+    }),
+    runImport: vi.fn(async (request: ShellImportTaskRequest) => {
+      const unsubscribe = await subscribeToImportProgress(() => undefined)
+      try {
+        return request.method === 'takeout'
+          ? await backend.importTakeout(request.request)
+          : await backend.importBrowserHistory(request.request)
+      } finally {
+        unsubscribe()
+      }
     }),
     setAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),

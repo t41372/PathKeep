@@ -33,7 +33,7 @@
 
 ### 目前 export 已覆蓋
 
-- shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar 搜尋、共享 profile scope switcher 與主 CTA
+- shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar notification queue、共享 profile scope switcher 與主 CTA
 - Dashboard 視覺語言：stat cards、recent runs table、On This Day、yearly browsing rhythm preview、storage breakdown、AI / queue summary 的資訊層級
 - Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Intelligence、Audit 等核心入口
 
@@ -62,7 +62,7 @@
 - Integrations external outputs 與 trusted local host review 現在共用同一套 review row / code preview / target-link grammar；後續若要再擴到 Jobs / Import / Audit，必須沿用這批 primitive，而不是再長一套新 shell。
 - M11 之後，neutral review primitive 不再只屬於 intelligence subtree：Settings、Maintenance、Integrations、Schedule、Audit 與 Jobs 也正式共用同一套 `review-surface`、PME tab、generated-artifact viewer 與 verify checklist grammar；剩餘 support actions / Import follow-through 漂移改由 M12 追蹤。
 - M12 之後，Maintenance general diagnostics、Settings App Lock、Audit manifest / artifact review、Import selected-batch audit path、Schedule detected-file / audit quick jump、Security / Lock config path，以及 Explorer export path 現在都共用同一套 review-layer support-action / clipboard grammar；M13 又把 Jobs plugin / module runtime boundary summary 收回同一個 review owner，新增 shared `runtime-boundary-card` grammar 給 Jobs 與 Maintenance derived runtime review 共用，而 dev-bridge / worker parity 仍維持 subordinate inventory。
-- Jobs 頁是正式 shipping route：顯示 background queue summary、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
+- Jobs 頁是正式 shipping route：顯示 background queue summary、archive write tasks（import / backup）進度與 console log、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Maintenance 的 diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。storage analytics 的 top-level summary 先固定為 `core history` / `other data` 兩個 bucket，detail 再在卡內展開。
@@ -87,12 +87,13 @@
 - 左側 sidebar 導航（可收合）。
 - 頂部顯示當前頁面的 breadcrumb / title。
 - 頂部左側提供全局上一頁 / 下一頁按鈕，語意與瀏覽器一致：只能在本次 app 內已走過的 route history 間返回或前進。
-- 全局快速搜尋入口。
+- 頂部右側提供 notification queue 按鈕；未讀通知用低干擾 badge / highlight 表示，開啟面板後標記已讀，每條通知帶 timestamp 並可單獨 dismiss。
+- 頂部右側最後兩個 controls 必須固定是 shared profile scope switcher 與 `Backup now` 主 CTA；notification 按鈕與可選 lock action 只能排在它們左側。
 
 ### M1 導航與 deep-link 規則
 
 - Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule / Integrations）、`SYSTEM`（Security / Settings / Maintenance）；Onboarding 是 utility route，不常駐 sidebar。
-- 頂部搜尋送到 `History Explorer`，直接寫入 `/explorer?q=...`，讓搜尋結果可以被複製、重整和重新打開。
+- 全局 topbar 不再提供 history search box；搜尋入口留在 `History Explorer` 內部，仍使用 `/explorer?q=...` deep-link 讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`、`pageSize`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
@@ -121,7 +122,9 @@
 - promoted route files、front-end Core Intelligence API，以及 Tauri command / worker bridge intelligence facade 現在都已按 ownership split；後續若要繼續拆 mixed helper / dev mirror / worker pass-through，必須走 M11 inventory，而不是回頭改 public contract。
 - `reopened investigation`、`habit`、`stable source`、`friction`、`multi-browser diff` 這類 active entity 不再允許各自決定 destination：domain-based surface 一律走 `domain insights`；`compare set` 改為自己的 first-class insights route；path-flow 只有在 step 可穩定解析為 registrable domain 時才提供 shared CTA，且要帶上 `focusType=path-flow` / `focusId=<flowId>`。
 - Dashboard 的 intelligence quick actions 必須直接通往 Explorer、Assistant、Intelligence；錯誤或 disabled 狀態下還要能跳到 Settings / Jobs / Maintenance / Integrations 的 canonical controls，而不是只剩靜態說明。
-- shell footer 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Jobs 頁負責完整 progress / log / recovery；不能讓兩處各自發明不同的狀態名稱。
+- shell footer、Import inline task card 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Import 負責當前 handoff card，Jobs 頁負責完整 progress / log / recovery；不能讓三處各自發明不同的狀態名稱。
+- import / backup 這類 archive-write 任務必須由 shell-owned task store 管理，使用者離開 `/import` 或 Dashboard 後仍能從 Jobs 與 sidebar footer 找回進度；同一時間只允許一個 archive-write 任務，第二個 import / backup action 應連到現有任務而不是啟動第二條寫入。
+- archive-write progress surface 必須使用 shared progress card / meter / console component。console log 顯示 timestamp、severity、source/profile label、record counters 與 bounded recent entries；raw backend log lines 只能作 fallback，產品 UI 應優先消費 structured progress `logEvents`。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
 - Intelligence section cards、day insights 與 domain deep dive 的 evidence / freshness badge / floating panel 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Maintenance / Jobs，而不是在分析頁面就地長出 mutation controls。

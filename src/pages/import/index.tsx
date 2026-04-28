@@ -21,7 +21,6 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { clearIntelligenceOverviewCache } from '../../lib/core-intelligence/api'
-import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { useI18n } from '../../lib/i18n'
 import {
   isBrowserProfileReadable,
@@ -31,7 +30,6 @@ import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   BrowserHistoryImportRequest,
   BrowserProfile,
-  ImportProgressEvent,
   TakeoutInspection,
 } from '../../lib/types'
 import { ImportReviewPanels } from './review-panels'
@@ -73,7 +71,12 @@ function isFullDiskAccessError(message: string) {
  * repair affordances aligned with the Import expectations in the design docs.
  */
 export function ImportPage() {
-  const { refreshAppData, snapshot } = useShellData()
+  const {
+    archiveTasks = [],
+    refreshAppData,
+    runImport,
+    snapshot,
+  } = useShellData()
   const { language, t } = useI18n()
   const [method, setMethod] = useState<ImportMethod>('takeout')
   const [step, setStep] = useState<WizardStep>('select')
@@ -86,11 +89,15 @@ export function ImportPage() {
   >(null)
   const [inspection, setInspection] = useState<TakeoutInspection | null>(null)
   const [importing, setImporting] = useState(false)
-  const [importProgress, setImportProgress] =
-    useState<ImportProgressEvent | null>(null)
   const [importResult, setImportResult] = useState<TakeoutInspection | null>(
     null,
   )
+  const activeImportTask =
+    archiveTasks.find(
+      (task) =>
+        task.kind === 'import' &&
+        (task.state === 'running' || task.state === 'queued'),
+    ) ?? null
 
   const wizardSteps: ImportWizardStepDefinition[] = [
     { key: 'select', label: t('import.stepUpload') },
@@ -336,22 +343,36 @@ export function ImportPage() {
    */
   async function handleImport() {
     if (!sourcePath.trim()) return
+    if (!runImport) {
+      reportActionError(new Error(t('import.actionErrorTitle')))
+      return
+    }
     clearActionError()
     setImporting(true)
-    setImportProgress(null)
     setStep('confirm')
-    let unsubscribe = () => {}
     try {
       await waitForNextPaint()
-      unsubscribe = await subscribeToImportProgress((progress) => {
-        setImportProgress(progress)
-      })
-      const result =
+      const result = await runImport(
         method === 'takeout'
-          ? await backend.importTakeout({ sourcePath, dryRun: false })
-          : await backend.importBrowserHistory(
-              buildBrowserHistoryRequest({ dryRun: false }),
-            )
+          ? {
+              method: 'takeout',
+              request: { sourcePath, dryRun: false },
+              expectedRecords: inspection?.candidateItems ?? null,
+              sourceLabel: sourcePath,
+            }
+          : {
+              method: 'browser',
+              request: buildBrowserHistoryRequest({ dryRun: false }),
+              expectedRecords: inspection?.candidateItems ?? null,
+              sourceLabel:
+                selectedBrowserProfile?.browserName ??
+                selectedBrowserProfile?.profileName ??
+                sourcePath,
+            },
+      )
+      if ('kind' in result) {
+        return
+      }
       setImportResult(result)
       setStep('done')
       clearIntelligenceOverviewCache()
@@ -374,7 +395,6 @@ export function ImportPage() {
       reportActionError(nextError)
       setStep('preview')
     } finally {
-      unsubscribe()
       setImporting(false)
     }
   }
@@ -387,7 +407,6 @@ export function ImportPage() {
     setStep('select')
     setInspection(null)
     setImportResult(null)
-    setImportProgress(null)
     setSourcePath('')
   }
 
@@ -413,7 +432,7 @@ export function ImportPage() {
       <ImportWorkflowPanel
         detectedBrowserProfiles={detectedBrowserProfiles}
         importing={importing}
-        importProgress={importProgress}
+        importTask={activeImportTask}
         importResult={importResult}
         inspection={inspection}
         language={language}

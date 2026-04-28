@@ -1,0 +1,182 @@
+/**
+ * @file progress.css
+ * @description Shared progress card, meter, and console styles for shell-owned long-running work.
+ * @module progress-ui
+ *
+ * ## Responsibilities
+ * - Style the unified progress bar used by import, backup, Jobs, and busy overlays.
+ * - Keep task consoles bounded, readable, and visually consistent across compact and full variants.
+ *
+ * ## Not responsible for
+ * - Route-specific panel grids or action button styling.
+ * - Sidebar footer placement and topbar notification placement.
+ *
+ * ## Dependencies
+ * - Depends on design tokens from `tokens.css`.
+ * - Consumed by `src/components/progress/task-progress.tsx`.
+ *
+ * ## Performance notes
+ * - Console regions are bounded and internally scrollable so large imports do not stretch route layouts.
+ */
+
+.task-progress-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+}
+
+.task-progress-card--compact {
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.task-progress-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.task-progress-card__header h3 {
+  margin: 0;
+  color: var(--text-bright);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.task-progress-card__eyebrow,
+.task-progress-card__console-label {
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.task-progress-card__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.task-progress-card__detail {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.task-progress-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.task-progress-meter {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.task-progress-meter--compact {
+  gap: 3px;
+}
+
+.task-progress-meter__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.task-progress-meter__track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.task-progress-meter__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--transition);
+}
+
+.task-progress-meter__track--indeterminate .task-progress-meter__fill {
+  width: 36%;
+}
+
+.task-progress-meter__fill--indeterminate {
+  animation: task-progress-sweep 1.1s ease-in-out infinite;
+}
+
+.task-console {
+  display: grid;
+  gap: 4px;
+  max-height: min(28vh, 220px);
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 74%, transparent);
+  scrollbar-gutter: stable;
+}
+
+.task-console--compact {
+  max-height: 128px;
+}
+
+.task-console__line {
+  display: grid;
+  grid-template-columns: 66px 54px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.task-console__line[data-level='success'] .task-console__level {
+  color: var(--success);
+}
+
+.task-console__line[data-level='warning'] .task-console__level {
+  color: var(--warning);
+}
+
+.task-console__line[data-level='error'] .task-console__level {
+  color: var(--error);
+}
+
+.task-console__time,
+.task-console__level {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.task-console__message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+@keyframes task-progress-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
+}

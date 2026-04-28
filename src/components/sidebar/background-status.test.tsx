@@ -16,6 +16,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { ShellRuntimeStatus } from '../../app/shell-data-context'
+import type { ShellTask } from '../../app/shell-tasks'
 import { I18nProvider } from '../../lib/i18n'
 import { SidebarBackgroundStatus } from './background-status'
 
@@ -86,6 +87,7 @@ const aiQueueJob = (overrides: Partial<AiQueueJob> = {}): AiQueueJob => ({
 function renderStatus(
   runtimeStatus: ShellRuntimeStatus,
   options: {
+    activeArchiveTask?: ShellTask | null
     initialized?: boolean
     unlocked?: boolean
   } = {},
@@ -94,6 +96,7 @@ function renderStatus(
     <I18nProvider>
       <MemoryRouter>
         <SidebarBackgroundStatus
+          activeArchiveTask={options.activeArchiveTask ?? null}
           initialized={options.initialized ?? true}
           runtimeStatus={runtimeStatus}
           unlocked={options.unlocked ?? true}
@@ -196,6 +199,62 @@ describe('SidebarBackgroundStatus', () => {
       summary: 'Unlock the archive first',
       tone: 'warning',
       width: '100%',
+    })
+  })
+
+  test('prioritizes active archive writes over idle runtime status', () => {
+    renderStatus(idleRuntimeStatus(), {
+      activeArchiveTask: {
+        id: 'task-import',
+        kind: 'import',
+        state: 'running',
+        title: 'Import Google Takeout',
+        detail: 'Writing archive records',
+        startedAt: '2026-04-27T10:00:00.000Z',
+        updatedAt: '2026-04-27T10:01:00.000Z',
+        finishedAt: null,
+        progressLabel: '3 / 12 records',
+        progressValue: 25,
+        logEntries: [],
+      },
+    })
+
+    expectStatus({
+      actionHref: '/jobs',
+      actionLabel: 'Jobs',
+      detail: '3 / 12 records',
+      indeterminate: false,
+      summary: 'Import Google Takeout',
+      tone: 'running',
+      width: '25%',
+    })
+  })
+
+  test('shows active archive writes without known progress as indeterminate', () => {
+    renderStatus(idleRuntimeStatus(), {
+      activeArchiveTask: {
+        id: 'task-import',
+        kind: 'import',
+        state: 'running',
+        title: 'Import Google Takeout',
+        detail: null,
+        startedAt: '2026-04-27T10:00:00.000Z',
+        updatedAt: '2026-04-27T10:01:00.000Z',
+        finishedAt: null,
+        progressLabel: null,
+        progressValue: null,
+        logEntries: [],
+      } as unknown as ShellTask,
+    })
+
+    expectStatus({
+      actionHref: '/jobs',
+      actionLabel: 'Jobs',
+      detail: 'Open Jobs',
+      indeterminate: true,
+      summary: 'Import Google Takeout',
+      tone: 'running',
+      width: '55%',
     })
   })
 

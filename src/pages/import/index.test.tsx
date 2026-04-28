@@ -22,6 +22,8 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
+import type { ShellImportTaskRequest } from '../../app/shell-data-context'
+import type { ShellTask } from '../../app/shell-tasks'
 import type * as coreIntelligenceApiModule from '../../lib/core-intelligence/api'
 import type {
   BrowserProfile,
@@ -140,6 +142,21 @@ describe('ImportPage route owner', () => {
 
     expect(screen.getByText('import.archiveNotInitialized')).toBeVisible()
     expect(latestWorkflowProps()).toBeUndefined()
+  })
+
+  test('passes the active shell import task into the workflow panel', () => {
+    const task = shellTaskFixture({
+      id: 'queued-import',
+      state: 'queued',
+      title: 'Queued import',
+    })
+    renderPage({
+      shellOverrides: {
+        archiveTasks: [shellTaskFixture({ kind: 'backup' }), task],
+      },
+    })
+
+    expect(latestWorkflowProps().importTask).toBe(task)
   })
 
   test('filters validated browser profiles and handles method/profile source defaults', async () => {
@@ -492,19 +509,84 @@ describe('ImportPage route owner', () => {
       'batch preview failed',
     )
   })
+
+  test('keeps confirm state when the shell import action returns a running task', async () => {
+    const runningTask = shellTaskFixture({ title: 'Existing import task' })
+    const runImport = vi.fn().mockResolvedValue(runningTask)
+    renderPage({
+      shellOverrides: { runImport },
+    })
+
+    act(() => {
+      latestWorkflowProps().onSourcePathChange('/tmp/takeout.zip')
+    })
+    await act(async () => {
+      await latestWorkflowProps().onImport()
+    })
+
+    expect(runImport).toHaveBeenCalled()
+    expect(latestWorkflowProps().step).toBe('confirm')
+    expect(latestWorkflowProps().importing).toBe(false)
+  })
+
+  test('starts browser imports without an inspection total when preview is skipped', async () => {
+    const runningTask = shellTaskFixture({ title: 'Existing browser import' })
+    const runImport = vi.fn().mockResolvedValue(runningTask)
+    renderPage({
+      shellOverrides: { runImport },
+    })
+
+    act(() => {
+      latestWorkflowProps().onMethodChange('browser')
+    })
+    act(() => {
+      latestWorkflowProps().onSourcePathChange('/manual/History')
+    })
+    await act(async () => {
+      await latestWorkflowProps().onImport()
+    })
+
+    expect(runImport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'browser',
+        expectedRecords: null,
+        sourceLabel: '/manual/History',
+      }),
+    )
+  })
+
+  test('reports an action error when the shell import action is unavailable', async () => {
+    renderPage({
+      shellOverrides: { runImport: undefined },
+    })
+
+    act(() => {
+      latestWorkflowProps().onSourcePathChange('/tmp/takeout.zip')
+    })
+    await act(async () => {
+      await latestWorkflowProps().onImport()
+    })
+
+    expect(latestReviewState().reportedErrors.at(-1)?.message).toBe(
+      'import.actionErrorTitle',
+    )
+  })
 })
 
 function renderPage({
   refreshAppData = vi.fn().mockResolvedValue(undefined),
+  shellOverrides = {},
   snapshot = snapshotFixture(),
 }: {
   refreshAppData?: () => Promise<void>
+  shellOverrides?: Partial<ReturnType<typeof shellFixture>>
   snapshot?: ReturnType<typeof snapshotFixture> | null
 } = {}) {
   shellDataMock.mockReturnValue(
     shellFixture({
       refreshAppData,
       snapshot,
+      ...shellOverrides,
     }),
   )
   return render(
@@ -526,13 +608,45 @@ function latestReviewState() {
 
 function shellFixture(
   overrides: Partial<{
+    archiveTasks: ShellTask[]
     refreshAppData: () => Promise<void>
+    runImport:
+      | ((
+          request: ShellImportTaskRequest,
+        ) => Promise<TakeoutInspection | ShellTask>)
+      | undefined
     snapshot: ReturnType<typeof snapshotFixture> | null
   }> = {},
 ) {
   return {
     refreshAppData: vi.fn().mockResolvedValue(undefined),
+    runImport: vi.fn(async (request: ShellImportTaskRequest) => {
+      const unsubscribe = await subscribeToImportProgressMock(() => undefined)
+      try {
+        return request.method === 'takeout'
+          ? await backend.importTakeout(request.request)
+          : await backend.importBrowserHistory(request.request)
+      } finally {
+        unsubscribe()
+      }
+    }),
     snapshot: snapshotFixture(),
+    ...overrides,
+  }
+}
+
+function shellTaskFixture(overrides: Partial<ShellTask> = {}): ShellTask {
+  return {
+    id: 'task-import',
+    kind: 'import',
+    state: 'running',
+    title: 'Import task',
+    detail: 'Writing archive records',
+    startedAt: '2026-04-27T10:00:00.000Z',
+    updatedAt: '2026-04-27T10:01:00.000Z',
+    finishedAt: null,
+    progressValue: null,
+    logEntries: [],
     ...overrides,
   }
 }

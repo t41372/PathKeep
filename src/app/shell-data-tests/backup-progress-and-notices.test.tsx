@@ -194,6 +194,25 @@ describe('ShellDataProvider', () => {
         ],
         remoteBackup: null,
       })
+      .mockResolvedValueOnce({
+        dueSkipped: false,
+        run: {
+          id: 89,
+          startedAt: '2026-04-20T09:00:00Z',
+          finishedAt: '2026-04-20T09:05:00Z',
+          status: 'success',
+          manifestHash: 'manifest-89',
+          profileScope: ['safari:Default'],
+          profilesProcessed: 1,
+          newVisits: 0,
+          newUrls: 0,
+          newDownloads: 0,
+          runType: 'backup',
+        },
+        profiles: [],
+        warnings: ['Full Disk Access is still required for Safari.'],
+        remoteBackup: null,
+      })
 
     renderShellProbe()
 
@@ -226,6 +245,13 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('notice')).toHaveTextContent(
         translator('shell.safariFullDiskAccessBackupWarning', { runId: 88 }),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('shell.safariFullDiskAccessBackupWarning', { runId: 89 }),
       ),
     )
   })

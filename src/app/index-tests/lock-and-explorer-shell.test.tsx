@@ -257,9 +257,7 @@ describe('App shell', () => {
     ).toBeDisabled()
   })
 
-  test('submitting the topbar search navigates into explorer without crashing', async () => {
-    const user = userEvent.setup()
-
+  test('topbar no longer exposes the removed global search control', async () => {
     await seedArchiveRun()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/'],
@@ -268,25 +266,10 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
-
-    await user.type(
-      screen.getByRole('searchbox', { name: 'Search history' }),
-      'sqlite',
-    )
-    await user.keyboard('{Enter}')
-
-    await waitFor(() =>
-      expect(router.state.location.pathname).toBe('/explorer'),
-    )
-    await waitFor(() =>
-      expect(router.state.location.search).toContain('q=sqlite'),
-    )
-    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
-    await waitFor(() =>
-      expect(document.querySelectorAll('.record-item').length).toBeGreaterThan(
-        0,
-      ),
-    )
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Notifications' }),
+    ).toBeInTheDocument()
   })
 
   test('renders explorer filters, detail, export, and audit run detail from live shell data', async () => {

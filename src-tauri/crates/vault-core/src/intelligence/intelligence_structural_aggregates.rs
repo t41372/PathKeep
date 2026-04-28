@@ -586,3 +586,14 @@ fn flush_path_flow_sequence(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn habit_records_without_profile_short_circuits() {
+        assert!(habit_records_for_domains(None, HashMap::new(), HashMap::new()).is_empty());
+    }
+}

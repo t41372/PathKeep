@@ -24,11 +24,15 @@ import type {
   AppLockStatus,
   AppSnapshot,
   BackupReport,
+  BrowserHistoryImportRequest,
   DashboardSnapshot,
   IntelligenceRuntimeSnapshot,
   SetAppLockPasscodeRequest,
+  TakeoutInspection,
+  TakeoutRequest,
   UnlockAppSessionRequest,
 } from '../lib/types'
+import type { ShellNotification, ShellTask } from './shell-tasks'
 
 /**
  * Captures the state shape used by `BusyOverlay`.
@@ -53,6 +57,26 @@ export interface ShellRuntimeStatus {
 }
 
 /**
+ * Describes the shell-owned import request that routes can start without owning progress state.
+ *
+ * Import execution writes archive records, so it runs through the shell task store instead
+ * of remaining local to the Import route.
+ */
+export type ShellImportTaskRequest =
+  | {
+      method: 'takeout'
+      request: TakeoutRequest
+      expectedRecords?: number | null
+      sourceLabel?: string | null
+    }
+  | {
+      method: 'browser'
+      request: BrowserHistoryImportRequest
+      expectedRecords?: number | null
+      sourceLabel?: string | null
+    }
+
+/**
  * Defines the value exposed through the `ShellDataContext` context.
  *
  * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
@@ -69,6 +93,11 @@ export interface ShellDataContextValue {
   busyOverlay: BusyOverlayState | null
   error: string | null
   notice: string | null
+  archiveTasks?: ShellTask[]
+  activeArchiveTask?: ShellTask | null
+  latestArchiveTask?: ShellTask | null
+  notifications?: ShellNotification[]
+  unreadNotificationCount?: number
   refreshKey: number
   refreshAppData: () => Promise<void>
   refreshRuntimeStatus: () => Promise<ShellRuntimeStatus>
@@ -78,6 +107,9 @@ export interface ShellDataContextValue {
     databaseKey?: string | null,
   ) => Promise<AppSnapshot>
   runBackup: () => Promise<BackupReport>
+  runImport?: (
+    request: ShellImportTaskRequest,
+  ) => Promise<TakeoutInspection | ShellTask>
   setAppLockPasscode: (
     request: SetAppLockPasscodeRequest,
   ) => Promise<AppLockStatus>
@@ -85,6 +117,8 @@ export interface ShellDataContextValue {
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   unlockAppSession: (request: UnlockAppSessionRequest) => Promise<AppLockStatus>
   clearNotice: () => void
+  markNotificationsRead?: () => void
+  dismissNotification?: (id: string) => void
 }
 
 /**

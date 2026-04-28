@@ -709,10 +709,14 @@ fn takeout_import_progress_marks_active_single_file_work_as_indeterminate() {
     assert_eq!(record_event.total_records, None);
     assert_eq!(record_event.imported_records, Some(2));
     assert_eq!(record_event.duplicate_records, Some(0));
+    assert_eq!(record_event.log_events.len(), 1);
+    assert_eq!(record_event.log_events[0].code, "import.import-file");
+    assert_eq!(record_event.log_events[0].processed_records, Some(2));
 
     let complete =
         events.iter().rev().find(|event| event.phase == "complete").expect("complete event");
     assert_eq!(complete.progress_percent, Some(100.0));
+    assert_eq!(complete.log_events[0].level, "success");
 }
 
 #[test]
@@ -760,6 +764,7 @@ fn takeout_progress_helpers_cover_bounds_and_unknown_phase() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].processed_records, Some(2));
     assert_eq!(events[0].duplicate_records, Some(1));
+    assert_eq!(events[0].log_events[0].source_label.as_deref(), Some("Chrome/BrowserHistory.json"));
 
     let source_note =
         super::import_flow::takeout_source_evidence_rebuild_note(anyhow::anyhow!("source offline"));

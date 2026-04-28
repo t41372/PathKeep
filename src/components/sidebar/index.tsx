@@ -48,6 +48,7 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { language, t } = useI18n()
   const {
+    activeArchiveTask = null,
     buildInfo,
     dashboard,
     error,
@@ -174,6 +175,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </span>
         </div>
         <SidebarBackgroundStatus
+          activeArchiveTask={activeArchiveTask}
           initialized={Boolean(snapshot?.config.initialized)}
           unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
           runtimeStatus={runtimeStatus}

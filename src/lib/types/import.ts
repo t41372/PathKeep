@@ -146,8 +146,28 @@ export interface ImportProgressEvent {
   total: number
   progressPercent?: number | null
   logLines: string[]
+  logEvents?: ProgressLogEvent[]
   sourcePath?: string | null
   sourceLabel?: string | null
+  processedRecords?: number | null
+  totalRecords?: number | null
+  importedRecords?: number | null
+  duplicateRecords?: number | null
+  skippedRecords?: number | null
+}
+
+/**
+ * Defines one structured progress log emitted by backend import/backup workers.
+ *
+ * UI code localizes known `code` values first and keeps `message` as diagnostic
+ * fallback, so raw backend English is no longer the primary product copy.
+ */
+export interface ProgressLogEvent {
+  level: string
+  code: string
+  message: string
+  sourceLabel?: string | null
+  diagnostic?: string | null
   processedRecords?: number | null
   totalRecords?: number | null
   importedRecords?: number | null

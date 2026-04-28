@@ -38,7 +38,7 @@ describe('ImportWorkflowPanel', () => {
         <ImportWorkflowPanel
           detectedBrowserProfiles={[]}
           importing={false}
-          importProgress={null}
+          importTask={null}
           importResult={null}
           inspection={null}
           language="en"

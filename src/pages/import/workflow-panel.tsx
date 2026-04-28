@@ -24,11 +24,8 @@
 import { OperationWorkflow, type WorkflowStep } from '../../components/review'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
-import type {
-  BrowserProfile,
-  ImportProgressEvent,
-  TakeoutInspection,
-} from '../../lib/types'
+import type { BrowserProfile, TakeoutInspection } from '../../lib/types'
+import type { ShellTask } from '../../app/shell-tasks'
 import {
   type ImportMethod,
   type ImportWizardStepDefinition,
@@ -42,7 +39,7 @@ import { ImportWizardPanel } from './wizard-panel'
 export interface ImportWorkflowPanelProps {
   detectedBrowserProfiles: BrowserProfile[]
   importing: boolean
-  importProgress: ImportProgressEvent | null
+  importTask: ShellTask | null
   importResult: TakeoutInspection | null
   inspection: TakeoutInspection | null
   language: ResolvedLanguage
@@ -76,7 +73,7 @@ export interface ImportWorkflowPanelProps {
 export function ImportWorkflowPanel({
   detectedBrowserProfiles,
   importing,
-  importProgress,
+  importTask,
   importResult,
   inspection,
   language,
@@ -110,7 +107,7 @@ export function ImportWorkflowPanel({
       <ImportWizardPanel
         detectedBrowserProfiles={detectedBrowserProfiles}
         importing={importing}
-        importProgress={importProgress}
+        importTask={importTask}
         importResult={importResult}
         inspection={inspection}
         language={language}

@@ -18,17 +18,20 @@ import { Link } from 'react-router-dom'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type { ShellRuntimeStatus } from '../../app/shell-data-context'
+import type { ShellTask } from '../../app/shell-tasks'
 
 interface SidebarBackgroundStatusProps {
   initialized: boolean
   unlocked: boolean
   runtimeStatus: ShellRuntimeStatus
+  activeArchiveTask?: ShellTask | null
 }
 
 export function SidebarBackgroundStatus({
   initialized,
   unlocked,
   runtimeStatus,
+  activeArchiveTask = null,
 }: SidebarBackgroundStatusProps) {
   const { language, ns } = useI18n()
   const jobsT = ns('jobs')
@@ -61,6 +64,22 @@ export function SidebarBackgroundStatus({
         tone: 'warning',
         width: '100%',
         indeterminate: false,
+      }
+    }
+
+    if (activeArchiveTask) {
+      return {
+        label: activeArchiveTask.title,
+        detail:
+          activeArchiveTask.progressLabel ??
+          activeArchiveTask.detail ??
+          jobsT('sidebarOpenJobs'),
+        tone: 'running',
+        width:
+          typeof activeArchiveTask.progressValue === 'number'
+            ? `${Math.max(8, Math.min(100, activeArchiveTask.progressValue))}%`
+            : '55%',
+        indeterminate: typeof activeArchiveTask.progressValue !== 'number',
       }
     }
 
@@ -169,7 +188,7 @@ export function SidebarBackgroundStatus({
       width: '100%',
       indeterminate: false,
     }
-  }, [initialized, jobsT, language, runtimeStatus, unlocked])
+  }, [activeArchiveTask, initialized, jobsT, language, runtimeStatus, unlocked])
 
   const actionTarget =
     initialized && !unlocked ? '/security#unlock-archive' : '/jobs'

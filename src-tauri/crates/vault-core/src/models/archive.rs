@@ -1,6 +1,6 @@
 //! Canonical archive read/write models.
 
-use super::RemoteBackupResult;
+use super::{ProgressLogEvent, RemoteBackupResult};
 use serde::{Deserialize, Serialize};
 
 /// Storage mode for the canonical archive database.
@@ -122,6 +122,26 @@ pub struct BackupProgressEvent {
     pub imported_records: Option<usize>,
     pub duplicate_records: Option<usize>,
     pub skipped_records: Option<usize>,
+    pub log_events: Vec<ProgressLogEvent>,
+}
+
+impl BackupProgressEvent {
+    /// Attaches one structured log event using the event's current counters.
+    pub fn with_log_event(mut self, level: &str, code: &str) -> Self {
+        self.log_events = vec![ProgressLogEvent {
+            level: level.to_string(),
+            code: code.to_string(),
+            message: self.detail.clone(),
+            source_label: self.source_label.clone().or_else(|| self.profile_id.clone()),
+            diagnostic: None,
+            processed_records: self.processed_records,
+            total_records: self.total_records,
+            imported_records: self.imported_records,
+            duplicate_records: self.duplicate_records,
+            skipped_records: self.skipped_records,
+        }];
+        self
+    }
 }
 
 /// Disk-usage summary for archive-managed artifacts.

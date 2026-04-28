@@ -23,6 +23,7 @@
 @import './app/sidebar.css';
 @import './app/topbar.css';
 @import './app/page-layout.css';
+@import './app/progress.css';
 @import './app/dashboard-primitives.css';
 @import './app/dashboard-detail.css';
 @import './app/explorer.css';

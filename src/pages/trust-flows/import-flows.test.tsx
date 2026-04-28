@@ -1129,13 +1129,11 @@ describe('trust flows/import flows', () => {
 
       await waitFor(() =>
         expect(
-          screen.getAllByText(
-            'Writing 1 of 1 records from /tmp/takeout/BrowserHistory.json.',
-          ).length,
-        ).toBeGreaterThan(0),
+          screen.getByText(
+            importT('importingProgressDetail', { records: '1', files: '1' }),
+          ),
+        ).toBeVisible(),
       )
-      expect(screen.getByText('1 / 1 records')).toBeVisible()
-      expect(screen.getByText('1 new · 0 duplicates')).toBeVisible()
 
       await act(async () => {
         resolveImport?.(importedInspection)

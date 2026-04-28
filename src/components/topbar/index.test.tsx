@@ -14,7 +14,7 @@
  */
 
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import {
   createHashRouter,
   MemoryRouter,
@@ -93,9 +93,8 @@ describe('Topbar', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-    expect(
-      screen.getByRole('searchbox', { name: 'Search history' }),
-    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Notifications' })).toBeVisible()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', {
         name: 'Switch profile scope. Current: All profiles',
@@ -105,6 +104,13 @@ describe('Topbar', () => {
     expect(
       await screen.findByRole('button', { name: /Initialize first/ }),
     ).toBeVisible()
+    const rightButtons = within(
+      document.querySelector('.topbar-right') as HTMLElement,
+    ).getAllByRole('button')
+    expect(rightButtons.at(-2)).toHaveAccessibleName(
+      'Switch profile scope. Current: All profiles',
+    )
+    expect(rightButtons.at(-1)).toHaveAccessibleName('Initialize first')
   })
 
   test('routes the primary shell action to security when the archive needs unlocking', async () => {
@@ -396,13 +402,63 @@ describe('Topbar', () => {
     }
   })
 
-  test('routes global search submissions with and without a query', async () => {
+  test('opens the persistent notification queue and dismisses items', async () => {
     const user = userEvent.setup()
+    const markNotificationsRead = vi.fn()
+    const dismissNotification = vi.fn()
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      notifications: [
+        {
+          id: 'notice-1',
+          timestamp: new Date().toISOString(),
+          title: 'Import complete',
+          body: '12 records imported.',
+          tone: 'success',
+          read: false,
+          taskId: 'task-1',
+          href: '/jobs',
+        },
+      ],
+      unreadNotificationCount: 1,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+      markNotificationsRead,
+      dismissNotification,
+    }
 
     render(
       <I18nProvider>
         <ProfileScopeProvider>
-          <ShellDataProvider>
+          <ShellDataContext.Provider value={shellValue}>
             <MemoryRouter>
               <Topbar
                 screen={{
@@ -414,20 +470,170 @@ describe('Topbar', () => {
               />
               <RouteDriver />
             </MemoryRouter>
-          </ShellDataProvider>
+          </ShellDataContext.Provider>
         </ProfileScopeProvider>
       </I18nProvider>,
     )
 
-    const input = screen.getByRole('searchbox', { name: 'Search history' })
-    await user.type(input, '  openai docs  {Enter}')
+    await user.click(
+      screen.getByRole('button', { name: '1 unread notification(s)' }),
+    )
 
-    expect(await screen.findByText('/explorer?q=openai%20docs')).toBeVisible()
+    expect(markNotificationsRead).toHaveBeenCalled()
+    expect(screen.getByText('Import complete')).toBeVisible()
+    expect(screen.getByText('12 records imported.')).toBeVisible()
 
-    await user.clear(input)
-    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'Open Jobs' }))
+    expect(screen.getByText('/jobs')).toBeVisible()
 
-    expect(await screen.findByText('/explorer')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: '1 unread notification(s)' }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'Dismiss notification' }),
+    )
+
+    expect(dismissNotification).toHaveBeenCalledWith('notice-1')
+  })
+
+  test('keeps notification controls safe when optional handlers are absent', async () => {
+    const user = userEvent.setup()
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      notifications: [
+        {
+          id: 'notice-default',
+          timestamp: new Date().toISOString(),
+          title: 'Default notification',
+          body: 'Fallback handlers keep legacy fixtures safe.',
+          tone: 'info',
+          read: false,
+        },
+      ],
+      unreadNotificationCount: 1,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: '1 unread notification(s)' }),
+    )
+    expect(screen.getByText('Default notification')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: 'Dismiss notification' }),
+    )
+  })
+
+  test('renders an empty notification panel and only marks read when opening', async () => {
+    const user = userEvent.setup()
+    const markNotificationsRead = vi.fn()
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      notifications: [],
+      unreadNotificationCount: 0,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+      markNotificationsRead,
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Notifications' }))
+    expect(screen.getByText('No notifications yet.')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Notifications' }))
+    expect(markNotificationsRead).toHaveBeenCalledTimes(1)
   })
 
   test('tracks in-app route history for the global back and forward buttons', async () => {

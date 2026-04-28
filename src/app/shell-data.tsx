@@ -22,15 +22,24 @@ import {
   type ReactNode,
 } from 'react'
 import { backend } from '../lib/backend-client'
+import { subscribeToImportProgress } from '../lib/ipc/import-progress'
 import { useI18nContext } from '../lib/i18n'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
   AppLockStatus,
   AppSnapshot,
+  BackupProgressEvent,
+  BackupReport,
+  ImportProgressEvent,
   DashboardSnapshot,
+  TakeoutInspection,
 } from '../lib/types'
-import { type BusyOverlayState, ShellDataContext } from './shell-data-context'
+import {
+  type BusyOverlayState,
+  type ShellImportTaskRequest,
+  ShellDataContext,
+} from './shell-data-context'
 import { createShellDataActions } from './shell-data-actions'
 import {
   buildUninitializedDashboardFallback,
@@ -39,6 +48,24 @@ import {
   shouldAttemptKeyringAutoUnlock,
 } from './shell-data-helpers'
 import { useShellRuntimeStatus } from './shell-runtime-status'
+import {
+  addShellNotification,
+  applyBackupProgressToTask,
+  applyImportProgressToTask,
+  completeBackupTask,
+  completeImportTask,
+  createShellTask,
+  dismissShellNotification,
+  failShellTask,
+  findActiveArchiveTask,
+  markShellNotificationsRead,
+  shellNotificationLimit,
+  upsertShellTask,
+  type ShellNotification,
+  type ShellTask,
+} from './shell-tasks'
+
+const notificationStorageKey = 'pathkeep.shellNotifications.v1'
 
 /**
  * Provides the front-end shell read model and shell-level actions to the rest
@@ -60,13 +87,23 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [archiveTasks, setArchiveTasks] = useState<ShellTask[]>([])
+  const [notifications, setNotifications] = useState<ShellNotification[]>(() =>
+    readStoredNotifications(),
+  )
   const [refreshKey, setRefreshKey] = useState(0)
   const idleTimerRef = useRef<number | null>(null)
+  const archiveTasksRef = useRef<ShellTask[]>([])
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
   const activeRuntimeJobsRef = useRef(0)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
+  const activeArchiveTask = findActiveArchiveTask(archiveTasks) ?? null
+  const latestArchiveTask = archiveTasks[0] ?? null
+  const unreadNotificationCount = notifications.filter(
+    (notification) => !notification.read,
+  ).length
   const { runtimeStatus, refreshRuntimeStatus, resetRuntimeStatus } =
     useShellRuntimeStatus({
       snapshot,
@@ -93,6 +130,179 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setBusyOverlay(null)
   }
 
+  function nextShellTimestamp() {
+    return new Date().toISOString()
+  }
+
+  function publishNotification(input: {
+    title: string
+    body: string
+    tone: ShellNotification['tone']
+    taskId?: string | null
+    href?: string | null
+  }) {
+    const timestamp = nextShellTimestamp()
+    setNotifications((current) =>
+      addShellNotification(current, {
+        id: `notification:${timestamp}:${current.length}`,
+        timestamp,
+        title: input.title,
+        body: input.body,
+        tone: input.tone,
+        taskId: input.taskId,
+        href: input.href,
+      }),
+    )
+  }
+
+  function setArchiveTask(nextTask: ShellTask) {
+    const nextTasks = upsertShellTask(archiveTasksRef.current, nextTask)
+    archiveTasksRef.current = nextTasks
+    setArchiveTasks(nextTasks)
+  }
+
+  function readArchiveTask(taskId: string) {
+    /* v8 ignore next -- callers use task ids issued by beginArchiveTask; null is defensive against stale external events. */
+    return archiveTasksRef.current.find((task) => task.id === taskId) ?? null
+  }
+
+  function beginArchiveTask(input: {
+    kind: 'import' | 'backup'
+    title: string
+    detail: string
+    sourceLabel?: string | null
+    profileLabel?: string | null
+  }): { task: ShellTask } | { blockedBy: ShellTask } {
+    const activeTask = findActiveArchiveTask(archiveTasksRef.current)
+    if (activeTask) {
+      publishNotification({
+        title: t('jobs.archiveTaskAlreadyRunningTitle'),
+        body: t('jobs.archiveTaskAlreadyRunningBody', {
+          task: activeTask.title,
+        }),
+        tone: 'warning',
+        taskId: activeTask.id,
+        href: '/jobs',
+      })
+      return { blockedBy: activeTask }
+    }
+
+    const timestamp = nextShellTimestamp()
+    const task = createShellTask({
+      id: `archive-${input.kind}-${Date.now()}`,
+      kind: input.kind,
+      title: input.title,
+      detail: input.detail,
+      sourceLabel: input.sourceLabel,
+      profileLabel: input.profileLabel,
+      timestamp,
+    })
+    setArchiveTask(task)
+    publishNotification({
+      title: t(
+        input.kind === 'import'
+          ? 'jobs.importTaskStartedTitle'
+          : 'jobs.backupTaskStartedTitle',
+      ),
+      body: input.detail,
+      tone: 'info',
+      taskId: task.id,
+      href: '/jobs',
+    })
+    return { task }
+  }
+
+  function updateBackupTask(taskId: string, progress: BackupProgressEvent) {
+    const task = readArchiveTask(taskId)
+    /* v8 ignore next -- backup progress events are subscribed only after creating this task id. */
+    if (!task) return
+    setArchiveTask(
+      applyBackupProgressToTask(task, progress, nextShellTimestamp()),
+    )
+  }
+
+  function updateImportTask(taskId: string, progress: ImportProgressEvent) {
+    const task = readArchiveTask(taskId)
+    /* v8 ignore next -- import progress events are subscribed only after creating this task id. */
+    if (!task) return
+    setArchiveTask(
+      applyImportProgressToTask(task, progress, nextShellTimestamp()),
+    )
+  }
+
+  function finishBackupTask(taskId: string, report: BackupReport) {
+    const task = readArchiveTask(taskId)
+    /* v8 ignore next -- completion is only called for task ids created by beginArchiveTask. */
+    if (!task) return
+    const message = backupCompletionNoticeForTask(report)
+    const nextTask = completeBackupTask(
+      task,
+      report,
+      nextShellTimestamp(),
+      message,
+    )
+    setArchiveTask(nextTask)
+    publishNotification({
+      title: t('jobs.backupTaskCompleteTitle'),
+      body: message,
+      tone: report.warnings.length > 0 ? 'warning' : 'success',
+      taskId,
+      href: nextTask.resultLink!,
+    })
+  }
+
+  function finishImportTask(taskId: string, result: TakeoutInspection) {
+    const task = readArchiveTask(taskId)
+    /* v8 ignore next -- completion is only called for task ids created by beginArchiveTask. */
+    if (!task) return
+    const message = t('jobs.importTaskCompleteBody', {
+      imported: result.importedItems.toLocaleString(),
+      duplicates: result.duplicateItems.toLocaleString(),
+    })
+    const nextTask = completeImportTask(
+      task,
+      result,
+      nextShellTimestamp(),
+      message,
+    )
+    setArchiveTask(nextTask)
+    publishNotification({
+      title: t('jobs.importTaskCompleteTitle'),
+      body: message,
+      tone: 'success',
+      taskId,
+      href: nextTask.resultLink!,
+    })
+  }
+
+  function failArchiveTask(taskId: string, message: string) {
+    const task = readArchiveTask(taskId)
+    /* v8 ignore next -- failure is only called for task ids created by beginArchiveTask. */
+    if (!task) return
+    setArchiveTask(failShellTask(task, nextShellTimestamp(), message))
+    publishNotification({
+      title: t('jobs.archiveTaskFailedTitle'),
+      body: message,
+      tone: 'danger',
+      taskId,
+      href: '/jobs',
+    })
+  }
+
+  function backupCompletionNoticeForTask(report: BackupReport) {
+    if (report.dueSkipped) {
+      return report.reason ?? t('shell.manualBackupDueWindow')
+    }
+    if (report.run) {
+      return report.warnings.some(isSafariAccessIssueMessage)
+        ? t('shell.safariFullDiskAccessBackupWarning', {
+            runId: report.run.id,
+          })
+        : t('shell.manualBackupFinished', { runId: report.run.id })
+    }
+    return t('common.complete')
+  }
+
   // Stryker disable ArrayDeclaration: this callback only touches stable refs and browser timer APIs.
   const clearIdleTimer = useCallback(() => {
     // Stryker disable next-line ConditionalExpression: ShellDataProvider only runs in the browser; the window guard is defensive for non-DOM execution.
@@ -113,6 +323,14 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     resetRuntimeStatus()
   }, [resetRuntimeStatus])
   // Stryker restore ArrayDeclaration
+
+  useEffect(() => {
+    archiveTasksRef.current = archiveTasks
+  }, [archiveTasks])
+
+  useEffect(() => {
+    storeNotifications(notifications)
+  }, [notifications])
 
   const refreshDashboardSnapshot = useCallback(
     async (
@@ -345,6 +563,58 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     void refreshDashboardSnapshot(snapshot, { surfaceErrors: true })
   }, [refreshDashboardSnapshot, runtimeStatus, snapshot])
 
+  async function runImport(
+    request: ShellImportTaskRequest,
+  ): Promise<TakeoutInspection | ShellTask> {
+    const sourceLabel =
+      request.sourceLabel ??
+      (request.method === 'browser'
+        ? (request.request.browserName ?? request.request.profileName ?? null)
+        : request.request.sourcePath)
+    const started = beginArchiveTask({
+      kind: 'import',
+      title:
+        request.method === 'browser'
+          ? t('jobs.importBrowserTaskTitle')
+          : t('jobs.importTakeoutTaskTitle'),
+      detail: t('jobs.importTaskStartedBody', {
+        source: sourceLabel ?? request.request.sourcePath,
+      }),
+      sourceLabel,
+      profileLabel:
+        request.method === 'browser'
+          ? (request.request.profileName ?? request.request.profileId ?? null)
+          : null,
+    })
+    if ('blockedBy' in started) {
+      return started.blockedBy
+    }
+
+    let unsubscribe: (() => void) | null = null
+    try {
+      await waitForNextPaint()
+      unsubscribe = await subscribeToImportProgress((progress) => {
+        updateImportTask(started.task.id, progress)
+      })
+      const result =
+        request.method === 'takeout'
+          ? await backend.importTakeout(request.request)
+          : await backend.importBrowserHistory(request.request)
+      finishImportTask(started.task.id, result)
+      return result
+    } catch (nextError) {
+      const message =
+        nextError instanceof Error
+          ? nextError.message
+          : t('import.actionErrorTitle')
+      failArchiveTask(started.task.id, message)
+      throw nextError
+    } finally {
+      /* v8 ignore next -- failed progress subscription leaves no listener to unsubscribe. */
+      unsubscribe?.()
+    }
+  }
+
   const {
     saveConfig,
     initializeArchive,
@@ -366,6 +636,17 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setSnapshot,
     setAppLockStatus,
     setRefreshKey,
+    archiveTasks: {
+      beginBackupTask: () =>
+        beginArchiveTask({
+          kind: 'backup',
+          title: t('jobs.backupTaskTitle'),
+          detail: t('jobs.backupTaskStartedBody'),
+        }),
+      updateBackupTask,
+      finishBackupTask,
+      failBackupTask: failArchiveTask,
+    },
   })
 
   return (
@@ -382,20 +663,89 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         busyOverlay,
         error,
         notice,
+        archiveTasks,
+        activeArchiveTask,
+        latestArchiveTask,
+        notifications,
+        unreadNotificationCount,
         refreshKey,
         refreshAppData: () => refreshAppData(),
         refreshRuntimeStatus: () => refreshRuntimeStatus(),
         saveConfig,
         initializeArchive,
         runBackup,
+        runImport,
         setAppLockPasscode,
         clearAppLockPasscode,
         lockAppSession,
         unlockAppSession,
         clearNotice: () => setNotice(null),
+        markNotificationsRead: () =>
+          setNotifications((current) => markShellNotificationsRead(current)),
+        dismissNotification: (id: string) =>
+          setNotifications((current) => dismissShellNotification(current, id)),
       }}
     >
       {children}
     </ShellDataContext.Provider>
+  )
+}
+
+function readStoredNotifications(): ShellNotification[] {
+  /* v8 ignore next -- shell-data runs in a browser window; this is defensive for non-DOM imports. */
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(notificationStorageKey)
+    if (!raw) {
+      return []
+    }
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed.filter(isShellNotification).slice(0, shellNotificationLimit)
+  } catch {
+    return []
+  }
+}
+
+function storeNotifications(notifications: readonly ShellNotification[]) {
+  /* v8 ignore next -- shell-data runs in a browser window; this is defensive for non-DOM imports. */
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      notificationStorageKey,
+      JSON.stringify(notifications.slice(0, shellNotificationLimit)),
+    )
+  } catch {
+    // localStorage can be blocked by privacy settings; notifications still work in memory.
+  }
+}
+
+function isShellNotification(value: unknown): value is ShellNotification {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const candidate = value as Partial<ShellNotification>
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.timestamp === 'string' &&
+    typeof candidate.title === 'string' &&
+    typeof candidate.body === 'string' &&
+    typeof candidate.tone === 'string' &&
+    typeof candidate.read === 'boolean'
+  )
+}
+
+function isSafariAccessIssueMessage(message: string) {
+  return (
+    message.includes('Safari History.db is not readable yet') ||
+    message.includes('Full Disk Access')
   )
 }

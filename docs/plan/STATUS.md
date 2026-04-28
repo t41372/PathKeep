@@ -12,6 +12,23 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+> 2026-04-27 UI progress closeout：使用者插單的 `WORK-UI-PROGRESS-A` 已完成並 append 到 `CHANGELOG.md`。source 現在把 Import / Backup archive-write progress 下沉到 shell-owned global task store：Import route 只顯示 handoff card，Jobs 是 canonical live progress / bounded console surface，sidebar footer 顯示 compact active archive task，topbar 則改成 persistent notification queue。頂部 global search 已移除；右側順序固定為 optional lock、notifications、ProfileSwitcher、Backup now。
+
+- [x] **WORK-UI-PROGRESS-A** — Global Task Progress And Topbar Cleanup
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：把 import / backup progress 從 route-local overlay 提升為 shell-owned global task panel，統一 progress UI / console log，移除 topbar search，並用 notification queue 取代 topbar notice banner。
+  - 契約：不新增 Tauri command name 或 request payload；`pathkeep://import-progress` / `pathkeep://backup-progress` 只 additive 新增 structured `logEvents`；同一時間只允許一個 archive-write task；Jobs 是可找回進度的 canonical live surface。
+  - 2026-04-27 closeout：新增 `src/app/shell-tasks.ts` shell task / notification helpers、shared `src/components/progress/task-progress.tsx` progress card / meter / console、ShellDataProvider import/backup global task actions、Jobs archive-write section、Import inline task card、sidebar compact archive task strip、topbar notification popover與 localStorage queue。backend import / backup progress event 仍保留 legacy fields，同時新增 structured `ProgressLogEvent` / `logEvents`，前端優先消費 structured events。
+  - UI truth：topbar global search box / route submission tests 已移除；notification button 置於 ProfileSwitcher 左側，開啟後標記已讀並可逐條 dismiss；`ProfileSwitcher` 與 `Backup now` 維持最右兩個 controls。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：targeted Vitest / Rust progress tests、`bun run check`、fresh desktop Computer Use truth pass。
+
 > 2026-04-27 QA gate closeout：`WORK-QA-GATE-A` 已完成並 append 到 `CHANGELOG.md`。`bun run check` 與 `bun run verify` 已回綠；`BACKLOG.md` 新增 blocked `WORK-QA-GATE-B`，專門保留未來 full JS/Rust mutation deep sweep 與 survivor closeout。
 
 > 2026-04-18 planning note：使用者已明確把第二台主機 benchmark parity 從當前計劃移除；current-host `14.4M / 60y` signoff 仍是目前的 stop point。其後這輪 desktop truth audit 已落地 source-level repair 與第一輪 Computer Use / profiling evidence，但 full real-data pass 仍卡在 current-host locked-archive bootstrap / unlock drift，因此 `STATUS.md` 目前仍暫無新的 active current-focus work block。

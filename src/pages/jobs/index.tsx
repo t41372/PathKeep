@@ -20,6 +20,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
+import { TaskProgressCard } from '../../components/progress'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
@@ -29,7 +30,8 @@ import {
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
-import type { AppConfig } from '../../lib/types'
+import type { AppConfig, BackupRunOverview } from '../../lib/types'
+import type { ShellTask } from '../../app/shell-tasks'
 import { JobPanel, RuntimeJobPanel } from './job-panels'
 import { JobsRuntimeHealthSection } from './runtime-health-section'
 
@@ -43,9 +45,54 @@ function nextPausedConfig(config: AppConfig, paused: boolean): AppConfig {
   }
 }
 
+function isStaleArchiveRun(run: BackupRunOverview) {
+  const kind = run.runType ?? ''
+  return (kind === 'backup' || kind === 'import') && run.status === 'running'
+}
+
+function staleArchiveRunTask(
+  run: BackupRunOverview,
+  jobsT: (key: string, vars?: Record<string, string | number>) => string,
+): ShellTask {
+  const kind = run.runType === 'import' ? 'import' : 'backup'
+  return {
+    id: `stale-run-${run.id}`,
+    kind,
+    state: 'stale',
+    title: jobsT('archiveTaskStaleTitle'),
+    detail: jobsT('archiveTaskStaleBody'),
+    startedAt: run.startedAt,
+    updatedAt: run.finishedAt ?? run.startedAt,
+    finishedAt: run.finishedAt ?? null,
+    sourceLabel: run.profileScope?.join(', ') ?? null,
+    profileLabel: null,
+    progressLabel: null,
+    progressValue: null,
+    current: run.profilesProcessed,
+    total: null,
+    processedRecords: run.newVisits,
+    totalRecords: null,
+    importedRecords: run.newVisits,
+    duplicateRecords: null,
+    skippedRecords: null,
+    logEntries: [
+      {
+        id: `stale-run-${run.id}:stale`,
+        timestamp: run.finishedAt ?? run.startedAt,
+        level: 'warning',
+        code: 'archive.stale',
+        message: jobsT('archiveTaskStaleBody'),
+      },
+    ],
+    resultLink: `/audit?run=${run.id}`,
+    error: jobsT('archiveTaskStaleBody'),
+  }
+}
+
 export function JobsPage() {
   const {
     loading,
+    archiveTasks = [],
     refreshAppData,
     refreshRuntimeStatus,
     saveConfig,
@@ -70,11 +117,15 @@ export function JobsPage() {
     (!runtimeStatus.error && aiQueue === null && runtime === null)
 
   const queueCounts = useMemo(() => {
+    const archiveRunning = archiveTasks.filter(
+      (task) => task.state === 'running' || task.state === 'queued',
+    ).length
     const queued = (aiQueue?.queued ?? 0) + (runtime?.queue.queued ?? 0)
-    const running = (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0)
+    const running =
+      (aiQueue?.running ?? 0) + (runtime?.queue.running ?? 0) + archiveRunning
     const failed = (aiQueue?.failed ?? 0) + (runtime?.queue.failed ?? 0)
     return { failed, queued, running }
-  }, [aiQueue, runtime])
+  }, [aiQueue, archiveTasks, runtime])
 
   const statusCallout = useMemo(() => {
     if (snapshot?.config.ai.jobQueuePaused && queueCounts.queued > 0) {
@@ -111,6 +162,17 @@ export function JobsPage() {
       tone: 'success' as const,
     }
   }, [jobsT, queueCounts, snapshot?.config.ai.jobQueuePaused])
+  const staleArchiveTasks = useMemo(
+    () =>
+      (snapshot?.recentRuns ?? [])
+        .filter(isStaleArchiveRun)
+        .map((run) => staleArchiveRunTask(run, jobsT)),
+    [jobsT, snapshot?.recentRuns],
+  )
+  const visibleArchiveTasks = useMemo(
+    () => [...archiveTasks, ...staleArchiveTasks],
+    [archiveTasks, staleArchiveTasks],
+  )
 
   async function handleRefresh() {
     setAction(jobsT('refresh'))
@@ -306,7 +368,6 @@ export function JobsPage() {
     snapshot.config.ai.jobQueuePaused ||
     queueCounts.queued > 0 ||
     queueCounts.running > 0
-
   return (
     <section className="page-shell jobs-page" data-testid="jobs-page">
       <div className="jobs-grid">
@@ -523,6 +584,43 @@ export function JobsPage() {
           runtime={runtime}
           settingsT={settingsT}
         />
+
+        <div className="jobs-section-heading">
+          <span className="panel-title">{jobsT('archiveTasksTitle')}</span>
+          <p>{jobsT('archiveTasksBody')}</p>
+        </div>
+
+        <div className="jobs-archive-task-list">
+          {visibleArchiveTasks.length > 0 ? (
+            visibleArchiveTasks.map((task) => (
+              <TaskProgressCard
+                key={task.id}
+                task={task}
+                language={language}
+                labels={{
+                  started: jobsT('archiveTaskStarted'),
+                  updated: jobsT('archiveTaskUpdated'),
+                  records: jobsT('archiveTaskRecords'),
+                  console: jobsT('archiveTaskConsole'),
+                  noLogs: jobsT('archiveTaskNoLogs'),
+                }}
+                actions={
+                  task.resultLink ? (
+                    <Link className="btn-secondary" to={task.resultLink}>
+                      {jobsT('archiveTaskOpenResult')}
+                    </Link>
+                  ) : null
+                }
+              />
+            ))
+          ) : (
+            <StatusCallout
+              tone="success"
+              title={jobsT('archiveTasksTitle')}
+              body={jobsT('archiveTasksBody')}
+            />
+          )}
+        </div>
 
         <div className="jobs-section-heading">
           <span className="panel-title">{jobsT('recentActivityTitle')}</span>

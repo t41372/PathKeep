@@ -992,3 +992,18 @@
   - Real bugs found during QA hardening：Search Keywords duplicate React keys；AI queue last-activity fallback ignored `startedAt`; profile switcher option Escape path was masked by document Escape; IPC bridge blank string rejection now falls back to generic desktop command error.
   - Future work：`BACKLOG.md` 新增 blocked `WORK-QA-GATE-B`，明確保留 future full JS/Rust mutation deep sweep、Rust cargo-mutants copy-sandbox fixture repair、survivor closeout 與窄範圍 equivalent evidence 流程。
   - 驗收：`bun run check` 通過；`bun run verify` 通過。
+
+- [x] **WORK-UI-PROGRESS-A** — Global Task Progress And Topbar Cleanup
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+    `docs/architecture/desktop-command-surface.md`
+  - 目標：把 import / backup progress 從 route-local overlay 提升為 shell-owned global task panel，統一 progress UI / console log，移除 topbar search，並用 notification queue 取代 topbar notice banner。
+  - 契約：不新增 Tauri command name 或 request payload；`pathkeep://import-progress` / `pathkeep://backup-progress` 只 additive 新增 structured `logEvents`；同一時間只允許一個 archive-write task；Jobs 是可找回進度的 canonical live surface。
+  - 2026-04-27 closeout：新增 `src/app/shell-tasks.ts` shell task / notification helpers、shared `src/components/progress/task-progress.tsx` progress card / meter / console、ShellDataProvider import/backup global task actions、Jobs archive-write section、Import inline task card、sidebar compact archive task strip、topbar notification popover與 localStorage queue。backend import / backup progress event 仍保留 legacy fields，同時新增 structured `ProgressLogEvent` / `logEvents`，前端優先消費 structured events。
+  - UI truth：topbar global search box / route submission tests 已移除；notification button 置於 ProfileSwitcher 左側，開啟後標記已讀並可逐條 dismiss；`ProfileSwitcher` 與 `Backup now` 維持最右兩個 controls。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：targeted Vitest / Rust progress tests、`bun run check`、fresh desktop Computer Use truth pass。

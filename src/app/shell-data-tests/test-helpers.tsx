@@ -29,6 +29,7 @@ import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import { defaultExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { subscribeToBackupProgress } from '../../lib/ipc/backup-progress'
+import { subscribeToImportProgress } from '../../lib/ipc/import-progress'
 import { I18nContext, type I18nContextValue } from '../../lib/i18n/context'
 import {
   createNamespaceTranslator,
@@ -41,6 +42,10 @@ import { useShellData } from '../shell-data-context'
 
 vi.mock('../../lib/ipc/backup-progress', () => ({
   subscribeToBackupProgress: vi.fn(() => Promise.resolve(vi.fn())),
+}))
+
+vi.mock('../../lib/ipc/import-progress', () => ({
+  subscribeToImportProgress: vi.fn(() => Promise.resolve(vi.fn())),
 }))
 
 const baseConfig: AppConfig = {
@@ -129,6 +134,7 @@ export function resetShellDataHarness() {
   vi.restoreAllMocks()
   backendTestHarness.reset()
   vi.mocked(subscribeToBackupProgress).mockResolvedValue(vi.fn())
+  vi.mocked(subscribeToImportProgress).mockResolvedValue(vi.fn())
 }
 
 /**
@@ -137,6 +143,14 @@ export function resetShellDataHarness() {
  */
 export function getBackupProgressMock() {
   return vi.mocked(subscribeToBackupProgress)
+}
+
+/**
+ * Returns the canonical mocked import-progress subscription function so shell task
+ * suites can drive import progress without opening a desktop event stream.
+ */
+export function getImportProgressMock() {
+  return vi.mocked(subscribeToImportProgress)
 }
 
 /**
@@ -217,6 +231,21 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="busy-progress-value">
         {shell.busyOverlay?.progressValue?.toString() ?? 'none'}
       </div>
+      <div data-testid="archive-task-count">
+        {shell.archiveTasks?.length.toString() ?? '0'}
+      </div>
+      <div data-testid="latest-archive-task">
+        {shell.latestArchiveTask?.title ?? 'none'}
+      </div>
+      <div data-testid="active-archive-task">
+        {shell.activeArchiveTask?.title ?? 'none'}
+      </div>
+      <div data-testid="unread-notifications">
+        {shell.unreadNotificationCount?.toString() ?? '0'}
+      </div>
+      <div data-testid="notification-count">
+        {shell.notifications?.length.toString() ?? '0'}
+      </div>
       <button
         type="button"
         onClick={() => {
@@ -266,6 +295,88 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
         }}
       >
         backup
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .runImport?.({
+              method: 'takeout',
+              request: {
+                sourcePath: '/tmp/Takeout',
+                dryRun: false,
+              },
+              expectedRecords: 2,
+            })
+            .catch(() => undefined)
+        }}
+      >
+        import-takeout
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .runImport?.({
+              method: 'browser',
+              request: {
+                sourcePath: '/profiles/Default/History',
+                dryRun: false,
+                browserFamily: 'chromium',
+                browserName: 'Chrome',
+                profileId: 'chrome:Default',
+                profileName: 'Default',
+              },
+              expectedRecords: 3,
+            })
+            .catch(() => undefined)
+        }}
+      >
+        import-browser
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .runImport?.({
+              method: 'browser',
+              request: {
+                sourcePath: '/profiles/Profile 1/History',
+                dryRun: false,
+                browserFamily: null,
+                browserName: null,
+                profileId: 'chrome:Profile 1',
+                profileName: null,
+              },
+              expectedRecords: null,
+              sourceLabel: null,
+            })
+            .catch(() => undefined)
+        }}
+      >
+        import-browser-profile-id
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void shell
+            .runImport?.({
+              method: 'browser',
+              request: {
+                sourcePath: '/manual/History',
+                dryRun: false,
+                browserFamily: null,
+                browserName: null,
+                profileId: null,
+                profileName: null,
+              },
+              expectedRecords: null,
+              sourceLabel: null,
+            })
+            .catch(() => undefined)
+        }}
+      >
+        import-browser-no-profile
       </button>
       <button
         type="button"
@@ -336,6 +447,15 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       </button>
       <button type="button" onClick={() => shell.clearNotice()}>
         clear
+      </button>
+      <button type="button" onClick={() => shell.markNotificationsRead?.()}>
+        mark-notifications
+      </button>
+      <button
+        type="button"
+        onClick={() => shell.dismissNotification?.('valid')}
+      >
+        dismiss-notification
       </button>
     </div>
   )

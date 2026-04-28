@@ -283,6 +283,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
             && event.processed_records == Some(2)
             && event.imported_records == Some(2)
             && event.progress_percent.is_none()
+            && event.log_events[0].processed_records == Some(2)
     }));
     assert!(progress_events.iter().any(|event| event.phase == "finalize"));
 
@@ -1308,6 +1309,8 @@ fn backup_progress_and_warning_helpers_preserve_failure_contracts() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].processed_records, Some(2));
     assert_eq!(events[0].source_label.as_deref(), Some("Google Chrome / Default"));
+    assert_eq!(events[0].log_events[0].code, "backup.ingest-profile.records");
+    assert_eq!(events[0].log_events[0].imported_records, Some(1));
 
     let source_warning =
         super::backup::source_evidence_rebuild_warning(anyhow::anyhow!("source offline"));

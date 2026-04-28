@@ -1417,6 +1417,12 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         .expect("claimed index");
     vault_core::ai_queue::cancel_ai_job(&connection, index_job.id)
         .expect("request index cancellation");
+    connection
+        .execute(
+            "UPDATE ai_jobs SET state = 'running', stop_requested = 1 WHERE id = ?1",
+            [index_job.id],
+        )
+        .expect("pin claimed index job to running stop-requested state");
     let _ = complete_claimed_index_job(
         &connection,
         &paths,

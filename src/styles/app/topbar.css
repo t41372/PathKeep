@@ -5,7 +5,7 @@
  *
  * ## Responsibilities
  * - Style the workspace column container and topbar composition.
- * - Own global search, back/forward controls, and topbar action layout.
+ * - Own back/forward controls, notification popover, and topbar action layout.
  *
  * ## Not responsible for
  * - Sidebar navigation.
@@ -124,20 +124,11 @@
 }
 
 .topbar-right {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
-}
-
-.global-search {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  min-width: 240px;
 }
 
 .profile-switcher {
@@ -225,26 +216,6 @@
   height: 14px;
 }
 
-.search-icon {
-  color: var(--text-faint);
-  font-size: 13px;
-  font-family: var(--font-ui);
-}
-
-.search-input {
-  background: none;
-  border: none;
-  color: var(--text);
-  font-family: var(--font-body);
-  font-size: 13px;
-  outline: none;
-  width: 100%;
-}
-
-.search-input::placeholder {
-  color: var(--text-faint);
-}
-
 .btn-backup {
   display: flex;
   align-items: center;
@@ -273,10 +244,136 @@
   font-size: 10px;
 }
 
-.topbar-notice {
-  margin-left: auto;
+.topbar-notifications {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.topbar-notifications__button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    border-color var(--transition),
+    background var(--transition);
+}
+
+.topbar-notifications__button:hover,
+.topbar-notifications__button[aria-expanded='true'] {
+  border-color: var(--accent);
   color: var(--accent);
-  font-family: var(--font-body);
+}
+
+.topbar-notifications__button--unread {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  background: var(--accent-glow);
+}
+
+.topbar-notifications__badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 4px;
+  border: 1px solid var(--bg);
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.topbar-notifications__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 520px);
+  display: grid;
+  gap: var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: 0 16px 32px color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.topbar-notifications__header {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-bright);
+  font-family: var(--font-ui);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
+}
+
+.topbar-notifications__list {
+  display: grid;
+  gap: 1px;
+  max-height: min(58vh, 440px);
+  overflow-y: auto;
+}
+
+.topbar-notifications__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+}
+
+.topbar-notifications__item-main {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.topbar-notifications__item strong {
+  color: var(--text-bright);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.topbar-notifications__item p,
+.topbar-notifications__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.topbar-notifications__time {
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.topbar-notifications__dismiss {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.topbar-notifications__dismiss:hover {
+  border-color: var(--border);
+  color: var(--text-bright);
+}
+
+.topbar-notifications__empty {
+  padding: var(--space-3);
 }

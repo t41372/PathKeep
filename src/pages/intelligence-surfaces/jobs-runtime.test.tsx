@@ -26,6 +26,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
+import type { ShellTask } from '../../app/shell-tasks'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import type {
   AiQueueStatus,
@@ -905,7 +906,96 @@ describe('intelligence surfaces', () => {
     )
     expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
   })
+
+  test('renders active and stale archive write tasks in Jobs', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    snapshot.recentRuns = [
+      {
+        id: 93,
+        startedAt: '2026-04-27T09:00:00.000Z',
+        finishedAt: null,
+        status: 'running',
+        runType: 'import',
+        trigger: 'manual',
+        profileScope: [],
+        manifestHash: null,
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      },
+      {
+        id: 94,
+        startedAt: '2026-04-27T08:00:00.000Z',
+        finishedAt: null,
+        status: 'running',
+        runType: 'backup',
+        trigger: 'manual',
+        manifestHash: null,
+        profilesProcessed: 0,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      },
+      {
+        id: 95,
+        startedAt: '2026-04-27T07:00:00.000Z',
+        finishedAt: '2026-04-27T07:01:00.000Z',
+        status: 'succeeded',
+        trigger: 'manual',
+        manifestHash: null,
+        profilesProcessed: 1,
+        newVisits: 1,
+        newUrls: 1,
+        newDownloads: 0,
+      },
+    ]
+    const shellValue = createShellValue(snapshot)
+    shellValue.archiveTasks = [
+      archiveTaskFixture({
+        id: 'task-backup',
+        kind: 'backup',
+        title: 'Backup Chrome',
+        state: 'queued',
+        progressLabel: '2 / 4 records',
+        progressValue: 50,
+        processedRecords: 2,
+        totalRecords: 4,
+      }),
+    ]
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(screen.getByText(jobsT('archiveTasksTitle'))).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Backup Chrome' })).toBeVisible()
+    expect(screen.getAllByText('2 / 4 records')).toHaveLength(2)
+    expect(
+      screen.getAllByRole('heading', { name: jobsT('archiveTaskStaleTitle') }),
+    ).toHaveLength(2)
+  })
 })
+
+function archiveTaskFixture(overrides: Partial<ShellTask> = {}): ShellTask {
+  return {
+    id: 'task-import',
+    kind: 'import',
+    state: 'running',
+    title: 'Import Google Takeout',
+    detail: 'Writing archive records',
+    startedAt: '2026-04-27T10:00:00.000Z',
+    updatedAt: '2026-04-27T10:01:00.000Z',
+    finishedAt: null,
+    progressValue: null,
+    logEntries: [],
+    ...overrides,
+  }
+}
 
 function queueFixture(overrides: Partial<AiQueueStatus> = {}): AiQueueStatus {
   return {
