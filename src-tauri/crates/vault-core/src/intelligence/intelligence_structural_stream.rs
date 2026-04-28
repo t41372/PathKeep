@@ -446,3 +446,173 @@ pub(super) fn rebuild_structural_tail_state(
     tx.commit()?;
     Ok(state.report)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intelligence::{SearchQueryKind, ensure_core_intelligence_schema};
+
+    #[test]
+    fn search_event_kind_update_rewrites_keyword_terms() {
+        let connection = Connection::open_in_memory().expect("open intelligence connection");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        connection
+            .execute(
+                "INSERT INTO search_events
+                 (visit_id, profile_id, search_engine, raw_query, normalized_query, query_kind, trail_id, computed_at)
+                 VALUES (42, 'chrome:Default', 'Google', 'GitHub Rust coverage', 'github rust coverage', 'navigational', 'trail-42', '2026-04-26T00:00:00Z')",
+                [],
+            )
+            .expect("insert search event");
+
+        {
+            let tx = connection.unchecked_transaction().expect("transaction");
+            let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+            persist
+                .update_search_event_kind(
+                    42,
+                    "chrome:Default",
+                    "github rust coverage",
+                    SearchQueryKind::Keyword,
+                )
+                .expect("update to keyword");
+            drop(persist);
+            tx.commit().expect("commit keyword update");
+        }
+
+        let keyword_kind: String = connection
+            .query_row("SELECT query_kind FROM search_events WHERE visit_id = 42", [], |row| {
+                row.get(0)
+            })
+            .expect("query kind");
+        assert_eq!(keyword_kind, "keyword");
+
+        let keyword_terms = connection
+            .prepare("SELECT term FROM search_event_terms WHERE visit_id = 42 ORDER BY term")
+            .expect("prepare terms")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("map terms")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect terms");
+        assert_eq!(keyword_terms, vec!["coverage", "github", "rust"]);
+
+        {
+            let tx = connection.unchecked_transaction().expect("transaction");
+            let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+            persist
+                .update_search_event_kind(
+                    42,
+                    "chrome:Default",
+                    "github rust coverage",
+                    SearchQueryKind::Navigational,
+                )
+                .expect("update to navigational");
+            drop(persist);
+            tx.commit().expect("commit navigational update");
+        }
+
+        let navigational_kind: String = connection
+            .query_row("SELECT query_kind FROM search_events WHERE visit_id = 42", [], |row| {
+                row.get(0)
+            })
+            .expect("query kind");
+        assert_eq!(navigational_kind, "navigational");
+
+        let term_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM search_event_terms WHERE visit_id = 42", [], |row| {
+                row.get(0)
+            })
+            .expect("term count");
+        assert_eq!(term_count, 0);
+    }
+
+    #[test]
+    fn stream_state_flushes_trails_on_gap_and_updates_search_event_kind() {
+        let connection = Connection::open_in_memory().expect("open intelligence connection");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        let computed_at = "2026-04-26T00:00:00Z";
+        let tx = connection.unchecked_transaction().expect("transaction");
+        let mut persist = StructuralTailPersist::new(&tx).expect("persist");
+        let mut state = StructuralTailStreamState::default();
+
+        state
+            .process_visit(
+                structural_visit(
+                    1,
+                    1_000,
+                    "https://www.google.com/search?q=pathkeep+sqlite",
+                    "google.com",
+                    true,
+                ),
+                computed_at,
+                &mut persist,
+            )
+            .expect("search visit");
+        state
+            .process_visit(
+                structural_visit(2, 2_000, "https://github.com/pathkeep/repo", "github.com", false),
+                computed_at,
+                &mut persist,
+            )
+            .expect("landing visit");
+        state
+            .process_visit(
+                structural_visit(3, 1_000_000, "https://example.com/later", "example.com", false),
+                computed_at,
+                &mut persist,
+            )
+            .expect("trail gap visit");
+        state
+            .process_visit(
+                structural_visit(
+                    4,
+                    3_600_000,
+                    "https://example.com/new-session",
+                    "example.com",
+                    false,
+                ),
+                computed_at,
+                &mut persist,
+            )
+            .expect("session gap visit");
+        state.finish(computed_at, &mut persist).expect("finish stream");
+        drop(persist);
+        tx.commit().expect("commit structural stream");
+
+        let (query_kind, trail_count): (String, i64) = connection
+            .query_row(
+                "SELECT search_events.query_kind,
+                        (SELECT COUNT(*) FROM search_trails)
+                 FROM search_events
+                 WHERE search_events.visit_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("persisted search event");
+        assert_eq!(query_kind, "keyword");
+        assert_eq!(trail_count, 1);
+        assert_eq!(state.report.trails, 1);
+        assert_eq!(state.report.sessions, 2);
+    }
+
+    fn structural_visit(
+        visit_id: i64,
+        visit_time_ms: i64,
+        url: &str,
+        registrable_domain: &str,
+        is_search_event: bool,
+    ) -> StructuralVisitRecord {
+        StructuralVisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".to_string(),
+            url: url.to_string(),
+            visit_time_ms,
+            from_visit: (visit_id > 1).then_some(visit_id - 1),
+            registrable_domain: registrable_domain.to_string(),
+            search_engine: is_search_event.then(|| "google".to_string()),
+            search_query: is_search_event.then(|| "pathkeep sqlite".to_string()),
+            is_new_domain: visit_id == 1,
+            is_search_event,
+        }
+    }
+}

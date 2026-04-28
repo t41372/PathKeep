@@ -116,10 +116,7 @@ pub(crate) fn export_archive_database(
     target_path: &Path,
     target_key: Option<&str>,
 ) -> Result<()> {
-    if target_path.exists() {
-        fs::remove_file(target_path)
-            .with_context(|| format!("removing {}", target_path.display()))?;
-    }
+    remove_existing_export_target(target_path)?;
 
     let target = target_path.display().to_string().replace('\'', "''");
     let key = target_key.unwrap_or("").replace('\'', "''");
@@ -135,6 +132,14 @@ pub(crate) fn export_archive_database(
     Ok(())
 }
 
+fn remove_existing_export_target(target_path: &Path) -> Result<()> {
+    if target_path.exists() {
+        fs::remove_file(target_path)
+            .with_context(|| format!("removing {}", target_path.display()))?;
+    }
+    Ok(())
+}
+
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
@@ -145,6 +150,10 @@ pub fn create_schema(connection: &Connection) -> Result<()> {
         Ok(())
     })();
 
+    finish_archive_bootstrap_transaction(connection, result)
+}
+
+fn finish_archive_bootstrap_transaction(connection: &Connection, result: Result<()>) -> Result<()> {
     match result {
         Ok(()) => {
             connection.execute_batch("COMMIT").context("committing archive bootstrap")?;
@@ -333,6 +342,17 @@ mod tests {
     }
 
     #[test]
+    fn export_target_cleanup_removes_existing_files_and_ignores_missing_targets() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("export.sqlite");
+
+        remove_existing_export_target(&target).expect("missing target is fine");
+        fs::write(&target, "old export").expect("write existing target");
+        remove_existing_export_target(&target).expect("remove existing target");
+        assert!(!target.exists());
+    }
+
+    #[test]
     fn migration_from_scratch_succeeds() {
         let connection = Connection::open_in_memory().expect("memory db");
 
@@ -373,6 +393,21 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
         assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn create_schema_rolls_back_import_batch_schema_failures() {
+        let connection = Connection::open_in_memory().expect("memory db");
+
+        create_schema(&connection).expect("initial schema");
+        connection.execute_batch("BEGIN IMMEDIATE").expect("begin transaction");
+        let error = finish_archive_bootstrap_transaction(&connection, Err(anyhow::anyhow!("boom")))
+            .expect_err("bootstrap failure rolls back");
+        assert_eq!(error.to_string(), "boom");
+        assert!(
+            connection.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok(),
+            "failed schema refresh must leave no open transaction"
+        );
     }
 
     #[test]
@@ -459,6 +494,10 @@ mod tests {
                 host: Some("example.com".to_string()),
                 registrable_domain: Some("example.com".to_string()),
             }
+        );
+        assert_eq!(
+            favicon_url_metadata("   "),
+            FaviconUrlMetadata { host: None, registrable_domain: None }
         );
     }
 

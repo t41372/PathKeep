@@ -43,14 +43,20 @@ export function ProfileSwitcher() {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
 
-  const selectedProfiles = snapshot?.config.selectedProfileIds
-  const browserProfiles = snapshot?.browserProfiles
+  const selectedProfiles = useMemo(
+    () => snapshot?.config.selectedProfileIds ?? [],
+    [snapshot?.config.selectedProfileIds],
+  )
+  const browserProfiles = useMemo(
+    () => snapshot?.browserProfiles ?? [],
+    [snapshot?.browserProfiles],
+  )
   const activeProfileLabel = useMemo(() => {
     if (!activeProfileId) {
       return t('common.profileAllProfiles')
     }
 
-    const matchedProfile = (browserProfiles ?? []).find(
+    const matchedProfile = browserProfiles.find(
       (profile) => profile.profileId === activeProfileId,
     )
 
@@ -64,8 +70,8 @@ export function ProfileSwitcher() {
         label: t('common.profileAllProfiles'),
         icon: 'all' as const,
       },
-      ...((selectedProfiles ?? []).map((profileId) => {
-        const matchedProfile = (browserProfiles ?? []).find(
+      ...selectedProfiles.map((profileId) => {
+        const matchedProfile = browserProfiles.find(
           (profile) => profile.profileId === profileId,
         )
 
@@ -76,7 +82,7 @@ export function ProfileSwitcher() {
             matchedProfile?.browserName ?? profileIdBrowserKind(profileId),
           icon: 'browser' as const,
         }
-      }) ?? []),
+      }),
     ],
     [browserProfiles, selectedProfiles, t],
   )
@@ -96,7 +102,7 @@ export function ProfileSwitcher() {
   useEffect(() => {
     if (
       activeProfileId &&
-      !selectedProfiles?.some((profileId) => profileId === activeProfileId)
+      !selectedProfiles.some((profileId) => profileId === activeProfileId)
     ) {
       setActiveProfileId(null)
     }
@@ -140,6 +146,7 @@ export function ProfileSwitcher() {
 
   useEffect(() => {
     if (!open) return
+    // Stryker disable next-line EqualityOperator: index 0 and the fallback both focus the archive-wide option.
     const focusIndex = activeOptionIndex >= 0 ? activeOptionIndex : 0
     const frame = window.requestAnimationFrame(() => {
       focusOption(focusIndex)
@@ -179,6 +186,7 @@ export function ProfileSwitcher() {
     }
     if (event.key === 'Escape') {
       event.preventDefault()
+      event.stopPropagation()
       setOpen(false)
       triggerRef.current?.focus()
     }

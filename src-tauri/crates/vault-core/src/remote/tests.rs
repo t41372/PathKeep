@@ -158,6 +158,104 @@ fn rewrite_bundle_without_entry(bundle_path: &Path, entry_name: &str) -> PathBuf
     rewritten_path
 }
 
+/// Rewrites the manifest and detached checksum together so version-focused tests stay valid.
+fn rewrite_bundle_manifest(
+    bundle_path: &Path,
+    mutate: impl FnOnce(&mut serde_json::Value),
+) -> PathBuf {
+    let file = File::open(bundle_path).expect("open existing bundle");
+    let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+    let rewritten_path = bundle_path.with_file_name(format!(
+        "manifest-{}",
+        bundle_path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let rewritten_file = File::create(&rewritten_path).expect("create rewritten bundle");
+    let mut writer = ZipWriter::new(rewritten_file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut manifest = {
+        let mut entry = archive.by_name("metadata/bundle-manifest.json").expect("manifest entry");
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("read manifest");
+        serde_json::from_slice::<serde_json::Value>(&bytes).expect("manifest json")
+    };
+    mutate(&mut manifest);
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest).expect("manifest bytes");
+    let manifest_hash = sha256_hex(&manifest_bytes);
+
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("bundle entry");
+        let name = entry.name().to_string();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("read bundle entry");
+        writer.start_file(name.clone(), options).expect("start zip entry");
+        match name.as_str() {
+            "metadata/bundle-manifest.json" => writer.write_all(&manifest_bytes),
+            "metadata/bundle-manifest.sha256" => writer.write_all(manifest_hash.as_bytes()),
+            _ => writer.write_all(&bytes),
+        }
+        .expect("write bundle entry");
+    }
+
+    writer.finish().expect("finish rewritten bundle");
+    rewritten_path
+}
+
+/// Adds a non-manifest zip entry so checksum verification detects entry-set drift.
+fn rewrite_bundle_with_extra_entry(
+    bundle_path: &Path,
+    entry_name: &str,
+    contents: &[u8],
+) -> PathBuf {
+    let file = File::open(bundle_path).expect("open existing bundle");
+    let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+    let rewritten_path = bundle_path.with_file_name(format!(
+        "extra-{}",
+        bundle_path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let rewritten_file = File::create(&rewritten_path).expect("create rewritten bundle");
+    let mut writer = ZipWriter::new(rewritten_file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("bundle entry");
+        let name = entry.name().to_string();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).expect("read bundle entry");
+        writer.start_file(name, options).expect("start zip entry");
+        writer.write_all(&bytes).expect("write copied entry");
+    }
+    writer.start_file(entry_name, options).expect("start extra entry");
+    writer.write_all(contents).expect("write extra entry");
+
+    writer.finish().expect("finish rewritten bundle");
+    rewritten_path
+}
+
+/// Corrupts the compressed payload for one existing zip entry while preserving
+/// the central-directory file set, so checksum verification exercises read
+/// failures rather than entry-set drift.
+fn rewrite_bundle_with_corrupt_entry_data(bundle_path: &Path, entry_name: &str) -> PathBuf {
+    let corrupted_path = bundle_path.with_file_name(format!(
+        "corrupt-{}",
+        bundle_path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    fs::copy(bundle_path, &corrupted_path).expect("copy bundle");
+    let file = File::open(&corrupted_path).expect("open copied bundle");
+    let mut archive = zip::ZipArchive::new(file).expect("zip archive");
+    let entry = archive.by_name(entry_name).expect("bundle entry");
+    let data_start = entry.data_start() as usize;
+    let compressed_size = entry.compressed_size() as usize;
+    drop(entry);
+    drop(archive);
+
+    assert!(compressed_size > 0, "entry has compressed bytes");
+    let mut bytes = fs::read(&corrupted_path).expect("read copied bundle");
+    let corrupt_at = data_start + compressed_size / 2;
+    bytes[corrupt_at] ^= 0xFF;
+    fs::write(&corrupted_path, bytes).expect("write corrupted bundle");
+    corrupted_path
+}
+
 /// Covers preview warnings, path shape, and object key derivation.
 #[test]
 fn preview_remote_backup_includes_expected_warning_paths() {
@@ -456,6 +554,31 @@ fn verify_remote_backup_reports_restore_ready_for_plaintext_bundle() {
     );
 }
 
+/// Covers unsupported but checksum-valid bundle versions.
+#[test]
+fn verify_remote_backup_reports_unsupported_bundle_version() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = sample_config();
+    initialize_plaintext_archive(&paths, &config);
+
+    let bundle_path =
+        build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+    let unsupported_path = rewrite_bundle_manifest(&bundle_path, |manifest| {
+        manifest["bundleVersion"] = serde_json::Value::String("pathkeep.remote-backup.v999".into());
+    });
+    let verification = verify_remote_backup(&unsupported_path, None).expect("verify bundle");
+
+    let version = verification
+        .checks
+        .iter()
+        .find(|check| check.name == "bundle-version")
+        .expect("bundle version check");
+    assert_eq!(version.status, "error");
+    assert!(version.message.contains("not supported"));
+    assert!(!verification.restore_ready);
+}
+
 /// Covers payload checksum drift detection.
 #[test]
 fn verify_remote_backup_detects_checksum_drift() {
@@ -480,6 +603,53 @@ fn verify_remote_backup_detects_checksum_drift() {
             .status,
         "error"
     );
+}
+
+/// Covers zip entries that drift away from the manifest file set.
+#[test]
+fn verify_remote_backup_detects_entry_set_drift() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = sample_config();
+    initialize_plaintext_archive(&paths, &config);
+
+    let bundle_path =
+        build_bundle(&paths, &config, None, "2026-04-04T01:30:00Z").expect("build bundle");
+    let tampered_path = rewrite_bundle_with_extra_entry(&bundle_path, "extra/untracked.txt", b"x");
+    let verification = verify_remote_backup(&tampered_path, None).expect("verify tampered");
+
+    let checksum =
+        verification.checks.iter().find(|check| check.name == "checksums").expect("checksum check");
+    assert_eq!(checksum.status, "error");
+    assert!(checksum.message.contains("bundle entry set drifted"));
+    assert!(!verification.restore_ready);
+
+    let missing_payload_path =
+        rewrite_bundle_without_entry(&bundle_path, "archive/history-vault.sqlite");
+    let missing_payload =
+        verify_remote_backup(&missing_payload_path, None).expect("verify missing payload");
+    let checksum = missing_payload
+        .checks
+        .iter()
+        .find(|check| check.name == "checksums")
+        .expect("checksum check");
+    assert_eq!(checksum.status, "error");
+    assert!(checksum.message.contains("bundle entry set drifted"));
+    assert!(checksum.message.contains("archive/history-vault.sqlite"));
+    assert!(!missing_payload.restore_ready);
+
+    let corrupt_payload_path =
+        rewrite_bundle_with_corrupt_entry_data(&bundle_path, "archive/history-vault.sqlite");
+    let corrupt_payload =
+        verify_remote_backup(&corrupt_payload_path, None).expect("verify corrupt payload");
+    let checksum = corrupt_payload
+        .checks
+        .iter()
+        .find(|check| check.name == "checksums")
+        .expect("checksum check");
+    assert_eq!(checksum.status, "error");
+    assert!(checksum.message.contains("missing from the zip payload"));
+    assert!(!corrupt_payload.restore_ready);
 }
 
 /// Covers manifest JSON tampering detection through detached checksum mismatch.
@@ -534,6 +704,43 @@ fn verify_remote_backup_rejects_missing_manifest_checksum_entry() {
             .expect("required entries check")
             .status,
         "error"
+    );
+}
+
+/// Covers encrypted restore validation with and without the active database key.
+#[test]
+fn verify_remote_backup_requires_key_for_encrypted_bundle_and_reports_success_warning() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let mut config = sample_config();
+    config.archive_mode = ArchiveMode::Encrypted;
+    ensure_archive_initialized(&paths, &config, Some("bundle-secret"))
+        .expect("initialize encrypted archive");
+    save_config(&paths, &config).expect("save encrypted config");
+
+    let bundle_path = build_bundle(&paths, &config, Some("bundle-secret"), "2026-04-04T01:30:00Z")
+        .expect("build encrypted bundle");
+    let missing_key =
+        verify_remote_backup(&bundle_path, None).expect("verify encrypted bundle without key");
+    assert!(!missing_key.restore_ready);
+    assert!(
+        missing_key
+            .checks
+            .iter()
+            .find(|check| check.name == "restore-validation")
+            .expect("restore validation")
+            .message
+            .contains("unlock the archive")
+    );
+
+    let with_key =
+        verify_remote_backup(&bundle_path, Some("bundle-secret")).expect("verify encrypted bundle");
+    assert!(with_key.restore_ready);
+    assert!(
+        with_key
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Encrypted bundle validation succeeded"))
     );
 }
 

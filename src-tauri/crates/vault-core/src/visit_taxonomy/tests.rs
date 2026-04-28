@@ -21,6 +21,82 @@
 use super::*;
 
 #[test]
+fn taxonomy_serialized_identifiers_cover_every_public_variant() {
+    assert_eq!(taxonomy_version(), "m5-taxonomy-v1");
+    assert_eq!(EvidenceTier::TierA.as_str(), "tier-a");
+    assert_eq!(EvidenceTier::TierB.as_str(), "tier-b");
+    assert_eq!(EvidenceTier::TierC.as_str(), "tier-c");
+
+    let domain_categories = [
+        (DomainCategory::Ai, "ai"),
+        (DomainCategory::Community, "community"),
+        (DomainCategory::Developer, "developer"),
+        (DomainCategory::Docs, "docs"),
+        (DomainCategory::Education, "education"),
+        (DomainCategory::Entertainment, "entertainment"),
+        (DomainCategory::Finance, "finance"),
+        (DomainCategory::News, "news"),
+        (DomainCategory::Search, "search"),
+        (DomainCategory::Shopping, "shopping"),
+        (DomainCategory::Social, "social"),
+        (DomainCategory::Travel, "travel"),
+        (DomainCategory::Video, "video"),
+        (DomainCategory::Work, "work"),
+        (DomainCategory::Unknown, "unknown"),
+    ];
+    for (category, expected) in domain_categories {
+        assert_eq!(category.as_str(), expected);
+    }
+
+    let page_categories = [
+        (PageCategory::ArticlePage, "article-page"),
+        (PageCategory::CategoryPage, "category-page"),
+        (PageCategory::Dashboard, "dashboard"),
+        (PageCategory::DocsPage, "docs-page"),
+        (PageCategory::ForumThread, "forum-thread"),
+        (PageCategory::Home, "home"),
+        (PageCategory::Issue, "issue"),
+        (PageCategory::ProductPage, "product-page"),
+        (PageCategory::Profile, "profile"),
+        (PageCategory::PullRequest, "pull-request"),
+        (PageCategory::Repo, "repo"),
+        (PageCategory::SearchResults, "search-results"),
+        (PageCategory::VideoPage, "video-page"),
+        (PageCategory::Unknown, "unknown"),
+    ];
+    for (category, expected) in page_categories {
+        assert_eq!(category.as_str(), expected);
+    }
+
+    let interaction_kinds = [
+        (InteractionKind::Compare, "compare"),
+        (InteractionKind::Discover, "discover"),
+        (InteractionKind::Discuss, "discuss"),
+        (InteractionKind::Learn, "learn"),
+        (InteractionKind::Manage, "manage"),
+        (InteractionKind::Resolve, "resolve"),
+        (InteractionKind::Transact, "transact"),
+        (InteractionKind::Watch, "watch"),
+        (InteractionKind::Unknown, "unknown"),
+    ];
+    for (kind, expected) in interaction_kinds {
+        assert_eq!(kind.as_str(), expected);
+    }
+
+    let decision_sources = [
+        (TaxonomyDecisionSource::UserOverride, "user-override"),
+        (TaxonomyDecisionSource::ExactDomainRule, "exact-domain-rule"),
+        (TaxonomyDecisionSource::HostPathRule, "host-path-query-rule"),
+        (TaxonomyDecisionSource::LexiconRule, "title-query-lexicon-rule"),
+        (TaxonomyDecisionSource::OptionalModelFallback, "optional-model-fallback"),
+        (TaxonomyDecisionSource::Unknown, "unknown"),
+    ];
+    for (source, expected) in decision_sources {
+        assert_eq!(source.as_str(), expected);
+    }
+}
+
+#[test]
 fn normalizes_search_urls_and_strips_tracking_params() {
     let normalized = normalize_visit_url(
         "https://www.google.com/search?q=sqlite+wal&utm_source=newsletter&gclid=abc123",
@@ -57,6 +133,13 @@ fn registrable_domain_handles_common_multi_label_suffixes() {
         registrable_domain_for_url("https://subdomain.example.com.cn/path").as_deref(),
         Some("example.com.cn")
     );
+    assert_eq!(registrable_domain_for_host(""), "");
+    assert_eq!(registrable_domain_for_host("localhost"), "localhost");
+    assert_eq!(
+        extract_search_query_from_url("https://duckduckgo.com/?q=PathKeep+archive").as_deref(),
+        Some("PathKeep archive")
+    );
+    assert!(extract_search_query_from_url("https://example.com/?q=not-search").is_none());
 }
 
 #[test]
@@ -79,6 +162,12 @@ fn script_aware_tokenization_handles_latin_and_cjk() {
     assert!(tokens.contains(&"wal".to_string()));
     assert!(tokens.contains(&"文档".to_string()));
     assert!(tokens.contains(&"教學".to_string()));
+    assert_eq!(tokenize_text("猫"), vec!["猫".to_string()]);
+}
+
+#[test]
+fn normalizer_rejects_hosts_that_trim_to_empty() {
+    assert!(normalize_visit_url("https://./path").is_none());
 }
 
 #[test]

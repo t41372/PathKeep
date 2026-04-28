@@ -275,28 +275,22 @@ pub fn run_retention_prune(
     let mut deleted_bytes = 0u64;
     let mut deleted_files = 0usize;
     for bucket in &selected {
-        match bucket.id.as_str() {
-            "snapshots" => {
-                let (bytes, files) = prune_snapshot_bucket(&connection, paths)?;
-                deleted_bytes += bytes;
-                deleted_files += files;
-            }
-            "exports" => {
-                let (bytes, files) = remove_directory_contents(&paths.exports_dir)?;
-                deleted_bytes += bytes;
-                deleted_files += files;
-            }
-            "staging" => {
-                let (bytes, files) = remove_directory_contents(&paths.staging_dir)?;
-                deleted_bytes += bytes;
-                deleted_files += files;
-            }
-            "quarantine" => {
-                let (bytes, files) = remove_directory_contents(&paths.quarantine_dir)?;
-                deleted_bytes += bytes;
-                deleted_files += files;
-            }
-            _ => {}
+        if bucket.id == "snapshots" {
+            let (bytes, files) = prune_snapshot_bucket(&connection, paths)?;
+            deleted_bytes += bytes;
+            deleted_files += files;
+        } else if bucket.id == "exports" {
+            let (bytes, files) = remove_directory_contents(&paths.exports_dir)?;
+            deleted_bytes += bytes;
+            deleted_files += files;
+        } else if bucket.id == "staging" {
+            let (bytes, files) = remove_directory_contents(&paths.staging_dir)?;
+            deleted_bytes += bytes;
+            deleted_files += files;
+        } else if bucket.id == "quarantine" {
+            let (bytes, files) = remove_directory_contents(&paths.quarantine_dir)?;
+            deleted_bytes += bytes;
+            deleted_files += files;
         }
     }
 
@@ -413,16 +407,8 @@ pub fn rekey_archive(
     )?;
     drop(temp_connection);
 
-    if let Err(error) = fs::rename(&paths.archive_database_path, &backup_path) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error).context("preparing archive database swap for rekey export");
-    }
-
-    if let Err(error) = fs::rename(&temp_path, &paths.archive_database_path) {
-        let _ = fs::rename(&backup_path, &paths.archive_database_path);
-        let _ = fs::remove_file(&temp_path);
-        return Err(error).context("replacing archive database after rekey export");
-    }
+    prepare_rekey_database_swap(&paths.archive_database_path, &temp_path, &backup_path)?;
+    replace_rekey_database(&paths.archive_database_path, &temp_path, &backup_path)?;
 
     let _ = fs::remove_file(&backup_path);
 
@@ -460,6 +446,31 @@ pub fn rekey_archive(
             Err(error)
         }
     }
+}
+
+fn prepare_rekey_database_swap(
+    archive_database_path: &Path,
+    temp_path: &Path,
+    backup_path: &Path,
+) -> Result<()> {
+    if let Err(error) = fs::rename(archive_database_path, backup_path) {
+        let _ = fs::remove_file(temp_path);
+        return Err(error).context("preparing archive database swap for rekey export");
+    }
+    Ok(())
+}
+
+fn replace_rekey_database(
+    archive_database_path: &Path,
+    temp_path: &Path,
+    backup_path: &Path,
+) -> Result<()> {
+    if let Err(error) = fs::rename(temp_path, archive_database_path) {
+        let _ = fs::rename(backup_path, archive_database_path);
+        let _ = fs::remove_file(temp_path);
+        return Err(error).context("replacing archive database after rekey export");
+    }
+    Ok(())
 }
 
 /// Creates the safety snapshot used by the rekey flow.
@@ -525,4 +536,53 @@ fn finalize_rekey_run(
         ],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::project_paths_with_root;
+    use tempfile::tempdir;
+
+    #[test]
+    fn rekey_swap_preparation_removes_temp_file_when_backup_cannot_be_created() {
+        let dir = tempdir().expect("tempdir");
+        let archive_path = dir.path().join("missing.sqlite");
+        let temp_path = dir.path().join("archive.rekey.sqlite");
+        let backup_path = dir.path().join("archive.backup.sqlite");
+        fs::write(&temp_path, "temporary export").expect("write temp export");
+
+        let error = prepare_rekey_database_swap(&archive_path, &temp_path, &backup_path)
+            .expect_err("missing archive cannot be swapped");
+
+        assert!(format!("{error:#}").contains("preparing archive database swap"));
+        assert!(!temp_path.exists());
+        assert!(!backup_path.exists());
+    }
+
+    #[test]
+    fn rekey_swap_replacement_restores_backup_when_temp_move_fails() {
+        let dir = tempdir().expect("tempdir");
+        let archive_path = dir.path().join("archive.sqlite");
+        let temp_path = dir.path().join("missing-rekey.sqlite");
+        let backup_path = dir.path().join("archive.backup.sqlite");
+        fs::write(&backup_path, "backup archive").expect("write backup archive");
+
+        let error = replace_rekey_database(&archive_path, &temp_path, &backup_path)
+            .expect_err("missing temp export cannot replace archive");
+
+        assert!(format!("{error:#}").contains("replacing archive database"));
+        assert_eq!(fs::read_to_string(&archive_path).expect("restored archive"), "backup archive");
+        assert!(!backup_path.exists());
+    }
+
+    #[test]
+    fn create_rekey_snapshot_reports_copy_failure_with_target_path() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        let error = create_rekey_snapshot(&paths).expect_err("missing archive cannot be copied");
+
+        assert!(format!("{error:#}").contains("creating rekey safety snapshot"));
+    }
 }

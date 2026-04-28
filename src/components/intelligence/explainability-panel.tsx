@@ -129,18 +129,22 @@ function localizeTriggerRule(
     return t('explainRuleReopenedInvestigation')
   }
 
+  // Stryker disable Regex: the leading anchor is equivalent here because the captured habit name intentionally accepts custom text before " cadence".
   const interruptedHabitMatch =
     /^(.+) cadence was detected and later crossed its interruption threshold\.$/.exec(
       rule,
     )
+  // Stryker restore Regex
   if (interruptedHabitMatch) {
     return t('explainRuleHabitPatternInterrupted', {
       habit: localizeHabitType(interruptedHabitMatch[1], t),
     })
   }
 
+  // Stryker disable Regex: the leading anchor is equivalent here because the captured habit name intentionally accepts custom text before " cadence".
   const habitMatch =
     /^(.+) cadence was detected from repeated cross-day visits\.$/.exec(rule)
+  // Stryker restore Regex
   if (habitMatch) {
     return t('explainRuleHabitPattern', {
       habit: localizeHabitType(habitMatch[1], t),

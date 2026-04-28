@@ -160,6 +160,27 @@ fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() 
     assert_eq!(profile.access_issue.as_deref(), Some("macos-full-disk-access"));
 }
 
+#[cfg(unix)]
+#[test]
+fn history_access_state_reports_generic_unreadable_browser_files() {
+    let dir = tempdir().expect("tempdir");
+    let history_path = dir.path().join("History");
+    fs::write(&history_path, b"history").expect("write history");
+    let mut permissions = fs::metadata(&history_path).expect("metadata").permissions();
+    permissions.set_mode(0o000);
+    fs::set_permissions(&history_path, permissions).expect("deny read");
+
+    let (readable, issue) = history_access_state(&history_path, true, "chromium");
+
+    let mut restore_permissions =
+        fs::metadata(&history_path).expect("metadata for restore").permissions();
+    restore_permissions.set_mode(0o600);
+    fs::set_permissions(&history_path, restore_permissions).expect("restore read");
+
+    assert!(!readable);
+    assert_eq!(issue.as_deref(), Some("history-file-not-readable"));
+}
+
 #[test]
 fn firefox_root_candidate_helpers_cover_override_default_and_missing_roots() {
     let _guard = lock_env();

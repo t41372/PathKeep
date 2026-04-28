@@ -102,6 +102,16 @@ describe('ipc bridge', () => {
     )
   })
 
+  test('falls back to a generic tauri error when the rejection is blank text', async () => {
+    invokeMock.mockRejectedValueOnce('   ')
+
+    const { invokeCommand } = await import('./bridge')
+
+    await expect(invokeCommand('app_snapshot')).rejects.toThrow(
+      'PathKeep desktop command "app_snapshot" failed.',
+    )
+  })
+
   test('falls back to the desktop bridge when chrome is connected to the tauri runtime', async () => {
     isTauriMock.mockReturnValue(false)
     vi.stubEnv('VITE_PATHKEEP_DEV_IPC_URL', 'http://127.0.0.1:43117/')

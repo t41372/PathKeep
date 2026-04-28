@@ -257,6 +257,9 @@ fn claim_by_id_and_pause_resume_cover_targeted_orchestration_paths() {
     let resumed = resume_paused_jobs(&connection).expect("resume paused jobs");
     assert_eq!(resumed, 1);
     assert_eq!(load_ai_job(&connection, first.id).expect("resumed job").state, "queued");
+    assert!(
+        claim_ai_job_by_id(&connection, 9_999, 60).expect("missing job is not claimable").is_none()
+    );
 }
 
 /// Protects the compare-and-set claim path that prevents duplicate worker ownership.
@@ -275,4 +278,122 @@ fn compare_and_set_claim_prevents_double_claims() {
     let first_claim = claim_next_ai_job(&first_connection, 60).expect("first claim");
     let second_claim = claim_next_ai_job(&second_connection, 60).expect("second claim");
     assert!(first_claim.is_some() ^ second_claim.is_some());
+}
+
+/// Covers queue failure edges that used to be invisible to the broad green test run.
+#[test]
+fn malformed_payloads_and_terminal_edges_stay_observable() {
+    let connection = connection();
+    assert_eq!(
+        count_jobs_for_types(&connection, &[], &[encode_job_state(AiQueueJobState::Queued)])
+            .expect("empty types count"),
+        0
+    );
+    assert_eq!(
+        count_jobs_for_types(&connection, &[AiQueueJobType::IndexBuild], &[])
+            .expect("empty states count"),
+        0
+    );
+    assert!(!ai_job_stop_requested(&connection, 99_999).expect("missing stop flag"));
+
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    let claimed =
+        claim_ai_job_by_id(&connection, queued.id, 60).expect("claim by id").expect("claimed");
+    cancel_ai_job(&connection, claimed.id).expect("request stop");
+    assert!(
+        !mark_ai_job_succeeded(&connection, claimed.id, Some(42), Some("too late"))
+            .expect("success should lose after stop request")
+    );
+    let cancelled =
+        mark_running_ai_job_cancelled(&connection, claimed.id, Some("worker observed stop"))
+            .expect("cancel running");
+    assert_eq!(cancelled.state, encode_job_state(AiQueueJobState::Cancelled));
+    let replayed = replay_ai_job(&connection, cancelled.id, false).expect("replay cancelled");
+    assert_eq!(replayed.state, encode_job_state(AiQueueJobState::Queued));
+
+    let paused_failure = enqueue_assistant_job(
+        &connection,
+        &AiAssistantRequest {
+            question: "Will this pause?".to_string(),
+            profile_id: None,
+            domain: None,
+        },
+        "llm-primary",
+        None,
+        false,
+    )
+    .expect("enqueue assistant");
+    let claimed_failure = claim_ai_job_by_id(&connection, paused_failure.id, 60)
+        .expect("claim paused failure")
+        .expect("claimed paused failure");
+    let paused = mark_ai_job_failed(
+        &connection,
+        claimed_failure.id,
+        None,
+        &AiJobFailure {
+            error_code: Some("rate-limit".to_string()),
+            error_message: "provider asked us to wait".to_string(),
+            retryable: true,
+            retry_after_seconds: 30,
+            summary: Some("Paused after provider rate limit".to_string()),
+        },
+        true,
+    )
+    .expect("paused failure");
+    assert_eq!(paused.state, encode_job_state(AiQueueJobState::Paused));
+
+    let succeeded =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue success");
+    let claimed_success = claim_ai_job_by_id(&connection, succeeded.id, 60)
+        .expect("claim success")
+        .expect("claimed success");
+    assert!(
+        mark_ai_job_succeeded(&connection, claimed_success.id, None, Some("done"))
+            .expect("mark succeeded")
+    );
+    let replay_error =
+        replay_ai_job(&connection, succeeded.id, false).expect_err("succeeded replay is invalid");
+    assert!(replay_error.to_string().contains("Only failed"));
+    let cancel_error =
+        cancel_ai_job(&connection, succeeded.id).expect_err("succeeded cancel is invalid");
+    assert!(cancel_error.to_string().contains("cannot be cancelled"));
+
+    let now = now_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO ai_jobs (
+               job_type, state, priority, attempt, max_attempts, payload_json,
+               available_at, created_at, updated_at
+             )
+             VALUES ('assistant', 'queued', 99, 0, 1, '{not-json', ?1, ?1, ?1)",
+            params![now],
+        )
+        .expect("insert malformed queued job");
+    let malformed_id = connection.last_insert_rowid();
+    let malformed_payload =
+        load_ai_job_payload(&connection, malformed_id).expect_err("malformed payload load");
+    assert!(malformed_payload.to_string().contains("loading AI job payload"));
+    let malformed_claim =
+        claim_ai_job_by_id(&connection, malformed_id, 60).expect_err("malformed targeted claim");
+    assert!(format!("{malformed_claim:#}").contains("line 1 column"));
+    let malformed_next_claim =
+        claim_next_ai_job(&connection, 60).expect_err("malformed next claim");
+    assert!(format!("{malformed_next_claim:#}").contains("line 1 column"));
+
+    assert_eq!(encode_job_state(AiQueueJobState::Running), "running");
+    assert_eq!(encode_job_state(AiQueueJobState::Succeeded), "succeeded");
+    assert_eq!(encode_job_state(AiQueueJobState::Failed), "failed");
+    assert_eq!(encode_job_state(AiQueueJobState::Paused), "paused");
+    assert_eq!(encode_job_state(AiQueueJobState::Stale), "stale");
+    assert_eq!(decode_job_type("index-clear"), AiQueueJobType::IndexClear);
+    assert_eq!(decode_job_type("assistant"), AiQueueJobType::Assistant);
+    assert_eq!(decode_job_type("anything-else"), AiQueueJobType::IndexBuild);
+    assert_eq!(decode_job_state("running"), AiQueueJobState::Running);
+    assert_eq!(decode_job_state("succeeded"), AiQueueJobState::Succeeded);
+    assert_eq!(decode_job_state("failed"), AiQueueJobState::Failed);
+    assert_eq!(decode_job_state("paused"), AiQueueJobState::Paused);
+    assert_eq!(decode_job_state("cancelled"), AiQueueJobState::Cancelled);
+    assert_eq!(decode_job_state("stale"), AiQueueJobState::Stale);
+    assert_eq!(decode_job_state("unknown"), AiQueueJobState::Queued);
 }

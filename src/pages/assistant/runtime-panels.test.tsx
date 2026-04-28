@@ -93,6 +93,82 @@ describe('assistant runtime panels', () => {
     expect(screen.getByText('Waiting for provider.')).toBeVisible()
   })
 
+  test('hides runtime status when metadata is unavailable and omits optional provider hints', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <AssistantRuntimePanels
+          activeProfileLabel={null}
+          aiMeta={null}
+          assistantT={t}
+          llmProviderAvailable={false}
+          llmProviderDisplay="Unavailable"
+          llmProviderId="not configured"
+          embeddingProviderId="not configured"
+          language="en"
+          onProviderProbe={vi.fn()}
+          onRefreshQueue={vi.fn()}
+          profileScopeLabel="Profile scope"
+          profileScopeValue="Archive-wide"
+          providerProbe={null}
+          queuedAssistantJobs={[]}
+          queuedCount={0}
+          queueAction={null}
+          runningCount={0}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+
+    rerender(
+      <MemoryRouter>
+        <AssistantRuntimePanels
+          activeProfileLabel={null}
+          aiMeta={{
+            tone: 'info',
+            label: 'Ready',
+            description: 'Assistant is ready.',
+          }}
+          assistantT={t}
+          llmProviderAvailable={true}
+          llmProviderDisplay="OpenAI / gpt-4.1"
+          llmProviderId="openai"
+          embeddingProviderId="local-embeddings"
+          language="en"
+          onProviderProbe={vi.fn()}
+          onRefreshQueue={vi.fn()}
+          profileScopeLabel="Profile scope"
+          profileScopeValue="Archive-wide"
+          providerProbe={{
+            providerId: 'openai',
+            purpose: 'llm',
+            model: 'gpt-4.1',
+            ok: true,
+            latencyMs: 12,
+            capabilities: {
+              supportsChat: true,
+              supportsEmbeddings: false,
+              supportsStreaming: true,
+              supportsToolUse: true,
+              supportsStructuredOutput: true,
+            },
+            warnings: [],
+            message: 'Reachable.',
+            actionHint: null,
+          }}
+          queuedAssistantJobs={[]}
+          queuedCount={0}
+          queueAction="Refreshing"
+          runningCount={0}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Ready' })).toBeVisible()
+    expect(screen.getByText('Reachable.')).toBeVisible()
+    expect(screen.queryByText('Check your API key.')).not.toBeInTheDocument()
+  })
+
   test('renders queue sidebar progress when a queue action is active', () => {
     render(
       <AssistantQueueSidebar

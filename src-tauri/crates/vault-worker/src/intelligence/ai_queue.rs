@@ -41,13 +41,22 @@ use vault_core::{
     preview_ai_integrations, semantic_search_history, test_provider_connection,
 };
 
+#[cfg(coverage)]
+const AI_JOB_CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(5);
+#[cfg(not(coverage))]
+const AI_JOB_CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(500);
+#[cfg(coverage)]
+const AI_JOB_CONTROL_HEARTBEAT_EVERY: Duration = Duration::from_millis(5);
+#[cfg(not(coverage))]
+const AI_JOB_CONTROL_HEARTBEAT_EVERY: Duration = Duration::from_secs(30);
+
 /// Starts the heartbeat and cancellation polling loop for one running AI job.
 ///
 /// The worker needs this helper because index builds and assistant runs can outlive
 /// the foreground caller. It keeps SQLite queue state fresh and lets UI-triggered
 /// cancellation requests interrupt long-running jobs without guessing whether a
 /// provider call is still alive.
-fn start_ai_job_control(
+pub(crate) fn start_ai_job_control(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -57,8 +66,8 @@ fn start_ai_job_control(
     let config = config.clone();
     let session_database_key = session_database_key.map(ToOwned::to_owned);
     Arc::new(BackgroundJobControl::spawn(
-        Duration::from_millis(500),
-        Duration::from_secs(30),
+        AI_JOB_CONTROL_POLL_INTERVAL,
+        AI_JOB_CONTROL_HEARTBEAT_EVERY,
         {
             let paths = paths.clone();
             let config = config.clone();
@@ -289,59 +298,56 @@ fn spawn_ai_queue_drain(
         &AI_QUEUE_ACTIVE_WORKERS,
         desired_workers,
         move || loop {
-            let config = match load_unlocked_config(&paths) {
-                Ok(config) => config,
+            match drain_one_ai_queue_job(&paths, session_database_key.as_deref()) {
+                Ok(true) => {}
+                Ok(false) => break,
                 Err(error) => {
-                    eprintln!("PathKeep could not load AI queue config: {error:#}");
+                    eprintln!("PathKeep could not drain AI queue work: {error:#}");
                     break;
-                }
-            };
-            if !config.initialized || config.ai.job_queue_paused {
-                break;
-            }
-            let connection =
-                match ai_archive_connection(&paths, &config, session_database_key.as_deref()) {
-                    Ok(connection) => connection,
-                    Err(error) => {
-                        eprintln!(
-                            "PathKeep could not open the archive for AI queue work: {error:#}"
-                        );
-                        break;
-                    }
-                };
-            let Some(job) = (match ai_queue::claim_next_ai_job(&connection, 300) {
-                Ok(job) => job,
-                Err(error) => {
-                    eprintln!("PathKeep could not claim the next AI queue job: {error:#}");
-                    break;
-                }
-            }) else {
-                break;
-            };
-            match job.payload.clone() {
-                ai_queue::AiJobPayload::Index { request } => {
-                    let _ = complete_claimed_index_job(
-                        &connection,
-                        &paths,
-                        &config,
-                        session_database_key.as_deref(),
-                        job,
-                        &request,
-                    );
-                }
-                ai_queue::AiJobPayload::Assistant { payload } => {
-                    let _ = complete_claimed_assistant_job(
-                        &connection,
-                        &paths,
-                        &config,
-                        session_database_key.as_deref(),
-                        job,
-                        &payload.request,
-                    );
                 }
             }
         },
     );
+}
+
+pub(crate) fn drain_one_ai_queue_job(
+    paths: &vault_core::ProjectPaths,
+    session_database_key: Option<&str>,
+) -> Result<bool> {
+    let config = load_unlocked_config(paths).context("load AI queue config")?;
+    if !config.initialized || config.ai.job_queue_paused {
+        return Ok(false);
+    }
+    let connection = ai_archive_connection(paths, &config, session_database_key)
+        .context("open archive for AI queue work")?;
+    let Some(job) =
+        ai_queue::claim_next_ai_job(&connection, 300).context("claim next AI queue job")?
+    else {
+        return Ok(false);
+    };
+    match job.payload.clone() {
+        ai_queue::AiJobPayload::Index { request } => {
+            let _ = complete_claimed_index_job(
+                &connection,
+                paths,
+                &config,
+                session_database_key,
+                job,
+                &request,
+            );
+        }
+        ai_queue::AiJobPayload::Assistant { payload } => {
+            let _ = complete_claimed_assistant_job(
+                &connection,
+                paths,
+                &config,
+                session_database_key,
+                job,
+                &payload.request,
+            );
+        }
+    }
+    Ok(true)
 }
 
 /// Loads the persisted AI queue state for the current archive.

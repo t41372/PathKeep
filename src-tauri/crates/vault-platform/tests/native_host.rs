@@ -345,13 +345,13 @@ fn windows_scheduler_xml_validates_with_schtasks() {
     assert!(delete.success(), "expected schtasks /Delete to clean up test task");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(coverage)))]
 #[test]
 fn macos_biometric_state_smoke_is_not_unsupported() {
     assert_ne!(app_lock_biometric_state(), AppLockBiometricState::Unsupported);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(coverage, not(target_os = "macos")))]
 #[test]
 fn non_macos_biometric_state_is_unsupported() {
     assert_eq!(app_lock_biometric_state(), AppLockBiometricState::Unsupported);

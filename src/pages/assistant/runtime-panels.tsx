@@ -45,7 +45,7 @@ interface AssistantRuntimePanelsProps {
   llmProviderId: string
   embeddingProviderId: string
   language: string
-  onProviderProbe: () => void
+  onProviderProbe?: () => void
   onRefreshQueue: () => void
   profileScopeLabel: string
   profileScopeValue: string

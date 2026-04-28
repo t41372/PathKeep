@@ -417,3 +417,94 @@ impl QueryFamilyAccumulator {
         self.families
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn visit(visit_id: i64, is_search_event: bool, session_id: Option<&str>) -> VisitRecord {
+        VisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".to_string(),
+            source_profile_id: 1,
+            source_visit_id: visit_id,
+            source_url_id: visit_id,
+            url: format!("https://example.com/{visit_id}"),
+            title: Some(format!("Visit {visit_id}")),
+            visit_time_ms: 1_762_000_000_000 + visit_id,
+            from_visit: None,
+            transition_type: None,
+            external_referrer_url: None,
+            canonical_url: format!("https://example.com/{visit_id}"),
+            registrable_domain: "example.com".to_string(),
+            domain_category: "docs".to_string(),
+            page_category: "article-page".to_string(),
+            search_engine: is_search_event.then(|| "google".to_string()),
+            search_query: is_search_event.then(|| "rust coverage".to_string()),
+            is_new_domain: visit_id == 1,
+            is_search_event,
+            evidence_tier: "tier-a".to_string(),
+            taxonomy_source: "test".to_string(),
+            taxonomy_pack: None,
+            taxonomy_version: None,
+            display_name: Some("Example".to_string()),
+            session_id: session_id.map(str::to_string),
+            trail_id: None,
+        }
+    }
+
+    fn search_event(
+        visit_id: i64,
+        profile_id: &str,
+        search_engine: &str,
+        raw_query: &str,
+        normalized_query: &str,
+    ) -> SearchEventRecord {
+        SearchEventRecord {
+            visit_id,
+            profile_id: profile_id.to_string(),
+            search_engine: search_engine.to_string(),
+            raw_query: raw_query.to_string(),
+            normalized_query: normalized_query.to_string(),
+            query_kind: SearchQueryKind::Keyword,
+            trail_id: None,
+            visit_time_ms: 1_762_000_000_000 + visit_id,
+        }
+    }
+
+    #[test]
+    fn search_trail_builder_ignores_pre_search_visits_and_flushes_final_trail() {
+        let mut visits = vec![
+            visit(1, false, Some("session:1")),
+            visit(2, true, Some("session:1")),
+            visit(3, false, Some("session:1")),
+            visit(4, true, Some("session:1")),
+        ];
+
+        let (events, trails) = build_search_trails(&mut visits);
+
+        assert!(visits[0].trail_id.is_none());
+        assert_eq!(events.len(), 2);
+        assert_eq!(trails.len(), 2);
+        assert_eq!(trails[0].members.len(), 2);
+        assert_eq!(visits[2].trail_id, Some(trails[0].trail_id.clone()));
+        assert_eq!(visits[3].trail_id, Some(trails[1].trail_id.clone()));
+    }
+
+    #[test]
+    fn query_family_builders_skip_empty_tokens_and_scope_by_profile_and_engine() {
+        let events = vec![
+            search_event(1, "chrome:Default", "google", "a", ""),
+            search_event(2, "chrome:Default", "google", "rust coverage", "rust coverage"),
+            search_event(3, "chrome:Default", "bing", "rust coverage", "rust coverage"),
+            search_event(4, "firefox:Default", "google", "rust coverage", "rust coverage"),
+        ];
+
+        let families = build_query_families(&events);
+        assert_eq!(families.len(), 3);
+
+        let mut accumulator = QueryFamilyAccumulator::default();
+        accumulator.add_event(&events[0]);
+        assert!(accumulator.finish().is_empty());
+    }
+}

@@ -495,3 +495,72 @@ fn count_deep_dive_sessions(
         )
         .map_err(Into::into)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn friction_signals_cover_reformulation_and_bounce_rows() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        let request = ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: "2026-01-01".to_string(),
+                end: "2026-01-02".to_string(),
+            },
+            profile_id: Some("p1".to_string()),
+        };
+        let (start_ms, _) = date_range_bounds(&request.date_range).expect("date bounds");
+        connection
+            .execute(
+                "INSERT INTO search_trails (
+                   trail_id, profile_id, session_id, initial_query, search_engine,
+                   reformulation_count, visit_count, landing_url, landing_domain,
+                   first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at
+                 )
+                 VALUES (?1, 'p1', 's1', ?2, 'google',
+                         ?3, ?4, ?5, ?6, ?7, ?8, 2, ?9, 'now')",
+                params![
+                    "trail-a",
+                    "rust coverage",
+                    3_i64,
+                    4_i64,
+                    "https://docs.rs",
+                    "docs.rs",
+                    start_ms + 1_000,
+                    start_ms + 2_000,
+                    "[\"rust coverage\"]"
+                ],
+            )
+            .expect("insert reformulation trail");
+        connection
+            .execute(
+                "INSERT INTO search_trails (
+                   trail_id, profile_id, session_id, initial_query, search_engine,
+                   reformulation_count, visit_count, landing_url, landing_domain,
+                   first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at
+                 )
+                 VALUES (?1, 'p1', 's1', ?2, 'google',
+                         ?3, ?4, NULL, NULL, ?5, ?6, 2, ?7, 'now')",
+                params![
+                    "trail-b",
+                    "lost query",
+                    0_i64,
+                    3_i64,
+                    start_ms + 3_000,
+                    start_ms + 4_000,
+                    "[\"lost query\"]"
+                ],
+            )
+            .expect("insert bounce trail");
+
+        let signals =
+            get_friction_signals_with_connection(&connection, &request).expect("friction signals");
+        assert_eq!(signals.len(), 2);
+        assert_eq!(signals[0].signal_kind, "excessive_reformulation");
+        assert!(signals[0].description.contains("rust coverage"));
+        assert_eq!(signals[1].signal_kind, "bounce_pattern");
+        assert_eq!(signals[1].description, "Search trail did not settle on a stable landing page.");
+    }
+}

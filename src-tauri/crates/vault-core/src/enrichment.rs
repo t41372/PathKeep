@@ -13,8 +13,9 @@ use crate::{
     config::ProjectPaths,
     intelligence_blobs::{load_readable_text_blob, store_readable_text_blob},
     intelligence_runtime::{
-        claim_enrichment_job_by_id, intelligence_job_stop_requested, mark_intelligence_job_failed,
-        mark_intelligence_job_succeeded, mark_running_intelligence_job_cancelled,
+        ClaimedEnrichmentJob, claim_enrichment_job_by_id, intelligence_job_stop_requested,
+        mark_intelligence_job_failed, mark_intelligence_job_succeeded,
+        mark_running_intelligence_job_cancelled,
     },
     models::{READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID},
     utils::{now_rfc3339, url_domain},
@@ -26,7 +27,7 @@ use scraper::{Html, Selector};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-use self::site_adapters::adapt_site_content;
+use self::site_adapters::{SiteAdapterResult, adapt_site_content};
 
 pub(crate) const VISIT_CONTENT_ENRICHMENTS_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS visit_content_enrichments (
@@ -91,9 +92,8 @@ pub fn execute_enrichment_job_by_id(
     let Some(job) = claim_enrichment_job_by_id(connection, job_id)? else {
         return Ok(false);
     };
-    if intelligence_job_stop_requested(connection, job.id)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
-        return Ok(true);
+    if let Some(done) = finish_if_enrichment_cancelled(connection, job.id)? {
+        return Ok(done);
     }
 
     let enrichment = match job.plugin_id.as_str() {
@@ -105,26 +105,23 @@ pub fn execute_enrichment_job_by_id(
             refetch_visit_content(&client, &job.payload.url)
         }
         _ => {
-            if !mark_intelligence_job_failed(
-                connection,
-                job.id,
-                &format!("Unknown enrichment plugin {}", job.plugin_id),
-            )? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    connection,
-                    job.id,
-                    "cancelled from UI",
-                );
-            }
+            fail_unknown_enrichment_plugin(connection, job.id, &job.plugin_id)?;
             return Ok(true);
         }
     };
-    if intelligence_job_stop_requested(connection, job.id)? {
-        let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+    finish_claimed_enrichment_job(paths, connection, &job, &enrichment)
+}
+
+fn finish_claimed_enrichment_job(
+    paths: &ProjectPaths,
+    connection: &Connection,
+    job: &ClaimedEnrichmentJob,
+    enrichment: &EnrichmentResult,
+) -> Result<bool> {
+    if cancel_running_enrichment_job_if_requested(connection, job.id)? {
         return Ok(true);
     }
-
-    store_enrichment(paths, connection, job.payload.history_id, &job.plugin_id, &enrichment)?;
+    store_enrichment(paths, connection, job.payload.history_id, &job.plugin_id, enrichment)?;
     let artifact = json!({
         "status": enrichment.status,
         "snippetCount": enrichment.snippets.len(),
@@ -135,11 +132,11 @@ pub fn execute_enrichment_job_by_id(
             .unwrap_or(0),
         "attempt": job.attempt,
     });
-    if enrichment_is_terminal_failure(&enrichment) {
+    if enrichment_is_terminal_failure(enrichment) {
         if !mark_intelligence_job_failed(
             connection,
             job.id,
-            &enrichment_failure_message(&enrichment),
+            &enrichment_failure_message(enrichment),
         )? {
             let _ =
                 mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
@@ -149,6 +146,39 @@ pub fn execute_enrichment_job_by_id(
     }
 
     Ok(true)
+}
+
+fn cancel_running_enrichment_job_if_requested(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<bool> {
+    if intelligence_job_stop_requested(connection, job_id)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn fail_unknown_enrichment_plugin(
+    connection: &Connection,
+    job_id: i64,
+    plugin_id: &str,
+) -> Result<()> {
+    if !mark_intelligence_job_failed(
+        connection,
+        job_id,
+        &format!("Unknown enrichment plugin {plugin_id}"),
+    )? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+    }
+    Ok(())
+}
+
+fn finish_if_enrichment_cancelled(connection: &Connection, job_id: i64) -> Result<Option<bool>> {
+    if cancel_running_enrichment_job_if_requested(connection, job_id)? {
+        return Ok(Some(true));
+    }
+    Ok(None)
 }
 
 pub(crate) fn load_best_enrichment_map_by_history_ids(
@@ -415,7 +445,16 @@ fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
             ..EnrichmentResult::default()
         };
     }
-    let document = Html::parse_document(&text);
+    build_enrichment_result_from_html(url, final_url, content_type, &text)
+}
+
+fn build_enrichment_result_from_html(
+    url: &str,
+    final_url: Option<String>,
+    content_type: String,
+    text: &str,
+) -> EnrichmentResult {
+    let document = Html::parse_document(text);
     let title_selector = Selector::parse("title").expect("selector");
     let html_selector = Selector::parse("html").expect("selector");
     let body_selector = Selector::parse("main, article, body").expect("selector");
@@ -466,42 +505,51 @@ fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
     };
 
     if let Some(adapter) = adapt_site_content(url, &document) {
-        let readable_title =
-            adapter.readable_title.or_else(|| generic_result.readable_title.clone());
-        let readable_text = adapter
-            .readable_text
-            .map(|value| truncate_text(&value, ENRICH_TEXT_LIMIT))
-            .or_else(|| generic_result.readable_text.clone());
-        let snippets = if adapter.snippets.is_empty() {
-            generic_result.snippets.clone()
-        } else {
-            adapter.snippets.into_iter().take(SNIPPET_LIMIT).collect()
-        };
-
-        return EnrichmentResult {
-            status: if readable_text.as_deref().is_some_and(|value| !value.is_empty()) {
-                "success".to_string()
-            } else {
-                generic_result.status
-            },
-            final_url: generic_result.final_url,
-            language: generic_result.language,
-            readable_title,
-            readable_text,
-            snippets: snippets.clone(),
-            extraction: json!({
-                "contentType": content_type,
-                "snippetCount": snippets.len(),
-                "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
-                "siteAdapter": {
-                    "id": adapter.adapter_id,
-                    "metadata": adapter.metadata,
-                },
-            }),
-        };
+        return merge_site_adapter_result(generic_result, &content_type, adapter);
     }
 
     generic_result
+}
+
+fn merge_site_adapter_result(
+    generic_result: EnrichmentResult,
+    content_type: &str,
+    adapter: SiteAdapterResult,
+) -> EnrichmentResult {
+    let adapter_id = adapter.adapter_id;
+    let metadata = adapter.metadata;
+    let readable_title = adapter.readable_title.or_else(|| generic_result.readable_title.clone());
+    let readable_text = adapter
+        .readable_text
+        .map(|value| truncate_text(&value, ENRICH_TEXT_LIMIT))
+        .or_else(|| generic_result.readable_text.clone());
+    let snippets = if adapter.snippets.is_empty() {
+        generic_result.snippets.clone()
+    } else {
+        adapter.snippets.into_iter().take(SNIPPET_LIMIT).collect()
+    };
+
+    EnrichmentResult {
+        status: if readable_text.as_deref().is_some_and(|value| !value.is_empty()) {
+            "success".to_string()
+        } else {
+            generic_result.status
+        },
+        final_url: generic_result.final_url,
+        language: generic_result.language,
+        readable_title,
+        readable_text,
+        snippets: snippets.clone(),
+        extraction: json!({
+            "contentType": content_type,
+            "snippetCount": snippets.len(),
+            "textLength": snippets.iter().map(|value| value.len()).sum::<usize>(),
+            "siteAdapter": {
+                "id": adapter_id,
+                "metadata": metadata,
+            },
+        }),
+    }
 }
 
 fn percent_decode(input: &str) -> String {
@@ -555,18 +603,24 @@ fn truncate_text(input: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        StoredEnrichment, build_embedding_content_from_parts,
-        ensure_visit_content_enrichment_schema, execute_enrichment_job_by_id,
-        load_best_enrichment_map_by_history_ids,
+        EnrichmentResult, SiteAdapterResult, StoredEnrichment, build_embedding_content_from_parts,
+        build_enrichment_result_from_html, build_refetch_client, enrichment_failure_message,
+        enrichment_is_terminal_failure, ensure_visit_content_enrichment_schema,
+        execute_enrichment_job_by_id, fail_unknown_enrichment_plugin,
+        finish_claimed_enrichment_job, finish_if_enrichment_cancelled,
+        load_best_enrichment_map_by_history_ids, merge_site_adapter_result,
+        preferred_embedding_content, refetch_visit_content, store_enrichment,
+        title_normalization_enrichment,
     };
     use crate::{
         config::{ensure_paths, project_paths_with_root},
         intelligence_blobs::store_readable_text_blob,
         intelligence_runtime::{
-            EnrichmentJobPayload, built_in_enrichment_plugin, enqueue_enrichment_job,
-            ensure_intelligence_runtime_schema,
+            ClaimedEnrichmentJob, ENRICHMENT_JOB_TYPE, EnrichmentJobPayload,
+            built_in_enrichment_plugin, enqueue_enrichment_job, ensure_intelligence_runtime_schema,
         },
-        models::TITLE_NORMALIZATION_PLUGIN_ID,
+        models::{READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID},
+        utils::now_rfc3339,
     };
     use rusqlite::{Connection, Row, params};
     use tempfile::tempdir;
@@ -719,6 +773,267 @@ mod tests {
     }
 
     #[test]
+    fn title_normalization_failure_messages_and_storage_cover_enrichment_edges() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let connection = Connection::open_in_memory().expect("sqlite");
+        ensure_visit_content_enrichment_schema(&connection).expect("schema");
+
+        let fallback = title_normalization_enrichment(
+            "https://example.com/docs/pathkeep%20archive+replay",
+            None,
+        );
+        assert_eq!(fallback.status, "success");
+        assert_eq!(fallback.readable_title.as_deref(), Some("pathkeep archive replay"));
+        assert_eq!(fallback.extraction["strategy"], "url-fallback");
+
+        let invalid_escape =
+            title_normalization_enrichment("https://example.com/docs/bad%zztitle", None);
+        assert_eq!(invalid_escape.readable_title.as_deref(), Some("bad%zztitle"));
+
+        let empty = title_normalization_enrichment("notaurl", Some(" \n\t "));
+        assert_eq!(empty.status, "empty");
+        assert!(empty.snippets.is_empty());
+
+        let unsupported = EnrichmentResult {
+            status: "unsupported-content".to_string(),
+            extraction: serde_json::json!({ "contentType": "image/png" }),
+            ..EnrichmentResult::default()
+        };
+        assert!(enrichment_is_terminal_failure(&unsupported));
+        assert!(enrichment_failure_message(&unsupported).contains("image/png"));
+
+        let fetch_error = EnrichmentResult {
+            status: "fetch-error".to_string(),
+            extraction: serde_json::json!({ "error": "connection refused" }),
+            ..EnrichmentResult::default()
+        };
+        assert!(enrichment_failure_message(&fetch_error).contains("connection refused"));
+
+        let decode_with_context = EnrichmentResult {
+            status: "decode-error".to_string(),
+            extraction: serde_json::json!({
+                "contentType": "application/gzip",
+                "error": "invalid gzip header"
+            }),
+            ..EnrichmentResult::default()
+        };
+        assert!(enrichment_failure_message(&decode_with_context).contains("application/gzip"));
+        let decode_without_context = EnrichmentResult {
+            status: "decode-error".to_string(),
+            extraction: serde_json::json!({}),
+            ..EnrichmentResult::default()
+        };
+        assert_eq!(
+            enrichment_failure_message(&decode_without_context),
+            "Could not decode the response body."
+        );
+        let decode_content_only = EnrichmentResult {
+            status: "decode-error".to_string(),
+            extraction: serde_json::json!({ "contentType": "text/html" }),
+            ..EnrichmentResult::default()
+        };
+        assert_eq!(
+            enrichment_failure_message(&decode_content_only),
+            "Could not decode the response body (text/html)."
+        );
+        let decode_error_only = EnrichmentResult {
+            status: "decode-error".to_string(),
+            extraction: serde_json::json!({ "error": "bad bytes" }),
+            ..EnrichmentResult::default()
+        };
+        assert_eq!(
+            enrichment_failure_message(&decode_error_only),
+            "Could not decode the response body. bad bytes"
+        );
+        let unknown = EnrichmentResult {
+            status: "empty".to_string(),
+            extraction: serde_json::json!({ "error": "no readable text" }),
+            ..EnrichmentResult::default()
+        };
+        assert_eq!(enrichment_failure_message(&unknown), "no readable text");
+        let unknown_without_error = EnrichmentResult {
+            status: "empty".to_string(),
+            extraction: serde_json::json!({}),
+            ..EnrichmentResult::default()
+        };
+        assert_eq!(
+            enrichment_failure_message(&unknown_without_error),
+            "Enrichment failed with status empty"
+        );
+
+        store_enrichment(
+            &paths,
+            &connection,
+            55,
+            "capture",
+            &EnrichmentResult {
+                status: "success".to_string(),
+                final_url: Some("https://example.com/docs".to_string()),
+                language: Some("en".to_string()),
+                readable_title: Some("Readable Docs".to_string()),
+                readable_text: Some("Long readable body".to_string()),
+                snippets: vec!["Long readable body".to_string()],
+                extraction: serde_json::json!({ "strategy": "test" }),
+            },
+        )
+        .expect("store enrichment");
+
+        let content = preferred_embedding_content(
+            &paths,
+            &connection,
+            55,
+            "chrome:Default",
+            "https://example.com/docs",
+            Some("Browser Docs"),
+            "2026-04-17T00:00:00Z",
+        )
+        .expect("preferred content");
+        assert!(content.contains("Readable title: Readable Docs"));
+        assert!(content.contains("Readable text:\nLong readable body"));
+    }
+
+    #[test]
+    fn refetch_visit_content_covers_http_success_and_failure_states() {
+        let client = build_refetch_client().expect("client");
+        let mut server = mockito::Server::new();
+        let article = server
+            .mock("GET", "/article")
+            .with_status(200)
+            .with_header("content-type", "text/html; charset=utf-8")
+            .with_body(
+                "<html lang='en'><head><title> PathKeep Article </title></head>\
+                 <body><main><h1>Heading</h1><p>First paragraph.</p>\
+                 <p>Second paragraph.</p><p>Third paragraph.</p><p>Fourth paragraph.</p>\
+                 </main></body></html>",
+            )
+            .create();
+        let article_result = refetch_visit_content(&client, &format!("{}/article", server.url()));
+        article.assert();
+        assert_eq!(article_result.status, "success");
+        assert_eq!(article_result.language.as_deref(), Some("en"));
+        assert_eq!(article_result.readable_title.as_deref(), Some("PathKeep Article"));
+        assert_eq!(article_result.snippets.len(), 3);
+        assert!(
+            article_result
+                .readable_text
+                .as_deref()
+                .is_some_and(|text| text.contains("Second paragraph."))
+        );
+
+        let plain = server
+            .mock("GET", "/plain")
+            .with_status(200)
+            .with_header("content-type", "text/plain")
+            .with_body("not html")
+            .create();
+        let plain_result = refetch_visit_content(&client, &format!("{}/plain", server.url()));
+        plain.assert();
+        assert_eq!(plain_result.status, "unsupported-content");
+        assert!(enrichment_is_terminal_failure(&plain_result));
+
+        let compressed = server
+            .mock("GET", "/bad-gzip")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_header("content-encoding", "gzip")
+            .with_body("this is not gzip")
+            .create();
+        let compressed_result =
+            refetch_visit_content(&client, &format!("{}/bad-gzip", server.url()));
+        compressed.assert();
+        assert_eq!(compressed_result.status, "decode-error");
+
+        let fetch_result = refetch_visit_content(&client, "not a url");
+        assert_eq!(fetch_result.status, "fetch-error");
+    }
+
+    #[test]
+    fn html_enrichment_result_covers_fallback_adapter_and_truncation_paths() {
+        let fallback = build_enrichment_result_from_html(
+            "https://example.com/fallback",
+            Some("https://example.com/fallback".to_string()),
+            "text/html".to_string(),
+            "<html><body> Body fallback only </body></html>",
+        );
+        assert_eq!(fallback.status, "success");
+        assert_eq!(fallback.snippets, vec!["Body fallback only".to_string()]);
+
+        let long_text = "x".repeat(12_010);
+        let truncated = build_enrichment_result_from_html(
+            "https://example.com/long",
+            Some("https://example.com/long".to_string()),
+            "text/html".to_string(),
+            &format!("<html><body><main><p>{long_text}</p></main></body></html>"),
+        );
+        assert_eq!(truncated.readable_text.as_deref().map(str::len), Some(12_000));
+
+        let youtube = build_enrichment_result_from_html(
+            "https://www.youtube.com/watch?v=abc123",
+            Some("https://www.youtube.com/watch?v=abc123".to_string()),
+            "text/html".to_string(),
+            r#"
+            <html lang="en">
+              <head>
+                <title>Generic title</title>
+                <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "VideoObject",
+                  "name": "PathKeep demo",
+                  "description": "A walkthrough of local history backup.",
+                  "author": { "name": "PathKeep" },
+                  "duration": "PT1H2M3S",
+                  "uploadDate": "2026-04-17"
+                }
+                </script>
+              </head>
+              <body><main><p>Generic body text.</p></main></body>
+            </html>
+            "#,
+        );
+        assert_eq!(youtube.status, "success");
+        assert_eq!(youtube.readable_title.as_deref(), Some("PathKeep demo"));
+        assert!(
+            youtube
+                .readable_text
+                .as_deref()
+                .is_some_and(|text| text.contains("Video: PathKeep demo"))
+        );
+        assert_eq!(youtube.extraction["siteAdapter"]["id"], "youtube-video");
+        assert_eq!(youtube.extraction["siteAdapter"]["metadata"]["videoId"], "abc123");
+    }
+
+    #[test]
+    fn site_adapter_merge_falls_back_to_generic_snippets_and_status() {
+        let merged = merge_site_adapter_result(
+            EnrichmentResult {
+                status: "empty".to_string(),
+                final_url: Some("https://video.example/watch".to_string()),
+                language: Some("en".to_string()),
+                readable_title: Some("Generic title".to_string()),
+                readable_text: None,
+                snippets: vec!["Generic snippet".to_string()],
+                extraction: serde_json::json!({}),
+            },
+            "text/html",
+            SiteAdapterResult {
+                adapter_id: "fixture-video",
+                readable_title: None,
+                readable_text: None,
+                snippets: Vec::new(),
+                metadata: serde_json::json!({ "fixture": true }),
+            },
+        );
+
+        assert_eq!(merged.status, "empty");
+        assert_eq!(merged.readable_title.as_deref(), Some("Generic title"));
+        assert_eq!(merged.snippets, vec!["Generic snippet".to_string()]);
+        assert_eq!(merged.extraction["siteAdapter"]["id"], "fixture-video");
+    }
+
+    #[test]
     fn execute_enrichment_job_by_id_runs_outside_legacy_insights_module() {
         let root = tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
@@ -770,5 +1085,310 @@ mod tests {
             )
             .expect("stored title");
         assert_eq!(stored_title.as_deref(), Some("pathkeep archive replay"));
+    }
+
+    #[test]
+    fn execute_enrichment_job_by_id_covers_cancellation_and_failure_edges() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let connection = Connection::open(&paths.intelligence_database_path).expect("sqlite");
+        ensure_visit_content_enrichment_schema(&connection).expect("schema");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+
+        assert!(
+            !execute_enrichment_job_by_id(&paths, &connection, 404)
+                .expect("missing enrichment job is a no-op")
+        );
+
+        let title_plugin =
+            built_in_enrichment_plugin(TITLE_NORMALIZATION_PLUGIN_ID).expect("title plugin");
+        let readable_plugin =
+            built_in_enrichment_plugin(READABLE_CONTENT_PLUGIN_ID).expect("readable plugin");
+        let enqueue = |history_id: i64, plugin_id: &str, title: Option<&str>| {
+            let plugin = if plugin_id == TITLE_NORMALIZATION_PLUGIN_ID {
+                title_plugin
+            } else {
+                readable_plugin
+            };
+            enqueue_enrichment_job(
+                &connection,
+                41,
+                plugin,
+                &EnrichmentJobPayload {
+                    history_id,
+                    profile_id: "chrome:Default".to_string(),
+                    url: if plugin_id == READABLE_CONTENT_PLUGIN_ID {
+                        "not a url".to_string()
+                    } else {
+                        format!("https://example.com/docs/{history_id}")
+                    },
+                    title: title.map(ToString::to_string),
+                },
+            )
+            .expect("enqueue enrichment job");
+            connection
+                .query_row(
+                    "SELECT id FROM intelligence_jobs WHERE dedupe_key = ?1",
+                    [format!("{plugin_id}:{history_id}")],
+                    |row: &Row<'_>| row.get::<_, i64>(0),
+                )
+                .expect("job id")
+        };
+
+        let pre_cancelled_id = enqueue(101, TITLE_NORMALIZATION_PLUGIN_ID, Some("Pre cancel"));
+        connection
+            .execute(
+                &format!(
+                    "CREATE TRIGGER enrichment_pre_cancel
+                     AFTER UPDATE OF state ON intelligence_jobs
+                     WHEN NEW.id = {pre_cancelled_id} AND NEW.state = 'running'
+                     BEGIN
+                       UPDATE intelligence_jobs SET stop_requested = 1 WHERE id = NEW.id;
+                     END"
+                ),
+                [],
+            )
+            .expect("create targeted pre-cancel trigger");
+        assert!(
+            execute_enrichment_job_by_id(&paths, &connection, pre_cancelled_id)
+                .expect("pre-cancelled job handled")
+        );
+        connection
+            .execute("DROP TRIGGER enrichment_pre_cancel", [])
+            .expect("drop pre-cancel trigger");
+        let pre_cancelled_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [pre_cancelled_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("pre-cancelled state");
+        assert_eq!(pre_cancelled_state, "cancelled");
+
+        let unknown_id = {
+            let now = now_rfc3339();
+            let payload = serde_json::to_string(&EnrichmentJobPayload {
+                history_id: 102,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/unknown".to_string(),
+                title: Some("Unknown Plugin".to_string()),
+            })
+            .expect("payload json");
+            connection
+                .execute(
+                    "INSERT INTO intelligence_jobs
+                     (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key,
+                      payload_json, artifact_json, created_at, scheduled_at, updated_at)
+                     VALUES (?1, 'unknown-enrichment-plugin', 41, 'queued', 10, 0,
+                      'unknown-enrichment-plugin:102', ?2, '{}', ?3, ?3, ?3)",
+                    params![ENRICHMENT_JOB_TYPE, payload, now],
+                )
+                .expect("insert unknown plugin job");
+            connection.last_insert_rowid()
+        };
+        assert!(
+            execute_enrichment_job_by_id(&paths, &connection, unknown_id)
+                .expect("unknown plugin handled")
+        );
+        let unknown_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [unknown_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("unknown state");
+        assert_eq!(unknown_state, "failed");
+
+        let post_success_cancelled_id =
+            enqueue(103, TITLE_NORMALIZATION_PLUGIN_ID, Some("Post success cancel"));
+        connection
+            .execute(
+                &format!(
+                    "CREATE TRIGGER enrichment_post_success_cancel
+                     AFTER INSERT ON visit_content_enrichments
+                     WHEN NEW.history_id = 103
+                     BEGIN
+                       UPDATE intelligence_jobs SET stop_requested = 1
+                       WHERE id = {post_success_cancelled_id};
+                     END"
+                ),
+                [],
+            )
+            .expect("create success cancel trigger");
+        assert!(
+            execute_enrichment_job_by_id(&paths, &connection, post_success_cancelled_id)
+                .expect("post-success cancelled job handled")
+        );
+        connection
+            .execute("DROP TRIGGER enrichment_post_success_cancel", [])
+            .expect("drop success cancel trigger");
+        let post_success_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [post_success_cancelled_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("post success state");
+        assert_eq!(post_success_state, "cancelled");
+
+        let terminal_failure_id = enqueue(104, READABLE_CONTENT_PLUGIN_ID, None);
+        assert!(
+            execute_enrichment_job_by_id(&paths, &connection, terminal_failure_id)
+                .expect("terminal enrichment failure handled")
+        );
+        let terminal_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [terminal_failure_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("terminal state");
+        assert_eq!(terminal_state, "failed");
+
+        let terminal_cancelled_id = enqueue(105, READABLE_CONTENT_PLUGIN_ID, None);
+        connection
+            .execute(
+                &format!(
+                    "CREATE TRIGGER enrichment_terminal_cancel
+                     AFTER INSERT ON visit_content_enrichments
+                     WHEN NEW.history_id = 105
+                     BEGIN
+                       UPDATE intelligence_jobs SET stop_requested = 1
+                       WHERE id = {terminal_cancelled_id};
+                     END"
+                ),
+                [],
+            )
+            .expect("create terminal cancel trigger");
+        assert!(
+            execute_enrichment_job_by_id(&paths, &connection, terminal_cancelled_id)
+                .expect("terminal cancelled job handled")
+        );
+        connection
+            .execute("DROP TRIGGER enrichment_terminal_cancel", [])
+            .expect("drop terminal cancel trigger");
+        let terminal_cancelled_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [terminal_cancelled_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("terminal cancelled state");
+        assert_eq!(terminal_cancelled_state, "cancelled");
+
+        let post_plugin_stopped_id = {
+            let now = now_rfc3339();
+            let payload = EnrichmentJobPayload {
+                history_id: 106,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/post-plugin-stopped".to_string(),
+                title: Some("Post plugin stopped".to_string()),
+            };
+            connection
+                .execute(
+                    "INSERT INTO intelligence_jobs
+                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
+                      'title-normalization:106', ?3, '{}', ?4, ?4, ?4)",
+                    params![
+                        ENRICHMENT_JOB_TYPE,
+                        TITLE_NORMALIZATION_PLUGIN_ID,
+                        serde_json::to_string(&payload).expect("payload json"),
+                        now
+                    ],
+                )
+                .expect("insert post-plugin stopped job");
+            (
+                connection.last_insert_rowid(),
+                ClaimedEnrichmentJob {
+                    id: connection.last_insert_rowid(),
+                    plugin_id: TITLE_NORMALIZATION_PLUGIN_ID.to_string(),
+                    attempt: 1,
+                    payload,
+                },
+            )
+        };
+        assert!(
+            finish_claimed_enrichment_job(
+                &paths,
+                &connection,
+                &post_plugin_stopped_id.1,
+                &EnrichmentResult::default(),
+            )
+            .expect("finish stopped post-plugin job")
+        );
+        let post_plugin_stopped_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [post_plugin_stopped_id.0],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("post-plugin stopped state");
+        assert_eq!(post_plugin_stopped_state, "cancelled");
+
+        let stopped_running_id = {
+            let now = now_rfc3339();
+            let payload = serde_json::to_string(&EnrichmentJobPayload {
+                history_id: 108,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/stopped".to_string(),
+                title: Some("Stopped".to_string()),
+            })
+            .expect("payload json");
+            connection
+                .execute(
+                    "INSERT INTO intelligence_jobs
+                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
+                      'title-normalization:108', ?3, '{}', ?4, ?4, ?4)",
+                    params![ENRICHMENT_JOB_TYPE, TITLE_NORMALIZATION_PLUGIN_ID, payload, now],
+                )
+                .expect("insert stopped running job");
+            connection.last_insert_rowid()
+        };
+        assert_eq!(
+            finish_if_enrichment_cancelled(&connection, stopped_running_id)
+                .expect("finish stopped running job"),
+            Some(true)
+        );
+
+        let unknown_stopped_id = {
+            let now = now_rfc3339();
+            let payload = serde_json::to_string(&EnrichmentJobPayload {
+                history_id: 109,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/unknown-stopped".to_string(),
+                title: Some("Unknown stopped".to_string()),
+            })
+            .expect("payload json");
+            connection
+                .execute(
+                    "INSERT INTO intelligence_jobs
+                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+                     VALUES (?1, 'unknown-enrichment-plugin', 41, 'running', 10, 1, 1,
+                      'unknown-enrichment-plugin:109', ?2, '{}', ?3, ?3, ?3)",
+                    params![ENRICHMENT_JOB_TYPE, payload, now],
+                )
+                .expect("insert stopped unknown plugin job");
+            connection.last_insert_rowid()
+        };
+        fail_unknown_enrichment_plugin(
+            &connection,
+            unknown_stopped_id,
+            "unknown-enrichment-plugin",
+        )
+        .expect("cancel stopped unknown plugin job");
+        let unknown_stopped_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [unknown_stopped_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("unknown stopped state");
+        assert_eq!(unknown_stopped_state, "cancelled");
     }
 }

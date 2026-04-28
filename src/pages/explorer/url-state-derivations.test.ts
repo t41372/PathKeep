@@ -219,6 +219,25 @@ describe('explorer url-state derivations', () => {
     expect(label).toBe(
       'Semantic · Session · Enabled · sqlite · example.com · Default Profile · Chrome · Apr 1 - Apr 20',
     )
+
+    const fallbackDateLabel = buildExplorerRecentSearchLabel({
+      explorerT,
+      formatRecentDate: () => null,
+      params: {
+        mode: 'hybrid',
+        view: 'trail',
+        regex: null,
+        q: '   ',
+        domain: '   ',
+        profileId: null,
+        browserKind: null,
+        start: '2026-04-01',
+        end: '2026-04-20',
+      },
+    })
+    expect(fallbackDateLabel).toBe(
+      'Hybrid · Search Trail · All time - All time',
+    )
   })
 
   test('resolves grouped date windows and active shortcuts from calendar dates', () => {
@@ -256,6 +275,14 @@ describe('explorer url-state derivations', () => {
       resolveExplorerActiveDateShortcut(
         '2026-04-01',
         '2026-04-19',
+        new Date('2026-04-20T12:00:00Z'),
+      ),
+    ).toBeNull()
+
+    expect(
+      resolveExplorerActiveDateShortcut(
+        '2026-04-18',
+        '2026-04-20',
         new Date('2026-04-20T12:00:00Z'),
       ),
     ).toBeNull()

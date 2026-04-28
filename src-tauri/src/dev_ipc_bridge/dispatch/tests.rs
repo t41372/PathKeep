@@ -20,19 +20,46 @@
 //! These tests run only tiny dispatch paths and must not bootstrap archives,
 //! browser fixtures, or intelligence rebuilds.
 
+#![allow(unexpected_cfgs)]
+
 use crate::session::{SessionState, session_key};
+use crate::test_support::{
+    CHROME_USER_DATA_OVERRIDE_ENV, PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV, lock_env,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use std::{
+    future::Future,
+    pin::pin,
+    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+};
+use tempfile::tempdir;
+use vault_core::{
+    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderPurpose,
+    AiProviderSecretInput, AiSearchRequest, AppConfig, AppUpdateInstallRequest, ArchiveMode,
+    BrowserHistoryImportRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
+    CoreIntelligenceRebuildRequest, DateRange, DayInsightsRequest, DomainDeepDiveRequest,
+    DomainTrendRequest, EntityExplanationRequest, ExportFormat, ExportRequest,
+    FrontendErrorReportRequest, GeneratedFile, GranularityDateRangeRequest,
+    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
+    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
+    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
+    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
+    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
+    TopSitesRequest, UnlockAppSessionRequest,
+};
+use vault_worker::RekeyRequest;
 
 use super::super::{DEFAULT_DEV_IPC_BRIDGE_PORT, DevIpcBridgeState};
 use super::dispatch_command;
 
+const COVERAGE_UPDATER_STATE_ENV: &str = "PATHKEEP_COVERAGE_UPDATER_STATE";
+
 #[tokio::test]
 async fn dispatch_command_handles_session_round_trip_without_tauri_app() {
-    let state = DevIpcBridgeState {
-        app: None,
-        session: SessionState::default(),
-        port: DEFAULT_DEV_IPC_BRIDGE_PORT,
-    };
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
 
     let set =
         dispatch_command(&state, "set_session_database_key", json!({ "databaseKey": "secret" }))
@@ -50,15 +77,618 @@ async fn dispatch_command_handles_session_round_trip_without_tauri_app() {
 
 #[tokio::test]
 async fn dispatch_command_rejects_unknown_commands() {
-    let state = DevIpcBridgeState {
-        app: None,
-        session: SessionState::default(),
-        port: DEFAULT_DEV_IPC_BRIDGE_PORT,
-    };
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
 
     let error = dispatch_command(&state, "missing", json!({}))
         .await
         .expect_err("missing command should fail");
 
     assert!(error.contains("does not recognize"));
+}
+
+fn wrapped<T: Serialize>(request: T) -> Value {
+    json!({ "request": request })
+}
+
+fn input<T: Serialize>(input: T) -> Value {
+    json!({ "input": input })
+}
+
+fn schedule_plan() -> SchedulePlan {
+    SchedulePlan {
+        platform: "linux".to_string(),
+        label: "Linux".to_string(),
+        executable_path: "/tmp/pathkeep".to_string(),
+        generated_files: vec![GeneratedFile {
+            relative_path: "pathkeep.timer".to_string(),
+            absolute_path: None,
+            purpose: "test fixture".to_string(),
+            contents: "timer".to_string(),
+        }],
+        manual_steps: vec!["review".to_string()],
+        apply_commands: Vec::new(),
+        rollback_commands: Vec::new(),
+        apply_supported: false,
+    }
+}
+
+#[tokio::test]
+async fn dispatch_command_runs_updater_commands_when_app_handle_is_available() {
+    let guard = lock_env();
+    let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+    context.config_mut().plugins.0.insert(
+        "updater".to_string(),
+        json!({
+            "pubkey": "test-public-key",
+            "endpoints": []
+        }),
+    );
+    let app = tauri::test::mock_builder()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .build(context)
+        .expect("mock app");
+    let state = DevIpcBridgeState::with_app(
+        app.handle().clone(),
+        SessionState::default(),
+        DEFAULT_DEV_IPC_BRIDGE_PORT,
+    );
+
+    unsafe {
+        std::env::set_var(COVERAGE_UPDATER_STATE_ENV, "available");
+    }
+    drop(guard);
+    let check =
+        dispatch_command(&state, "check_for_app_update", json!({})).await.expect("check update");
+    assert_eq!(check.pointer("/availability/supported").and_then(Value::as_bool), Some(true));
+
+    let install = dispatch_command(
+        &state,
+        "download_and_install_app_update",
+        json!({ "request": AppUpdateInstallRequest::default() }),
+    )
+    .await
+    .expect("install update");
+    assert!(install.pointer("/phase").and_then(Value::as_str).is_some());
+
+    #[cfg(coverage)]
+    {
+        let relaunch = dispatch_command(&state, "relaunch_after_update", json!({}))
+            .await
+            .expect("relaunch update");
+        assert_eq!(relaunch, Value::Bool(true));
+    }
+
+    unsafe {
+        std::env::remove_var(COVERAGE_UPDATER_STATE_ENV);
+    }
+}
+
+fn test_config() -> AppConfig {
+    AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        selected_profile_ids: Vec::new(),
+        git_enabled: false,
+        ..AppConfig::default()
+    }
+}
+
+fn ready_block_on<F: Future>(future: F) -> F::Output {
+    fn raw_waker() -> RawWaker {
+        fn clone(_: *const ()) -> RawWaker {
+            raw_waker()
+        }
+        fn wake(_: *const ()) {}
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, wake);
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+
+    let waker = unsafe { Waker::from_raw(raw_waker()) };
+    let mut context = Context::from_waker(&waker);
+    let mut future = pin!(future);
+    match future.as_mut().poll(&mut context) {
+        Poll::Ready(output) => output,
+        Poll::Pending => panic!("dispatch coverage command unexpectedly yielded"),
+    }
+}
+
+fn dispatch_for_coverage(state: &DevIpcBridgeState, command: &str, payload: Value) {
+    let _ = ready_block_on(dispatch_command(state, command, payload));
+}
+
+#[test]
+fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("chrome-user-data");
+    let keyring_root = dir.path().join("test-keyring");
+    std::fs::create_dir_all(&chrome_root).expect("chrome root");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let date_range = DateRange { start: "1970-01-01".to_string(), end: "2100-01-01".to_string() };
+    let scoped = ScopedDateRangeRequest { date_range: date_range.clone(), profile_id: None };
+    let paged = PagedDateRangeRequest {
+        date_range: date_range.clone(),
+        profile_id: None,
+        page: 0,
+        page_size: 10,
+    };
+    let top_sites = TopSitesRequest {
+        date_range: date_range.clone(),
+        profile_id: None,
+        sort_by: None,
+        limit: Some(10),
+    };
+    let takeout = TakeoutRequest {
+        source_path: dir.path().join("takeout").display().to_string(),
+        dry_run: true,
+    };
+    let browser_history = BrowserHistoryImportRequest {
+        source_path: dir.path().join("History").display().to_string(),
+        dry_run: true,
+        browser_family: Some("chromium".to_string()),
+        profile_id: Some("chrome:Default".to_string()),
+        browser_name: Some("Chrome".to_string()),
+        profile_name: Some("Default".to_string()),
+    };
+    let intelligence_host = IntelligenceLocalHostRequest {
+        date_range: date_range.clone(),
+        profile_id: None,
+        locale: "en".to_string(),
+    };
+
+    dispatch_for_coverage(&state, "app_build_info", json!({}));
+    dispatch_for_coverage(&state, "app_snapshot", json!({}));
+    dispatch_for_coverage(&state, "app_lock_status", json!({}));
+    dispatch_for_coverage(&state, "save_config", json!({ "config": test_config() }));
+    dispatch_for_coverage(
+        &state,
+        "initialize_archive",
+        json!({ "config": test_config(), "databaseKey": null }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "preview_rekey_archive",
+        wrapped(RekeyRequest { new_mode: ArchiveMode::Encrypted, new_key: None }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "rekey_archive",
+        wrapped(RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("dispatch-passphrase".to_string()),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "preview_snapshot_restore",
+        wrapped(SnapshotRestoreRequest {
+            snapshot_path: dir.path().join("missing-snapshot.sqlite").display().to_string(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "run_snapshot_restore",
+        wrapped(SnapshotRestoreRequest {
+            snapshot_path: dir.path().join("missing-snapshot.sqlite").display().to_string(),
+        }),
+    );
+    dispatch_for_coverage(&state, "preview_retention_prune", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "run_retention_prune",
+        wrapped(RetentionPruneRequest { bucket_ids: vec!["snapshots".to_string()] }),
+    );
+    dispatch_for_coverage(&state, "set_session_database_key", json!({ "databaseKey": "key" }));
+    dispatch_for_coverage(&state, "clear_session_database_key", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "set_app_lock_passcode",
+        wrapped(SetAppLockPasscodeRequest {
+            passcode: "1234".to_string(),
+            recovery_hint: Some("hint".to_string()),
+        }),
+    );
+    dispatch_for_coverage(&state, "clear_app_lock_passcode", json!({}));
+    dispatch_for_coverage(&state, "lock_app_session", json!({ "reason": "coverage" }));
+    dispatch_for_coverage(
+        &state,
+        "unlock_app_session",
+        wrapped(UnlockAppSessionRequest {
+            passcode: Some("1234".to_string()),
+            use_biometric: false,
+        }),
+    );
+    dispatch_for_coverage(&state, "run_backup_now", json!({ "dueOnly": false }));
+    dispatch_for_coverage(&state, "query_history", json!({ "query": HistoryQuery::default() }));
+    dispatch_for_coverage(
+        &state,
+        "load_history_favicons",
+        json!({
+            "entries": [HistoryFaviconLookupEntry {
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com".to_string(),
+                visit_time: 0,
+            }]
+        }),
+    );
+    dispatch_for_coverage(&state, "load_dashboard_snapshot", json!({}));
+    dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
+    dispatch_for_coverage(
+        &state,
+        "export_history",
+        json!({ "request": ExportRequest { query: HistoryQuery::default(), format: ExportFormat::Jsonl } }),
+    );
+    dispatch_for_coverage(&state, "preview_remote_backup", json!({}));
+    dispatch_for_coverage(&state, "run_remote_backup", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "verify_remote_backup",
+        json!({ "bundlePath": dir.path().join("missing.zip").display().to_string() }),
+    );
+    dispatch_for_coverage(&state, "inspect_takeout", json!({ "request": takeout.clone() }));
+    dispatch_for_coverage(&state, "import_takeout", json!({ "request": takeout }));
+    dispatch_for_coverage(
+        &state,
+        "inspect_browser_history",
+        json!({ "request": browser_history.clone() }),
+    );
+    dispatch_for_coverage(&state, "import_browser_history", json!({ "request": browser_history }));
+    dispatch_for_coverage(&state, "preview_import_batch", json!({ "batchId": 1 }));
+    dispatch_for_coverage(&state, "revert_import_batch", json!({ "batchId": 1 }));
+    dispatch_for_coverage(&state, "restore_import_batch", json!({ "batchId": 1 }));
+    dispatch_for_coverage(&state, "preview_schedule", json!({ "platform": "linux" }));
+    dispatch_for_coverage(&state, "schedule_status", json!({ "platform": "linux" }));
+    dispatch_for_coverage(&state, "apply_schedule", json!({ "plan": schedule_plan() }));
+    dispatch_for_coverage(&state, "remove_schedule", json!({ "plan": schedule_plan() }));
+    dispatch_for_coverage(&state, "doctor_report", json!({}));
+    dispatch_for_coverage(&state, "repair_health", json!({}));
+    dispatch_for_coverage(&state, "clear_derived_intelligence", json!({}));
+    dispatch_for_coverage(&state, "keyring_status", json!({}));
+    dispatch_for_coverage(&state, "security_status", json!({}));
+    dispatch_for_coverage(&state, "keyring_get_database_key", json!({}));
+    dispatch_for_coverage(&state, "keyring_store_database_key", json!({ "value": "secret" }));
+    dispatch_for_coverage(&state, "keyring_clear_database_key", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "store_s3_credentials",
+        json!({ "credentials": S3CredentialInput {
+            access_key_id: "access".to_string(),
+            secret_access_key: "secret".to_string(),
+        } }),
+    );
+    dispatch_for_coverage(&state, "clear_s3_credentials", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "store_ai_provider_api_key",
+        json!({ "input": AiProviderSecretInput {
+            provider_id: "llm-primary".to_string(),
+            api_key: "secret".to_string(),
+        } }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "clear_ai_provider_api_key",
+        json!({ "providerId": "llm-primary" }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "test_ai_provider_connection",
+        wrapped(AiProviderConnectionTestRequest {
+            provider_id: "llm-primary".to_string(),
+            purpose: AiProviderPurpose::Llm,
+        }),
+    );
+    dispatch_for_coverage(&state, "load_ai_queue_status", json!({}));
+    dispatch_for_coverage(&state, "run_ai_queue_jobs", json!({ "maxJobs": 1 }));
+    dispatch_for_coverage(&state, "replay_ai_job", json!({ "jobId": 999 }));
+    dispatch_for_coverage(&state, "cancel_ai_job", json!({ "jobId": 999 }));
+    dispatch_for_coverage(&state, "load_ai_assistant_job", json!({ "jobId": 999 }));
+    dispatch_for_coverage(&state, "build_ai_index", wrapped(AiIndexRequest::default()));
+    dispatch_for_coverage(
+        &state,
+        "search_ai_history",
+        wrapped(AiSearchRequest {
+            query: "example".to_string(),
+            profile_id: None,
+            domain: None,
+            limit: Some(5),
+            cursor: None,
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "ask_ai_assistant",
+        wrapped(AiAssistantRequest {
+            question: "What did I visit?".to_string(),
+            profile_id: None,
+            domain: None,
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "run_core_intelligence_now",
+        wrapped(CoreIntelligenceRebuildRequest::default()),
+    );
+    dispatch_for_coverage(
+        &state,
+        "queue_core_intelligence_rebuild",
+        wrapped(CoreIntelligenceRebuildRequest::default()),
+    );
+    dispatch_for_coverage(&state, "get_sessions", wrapped(paged.clone()));
+    dispatch_for_coverage(&state, "get_session_detail", json!({ "sessionId": "missing" }));
+    dispatch_for_coverage(
+        &state,
+        "get_search_trails",
+        wrapped(SearchTrailQueryRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            engine: None,
+            page: 0,
+            page_size: 10,
+        }),
+    );
+    dispatch_for_coverage(&state, "get_trail_detail", json!({ "trailId": "missing" }));
+    dispatch_for_coverage(&state, "get_navigation_path", json!({ "visitId": 1 }));
+    dispatch_for_coverage(&state, "get_hub_pages", wrapped(top_sites.clone()));
+    dispatch_for_coverage(&state, "get_search_engine_ranking", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "list_search_engine_rules", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "upsert_search_engine_rule",
+        input(SearchEngineRuleInput {
+            rule_id: Some("dispatch-rule".to_string()),
+            engine_id: "dispatch".to_string(),
+            display_name: "Dispatch".to_string(),
+            host_pattern: "search.example".to_string(),
+            path_prefix: Some("/search".to_string()),
+            query_param_key: "q".to_string(),
+            enabled: true,
+            note: None,
+            example_url: Some("https://search.example/search?q=pathkeep".to_string()),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "delete_search_engine_rule",
+        json!({ "ruleId": "dispatch-rule" }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_top_search_concepts",
+        wrapped(TopSearchConceptsRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            limit: Some(10),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_search_queries",
+        wrapped(SearchQueryListRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            browser_kind: None,
+            engine: None,
+            domain: None,
+            query: None,
+            sort: None,
+            page: 0,
+            page_size: 10,
+        }),
+    );
+    dispatch_for_coverage(&state, "get_query_families", wrapped(paged));
+    dispatch_for_coverage(
+        &state,
+        "get_query_family_detail",
+        wrapped(QueryFamilyDetailRequest {
+            family_id: "missing".to_string(),
+            date_range: date_range.clone(),
+            profile_id: None,
+        }),
+    );
+    dispatch_for_coverage(&state, "get_top_sites", wrapped(top_sites));
+    dispatch_for_coverage(
+        &state,
+        "get_domain_trend",
+        wrapped(DomainTrendRequest {
+            registrable_domain: "example.com".to_string(),
+            date_range: date_range.clone(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_refind_pages",
+        wrapped(RefindPagesRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            limit: Some(10),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_refind_page_detail",
+        wrapped(RefindPageDetailRequest {
+            canonical_url: "https://example.com/".to_string(),
+            date_range: date_range.clone(),
+            profile_id: None,
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "explain_refind",
+        wrapped(vault_core::ExplainRefindRequest {
+            canonical_url: "https://example.com/".to_string(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "explain_entity",
+        wrapped(EntityExplanationRequest {
+            entity_type: "domain".to_string(),
+            entity_id: "example.com".to_string(),
+        }),
+    );
+    dispatch_for_coverage(&state, "get_activity_mix", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "get_activity_mix_trend",
+        wrapped(GranularityDateRangeRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            granularity: "day".to_string(),
+        }),
+    );
+    dispatch_for_coverage(&state, "get_digest_summary", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_intelligence_primary_overview", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_intelligence_secondary_overview", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_stable_sources", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "get_search_effectiveness",
+        wrapped(SearchEffectivenessRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            engine: None,
+        }),
+    );
+    dispatch_for_coverage(&state, "get_friction_signals", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_reopened_investigations", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "get_domain_deep_dive",
+        wrapped(DomainDeepDiveRequest {
+            registrable_domain: "example.com".to_string(),
+            date_range: date_range.clone(),
+            profile_id: None,
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_day_insights",
+        wrapped(DayInsightsRequest { date: "2026-04-01".to_string(), profile_id: None }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_browsing_rhythm",
+        wrapped(CategoryFilteredDateRangeRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            category: None,
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_discovery_trend",
+        wrapped(GranularityDateRangeRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            granularity: "week".to_string(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_intelligence_embed_cards",
+        wrapped(IntelligenceEmbedCardsRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            limit: Some(4),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_intelligence_widget_snapshot",
+        wrapped(IntelligenceEmbedCardsRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            limit: Some(4),
+        }),
+    );
+    dispatch_for_coverage(&state, "get_intelligence_public_snapshot", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "preview_intelligence_local_host",
+        wrapped(intelligence_host.clone()),
+    );
+    dispatch_for_coverage(&state, "build_intelligence_local_host", wrapped(intelligence_host));
+    dispatch_for_coverage(&state, "get_on_this_day", json!({ "profileId": null }));
+    dispatch_for_coverage(&state, "get_breadth_index", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_habit_patterns", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "get_interrupted_habits",
+        wrapped(ProfileScopedRequest { profile_id: None }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_path_flows",
+        wrapped(PathFlowRequest {
+            date_range: date_range.clone(),
+            profile_id: None,
+            step_count: 2,
+            limit: Some(10),
+        }),
+    );
+    dispatch_for_coverage(&state, "get_observed_interactions", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "get_compare_sets", wrapped(scoped.clone()));
+    dispatch_for_coverage(
+        &state,
+        "get_compare_set_detail",
+        wrapped(CompareSetDetailRequest {
+            compare_set_id: "missing".to_string(),
+            date_range: date_range.clone(),
+            profile_id: None,
+        }),
+    );
+    dispatch_for_coverage(&state, "get_multi_browser_diff", wrapped(scoped.clone()));
+    dispatch_for_coverage(&state, "load_intelligence_runtime", json!({}));
+    dispatch_for_coverage(&state, "retry_intelligence_job", json!({ "jobId": 999 }));
+    dispatch_for_coverage(&state, "cancel_intelligence_job", json!({ "jobId": 999 }));
+    dispatch_for_coverage(&state, "preview_ai_integrations", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "record_frontend_error",
+        wrapped(FrontendErrorReportRequest {
+            source: "vitest".to_string(),
+            message: "dispatch coverage".to_string(),
+            stack: None,
+            url: Some("http://localhost/".to_string()),
+            line: Some(1),
+            column: Some(1),
+            fatal: false,
+        }),
+    );
+    dispatch_for_coverage(&state, "reset_local_secret_vault", json!({}));
+
+    dispatch_for_coverage(
+        &state,
+        "open_path_in_file_manager",
+        json!({ "path": dir.path().join("missing-path").display().to_string() }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "open_external_url",
+        json!({ "url": "ftp://example.com/pathkeep" }),
+    );
+    dispatch_for_coverage(&state, "check_for_app_update", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "download_and_install_app_update",
+        json!({ "request": AppUpdateInstallRequest::default() }),
+    );
+    dispatch_for_coverage(&state, "relaunch_after_update", json!({}));
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
 }

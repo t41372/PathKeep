@@ -111,3 +111,75 @@ fn bad_request(message: String) -> (StatusCode, axum::Json<Value>) {
 fn internal_error(message: String) -> (StatusCode, axum::Json<Value>) {
     (StatusCode::INTERNAL_SERVER_ERROR, axum::Json(json!({ "error": message })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::SessionState;
+
+    fn bridge_state() -> DevIpcBridgeState {
+        DevIpcBridgeState::without_app(SessionState::default(), 43117)
+    }
+
+    fn bridge_config() -> DevIpcBridgeConfig {
+        DevIpcBridgeConfig {
+            port: 43117,
+            allowed_origins: vec!["http://127.0.0.1:1420".to_string()],
+        }
+    }
+
+    #[test]
+    fn build_router_rejects_invalid_cors_origins() {
+        let mut config = bridge_config();
+        config.allowed_origins = vec!["not a valid origin\n".to_string()];
+
+        let error = build_router(bridge_state(), &config).expect_err("origin should fail");
+
+        assert!(error.to_string().contains("allowed origins"));
+    }
+
+    #[test]
+    fn build_router_accepts_local_origin_config() {
+        let _ = build_router(bridge_state(), &bridge_config()).expect("router should build");
+    }
+
+    #[tokio::test]
+    async fn health_and_command_routes_shape_success_and_error_envelopes() {
+        let state = bridge_state();
+        let health = bridge_health(State(state.clone())).await.expect("health");
+        assert_eq!(health.0["ok"], true);
+        assert_eq!(health.0["runtime"], "browser-desktop-bridge");
+        assert_eq!(health.0["port"], 43117);
+
+        let build_info =
+            bridge_invoke(State(state.clone()), Path("app_build_info".to_string()), Bytes::new())
+                .await
+                .expect("empty body should invoke no-arg command");
+        assert_eq!(build_info.0["productName"], PRODUCT_DISPLAY_NAME);
+
+        let (status, body) = bridge_invoke(
+            State(state.clone()),
+            Path("app_build_info".to_string()),
+            Bytes::from_static(b"{"),
+        )
+        .await
+        .expect_err("bad json should be rejected");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body.0["error"].as_str().unwrap_or_default().contains("Invalid JSON"));
+
+        let (status, body) =
+            bridge_invoke(State(state), Path("missing".to_string()), Bytes::from_static(b"{}"))
+                .await
+                .expect_err("unknown command should map to dispatch error");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.0["error"].as_str().unwrap_or_default().contains("does not recognize"));
+
+        let (status, body) = bad_request("bad".to_string());
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.0["error"], "bad");
+
+        let (status, body) = internal_error("broken".to_string());
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body.0["error"], "broken");
+    }
+}

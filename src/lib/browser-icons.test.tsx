@@ -94,8 +94,10 @@ describe('browser icons', () => {
   test('supports decorative icons and default accessible titles', () => {
     const { container } = render(
       <>
-        <BrowserIcon browserName="Firefox" decorative />
+        <BrowserIcon browserName="Firefox" decorative className="compact" />
         <BrowserIcon browserName="Arc" />
+        <BrowserIcon browserName="Future Browser" />
+        <BrowserIcon browserName="Unknown Decorative" decorative />
       </>,
     )
 
@@ -103,9 +105,30 @@ describe('browser icons', () => {
       screen.queryByRole('img', { name: 'Firefox icon' }),
     ).not.toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Arc icon' })).toBeInTheDocument()
-    expect(container.querySelectorAll('.browserIcon')).toHaveLength(2)
+    expect(
+      screen.getByRole('img', { name: 'Future Browser icon' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Arc icon' })).toHaveAttribute(
+      'class',
+      'browserIcon',
+    )
+    expect(screen.getByRole('img', { name: 'Arc icon' })).toHaveAttribute(
+      'draggable',
+      'false',
+    )
+    expect(container.querySelectorAll('.browserIcon')).toHaveLength(4)
+    expect(container.querySelector('img.browserIcon.compact')).toBeTruthy()
+    expect(
+      container.querySelector('img.browserIcon:not(.compact)'),
+    ).toHaveClass('browserIcon')
+    expect(
+      container.querySelector('img.browserIcon:not(.compact)'),
+    ).toHaveAttribute('draggable', 'false')
     expect(container.querySelector('img[aria-hidden="true"][alt=""]')).toBe(
       container.querySelector('img.browserIcon'),
     )
+    expect(
+      container.querySelector('svg[aria-hidden="true"]:not([role])'),
+    ).toBeTruthy()
   })
 })

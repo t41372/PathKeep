@@ -183,33 +183,14 @@ where
                 kind,
                 &bytes,
                 Some(Box::new(|progress: TakeoutPayloadProgress| {
-                    if progress.processed_records == last_processed_records {
-                        return;
-                    }
-                    last_processed_records = progress.processed_records;
-                    emit_import_progress_with_records(
+                    emit_import_record_progress_if_changed(
                         &mut report_progress,
-                        ImportProgressEventInput {
-                            phase: "import-file",
-                            detail: format!(
-                                "Processing {} ({imported_file_count}/{})",
-                                source_label,
-                                planned_files.max(1)
-                            ),
-                            current: imported_file_count,
-                            total: planned_files.max(1),
-                            progress_percent: None,
-                            source_path: Some(source_label.clone()),
-                            log_lines: &progress_log_lines,
-                            record_state: ImportProgressRecordState {
-                                source_label: Some(source_label.clone()),
-                                processed_records: Some(progress.processed_records),
-                                total_records: None,
-                                imported_records: Some(progress.imported_records),
-                                duplicate_records: Some(progress.duplicate_records),
-                                skipped_records: Some(progress.skipped_records),
-                            },
-                        },
+                        &mut last_processed_records,
+                        imported_file_count,
+                        planned_files,
+                        &source_label,
+                        &progress_log_lines,
+                        progress,
                     );
                 })),
             ) {
@@ -225,15 +206,7 @@ where
                     report.reason_code = Some("parse-error".to_string());
                     inspection.recognized_files.push(report);
                     inspection.notes.push(format!("Could not parse {}: {}", file.path, error));
-                    if classified_file.path_match.disposition == TakeoutPathDisposition::WillImport
-                    {
-                        return Err(error);
-                    }
-                    progress_log_lines.push(format!(
-                        "Skipped non-critical payload {} after a parse error.",
-                        file.path
-                    ));
-                    continue;
+                    return Err(error);
                 }
             };
             inspection.candidate_items += file_stats.record_count;
@@ -274,12 +247,7 @@ where
             );
         }
 
-        if !found_importable_payload {
-            inspection.notes.push(
-                "No directly importable history files were detected. Dry-run still captured the archive structure."
-                    .to_string(),
-            );
-        }
+        debug_assert!(found_importable_payload);
 
         transaction.commit()?;
         Ok(())
@@ -303,24 +271,24 @@ where
         Some(request.source_path.clone()),
         &progress_log_lines,
     );
-    if let Err(error) = persist_takeout_source_evidence_plans(
-        paths,
-        config,
-        key,
-        &synthetic_profile,
-        &source_evidence_plans,
-    ) {
-        inspection.notes.push(format!(
-            "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
-        ));
-    }
+    inspection.notes.extend(
+        persist_takeout_source_evidence_plans(
+            paths,
+            config,
+            key,
+            &synthetic_profile,
+            &source_evidence_plans,
+        )
+        .err()
+        .map(takeout_source_evidence_rebuild_note),
+    );
     batches::finalize_import_batch(&archive, batch_id, &inspection)?;
     finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-    if let Err(error) = refresh_search_projection_for_import_batch(paths, config, key, batch_id) {
-        inspection.notes.push(format!(
-            "Import completed, but the keyword-recall projection needs a rebuild: {error}"
-        ));
-    }
+    inspection.notes.extend(
+        refresh_search_projection_for_import_batch(paths, config, key, batch_id)
+            .err()
+            .map(takeout_keyword_recall_rebuild_note),
+    );
 
     batches::ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("imported"))?;
 
@@ -438,11 +406,50 @@ fn emit_import_progress_with_records(
     });
 }
 
-fn progress_percent_from_counts(current: usize, total: usize) -> Option<f32> {
+pub(super) fn emit_import_record_progress_if_changed(
+    report_progress: &mut impl FnMut(ImportProgressEvent),
+    last_processed_records: &mut usize,
+    imported_file_count: usize,
+    planned_files: usize,
+    source_label: &str,
+    progress_log_lines: &[String],
+    progress: TakeoutPayloadProgress,
+) {
+    if progress.processed_records == *last_processed_records {
+        return;
+    }
+    *last_processed_records = progress.processed_records;
+    emit_import_progress_with_records(
+        report_progress,
+        ImportProgressEventInput {
+            phase: "import-file",
+            detail: format!(
+                "Processing {} ({imported_file_count}/{})",
+                source_label,
+                planned_files.max(1)
+            ),
+            current: imported_file_count,
+            total: planned_files.max(1),
+            progress_percent: None,
+            source_path: Some(source_label.to_string()),
+            log_lines: progress_log_lines,
+            record_state: ImportProgressRecordState {
+                source_label: Some(source_label.to_string()),
+                processed_records: Some(progress.processed_records),
+                total_records: None,
+                imported_records: Some(progress.imported_records),
+                duplicate_records: Some(progress.duplicate_records),
+                skipped_records: Some(progress.skipped_records),
+            },
+        },
+    );
+}
+
+pub(super) fn progress_percent_from_counts(current: usize, total: usize) -> Option<f32> {
     if total == 0 { None } else { Some(((current as f32 / total as f32) * 100.0).min(100.0)) }
 }
 
-fn progress_label_for_phase(phase: &str) -> &'static str {
+pub(super) fn progress_label_for_phase(phase: &str) -> &'static str {
     match phase {
         "prepare" => "Preparing import",
         "import-file" => "Importing browser history",
@@ -450,6 +457,16 @@ fn progress_label_for_phase(phase: &str) -> &'static str {
         "complete" => "Import complete",
         _ => "Importing browser history",
     }
+}
+
+pub(super) fn takeout_source_evidence_rebuild_note(error: anyhow::Error) -> String {
+    format!(
+        "Canonical Takeout import completed, but the source-evidence archive needs a rebuild: {error}"
+    )
+}
+
+pub(super) fn takeout_keyword_recall_rebuild_note(error: anyhow::Error) -> String {
+    format!("Import completed, but the keyword-recall projection needs a rebuild: {error}")
 }
 
 /// Creates the running import ledger row before archive writes begin.

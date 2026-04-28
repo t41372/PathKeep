@@ -458,32 +458,14 @@ where
                 staged.family.source_kind(),
                 &source_label,
                 Some(Box::new(|progress: BrowserImportProgress| {
-                    if progress.processed_records == last_processed_records {
-                        return;
-                    }
-                    last_processed_records = progress.processed_records;
-                    emit_browser_import_progress_with_records(
+                    emit_browser_import_progress_if_changed(
                         &mut report_progress,
-                        BrowserImportProgressEventInput {
-                            phase: "import-file",
-                            detail: format!("Processing {}", source_label),
-                            current: 1,
-                            total: 1,
-                            progress_percent: None,
-                            source_path: Some(source_label.clone()),
-                            log_lines: &progress_log_lines,
-                            record_state: BrowserImportProgressState {
-                                source_label: Some(format!(
-                                    "{} / {}",
-                                    staged.browser_name, staged.profile_name
-                                )),
-                                processed_records: Some(progress.processed_records),
-                                total_records: None,
-                                imported_records: Some(progress.imported_records),
-                                duplicate_records: Some(progress.duplicate_records),
-                                skipped_records: Some(progress.skipped_records),
-                            },
-                        },
+                        &mut last_processed_records,
+                        &source_label,
+                        &staged.browser_name,
+                        &staged.profile_name,
+                        &progress_log_lines,
+                        progress,
                     );
                 })),
             );
@@ -531,43 +513,36 @@ where
                 vec![browser_file_report(&staged, "previewed", counts.visits)];
             inspection.notes =
                 streamed.warnings.iter().map(|warning| warning.message.clone()).collect::<Vec<_>>();
-            if stats.skipped_items > 0 {
-                inspection.notes.push(format!(
-                    "Skipped {} visit row(s) because their URL row was not present in the source.",
-                    stats.skipped_items
-                ));
-            }
+            append_browser_import_skipped_note(&mut inspection.notes, stats.skipped_items);
             inspection.preview_range_start = preview_range.start;
             inspection.preview_range_end = preview_range.end;
 
-            if let Err(error) = persist_browser_source_evidence_plan(
-                BrowserEvidencePersistInput {
-                    paths,
-                    config,
-                    key,
-                    profile_id: &staged.profile_id,
-                    source_profile_id,
-                    run_id,
-                    staged: &staged,
-                    counts: &counts,
-                },
-                streamed,
-                source_evidence_payload,
-                source_evidence_counts,
-            ) {
-                inspection.notes.push(format!(
-                    "Canonical Browser Direct import completed, but the source-evidence archive needs a rebuild: {error}"
-                ));
-            }
+            inspection.notes.extend(
+                persist_browser_source_evidence_plan(
+                    BrowserEvidencePersistInput {
+                        paths,
+                        config,
+                        key,
+                        profile_id: &staged.profile_id,
+                        source_profile_id,
+                        run_id,
+                        staged: &staged,
+                        counts: &counts,
+                    },
+                    streamed,
+                    source_evidence_payload,
+                    source_evidence_counts,
+                )
+                .err()
+                .map(browser_import_source_evidence_warning),
+            );
             batches::finalize_import_batch(&archive, batch_id, &inspection)?;
             finalize_successful_import_run(&archive, run_id, batch_id, &inspection, &stats)?;
-            if let Err(error) =
+            inspection.notes.extend(
                 refresh_search_projection_for_import_batch(paths, config, key, batch_id)
-            {
-                inspection.notes.push(format!(
-                    "Import completed, but the keyword-recall projection needs a rebuild: {error}"
-                ));
-            }
+                    .err()
+                    .map(browser_import_search_projection_warning),
+            );
             batches::ensure_import_batch_audit_artifact(
                 paths,
                 config,
@@ -600,16 +575,90 @@ where
             Ok(inspection)
         }
         Err(error) => {
-            finalize_failed_import_run(
-                &archive,
-                run_id,
-                &inspection.notes,
-                &ImportStats::default(),
-                &error,
-            )?;
+            finalize_failed_browser_history_import(&archive, run_id, &inspection.notes, &error)?;
             Err(error)
         }
     }
+}
+
+fn should_emit_browser_import_progress(last_processed_records: &mut usize, current: usize) -> bool {
+    if current == *last_processed_records {
+        return false;
+    }
+    *last_processed_records = current;
+    true
+}
+
+fn emit_browser_import_progress_if_changed(
+    report_progress: &mut impl FnMut(ImportProgressEvent),
+    last_processed_records: &mut usize,
+    source_label: &str,
+    browser_name: &str,
+    profile_name: &str,
+    progress_log_lines: &[String],
+    progress: BrowserImportProgress,
+) {
+    if !should_emit_browser_import_progress(last_processed_records, progress.processed_records) {
+        return;
+    }
+    emit_browser_import_progress_with_records(
+        report_progress,
+        BrowserImportProgressEventInput {
+            phase: "import-file",
+            detail: format!("Processing {source_label}"),
+            current: 1,
+            total: 1,
+            progress_percent: None,
+            source_path: Some(source_label.to_string()),
+            log_lines: progress_log_lines,
+            record_state: BrowserImportProgressState {
+                source_label: Some(format!("{browser_name} / {profile_name}")),
+                processed_records: Some(progress.processed_records),
+                total_records: None,
+                imported_records: Some(progress.imported_records),
+                duplicate_records: Some(progress.duplicate_records),
+                skipped_records: Some(progress.skipped_records),
+            },
+        },
+    );
+}
+
+fn append_browser_import_skipped_note(notes: &mut Vec<String>, skipped_items: usize) {
+    if skipped_items > 0 {
+        notes.push(format!(
+            "Skipped {} visit row(s) because their URL row was not present in the source.",
+            skipped_items
+        ));
+    }
+}
+
+#[cfg(test)]
+fn append_browser_import_source_evidence_warning(notes: &mut Vec<String>, error: &anyhow::Error) {
+    notes.push(browser_import_source_evidence_warning(anyhow::anyhow!("{error}")));
+}
+
+#[cfg(test)]
+fn append_browser_import_search_projection_warning(notes: &mut Vec<String>, error: &anyhow::Error) {
+    notes.push(browser_import_search_projection_warning(anyhow::anyhow!("{error}")));
+}
+
+fn browser_import_source_evidence_warning(error: anyhow::Error) -> String {
+    format!(
+        "Canonical Browser Direct import completed, but the source-evidence archive needs a rebuild: {error}"
+    )
+}
+
+fn browser_import_search_projection_warning(error: anyhow::Error) -> String {
+    format!("Import completed, but the keyword-recall projection needs a rebuild: {error}")
+}
+
+fn finalize_failed_browser_history_import(
+    archive: &Connection,
+    run_id: i64,
+    notes: &[String],
+    error: &anyhow::Error,
+) -> Result<()> {
+    finalize_failed_import_run(archive, run_id, notes, &ImportStats::default(), error)
 }
 
 fn upsert_browser_history_profile(
@@ -827,4 +876,292 @@ fn emit_browser_import_progress_with_records(
         duplicate_records: record_state.duplicate_records,
         skipped_records: record_state.skipped_records,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        archive::{create_schema, open_archive_connection},
+        config::{ensure_paths, project_paths_with_root},
+        models::{AppConfig, ArchiveMode},
+        utils::now_rfc3339,
+    };
+    use tempfile::tempdir;
+
+    fn parsed_url(source_url_id: i64) -> ParsedUrl {
+        ParsedUrl {
+            source_url_id,
+            url: format!("https://example.com/{source_url_id}"),
+            title: Some(format!("Example {source_url_id}")),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_ms: 1_767_222_000_000 + source_url_id,
+            last_visit_iso: "2026-01-01T00:00:00Z".to_string(),
+            hidden: false,
+        }
+    }
+
+    fn parsed_visit(source_visit_id: i64, source_url_id: i64) -> ParsedVisit {
+        ParsedVisit {
+            source_visit_id,
+            source_url_id,
+            url: format!("https://example.com/{source_url_id}"),
+            title: Some(format!("Visit {source_visit_id}")),
+            visit_time_ms: 1_767_222_000_000 + source_visit_id,
+            visit_time_iso: "2026-01-01T00:00:00Z".to_string(),
+            from_visit: None,
+            transition: Some(1),
+            visit_duration_ms: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        }
+    }
+
+    #[test]
+    fn preview_collector_counts_urls_and_caps_preview_entries() {
+        let mut collector = BrowserPreviewCollector {
+            source_path: "/tmp/History".to_string(),
+            ..BrowserPreviewCollector::default()
+        };
+        let visits = (0..(PREVIEW_LIMIT + 2))
+            .map(|index| parsed_visit(index as i64, index as i64))
+            .collect::<Vec<_>>();
+
+        collector.urls(vec![parsed_url(1)]).expect("count urls");
+        collector.visits(visits).expect("collect preview visits");
+
+        assert_eq!(collector.url_count, 1);
+        assert_eq!(collector.candidate_items, PREVIEW_LIMIT + 2);
+        assert_eq!(collector.preview_entries.len(), PREVIEW_LIMIT);
+        assert_eq!(collector.preview_entries[0].source_path, "/tmp/History");
+        assert_eq!(collector.preview_range.start.as_deref(), Some("2026-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn archive_consumer_reports_visits_without_matching_url_rows_as_skipped() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let mut archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        let transaction = archive.transaction().expect("transaction");
+        let mut progress_events = Vec::new();
+        let mut consumer = BrowserHistoryArchiveConsumer::new(
+            &paths,
+            &transaction,
+            1,
+            2,
+            3,
+            "chromium-history-db",
+            "Google Chrome / Primary",
+            Some(Box::new(|progress| progress_events.push(progress))),
+        );
+
+        consumer.visits(vec![parsed_visit(10, 999)]).expect("consume visit");
+
+        assert_eq!(consumer.counts.visits, 1);
+        assert_eq!(consumer.stats.skipped_items, 1);
+        drop(consumer);
+        assert_eq!(progress_events.len(), 1);
+        assert_eq!(progress_events[0].processed_records, 1);
+        assert_eq!(progress_events[0].skipped_records, 1);
+    }
+
+    #[test]
+    fn browser_history_import_requires_initialized_archive_before_staging() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let request = BrowserHistoryImportRequest {
+            source_path: root.path().join("missing-history").display().to_string(),
+            dry_run: false,
+            browser_family: Some("chromium".to_string()),
+            profile_id: Some("chrome:Default".to_string()),
+            browser_name: Some("Google Chrome".to_string()),
+            profile_name: Some("Default".to_string()),
+        };
+
+        let error = import_browser_history(&paths, &AppConfig::default(), None, &request)
+            .expect_err("uninitialized archive should fail before staging");
+
+        assert!(error.to_string().contains("archive must be initialized"));
+    }
+
+    #[test]
+    fn browser_history_import_marks_run_failed_when_streaming_breaks_after_staging() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("paths");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        create_schema(&archive).expect("schema");
+        let history_path = root.path().join("BrokenHistory");
+        Connection::open(&history_path)
+            .expect("broken history")
+            .execute_batch(
+                "CREATE TABLE urls (id INTEGER PRIMARY KEY);
+                 CREATE TABLE visits (id INTEGER PRIMARY KEY);",
+            )
+            .expect("minimal broken chromium schema");
+        let request = BrowserHistoryImportRequest {
+            source_path: history_path.display().to_string(),
+            dry_run: false,
+            browser_family: Some("chromium".to_string()),
+            profile_id: Some("chrome:Broken".to_string()),
+            browser_name: Some("Google Chrome".to_string()),
+            profile_name: Some("Broken".to_string()),
+        };
+
+        let error = import_browser_history(&paths, &config, None, &request)
+            .expect_err("broken staged history should fail");
+        let status = archive
+            .query_row("SELECT status FROM runs ORDER BY id DESC LIMIT 1", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("failed run status");
+
+        assert!(!format!("{error:#}").is_empty());
+        assert_eq!(status, "failed");
+    }
+
+    #[test]
+    fn browser_import_progress_uses_fallback_label_and_log_tail() {
+        let log_lines = vec![
+            "one".to_string(),
+            "two".to_string(),
+            "three".to_string(),
+            "four".to_string(),
+            "five".to_string(),
+        ];
+        let mut events = Vec::new();
+
+        emit_browser_import_progress_with_records(
+            &mut |event| events.push(event),
+            BrowserImportProgressEventInput {
+                phase: "unexpected-phase",
+                detail: "Working".to_string(),
+                current: 2,
+                total: 3,
+                progress_percent: Some(66.0),
+                source_path: Some("/tmp/History".to_string()),
+                log_lines: &log_lines,
+                record_state: BrowserImportProgressState {
+                    source_label: Some("Google Chrome / Primary".to_string()),
+                    processed_records: Some(5),
+                    total_records: Some(9),
+                    imported_records: Some(4),
+                    duplicate_records: Some(1),
+                    skipped_records: Some(0),
+                },
+            },
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].label, "Importing browser history");
+        assert_eq!(events[0].phase, "unexpected-phase");
+        assert_eq!(events[0].log_lines, vec!["two", "three", "four", "five"]);
+        assert_eq!(events[0].processed_records, Some(5));
+        assert_eq!(events[0].source_label.as_deref(), Some("Google Chrome / Primary"));
+    }
+
+    #[test]
+    fn browser_import_note_and_failure_helpers_keep_review_contract() {
+        let mut last_processed_records = 0;
+        assert!(!should_emit_browser_import_progress(&mut last_processed_records, 0));
+        assert!(should_emit_browser_import_progress(&mut last_processed_records, 3));
+        assert_eq!(last_processed_records, 3);
+        let mut progress_events = Vec::new();
+        emit_browser_import_progress_if_changed(
+            &mut |event| progress_events.push(event),
+            &mut last_processed_records,
+            "/tmp/History",
+            "Google Chrome",
+            "Primary",
+            &["importing".to_string()],
+            BrowserImportProgress {
+                processed_records: 3,
+                imported_records: 2,
+                duplicate_records: 1,
+                skipped_records: 0,
+            },
+        );
+        assert!(progress_events.is_empty());
+        emit_browser_import_progress_if_changed(
+            &mut |event| progress_events.push(event),
+            &mut last_processed_records,
+            "/tmp/History",
+            "Google Chrome",
+            "Primary",
+            &["importing".to_string()],
+            BrowserImportProgress {
+                processed_records: 4,
+                imported_records: 3,
+                duplicate_records: 1,
+                skipped_records: 0,
+            },
+        );
+        assert_eq!(progress_events.len(), 1);
+        assert_eq!(progress_events[0].processed_records, Some(4));
+        assert_eq!(progress_events[0].source_label.as_deref(), Some("Google Chrome / Primary"));
+
+        let mut notes = Vec::new();
+        append_browser_import_skipped_note(&mut notes, 2);
+        append_browser_import_source_evidence_warning(
+            &mut notes,
+            &anyhow::anyhow!("source evidence offline"),
+        );
+        append_browser_import_search_projection_warning(
+            &mut notes,
+            &anyhow::anyhow!("projection offline"),
+        );
+        assert!(notes.iter().any(|note| note.contains("Skipped 2 visit row")));
+        assert!(notes.iter().any(|note| note.contains("source-evidence archive")));
+        assert!(notes.iter().any(|note| note.contains("keyword-recall projection")));
+
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        ensure_paths(&paths).expect("ensure paths");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+        create_schema(&archive).expect("schema");
+        let now = now_rfc3339();
+        archive
+            .execute(
+                "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES ('import', 'manual', ?1, 'UTC', 'running', '[]', '[]', '{}', 0)",
+                [&now],
+            )
+            .expect("insert running import run");
+        let run_id = archive.last_insert_rowid();
+
+        finalize_failed_browser_history_import(
+            &archive,
+            run_id,
+            &notes,
+            &anyhow::anyhow!("stream failed"),
+        )
+        .expect("finalize failed import");
+        let (status, error_message): (String, Option<String>) = archive
+            .query_row("SELECT status, error_message FROM runs WHERE id = ?1", [run_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("failed run");
+        assert_eq!(status, "failed");
+        assert!(error_message.as_deref().is_some_and(|message| message.contains("stream failed")));
+    }
 }

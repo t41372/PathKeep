@@ -57,16 +57,14 @@ export function QueryFamilyInsightsRoutePage() {
         title: decodedFamilyId ?? '',
         dateRange,
       })
-  const firstSeenLabel =
-    detail && language
-      ? (formatDateTime(detail.family.firstSeenAt, language) ??
-        detail.family.firstSeenAt)
-      : null
-  const lastSeenLabel =
-    detail && language
-      ? (formatDateTime(detail.family.lastSeenAt, language) ??
-        detail.family.lastSeenAt)
-      : null
+  const firstSeenLabel = detail
+    ? (formatDateTime(detail.family.firstSeenAt, language) ??
+      detail.family.firstSeenAt)
+    : null
+  const lastSeenLabel = detail
+    ? (formatDateTime(detail.family.lastSeenAt, language) ??
+      detail.family.lastSeenAt)
+    : null
 
   return (
     <div className="intelligence-page">
@@ -112,9 +110,7 @@ export function QueryFamilyInsightsRoutePage() {
             subtitle={t('queryFamilyRouteSubtitle')}
             title={`"${detail.family.anchorQuery}"`}
           />
-          {data ? (
-            <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-          ) : null}
+          <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
           <IntelligenceMetricGrid
             className="day-insights__stats"
             items={[
@@ -144,11 +140,9 @@ export function QueryFamilyInsightsRoutePage() {
                 <QueryFamilyCard
                   family={detail.family}
                   footer={
-                    firstSeenLabel && lastSeenLabel ? (
-                      <span className="query-family-card__dates">
-                        {firstSeenLabel} - {lastSeenLabel}
-                      </span>
-                    ) : undefined
+                    <span className="query-family-card__dates">
+                      {firstSeenLabel} - {lastSeenLabel}
+                    </span>
                   }
                   href={explorerHref}
                   linkMode="anchor"

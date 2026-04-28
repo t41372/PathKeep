@@ -305,3 +305,134 @@ fn format_duration(value: String) -> String {
 fn normalize_whitespace(value: impl AsRef<str>) -> String {
     value.as_ref().split_whitespace().collect::<Vec<_>>().join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_adapters_extract_json_ld_and_url_metadata() {
+        let document = Html::parse_document(
+            r#"
+            <html><head>
+              <script type="application/ld+json">
+                {
+                  "@graph": [
+                    {"@type": "BreadcrumbList"},
+                    {
+                      "@type": ["Thing", "VideoObject"],
+                      "name": "  PathKeep   demo  ",
+                      "description": "Local first history backup",
+                      "author": {"name": "PathKeep Channel"},
+                      "duration": "PT1H02M03S",
+                      "uploadDate": "2026-04-25"
+                    }
+                  ]
+                }
+              </script>
+            </head></html>
+            "#,
+        );
+
+        let result =
+            adapt_site_content("https://www.youtube.com/watch?v=abc123&utm_source=test", &document)
+                .expect("youtube metadata");
+
+        assert_eq!(result.adapter_id, "youtube-video");
+        assert_eq!(result.readable_title.as_deref(), Some("PathKeep demo"));
+        assert_eq!(result.metadata["videoId"], "abc123");
+        assert_eq!(result.metadata["duration"], "1h 2m 3s");
+        assert!(result.readable_text.unwrap_or_default().contains("PathKeep Channel"));
+        assert_eq!(result.snippets.len(), 3);
+    }
+
+    #[test]
+    fn video_adapters_fall_back_to_meta_tags_and_short_urls() {
+        let document = Html::parse_document(
+            r#"
+            <html><head>
+              <meta property="og:title" content="  Vimeo   Case Study ">
+              <meta name="description" content="   A   precise demo   ">
+              <meta name="author" content="Research Desk">
+              <meta itemprop="duration" content="PT12M">
+              <meta property="video:release_date" content="2026-04-24">
+            </head></html>
+            "#,
+        );
+
+        let vimeo =
+            adapt_site_content("https://vimeo.com/123456/", &document).expect("vimeo metadata");
+        assert_eq!(vimeo.adapter_id, "vimeo-video");
+        assert_eq!(vimeo.metadata["videoId"], "123456");
+        assert_eq!(vimeo.metadata["duration"], "12m");
+
+        let youtube_short =
+            extract_video_id("https://youtu.be/xyz789?feature=share", "youtube-video");
+        assert_eq!(youtube_short.as_deref(), Some("xyz789"));
+    }
+
+    #[test]
+    fn adapters_ignore_unsupported_or_unreadable_video_pages() {
+        let empty = Html::parse_document(
+            r#"<html><head><script type="application/ld+json">not json</script></head></html>"#,
+        );
+        assert!(adapt_site_content("https://example.com/watch?v=1", &empty).is_none());
+        assert!(adapt_site_content("https://youtube.com/watch?v=", &empty).is_none());
+
+        let description_only = Html::parse_document(
+            r#"<meta name="twitter:description" content="  only description  ">"#,
+        );
+        let result = adapt_site_content("https://youtube.com/watch?v=video", &description_only)
+            .expect("description-only page");
+        assert_eq!(result.readable_title, None);
+        assert_eq!(result.snippets, vec!["only description".to_string()]);
+    }
+
+    #[test]
+    fn private_helpers_cover_nested_json_meta_and_duration_edges() {
+        let document_with_empty_script = Html::parse_document(
+            r#"
+            <html><head>
+              <script type="application/ld+json">   </script>
+              <script type="application/ld+json">
+                {"@type": "VideoObject", "name": "Second script wins"}
+              </script>
+            </head></html>
+            "#,
+        );
+        let json_ld = extract_video_json_ld(&document_with_empty_script)
+            .expect("non-empty json-ld after empty script");
+        assert_eq!(json_ld["name"], "Second script wins");
+        assert!(find_video_object(&json!("not-video")).is_none());
+
+        let nested = json!({
+            "mainEntity": {
+                "@type": "VideoObject",
+                "publisher": {"name": "Publisher"},
+                "duration": "not-iso"
+            }
+        });
+        let found = find_video_object(&nested).expect("nested video");
+        assert_eq!(
+            nested_string_field(found, &["publisher", "name"]).as_deref(),
+            Some("Publisher")
+        );
+        assert_eq!(nested_string_field(found, &["publisher", "missing"]), None);
+        assert_eq!(string_field(found, "missing"), None);
+        assert_eq!(format_duration("PT".to_string()), "PT");
+        assert_eq!(format_duration("42 minutes".to_string()), "42 minutes");
+        assert_eq!(extract_video_id("https://vimeo.com/not-digits", "vimeo-video"), None);
+        assert_eq!(extract_video_id("https://example.com/video", "unknown"), None);
+        assert_eq!(query_param("https://example.com/no-query", "v"), None);
+        assert_eq!(query_param("https://example.com/watch?v=&x=1", "v"), None);
+        assert!(type_contains_video(Some(&json!(["Article", "VideoObject"]))));
+        assert!(!type_contains_video(Some(&json!("Article"))));
+        assert!(!type_contains_video(None));
+
+        let document = Html::parse_document(r#"<meta name="title" content="  Meta title  ">"#);
+        assert_eq!(
+            first_meta_content(&document, &["[", "meta[name='title']"]).as_deref(),
+            Some("Meta title")
+        );
+    }
+}

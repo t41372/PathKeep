@@ -32,6 +32,7 @@ describe('format utilities', () => {
     expect(formatDateTime(null, 'en')).toBeNull()
     expect(formatDateTime(undefined, 'en')).toBeNull()
     expect(formatDateTime('', 'en')).toBeNull()
+    expect(formatDateTime('not-a-date', 'en')).toBeNull()
   })
 
   test('formatDateTime formats dates for all locales', () => {

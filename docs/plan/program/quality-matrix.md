@@ -7,49 +7,45 @@
 
 ## Mainline Blocking Path
 
-| Gate          | Command / Workflow      | 保護範圍                                                                                                                                                                                  | 備註                                                                                                                        |
-| ------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Repo checks   | `bun run check`         | Prettier、ESLint、i18n parity/raw-English guard、TypeScript、Vitest、desktop contract slice、Rust fmt / clippy / workspace tests、supply-chain audit、host-matched platform-native checks | `check` 本身不含 repo-wide coverage、browser preview e2e 或 full mutation；本地仍會在 matching host 上跑 `check:platform`。 |
-| JS coverage   | `bun run coverage:js`   | living M0-M3 JS quality surface                                                                                                                                                           | 100% statement / branch / function / line coverage。                                                                        |
-| Rust coverage | `bun run coverage:rust` | full `src-tauri/**/src/*.rs` workspace source surface                                                                                                                                     | 100% line + function coverage；舊 desktop command / bridge slice 保留為 `coverage:rust:quality`。                           |
-| Browser build | `bun run build`         | TypeScript compile + Vite bundle                                                                                                                                                          | 保證 browser shell 可建置。                                                                                                 |
-| Browser smoke | `bun run test:e2e`      | browser preview 的 shell / onboarding / dashboard / trust / intelligence smoke                                                                                                            | 這是 preview surface smoke，不等於完整 desktop / Tauri signoff。                                                            |
+| Gate           | Command / Workflow                       | 保護範圍                                                                                                                                                                                  | 備註                                                                                        |
+| -------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Strict checker | `bun run check` / GitHub `CI` workflow   | base checks、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract JS mutation                                                           | 這是 signed-off per-commit checker；PR / manual CI 與本地使用同一條 effective gate。        |
+| Base triage    | `bun run check:base`                     | Prettier、ESLint、i18n parity/raw-English guard、TypeScript、Vitest、desktop contract slice、Rust fmt / clippy / workspace tests、supply-chain audit、host-matched platform-native checks | 只作 fast triage helper；不能替代 `bun run check`。                                         |
+| JS coverage    | `bun run coverage:js`                    | active `src/**/*.{ts,tsx}` runtime source                                                                                                                                                 | 100% statement / branch / function / line coverage。                                        |
+| Rust coverage  | `bun run coverage:rust`                  | full `src-tauri/**/src/*.rs` workspace source surface                                                                                                                                     | 100% line + function coverage；舊 quality slice 只保留作 triage helper。                    |
+| Browser build  | `bun run build`                          | TypeScript compile + Vite bundle                                                                                                                                                          | 已由 `bun run check` 觸發；可單獨跑作 build triage。                                        |
+| Browser smoke  | `bun run test:e2e`                       | browser preview 的 shell / onboarding / dashboard / trust / intelligence smoke                                                                                                            | 已由 `bun run check` 觸發；這是 preview surface smoke，不等於完整 desktop / Tauri signoff。 |
+| Desktop bridge | `bun run test:e2e:desktop-bridge:truth`  | Chrome + Playwright 透過 feature-gated bridge 驗證真實 Rust desktop command façade                                                                                                        | 已由 `bun run check` 觸發；仍不是完整 Tauri WebView/plugin signoff。                        |
+| JS mutation    | `bun run mutation:js` / `check:mutation` | `src/main.tsx`、`src/lib/ipc/bridge.ts` desktop-contract slice                                                                                                                            | Stryker high / low / break thresholds 都是 100；這是 per-commit mutation gate。             |
 
 ### `bun run check` 內含的 targeted sub-gate
 
-`bun run check` 目前固定包含 `bun run check:desktop-contract` 與 `bun run check:platform`，保護：
+`bun run check:base` 目前固定包含 `bun run check:desktop-contract` 與 `bun run check:platform`，保護：
 
 - `src/main.tsx`
 - `src/lib/ipc/bridge.ts`
 - host-matched platform-native keyring / scheduler / launcher / discovery / biometric smoke
 - desktop updater / launcher command surface 與 debug desktop build smoke
 
-這些 sub-gate 的責任是保護 desktop entry、typed IPC contract 與 platform-specific host truth；它們不是替 shell / route / sidebar / trust-critical flows 做全站背書。GitHub `CI` workflow 不再把 `check:platform` 掛在每個 PR / branch push 上，因為 hosted runner 的 launchctl / keyring / desktop build 條件與分鐘成本都不穩定；那條真相現在改由 manual `Platform Native` workflow 與本地 matching-host 驗收承接。
+這些 sub-gate 的責任是保護 desktop entry、typed IPC contract 與 platform-specific host truth；它們不是替 shell / route / sidebar / trust-critical flows 做全站背書。GitHub `CI` workflow 現在安裝 Linux desktop/native dependencies 後直接跑 `bun run check`，所以 hosted runner 也要承擔同一條 per-commit checker；manual `Platform Native` workflow 只保留作 host-sensitive parity / triage。
 
 ---
 
 ## Current Quality Surfaces
 
-> 2026-04-24 recovery note：mutation scripts 已重新掛回 release-style gate。`check:full` / `verify` 會跑 coverage、browser-preview e2e 與 JS + Rust mutation；所有 mutation threshold 重新拉到 100。`check:i18n` 會在日常 `check:js` 中量化 catalog key parity 並擋住中文 UI catalog 的 raw backend/debug 英文。
+> 2026-04-27 gate-cost note：`bun run check` 本身就是 per-commit gate。`check:full` 只是 `check` alias；`verify` 在 strict checker 之後額外跑 debug desktop build。全量 JS/Rust mutation 因實測成本與 current cargo-mutants sandbox fragility，不再是 per-commit hard gate，改由 `check:deep` / scheduled `Mutation` workflow 承接。
 
 ### JS coverage / mutation quality surface
 
-`bun run coverage:js` 與 `bun run mutation:js` 目前對齊以下 living M0-M3 JS surface：
+`bun run coverage:js` 目前對齊 active frontend runtime surface：
 
-- `src/main.tsx`
-- `src/app/shell-data.tsx`
-- `src/lib/backend.ts`
-- `src/lib/format.ts`
-- `src/lib/intelligence.ts`
-- `src/lib/ipc/bridge.ts`
-- `src/lib/platform-guidance.ts`
-- `src/lib/stronghold.ts`
-- `src/lib/trust-review.ts`
-- `src/lib/i18n/context.ts`
-- `src/lib/i18n/hooks.ts`
-- `src/lib/i18n/provider.tsx`
+- include：`src/**/*.{ts,tsx}`
+- allowed excludes：tests、fixtures、assets、generated declarations、type-only contract files、以及已證明不是 runtime surface 的 reference-only files。
+- required thresholds：coverage lines / functions / branches / statements = 100。
 
-這代表我們不再只 mutate 3 個 helper，也不把已退場的舊 shell 當成 coverage 主體；但它仍然不是「整個前端所有 route / component 已被 100% gate 保護」的意思。`WORK-QC-B` 已把 prototype / doc parity、product-flow signoff 與 trust-critical UI debt 收回 source docs；剩餘的全站 accessibility / release polish 留在 M4。
+這代表前端 shell / route / sidebar / primitives / page-scoped providers 都回到 checker 裡；不能再用 desktop-contract slice 或舊 living M0-M3 helper list 代替全站 runtime coverage surface。
+
+`bun run mutation:js` 是 per-commit desktop-contract mutation gate，範圍固定為 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。`bun run mutation:js:full` 仍保留 active frontend runtime surface 的 full Stryker sweep，供 `check:deep`、scheduled workflow 或高風險 release 候選使用；surviving mutant 仍必須用補測、修產品碼、或 narrow equivalent/inapplicable annotation 處理。
 
 ### Rust coverage quality surface
 
@@ -65,7 +61,7 @@
 
 ### Rust mutation quality surface
 
-`bun run mutation:rust` 現在指向 `bun run mutation:rust:full`，也就是 whole-workspace cargo-mutants sweep。舊的 focused parser + AI helper contract 保留為 `bun run mutation:rust:quality`，只用於縮小失敗 triage 範圍：
+`bun run mutation:rust` 現在指向 `bun run mutation:rust:full`，也就是 whole-workspace cargo-mutants sweep，但它是 manual / deep gate，不再是 per-commit `bun run check` 的一部分。舊的 focused parser + AI helper contract 保留為 `bun run mutation:rust:quality`，只用於縮小失敗 triage 範圍：
 
 - `browser-history-parser` crate
 - `src-tauri/crates/vault-core/src/ai.rs` 的 status/helper slice：
@@ -76,23 +72,25 @@
   - `provider_connection_failure_report`
   - `test_provider_connection`
 
-whole-workspace mutation 是 release-style gate；若成本或 surviving mutants 無法在當前 closeout 修乾淨，必須把 surviving mutant 清單與原因寫成明確缺陷，而不是把 focused contract 說成全後端驗收。
+whole-workspace mutation 是 deep/release investigation gate；若成本或 surviving mutants 無法在當前 closeout 修乾淨，必須把 surviving mutant 清單與原因寫成明確缺陷，而不是把 focused contract 說成全後端驗收。2026-04-27 實測顯示 full Rust mutation 有 5869 個 candidate mutants，且 current copy-sandbox baseline 會因 repo-root `reference/.../safari.sqlite` fixture path 缺失而失敗；在修復 fixture/copy contract 前，Rust mutation 不可作 per-commit hard gate。
 
 ---
 
-## Scheduled / Release Gates
+## Focused / Release Helpers
 
-| Gate                             | Command / Workflow                                                          | 用途                                                                            | 備註                                                                                                                                                      |
-| -------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Platform Rust native sweep       | `bun run test:platform:rust` / GitHub `Platform Native` workflow            | 直接驗證 host keyring / scheduler / launcher / discovery / biometric capability | hosted runner 成本高且 host-sensitive，所以移到 manual workflow；Linux job 仍會在隔離 `dbus-run-session` 內啟動 `gnome-keyring-daemon`。                  |
-| Platform desktop slice           | `bun run test:platform:desktop` / GitHub `Platform Native` workflow         | debug desktop build + updater / launcher desktop command slice                  | 這是 desktop command truth，不等於 browser preview e2e。                                                                                                  |
-| Chrome desktop bridge smoke      | `bun run test:e2e:desktop-bridge:truth` / GitHub `Platform Native` workflow | 啟動 feature-gated desktop bridge，讓 Chrome / Playwright 驗證真實 Rust command | local / manual / pre-closeout gate；可覆蓋 updater install / relaunch command transport 與 bridge 健康 / disconnect 退化，但不是 mainline blocking path。 |
-| JS mutation sweep                | `bun run mutation:js` / GitHub `Mutation` workflow `javascript-mutation`    | 對 living M0-M3 JS quality surface 做 repo-level mutation gate                  | break threshold 是 100；由 `bun run check:mutation` 與 `bun run check:full` 觸發。                                                                        |
-| Rust mutation sweep              | `bun run mutation:rust` / GitHub `Mutation` workflow `rust-mutation`        | whole-workspace cargo-mutants sweep                                             | break threshold 以 cargo-mutants surviving mutant = 0 為準；focused `mutation:rust:quality` 只作 triage helper。                                          |
-| Full local sweep                 | `bun run check:full`                                                        | 本地一次跑 `check` + coverage + e2e + mutation                                  | 適合大 closeout 或 merge 前自我驗收；不能用只跑 `check` 代替 release-style gate。                                                                         |
-| Release-style local verification | `bun run verify`                                                            | `check:full` + `build` + `desktop:build:debug`                                  | 作為 release / milestone closeout 的本地預演；會透過 `check:full` 自動觸發 coverage、e2e 與 mutation。                                                    |
+| Gate                             | Command / Workflow                                                            | 用途                                                                            | 備註                                                                                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform Rust native sweep       | `bun run test:platform:rust` / GitHub `Platform Native` workflow              | 直接驗證 host keyring / scheduler / launcher / discovery / biometric capability | hosted runner 成本高且 host-sensitive，所以移到 manual workflow；Linux job 仍會在隔離 `dbus-run-session` 內啟動 `gnome-keyring-daemon`。 |
+| Platform desktop slice           | `bun run test:platform:desktop` / GitHub `Platform Native` workflow           | debug desktop build + updater / launcher desktop command slice                  | 這是 desktop command truth，不等於 browser preview e2e。                                                                                 |
+| Chrome desktop bridge smoke      | `bun run test:e2e:desktop-bridge:truth`                                       | 啟動 feature-gated desktop bridge，讓 Chrome / Playwright 驗證真實 Rust command | 已納入 `bun run check`；單獨跑只作 bridge triage。                                                                                       |
+| Desktop-contract JS mutation     | `bun run mutation:js` / `bun run check:mutation`                              | 對 desktop entry + typed IPC contract 做 lightweight mutation gate              | 已納入 `bun run check`；2026-04-27 current-host wall time 約 50 秒，break threshold 是 100。                                             |
+| Full JS mutation sweep           | `bun run mutation:js:full` / GitHub `Mutation` workflow `javascript-mutation` | 對 active frontend runtime surface 做 repo-level mutation investigation         | Manual / scheduled deep gate；2026-04-27 dry-run 約 2m20s，full sweep 21769 mutants，按 44m/32% 實測估算約 2-3 小時。                    |
+| Rust mutation sweep              | `bun run mutation:rust:full` / GitHub `Mutation` workflow `rust-mutation`     | whole-workspace cargo-mutants sweep                                             | Manual / scheduled deep gate；focused `mutation:rust:quality` 只作 triage helper。                                                       |
+| Full local sweep                 | `bun run check:full`                                                          | `bun run check` alias                                                           | 保留給舊 muscle memory；不再是比 `check` 更嚴的 gate。                                                                                   |
+| Release-style local verification | `bun run verify`                                                              | `check` + `desktop:build:debug`                                                 | 作為 release / milestone closeout 的本地預演；會先透過 `check` 自動觸發 coverage、e2e 與 mutation。                                      |
+| Deep local verification          | `bun run check:deep`                                                          | `check` + full JS/Rust mutation sweep                                           | 只用於 release candidate / long-running manual pass；不作每次 commit 要求。                                                              |
 
-> 2026-04-08 closeout 註記：`bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 均已通過；隨後 `WORK-M4-D` 把 Rust mutation baseline 收斂成誠實的 signed-off contract：parser crate + AI status/helper slice。更廣的 `bun run mutation:rust:full` 仍保留給 exploratory whole-workspace triage，不再被誤報成已簽收 gate。
+> 2026-04-27 gate-cost decision：舊的 2026-04-08 signed-off parser / AI helper mutation contract 仍是 focused triage helper；不能被誤報成 Rust mutation gate。`WORK-QA-GATE-A` 的當前 truth 以 `STATUS.md` 為準，100% JS/Rust coverage 仍是 stop-ship，full JS/Rust mutation 改為 deep/manual evidence 而不是 per-commit blocker。
 
 ---
 
@@ -102,5 +100,5 @@ whole-workspace mutation 是 release-style gate；若成本或 surviving mutants
 - `bun run test:e2e:desktop-bridge` 證明 Chrome / Playwright 能透過 dev-only localhost bridge 打到真實 desktop command façade，現在也能覆蓋 updater install / relaunch 的 mirrored command transport；但它仍不是完整的 Tauri WebView / plugin guest API signoff，progress events 等 event-driven plugin surface 仍需 Tauri 實機驗證。
 - `bun run check:platform` 才是目前對 macOS / Linux host-native scheduler、keyring、launcher 與 updater desktop slice 的 blocking signoff；preview e2e 不能拿來替這些能力背書。
 - schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
-- `coverage:js` / `mutation:js` 的 quality surface 仍是 living M0-M3 module set，不等於每個 route/component 都已被 mutation 覆蓋；route-level regressions 需要 product-flow unit tests、browser-preview e2e 與 native desktop truth pass 補上。
+- `coverage:js` 現在覆蓋 active frontend runtime source；若某個 runtime owner 尚未被測試保護，這是 checker failure，不是文檔例外。
 - `coverage:rust` 已恢復 full `src-tauri/**/src/*.rs` 100% gate；如果實際命令失敗，失敗本身就是 release blocker，不能再降回 quality slice 後宣稱全後端達標。

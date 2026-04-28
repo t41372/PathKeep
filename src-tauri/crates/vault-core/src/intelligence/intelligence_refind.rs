@@ -299,11 +299,11 @@ fn load_refind_related_trails(
         "SELECT DISTINCT visit_derived_facts.trail_id
          FROM visit_derived_facts
          JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE visit_derived_facts.profile_id = ?1
+         WHERE visit_derived_facts.profile_id = ?
            AND visit_derived_facts.visit_id IN ({placeholders})
            AND visit_derived_facts.trail_id IS NOT NULL
-           AND visits.visit_time_ms >= ?2
-           AND visits.visit_time_ms < ?3"
+           AND visits.visit_time_ms >= ?
+           AND visits.visit_time_ms < ?"
     );
     let mut trail_id_statement = connection.prepare(&sql)?;
     let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
@@ -352,4 +352,59 @@ fn refind_page_from_row_with_offset(row: &Row<'_>, offset: usize) -> rusqlite::R
         first_seen_at: rfc3339_from_millis(row.get(offset + 9)?),
         last_seen_at: rfc3339_from_millis(row.get(offset + 10)?),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refind_detail_helpers_skip_empty_or_unlinked_visit_sets() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        assert!(load_refind_recent_days(&connection, &[]).expect("empty recent days").is_empty());
+        assert!(
+            load_refind_related_trails(&connection, "chrome:Default", &[], 0, 1)
+                .expect("empty related trails")
+                .is_empty()
+        );
+
+        connection
+            .execute_batch(
+                "
+                ATTACH DATABASE ':memory:' AS archive;
+                CREATE TABLE archive.visits (
+                  id INTEGER PRIMARY KEY,
+                  visit_time_ms INTEGER NOT NULL
+                );
+                CREATE TABLE visit_derived_facts (
+                  profile_id TEXT NOT NULL,
+                  visit_id INTEGER NOT NULL,
+                  trail_id TEXT
+                );
+                CREATE TABLE search_trails (
+                  trail_id TEXT PRIMARY KEY,
+                  session_id TEXT,
+                  initial_query TEXT NOT NULL,
+                  search_engine TEXT NOT NULL,
+                  reformulation_count INTEGER NOT NULL,
+                  visit_count INTEGER NOT NULL,
+                  landing_url TEXT,
+                  landing_domain TEXT,
+                  first_visit_ms INTEGER NOT NULL,
+                  last_visit_ms INTEGER NOT NULL,
+                  max_depth INTEGER NOT NULL,
+                  queries_json TEXT NOT NULL
+                );
+                INSERT INTO archive.visits (id, visit_time_ms) VALUES (1, 1711929600000);
+                INSERT INTO visit_derived_facts (profile_id, visit_id, trail_id)
+                VALUES ('chrome:Default', 1, NULL);
+                ",
+            )
+            .expect("schema");
+        assert!(
+            load_refind_related_trails(&connection, "chrome:Default", &[1], 0, 1712016000000)
+                .expect("unlinked related trails")
+                .is_empty()
+        );
+    }
 }

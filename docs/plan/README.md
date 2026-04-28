@@ -181,16 +181,17 @@
 - `bun run test:e2e`：通過，驗證新 shell / onboarding / dashboard smoke
 - `bun run check`：通過，repo-wide Markdown / Prettier debt 與驗收途中浮出的 JS ESLint、Rust Clippy 基線問題已清理
 - `bun run build`：通過
-- `bun run coverage:js`：通過，living M0-M3 JS quality surface 維持 100% coverage
-- `bun run coverage:rust`：通過，Tauri desktop command / bridge quality surface 維持 100% coverage
-- `bun run mutation:js`：通過，living M0-M3 JS quality surface 的 mutation score 恢復到 blocking threshold 之上
+- `bun run coverage:js`：當時通過，舊 living M0-M3 JS quality surface 維持 100% coverage
+- `bun run coverage:rust`：當時通過，舊 Tauri desktop command / bridge quality surface 維持 100% coverage
+- `bun run mutation:js`：當時通過，舊 living M0-M3 JS quality surface 的 mutation score 恢復到 blocking threshold 之上
 
 2026-04-07 品質 closeout：
 
 - repo 現在有一份正式的 [quality matrix](program/quality-matrix.md)，把 mainline blocking path、scheduled / release deep checks，以及 desktop / preview 驗收邊界全部寫清楚。
 - desktop contract slice 仍然存在，但它現在是 `bun run check` 裡的一條 targeted sub-gate，不再冒充整個產品 UI 或所有 desktop flows 都已驗收。
 - 2026-04-07 closeout：`WORK-QC-B` 已把 prototype / doc parity、desktop-vs-preview 邊界、dashboard / onboarding trust copy 與 timezone-sensitive On This Day 行為重新對齊；M4 現在可從 `WORK-M4-A` 啟動。
-- 2026-04-08 closeout：`WORK-M4-A` 已把 enrichment / derived-state v1、storage analytics / growth evidence、以及 remote backup 的 bundle / verify / PME 閉環正式落地；`WORK-M4-B` 隨後也已完成，正式補齊 release / support 文檔、platform validation runbook、release workflow preflight 與 Settings diagnostics。blocking path、coverage、`mutation:js`、browser-preview smoke 與 debug desktop build 都已通過；其後 `WORK-M4-D` 把 Rust mutation baseline 收斂成 parser crate + AI status/helper slice 的 signed-off contract，並把 whole-workspace `mutation:rust:full` 保留作 exploratory triage，而 `WORK-M4-C` 的安全研究也已在 ADR-005 / App Lock 實作中正式 close out。
+- 2026-04-08 closeout：`WORK-M4-A` 已把 enrichment / derived-state v1、storage analytics / growth evidence、以及 remote backup 的 bundle / verify / PME 閉環正式落地；`WORK-M4-B` 隨後也已完成，正式補齊 release / support 文檔、platform validation runbook、release workflow preflight 與 Settings diagnostics。當時的 blocking path、coverage、`mutation:js`、browser-preview smoke 與 debug desktop build 都已通過；其後 `WORK-M4-D` 把 Rust mutation baseline 收斂成 parser crate + AI status/helper slice 的當時 signed-off contract，並把 whole-workspace `mutation:rust:full` 保留作 exploratory triage，而 `WORK-M4-C` 的安全研究也已在 ADR-005 / App Lock 實作中正式 close out。
+- 2026-04-27 gate-cost decision：使用者確認 full mutation sweep 不適合作為每次 commit 的 hard gate；`bun run check` 現在必須包含 base checks、full JS/Rust coverage、build、browser e2e、desktop-bridge truth、以及 lightweight desktop-contract JS mutation。Full JS/Rust mutation 改由 `check:deep` 與 scheduled/manual `Mutation` workflow 承接；coverage gap 仍屬 stop-ship truth，deep mutation survivors 仍必須被補測、修產品碼或 narrow equivalent/inapplicable evidence 處理。
 - 2026-04-08 性能 closeout：`WORK-M4-G` 已把 Explorer day-one keyword recall 從 `LIKE` 收斂到 FTS5 `history_search` projection，manual backup 也改為透過 desktop progress event 顯示 profile-scoped phase log；同時補齊 [large-archive-performance-runbook.md](m4-full-polish/large-archive-performance-runbook.md)，讓之後的大型 archive triage 有固定 artifact bundle，而不是再靠一次性的口頭記錄。
 - 2026-04-08 UI closeout：`WORK-M4-E` 已把 Dashboard / Explorer / Insights / Import / AI action 的 loading grammar 收斂成 skeleton + readable progress contract；`WORK-M4-C` 也補上 App Lock route、session guard、MCP refusal path 與 source-of-truth docs。M4 當前已切好的 work blocks 全部收口，下一輪需要從剩餘 docs/plan 開放項重新切出新的 half-milestone block。
 - 2026-04-09 audit closeout：`WORK-QC-D` 與 `WORK-M1-C` 已完成，當時 closeout environment 的 `bun run verify` / `bun run check` / `bun run build` 已重新回綠；但這次審核也確認 repo **不能**聲稱「所有設計文檔需求都已完成」。M4 仍保留兩個真正的未完成主線：`WORK-M4-J`（60-year performance proof）與 `WORK-M4-I`（advanced intelligence shipping）。`WORK-M4-J` 現在已重新補回可重跑的 shell-scaling artifact script 與 checked-in bundle，但 final signoff 仍需要真實 large-profile replay，不是 synthetic bundle 即可代替。
@@ -200,7 +201,7 @@
 - 2026-04-10 deterministic grouping closeout：`WORK-M5-B` 已完成。PathKeep 現在正式 shipping query groups / ladders、cross-day thread merge、reference pages、source effectiveness、template summaries、deterministic module registry 與 stale/invalidation honesty。
 - 2026-04-10 packaging closeout：使用者已明確 sign off 保留 default desktop build 內建 optional AI / MCP / semantic runtime；`WORK-QC-F` 因此以 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md) 與 `artifacts/release/2026-04-11-size-audit/` artifact bundle 正式收口，不再作為 active blocker。
 
-這個結果很重要，因為它代表 repo 現在不只保住 desktop entry + typed IPC contract，也重新把 living M0-M3 quality surface 的 coverage、build、e2e 與 deep-check 分層拉回可兌現狀態。
+這個結果很重要，因為它代表 repo 曾經保住 desktop entry + typed IPC contract；但 2026-04-25 strict-gate recovery 已把標準提升為 full active-source coverage / mutation，舊 living M0-M3 surface 不再是 signed-off checker。
 
 2026-04-06 審查修正：M1 的 archive feature baseline 已經落地，但 milestone 本身仍有 closeout 要完成。當時非前端剩餘重點收斂到 `M1-DB` / `M1-OPS` 的 acceptance matrix、security mode taxonomy、retention / audit summary；這些 gap 現已由 `WORK-M1-D` 收口。前端 shell / route / sidebar 的驗收仍不能借用舊的 shell slice 敘事，必須由前端 owner 補上獨立驗收。
 

@@ -164,4 +164,54 @@ describe('Settings trust surfaces', () => {
       ),
     ).not.toBeInTheDocument()
   })
+
+  test('shows loading and unavailable recovery states for integrations and maintenance without a snapshot', async () => {
+    const { snapshot, dashboard } = await seedInitializedSnapshot()
+    const baseShell = createShellValue(snapshot, dashboard)
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const dashboardT = createNamespaceTranslator('en', 'dashboard')
+
+    const integrationsLoading = renderTrustPage(<IntegrationsPage />, {
+      route: '/integrations',
+      shellValue: {
+        ...baseShell,
+        loading: true,
+        snapshot: null,
+      },
+      snapshot,
+    })
+
+    expect(screen.getByText(settingsT('loadingModules'))).toBeVisible()
+    integrationsLoading.unmount()
+
+    const integrationsUnavailable = renderTrustPage(<IntegrationsPage />, {
+      route: '/integrations',
+      shellValue: {
+        ...baseShell,
+        snapshot: null,
+      },
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(settingsT('integrationsUnavailableTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: dashboardT('reviewSecurity') }),
+    ).toBeVisible()
+    integrationsUnavailable.unmount()
+
+    renderTrustPage(<MaintenancePage />, {
+      route: '/maintenance',
+      shellValue: {
+        ...baseShell,
+        snapshot: null,
+      },
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(settingsT('maintenanceUnavailableTitle')),
+    ).toBeVisible()
+  })
 })

@@ -25,7 +25,7 @@ use crate::{
     models::{
         AppConfig, InsightEntityReference, IntelligenceEmbedCardPayload,
         IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
-        RefindPagesRequest, ScopedDateRangeRequest, TopSitesRequest,
+        OnThisDayEntry, RefindPagesRequest, ScopedDateRangeRequest, TopSitesRequest,
     },
     utils::now_rfc3339,
 };
@@ -169,12 +169,7 @@ pub fn get_intelligence_embed_cards(
             card_type: "on_this_day".to_string(),
             title: format!("On This Day · {}", entry.year),
             eyebrow: Some(entry.date.clone()),
-            body: entry.summary.clone().unwrap_or_else(|| {
-                format!(
-                    "{} visits and {} deep-dive sessions on this day.",
-                    entry.total_visits, entry.deep_dive_sessions
-                )
-            }),
+            body: on_this_day_body(entry),
             metric_label: Some("visit_count".to_string()),
             metric_value: Some(entry.total_visits.to_string()),
             href: None,
@@ -191,6 +186,15 @@ pub fn get_intelligence_embed_cards(
     }
     cards.truncate(request.limit.unwrap_or(6).max(1) as usize);
     Ok(cards)
+}
+
+fn on_this_day_body(entry: &OnThisDayEntry) -> String {
+    entry.summary.clone().unwrap_or_else(|| {
+        format!(
+            "{} visits and {} deep-dive sessions on this day.",
+            entry.total_visits, entry.deep_dive_sessions
+        )
+    })
 }
 
 /// Produces the trusted widget snapshot that other local surfaces can cache or
@@ -281,4 +285,23 @@ pub fn get_intelligence_public_snapshot(
                 .to_string(),
         ],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::on_this_day_body;
+    use crate::models::OnThisDayEntry;
+
+    #[test]
+    fn on_this_day_body_uses_summary_or_aggregate_fallback() {
+        let summarized = OnThisDayEntry {
+            summary: Some("Returned to archive research.".to_string()),
+            ..OnThisDayEntry::default()
+        };
+        assert_eq!(on_this_day_body(&summarized), "Returned to archive research.");
+
+        let fallback =
+            OnThisDayEntry { total_visits: 12, deep_dive_sessions: 3, ..OnThisDayEntry::default() };
+        assert_eq!(on_this_day_body(&fallback), "12 visits and 3 deep-dive sessions on this day.");
+    }
 }

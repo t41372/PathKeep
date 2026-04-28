@@ -201,6 +201,89 @@ fn structural_stream_keeps_assignments_stable_across_batch_boundaries() {
     }
 }
 
+/// Regression coverage for structural stream reclassifying the seed search event
+/// once a landing domain is known.
+#[test]
+fn structural_stream_reclassifies_incremental_search_event_after_landing_domain() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let paths = project_paths_with_root(root.path());
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        ..AppConfig::default()
+    };
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    seed_core_intelligence_fixture(&archive);
+    drop(archive);
+
+    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+        .expect("full rebuild");
+
+    let archive = open_archive_connection(&paths, &config, None).expect("archive reopen");
+    append_fixture_visit(
+        &archive,
+        40,
+        "https://www.google.com/search?q=pathkeep+sqlite",
+        "pathkeep sqlite - Google Search",
+        1711929720000,
+        None,
+        Some("pathkeep sqlite"),
+    );
+    append_fixture_visit(
+        &archive,
+        41,
+        "https://github.com/example/pathkeep",
+        "PathKeep repository",
+        1711929780000,
+        Some(40),
+        None,
+    );
+    drop(archive);
+
+    run_core_intelligence_job_type_with_progress(
+        &paths,
+        &config,
+        None,
+        "visit-derive",
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("chrome:Default".to_string()),
+            ..CoreIntelligenceRebuildRequest::default()
+        },
+        |_progress| Ok(()),
+    )
+    .expect("visit derive stage");
+    let report = run_core_intelligence_job_type_with_progress(
+        &paths,
+        &config,
+        None,
+        "structural-rebuild",
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("chrome:Default".to_string()),
+            ..CoreIntelligenceRebuildRequest::default()
+        },
+        |_progress| Ok(()),
+    )
+    .expect("structural stage");
+    assert_eq!(report.execution_mode.as_deref(), Some("incremental"));
+
+    let intelligence = open_intelligence_connection(&paths, &config, None).expect("intelligence");
+    let (query_kind, trail_id): (String, Option<String>) = intelligence
+        .query_row(
+            "SELECT query_kind, trail_id FROM search_events WHERE visit_id = 40",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("search event");
+    assert_eq!(query_kind, "keyword");
+    assert_eq!(trail_id.as_deref(), Some("trail:chrome:Default:40"));
+    let term_count: i64 = intelligence
+        .query_row("SELECT COUNT(*) FROM search_event_terms WHERE visit_id = 40", [], |row| {
+            row.get(0)
+        })
+        .expect("term count");
+    assert_eq!(term_count, 2);
+}
+
 /// Regression coverage for structural range delete preserves unaffected rows before start ms.
 #[test]
 fn structural_range_delete_preserves_unaffected_rows_before_start_ms() {

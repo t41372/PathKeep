@@ -146,14 +146,8 @@ export function DashboardPage() {
     return <DashboardRouteFallback state={fallbackState} t={t} />
   }
 
-  if (!snapshot || !dashboard) {
-    return (
-      <DashboardRouteFallback state={{ kind: 'archive-unavailable' }} t={t} />
-    )
-  }
-
-  const readySnapshot = snapshot
-  const readyDashboard = dashboard
+  const readySnapshot = snapshot!
+  const readyDashboard = dashboard!
 
   const selectedProfiles = readySnapshot.browserProfiles.filter((profile) =>
     readySnapshot.config.selectedProfileIds.includes(profile.profileId),

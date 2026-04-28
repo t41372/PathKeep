@@ -188,6 +188,9 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
   return (
     <div>
       <div data-testid="loading">{String(shell.loading)}</div>
+      <div data-testid="dashboard-loading">
+        {String(shell.dashboardLoading)}
+      </div>
       <div data-testid="refresh-key">{shell.refreshKey}</div>
       <div data-testid="notice">{shell.notice ?? 'none'}</div>
       <div data-testid="error">{shell.error ?? 'none'}</div>

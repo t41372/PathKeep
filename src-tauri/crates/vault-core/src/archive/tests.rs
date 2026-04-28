@@ -2,7 +2,9 @@
 use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
-    models::{ArchiveMode, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest},
+    models::{
+        ArchiveMode, BrowserProfile, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
+    },
     utils::{restore_test_env_var, test_env_lock},
 };
 use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
@@ -314,6 +316,40 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("load history favicons");
     assert_eq!(loaded_favicons.len(), 2);
+    let empty_favicons =
+        load_history_favicons(&paths, &config, None, Vec::new()).expect("empty favicon lookup");
+    assert!(empty_favicons.is_empty());
+    let duplicate_favicon_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![
+            HistoryFaviconLookupEntry {
+                profile_id: history.items[0].profile_id.clone(),
+                url: history.items[0].url.clone(),
+                visit_time: history.items[0].visit_time,
+            },
+            HistoryFaviconLookupEntry {
+                profile_id: history.items[0].profile_id.clone(),
+                url: history.items[0].url.clone(),
+                visit_time: history.items[0].visit_time,
+            },
+        ],
+    )
+    .expect("duplicate favicon lookup");
+    assert_eq!(duplicate_favicon_lookup.len(), 1);
+    let missing_profile_favicon_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Missing".to_string(),
+            url: history.items[0].url.clone(),
+            visit_time: history.items[0].visit_time,
+        }],
+    )
+    .expect("missing profile favicon lookup");
+    assert!(missing_profile_favicon_lookup[0].favicon.is_none());
     let second_visit_favicon = loaded_favicons
         .iter()
         .find(|entry| entry.visit_time == history.items[0].visit_time)
@@ -354,6 +390,47 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("list search term history");
     assert_eq!(search_term_history.total, 2);
+    let search_term_first_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("deep recall".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("search term first page");
+    assert_eq!(search_term_first_page.items.len(), 1);
+    assert!(search_term_first_page.next_cursor.is_some());
+    let search_term_second_cursor_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("deep recall".to_string()),
+            limit: Some(1),
+            cursor: search_term_first_page.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("search term second cursor page");
+    assert_eq!(search_term_second_cursor_page.items.len(), 1);
+    assert!(search_term_second_cursor_page.has_previous);
+    let search_term_explicit_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("deep recall".to_string()),
+            limit: Some(1),
+            page: Some(2),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("search term explicit second page");
+    assert_eq!(search_term_explicit_second_page.page, 2);
+    assert_eq!(search_term_explicit_second_page.items.len(), 1);
 
     let url_fragment_history = list_history(
         &paths,
@@ -385,6 +462,77 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("regex history");
     assert_eq!(regex_history.total, 2);
+    let regex_oldest_first_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("archive\\sdocs".to_string()),
+            regex_mode: Some(true),
+            sort: Some("oldest".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("regex oldest first page");
+    assert!(regex_oldest_first_page.next_cursor.is_some());
+    let regex_oldest_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("archive\\sdocs".to_string()),
+            regex_mode: Some(true),
+            sort: Some("oldest".to_string()),
+            limit: Some(1),
+            cursor: regex_oldest_first_page.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("regex oldest second page");
+    assert_eq!(regex_oldest_second_page.items.len(), 1);
+    assert!(regex_oldest_second_page.has_previous);
+    let regex_newest_first_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("archive\\sdocs".to_string()),
+            regex_mode: Some(true),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("regex newest first page");
+    let regex_newest_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("archive\\sdocs".to_string()),
+            regex_mode: Some(true),
+            limit: Some(1),
+            cursor: regex_newest_first_page.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("regex newest second page");
+    assert_eq!(regex_newest_second_page.items.len(), 1);
+    let regex_explicit_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("archive\\sdocs".to_string()),
+            regex_mode: Some(true),
+            limit: Some(1),
+            page: Some(2),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("regex explicit second page");
+    assert_eq!(regex_explicit_second_page.page, 2);
+    assert_eq!(regex_explicit_second_page.items.len(), 1);
 
     let invalid_regex = list_history(
         &paths,
@@ -442,8 +590,68 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert!(explicit_second_page.has_previous);
     assert!(!explicit_second_page.has_next);
     assert!(explicit_second_page.next_cursor.is_none());
+    let empty_domain_history = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { domain: Some("missing.invalid".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("empty domain history");
+    assert_eq!(empty_domain_history.total, 0);
+    assert_eq!(empty_domain_history.page_count, 1);
 
-    let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+    let mut connection = open_archive_connection(&paths, &config, None).expect("open archive");
+    let run_id = connection
+        .query_row("SELECT id FROM runs ORDER BY id LIMIT 1", [], |row| row.get::<_, i64>(0))
+        .expect("load run id");
+    connection
+        .execute(
+            "INSERT INTO favicons (
+               page_url,
+               icon_url,
+               icon_type,
+               width,
+               height,
+               last_updated_ms,
+               last_updated_iso,
+               image_data,
+               source_profile_id,
+               created_by_run_id,
+               page_host,
+               page_registrable_domain
+             )
+             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 1, ?6, ?7, ?8)",
+            params![
+                "https://docs.example.co.uk/favicon-source",
+                "https://docs.example.co.uk/favicon.ico",
+                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:30:00+00:00")
+                    .expect("registrable same-profile favicon time")
+                    .timestamp_millis(),
+                "2026-04-05T10:30:00+00:00",
+                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02],
+                run_id,
+                "docs.example.co.uk",
+                "example.co.uk",
+            ],
+        )
+        .expect("insert same-profile registrable favicon");
+    let same_profile_registrable_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Default".to_string(),
+            url: "https://blog.example.co.uk/article".to_string(),
+            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:00:00+00:00")
+                .expect("same-profile registrable visit time")
+                .timestamp_millis(),
+        }],
+    )
+    .expect("same-profile registrable favicon lookup");
+    assert!(
+        same_profile_registrable_lookup[0].favicon.is_some(),
+        "expected registrable-domain fallback when the exact host differs inside the same profile"
+    );
     connection
         .execute(
             "INSERT INTO source_profiles (
@@ -473,6 +681,102 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
             ],
         )
         .expect("insert imported source profile");
+    connection
+        .execute(
+            "INSERT INTO favicons (
+               page_url,
+               icon_url,
+               icon_type,
+               width,
+               height,
+               last_updated_ms,
+               last_updated_iso,
+               image_data,
+               source_profile_id,
+               created_by_run_id,
+               page_host,
+               page_registrable_domain
+             )
+             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 2, ?6, ?7, ?8)",
+            params![
+                "https://shared.example.org/favicon-source",
+                "https://shared.example.org/favicon.ico",
+                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:40:00+00:00")
+                    .expect("cross-profile host favicon time")
+                    .timestamp_millis(),
+                "2026-04-05T10:40:00+00:00",
+                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x04],
+                run_id,
+                "shared.example.org",
+                "example.org",
+            ],
+        )
+        .expect("insert cross-profile host favicon");
+    let cross_profile_host_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Default".to_string(),
+            url: "https://shared.example.org/article".to_string(),
+            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:20:00+00:00")
+                .expect("cross-profile host visit time")
+                .timestamp_millis(),
+        }],
+    )
+    .expect("cross-profile host favicon lookup");
+    assert!(
+        cross_profile_host_lookup[0].favicon.is_some(),
+        "expected host fallback to cross profiles when the current profile has no matching host icon"
+    );
+    connection
+        .execute(
+            "INSERT INTO favicons (
+               page_url,
+               icon_url,
+               icon_type,
+               width,
+               height,
+               last_updated_ms,
+               last_updated_iso,
+               image_data,
+               source_profile_id,
+               created_by_run_id,
+               page_host,
+               page_registrable_domain
+             )
+             VALUES (?1, ?2, 1, 16, 16, ?3, ?4, ?5, 2, ?6, ?7, ?8)",
+            params![
+                "https://learn.example.net/favicon-source",
+                "https://learn.example.net/favicon.ico",
+                chrono::DateTime::parse_from_rfc3339("2026-04-05T10:45:00+00:00")
+                    .expect("cross-profile registrable favicon time")
+                    .timestamp_millis(),
+                "2026-04-05T10:45:00+00:00",
+                vec![0x89_u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03],
+                run_id,
+                "learn.example.net",
+                "example.net",
+            ],
+        )
+        .expect("insert cross-profile registrable favicon");
+    let cross_profile_registrable_lookup = load_history_favicons(
+        &paths,
+        &config,
+        None,
+        vec![HistoryFaviconLookupEntry {
+            profile_id: "chrome:Default".to_string(),
+            url: "https://www.example.net/article".to_string(),
+            visit_time: chrono::DateTime::parse_from_rfc3339("2026-04-05T11:30:00+00:00")
+                .expect("cross-profile registrable visit time")
+                .timestamp_millis(),
+        }],
+    )
+    .expect("cross-profile registrable favicon lookup");
+    assert!(
+        cross_profile_registrable_lookup[0].favicon.is_some(),
+        "expected registrable-domain fallback to cross profiles after same-profile misses"
+    );
     connection
         .execute("UPDATE visits SET source_profile_id = 2 WHERE id = 2", [])
         .expect("reassign visit profile");
@@ -553,6 +857,121 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     )
     .expect("export all visible history even when current query is paged");
     assert_eq!(paged_export.count, 2);
+    let html_export = export_history(
+        &paths,
+        &config,
+        None,
+        ExportRequest {
+            query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
+            format: ExportFormat::Html,
+        },
+    )
+    .expect("export history html");
+    assert_eq!(html_export.count, 2);
+    let html_content = fs::read_to_string(&html_export.path).expect("read html export");
+    assert!(html_content.contains("<article>"));
+    assert!(html_content.contains("Archive docs"));
+    let markdown_export = export_history(
+        &paths,
+        &config,
+        None,
+        ExportRequest {
+            query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
+            format: ExportFormat::Markdown,
+        },
+    )
+    .expect("export history markdown");
+    let markdown_content = fs::read_to_string(&markdown_export.path).expect("read markdown export");
+    assert!(markdown_content.contains("- [Archive docs](https://example.com/archive)"));
+    let text_export = export_history(
+        &paths,
+        &config,
+        None,
+        ExportRequest {
+            query: HistoryQuery { q: Some("archive".to_string()), ..HistoryQuery::default() },
+            format: ExportFormat::Text,
+        },
+    )
+    .expect("export history text");
+    let text_content = fs::read_to_string(&text_export.path).expect("read text export");
+    assert!(text_content.contains("Archive docs\nhttps://example.com/archive\n"));
+
+    let bulk_url_id = 9_001_i64;
+    let bulk_base_ms = chrono::DateTime::parse_from_rfc3339("2026-04-06T00:00:00+00:00")
+        .expect("bulk base time")
+        .timestamp_millis();
+    connection
+        .execute(
+            "INSERT INTO urls (
+               id,
+               url,
+               title,
+               visit_count,
+               typed_count,
+               first_visit_ms,
+               first_visit_iso,
+               last_visit_ms,
+               last_visit_iso,
+               source_profile_id,
+               created_by_run_id
+             )
+             VALUES (?1, ?2, ?3, 1001, 0, ?4, ?5, ?6, ?7, 1, ?8)",
+            params![
+                bulk_url_id,
+                "https://bulk.example/export",
+                "Bulk export cursor fixture",
+                bulk_base_ms,
+                "2026-04-06T00:00:00+00:00",
+                bulk_base_ms + 1_000,
+                "2026-04-06T00:00:01+00:00",
+                run_id,
+            ],
+        )
+        .expect("insert bulk export url");
+    let bulk_insert = connection.transaction().expect("bulk transaction");
+    for index in 0..=1_000_i64 {
+        let visit_time_ms = bulk_base_ms + index;
+        let visit_time_iso = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(visit_time_ms)
+            .expect("bulk visit time")
+            .to_rfc3339();
+        bulk_insert
+            .execute(
+                "INSERT INTO visits (
+                   url_id,
+                   source_visit_id,
+                   visit_time_ms,
+                   visit_time_iso,
+                   transition_type,
+                   visit_duration_ms,
+                   source_profile_id,
+                   created_by_run_id
+                 )
+                 VALUES (?1, ?2, ?3, ?4, 805306368, 1000, 1, ?5)",
+                params![
+                    bulk_url_id,
+                    format!("bulk-export-{index}"),
+                    visit_time_ms,
+                    visit_time_iso,
+                    run_id,
+                ],
+            )
+            .expect("insert bulk export visit");
+    }
+    bulk_insert.commit().expect("commit bulk export rows");
+    let bulk_export = export_history(
+        &paths,
+        &config,
+        None,
+        ExportRequest {
+            query: HistoryQuery {
+                domain: Some("bulk.example".to_string()),
+                ..HistoryQuery::default()
+            },
+            format: ExportFormat::Jsonl,
+        },
+    )
+    .expect("export multi-page history");
+    assert_eq!(bulk_export.count, 1001);
 
     let report_again = run_backup(&paths, &config, None, false).expect("rerun backup");
     assert_eq!(report_again.run.as_ref().expect("run").new_visits, 0);
@@ -652,6 +1071,291 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     );
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn dashboard_read_models_cover_uninitialized_storage_and_cached_totals_edges() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let uninitialized = AppConfig::default();
+
+    let recent_runs =
+        load_recent_runs(&paths, &uninitialized, None).expect("uninitialized recent runs");
+    assert!(recent_runs.is_empty());
+
+    let snapshot =
+        load_dashboard_snapshot(&paths, &uninitialized, None).expect("uninitialized dashboard");
+    assert!(snapshot.next_action.as_deref().is_some_and(|copy| copy.contains("Initialize")));
+    assert_eq!(snapshot.storage.archive_database_bytes, 0);
+    assert_eq!(directory_size(&dir.path().join("missing-dir")), 0);
+
+    let file_instead_of_directory = dir.path().join("not-a-directory");
+    fs::write(&file_instead_of_directory, "plain file").expect("write file");
+    assert_eq!(directory_size(&file_instead_of_directory), 0);
+
+    let nested = dir.path().join("nested");
+    fs::create_dir_all(nested.join("child")).expect("create nested");
+    fs::write(nested.join("root.bin"), "1234").expect("write root");
+    fs::write(nested.join("child").join("leaf.bin"), "123456").expect("write child");
+    assert_eq!(directory_size(&nested), 10);
+
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection.execute("DELETE FROM runs", []).expect("clear bootstrap run rows");
+    drop(connection);
+    let initialized_empty =
+        load_dashboard_snapshot(&paths, &config, None).expect("initialized dashboard");
+    assert!(
+        initialized_empty.next_action.as_deref().is_some_and(|copy| copy.contains("manual backup"))
+    );
+
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    for (id, stats_json) in [
+        (100_i64, "{malformed"),
+        (99_i64, r#"{"totalProfiles":1}"#),
+        (98_i64, r#"{"totalProfiles":2,"totalUrls":3,"totalVisits":5,"totalDownloads":7}"#),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO runs
+                 (id, run_type, trigger, started_at, timezone, status, profile_scope_json,
+                  warnings_json, stats_json, due_only)
+                 VALUES (?1, 'backup', 'manual', ?2, 'UTC', 'success', '[]', '[]', ?3, 0)",
+                params![id, now_rfc3339(), stats_json],
+            )
+            .expect("insert cached stats run");
+    }
+
+    let totals = read_models::load_cached_archive_totals(&connection)
+        .expect("cached totals")
+        .expect("valid cached totals");
+    assert_eq!(totals.total_profiles, 2);
+    assert_eq!(totals.total_urls, 3);
+    assert_eq!(totals.total_visits, 5);
+    assert_eq!(totals.total_downloads, 7);
+}
+
+#[test]
+fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let uninitialized = run_backup(&paths, &AppConfig::default(), None, false)
+        .expect_err("uninitialized archive should fail");
+    assert!(uninitialized.to_string().contains("archive has not been initialized"));
+
+    let initialized = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &initialized, None).expect("init archive");
+    let no_selection = run_backup(&paths, &initialized, None, false)
+        .expect_err("empty selected profiles should fail");
+    assert!(no_selection.to_string().contains("select at least one readable browser profile"));
+
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    create_schema(&connection).expect("schema");
+    let recent = chrono::Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES ('backup', 'manual', ?1, ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [recent],
+        )
+        .expect("insert recent successful backup");
+
+    let skipped = run_backup(&paths, &initialized, None, true).expect("due-only backup skip");
+    assert!(skipped.due_skipped);
+    assert!(skipped.reason.as_deref().is_some_and(|reason| reason.contains("hours old")));
+}
+
+#[test]
+fn retention_helpers_fall_back_to_filesystem_counts_when_archive_is_unreadable() {
+    let root = tempdir().expect("tempdir");
+    let paths = sample_paths(root.path());
+    let nested = paths.raw_snapshots_dir.join("nested");
+    fs::create_dir_all(&nested).expect("snapshot nested dir");
+    fs::write(nested.join("snapshot.sqlite"), b"snapshot").expect("snapshot file");
+    fs::write(paths.raw_snapshots_dir.join("root.sqlite"), b"snapshot").expect("root snapshot");
+
+    let missing = root.path().join("missing-retention-root");
+    assert_eq!(count_path_entries(&missing), 0);
+    assert_eq!(remove_directory_contents(&missing).expect("missing directory"), (0, 0));
+    assert_eq!(remove_path(&missing).expect("missing path"), (0, 0));
+
+    let file_instead_of_dir = root.path().join("not-a-directory");
+    fs::write(&file_instead_of_dir, b"file").expect("file path");
+    assert_eq!(count_path_entries(&file_instead_of_dir), 0);
+
+    let mut unreadable_paths = paths.clone();
+    unreadable_paths.archive_database_path = root.path().join("archive-directory");
+    fs::create_dir_all(&unreadable_paths.archive_database_path).expect("archive dir");
+    let bucket = retention_snapshot_bucket(
+        &unreadable_paths,
+        &AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        },
+        None,
+    )
+    .expect("retention bucket");
+
+    assert_eq!(bucket.id, "snapshots");
+    assert_eq!(bucket.item_count, 3);
+
+    let uninitialized_bucket = retention_snapshot_bucket(
+        &paths,
+        &AppConfig {
+            initialized: false,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        },
+        None,
+    )
+    .expect("uninitialized retention bucket");
+    assert_eq!(uninitialized_bucket.item_count, 3);
+}
+
+#[test]
+fn stats_with_archive_totals_replaces_non_object_inputs_with_totals() {
+    let connection = Connection::open_in_memory().expect("sqlite");
+    create_schema(&connection).expect("schema");
+
+    let stats =
+        stats_with_archive_totals(&connection, serde_json::json!("not-an-object")).expect("stats");
+
+    assert_eq!(stats["totalProfiles"], 0);
+    assert_eq!(stats["totalUrls"], 0);
+    assert_eq!(stats["totalVisits"], 0);
+    assert_eq!(stats["totalDownloads"], 0);
+}
+
+#[test]
+fn backup_rejects_selected_profiles_that_are_not_readable() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("empty-chrome-root");
+    fs::create_dir_all(&chrome_root).expect("empty chrome root");
+    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Missing".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let error = run_backup(&paths, &config, None, false)
+        .expect_err("unreadable selected profile should fail");
+
+    assert!(error.to_string().contains("selected profiles are not readable"));
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn backup_progress_and_warning_helpers_preserve_failure_contracts() {
+    let profile = BrowserProfile {
+        profile_id: "chrome:Default".to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "chromium".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        user_name: None,
+        profile_path: "/tmp/chrome/Default".to_string(),
+        history_path: Some("/tmp/chrome/Default/History".to_string()),
+        favicons_path: None,
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: None,
+        history_file_name: "History".to_string(),
+        history_bytes: 0,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: Default::default(),
+    };
+    let mut last_processed_records = 0;
+    let mut events = Vec::new();
+    super::backup::emit_backup_ingest_progress_if_changed(
+        &mut |event| events.push(event),
+        &mut last_processed_records,
+        0,
+        1,
+        &profile,
+        super::ingest::ArchiveIngestProgress {
+            processed_records: 0,
+            imported_records: 0,
+            duplicate_records: 0,
+            skipped_records: 0,
+        },
+    );
+    assert!(events.is_empty());
+
+    super::backup::emit_backup_ingest_progress_if_changed(
+        &mut |event| events.push(event),
+        &mut last_processed_records,
+        0,
+        1,
+        &profile,
+        super::ingest::ArchiveIngestProgress {
+            processed_records: 2,
+            imported_records: 1,
+            duplicate_records: 1,
+            skipped_records: 0,
+        },
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].processed_records, Some(2));
+    assert_eq!(events[0].source_label.as_deref(), Some("Google Chrome / Default"));
+
+    let source_warning =
+        super::backup::source_evidence_rebuild_warning(anyhow::anyhow!("source offline"));
+    let search_warning =
+        super::backup::keyword_recall_rebuild_warning(anyhow::anyhow!("search offline"));
+    assert!(source_warning.contains("source-evidence archive"));
+    assert!(search_warning.contains("keyword-recall projection"));
+}
+
+#[test]
+fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = dir.path().join("broken-chrome-root");
+    let profile_dir = chrome_root.join("Default");
+    fs::create_dir_all(&profile_dir).expect("create profile dir");
+    fs::write(chrome_root.join("Last Version"), "146.0.0.0").expect("write version");
+    fs::write(
+        chrome_root.join("Local State"),
+        r#"{"profile":{"info_cache":{"Default":{"name":"Default"}}}}"#,
+    )
+    .expect("write local state");
+    fs::create_dir(profile_dir.join("History")).expect("create bad history directory");
+    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let error = run_backup(&paths, &config, None, false).expect_err("staging should fail");
+    let status = Connection::open(&paths.archive_database_path)
+        .expect("archive")
+        .query_row("SELECT status FROM runs ORDER BY id DESC LIMIT 1", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .expect("run status");
+
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+
+    assert!(format!("{error:#}").contains("staging profile chrome:Default"));
+    assert_eq!(status, "failed");
 }
 
 #[test]
@@ -847,6 +1551,120 @@ fn doctor_detects_missing_snapshot_artifacts() {
 }
 
 #[test]
+fn doctor_detects_manifest_parent_and_hash_damage() {
+    let parent_dir = tempdir().expect("tempdir");
+    let parent_paths = sample_paths(parent_dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&parent_paths, &config, None).expect("init parent archive");
+    let parent_connection =
+        Connection::open(&parent_paths.archive_database_path).expect("open parent archive");
+    create_schema(&parent_connection).expect("parent schema");
+    parent_connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES ('backup', 'manual', ?1, ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [now_rfc3339()],
+        )
+        .expect("insert parent run");
+    let run_id = parent_connection.last_insert_rowid();
+    parent_connection
+        .execute(
+            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
+             VALUES (?1, NULL, 'first-hash', '{}', ?2, NULL)",
+            params![run_id, now_rfc3339()],
+        )
+        .expect("insert first manifest");
+    parent_connection
+        .pragma_update(None, "foreign_keys", false)
+        .expect("disable foreign keys for damaged fixture");
+    parent_connection
+        .execute(
+            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
+             VALUES (?1, 9999, 'second-hash', '{}', ?2, NULL)",
+            params![run_id, now_rfc3339()],
+        )
+        .expect("insert broken parent manifest");
+
+    let parent_report = doctor(&parent_paths, &config, None).expect("doctor parent");
+    assert!(parent_report.checks.iter().any(|check| {
+        check.name == "Manifest chain"
+            && !check.ok
+            && check.detail.contains("does not point to the previous manifest")
+    }));
+
+    let hash_dir = tempdir().expect("tempdir");
+    let hash_paths = sample_paths(hash_dir.path());
+    ensure_archive_initialized(&hash_paths, &config, None).expect("init hash archive");
+    let hash_connection =
+        Connection::open(&hash_paths.archive_database_path).expect("open hash archive");
+    create_schema(&hash_connection).expect("hash schema");
+    hash_connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES ('backup', 'manual', ?1, ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [now_rfc3339()],
+        )
+        .expect("insert hash run");
+    let run_id = hash_connection.last_insert_rowid();
+    let manifest_path = hash_dir.path().join("manifest.json");
+    fs::write(&manifest_path, r#"{"ok":true}"#).expect("write manifest artifact");
+    hash_connection
+        .execute(
+            "INSERT INTO manifests (run_id, parent_manifest_id, content_hash, row_counts_json, created_at, file_path)
+             VALUES (?1, NULL, 'not-the-real-hash', '{}', ?2, ?3)",
+            params![run_id, now_rfc3339(), manifest_path.display().to_string()],
+        )
+        .expect("insert hash mismatch manifest");
+
+    let hash_report = doctor(&hash_paths, &config, None).expect("doctor hash");
+    assert!(hash_report.checks.iter().any(|check| {
+        check.name == "Manifest chain"
+            && !check.ok
+            && check.detail.contains("manifest hash mismatch")
+    }));
+}
+
+#[test]
+fn doctor_detects_import_batches_without_audit_artifacts() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    create_schema(&connection).expect("schema");
+    connection
+        .execute(
+            "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, imported_at, status, summary_json, audit_path)
+             VALUES ('takeout', '/tmp/takeout', 'takeout::browser-history', ?1, ?1, 'imported', '{}', NULL)",
+            [now_rfc3339()],
+        )
+        .expect("insert import batch without audit path");
+
+    let report = doctor(&paths, &config, None).expect("doctor");
+    assert!(report.checks.iter().any(|check| {
+        check.name == "Import audit artifacts"
+            && !check.ok
+            && check.detail.contains("does not have an audit artifact")
+    }));
+}
+
+#[test]
+fn doctor_repair_noops_on_healthy_archive() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let repair = repair_health_issues(&paths, &config, None).expect("repair health");
+
+    assert!(repair.run_id.is_none());
+    assert_eq!(repair.repaired_import_audits, 0);
+    assert_eq!(repair.repaired_visibility_rows, 0);
+    assert_eq!(repair.cleared_derived_rows, 0);
+    assert!(repair.notes.iter().any(|note| note.contains("found no actionable damage")));
+}
+
+#[test]
 fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
@@ -914,6 +1732,135 @@ fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state(
 
     let repaired_report = doctor(&paths, &config, None).expect("doctor after repair");
     assert!(repaired_report.checks.iter().all(|check| check.ok));
+}
+
+#[test]
+fn doctor_repair_tolerates_missing_optional_intelligence_tables() {
+    for dropped_tables in [
+        vec!["ai_embeddings", "search_trail_members"],
+        vec!["visit_derived_facts"],
+        vec!["search_trail_members", "visit_derived_facts"],
+    ] {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let config = AppConfig { initialized: true, ..AppConfig::default() };
+        ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let intelligence =
+            open_intelligence_connection(&paths, &config, None).expect("open intelligence");
+        for table in dropped_tables {
+            intelligence
+                .execute(&format!("DROP TABLE IF EXISTS {table}"), [])
+                .expect("drop optional intelligence table");
+        }
+        drop(intelligence);
+
+        let repair = repair_health_issues(&paths, &config, None).expect("repair health");
+
+        assert!(repair.run_id.is_none());
+        assert_eq!(repair.cleared_derived_rows, 0);
+    }
+}
+
+#[test]
+fn doctor_repair_restores_visibility_when_import_audits_are_intact() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let takeout_source = seed_takeout_fixture(dir.path());
+    let inspection = crate::takeout::import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
+    )
+    .expect("import takeout");
+    let batch = inspection.import_batch.expect("batch");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    create_schema(&connection).expect("schema");
+    connection
+        .execute(
+            "UPDATE visits SET reverted_at = ?1, reverted_by_run_id = NULL WHERE import_batch_id = ?2",
+            params![now_rfc3339(), batch.id],
+        )
+        .expect("break visibility");
+
+    let repair = repair_health_issues(&paths, &config, None).expect("repair health");
+
+    assert_eq!(repair.repaired_import_audits, 0);
+    assert_eq!(repair.repaired_visibility_rows, 1);
+    assert!(repair.notes.iter().any(|note| note.contains("Re-linked 1 reverted visit rows")));
+}
+
+#[test]
+fn doctor_repair_commits_rebuilt_import_artifacts_when_git_is_enabled() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let import_config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &import_config, None).expect("init archive");
+
+    let takeout_source = seed_takeout_fixture(dir.path());
+    let inspection = crate::takeout::import_takeout(
+        &paths,
+        &import_config,
+        None,
+        &TakeoutRequest { source_path: takeout_source.display().to_string(), dry_run: false },
+    )
+    .expect("import takeout");
+    let batch = inspection.import_batch.expect("batch");
+    fs::remove_file(batch.audit_path.expect("audit path")).expect("remove import audit artifact");
+    let repair_config = AppConfig { git_enabled: true, ..import_config };
+
+    let repair = repair_health_issues(&paths, &repair_config, None).expect("repair health");
+
+    assert_eq!(repair.repaired_import_audits, 1);
+    assert!(
+        repair
+            .notes
+            .iter()
+            .any(|note| note.contains("Recorded repaired import artifacts in audit commit"))
+    );
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    let git_commit: String = connection
+        .query_row("SELECT git_commit FROM import_batches WHERE id = ?1", [batch.id], |row| {
+            row.get(0)
+        })
+        .expect("git commit");
+    assert!(!git_commit.is_empty());
+}
+
+#[test]
+fn doctor_repair_records_failed_run_when_audit_artifact_rewrite_fails() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    create_schema(&connection).expect("schema");
+    connection
+        .execute(
+            "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, imported_at, status, summary_json, audit_path)
+             VALUES ('takeout', '/tmp/takeout', 'takeout::browser-history', ?1, ?1, 'imported', '{}', NULL)",
+            [now_rfc3339()],
+        )
+        .expect("insert import batch without audit path");
+    fs::create_dir_all(&paths.audit_repo_path).expect("audit repo dir");
+    fs::write(paths.audit_repo_path.join("imports"), "not a directory")
+        .expect("block audit imports path");
+
+    let error = repair_health_issues(&paths, &config, None)
+        .expect_err("blocked audit repo should fail repair");
+
+    assert!(!error.to_string().is_empty());
+    let failed_runs: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM runs WHERE run_type = 'doctor' AND status = 'failed'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed doctor run count");
+    assert_eq!(failed_runs, 1);
 }
 
 #[test]
@@ -1070,6 +2017,61 @@ fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
             .iter()
             .any(|artifact| artifact.reason.as_deref() == Some("restored-source-checkpoint"))
     );
+
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn snapshot_restore_records_failed_run_when_replay_cannot_persist() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    run_backup(&paths, &config, None, false).expect("run backup");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    let snapshot_path: String = connection
+        .query_row(
+            "SELECT file_path
+             FROM snapshots
+             ORDER BY id DESC
+             LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("latest snapshot path");
+    connection.execute("DROP TABLE visits", []).expect("damage archive schema");
+    drop(connection);
+
+    let restore_error =
+        run_snapshot_restore(&paths, &config, None, &SnapshotRestoreRequest { snapshot_path })
+            .expect_err("damaged archive should fail snapshot restore");
+    let restore_error_chain = format!("{restore_error:#}");
+    assert!(restore_error_chain.contains("visits"), "{restore_error_chain}");
+
+    let failed_status: String = Connection::open(&paths.archive_database_path)
+        .expect("reopen archive")
+        .query_row(
+            "SELECT status
+             FROM runs
+             WHERE run_type = 'snapshot_restore'
+             ORDER BY id DESC
+             LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed restore run");
+    assert_eq!(failed_status, "failed");
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
 }
@@ -1233,11 +2235,127 @@ fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
 }
 
 #[test]
+fn maintenance_guards_manual_snapshots_and_retention_edge_cases() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let safety_snapshot = paths.raw_snapshots_dir.join("manual-safety.sqlite");
+    fs::create_dir_all(&paths.raw_snapshots_dir).expect("create snapshot dir");
+    fs::write(&safety_snapshot, "manual safety copy").expect("write safety snapshot");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (90, 'backup', 'manual', ?1, 'UTC', 'success', '[\"profile-a\"]', '[]', '{}', 0)",
+            params![now_rfc3339()],
+        )
+        .expect("insert run");
+    connection
+        .execute(
+            "INSERT INTO snapshots (run_id, file_path, file_size, checksum, reason, created_at)
+             VALUES (90, ?1, 18, 'manual', 'safety-copy', ?2)",
+            params![safety_snapshot.display().to_string(), now_rfc3339()],
+        )
+        .expect("insert safety snapshot");
+
+    let preview = preview_snapshot_restore(
+        &paths,
+        &config,
+        None,
+        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
+    )
+    .expect("manual safety snapshot preview");
+    assert_eq!(preview.snapshot_kind, "archive-safety-snapshot");
+    assert!(!preview.execute_supported);
+    assert_eq!(preview.source_profile_id.as_deref(), Some("profile-a"));
+    assert!(preview.warnings[0].contains("manual recovery"));
+    let run_error = run_snapshot_restore(
+        &paths,
+        &config,
+        None,
+        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
+    )
+    .expect_err("manual safety copies are not automatically restored");
+    assert!(run_error.to_string().contains("automatic restore"));
+
+    let uninitialized = AppConfig { initialized: false, ..AppConfig::default() };
+    let restore_uninitialized = run_snapshot_restore(
+        &paths,
+        &uninitialized,
+        None,
+        &SnapshotRestoreRequest { snapshot_path: safety_snapshot.display().to_string() },
+    )
+    .expect_err("uninitialized archive cannot restore snapshots");
+    assert!(restore_uninitialized.to_string().contains("archive has not been initialized"));
+
+    let prune_error = run_retention_prune(
+        &paths,
+        &uninitialized,
+        None,
+        &RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
+    )
+    .expect_err("uninitialized archive cannot prune");
+    assert!(prune_error.to_string().contains("initialize the archive"));
+
+    let empty = run_retention_prune(
+        &paths,
+        &config,
+        None,
+        &RetentionPruneRequest { bucket_ids: Vec::new() },
+    )
+    .expect("empty prune request");
+    assert!(empty.run_id.is_none());
+    assert!(empty.warnings[0].contains("Choose at least one"));
+
+    let unknown = run_retention_prune(
+        &paths,
+        &config,
+        None,
+        &RetentionPruneRequest { bucket_ids: vec!["not-a-bucket".to_string()] },
+    )
+    .expect("unknown bucket prune request");
+    assert!(unknown.run_id.is_none());
+    assert!(unknown.warnings[0].contains("No matching"));
+
+    fs::create_dir_all(&paths.exports_dir).expect("exports dir");
+    fs::create_dir_all(&paths.staging_dir).expect("staging dir");
+    fs::create_dir_all(&paths.quarantine_dir).expect("quarantine dir");
+    fs::write(paths.exports_dir.join("export.json"), "{}").expect("export file");
+    fs::write(paths.staging_dir.join("stage.tmp"), "stage").expect("staging file");
+    fs::write(paths.quarantine_dir.join("bad.txt"), "bad").expect("quarantine file");
+    let all = run_retention_prune(
+        &paths,
+        &config,
+        None,
+        &RetentionPruneRequest {
+            bucket_ids: vec![
+                "snapshots".to_string(),
+                "exports".to_string(),
+                "staging".to_string(),
+                "quarantine".to_string(),
+            ],
+        },
+    )
+    .expect("all retention buckets");
+    assert!(all.run_id.is_some());
+    assert!(all.deleted_files >= 4);
+    assert_eq!(directory_size(&paths.exports_dir), 0);
+    assert_eq!(directory_size(&paths.staging_dir), 0);
+    assert_eq!(directory_size(&paths.quarantine_dir), 0);
+}
+
+#[test]
 fn rekey_archive_keeps_a_safety_snapshot() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     let config = AppConfig { initialized: true, ..AppConfig::default() };
     ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    fs::write(paths.archive_database_path.with_extension("rekey.sqlite"), "stale rekey temp")
+        .expect("write stale rekey temp");
+    fs::write(paths.archive_database_path.with_extension("backup.sqlite"), "stale rekey backup")
+        .expect("write stale rekey backup");
 
     let status =
         rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("vault-passphrase"))
@@ -1252,6 +2370,8 @@ fn rekey_archive_keeps_a_safety_snapshot() {
     assert!(status.encrypted);
     assert_eq!(snapshots.len(), 1);
     assert!(snapshots[0].path().is_file());
+    assert!(!paths.archive_database_path.with_extension("rekey.sqlite").exists());
+    assert!(!paths.archive_database_path.with_extension("backup.sqlite").exists());
 
     let encrypted_config = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
     let recent_runs = load_recent_runs(&paths, &encrypted_config, Some("vault-passphrase"))
@@ -1265,6 +2385,145 @@ fn rekey_archive_keeps_a_safety_snapshot() {
     assert!(
         detail.artifacts.iter().any(|artifact| artifact.reason.as_deref() == Some("before-rekey"))
     );
+
+    let plaintext_status = rekey_archive(
+        &paths,
+        &encrypted_config,
+        Some("vault-passphrase"),
+        ArchiveMode::Plaintext,
+        None,
+    )
+    .expect("rekey back to plaintext");
+    assert!(!plaintext_status.encrypted);
+}
+
+#[test]
+fn rekey_archive_reports_missing_database_and_missing_new_key() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+
+    let missing_database = rekey_archive(&paths, &config, None, ArchiveMode::Plaintext, None)
+        .expect_err("missing archive database");
+    assert!(missing_database.to_string().contains("archive database does not exist"));
+
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let missing_key = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, None)
+        .expect_err("missing new encryption key");
+    assert!(missing_key.to_string().contains("new encryption key is required"));
+}
+
+#[test]
+fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    fs::remove_file(&paths.config_path).expect("remove config file");
+    fs::create_dir(&paths.config_path).expect("replace config path with directory");
+
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Plaintext, None)
+        .expect_err("config save failure should abort rekey closeout");
+    assert!(error.to_string().contains("writing"));
+
+    let connection =
+        Connection::open(&paths.archive_database_path).expect("open archive after swap");
+    let (status, error_message): (String, Option<String>) = connection
+        .query_row(
+            "SELECT status, error_message
+             FROM runs
+             WHERE run_type = 'rekey'
+             ORDER BY id DESC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("failed rekey run");
+    assert_eq!(status, "failed");
+    assert!(error_message.as_deref().is_some_and(|message| message.contains("writing")));
+}
+
+#[test]
+fn run_support_failed_runs_and_due_windows_stay_truthful() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, due_after_hours: 72, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    let started_at = now_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES ('backup', 'manual', ?1, 'UTC', 'running', '[\"profile-a\"]', '[]', '{}', 0)",
+            params![started_at],
+        )
+        .expect("insert running run");
+    let run_id = connection.last_insert_rowid();
+
+    finalize_failed_run(
+        &connection,
+        run_id,
+        &[
+            BackupProfileSummary {
+                profile_id: "profile-a".to_string(),
+                new_visits: 2,
+                new_urls: 1,
+                new_downloads: 0,
+                checkpoint_created: true,
+                notes: vec!["partial".to_string()],
+            },
+            BackupProfileSummary {
+                profile_id: "profile-b".to_string(),
+                new_visits: 3,
+                new_urls: 2,
+                new_downloads: 1,
+                checkpoint_created: false,
+                notes: Vec::new(),
+            },
+        ],
+        &["warning".to_string()],
+        &anyhow::anyhow!("fixture failure"),
+    )
+    .expect("finalize failed run");
+
+    let (status, stats_json, warnings_json, error_message): (String, String, String, String) =
+        connection
+            .query_row(
+                "SELECT status, stats_json, warnings_json, error_message FROM runs WHERE id = ?1",
+                [run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("failed run row");
+    let stats: serde_json::Value = serde_json::from_str(&stats_json).expect("stats json");
+    let warnings: Vec<String> = serde_json::from_str(&warnings_json).expect("warnings json");
+    assert_eq!(status, "failed");
+    assert_eq!(stats["profilesProcessed"], 2);
+    assert_eq!(stats["newVisits"], 5);
+    assert_eq!(stats["newUrls"], 3);
+    assert_eq!(stats["newDownloads"], 1);
+    assert_eq!(warnings, vec!["warning"]);
+    assert!(error_message.contains("fixture failure"));
+
+    let now = chrono::Utc::now();
+    let recent = now - chrono::Duration::hours(2);
+    let old = now - chrono::Duration::hours(96);
+    let recent_reason = super::run_support::backup_due_skip_reason_at(recent, &config, now)
+        .expect("recent backup should skip");
+    assert!(recent_reason.contains("2 hours old"));
+    assert!(super::run_support::backup_due_skip_reason_at(old, &config, now).is_none());
+
+    connection
+        .execute(
+            "UPDATE runs
+             SET status = 'success', finished_at = ?1, error_message = NULL
+             WHERE id = ?2",
+            params![recent.to_rfc3339(), run_id],
+        )
+        .expect("mark successful backup");
+    let due_reason = super::run_support::backup_due_skip_reason(&connection, &config)
+        .expect("due skip query")
+        .expect("recent success should skip");
+    assert!(due_reason.contains("hours old"));
 }
 
 #[test]

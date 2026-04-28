@@ -104,6 +104,10 @@ mod tests {
             load_readable_text_blob(&paths, Some(&first.relative_path)).expect("load blob"),
             Some("hello world".to_string())
         );
+        assert_eq!(
+            load_readable_text_blob(&paths, Some("missing/blob.txt")).expect("missing blob"),
+            None
+        );
     }
 
     #[test]

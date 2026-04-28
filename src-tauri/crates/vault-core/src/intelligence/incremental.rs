@@ -318,3 +318,85 @@ fn load_site_dictionary_signature(connection: &Connection) -> Result<String> {
         .map(|(count, updated_at)| format!("overrides:{count}:{updated_at}"))
         .context("loading site dictionary signature")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stage_checkpoint_helpers_cover_names_versions_and_scoped_deletes() {
+        let connection = Connection::open_in_memory().expect("memory");
+        ensure_core_intelligence_stage_checkpoint_schema(&connection).expect("schema");
+
+        assert_eq!(stage_name(RebuildMode::StructuralRebuild), "structural-rebuild");
+        assert_eq!(stage_name(RebuildMode::FullRebuild), "full-rebuild");
+        assert!(
+            stage_version(&connection, RebuildMode::VisitDerive)
+                .expect("visit version")
+                .starts_with("visit-derived-facts-v2:")
+        );
+        assert_eq!(
+            stage_version(&connection, RebuildMode::StructuralRebuild).expect("structural version"),
+            "structural-rebuild-v2"
+        );
+        assert_eq!(
+            stage_version(&connection, RebuildMode::FullRebuild).expect("full version"),
+            "full-rebuild-v2"
+        );
+
+        save_stage_checkpoint(
+            &connection,
+            &StageCheckpoint {
+                profile_id: "profile-a".to_string(),
+                stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                stage_version: "daily-rollups-v2".to_string(),
+                source_watermark: ProfileSourceWatermark {
+                    visible_visit_count: 1,
+                    max_visit_id: 1,
+                    max_url_last_visit_ms: 1,
+                    visible_search_term_count: 1,
+                },
+                last_processed_visit_id: 1,
+                updated_at: "2026-04-26T00:00:00Z".to_string(),
+                ..StageCheckpoint::default()
+            },
+        )
+        .expect("checkpoint a");
+        save_stage_checkpoint(
+            &connection,
+            &StageCheckpoint {
+                profile_id: "profile-b".to_string(),
+                stage: stage_name(RebuildMode::DailyRollup).to_string(),
+                stage_version: "daily-rollups-v2".to_string(),
+                source_watermark: ProfileSourceWatermark {
+                    visible_visit_count: 2,
+                    max_visit_id: 2,
+                    max_url_last_visit_ms: 2,
+                    visible_search_term_count: 2,
+                },
+                last_processed_visit_id: 2,
+                updated_at: "2026-04-26T00:00:01Z".to_string(),
+                ..StageCheckpoint::default()
+            },
+        )
+        .expect("checkpoint b");
+
+        delete_stage_checkpoints(&connection, Some("profile-a")).expect("delete profile a");
+        assert!(
+            load_stage_checkpoint(&connection, "profile-a", RebuildMode::DailyRollup)
+                .expect("load profile a")
+                .is_none()
+        );
+        assert!(
+            load_stage_checkpoint(&connection, "profile-b", RebuildMode::DailyRollup)
+                .expect("load profile b")
+                .is_some()
+        );
+        delete_stage_checkpoints(&connection, None).expect("delete all");
+        assert!(
+            load_stage_checkpoint(&connection, "profile-b", RebuildMode::DailyRollup)
+                .expect("load profile b after delete")
+                .is_none()
+        );
+    }
+}

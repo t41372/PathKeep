@@ -104,9 +104,16 @@ impl TrailBuildState {
     pub(super) fn new(visit: &StructuralVisitRecord, session_id: &str) -> Self {
         let query = visit.search_query.clone().unwrap_or_else(|| "search".to_string());
         let trail_id = format!("trail:{}:{}", visit.profile_id, visit.visit_id);
+        let search_event_member = TrailMemberRecord {
+            trail_id: trail_id.clone(),
+            profile_id: visit.profile_id.clone(),
+            visit_id: visit.visit_id,
+            ordinal: 0,
+            role: "search_event".to_string(),
+        };
         Self {
             record: TrailRecord {
-                trail_id,
+                trail_id: trail_id.clone(),
                 profile_id: visit.profile_id.clone(),
                 session_id: session_id.to_string(),
                 initial_query: query.clone(),
@@ -119,7 +126,7 @@ impl TrailBuildState {
                 last_visit_ms: visit.visit_time_ms,
                 max_depth: 0,
                 queries: vec![query],
-                members: Vec::new(),
+                members: vec![search_event_member],
             },
             next_ordinal: 1,
         }
@@ -128,13 +135,18 @@ impl TrailBuildState {
     /// Builds the synthetic member row for the search event that seeded this
     /// trail.
     pub(super) fn search_event_member(&self, visit_id: i64) -> TrailMemberRecord {
-        TrailMemberRecord {
-            trail_id: self.record.trail_id.clone(),
-            profile_id: self.record.profile_id.clone(),
-            visit_id,
-            ordinal: 0,
-            role: "search_event".to_string(),
-        }
+        self.record
+            .members
+            .iter()
+            .find(|member| member.visit_id == visit_id && member.role == "search_event")
+            .cloned()
+            .unwrap_or_else(|| TrailMemberRecord {
+                trail_id: self.record.trail_id.clone(),
+                profile_id: self.record.profile_id.clone(),
+                visit_id,
+                ordinal: 0,
+                role: "search_event".to_string(),
+            })
     }
 
     /// Appends one non-search visit to the current trail and records whether it
@@ -148,13 +160,15 @@ impl TrailBuildState {
         self.record.max_depth = self.record.max_depth.max(ordinal);
         self.record.landing_url.get_or_insert_with(|| visit.url.clone());
         self.record.landing_domain.get_or_insert_with(|| visit.registrable_domain.clone());
-        TrailMemberRecord {
+        let member = TrailMemberRecord {
             trail_id: self.record.trail_id.clone(),
             profile_id: self.record.profile_id.clone(),
             visit_id: visit.visit_id,
             ordinal,
             role: role.to_string(),
-        }
+        };
+        self.record.members.push(member.clone());
+        member
     }
 
     /// Finalizes the trail once the session-local search journey ends.
@@ -178,5 +192,82 @@ pub(super) fn build_session_title_from_summary(
         (Some(domain), None) => Some(domain),
         (None, Some(query)) => Some(query.to_string()),
         (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn structural_visit(
+        visit_id: i64,
+        url: &str,
+        domain: &str,
+        query: Option<&str>,
+        is_search_event: bool,
+    ) -> StructuralVisitRecord {
+        StructuralVisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".to_string(),
+            url: url.to_string(),
+            visit_time_ms: 1_762_000_000_000 + visit_id,
+            from_visit: None,
+            registrable_domain: domain.to_string(),
+            search_engine: is_search_event.then(|| "google".to_string()),
+            search_query: query.map(str::to_string),
+            is_new_domain: visit_id == 1,
+            is_search_event,
+        }
+    }
+
+    #[test]
+    fn trail_state_returns_persisted_search_member_and_defensive_fallback() {
+        let search_visit = structural_visit(
+            1,
+            "https://www.google.com/search?q=docs",
+            "google.com",
+            Some("docs"),
+            true,
+        );
+        let mut trail = TrailBuildState::new(&search_visit, "session:chrome:Default:1");
+
+        let seeded_member = trail.search_event_member(search_visit.visit_id);
+        assert_eq!(seeded_member.role, "search_event");
+        assert_eq!(seeded_member.ordinal, 0);
+        assert_eq!(seeded_member.trail_id, trail.record.trail_id);
+
+        let fallback_member = trail.search_event_member(99);
+        assert_eq!(fallback_member.visit_id, 99);
+        assert_eq!(fallback_member.role, "search_event");
+        assert_eq!(fallback_member.ordinal, 0);
+
+        let landing_visit =
+            structural_visit(2, "https://example.com/docs", "example.com", None, false);
+        let click_visit =
+            structural_visit(3, "https://example.com/docs/api", "example.com", None, false);
+        assert_eq!(trail.append_visit(&landing_visit).role, "landing");
+        assert_eq!(trail.append_visit(&click_visit).role, "click");
+
+        let record = trail.finish();
+        assert_eq!(record.visit_count, 3);
+        assert_eq!(record.landing_domain.as_deref(), Some("example.com"));
+        assert_eq!(record.members.len(), 3);
+    }
+
+    #[test]
+    fn session_title_summary_covers_empty_and_query_only_inputs() {
+        let mut domain_counts = HashMap::new();
+        domain_counts.insert("example.com".to_string(), 2);
+        domain_counts.insert("docs.example.com".to_string(), 1);
+
+        assert_eq!(
+            build_session_title_from_summary(&domain_counts, Some("rust coverage")),
+            Some("example.com · rust coverage".to_string())
+        );
+        assert_eq!(
+            build_session_title_from_summary(&HashMap::new(), Some("rust coverage")),
+            Some("rust coverage".to_string())
+        );
+        assert_eq!(build_session_title_from_summary(&HashMap::new(), None), None);
     }
 }

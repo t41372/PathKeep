@@ -33,6 +33,7 @@ import {
 } from '../../lib/profile-scope-context'
 import type {
   AiAssistantResponse,
+  AiProviderConfig,
   AiProviderConnectionTestReport,
 } from '../../lib/types'
 import {
@@ -101,6 +102,7 @@ export function AssistantPage() {
   }, [searchParams])
   const queueStatus = runtimeStatus.aiQueue
   const queueError = runtimeStatus.error
+  const assistantAttention = pageError ?? queueError
 
   const queuedAssistantJobs = useMemo(
     () =>
@@ -189,13 +191,12 @@ export function AssistantPage() {
    *
    * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
    */
-  async function handleProviderProbe() {
-    if (!llmProvider) return
+  async function handleProviderProbe(provider: AiProviderConfig) {
     setQueueAction(assistantT('testingProviderAction'))
     setPageError(null)
     try {
       const probe = await backend.testAiProviderConnection({
-        providerId: llmProvider.id,
+        providerId: provider.id,
         purpose: 'llm',
       })
       setProviderProbe(probe)
@@ -238,17 +239,13 @@ export function AssistantPage() {
    *
    * Keeping this as a named declaration makes the Assistant surface easier to review and test than burying the behavior inside another anonymous callback.
    */
-  async function handleDrainQueue(jobId?: number | null) {
+  async function handleDrainQueue(jobId: number) {
     setQueueAction(assistantT('runningQueuedJobsAction'))
     setPageError(null)
     try {
       await backend.runAiQueueJobs(1)
       await refreshQueue()
-      if (jobId) {
-        await handleLoadQueuedJob(jobId)
-      } else {
-        await refreshAppData()
-      }
+      await handleLoadQueuedJob(jobId)
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -291,7 +288,7 @@ export function AssistantPage() {
    */
   async function handleSend() {
     const question = input.trim()
-    if (!question || sending) return
+    if (!question) return
     setPageError(null)
     setInput('')
     setSearchParams((current) => {
@@ -435,9 +432,13 @@ export function AssistantPage() {
           embeddingProvider?.id ?? assistantT('lexicalFallback')
         }
         language={language}
-        onProviderProbe={() => {
-          void handleProviderProbe()
-        }}
+        onProviderProbe={
+          llmProvider
+            ? () => {
+                void handleProviderProbe(llmProvider)
+              }
+            : undefined
+        }
         onRefreshQueue={() => {
           void handleRefreshQueue()
         }}
@@ -454,12 +455,12 @@ export function AssistantPage() {
         runningCount={queueStatus?.running ?? snapshot.aiStatus.runningJobs}
       />
 
-      {(pageError || queueError) && (
+      {assistantAttention ? (
         <ErrorState
           title={assistantT('attentionTitle')}
-          description={pageError ?? queueError ?? assistantT('failedResponse')}
+          description={assistantAttention}
         />
-      )}
+      ) : null}
 
       <div className="assistant-layout">
         <AssistantConversationPanel

@@ -166,25 +166,9 @@ export function buildMockSearchQueries(request?: {
     return true
   })
 
-  const sorted = [...rows].sort((left, right) => {
-    switch (request?.sort) {
-      case 'alphabetical':
-        return left.normalizedQuery.localeCompare(right.normalizedQuery)
-      case 'exact-frequency':
-        return (
-          right.exactRepeatCount - left.exactRepeatCount ||
-          right.searchedAtMs - left.searchedAtMs
-        )
-      case 'family-frequency':
-        return (
-          right.familyCount - left.familyCount ||
-          right.exactRepeatCount - left.exactRepeatCount ||
-          right.searchedAtMs - left.searchedAtMs
-        )
-      default:
-        return right.searchedAtMs - left.searchedAtMs
-    }
-  })
+  const sorted = [...rows].sort((left, right) =>
+    compareMockSearchQueryRows(request?.sort, left, right),
+  )
   const page = request?.page ?? 0
   const pageSize = request?.pageSize ?? 20
   const start = page * pageSize
@@ -194,6 +178,33 @@ export function buildMockSearchQueries(request?: {
     total: sorted.length,
     page,
     pageSize,
+  }
+}
+
+/**
+ * Orders preview search-query rows using the same deterministic tie-breakers as the desktop read model.
+ */
+export function compareMockSearchQueryRows(
+  sort: SearchQuerySort | undefined,
+  left: SearchQueryListResult['rows'][number],
+  right: SearchQueryListResult['rows'][number],
+) {
+  switch (sort) {
+    case 'alphabetical':
+      return left.normalizedQuery.localeCompare(right.normalizedQuery)
+    case 'exact-frequency':
+      return (
+        right.exactRepeatCount - left.exactRepeatCount ||
+        right.searchedAtMs - left.searchedAtMs
+      )
+    case 'family-frequency':
+      return (
+        right.familyCount - left.familyCount ||
+        right.exactRepeatCount - left.exactRepeatCount ||
+        right.searchedAtMs - left.searchedAtMs
+      )
+    default:
+      return right.searchedAtMs - left.searchedAtMs
   }
 }
 

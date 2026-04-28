@@ -310,6 +310,7 @@ pub(crate) fn built_in_intelligence_module_descriptor(
 }
 
 /// Looks up the module that owns explainability for one persisted entity type.
+#[cfg(test)]
 pub(crate) fn module_descriptor_for_entity_type(
     entity_type: &str,
 ) -> Option<&'static IntelligenceModuleDescriptor> {
@@ -343,9 +344,7 @@ pub(crate) fn resolve_intelligence_module_order(
         if visited.contains(module_id) || !requested.contains(module_id) {
             return Ok(());
         }
-        if !visiting.insert(module_id) {
-            bail!("Core Intelligence module dependency cycle detected at {module_id}.");
-        }
+        reject_module_dependency_cycle(visiting, module_id)?;
         let descriptor = built_in_intelligence_module_descriptor(module_id)
             .ok_or_else(|| anyhow::anyhow!("unknown Core Intelligence module {module_id}"))?;
         for dependency in descriptor.depends_on {
@@ -366,16 +365,27 @@ pub(crate) fn resolve_intelligence_module_order(
     Ok(ordered)
 }
 
+fn reject_module_dependency_cycle(
+    visiting: &mut HashSet<&'static str>,
+    module_id: &'static str,
+) -> Result<()> {
+    if !visiting.insert(module_id) {
+        bail!("Core Intelligence module dependency cycle detected at {module_id}.");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         RebuildMode, built_in_intelligence_modules, module_descriptor_for_entity_type,
-        resolve_intelligence_module_order,
+        reject_module_dependency_cycle, resolve_intelligence_module_order,
     };
     use crate::models::{
         DOMAIN_DEEP_DIVE_MODULE_ID, REFIND_PAGES_MODULE_ID, SEARCH_TRAILS_MODULE_ID,
-        SESSIONS_MODULE_ID,
+        SESSIONS_MODULE_ID, VISIT_DERIVED_FACTS_MODULE_ID,
     };
+    use std::collections::HashSet;
 
     #[test]
     fn structural_rebuild_mode_resolves_modules_in_dependency_order() {
@@ -391,6 +401,14 @@ mod tests {
                 DOMAIN_DEEP_DIVE_MODULE_ID,
             ]
         );
+    }
+
+    #[test]
+    fn rebuild_modes_expose_stable_queue_job_types() {
+        assert_eq!(RebuildMode::VisitDerive.job_type(), "visit-derive");
+        assert_eq!(RebuildMode::DailyRollup.job_type(), "daily-rollup");
+        assert_eq!(RebuildMode::StructuralRebuild.job_type(), "structural-rebuild");
+        assert_eq!(RebuildMode::FullRebuild.job_type(), "full-rebuild");
     }
 
     #[test]
@@ -417,5 +435,13 @@ mod tests {
     fn resolve_intelligence_module_order_rejects_unknown_modules() {
         let error = resolve_intelligence_module_order(&["unknown-module"]).expect_err("error");
         assert!(error.to_string().contains("unknown Core Intelligence module"));
+    }
+
+    #[test]
+    fn module_dependency_cycle_guard_reports_the_current_node() {
+        let mut visiting = HashSet::from([VISIT_DERIVED_FACTS_MODULE_ID]);
+        let error = reject_module_dependency_cycle(&mut visiting, VISIT_DERIVED_FACTS_MODULE_ID)
+            .expect_err("cycle");
+        assert!(error.to_string().contains(VISIT_DERIVED_FACTS_MODULE_ID));
     }
 }

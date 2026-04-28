@@ -84,6 +84,35 @@ describe('update helpers', () => {
       currentVersion: '0.1.0',
       downloadUrl: RELEASES_PAGE_URL,
     })
+
+    const unknownVersion = await checkForAppUpdate()
+    expect(unknownVersion.availability.currentVersion).toBeNull()
+  })
+
+  test('reports unsupported preview installs through the state callback', async () => {
+    const states: UpdateInstallState[] = []
+
+    const result = await downloadAndInstallAppUpdate(
+      {
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: null,
+        publishedAt: null,
+        downloadUrl: 'https://example.com/latest.json',
+      },
+      (state) => {
+        states.push(state)
+      },
+    )
+
+    expect(backend.downloadAndInstallAppUpdate).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      phase: 'unsupported',
+      version: '0.2.0',
+      downloadedBytes: null,
+      contentLength: null,
+    })
+    expect(states).toEqual([result])
   })
 
   test('maps an available desktop update into release metadata', async () => {
@@ -123,6 +152,43 @@ describe('update helpers', () => {
       publishedAt: '2026-04-10T00:00:00Z',
       downloadUrl: 'https://example.com/latest.json',
     })
+
+    backend.checkForAppUpdate.mockResolvedValueOnce({
+      availability: {
+        supported: true,
+        checkedAt: '2026-04-10T00:00:00Z',
+        available: false,
+        currentVersion: null,
+        version: null,
+        notes: null,
+        publishedAt: null,
+        error: null,
+        downloadUrl: null,
+      },
+      pendingUpdate: null,
+    })
+    const fallbackResult = await checkForAppUpdate('0.1.1')
+    expect(fallbackResult.availability).toMatchObject({
+      currentVersion: '0.1.1',
+      downloadUrl: RELEASES_PAGE_URL,
+    })
+
+    backend.checkForAppUpdate.mockResolvedValueOnce({
+      availability: {
+        supported: true,
+        checkedAt: '2026-04-10T00:00:00Z',
+        available: false,
+        currentVersion: null,
+        version: null,
+        notes: null,
+        publishedAt: null,
+        error: null,
+        downloadUrl: null,
+      },
+      pendingUpdate: null,
+    })
+    const unknownCurrentVersion = await checkForAppUpdate()
+    expect(unknownCurrentVersion.availability.currentVersion).toBeNull()
   })
 
   test('subscribes to updater progress and returns the desktop install result', async () => {
@@ -193,6 +259,82 @@ describe('update helpers', () => {
     expect(subscribeToUpdaterProgress).not.toHaveBeenCalled()
     expect(backend.downloadAndInstallAppUpdate).toHaveBeenCalledWith('0.2.0')
     expect(result.phase).toBe('installed')
+  })
+
+  test('does not duplicate the final updater state when progress already reported it', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(true)
+    hasTauriGuestApiMock.mockReturnValue(true)
+    const states: UpdateInstallState[] = []
+    const installedState: UpdateInstallState = {
+      phase: 'installed',
+      version: '0.2.0',
+      downloadedBytes: 100,
+      contentLength: 100,
+      message: 'PathKeep 0.2.0 is ready. Restart to finish switching versions.',
+    }
+    subscribeToUpdaterProgress.mockImplementation((listener: unknown) => {
+      const emit = listener as (state: UpdateInstallState) => void
+      emit(installedState)
+      return Promise.resolve(vi.fn())
+    })
+    backend.downloadAndInstallAppUpdate.mockResolvedValue(installedState)
+
+    const result = await downloadAndInstallAppUpdate(
+      {
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: null,
+        publishedAt: null,
+        downloadUrl: 'https://example.com/latest.json',
+      },
+      (state) => states.push(state),
+    )
+
+    expect(result).toBe(installedState)
+    expect(states).toEqual([installedState])
+  })
+
+  test('maps failed desktop installs into a recoverable install state', async () => {
+    hasDesktopCommandTransportMock.mockReturnValue(true)
+    backend.downloadAndInstallAppUpdate.mockRejectedValueOnce(
+      new Error('signature mismatch'),
+    )
+    const states: UpdateInstallState[] = []
+
+    const result = await downloadAndInstallAppUpdate(
+      {
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        notes: null,
+        publishedAt: null,
+        downloadUrl: 'https://example.com/latest.json',
+      },
+      (state) => {
+        states.push(state)
+      },
+    )
+
+    expect(result).toMatchObject({
+      phase: 'error',
+      version: '0.2.0',
+      message: 'signature mismatch',
+    })
+    expect(states).toEqual([result])
+
+    backend.downloadAndInstallAppUpdate.mockRejectedValueOnce('offline')
+    await expect(
+      downloadAndInstallAppUpdate({
+        currentVersion: '0.1.0',
+        version: '0.3.0',
+        notes: null,
+        publishedAt: null,
+        downloadUrl: 'https://example.com/latest.json',
+      }),
+    ).resolves.toMatchObject({
+      phase: 'error',
+      version: '0.3.0',
+      message: 'PathKeep could not install 0.3.0.',
+    })
   })
 
   test('keeps relaunch behind the desktop command boundary', async () => {

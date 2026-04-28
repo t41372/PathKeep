@@ -116,9 +116,16 @@ function describeUnhandledReason(reason: unknown) {
     }
   }
 
-  if (typeof reason === 'string' && reason.trim().length > 0) {
+  if (typeof reason === 'string') {
+    const message = reason.trim()
+    if (!message) {
+      return {
+        message: 'Unhandled promise rejection',
+        stack: null,
+      }
+    }
     return {
-      message: reason,
+      message,
       stack: null,
     }
   }

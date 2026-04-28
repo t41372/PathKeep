@@ -533,6 +533,24 @@ mod tests {
     }
 
     #[test]
+    fn module_backed_meta_marks_disabled_modules_with_fallback_reason() {
+        let runtime = runtime_with_modules(vec![DeterministicModuleRuntimeStatus {
+            module_id: "daily-rollups".to_string(),
+            status: "disabled".to_string(),
+            ..DeterministicModuleRuntimeStatus::default()
+        }]);
+
+        let meta = build_module_backed_meta(
+            persisted_descriptor("search-activity"),
+            &runtime,
+            sample_window(),
+        );
+
+        assert_eq!(meta.state, "disabled");
+        assert_eq!(meta.state_reason.as_deref(), Some("Disabled in Settings."));
+    }
+
+    #[test]
     fn direct_meta_uses_query_time_and_capability_gated_empty_reason() {
         let descriptor = persisted_descriptor("observed-interactions");
         let meta = build_direct_meta(

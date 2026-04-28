@@ -55,16 +55,13 @@ Run:
 bun run verify
 ```
 
-For release closeout or milestone handoff, also run:
+`bun run verify` runs the strict per-commit checker first, including coverage, browser build, browser-preview e2e, desktop-bridge truth, and desktop-contract JS mutation, then adds the debug desktop build rehearsal.
+
+For long-running mutation investigation before a high-risk release candidate, use:
 
 ```bash
-bun run mutation:js
-bun run mutation:rust
-```
-
-If you are explicitly triaging broader Rust workspace debt rather than validating the signed-off contract, also run:
-
-```bash
+bun run check:deep
+bun run mutation:js:full
 bun run mutation:rust:full
 ```
 

@@ -184,9 +184,9 @@ export function RuntimeJobPanel({
               }
               title={
                 <>
-                  {(job.pluginId
+                  {job.pluginId
                     ? enrichmentPluginLabel(job.pluginId, settingsT)
-                    : job.jobType) || job.jobType}{' '}
+                    : job.jobType}{' '}
                   · #{job.id}
                 </>
               }

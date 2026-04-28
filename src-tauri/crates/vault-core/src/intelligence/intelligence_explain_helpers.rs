@@ -223,3 +223,98 @@ fn update_latest_path_flow_match(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_family_loader_returns_empty_without_schema_when_queries_are_empty() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        let ids = load_query_family_visit_ids(&connection, "chrome:Default", "google", &[])
+            .expect("empty query family visits");
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn path_flow_match_helper_keeps_only_newest_matching_window() {
+        let targets = vec!["a.test".to_string(), "b.test".to_string()];
+        let mut latest = None;
+        update_latest_path_flow_match(&[("a.test".to_string(), 1, 10)], 2, &targets, &mut latest);
+        assert!(latest.is_none());
+
+        update_latest_path_flow_match(
+            &[
+                ("a.test".to_string(), 1, 10),
+                ("b.test".to_string(), 2, 20),
+                ("c.test".to_string(), 3, 30),
+            ],
+            2,
+            &targets,
+            &mut latest,
+        );
+        assert_eq!(latest, Some((20, vec![1, 2])));
+
+        update_latest_path_flow_match(
+            &[("a.test".to_string(), 4, 11), ("b.test".to_string(), 5, 19)],
+            2,
+            &targets,
+            &mut latest,
+        );
+        assert_eq!(latest, Some((20, vec![1, 2])));
+
+        update_latest_path_flow_match(
+            &[("a.test".to_string(), 6, 40), ("b.test".to_string(), 7, 50)],
+            2,
+            &targets,
+            &mut latest,
+        );
+        assert_eq!(latest, Some((50, vec![6, 7])));
+    }
+
+    #[test]
+    fn recent_path_flow_loader_keeps_latest_visit_for_repeated_domains() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        connection
+            .execute_batch(
+                "
+                ATTACH DATABASE ':memory:' AS archive;
+                CREATE TABLE archive.visits (
+                    id INTEGER PRIMARY KEY,
+                    visit_time_ms INTEGER NOT NULL
+                );
+                CREATE TABLE visit_derived_facts (
+                    visit_id INTEGER PRIMARY KEY,
+                    profile_id TEXT NOT NULL,
+                    session_id TEXT,
+                    registrable_domain TEXT NOT NULL
+                );
+                ",
+            )
+            .expect("schema");
+        for (visit_id, domain, visit_time_ms) in
+            [(1_i64, "a.test", 10_i64), (2, "a.test", 20), (3, "b.test", 30)]
+        {
+            connection
+                .execute(
+                    "INSERT INTO archive.visits (id, visit_time_ms) VALUES (?1, ?2)",
+                    params![visit_id, visit_time_ms],
+                )
+                .expect("visit");
+            connection
+                .execute(
+                    "INSERT INTO visit_derived_facts
+                     (visit_id, profile_id, session_id, registrable_domain)
+                     VALUES (?1, 'chrome:Default', 'session:one', ?2)",
+                    params![visit_id, domain],
+                )
+                .expect("derived fact");
+        }
+
+        let visit_ids =
+            load_recent_path_flow_visit_ids(&connection, "chrome:Default", 2, "a.test → b.test")
+                .expect("path flow visits");
+
+        assert_eq!(visit_ids, vec![2, 3]);
+    }
+}

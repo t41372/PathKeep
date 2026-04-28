@@ -230,6 +230,49 @@ describe('ShellDataProvider', () => {
     )
   })
 
+  test('manual backup follow-up refresh stays silent while it rehydrates shell data', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveFollowUpSnapshot: ((value: AppSnapshot) => void) | undefined
+    const pendingFollowUpSnapshot = new Promise<AppSnapshot>((resolve) => {
+      resolveFollowUpSnapshot = resolve
+    })
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockReturnValueOnce(pendingFollowUpSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'runBackupNow').mockResolvedValue({
+      dueSkipped: false,
+      run: null,
+      profiles: [],
+      warnings: [],
+      remoteBackup: null,
+    })
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() => expect(getAppSnapshotSpy).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('loading')).toHaveTextContent('false')
+
+    await act(async () => {
+      resolveFollowUpSnapshot?.(snapshot)
+      await pendingFollowUpSnapshot
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        createTranslator('en')('common.complete'),
+      ),
+    )
+  })
+
   test('tracks backup progress phases through the shared busy overlay state', async () => {
     const user = userEvent.setup()
     const { dashboard, snapshot } = await seedSnapshot()

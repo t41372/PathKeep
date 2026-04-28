@@ -1,56 +1,66 @@
 # Testing
 
-PathKeep has multiple quality surfaces. This file exists so we do not confuse a passing desktop-contract sub-gate with full desktop or release signoff.
+PathKeep has multiple quality surfaces. This file exists so we do not confuse a focused triage helper with the signed-off checker.
 
 ## Mainline Blocking Path
 
-Run these before merging normal changes:
+Run this before merging normal changes:
 
 ```bash
 bun run check
-bun run coverage:js
-bun run coverage:rust
-bun run build
-bun run test:e2e
 ```
 
-What they mean:
+`bun run check` is the authoritative per-commit checker. It runs:
 
-- `bun run check`: formatting, linting, type checking, unit tests, desktop-contract checks, Rust checks, and supply-chain audit.
-- `bun run coverage:js`: 100% coverage gate for the living M0-M3 JS quality surface.
-- `bun run coverage:rust`: 100% coverage gate for the Tauri desktop command / bridge quality surface.
-- `bun run build`: browser bundle build.
-- `bun run test:e2e`: browser preview smoke, not full desktop signoff.
+- `bun run check:base`: formatting, linting, i18n checks, type checking, unit tests, desktop-contract checks, Rust checks, supply-chain audit, and host-matched platform checks.
+- `bun run coverage:js`: 100% statement / branch / function / line coverage for active frontend runtime source under `src/**/*.{ts,tsx}`.
+- `bun run coverage:rust`: 100% line + function coverage for full `src-tauri/**/src/*.rs` workspace source.
+- `bun run build`: TypeScript compile + Vite browser bundle.
+- `bun run test:e2e`: browser-preview Playwright smoke.
+- `bun run test:e2e:desktop-bridge:truth`: Chrome + Playwright smoke against the feature-gated Rust desktop command bridge.
+- `bun run check:mutation`: 100% desktop-contract JS mutation score for `src/main.tsx` and `src/lib/ipc/bridge.ts`.
 
 ## Deep Checks And Release Checks
 
-Use these for milestone closeout, risky refactors, and release rehearsal:
+Use these for release rehearsal and focused triage:
 
 ```bash
+bun run verify
+bun run check:base
+bun run coverage:js
+bun run coverage:rust
 bun run mutation:js
+bun run mutation:js:full
 bun run mutation:rust
-bun run mutation:rust:full
+bun run check:deep
 bun run test:desktop-bridge:rust
 bun run test:e2e:desktop-bridge
-bun run verify
 ```
 
 `bun run verify` runs the release-style local sweep:
 
-- `bun run check:full`
-- `bun run build`
+- `bun run check`
 - `bun run desktop:build:debug`
-
-Current recovery-mode note:
-
-- mutation scripts are still available, but they are temporarily out of the default `check` / `check:full` / `verify` path while product recovery work is underway.
 
 What they mean:
 
-- `bun run mutation:rust`: current honest Rust mutation contract for `browser-history-parser` plus the `vault-core/src/ai.rs` status/helper slice (`ai_index_status`, `ai_queue_status`, `reconcile_ai_queue_controls`, `provider_capabilities`, `provider_connection_failure_report`, `test_provider_connection`).
-- `bun run mutation:rust:full`: exploratory whole-workspace cargo-mutants sweep used to discover future backlog or deferred rationale; it is not the default signed-off contract.
+- `bun run check:base`: fast static/unit/native triage path; it is not a signed-off merge gate by itself.
+- `bun run mutation:js`: desktop-contract Stryker gate used by `bun run check`.
+- `bun run mutation:js:full`: active frontend runtime Stryker sweep for manual / scheduled deep checks.
+- `bun run mutation:rust`: whole-workspace cargo-mutants deep sweep. Surviving mutants are failures unless a narrow equivalent/inapplicable exclusion is documented with evidence.
+- `bun run check:deep`: `bun run check` plus full JS/Rust mutation sweeps. It is intentionally long-running and not required before every commit.
 - `bun run test:desktop-bridge:rust`: targeted Rust unit coverage for the feature-gated dev desktop bridge command dispatcher.
 - `bun run test:e2e:desktop-bridge`: Chrome + Playwright smoke that drives the frontend through the dev-only desktop command bridge and proves browser automation can reach real Rust responses.
+
+## Full Mutation Deep-Sweep Recipe
+
+Use this only when `WORK-QA-GATE-B` is explicitly scheduled:
+
+1. Start from a green `bun run check`.
+2. Run `bun run mutation:js:full`; fix survivors with tests or product-code repairs, and only annotate narrow equivalent/inapplicable mutants with a reason.
+3. Before Rust mutation, fix the cargo-mutants copy-sandbox fixture contract if the Safari reference database path still fails in the copied tree.
+4. Run `bun run mutation:rust:full`, or shard the same command with `cargo mutants --shard n/m` and merge the survivor list.
+5. Update [docs/plan/program/quality-matrix.md](./docs/plan/program/quality-matrix.md), this file, and [docs/plan/CHANGELOG.md](./docs/plan/CHANGELOG.md) with actual runtime, survivor closeout, and any narrow equivalent evidence.
 
 ## Focused Commands
 
@@ -60,10 +70,14 @@ bun run test:unit:desktop-contract
 bun run coverage:js:desktop-contract
 bun run check:js
 bun run check:rust
+bun run mutation:js:desktop-contract
+bun run mutation:js:full
+bun run mutation:rust:quality
 ```
 
 ## Honest Boundaries
 
+- Focused helpers do not replace `bun run check`.
 - The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
 - Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects.
 - Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
@@ -102,12 +116,6 @@ Additional adapters may keep shipping as implementation coverage, but they stay 
 Use this order for release rehearsal:
 
 1. `bun run check`
-2. `bun run coverage:js`
-3. `bun run coverage:rust`
-4. `bun run test:e2e`
-5. `bun run build`
-6. `bun run desktop:build:debug`
-
-Run `bun run mutation:js` and `bun run mutation:rust` manually before release / milestone signoff while the temporary recovery-mode policy is in effect.
+2. `bun run verify`
 
 If the change touches packaging, release workflow, platform guidance, or troubleshooting copy, also perform the traceability sweep in [RELEASE.md](./RELEASE.md).

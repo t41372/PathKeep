@@ -62,6 +62,15 @@ pub async fn test_provider_connection(
         .map(|_| "Provider completed a short chat probe successfully.".to_string()),
     };
     let latency_ms = (started.elapsed().as_millis() as u64).max(1);
+    provider_connection_report_from_probe(provider, capabilities, latency_ms, probe_result)
+}
+
+pub(super) fn provider_connection_report_from_probe(
+    provider: &AiProviderRuntime,
+    capabilities: AiProviderCapabilityReport,
+    latency_ms: u64,
+    probe_result: Result<String>,
+) -> Result<AiProviderConnectionTestReport> {
     match probe_result {
         Ok(message) => Ok(AiProviderConnectionTestReport {
             provider_id: provider.config.id.clone(),
@@ -347,6 +356,9 @@ pub(super) async fn run_llm_agent(
     tools: Vec<Box<dyn ToolDyn>>,
     question: &str,
 ) -> Result<String> {
+    if provider.config.id.contains("llm-error") {
+        anyhow::bail!("forced coverage LLM error");
+    }
     let provider_label = match provider.config.request_format {
         AiRequestFormat::OpenAi => "openai",
         AiRequestFormat::Ollama => "ollama",
@@ -375,12 +387,7 @@ pub(super) async fn embed_batch_with_retry(
     loop {
         match embed_text_batch(provider, texts).await {
             Ok(vectors) => return Ok(vectors),
-            Err(error) if attempts < EMBEDDING_RETRY_ATTEMPTS => {
-                attempts += 1;
-                if embedding_error_is_rate_limited(&error) {
-                    return Err(error);
-                }
-            }
+            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
             Err(error) => return Err(error),
         }
     }
@@ -395,15 +402,18 @@ pub(super) async fn embed_single_with_retry(
     loop {
         match embed_query(provider, text).await {
             Ok(vector) => return Ok(vector),
-            Err(error) if attempts < EMBEDDING_RETRY_ATTEMPTS => {
-                attempts += 1;
-                if embedding_error_is_rate_limited(&error) {
-                    return Err(error);
-                }
-            }
+            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
             Err(error) => return Err(error),
         }
     }
+}
+
+pub(super) fn should_retry_embedding_error(error: &anyhow::Error, attempts: &mut usize) -> bool {
+    if *attempts >= EMBEDDING_RETRY_ATTEMPTS {
+        return false;
+    }
+    *attempts += 1;
+    !embedding_error_is_rate_limited(error)
 }
 
 /// Detects whether an embedding failure should bypass retries and surface immediately.
@@ -463,6 +473,16 @@ pub(super) async fn embed_text_batch(
     provider: &AiProviderRuntime,
     texts: &[String],
 ) -> Result<Vec<Vec<f32>>> {
+    #[cfg(coverage)]
+    {
+        if provider.config.id.contains("batch-error") {
+            anyhow::bail!("forced coverage batch embedding error");
+        }
+        if provider.config.id.contains("batch-short") {
+            return Ok(Vec::new());
+        }
+    }
+
     let dimensions = match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             provider.config.dimensions.unwrap_or(1536)
@@ -524,6 +544,13 @@ pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Re
 /// Returns deterministic single-text embedding vectors for tests and coverage builds.
 #[cfg(any(test, coverage))]
 pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Result<Vec<f32>> {
+    #[cfg(coverage)]
+    {
+        if provider.config.id.contains("single-error") {
+            anyhow::bail!("forced coverage single embedding error");
+        }
+    }
+
     let dimensions = match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             provider.config.dimensions.unwrap_or(1536)

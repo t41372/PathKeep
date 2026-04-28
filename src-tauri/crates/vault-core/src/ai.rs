@@ -82,11 +82,14 @@ use self::provider::{
     classify_provider_error, embed_batch_with_retry, embed_query, embed_single_with_retry,
     embedding_provider_readiness, run_llm_agent, validate_provider,
 };
+#[cfg(test)]
+use self::provider::{embedding_error_is_rate_limited, provider_connection_report_from_probe};
 use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
-    SearchContext, SearchHistoryArgs, SearchHistoryTool, build_assistant_preamble,
+    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
     cosine_similarity, lexical_boost, lexical_score, search_history_internal, semantic_matches,
+    sort_stored_embeddings_desc,
 };
 
 /// Resolved provider configuration plus the usable secret for one AI operation.

@@ -66,6 +66,23 @@ describe('storage analytics helpers', () => {
       id: 'coreHistory',
       bytes: 185,
     })
+    expect(
+      dominantStorageGroup({
+        trackedStorageBytes: 60,
+        reclaimableBytes: 0,
+        coreHistoryBytes: 10,
+        otherDataBytes: 50,
+        coreBreakdown: [],
+        otherBreakdown: [],
+      }),
+    ).toEqual({
+      id: 'otherData',
+      bytes: 50,
+    })
+    expect(dominantStorageGroup({ ...storage, coreHistoryBytes: 1 })).toEqual({
+      id: 'coreHistory',
+      bytes: 185,
+    })
   })
 
   test('builds growth evidence from the latest successful run', () => {

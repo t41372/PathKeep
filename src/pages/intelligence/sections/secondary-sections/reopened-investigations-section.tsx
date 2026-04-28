@@ -98,9 +98,7 @@ export function ReopenedInvestigationsSection({
                   <span
                     className={`reopened-card__anchor-badge reopened-card__anchor-badge--${item.anchorType}`}
                   >
-                    {item.anchorType === 'query_family'
-                      ? t('reopenedAnchorQuery')
-                      : t('reopenedAnchorPage')}
+                    {t('reopenedAnchorQuery')}
                   </span>
                   <Link
                     className="reopened-card__label intelligence-link"

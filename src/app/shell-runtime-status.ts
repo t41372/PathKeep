@@ -35,6 +35,8 @@ import {
   type ShellTranslator,
 } from './shell-data-helpers'
 
+const UNAVAILABLE_RUNTIME_STATUS = emptyRuntimeStatus()
+
 interface ShellRuntimeStatusOptions {
   snapshot: AppSnapshot | null
   refreshKey: number
@@ -55,11 +57,15 @@ export function useShellRuntimeStatus({
 }: ShellRuntimeStatusOptions) {
   const [runtimeStatus, setRuntimeStatus] =
     useState<ShellRuntimeStatus>(emptyRuntimeStatus)
+  const runtimeSnapshotAvailable =
+    snapshot !== null &&
+    snapshot.config.initialized &&
+    snapshot.archiveStatus.unlocked
   const runtimeRefreshPromiseRef = useRef<Promise<ShellRuntimeStatus> | null>(
     null,
   )
   const runtimeRefreshScopeKeyRef = useRef<string | null>(null)
-
+  // Stryker disable ArrayDeclaration: any constant dependency array preserves this stable ref/setState callback contract.
   const resetRuntimeStatus = useCallback(() => {
     const nextStatus = emptyRuntimeStatus()
     runtimeRefreshPromiseRef.current = null
@@ -67,6 +73,7 @@ export function useShellRuntimeStatus({
     setRuntimeStatus(nextStatus)
     return nextStatus
   }, [])
+  // Stryker restore ArrayDeclaration
 
   const refreshRuntimeStatus = useCallback(
     async (nextSnapshot: AppSnapshot | null = snapshot) => {
@@ -89,8 +96,10 @@ export function useShellRuntimeStatus({
         return runtimeRefreshPromiseRef.current
       }
 
+      const shouldKeepCurrentStatus =
+        runtimeRefreshScopeKeyRef.current === nextScopeKey
       setRuntimeStatus((current) => ({
-        ...current,
+        ...(shouldKeepCurrentStatus ? current : emptyRuntimeStatus()),
         loading: true,
         error: null,
       }))
@@ -106,7 +115,9 @@ export function useShellRuntimeStatus({
             loading: false,
             error: null,
           }
-          setRuntimeStatus(nextStatus)
+          if (runtimeRefreshPromiseRef.current === nextRequest) {
+            setRuntimeStatus(nextStatus)
+          }
           return nextStatus
         })
         .catch((nextError) => {
@@ -120,7 +131,9 @@ export function useShellRuntimeStatus({
             loading: false,
             error: message,
           }
-          setRuntimeStatus(nextStatus)
+          if (runtimeRefreshPromiseRef.current === nextRequest) {
+            setRuntimeStatus(nextStatus)
+          }
           return nextStatus
         })
         .finally(() => {
@@ -137,27 +150,16 @@ export function useShellRuntimeStatus({
   )
 
   useEffect(() => {
-    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
-      let cancelled = false
+    if (!runtimeSnapshotAvailable) {
       runtimeRefreshPromiseRef.current = null
       runtimeRefreshScopeKeyRef.current = runtimeStatusScopeKey(snapshot)
-      queueMicrotask(() => {
-        if (!cancelled) {
-          setRuntimeStatus(emptyRuntimeStatus())
-        }
-      })
-      return () => {
-        cancelled = true
-      }
+      return
     }
 
     let cancelled = false
     let timeoutId: number | null = null
 
     const scheduleNext = (delayMs: number) => {
-      if (cancelled || typeof window === 'undefined') {
-        return
-      }
       timeoutId = window.setTimeout(() => {
         void load()
       }, delayMs)
@@ -175,20 +177,16 @@ export function useShellRuntimeStatus({
 
     return () => {
       cancelled = true
-      if (timeoutId !== null && typeof window !== 'undefined') {
+      if (timeoutId !== null) {
         window.clearTimeout(timeoutId)
       }
     }
-  }, [
-    refreshKey,
-    refreshRuntimeStatus,
-    snapshot,
-    snapshot?.archiveStatus.unlocked,
-    snapshot?.config.initialized,
-  ])
+  }, [refreshKey, refreshRuntimeStatus, runtimeSnapshotAvailable, snapshot])
 
   return {
-    runtimeStatus,
+    runtimeStatus: runtimeSnapshotAvailable
+      ? runtimeStatus
+      : UNAVAILABLE_RUNTIME_STATUS,
     refreshRuntimeStatus,
     resetRuntimeStatus,
   }

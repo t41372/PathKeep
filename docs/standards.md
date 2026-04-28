@@ -32,28 +32,20 @@
 ### 測試覆蓋
 
 - 最終標準：
-  - Rust 側：100% test coverage + mutation test + integration test。
-  - JS/TS 側：100% statement/branch/function/line coverage + mutation test。
+  - Rust 側：100% test coverage + integration test；whole-workspace mutation 保留為 deep/manual gate。
+  - JS/TS 側：100% statement/branch/function/line coverage + desktop-contract mutation gate；full frontend mutation 保留為 deep/manual gate。
 - E2E：Playwright spec 覆蓋關鍵用戶流程。
 
-### 目前的 blocking / release gate（2026-04-08，M4 closeout baseline）
+### 目前的 blocking / release gate（2026-04-27，per-commit checker baseline）
 
 - 現行 gate 以 [docs/plan/program/quality-matrix.md](plan/program/quality-matrix.md) 為準。
-- mainline blocking path 是：
-  - `bun run check`
-  - `bun run coverage:js`
-  - `bun run coverage:rust`
-  - `bun run build`
-  - `bun run test:e2e`
-- `bun run mutation:js` 已恢復成 living M0-M3 JS surface 的 repo-level mutation gate，但目前放在 scheduled / manual deep check，而不是每次 PR 都同步阻擋。
-- `bun run mutation:rust`、`bun run check:full`、`bun run verify` 屬於高成本 deep checks / release checks；它們必須可執行、可追蹤，但不強迫每次小變更都付同樣成本。
-- `bun run mutation:rust` 目前代表誠實的 Rust mutation contract：`browser-history-parser` crate，加上 `vault-core/src/ai.rs` 的 AI status/helper slice（`ai_index_status`、`ai_queue_status`、`reconcile_ai_queue_controls`、`provider_capabilities`、`provider_connection_failure_report`、`test_provider_connection`）。
-- `bun run mutation:rust:full` 保留作 exploratory whole-workspace cargo-mutants sweep，用來發現新的 hardening backlog 或產出 deferred rationale，而不是假裝整個 Rust workspace 已經被同一條 gate 簽收。
-- 2026-04-08 的 release closeout 已確認 `bun run check`、`bun run build`、`bun run coverage:js`、`bun run coverage:rust`、`bun run mutation:js`、`bun run test:e2e` 與 `bun run desktop:build:debug` 通過；`WORK-M4-D` 隨後把 parser / AI misses 收斂回上述 scoped Rust mutation contract，並把 parser `open_readonly` 的 `|`/`^` 等價 mutant 明確記錄在 cargo-mutants config，而不是繼續把它們誤當成真缺測。
+- mainline blocking path 是 `bun run check`，它必須內含 `check:base`、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、以及 desktop-contract JS mutation。
+- `bun run coverage:js` 以 active `src/**/*.{ts,tsx}` runtime source 為範圍；只允許排除 tests、fixtures、assets、generated/type-only files、以及已證明不是 runtime surface 的 reference-only files。
+- `bun run coverage:rust` 以 full `src-tauri/**/src/*.rs` workspace source 為範圍，要求 100% line + function coverage。
+- `bun run mutation:js:full` 與 `bun run mutation:rust:full` 是 long-running deep gates；surviving mutant 只能用補測、修產品碼、或 narrow equivalent/inapplicable exclusion + doc note 處理。
+- `check:base`、Rust quality slice、full mutation sweeps 等 focused/deep commands 只作 triage helper，不能替代 signed-off checker。
 - release / platform / support 變更除了跑命令，還必須同步維護 `README.md`、`RELEASE.md`、`TESTING.md`、`TROUBLESHOOTING.md`、`SUPPORT.md` 與對應的 `docs/` source docs，不能把 operator contract 留在聊天記錄裡。
-- 所有**新建**或**整段重寫**的模組，仍必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
-- `bun run check` 內含 `bun run check:desktop-contract`；這條 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。
-- 前端 shell / route / sidebar / primitives 與 page-scoped data provider 仍不能被誤報成「因為 desktop contract gate 通過，所以整個 UI 已簽收」。
+- 所有**新建**或**整段重寫**的模組，必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
 - browser preview e2e 只代表 preview shell smoke；不等於完整 desktop / worker / filesystem / keyring acceptance。
 - route / feature 大改時，除了 unit / contract test，也要補至少一輪 keyboard / locale smoke review，尤其是設定、排程、安全、導入等高風險頁面。
 - 驗證舊產品假設的測試應直接刪除或重寫，不保留作長期 legacy harness。
@@ -68,10 +60,9 @@
 ### CI/CD
 
 - GitHub Actions：
-  - `CI` workflow（PR + manual）直接執行 `check:js`、`check:desktop-contract`、`coverage:js`、`check:rust`、`coverage:rust`、`check:supply-chain`、`build`、`test:e2e`。
-  - `Platform Native` workflow 改成 manual dispatch，專門跑 `check:platform` 與 `test:e2e:desktop-bridge:truth`，避免每次 branch push 都把 hosted runner 分鐘燒在 host-sensitive native checks 上。
-  - `mutation:js` 與 `mutation:rust` 由 scheduled / manual `Mutation` workflow 執行，作為 deep check 與 pre-release gate。
-  - `check:full`、`verify` 是本地 closeout / release rehearsal 指令，不要求每個 PR 都全跑。
+  - `CI` workflow（PR + manual）直接執行 `bun run check`，並安裝 cargo coverage tools、Playwright browser、以及 Linux desktop/native dependencies。
+  - `Mutation` workflow 保留 scheduled / manual entrypoint，跑 full JS/Rust mutation deep sweep，不等同每次 commit 的 `bun run check`。
+  - `Platform Native` workflow 可保留作 host-sensitive triage / parity，但不能替代 `CI` 的 strict checker。
 - Release pipeline：多平台構建 + 自動產出安裝檔。
 - Release pipeline 要做 version-sync preflight，並產出 checksum 與 release manifest，避免 tag / artifact / repo version 漂移。
 - README badges 顯示 CI 狀態、coverage。

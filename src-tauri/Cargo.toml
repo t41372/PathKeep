@@ -73,6 +73,7 @@ vault-worker = { version = "0.1.0", path = "crates/vault-worker" }
 
 [dev-dependencies]
 rusqlite.workspace = true
+tauri = { version = "2.8.5", features = ["test"] }
 tempfile.workspace = true
 
 [build-dependencies]

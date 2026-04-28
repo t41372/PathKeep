@@ -19,6 +19,8 @@ mod commands;
 mod dev_ipc_bridge;
 mod file_manager;
 mod session;
+#[cfg(test)]
+mod test_support;
 mod updater;
 mod worker_bridge;
 
@@ -66,6 +68,8 @@ fn run_app() -> Result<()> {
     let session_state = SessionState::default();
     #[cfg(feature = "devtools-bridge")]
     let dev_bridge_state = session_state.clone();
+    #[cfg(feature = "devtools-bridge")]
+    let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
 
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
@@ -85,8 +89,9 @@ fn run_app() -> Result<()> {
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             #[cfg(feature = "devtools-bridge")]
-            dev_ipc_bridge::maybe_launch(app.handle().clone(), dev_bridge_state.clone())
-                .map_err(tauri::Error::Anyhow)?;
+            if let Some(bridge) = &dev_bridge_handle {
+                bridge.attach_app(app.handle().clone()).map_err(tauri::Error::Anyhow)?;
+            }
             Ok(())
         })
         .manage(session_state)

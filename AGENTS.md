@@ -19,8 +19,8 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 1. 讀 `docs/plan/STATUS.md` — 找到第一個 `[ ]` work block
 2. 讀該 work block 的「讀先」列表裡的文檔（只讀列出的；如果列出的內容互相衝突、引用失效、或不足以完成工作，只補讀直接相關檔案並先修文檔）
 3. 執行整個 work block 的範圍；work block 的粒度約等於半個 milestone，可包含多個子任務
-4. 如果改了代碼，跑驗收命令：`bun run check && bun run build`
-   - `bun run check` 已內含 desktop contract slice（`src/main.tsx`、`src/lib/ipc/bridge.ts`）的 targeted unit / coverage gate；mutation 目前暫時退出日常 `check` / `verify`，保留作 manual deep check；不要把這條 sub-gate 誤讀成前端 shell / route / sidebar 也已驗收
+4. 如果改了代碼，跑驗收命令：`bun run check`
+   - `bun run check` 是權威 per-commit gate：base checks、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、以及 desktop-contract JS mutation 必須在同一條 checker 裡通過。
 
 ### 收工（每完成一個 work block）
 
@@ -156,15 +156,15 @@ reference/
 
 - **品質紅線**：永遠遵守最佳實踐，總是選擇長期最優解，避免臨時方案，絕對不能糊弄測試，或是為了降低開發成本做出妥協。開發的時間和精力成本不在決策考慮範圍內，但要注意降低代碼複雜度。
 - **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit。只要手上的變更已經形成一個可驗證、可回顧的原子單位，就要直接提交，不要把多個無關修復或文檔更新長時間混在 working tree
-- **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。現行 blocking / release gate 以 `docs/plan/program/quality-matrix.md` 為準：mainline 至少維持 `bun run check`、`bun run coverage:js`、`bun run coverage:rust`、`bun run build`、`bun run test:e2e`；`mutation:js` / `mutation:rust` / `verify` 屬於 scheduled、manual 或 pre-release deep checks。`bun run mutation:rust` 目前是誠實的 Rust mutation contract（`browser-history-parser` + `vault-core/src/ai.rs` status/helper slice），`bun run mutation:rust:full` 則保留作 exploratory whole-workspace sweep。當前這波 recovery 期間，mutation 已暫時退出日常 `check` / `verify`，但**所有新建或整段重寫的模組**仍必須有測試並達到 100% coverage；mutation verification 在這波收尾前要回到手動深檢流程
-- **Desktop contract slice**：目前納入 `bun run check` 的 targeted JS sub-gate 只保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`；前端 shell / route / sidebar / primitives 不在這條 coverage gate 內，不能再把 UI 完成度誤記到這條驗收上
+- **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。現行 blocking / release gate 以 `docs/plan/program/quality-matrix.md` 為準：`bun run check` 必須跑 base checks、`coverage:js`、`coverage:rust`、`build`、`test:e2e`、`test:e2e:desktop-bridge:truth`、以及 desktop-contract JS mutation。`coverage:js` 覆蓋所有 active `src/**/*.{ts,tsx}` runtime source；只允許排除 tests、fixtures、assets、generated/type-only files、以及已證明不是 runtime surface 的 reference-only files。`coverage:rust` 覆蓋 full `src-tauri/**/src/*.rs` workspace source。全量 frontend Stryker 與 whole-workspace `cargo mutants` 保留為 `check:deep` / scheduled mutation workflow，不作 per-commit hard gate；surviving mutant 只能用補測、修產品碼、或 narrow equivalent/inapplicable exclusion + doc note 處理，不能用 broad exclusion 偽裝成通過。
+- **Focused helpers**：`check:base`、Rust quality slice、full mutation sweeps 等只作 triage/deep helpers；不能替代 signed-off `bun run check`。desktop contract mutation 是 `bun run check` 內的 lightweight mutation gate，保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts` 的入口/IPC contract。
 - **Accepted docs 決策不可隨意推翻**：如果 `docs/` 中已經有 `Accepted` 狀態、或其他明文確立的 source-of-truth 決策，**不允許** agent 因為直覺、實作偏好、或一句「降低複雜度」就直接改寫。這不代表不能推翻；但要推翻時，必須先產出**詳細的 trade-off 決策文檔**，包含問題定義、約束、候選方案、優缺點、多方案比較、風險、回滾策略與推薦理由。
 - **推翻 accepted docs 的前置要求**：必須先做深度調研與必要的外部研究 / benchmark / packaging / upgrade / operational evidence，不能只靠本地猜測；必須明確說明為什麼既有決策不再成立、替代方案為什麼更好、代價是什麼；整理完後**先徵求用戶意見**，得到明確確認後，才能修改 accepted docs 與相關計劃 / 架構文檔。
 - **Backlog / research item 不是推翻授權**：`research-and-decisions.md` 裡的未決項、`[!]` blocker、或 work block 需求，不代表 agent 可以自行覆寫既有 accepted docs。若發現 backlog 與 accepted docs 看起來衝突，先停下來補研究或提問，不能直接把 pending research 當成重開決策的授權。
 - **Test 位置**：`foo.ts` → `foo.test.ts`（放旁邊），E2E 放 `tests/e2e/`
 - **注釋**：代碼注釋即開發者文檔，重要技術決策、trade-off 在代碼處寫注釋
 - **文檔更新**：改功能行為 → 更新 `docs/features/`；新技術決策 → 更新 `docs/architecture/`
-- **提交前**：`bun run check` + `bun run build` 全過才提交
+- **提交前**：`bun run check` 全過才提交；`bun run check` 已包含 browser build。
 - **大文件重構的兩階段原則**：任何超過 1000 行的文件，必須先完成審查階段（輸出架構地圖、職責清單、拆分方案），詳細審查影響，並確認或補充自動化測試，確保拆壞了也能發現後，才能進入執行階段。審查階段不改一行代碼。這條規則同樣適用於 AI agent 主動發現的大文件，不只是被明確指派的重構任務。
 
 - **文件行數硬限制**：
@@ -186,20 +186,23 @@ reference/
 ```bash
 bun run desktop:dev      # 完整 Tauri 桌面 app
 bun run build            # TypeScript + Vite bundle
-bun run check            # 所有 quality gate
-bun run verify           # release-style 本地全掃（check:full + build + debug desktop build）
+bun run check            # 權威 per-commit checker（base + 100% coverage + build + e2e + desktop-contract mutation）
+bun run check:base       # fast triage helper（static/unit/native checks）
+bun run verify           # check + debug desktop build release rehearsal
 bun run test:unit        # Vitest unit tests
 bun run test:unit:desktop-contract # desktop contract slice 的 targeted unit tests
 bun run check:desktop-contract # desktop contract slice 的 targeted unit + coverage sub-gate
 bun run test:e2e         # Playwright e2e
-bun run coverage:js      # living M0-M3 JS quality surface 的 100% coverage gate
+bun run test:e2e:desktop-bridge:truth # Chrome + real Rust desktop command bridge truth gate
+bun run coverage:js      # active src runtime TS/TSX 的 100% coverage gate
 bun run coverage:js:desktop-contract # desktop contract slice 的 targeted JS 覆蓋率
-bun run coverage:rust    # Tauri desktop command / bridge quality surface 的 100% coverage gate
-bun run mutation:js      # living M0-M3 JS quality surface 的 scheduled/manual mutation gate
-bun run mutation:rust    # 當前 signed-off Rust mutation contract（parser + AI status/helper）
-bun run mutation:rust:full # exploratory whole-workspace Rust mutation sweep
-bun run mutation         # JS + Rust mutation sweep
-bun run mutation:js:desktop-contract # desktop contract slice 的 targeted mutation tests
+bun run coverage:rust    # full src-tauri/**/src/*.rs 的 100% coverage gate
+bun run mutation:js      # desktop contract slice 的 targeted mutation tests
+bun run mutation:js:full # active src runtime TS/TSX 的 full Stryker sweep（manual/deep）
+bun run mutation:rust    # whole-workspace cargo-mutants sweep（manual/deep）
+bun run mutation:rust:full # mutation:rust 的明確別名 / deep entrypoint
+bun run mutation         # full JS + full Rust mutation sweep（manual/deep）
+bun run check:deep       # check + full JS/Rust mutation sweep
 bun run format           # Prettier 格式化
 ```
 

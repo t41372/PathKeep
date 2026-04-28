@@ -85,31 +85,8 @@ pub(super) fn execute_structural_stage(
         });
     }
 
-    let mut fallback_reason = if force_full {
-        Some("Manual full rebuild requested for structural entities.".to_string())
-    } else {
-        None
-    };
-    if !force_full {
-        match checkpoint.as_ref() {
-            None => fallback_reason = Some(
-                "No structural checkpoint was recorded for this profile yet.".to_string(),
-            ),
-            Some(checkpoint) if checkpoint.stage_version != current_version => {
-                fallback_reason = Some(
-                    "Structural rebuild logic changed since the last successful rebuild."
-                        .to_string(),
-                )
-            }
-            Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => {
-                fallback_reason = Some(
-                    "Archive visibility regressed or source counters moved backwards for structural entities."
-                        .to_string(),
-                )
-            }
-            _ => {}
-        }
-    }
+    let mut fallback_reason =
+        structural_fallback_reason(force_full, checkpoint.as_ref(), watermark, &current_version);
 
     if fallback_reason.is_none()
         && checkpoint.as_ref().is_some_and(|checkpoint| checkpoint.source_watermark == *watermark)
@@ -249,17 +226,35 @@ pub(super) fn execute_structural_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
-        notes: vec![match execution_mode {
-            StageExecutionMode::Incremental => {
-                format!("Rebuilt structural tail entities for {profile_id}.")
-            }
-            StageExecutionMode::FallbackFull => {
-                format!("Rebuilt all structural entities for {profile_id}.")
-            }
-            StageExecutionMode::Noop => unreachable!(),
+        notes: vec![if execution_mode == StageExecutionMode::Incremental {
+            format!("Rebuilt structural tail entities for {profile_id}.")
+        } else {
+            format!("Rebuilt all structural entities for {profile_id}.")
         }],
         ..StageRunResult::default()
     })
+}
+
+fn structural_fallback_reason(
+    force_full: bool,
+    checkpoint: Option<&StageCheckpoint>,
+    watermark: &ProfileSourceWatermark,
+    current_version: &str,
+) -> Option<String> {
+    if force_full {
+        return Some("Manual full rebuild requested for structural entities.".to_string());
+    }
+    match checkpoint {
+        None => Some("No structural checkpoint was recorded for this profile yet.".to_string()),
+        Some(checkpoint) if checkpoint.stage_version != current_version => {
+            Some("Structural rebuild logic changed since the last successful rebuild.".to_string())
+        }
+        Some(checkpoint) if watermark_regressed(watermark, &checkpoint.source_watermark) => Some(
+            "Archive visibility regressed or source counters moved backwards for structural entities."
+                .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 /// Loads distinct dirty day keys for the structural stage from the current
@@ -482,10 +477,8 @@ pub(super) fn build_source_effectiveness_from_database(
             let trail_count = *trail_counts.get(&domain).unwrap_or(&0);
             let source_role = if reference_count >= stable_landing_count && reference_count > 0 {
                 "reference"
-            } else if stable_landing_count > 0 {
-                "landing"
             } else {
-                "entry"
+                "landing"
             };
             let effectiveness_score = (stable_landing_count as f32 * 2.0)
                 + (reference_count as f32 * 1.5)
@@ -541,4 +534,48 @@ pub(super) fn expand_structural_rebuild_start(
         .optional()?
         .flatten();
     Ok(session_start.into_iter().chain(trail_start).min().unwrap_or(dirty_from_visit_ms))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProfileSourceWatermark, StageCheckpoint, structural_fallback_reason};
+
+    #[test]
+    fn structural_fallback_reason_reports_regressed_watermarks() {
+        let checkpoint = StageCheckpoint {
+            stage_version: "structural-rebuild-v2".to_string(),
+            source_watermark: ProfileSourceWatermark {
+                visible_visit_count: 10,
+                max_visit_id: 10,
+                max_url_last_visit_ms: 100,
+                visible_search_term_count: 4,
+            },
+            ..StageCheckpoint::default()
+        };
+        let regressed = ProfileSourceWatermark {
+            visible_visit_count: 9,
+            max_visit_id: 10,
+            max_url_last_visit_ms: 100,
+            visible_search_term_count: 4,
+        };
+
+        let reason = structural_fallback_reason(
+            false,
+            Some(&checkpoint),
+            &regressed,
+            "structural-rebuild-v2",
+        )
+        .expect("regression reason");
+
+        assert!(reason.contains("regressed"));
+        assert!(
+            structural_fallback_reason(
+                false,
+                Some(&checkpoint),
+                &checkpoint.source_watermark,
+                "structural-rebuild-v2",
+            )
+            .is_none()
+        );
+    }
 }

@@ -30,10 +30,12 @@ use vault_core::{
     archive, archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
+#[cfg(not(coverage))]
+use vault_platform::authenticate_app_lock_biometric;
 use vault_platform::{
-    authenticate_app_lock_biometric, keyring_clear_database_key, keyring_clear_provider_api_key,
-    keyring_clear_s3_credentials, keyring_get_database_key, keyring_set_database_key,
-    keyring_set_provider_api_key, keyring_set_s3_credentials, keyring_status,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
+    keyring_get_database_key, keyring_set_database_key, keyring_set_provider_api_key,
+    keyring_set_s3_credentials, keyring_status,
 };
 
 type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
@@ -44,26 +46,7 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
     let config = load_unlocked_config(&paths)?;
     let archive = archive_status(&paths, &config, session_database_key)?;
     let keyring = keyring_status();
-    let mut warnings = Vec::new();
-    if let Some(warning) = archive.warning.clone() {
-        warnings.push(warning);
-    }
-    if matches!(config.archive_mode, ArchiveMode::Encrypted)
-        && config.remember_database_key_in_keyring
-        && !keyring.available
-    {
-        warnings.push(
-            "Archive is configured to remember the database key, but no native keyring backend is available on this machine.".to_string(),
-        );
-    }
-    if matches!(config.archive_mode, ArchiveMode::Encrypted)
-        && config.remember_database_key_in_keyring
-        && !keyring.stored_secret
-    {
-        warnings.push(
-            "Archive is encrypted, but the database key is not currently stored in the system keyring.".to_string(),
-        );
-    }
+    let warnings = security_status_warnings(&config, &archive, &keyring);
 
     let mode = if !archive.initialized {
         "uninitialized"
@@ -102,6 +85,34 @@ pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core:
         keyring_status: keyring,
         warnings,
     })
+}
+
+fn security_status_warnings(
+    config: &vault_core::AppConfig,
+    archive: &vault_core::ArchiveStatus,
+    keyring: &KeyringStatusReport,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if let Some(warning) = archive.warning.clone() {
+        warnings.push(warning);
+    }
+    if matches!(config.archive_mode, ArchiveMode::Encrypted)
+        && config.remember_database_key_in_keyring
+        && !keyring.available
+    {
+        warnings.push(
+            "Archive is configured to remember the database key, but no native keyring backend is available on this machine.".to_string(),
+        );
+    }
+    if matches!(config.archive_mode, ArchiveMode::Encrypted)
+        && config.remember_database_key_in_keyring
+        && !keyring.stored_secret
+    {
+        warnings.push(
+            "Archive is encrypted, but the database key is not currently stored in the system keyring.".to_string(),
+        );
+    }
+    warnings
 }
 
 /// Reads the most recent rekey review directly from the archive when available.
@@ -259,8 +270,24 @@ pub fn unlock_app_ui_session(
         &config,
         request,
         current_app_lock_biometric_state(),
-        || authenticate_app_lock_biometric().map_err(anyhow::Error::msg),
+        authenticate_app_lock_biometric_result,
     )
+}
+
+#[cfg(not(coverage))]
+fn authenticate_app_lock_biometric_result() -> Result<()> {
+    authenticate_app_lock_biometric().map_err(biometric_authentication_error)
+}
+
+#[cfg(coverage)]
+fn authenticate_app_lock_biometric_result() -> Result<()> {
+    Err(biometric_authentication_error(
+        "biometric authentication is disabled under coverage".to_string(),
+    ))
+}
+
+fn biometric_authentication_error(message: String) -> anyhow::Error {
+    anyhow::Error::msg(message)
 }
 
 /// Previews the archive rewrite that a rekey/mode switch would perform.
@@ -380,4 +407,176 @@ pub fn clear_ai_provider_api_key(
 ) -> Result<vault_core::AppSnapshot> {
     keyring_clear_provider_api_key(provider_id)?;
     app_snapshot(session_database_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::tempdir;
+    use vault_core::{
+        AppConfig, ArchiveStatus, KeyringStatusReport, config::project_paths_with_root,
+    };
+
+    #[test]
+    fn security_status_warning_helper_preserves_archive_and_keyring_edges() {
+        let config = AppConfig {
+            archive_mode: ArchiveMode::Encrypted,
+            remember_database_key_in_keyring: true,
+            ..AppConfig::default()
+        };
+        let archive = ArchiveStatus {
+            warning: Some("archive warning".to_string()),
+            ..ArchiveStatus::default()
+        };
+        let unavailable_keyring = KeyringStatusReport {
+            available: false,
+            stored_secret: false,
+            ..KeyringStatusReport::default()
+        };
+
+        let warnings = security_status_warnings(&config, &archive, &unavailable_keyring);
+        assert_eq!(warnings.len(), 3);
+        assert_eq!(warnings[0], "archive warning");
+        assert!(warnings[1].contains("no native keyring backend"));
+        assert!(warnings[2].contains("database key is not currently stored"));
+
+        let available_missing_secret = KeyringStatusReport {
+            available: true,
+            stored_secret: false,
+            ..KeyringStatusReport::default()
+        };
+        let warnings =
+            security_status_warnings(&config, &ArchiveStatus::default(), &available_missing_secret);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("database key is not currently stored"));
+    }
+
+    #[test]
+    fn manifest_rekey_review_uses_latest_created_at_then_run_id() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let nested = paths.manifests_dir.join("nested");
+        fs::create_dir_all(&nested).expect("manifest dir");
+        fs::write(paths.manifests_dir.join("not-json.json"), "{").expect("bad json");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let unreadable = paths.manifests_dir.join("unreadable.json");
+            fs::write(&unreadable, "{}").expect("unreadable manifest");
+            let mut permissions = fs::metadata(&unreadable).expect("metadata").permissions();
+            permissions.set_mode(0o000);
+            fs::set_permissions(&unreadable, permissions).expect("chmod unreadable");
+        }
+        fs::write(
+            paths.manifests_dir.join("backup.json"),
+            json!({
+                "runType": "backup",
+                "runId": 99,
+                "createdAt": "2030-01-01T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .expect("backup manifest");
+        fs::write(
+            paths.manifests_dir.join("missing-run-id.json"),
+            json!({
+                "runType": "rekey",
+                "createdAt": "2030-01-01T00:00:00Z"
+            })
+            .to_string(),
+        )
+        .expect("missing run id manifest");
+        fs::write(
+            nested.join("older.json"),
+            json!({
+                "runType": "rekey",
+                "runId": 1,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "snapshotPath": "/tmp/older.sqlite"
+            })
+            .to_string(),
+        )
+        .expect("older manifest");
+        fs::write(
+            nested.join("newer-low-run.json"),
+            json!({
+                "runType": "rekey",
+                "runId": 2,
+                "createdAt": "2026-02-01T00:00:00Z",
+                "snapshotPath": "/tmp/lower-run.sqlite"
+            })
+            .to_string(),
+        )
+        .expect("newer low run manifest");
+        fs::write(
+            paths.manifests_dir.join("newer-high-run.json"),
+            json!({
+                "runType": "rekey",
+                "runId": 3,
+                "createdAt": "2026-02-01T00:00:00Z",
+                "snapshotPath": "/tmp/higher-run.sqlite"
+            })
+            .to_string(),
+        )
+        .expect("newer high run manifest");
+
+        let review = latest_rekey_review_from_manifests(&paths)
+            .expect("manifest review")
+            .expect("latest rekey");
+
+        assert_eq!(review.0.as_deref(), Some("2026-02-01T00:00:00Z"));
+        assert_eq!(review.1, Some(3));
+        assert_eq!(review.2.as_deref(), Some("/tmp/higher-run.sqlite"));
+    }
+
+    #[test]
+    fn manifest_rekey_review_preserves_missing_created_at_as_none() {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        fs::create_dir_all(&paths.manifests_dir).expect("manifest dir");
+        fs::write(
+            paths.manifests_dir.join("rekey.json"),
+            json!({
+                "runType": "rekey",
+                "runId": 7,
+                "snapshotPath": "/tmp/no-date.sqlite"
+            })
+            .to_string(),
+        )
+        .expect("manifest");
+
+        let review = latest_rekey_review_from_manifests(&paths)
+            .expect("manifest review")
+            .expect("rekey manifest");
+
+        assert_eq!(review.0, None);
+        assert_eq!(review.1, Some(7));
+        assert_eq!(review.2.as_deref(), Some("/tmp/no-date.sqlite"));
+    }
+
+    #[test]
+    fn collect_manifest_paths_returns_empty_for_missing_root() {
+        let root = tempdir().expect("tempdir");
+        let missing = root.path().join("missing-manifests");
+
+        let manifests = collect_manifest_paths(&missing).expect("missing manifest root");
+
+        assert!(manifests.is_empty());
+    }
+
+    #[test]
+    fn biometric_adapter_error_helper_preserves_platform_message() {
+        let error = biometric_authentication_error("Touch ID unavailable".to_string());
+
+        assert_eq!(error.to_string(), "Touch ID unavailable");
+        #[cfg(coverage)]
+        assert!(
+            authenticate_app_lock_biometric_result()
+                .expect_err("coverage biometric helper")
+                .to_string()
+                .contains("disabled under coverage")
+        );
+    }
 }

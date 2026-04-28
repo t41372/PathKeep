@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-test.describe.configure({ mode: 'serial' })
+test.describe.configure({ mode: 'parallel' })
 
 async function completePreviewOnboarding(page: Page) {
   await page.goto('/')
@@ -128,10 +128,10 @@ test('surfaces intelligence routes and degraded states after the first backup', 
   await expect(page.getByTestId('intelligence-runtime-digest')).toBeVisible()
   await expect(
     page.getByText('Manual output review moved to Settings'),
-  ).toBeVisible()
+  ).toHaveCount(0)
   await expect(
     page.getByRole('link', { name: 'Review in Settings' }),
-  ).toHaveAttribute('href', '#/settings#settings-external-outputs')
+  ).toHaveCount(0)
 })
 
 test('keeps shared profile scope, regex recall, and export guardrails aligned', async ({
@@ -214,13 +214,14 @@ test('walks import preview, revert, restore, and doctor review in browser previe
     })
   await expect(page.getByRole('button', { name: 'Undo import' })).toBeEnabled()
 
+  await page.getByRole('button', { name: 'Show history' }).click()
   await page.getByRole('button', { name: 'Run health check' }).click()
   await expect(
     page.getByText('Import batch audit artifacts are present and reviewable.'),
   ).toBeVisible()
 })
 
-test('walks the remote backup PME from settings in browser preview', async ({
+test('walks remote backup settings and Maintenance PME in browser preview', async ({
   page,
 }) => {
   await completePreviewOnboarding(page)
@@ -233,9 +234,8 @@ test('walks the remote backup PME from settings in browser preview', async ({
 
   await expect(settingsPage).toBeVisible()
   await expect(
-    settingsPage.getByText('CLOUD BACKUP', { exact: true }),
+    remoteSection.getByText('CLOUD BACKUP', { exact: true }),
   ).toBeVisible()
-  await expect(settingsPage.getByText('CONTENT ENRICHMENT')).toBeVisible()
 
   await remoteSection.getByLabel('Bucket').fill('example-bucket')
   await remoteSection.getByLabel('Region').fill('us-east-1')
@@ -245,28 +245,41 @@ test('walks the remote backup PME from settings in browser preview', async ({
   await remoteSection.getByLabel('Secret access key').fill('preview-secret')
   await remoteSection.getByRole('button', { name: 'Save credentials' }).click()
 
-  await remoteSection.getByRole('button', { name: 'Preview upload' }).click()
+  await remoteSection.getByRole('link', { name: 'Open Maintenance' }).click()
+  const maintenancePage = page.getByTestId('maintenance-page')
+  const maintenanceRemoteSection = maintenancePage
+    .locator('.panel')
+    .filter({ hasText: 'CLOUD BACKUP' })
+
+  await expect(maintenancePage).toBeVisible()
+  await maintenanceRemoteSection
+    .getByRole('button', { name: 'Preview upload' })
+    .click()
   await expect(
-    remoteSection.getByText('File path', { exact: true }),
+    maintenanceRemoteSection.getByText('File path', { exact: true }),
   ).toBeVisible()
   await expect(
-    remoteSection.getByText(/pathkeep-remote-.*\.zip/).first(),
+    maintenanceRemoteSection.getByText(/pathkeep-remote-.*\.zip/).first(),
   ).toBeVisible()
 
-  await remoteSection.getByRole('button', { name: 'Manual' }).click()
+  await maintenanceRemoteSection.getByRole('button', { name: 'Manual' }).click()
   await expect(
-    remoteSection.getByText('Upload command', { exact: true }),
+    maintenanceRemoteSection.getByText('Upload command', { exact: true }),
   ).toBeVisible()
 
-  await remoteSection.getByRole('button', { name: 'Upload now' }).click()
+  await maintenanceRemoteSection
+    .getByRole('button', { name: 'Upload now' })
+    .click()
   await expect(
-    remoteSection.getByText(
+    maintenanceRemoteSection.getByText(
       'Browser preview mode simulated the upload and produced a local bundle for verification.',
     ),
   ).toBeVisible()
 
-  await remoteSection.getByRole('button', { name: 'Verify backup' }).click()
+  await maintenanceRemoteSection
+    .getByRole('button', { name: 'Verify backup' })
+    .click()
   await expect(
-    remoteSection.getByText('pathkeep.remote-backup.v1'),
+    maintenanceRemoteSection.getByText('pathkeep.remote-backup.v1'),
   ).toBeVisible()
 })

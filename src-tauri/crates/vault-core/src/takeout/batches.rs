@@ -91,15 +91,13 @@ pub fn revert_import_batch(
         }),
     )?;
     transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key).err().map(|error| {
-        format!("Revert completed, but the keyword-recall projection needs a rebuild: {error}")
-    });
+    let rebuild_warning = rebuild_search_projection(paths, config, key)
+        .err()
+        .map(|error| import_batch_projection_warning("Revert", error));
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    if let Some(warning) = rebuild_warning {
-        detail.notes.push(warning);
-    }
+    append_import_batch_projection_warning(&mut detail.notes, rebuild_warning);
     Ok(detail)
 }
 
@@ -175,16 +173,24 @@ pub fn restore_import_batch(
         }),
     )?;
     transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key).err().map(|error| {
-        format!("Restore completed, but the keyword-recall projection needs a rebuild: {error}")
-    });
+    let rebuild_warning = rebuild_search_projection(paths, config, key)
+        .err()
+        .map(|error| import_batch_projection_warning("Restore", error));
 
     ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
     let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    if let Some(warning) = rebuild_warning {
-        detail.notes.push(warning);
-    }
+    append_import_batch_projection_warning(&mut detail.notes, rebuild_warning);
     Ok(detail)
+}
+
+fn import_batch_projection_warning(action: &str, error: anyhow::Error) -> String {
+    format!("{action} completed, but the keyword-recall projection needs a rebuild: {error}")
+}
+
+fn append_import_batch_projection_warning(notes: &mut Vec<String>, warning: Option<String>) {
+    if let Some(warning) = warning {
+        notes.push(warning);
+    }
 }
 
 /// Ensures an import batch has an audit artifact that matches its current state.
@@ -447,4 +453,26 @@ pub(super) fn update_batch_audit(
         params![audit_path, git_commit, batch_id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_import_batch_projection_warning, import_batch_projection_warning};
+
+    #[test]
+    fn import_batch_projection_warning_names_the_completed_action() {
+        let revert =
+            import_batch_projection_warning("Revert", anyhow::anyhow!("projection offline"));
+        assert!(revert.contains("Revert completed"));
+        assert!(revert.contains("projection offline"));
+
+        let restore =
+            import_batch_projection_warning("Restore", anyhow::anyhow!("projection offline"));
+        assert!(restore.contains("Restore completed"));
+
+        let mut notes = vec!["kept".to_string()];
+        append_import_batch_projection_warning(&mut notes, None);
+        append_import_batch_projection_warning(&mut notes, Some(restore));
+        assert_eq!(notes.len(), 2);
+    }
 }

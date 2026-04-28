@@ -977,3 +977,18 @@
   - Dashboard `BrowsingRhythmCard` state owner 會保留已知 data years，初次 render 不再把 `refreshToken=0` 視為 force refresh；year pager 使用連續年份帶，`回到當前年份` 不依賴 backend 是否回傳今年。deterministic runtime jobs 從 active 轉 idle 時 shell 會再推一次 dashboard / rhythm refresh，避免 backup 完成後 heatmap 還卡在舊 cache。Dashboard zero-state / next-action 也把 backend English action 摘要映射成三語 UI copy。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md) 與 [`docs/design/ux-principles.md`](../design/ux-principles.md)。
   - 驗收：targeted Rust / Vitest regression tests、`bun run check`、`bun run build`、fresh desktop Computer Use truth pass。
+
+- [x] **WORK-QA-GATE-A** — Restore Strict Checker Gates
+  - 讀先：
+    `docs/plan/program/quality-matrix.md`
+    `TESTING.md`
+    `docs/standards.md`
+    `.github/workflows/ci.yml`
+    `.github/workflows/mutation.yml`
+    `package.json`
+  - 目標：把 `bun run check` 恢復成真正 blocking 的 per-commit checker：base checks、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、以及 lightweight desktop-contract JS mutation 都必須進入同一條本地與 CI gate。
+  - 2026-04-27 closeout：full active-source JS coverage 與 full Rust source coverage 已補到 100%；`bun run check` 現在串起 `check:base`、`check:coverage`、browser build、browser-preview e2e、desktop-bridge truth gate、以及 `mutation:js:desktop-contract`。GitHub CI 改跑同一條 per-commit gate；scheduled/manual `Mutation` workflow 保留 full JS/Rust deep sweep。
+  - Mutation cost decision：desktop-contract JS mutation 77 mutants，約 50 秒，已達 100% mutation score；full JS Stryker dry run 約 2m20s，21769 mutants，按 44m/32% 實測估算約 2-3 小時；Rust full cargo-mutants 有 5869 candidates，且 current copy-sandbox baseline 仍會因 repo-root Safari fixture path 缺失而失敗。使用者確認 full mutation 不作每次 commit hard gate，改由 `check:deep` / scheduled/manual workflow 承接。
+  - Real bugs found during QA hardening：Search Keywords duplicate React keys；AI queue last-activity fallback ignored `startedAt`; profile switcher option Escape path was masked by document Escape; IPC bridge blank string rejection now falls back to generic desktop command error.
+  - Future work：`BACKLOG.md` 新增 blocked `WORK-QA-GATE-B`，明確保留 future full JS/Rust mutation deep sweep、Rust cargo-mutants copy-sandbox fixture repair、survivor closeout 與窄範圍 equivalent evidence 流程。
+  - 驗收：`bun run check` 通過；`bun run verify` 通過。

@@ -171,11 +171,7 @@ where
                 profile_id: Some(profile.profile_id.clone()),
                 progress_current: Some(index),
                 progress_total: Some(total_profiles),
-                progress_percent: if total_profiles == 0 {
-                    None
-                } else {
-                    Some((index as f32 / total_profiles as f32) * 100.0)
-                },
+                progress_percent: Some((index as f32 / total_profiles as f32) * 100.0),
                 log_lines: vec![format!("Staging {}.", profile.profile_id)],
                 source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
                 ..BackupProgressEvent::default()
@@ -196,11 +192,9 @@ where
                         profile_id: Some(profile.profile_id.clone()),
                         progress_current: Some(index + 1),
                         progress_total: Some(total_profiles),
-                        progress_percent: if total_profiles == 0 {
-                            None
-                        } else {
-                            Some((((index + 1) as f32) / total_profiles as f32) * 100.0)
-                        },
+                        progress_percent: Some(
+                            (((index + 1) as f32) / total_profiles as f32) * 100.0,
+                        ),
                         log_lines: vec![warning],
                         source_label: Some(format!(
                             "{} / {}",
@@ -230,48 +224,21 @@ where
                 profile_id: Some(profile.profile_id.clone()),
                 progress_current: Some(index + 1),
                 progress_total: Some(total_profiles),
-                progress_percent: if total_profiles == 0 {
-                    None
-                } else {
-                    Some((((index + 1) as f32) / total_profiles as f32) * 100.0)
-                },
+                progress_percent: Some((((index + 1) as f32) / total_profiles as f32) * 100.0),
                 log_lines: vec![format!("Writing canonical facts for {}.", profile.profile_id)],
                 source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
                 ..BackupProgressEvent::default()
             });
             let mut last_processed_records = 0usize;
             let report_profile_progress = |progress: ArchiveIngestProgress| {
-                if progress.processed_records == last_processed_records {
-                    return;
-                }
-                last_processed_records = progress.processed_records;
-                report_progress(BackupProgressEvent {
-                    phase: "ingest-profile".to_string(),
-                    label: "Write canonical archive facts".to_string(),
-                    detail: format!("Processing {} and writing archive rows.", profile.profile_id),
-                    step: 1,
-                    total_steps: 3,
-                    completed_profiles: index,
+                emit_backup_ingest_progress_if_changed(
+                    &mut report_progress,
+                    &mut last_processed_records,
+                    index,
                     total_profiles,
-                    profile_id: Some(profile.profile_id.clone()),
-                    progress_current: Some(index + 1),
-                    progress_total: Some(total_profiles),
-                    progress_percent: None,
-                    log_lines: vec![format!(
-                        "{} ({}/{total_profiles})",
-                        profile.profile_id,
-                        index + 1
-                    )],
-                    source_label: Some(format!(
-                        "{} / {}",
-                        profile.browser_name, profile.profile_name
-                    )),
-                    processed_records: Some(progress.processed_records),
-                    total_records: None,
-                    imported_records: Some(progress.imported_records),
-                    duplicate_records: Some(progress.duplicate_records),
-                    skipped_records: Some(progress.skipped_records),
-                });
+                    profile,
+                    progress,
+                );
             };
             let profile_summary = process_profile_snapshot_with_progress(
                 &transaction,
@@ -316,13 +283,11 @@ where
         return Err(error);
     }
 
-    if let Err(error) =
+    warnings.extend(
         persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)
-    {
-        warnings.push(format!(
-            "Canonical backup completed, but the source-evidence archive needs a rebuild: {error}"
-        ));
-    }
+            .err()
+            .map(source_evidence_rebuild_warning),
+    );
 
     let finished_at = now_rfc3339();
     let summary = backup_run_summary(
@@ -371,11 +336,11 @@ where
         &manifest_hash,
     )?;
 
-    if let Err(error) = super::rebuild_search_projection(paths, config, key) {
-        warnings.push(format!(
-            "Canonical backup completed, but the keyword-recall projection needs a rebuild: {error}"
-        ));
-    }
+    warnings.extend(
+        super::rebuild_search_projection(paths, config, key)
+            .err()
+            .map(keyword_recall_rebuild_warning),
+    );
 
     let git_commit = if config.git_enabled {
         git_audit::ensure_repo(&paths.audit_repo_path)?;
@@ -405,5 +370,49 @@ fn staging_access_skip_warning(profile: &BrowserProfile) -> String {
     format!(
         "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
         profile.profile_id
+    )
+}
+
+pub(super) fn emit_backup_ingest_progress_if_changed(
+    report_progress: &mut impl FnMut(BackupProgressEvent),
+    last_processed_records: &mut usize,
+    index: usize,
+    total_profiles: usize,
+    profile: &BrowserProfile,
+    progress: ArchiveIngestProgress,
+) {
+    if progress.processed_records == *last_processed_records {
+        return;
+    }
+    *last_processed_records = progress.processed_records;
+    report_progress(BackupProgressEvent {
+        phase: "ingest-profile".to_string(),
+        label: "Write canonical archive facts".to_string(),
+        detail: format!("Processing {} and writing archive rows.", profile.profile_id),
+        step: 1,
+        total_steps: 3,
+        completed_profiles: index,
+        total_profiles,
+        profile_id: Some(profile.profile_id.clone()),
+        progress_current: Some(index + 1),
+        progress_total: Some(total_profiles),
+        progress_percent: None,
+        log_lines: vec![format!("{} ({}/{total_profiles})", profile.profile_id, index + 1)],
+        source_label: Some(format!("{} / {}", profile.browser_name, profile.profile_name)),
+        processed_records: Some(progress.processed_records),
+        total_records: None,
+        imported_records: Some(progress.imported_records),
+        duplicate_records: Some(progress.duplicate_records),
+        skipped_records: Some(progress.skipped_records),
+    });
+}
+
+pub(super) fn source_evidence_rebuild_warning(error: anyhow::Error) -> String {
+    format!("Canonical backup completed, but the source-evidence archive needs a rebuild: {error}")
+}
+
+pub(super) fn keyword_recall_rebuild_warning(error: anyhow::Error) -> String {
+    format!(
+        "Canonical backup completed, but the keyword-recall projection needs a rebuild: {error}"
     )
 }

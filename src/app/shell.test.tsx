@@ -1,134 +1,219 @@
 /**
- * This module belongs to the application shell layer for Shell.test.tsx.
+ * @file shell.test.tsx
+ * @description Focused coverage for the persistent app shell chrome owner.
+ * @module app
  *
- * Why this file exists:
- * - Files under `src/app/` explain how the desktop shell is stitched together before route-specific UI takes over.
- * - This is where shared profile scope, app-lock gating, route metadata, and shell-level loading grammar should stay readable.
+ * ## Responsibilities
+ * - Verify the shell responds to viewport collapse changes and manual sidebar toggles.
+ * - Keep AppShell's route-wrapper behavior covered without mounting every real chrome child.
  *
- * Main declarations:
- * - This file is mostly internal implementation detail.
+ * ## Not responsible for
+ * - Re-testing Sidebar, Topbar, or route content internals.
+ * - Re-testing shell-data bootstrap behavior.
  *
- * Source-of-truth notes:
- * - Keep this aligned with `docs/design/screens-and-nav.md` for information architecture and route semantics.
- * - Keep busy, locked, degraded, and loading behavior aligned with `docs/design/ux-principles.md`.
+ * ## Dependencies
+ * - Uses a data router because AppShell reads route matches and renders an Outlet.
+ *
+ * ## Performance notes
+ * - Child chrome is mocked so this test stays scoped to AppShell state transitions.
  */
 
-import { render, screen } from '@testing-library/react'
+import { act } from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { beforeEach, describe, expect, test } from 'vitest'
-import { AppShell } from './shell'
-import { ShellDataProvider } from './shell-data'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
-  type ShellDataContextValue,
   ShellDataContext,
+  type ShellDataContextValue,
 } from './shell-data-context'
-import { I18nProvider } from '../lib/i18n'
-import { backendTestHarness } from '../lib/backend'
-import { ProfileScopeProvider } from '../lib/profile-scope'
+import { AppShell } from './shell'
+import { appScreens } from './router'
+
+vi.mock('../components/sidebar', () => ({
+  Sidebar: ({
+    collapsed,
+    onToggle,
+  }: {
+    collapsed: boolean
+    onToggle: () => void
+  }) => (
+    <button data-collapsed={String(collapsed)} onClick={onToggle} type="button">
+      sidebar
+    </button>
+  ),
+}))
+
+vi.mock('../components/topbar', () => ({
+  Topbar: ({ screen }: { screen: { id: string } }) => (
+    <div data-testid="topbar-screen">{screen.id}</div>
+  ),
+}))
+
+vi.mock('../components/primitives/busy-overlay', () => ({
+  BusyOverlay: ({ label }: { label: string }) => <div>{label}</div>,
+}))
 
 describe('AppShell', () => {
-  beforeEach(() => {
-    backendTestHarness.reset()
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
-  test('falls back to the dashboard metadata when no route handle is present', async () => {
-    const router = createMemoryRouter(
-      [
-        {
-          path: '/',
-          element: <AppShell />,
-        },
-      ],
-      {
-        initialEntries: ['/'],
+  test('tracks responsive sidebar collapse and manual toggles', async () => {
+    const user = userEvent.setup()
+    let changeHandler: ((event: MediaQueryListEvent) => void) | null = null
+    const addEventListener = vi.fn(
+      (_event: 'change', handler: (event: MediaQueryListEvent) => void) => {
+        changeHandler = handler
       },
     )
+    const removeEventListener = vi.fn()
+    const matchMedia = vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener,
+      removeEventListener,
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: matchMedia,
+    })
 
-    render(
-      <I18nProvider>
-        <ProfileScopeProvider>
-          <ShellDataProvider>
-            <RouterProvider router={router} />
-          </ShellDataProvider>
-        </ProfileScopeProvider>
-      </I18nProvider>,
-    )
+    const view = renderShell()
 
-    expect(
-      await screen.findByRole('heading', { name: 'Dashboard' }),
-    ).toBeVisible()
-    expect(
-      screen.getByRole('button', { name: /Initialize first/ }),
-    ).toBeVisible()
+    const shell = screen.getByTestId('app-shell')
+    const sidebar = screen.getByRole('button', { name: 'sidebar' })
+    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'true')
+    expect(sidebar).toHaveAttribute('data-collapsed', 'true')
+    expect(matchMedia.mock.calls).toEqual([
+      ['(max-width: 1200px)'],
+      ['(max-width: 1200px)'],
+    ])
+
+    await user.click(sidebar)
+    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'false')
+
+    act(() => {
+      changeHandler?.({ matches: true } as MediaQueryListEvent)
+    })
+    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'true')
+
+    view.unmount()
+    expect(removeEventListener).toHaveBeenCalledWith('change', changeHandler)
   })
 
-  test('shows the busy overlay details when a long-running shell action is active', async () => {
-    const router = createMemoryRouter(
-      [
-        {
-          path: '/',
-          element: <AppShell />,
-        },
-      ],
-      {
-        initialEntries: ['/'],
-      },
-    )
+  test('renders without matchMedia and shows shell busy overlay fallbacks', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: undefined,
+    })
 
-    const shellValue: ShellDataContextValue = {
-      buildInfo: null,
-      appLockStatus: null,
-      snapshot: null,
-      dashboard: null,
-      loading: false,
-      busyAction: 'Writing archive facts',
-      busyOverlay: {
-        label: 'Writing archive facts',
-        detail: 'Large real-world profiles can take a while here.',
-        steps: [
-          'Inspect selected browser profiles',
-          'Write the canonical archive run',
-          'Refresh dashboard and shell state',
-        ],
-        activeStep: 1,
-      },
-      error: null,
-      notice: null,
-      refreshKey: 0,
-      refreshAppData: () => Promise.resolve(undefined),
-      refreshRuntimeStatus: () =>
-        Promise.resolve({
-          aiQueue: null,
-          intelligence: null,
-          loading: false,
-          error: null,
-        }),
-      saveConfig: () => Promise.reject(new Error('not implemented')),
-      initializeArchive: () => Promise.reject(new Error('not implemented')),
-      runBackup: () => Promise.reject(new Error('not implemented')),
-      setAppLockPasscode: () => Promise.reject(new Error('not implemented')),
-      clearAppLockPasscode: () => Promise.reject(new Error('not implemented')),
-      lockAppSession: () => Promise.reject(new Error('not implemented')),
-      unlockAppSession: () => Promise.reject(new Error('not implemented')),
-      clearNotice: () => undefined,
-    }
+    renderShell({
+      busyAction: 'Running backup',
+      busyOverlay: null,
+    })
 
-    render(
-      <I18nProvider>
-        <ProfileScopeProvider>
-          <ShellDataContext.Provider value={shellValue}>
-            <RouterProvider router={router} />
-          </ShellDataContext.Provider>
-        </ProfileScopeProvider>
-      </I18nProvider>,
+    expect(screen.getByTestId('app-shell')).toHaveAttribute(
+      'data-sidebar-collapsed',
+      'false',
     )
+    expect(screen.getByText('Running backup')).toBeVisible()
+    expect(screen.getByTestId('topbar-screen')).toHaveTextContent('dashboard')
+  })
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Writing archive facts',
+  test('uses the deepest matched route handle as the active screen', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: undefined,
+    })
+
+    renderShell({}, '/jobs')
+
+    expect(screen.getByTestId('topbar-screen')).toHaveTextContent('jobs')
+  })
+
+  test('rewires the responsive listener if the matchMedia implementation changes', async () => {
+    const user = userEvent.setup()
+    const firstRemoveEventListener = vi.fn()
+    const secondAddEventListener = vi.fn()
+    const firstMatchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: firstRemoveEventListener,
+    })
+    const secondMatchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: secondAddEventListener,
+      removeEventListener: vi.fn(),
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: firstMatchMedia,
+    })
+
+    renderShell()
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: secondMatchMedia,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'sidebar' }))
+
+    await waitFor(() =>
+      expect(secondMatchMedia).toHaveBeenCalledWith('(max-width: 1200px)'),
     )
-    expect(
-      screen.getByText('Large real-world profiles can take a while here.'),
-    ).toBeVisible()
-    expect(screen.getByText('Refresh dashboard and shell state')).toBeVisible()
+    expect(firstRemoveEventListener).toHaveBeenCalledWith(
+      'change',
+      expect.any(Function),
+    )
+    expect(secondAddEventListener).toHaveBeenCalledWith(
+      'change',
+      expect.any(Function),
+    )
   })
 })
+
+function renderShell(
+  overrides: Partial<ShellDataContextValue> = {},
+  initialEntry = '/',
+) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/',
+        element: (
+          <ShellDataContext.Provider value={shellValue(overrides)}>
+            <AppShell />
+          </ShellDataContext.Provider>
+        ),
+        children: [
+          {
+            index: true,
+            element: <p>route body</p>,
+          },
+          {
+            path: 'jobs',
+            element: <p>jobs body</p>,
+            handle: {
+              screen: appScreens.find((screen) => screen.id === 'jobs'),
+            },
+          },
+        ],
+      },
+    ],
+    {
+      initialEntries: [initialEntry],
+    },
+  )
+
+  return render(<RouterProvider router={router} />)
+}
+
+function shellValue(
+  overrides: Partial<ShellDataContextValue> = {},
+): ShellDataContextValue {
+  return {
+    busyAction: null,
+    busyOverlay: null,
+    ...overrides,
+  } as ShellDataContextValue
+}

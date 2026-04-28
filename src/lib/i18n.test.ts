@@ -85,12 +85,38 @@ describe('i18n helpers', () => {
     expect(resolveLanguage('zh-TW')).toBe('zh-TW')
     expect(resolveLanguage('system', ['zh-HK'])).toBe('zh-TW')
     expect(resolveLanguage(undefined, ['fr-FR'])).toBe('en')
+    expect(resolveLanguage('pirate' as never)).toBe('en')
 
     Object.defineProperty(navigator, 'languages', {
       configurable: true,
       value: ['zh-MO'],
     })
     expect(resolveLanguage('system')).toBe('zh-TW')
+
+    Object.defineProperty(navigator, 'languages', {
+      configurable: true,
+      value: [],
+    })
+    Object.defineProperty(navigator, 'language', {
+      configurable: true,
+      value: 'en-GB',
+    })
+    expect(detectSystemLanguage()).toBe('en')
+
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'navigator',
+    )
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: undefined,
+    })
+    expect(detectSystemLanguage()).toBe('en')
+    if (navigatorDescriptor) {
+      Object.defineProperty(globalThis, 'navigator', navigatorDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'navigator')
+    }
   })
 
   test('creates translators with interpolation, labels, and compatibility fallbacks', () => {
@@ -111,6 +137,19 @@ describe('i18n helpers', () => {
     expect(languageLabel('zh-TW', 'en')).toBe('繁體中文')
     expect(languageLabel('en', 'zh-CN')).toBe('English')
     expect(english('notARealKey')).toBe('notARealKey')
+    expect(
+      english('dashboard.selectedProfiles', { count: null as never }),
+    ).toBe('{count} selected profiles')
+    expect(
+      createTranslator('pirate' as never)('dashboard.selectedProfiles', {
+        count: 2,
+      }),
+    ).toBe('2 selected profiles')
+    expect(
+      createTranslator('en', true)('dashboard.selectedProfiles', {
+        count: 2,
+      }),
+    ).toBe('［2 sëlëctëd prôfïlës］')
     expect(localeTag('zh-TW')).toBe('zh-TW')
   })
 
@@ -151,6 +190,7 @@ describe('i18n helpers', () => {
     expect(pseudoLocalize('Review {count} files')).toBe(
       '［Rëvïëw {count} fïlës］',
     )
+    expect(pseudoLocalize('@@__9__@@')).toBe('［］')
   })
 
   test('keeps onboarding browser support copy aligned with the validated matrix', () => {

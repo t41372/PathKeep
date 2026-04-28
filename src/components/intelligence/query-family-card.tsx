@@ -45,11 +45,9 @@ export function QueryFamilyCard({
     )
 
   const firstSeenLabel =
-    (language ? formatDateTime(family.firstSeenAt, language) : null) ??
-    family.firstSeenAt
+    formatDateTime(family.firstSeenAt, language) ?? family.firstSeenAt
   const lastSeenLabel =
-    (language ? formatDateTime(family.lastSeenAt, language) : null) ??
-    family.lastSeenAt
+    formatDateTime(family.lastSeenAt, language) ?? family.lastSeenAt
 
   const body = (
     <>

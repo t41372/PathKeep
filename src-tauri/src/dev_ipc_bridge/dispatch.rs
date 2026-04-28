@@ -27,7 +27,6 @@
 use crate::{file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use tauri::AppHandle;
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
@@ -42,7 +41,7 @@ use vault_core::{
 };
 use vault_worker::RekeyRequest;
 
-use super::{DevIpcBridgeState, payloads::*};
+use super::{DevIpcAppHandle, DevIpcBridgeState, payloads::*};
 
 /// Calls the mirrored desktop command while preserving the production command names.
 ///
@@ -135,7 +134,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::run_backup_now_impl(
                 payload.due_only,
                 session_key(&state.session).as_deref(),
-                |_| {},
+                std::mem::drop::<vault_core::BackupProgressEvent>,
             )?)
         }
         "query_history" => {
@@ -193,7 +192,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::import_takeout_impl(
                 payload.request,
                 session_key(&state.session).as_deref(),
-                |_| {}
+                std::mem::drop::<vault_core::ImportProgressEvent>
             )?)
         }
         "inspect_browser_history" => {
@@ -205,7 +204,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::import_browser_history_impl(
                 payload.request,
                 session_key(&state.session).as_deref(),
-                |_| {}
+                std::mem::drop::<vault_core::ImportProgressEvent>
             )?)
         }
         "preview_import_batch" => {
@@ -758,8 +757,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     }
 }
 
-fn require_app_handle(state: &DevIpcBridgeState) -> Result<AppHandle, String> {
-    state.app.clone().ok_or_else(|| {
+fn require_app_handle(state: &DevIpcBridgeState) -> Result<DevIpcAppHandle, String> {
+    let guard = state
+        .app
+        .read()
+        .map_err(|_| "PathKeep dev IPC bridge AppHandle slot is poisoned.".to_string())?;
+    guard.clone().ok_or_else(|| {
         "PathKeep dev IPC bridge needs a live AppHandle for updater commands.".to_string()
     })
 }

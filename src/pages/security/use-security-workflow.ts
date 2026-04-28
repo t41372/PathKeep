@@ -95,7 +95,7 @@ export function useSecurityWorkflow({
   const status = loadState.status
   const pageError = loadState.error
 
-  const reloadAfterAction = async (nextNotice?: string) => {
+  const reloadAfterAction = async (nextNotice: string) => {
     await refreshAppData()
     const nextStatus = await backend.securityStatus()
     setLoadState({
@@ -103,7 +103,7 @@ export function useSecurityWorkflow({
       error: null,
     })
     setRekeyMode(nextStatus.encrypted ? 'Plaintext' : 'Encrypted')
-    setNotice(nextNotice ?? null)
+    setNotice(nextNotice)
   }
 
   const confirmArchiveUnlocked = async () => {

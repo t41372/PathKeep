@@ -75,10 +75,15 @@ export function formatDateTime(
     return null
   }
 
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
   return new Intl.DateTimeFormat(localeTag(language), {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 /**

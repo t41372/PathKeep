@@ -840,6 +840,57 @@ mod tests {
     }
 
     #[test]
+    fn macos_remove_schedule_reports_noop_when_no_installed_file_exists() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_LAUNCH_AGENTS_DIR_ENV, &launch_agents_dir);
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+        let result = remove_schedule(&plan, &paths).expect("remove without installed file");
+
+        restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert!(!result.applied);
+        assert!(result.message.contains("No installed PathKeep LaunchAgent files"));
+    }
+
+    #[test]
+    fn macos_schedule_status_reports_permission_warning_when_installed_file_is_unreadable() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        fs::create_dir_all(launch_agents_dir.join("com.yi-ting.pathkeep.tests.plist"))
+            .expect("directory at plist path");
+        let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_LAUNCH_AGENTS_DIR_ENV, &launch_agents_dir);
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let status =
+            schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
+
+        restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert_eq!(status.install_state, "permission-warning");
+        assert!(status.warnings.iter().any(|warning| warning.contains("could not read")));
+    }
+
+    #[test]
     fn macos_remove_schedule_rejects_missing_generated_files() {
         let dir = tempdir().expect("tempdir");
         let result = remove_schedule(

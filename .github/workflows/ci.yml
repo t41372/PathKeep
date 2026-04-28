@@ -9,34 +9,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
+  strict-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-      - name: Install Playwright browser
-        run: bunx playwright install --with-deps chromium
-      - name: Frontend checks
-        run: bun run check:js
-      - name: Desktop contract checks
-        run: bun run check:desktop-contract
-      - name: JS coverage
-        run: bun run coverage:js
-      - name: Frontend build
-        run: bun run build
-      - name: Frontend e2e
-        run: bun run test:e2e
-
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Linux desktop dependencies
+      - name: Install Linux desktop, browser, and native-test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -46,7 +23,11 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            dbus-x11 \
+            gnome-keyring \
+            systemd \
+            xvfb
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
@@ -59,23 +40,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov
-      - name: Rust checks
-        run: bun run check:rust
-      - name: Rust coverage
-        run: bun run coverage:rust
-
-  rust-security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.94.1
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-audit,cargo-deny
-      - name: Rust supply-chain checks
-        run: bun run check:supply-chain
+          tool: cargo-audit,cargo-deny,cargo-llvm-cov
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+      - name: Strict checker gate
+        run: bun run check

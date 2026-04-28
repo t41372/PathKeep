@@ -78,11 +78,13 @@ export function SidebarBackgroundStatus({
       (job) =>
         job.state === 'running' && typeof job.progressPercent === 'number',
     )
+    const latestAiJobWithActivity = runtimeStatus.aiQueue?.recentJobs.find(
+      (job) => job.finishedAt || job.startedAt,
+    )
     const activityTime =
       runtimeStatus.intelligence?.queue.lastActivityAt ??
-      runtimeStatus.aiQueue?.recentJobs.find(
-        (job) => job.finishedAt || job.startedAt,
-      )?.finishedAt ??
+      latestAiJobWithActivity?.finishedAt ??
+      latestAiJobWithActivity?.startedAt ??
       runtimeStatus.aiQueue?.recentJobs[0]?.queuedAt ??
       null
 

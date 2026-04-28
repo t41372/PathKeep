@@ -26,7 +26,7 @@
 use super::SearchQueryKind;
 use crate::models::DateRange;
 use anyhow::{Context, Result};
-use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, LocalResult, NaiveDate, TimeZone, Utc};
 use reqwest::Url;
 use rusqlite::{Connection, params};
 use std::collections::HashSet;
@@ -122,7 +122,7 @@ pub(super) fn jaccard(left: &HashSet<String>, right: &HashSet<String>) -> f32 {
     }
     let intersection = left.intersection(right).count() as f32;
     let union = left.union(right).count() as f32;
-    if union == 0.0 { 0.0 } else { intersection / union }
+    intersection / union
 }
 
 /// Shifts a date range backwards by its own inclusive span so KPI comparisons
@@ -203,7 +203,14 @@ pub(super) fn collapse_date_key(date_key: &str, granularity: &str) -> String {
 
 fn resolve_local_date(date: NaiveDate) -> Result<chrono::DateTime<Local>> {
     let naive = date.and_hms_opt(0, 0, 0).expect("midnight");
-    match Local.from_local_datetime(&naive) {
+    local_datetime_from_result(Local.from_local_datetime(&naive), date)
+}
+
+fn local_datetime_from_result(
+    result: LocalResult<DateTime<Local>>,
+    date: NaiveDate,
+) -> Result<DateTime<Local>> {
+    match result {
         LocalResult::Single(value) => Ok(value),
         LocalResult::Ambiguous(first, _) => Ok(first),
         LocalResult::None => anyhow::bail!("could not resolve local midnight for {}", date),
@@ -238,4 +245,43 @@ fn is_cjk_like(ch: char) -> bool {
         ch as u32,
         0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0x3040..=0x30FF | 0xAC00..=0xD7AF
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_datetime_result_helper_covers_ambiguous_and_missing_edges() {
+        let date = NaiveDate::from_ymd_opt(2026, 4, 25).expect("date");
+        let now = Local::now();
+        assert_eq!(
+            local_datetime_from_result(LocalResult::Ambiguous(now, now), date)
+                .expect("ambiguous local result")
+                .timestamp_millis(),
+            now.timestamp_millis()
+        );
+        let error =
+            local_datetime_from_result(LocalResult::None, date).expect_err("missing local result");
+        assert!(error.to_string().contains("could not resolve local midnight"));
+    }
+
+    #[test]
+    fn navigational_query_domain_matching_is_symmetric_for_subdomains() {
+        assert_eq!(
+            classify_search_query_kind("example.com", "example.com", Some("docs.example.com")),
+            SearchQueryKind::Navigational
+        );
+        assert_eq!(
+            classify_search_query_kind("docs.example.com", "docs.example.com", Some("example.com")),
+            SearchQueryKind::Navigational
+        );
+        assert_eq!(
+            classify_search_query_kind("\"example.com\"", "example.com", Some("other.test")),
+            SearchQueryKind::Keyword
+        );
+        assert_eq!(query_domain_candidate("https://./"), None);
+        assert!(is_cjk_like('深'));
+        assert!(!is_cjk_like('A'));
+    }
 }

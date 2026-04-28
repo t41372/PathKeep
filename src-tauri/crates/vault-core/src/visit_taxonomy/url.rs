@@ -122,7 +122,7 @@ fn fallback_registrable_domain_for_host(host: &str) -> String {
     let segments = host.split('.').collect::<Vec<_>>();
     if segments.len() <= 2 {
         host.to_string()
-    } else if segments.len() >= 3 {
+    } else {
         let suffix = format!("{}.{}", segments[segments.len() - 2], segments[segments.len() - 1]);
         if COMMON_MULTI_LABEL_PUBLIC_SUFFIXES
             .iter()
@@ -130,8 +130,6 @@ fn fallback_registrable_domain_for_host(host: &str) -> String {
         {
             return segments[segments.len() - 3..].join(".");
         }
-        segments[segments.len() - 2..].join(".")
-    } else {
         segments[segments.len() - 2..].join(".")
     }
 }

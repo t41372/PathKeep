@@ -57,7 +57,7 @@ export interface ImportWorkflowPanelProps {
   workflowExpanded: boolean
   workflowSteps: WorkflowStep[]
   onBrowseSource: (options: { directory: boolean }) => void | Promise<void>
-  onCopyWorkflowValue: (value: string) => Promise<void>
+  onCopyWorkflowValue: (value: string) => Promise<unknown>
   onImport: () => void | Promise<void>
   onImportAnother: () => void
   onManualPathExpandedChange: (expanded: boolean) => void

@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import {
+  RefindFactorList,
   RefindSummaryCard,
   WorkbenchEntityRow,
   WorkbenchExpandableGroupCard,
@@ -62,6 +63,25 @@ describe('intelligence workbench primitives', () => {
     expect(screen.getByText('4 ×3')).toBeVisible()
   })
 
+  test('renders refind factors without bars for zero, negative, or missing emphasis', () => {
+    render(
+      <RefindFactorList
+        factors={[
+          { label: 'No signal', valueLabel: '0' },
+          { label: 'Negative signal', valueLabel: '-1', emphasis: -1 },
+          { label: 'Positive signal', valueLabel: '2', emphasis: 2 },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('No signal')).toBeVisible()
+    expect(screen.getByText('Negative signal')).toBeVisible()
+    expect(screen.getByText('Positive signal')).toBeVisible()
+    expect(document.querySelectorAll('.refind-card__factor-bar')).toHaveLength(
+      1,
+    )
+  })
+
   test('lets shared selectable rows handle click and keyboard selection', async () => {
     const user = userEvent.setup()
     const onSelect = vi.fn()
@@ -82,8 +102,29 @@ describe('intelligence workbench primitives', () => {
     const row = screen.getByRole('button')
     await user.click(row)
     await user.keyboard('{Enter}')
+    await user.keyboard(' ')
+    fireEvent.keyDown(row, { key: 'Escape' })
 
-    expect(onSelect).toHaveBeenCalledTimes(2)
+    expect(onSelect).toHaveBeenCalledTimes(3)
+  })
+
+  test('keeps rows without a selection handler inert', () => {
+    render(
+      <WorkbenchEntityRow
+        className="read-only-row"
+        content="Read-only evidence"
+        contentClassName="read-only-row__content"
+        icon="R"
+        iconClassName="read-only-row__icon"
+        meta="09:30"
+        metaClassName="read-only-row__meta"
+      />,
+    )
+
+    const row = screen.getByText('Read-only evidence').closest('.read-only-row')
+    expect(row).toBeInstanceOf(HTMLElement)
+    fireEvent.keyDown(row as HTMLElement, { key: 'Enter' })
+    expect(screen.getByText('Read-only evidence')).toBeVisible()
   })
 
   test('delegates expandable group-card toggles without owning route logic', async () => {

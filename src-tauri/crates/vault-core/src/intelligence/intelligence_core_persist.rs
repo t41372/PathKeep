@@ -351,3 +351,245 @@ pub(super) fn persist_core_state_for_job_kind(
     tx.commit()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::{SearchQueryKind, TrailMemberRecord, ensure_core_intelligence_schema};
+    use super::*;
+
+    fn count_rows(connection: &Connection, table: &str) -> usize {
+        connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get::<_, i64>(0))
+            .expect("count rows")
+            .try_into()
+            .expect("non-negative row count")
+    }
+
+    #[test]
+    fn persist_core_state_replaces_every_full_rebuild_table() {
+        let connection = Connection::open_in_memory().expect("connection");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        connection
+            .execute(
+                "INSERT INTO visit_derived_facts
+                 (visit_id, profile_id, registrable_domain, canonical_url, domain_category,
+                  page_category, is_new_domain, is_search_event, evidence_tier, taxonomy_source,
+                  computed_at)
+                 VALUES (99, 'p1', 'stale.example', 'https://stale.example/', 'unknown',
+                         'unknown', 0, 0, 'tier-c', 'fixture', 'stale')",
+                [],
+            )
+            .expect("seed stale row");
+
+        let rollups = DailyRollupBundle {
+            domain_rows: vec![(
+                "2026-04-25".to_string(),
+                "p1".to_string(),
+                "example.com".to_string(),
+                "reference".to_string(),
+                2,
+                1,
+                1,
+                2,
+            )],
+            category_rows: vec![(
+                "2026-04-25".to_string(),
+                "p1".to_string(),
+                "reference".to_string(),
+                2,
+                1,
+            )],
+            engine_rows: vec![(
+                "2026-04-25".to_string(),
+                "p1".to_string(),
+                "google".to_string(),
+                1,
+            )],
+            summary_rows: vec![("2026-04-25".to_string(), "p1".to_string(), 2, 1, 1, 1, 0.5, 0.5)],
+        };
+        let visits = vec![VisitRecord {
+            visit_id: 1,
+            profile_id: "p1".to_string(),
+            source_profile_id: 7,
+            source_visit_id: 10,
+            source_url_id: 11,
+            url: "https://example.com/search?q=pathkeep".to_string(),
+            title: Some("PathKeep".to_string()),
+            visit_time_ms: 1_777_000_000_000,
+            from_visit: None,
+            transition_type: Some(805_306_368),
+            external_referrer_url: None,
+            canonical_url: "https://example.com/search".to_string(),
+            registrable_domain: "example.com".to_string(),
+            domain_category: "reference".to_string(),
+            page_category: "search".to_string(),
+            search_engine: Some("google".to_string()),
+            search_query: Some("pathkeep coverage pathkeep".to_string()),
+            is_new_domain: true,
+            is_search_event: true,
+            evidence_tier: "tier-a".to_string(),
+            taxonomy_source: "fixture".to_string(),
+            taxonomy_pack: Some("test-pack".to_string()),
+            taxonomy_version: Some("v1".to_string()),
+            display_name: Some("Example".to_string()),
+            session_id: Some("session-1".to_string()),
+            trail_id: Some("trail-1".to_string()),
+        }];
+        let sessions = vec![SessionRecord {
+            session_id: "session-1".to_string(),
+            profile_id: "p1".to_string(),
+            first_visit_ms: 1,
+            last_visit_ms: 2,
+            visit_count: 2,
+            search_count: 1,
+            domain_count: 1,
+            is_deep_dive: true,
+            auto_title: Some("Research".to_string()),
+        }];
+        let search_events = vec![
+            SearchEventRecord {
+                visit_id: 1,
+                profile_id: "p1".to_string(),
+                search_engine: "google".to_string(),
+                raw_query: "PathKeep coverage PathKeep".to_string(),
+                normalized_query: "pathkeep coverage pathkeep".to_string(),
+                query_kind: SearchQueryKind::Keyword,
+                trail_id: Some("trail-1".to_string()),
+                visit_time_ms: 1,
+            },
+            SearchEventRecord {
+                visit_id: 2,
+                profile_id: "p1".to_string(),
+                search_engine: "google".to_string(),
+                raw_query: "example.com".to_string(),
+                normalized_query: "example.com".to_string(),
+                query_kind: SearchQueryKind::Navigational,
+                trail_id: None,
+                visit_time_ms: 2,
+            },
+        ];
+        let trails = vec![TrailRecord {
+            trail_id: "trail-1".to_string(),
+            profile_id: "p1".to_string(),
+            session_id: "session-1".to_string(),
+            initial_query: "pathkeep".to_string(),
+            search_engine: "google".to_string(),
+            reformulation_count: 1,
+            visit_count: 2,
+            landing_url: Some("https://example.com/landing".to_string()),
+            landing_domain: Some("example.com".to_string()),
+            first_visit_ms: 1,
+            last_visit_ms: 2,
+            max_depth: 2,
+            queries: vec!["pathkeep".to_string(), "coverage".to_string()],
+            members: vec![TrailMemberRecord {
+                trail_id: "trail-1".to_string(),
+                profile_id: "p1".to_string(),
+                visit_id: 1,
+                ordinal: 0,
+                role: "search".to_string(),
+            }],
+        }];
+        let query_families = vec![QueryFamilyRecord {
+            family_id: "family-1".to_string(),
+            profile_id: "p1".to_string(),
+            anchor_query: "pathkeep".to_string(),
+            member_count: 2,
+            search_engine: "google".to_string(),
+            first_seen_ms: 1,
+            last_seen_ms: 2,
+            queries: vec!["pathkeep".to_string(), "pathkeep coverage".to_string()],
+        }];
+        let refind_pages = vec![RefindPageRecord {
+            profile_id: "p1".to_string(),
+            canonical_url: "https://example.com/landing".to_string(),
+            url: "https://example.com/landing?from=search".to_string(),
+            title: Some("Landing".to_string()),
+            registrable_domain: "example.com".to_string(),
+            cross_day_count: 2,
+            trail_count: 1,
+            search_arrival_count: 1,
+            typed_revisit_count: 1,
+            refind_score: 0.75,
+            evidence_json: "[1,2]".to_string(),
+            first_seen_ms: 1,
+            last_seen_ms: 2,
+        }];
+        let source_effectiveness = vec![SourceEffectivenessRecord {
+            profile_id: "p1".to_string(),
+            registrable_domain: "example.com".to_string(),
+            source_role: "landing".to_string(),
+            trail_count: 1,
+            stable_landing_count: 1,
+            effectiveness_score: 0.8,
+            evidence_json: "[1]".to_string(),
+            first_seen_ms: 1,
+            last_seen_ms: 2,
+        }];
+        let habits = vec![HabitPatternRecord {
+            profile_id: "p1".to_string(),
+            registrable_domain: "example.com".to_string(),
+            habit_type: "weekly".to_string(),
+            mean_interval_days: 7.0,
+            cv: 0.1,
+            visit_count: 5,
+            last_visited_ms: 2,
+            is_interrupted: false,
+        }];
+        let reopened = vec![ReopenedInvestigationRecord {
+            investigation_id: "reopened-1".to_string(),
+            profile_id: "p1".to_string(),
+            anchor_type: "query-family".to_string(),
+            anchor_id: "family-1".to_string(),
+            anchor_label: "pathkeep".to_string(),
+            occurrence_count: 2,
+            distinct_days: 2,
+            first_seen_ms: 1,
+            last_seen_ms: 2,
+            evidence_json: "[1,2]".to_string(),
+        }];
+        let path_flows = vec![PathFlowRecord {
+            profile_id: "p1".to_string(),
+            flow_pattern: "search -> docs".to_string(),
+            step_count: 2,
+            occurrence_count: 3,
+            last_seen_ms: 2,
+        }];
+
+        persist_core_state_for_job_kind(
+            &connection,
+            None,
+            RebuildMode::FullRebuild,
+            "2026-04-25T00:00:00Z",
+            &visits,
+            &rollups,
+            &sessions,
+            &search_events,
+            &trails,
+            &query_families,
+            &refind_pages,
+            &source_effectiveness,
+            &habits,
+            &reopened,
+            &path_flows,
+        )
+        .expect("persist full rebuild");
+
+        assert_eq!(count_rows(&connection, "visit_derived_facts"), 1);
+        assert_eq!(count_rows(&connection, "domain_daily_rollups"), 1);
+        assert_eq!(count_rows(&connection, "category_daily_rollups"), 1);
+        assert_eq!(count_rows(&connection, "engine_daily_rollups"), 1);
+        assert_eq!(count_rows(&connection, "daily_summary_rollups"), 1);
+        assert_eq!(count_rows(&connection, "sessions"), 1);
+        assert_eq!(count_rows(&connection, "search_trails"), 1);
+        assert_eq!(count_rows(&connection, "search_trail_members"), 1);
+        assert_eq!(count_rows(&connection, "search_events"), 2);
+        assert_eq!(count_rows(&connection, "search_event_terms"), 2);
+        assert_eq!(count_rows(&connection, "query_families"), 1);
+        assert_eq!(count_rows(&connection, "refind_pages"), 1);
+        assert_eq!(count_rows(&connection, "source_effectiveness"), 1);
+        assert_eq!(count_rows(&connection, "habit_patterns"), 1);
+        assert_eq!(count_rows(&connection, "reopened_investigations"), 1);
+        assert_eq!(count_rows(&connection, "path_flows"), 1);
+    }
+}

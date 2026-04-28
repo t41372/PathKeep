@@ -233,9 +233,7 @@ where
         })?;
     }
 
-    if aggregate.notes.is_empty() {
-        aggregate.notes.push(format!("Completed a {}.", job_kind.label()));
-    }
+    ensure_stage_notes(&mut aggregate, job_kind);
     persist_ready_module_updates(
         &connection,
         run_id,
@@ -518,6 +516,12 @@ fn execute_full_rebuild_stages(
     Ok(combined)
 }
 
+fn ensure_stage_notes(aggregate: &mut StageRunResult, job_kind: RebuildMode) {
+    if aggregate.notes.is_empty() {
+        aggregate.notes.push(format!("Completed a {}.", job_kind.label()));
+    }
+}
+
 /// Builds the shared progress payload for legacy scoped rebuild phases.
 fn progress_for_phase(
     phase_index: usize,
@@ -596,5 +600,61 @@ fn module_update(
         last_invalidated_at: None,
         stale_reason: None,
         notes: notes.to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        StageRunResult, ensure_stage_notes, module_update, persist_ready_module_updates,
+        progress_for_phase,
+    };
+    use crate::{
+        intelligence_catalog::RebuildMode,
+        intelligence_runtime::ensure_intelligence_runtime_schema,
+        models::{ACTIVITY_MIX_MODULE_ID, SESSIONS_MODULE_ID},
+    };
+    use rusqlite::Connection;
+
+    #[test]
+    fn rebuild_helpers_keep_default_notes_and_progress_edges_truthful() {
+        let first = progress_for_phase(0, Some(2), Some(4));
+        assert_eq!(first.phase, "visit-derived-facts");
+        assert_eq!(first.progress_percent, Some(50.0));
+
+        let bounded = progress_for_phase(usize::MAX, Some(1), Some(0));
+        assert_eq!(bounded.phase, "deep-intelligence");
+        assert_eq!(bounded.progress_percent, None);
+        assert!(bounded.detail.contains("Phase 2"));
+
+        let update =
+            module_update(SESSIONS_MODULE_ID, 41, Some("2026-04-17T00:00:00Z".to_string()), &[]);
+        assert_eq!(update.module_id, SESSIONS_MODULE_ID);
+        assert_eq!(update.status, "ready");
+        assert_eq!(update.last_run_id, Some(41));
+        assert!(update.notes.is_empty());
+
+        let mut aggregate = StageRunResult::default();
+        ensure_stage_notes(&mut aggregate, RebuildMode::DailyRollup);
+        assert_eq!(aggregate.notes, vec!["Completed a daily rollup refresh.".to_string()]);
+
+        let connection = Connection::open_in_memory().expect("sqlite");
+        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+        persist_ready_module_updates(&connection, 42, None, &[ACTIVITY_MIX_MODULE_ID], &[])
+            .expect("persist ready update");
+        let notes_json: String = connection
+            .query_row(
+                "SELECT notes_json FROM deterministic_module_runtime WHERE module_id = ?1",
+                [ACTIVITY_MIX_MODULE_ID],
+                |row| row.get(0),
+            )
+            .expect("notes json");
+        let notes = serde_json::from_str::<Vec<String>>(&notes_json).expect("notes parse");
+        assert_eq!(
+            notes,
+            vec![
+                "Core Intelligence modules are in sync with the current derived plane.".to_string()
+            ]
+        );
     }
 }

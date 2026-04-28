@@ -22,142 +22,436 @@
  * - Uses structure-only assertions so suite splitting does not add extra render or bootstrap work.
  */
 
-import { beforeEach, describe, expect, test } from 'vitest'
-import { createDesktopRouter } from '../router-factory'
-import {
-  appRoutes,
-  onboardingScreen,
-  readRouteHandle,
-  sidebarSections,
-} from '../router'
+import { isValidElement, type ReactElement } from 'react'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { RouteObject } from 'react-router-dom'
+import type { AppScreen } from '../router'
 import { resetAppShellHarness } from './test-helpers'
+
+const expectedAppShellScreens: AppScreen[] = [
+  {
+    id: 'dashboard',
+    labelKey: 'navigation.dashboardLabel',
+    titleKey: 'navigation.dashboardTitle',
+    subtitleKey: 'navigation.dashboardSubtitle',
+    icon: '⌂',
+    href: '/',
+    section: 'CORE',
+  },
+  {
+    id: 'explorer',
+    labelKey: 'navigation.explorerLabel',
+    titleKey: 'navigation.explorerTitle',
+    subtitleKey: 'navigation.explorerSubtitle',
+    icon: '◎',
+    href: '/explorer',
+    section: 'CORE',
+  },
+  {
+    id: 'intelligence',
+    labelKey: 'navigation.intelligenceLabel',
+    titleKey: 'navigation.intelligenceTitle',
+    subtitleKey: 'navigation.intelligenceSubtitle',
+    icon: '◈',
+    href: '/intelligence',
+    section: 'CORE',
+  },
+  {
+    id: 'assistant',
+    labelKey: 'navigation.assistantLabel',
+    titleKey: 'navigation.assistantTitle',
+    subtitleKey: 'navigation.assistantSubtitle',
+    icon: '▷',
+    href: '/assistant',
+    badgeKey: 'navigation.assistantBadge',
+    section: 'CORE',
+  },
+  {
+    id: 'import',
+    labelKey: 'navigation.importLabel',
+    titleKey: 'navigation.importTitle',
+    subtitleKey: 'navigation.importSubtitle',
+    icon: '↓',
+    href: '/import',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'audit',
+    labelKey: 'navigation.auditLabel',
+    titleKey: 'navigation.auditTitle',
+    subtitleKey: 'navigation.auditSubtitle',
+    icon: '⊞',
+    href: '/audit',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'jobs',
+    labelKey: 'navigation.jobsLabel',
+    titleKey: 'navigation.jobsTitle',
+    subtitleKey: 'navigation.jobsSubtitle',
+    icon: '≡',
+    href: '/jobs',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'schedule',
+    labelKey: 'navigation.scheduleLabel',
+    titleKey: 'navigation.scheduleTitle',
+    subtitleKey: 'navigation.scheduleSubtitle',
+    icon: '⏀',
+    href: '/schedule',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'security',
+    labelKey: 'navigation.securityLabel',
+    titleKey: 'navigation.securityTitle',
+    subtitleKey: 'navigation.securitySubtitle',
+    icon: '⊘',
+    href: '/security',
+    section: 'SYSTEM',
+  },
+  {
+    id: 'settings',
+    labelKey: 'navigation.settingsLabel',
+    titleKey: 'navigation.settingsTitle',
+    subtitleKey: 'navigation.settingsSubtitle',
+    icon: '⚙',
+    href: '/settings',
+    section: 'SYSTEM',
+  },
+  {
+    id: 'integrations',
+    labelKey: 'navigation.integrationsLabel',
+    titleKey: 'navigation.integrationsTitle',
+    subtitleKey: 'navigation.integrationsSubtitle',
+    icon: '⧉',
+    href: '/integrations',
+    section: 'OPERATIONS',
+  },
+  {
+    id: 'maintenance',
+    labelKey: 'navigation.maintenanceLabel',
+    titleKey: 'navigation.maintenanceTitle',
+    subtitleKey: 'navigation.maintenanceSubtitle',
+    icon: '◇',
+    href: '/maintenance',
+    section: 'SYSTEM',
+  },
+]
+
+const expectedOnboardingScreen: AppScreen = {
+  id: 'onboarding',
+  labelKey: 'navigation.onboardingLabel',
+  titleKey: 'navigation.onboardingTitle',
+  subtitleKey: 'navigation.onboardingSubtitle',
+  icon: '◌',
+  href: '/onboarding',
+}
 
 describe('App shell', () => {
   beforeEach(() => {
+    vi.resetModules()
     resetAppShellHarness()
   })
 
-  test('keeps sidebar information architecture grouped by section', () => {
+  test('keeps sidebar information architecture grouped by section', async () => {
+    const {
+      appScreens,
+      appRoutes,
+      onboardingScreen,
+      readRouteHandle,
+      sidebarSections,
+    } = await import('../router')
+
+    expect(appScreens).toEqual([
+      ...expectedAppShellScreens,
+      expectedOnboardingScreen,
+    ])
     expect(sidebarSections).toEqual([
       {
         id: 'core',
         labelKey: 'navigation.coreSection',
-        items: [
-          expect.objectContaining({
-            id: 'dashboard',
-            labelKey: 'navigation.dashboardLabel',
-            subtitleKey: 'navigation.dashboardSubtitle',
-            icon: '⌂',
-            href: '/',
-          }),
-          expect.objectContaining({
-            id: 'explorer',
-            labelKey: 'navigation.explorerLabel',
-            subtitleKey: 'navigation.explorerSubtitle',
-            icon: '◎',
-            href: '/explorer',
-          }),
-          expect.objectContaining({
-            id: 'intelligence',
-            labelKey: 'navigation.intelligenceLabel',
-            subtitleKey: 'navigation.intelligenceSubtitle',
-            titleKey: 'navigation.intelligenceTitle',
-            section: 'CORE',
-            icon: '◈',
-            href: '/intelligence',
-          }),
-          expect.objectContaining({
-            id: 'assistant',
-            labelKey: 'navigation.assistantLabel',
-            subtitleKey: 'navigation.assistantSubtitle',
-            icon: '▷',
-            href: '/assistant',
-            badgeKey: 'navigation.assistantBadge',
-          }),
-        ],
+        items: expectedAppShellScreens.filter(
+          (screen) => screen.section === 'CORE',
+        ),
       },
       {
         id: 'operations',
         labelKey: 'navigation.operationsSection',
-        items: [
-          expect.objectContaining({
-            id: 'import',
-            labelKey: 'navigation.importLabel',
-            subtitleKey: 'navigation.importSubtitle',
-            icon: '↓',
-            href: '/import',
-          }),
-          expect.objectContaining({
-            id: 'audit',
-            labelKey: 'navigation.auditLabel',
-            subtitleKey: 'navigation.auditSubtitle',
-            icon: '⊞',
-            href: '/audit',
-          }),
-          expect.objectContaining({
-            id: 'jobs',
-            labelKey: 'navigation.jobsLabel',
-            subtitleKey: 'navigation.jobsSubtitle',
-            icon: '≡',
-            href: '/jobs',
-          }),
-          expect.objectContaining({
-            id: 'schedule',
-            labelKey: 'navigation.scheduleLabel',
-            subtitleKey: 'navigation.scheduleSubtitle',
-            icon: '⏀',
-            href: '/schedule',
-          }),
-          expect.objectContaining({
-            id: 'integrations',
-            labelKey: 'navigation.integrationsLabel',
-            subtitleKey: 'navigation.integrationsSubtitle',
-            icon: '⧉',
-            href: '/integrations',
-          }),
-        ],
+        items: expectedAppShellScreens.filter(
+          (screen) => screen.section === 'OPERATIONS',
+        ),
       },
       {
         id: 'system',
         labelKey: 'navigation.systemSection',
-        items: [
-          expect.objectContaining({
-            id: 'security',
-            labelKey: 'navigation.securityLabel',
-            subtitleKey: 'navigation.securitySubtitle',
-            icon: '⊘',
-            href: '/security',
-          }),
-          expect.objectContaining({
-            id: 'settings',
-            labelKey: 'navigation.settingsLabel',
-            subtitleKey: 'navigation.settingsSubtitle',
-            icon: '⚙',
-            href: '/settings',
-          }),
-          expect.objectContaining({
-            id: 'maintenance',
-            labelKey: 'navigation.maintenanceLabel',
-            subtitleKey: 'navigation.maintenanceSubtitle',
-            icon: '◇',
-            href: '/maintenance',
-          }),
-        ],
+        items: expectedAppShellScreens.filter(
+          (screen) => screen.section === 'SYSTEM',
+        ),
       },
     ])
-    expect(onboardingScreen).toEqual(
-      expect.objectContaining({
-        labelKey: 'navigation.onboardingLabel',
-        titleKey: 'navigation.onboardingTitle',
-        subtitleKey: 'navigation.onboardingSubtitle',
-        icon: '◌',
-        href: '/onboarding',
-      }),
-    )
-    expect(appRoutes[0]).toEqual(expect.objectContaining({ path: '/' }))
+    expect(onboardingScreen).toEqual(expectedOnboardingScreen)
+    expect(routeDescriptors(appRoutes, readRouteHandle)).toEqual([
+      {
+        path: '/',
+        index: false,
+        lazy: false,
+        errorBoundary: false,
+        element: 'RequireUnlockedShell(AppShell)',
+        hydrateFallback: 'RouteHydrateFallback',
+        handleId: null,
+        children: [
+          {
+            path: 'index',
+            index: true,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'dashboard',
+            children: [],
+          },
+          {
+            path: 'explorer',
+            index: false,
+            lazy: true,
+            errorBoundary: true,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'explorer',
+            children: [],
+          },
+          {
+            path: 'intelligence',
+            index: false,
+            lazy: false,
+            errorBoundary: true,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'intelligence',
+            children: [
+              {
+                path: 'index',
+                index: true,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'domain/:domain',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'query-family/:familyId',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'refind/:canonicalUrl',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'session/:sessionId',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'trail/:trailId',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'compare-set/:compareSetId',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+              {
+                path: 'day/:date',
+                index: false,
+                lazy: true,
+                errorBoundary: true,
+                element: null,
+                hydrateFallback: null,
+                handleId: null,
+                children: [],
+              },
+            ],
+          },
+          {
+            path: 'assistant',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'assistant',
+            children: [],
+          },
+          {
+            path: 'import',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'import',
+            children: [],
+          },
+          {
+            path: 'audit',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'audit',
+            children: [],
+          },
+          {
+            path: 'jobs',
+            index: false,
+            lazy: true,
+            errorBoundary: true,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'jobs',
+            children: [],
+          },
+          {
+            path: 'schedule',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'schedule',
+            children: [],
+          },
+          {
+            path: 'integrations',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'integrations',
+            children: [],
+          },
+          {
+            path: 'security',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'security',
+            children: [],
+          },
+          {
+            path: 'maintenance',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'maintenance',
+            children: [],
+          },
+          {
+            path: 'settings',
+            index: false,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'settings',
+            children: [],
+          },
+        ],
+      },
+      {
+        path: '/lock',
+        index: false,
+        lazy: false,
+        errorBoundary: false,
+        element: 'RequireLockScreen',
+        hydrateFallback: null,
+        handleId: null,
+        children: [],
+      },
+      {
+        path: '/onboarding',
+        index: false,
+        lazy: false,
+        errorBoundary: false,
+        element: 'RequireUnlockedShell(OnboardingShell)',
+        hydrateFallback: 'RouteHydrateFallback',
+        handleId: 'onboarding',
+        children: [
+          {
+            path: 'index',
+            index: true,
+            lazy: true,
+            errorBoundary: false,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'onboarding',
+            children: [],
+          },
+        ],
+      },
+      {
+        path: '*',
+        index: false,
+        lazy: false,
+        errorBoundary: false,
+        element: 'Navigate(to=/,replace=true)',
+        hydrateFallback: null,
+        handleId: null,
+        children: [],
+      },
+    ])
   })
 
-  test('creates a desktop router and validates route handles', () => {
+  test('creates a desktop router and validates route handles', async () => {
+    const { onboardingScreen, readRouteHandle } = await import('../router')
+    const { createDesktopRouter } = await import('../router-factory')
     const router = createDesktopRouter()
 
     expect(readRouteHandle(null)).toBeNull()
@@ -171,4 +465,154 @@ describe('App shell', () => {
 
     router.dispose()
   })
+
+  test('keeps every lazy route importable from the production registry', async () => {
+    const { appRoutes } = await import('../router')
+    const lazyRoutes = collectLazyRoutes(appRoutes)
+
+    expect(lazyRoutes.map((route) => route.path ?? 'index')).toEqual([
+      'index',
+      'explorer',
+      'index',
+      'domain/:domain',
+      'query-family/:familyId',
+      'refind/:canonicalUrl',
+      'session/:sessionId',
+      'trail/:trailId',
+      'compare-set/:compareSetId',
+      'day/:date',
+      'assistant',
+      'import',
+      'audit',
+      'jobs',
+      'schedule',
+      'integrations',
+      'security',
+      'maintenance',
+      'settings',
+      'index',
+    ])
+
+    for (const route of lazyRoutes) {
+      const loaded = await route.lazy?.()
+      expect(loaded?.Component).toEqual(expect.any(Function))
+    }
+  })
 })
+
+interface ImportableLazyRoute {
+  path?: string
+  lazy: () => Promise<{ Component?: unknown }>
+}
+
+function collectLazyRoutes(routes: RouteObject[]): ImportableLazyRoute[] {
+  const lazyRoutes: ImportableLazyRoute[] = []
+
+  for (const route of routes) {
+    if (route.lazy) {
+      if (typeof route.lazy !== 'function') {
+        throw new Error(
+          `Expected route lazy loader to be callable: ${route.path}`,
+        )
+      }
+      lazyRoutes.push({
+        path: route.path,
+        lazy: route.lazy as () => Promise<{ Component?: unknown }>,
+      })
+    }
+    if (route.children) {
+      lazyRoutes.push(...collectLazyRoutes(route.children))
+    }
+  }
+
+  return lazyRoutes
+}
+
+interface RouteDescriptor {
+  path: string
+  index: boolean
+  lazy: boolean
+  errorBoundary: boolean
+  element: string | null
+  hydrateFallback: string | null
+  handleId: string | null
+  children: RouteDescriptor[]
+}
+
+type ReadRouteHandle = (handle: unknown) => { screen: { id: string } } | null
+
+function routeDescriptors(
+  routes: RouteObject[],
+  readRouteHandle: ReadRouteHandle,
+): RouteDescriptor[] {
+  return routes.map((route) => ({
+    path: route.index ? 'index' : (route.path ?? ''),
+    index: route.index === true,
+    lazy: typeof route.lazy === 'function',
+    errorBoundary: typeof route.ErrorBoundary === 'function',
+    element: describeRouteElement(route.element),
+    hydrateFallback: describeRouteElement(route.hydrateFallbackElement),
+    handleId: readRouteHandle(route.handle)?.screen.id ?? null,
+    children: route.children
+      ? routeDescriptors(route.children, readRouteHandle)
+      : [],
+  }))
+}
+
+function describeRouteElement(element: unknown): string | null {
+  if (!isValidElement(element)) {
+    return null
+  }
+
+  const typeName = routeElementTypeName(element.type)
+
+  if (typeName === 'RequireLockScreen') {
+    return 'RequireLockScreen'
+  }
+
+  if (typeName === 'RouteHydrateFallback') {
+    return 'RouteHydrateFallback'
+  }
+
+  if (typeName === 'Navigate') {
+    return describeNavigateElement(element)
+  }
+
+  if (typeName === 'RequireUnlockedShell') {
+    return describeUnlockedShellElement(element)
+  }
+
+  return `unknown:${typeName}`
+}
+
+function routeElementTypeName(type: unknown): string {
+  if (typeof type === 'function') {
+    const namedType = type as { displayName?: string; name?: string }
+    return namedType.displayName ?? namedType.name ?? 'anonymous'
+  }
+  return String(type)
+}
+
+function describeNavigateElement(element: ReactElement<unknown>): string {
+  const props = element.props as { replace?: unknown; to?: unknown }
+  return `Navigate(to=${String(props.to)},replace=${String(props.replace)})`
+}
+
+function describeUnlockedShellElement(element: ReactElement<unknown>): string {
+  const { children: child } = element.props as { children?: unknown }
+  if (!isValidElement(child)) {
+    return 'RequireUnlockedShell(null)'
+  }
+
+  const childTypeName = routeElementTypeName(child.type)
+
+  if (childTypeName === 'AppShell') {
+    return 'RequireUnlockedShell(AppShell)'
+  }
+
+  if (childTypeName === 'OnboardingShell') {
+    return 'RequireUnlockedShell(OnboardingShell)'
+  }
+
+  return `RequireUnlockedShell(unknown:${childTypeName})`
+}

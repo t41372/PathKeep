@@ -120,6 +120,22 @@ fn inspect_takeout_collects_preview_rows() {
 }
 
 #[test]
+fn merge_detected_locale_marks_conflicting_locales_as_mixed() {
+    let mut locale = None;
+    merge_detected_locale(&mut locale, None);
+    assert!(locale.is_none());
+
+    merge_detected_locale(&mut locale, Some("en"));
+    assert_eq!(locale.as_deref(), Some("en"));
+
+    merge_detected_locale(&mut locale, Some("zh-TW"));
+    assert_eq!(locale.as_deref(), Some("mixed"));
+
+    merge_detected_locale(&mut locale, Some("en"));
+    assert_eq!(locale.as_deref(), Some("mixed"));
+}
+
+#[test]
 fn inspect_takeout_streams_browser_history_json_payloads() {
     let dir = tempdir().expect("tempdir");
     let source = write_takeout_browser_json_fixture(dir.path(), "takeout-browser-json");
@@ -519,6 +535,46 @@ fn inspect_takeout_reports_parse_errors_for_recognized_files() {
 }
 
 #[test]
+fn import_takeout_marks_malformed_import_runs_failed() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = dir.path().join("malformed-import");
+    fs::create_dir_all(source.join("Chrome")).expect("create malformed source");
+    fs::write(source.join("Chrome").join("BrowserHistory.json"), "{not-json")
+        .expect("write malformed history");
+
+    let error = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect_err("malformed import should fail");
+    assert!(error.to_string().contains("parsing Takeout payload"));
+
+    let archive = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let (status, error_message): (String, String) = archive
+        .query_row(
+            "SELECT status, error_message
+             FROM runs
+             WHERE run_type = 'import'
+             ORDER BY id DESC
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("failed import run");
+    assert_eq!(status, "failed");
+    assert!(error_message.contains("parsing Takeout payload"));
+}
+
+#[test]
 fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
@@ -562,6 +618,57 @@ fn my_activity_exports_stay_in_review_and_do_not_create_empty_batches() {
     assert_eq!(imported.imported_items, 0);
     assert_eq!(imported.quarantined_files.len(), 1);
     assert_eq!(load_import_batches(&paths, &config, None).expect("load batches").len(), 0);
+}
+
+#[test]
+fn import_takeout_quarantines_review_needed_payloads_while_importing_supported_history() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = dir.path().join("mixed-review-takeout");
+    fs::create_dir_all(source.join("Chrome")).expect("create chrome source");
+    fs::create_dir_all(source.join("My Activity").join("Chrome")).expect("create activity source");
+    fs::write(
+        source.join("Chrome").join("BrowserHistory.json"),
+        chrome_browser_history_payload(&[
+            r#"{"url":"https://example.com/imported","title":"Imported","time_usec":1711965600000000}"#,
+        ]),
+    )
+    .expect("write importable browser history");
+    fs::write(
+        source.join("My Activity").join("Chrome").join("MyActivity.json"),
+        r#"[{"header":"Chrome","title":"Visited Review","titleUrl":"https://review.example","time":"2026-04-22T18:30:56.385Z","products":["Chrome"]}]"#,
+    )
+    .expect("write review-needed my activity");
+
+    let imported = import_takeout(
+        &paths,
+        &config,
+        None,
+        &TakeoutRequest { source_path: source.display().to_string(), dry_run: false },
+    )
+    .expect("import mixed review takeout");
+
+    assert_eq!(imported.imported_items, 1);
+    assert_eq!(imported.quarantined_files.len(), 1);
+    assert_eq!(
+        imported.quarantined_files[0].reason_code.as_deref(),
+        Some("chrome-my-activity-json")
+    );
+    assert!(
+        paths
+            .quarantine_dir
+            .join("mixed-review-takeout")
+            .join("My Activity")
+            .join("Chrome")
+            .join("MyActivity.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -609,6 +716,60 @@ fn takeout_import_progress_marks_active_single_file_work_as_indeterminate() {
 }
 
 #[test]
+fn takeout_progress_helpers_cover_bounds_and_unknown_phase() {
+    assert_eq!(super::import_flow::progress_percent_from_counts(0, 0), None);
+    assert_eq!(super::import_flow::progress_percent_from_counts(2, 1), Some(100.0));
+    assert_eq!(super::import_flow::progress_label_for_phase("prepare"), "Preparing import");
+    assert_eq!(
+        super::import_flow::progress_label_for_phase("unexpected"),
+        "Importing browser history"
+    );
+
+    let mut last_processed_records = 0;
+    let mut events = Vec::new();
+    super::import_flow::emit_import_record_progress_if_changed(
+        &mut |event| events.push(event),
+        &mut last_processed_records,
+        1,
+        1,
+        "Chrome/BrowserHistory.json",
+        &["importing".to_string()],
+        super::payload_import::TakeoutPayloadProgress {
+            processed_records: 0,
+            imported_records: 0,
+            duplicate_records: 0,
+            skipped_records: 0,
+        },
+    );
+    assert!(events.is_empty());
+
+    super::import_flow::emit_import_record_progress_if_changed(
+        &mut |event| events.push(event),
+        &mut last_processed_records,
+        1,
+        1,
+        "Chrome/BrowserHistory.json",
+        &["importing".to_string()],
+        super::payload_import::TakeoutPayloadProgress {
+            processed_records: 2,
+            imported_records: 1,
+            duplicate_records: 1,
+            skipped_records: 0,
+        },
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].processed_records, Some(2));
+    assert_eq!(events[0].duplicate_records, Some(1));
+
+    let source_note =
+        super::import_flow::takeout_source_evidence_rebuild_note(anyhow::anyhow!("source offline"));
+    let search_note =
+        super::import_flow::takeout_keyword_recall_rebuild_note(anyhow::anyhow!("search offline"));
+    assert!(source_note.contains("source-evidence archive"));
+    assert!(search_note.contains("keyword-recall projection"));
+}
+
+#[test]
 fn recognize_and_parse_takeout_payloads() {
     assert_eq!(recognize_takeout_file("BrowserHistory.json"), Some("browser-json".to_string()));
     assert_eq!(recognize_takeout_file("Chrome/History.json"), Some("browser-json".to_string()));
@@ -652,6 +813,9 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
     fs::create_dir_all(&unknown_source).expect("create unknown source");
     let unknown_file = unknown_source.join("notes.txt");
     fs::write(&unknown_file, "notes").expect("write unknown file");
+    let skipped_direct = dir.path().join(".DS_Store");
+    fs::write(&skipped_direct, "noise").expect("write skipped direct");
+    assert!(gather_takeout_files(&skipped_direct).expect("skipped direct file").is_empty());
 
     let unknown_inspection = inspect_takeout(
         &paths,
@@ -665,6 +829,15 @@ fn takeout_helpers_cover_unknown_files_zip_sources_and_quarantine() {
     quarantine_file(&paths, &unknown_source, &unknown_file.display().to_string())
         .expect("quarantine file");
     assert!(paths.quarantine_dir.join("unknown-only").join("notes.txt").exists());
+    let direct_source = dir.path().join("direct-note.txt");
+    fs::write(&direct_source, "direct").expect("write direct source");
+    quarantine_file(&paths, &direct_source, &direct_source.display().to_string())
+        .expect("quarantine direct source");
+    assert_eq!(
+        fs::read_to_string(paths.quarantine_dir.join("direct-note").join("direct-note.txt"))
+            .expect("read direct quarantine"),
+        "direct"
+    );
 
     let zip_source = write_takeout_zip(
         dir.path(),

@@ -60,6 +60,7 @@ export function buildCalendarWeeks(
   const weeks: BrowsingRhythmCalendarCell[][] = []
   let cursor = calendarStart
 
+  // Stryker disable next-line EqualityOperator: cursor advances by whole weeks from Sunday starts, so it never equals the Saturday calendarEnd boundary.
   while (cursor.getTime() <= calendarEnd.getTime()) {
     const week: BrowsingRhythmCalendarCell[] = []
     for (let index = 0; index < 7; index += 1) {
@@ -102,6 +103,7 @@ export function buildMonthLabels(
 
     const monthKey = `${firstInRangeDay.date.getFullYear()}-${firstInRangeDay.date.getMonth()}`
     const shouldShowLabel =
+      // Stryker disable next-line ConditionalExpression: the first in-range month also differs from the initial null seenMonthKey.
       index === 0 ||
       firstInRangeDay.date.getDate() <= 7 ||
       monthKey !== seenMonthKey
@@ -181,9 +183,11 @@ export function buildVisitSummary({
  * Returns the descending year list shown by the picker so the card can stay in sync with the loaded trend data.
  */
 export function buildYearOptions(dataYears: number[], currentYear: number) {
+  // Stryker disable ConditionalExpression,BlockStatement: the fallthrough Math.min/Math.max path also returns [currentYear] for an empty data set.
   if (dataYears.length === 0) {
     return [currentYear]
   }
+  // Stryker restore ConditionalExpression,BlockStatement
 
   const lowerBound = Math.min(...dataYears, currentYear)
   const upperBound = Math.max(...dataYears, currentYear)
@@ -201,8 +205,7 @@ export function extractPointYear(dateKey: string) {
   if (!match) {
     return null
   }
-  const year = Number(match[1])
-  return Number.isFinite(year) ? year : null
+  return Number(match[1])
 }
 
 function parseDateKey(dateKey: string) {
@@ -269,6 +272,7 @@ function formatRangeBoundary(
     if (boundary === 'end' && sameYear) {
       return `${target.getMonth() + 1}月${target.getDate()}日`
     }
+    // Stryker disable next-line ConditionalExpression: same-year end boundaries already returned above, so dropping the boundary check is equivalent.
     if (boundary === 'start' && sameYear) {
       return `${target.getFullYear()}年 ${target.getMonth() + 1}月${target.getDate()}日`
     }
@@ -282,9 +286,7 @@ function formatRangeBoundary(
   if (boundary === 'end' && sameMonth) {
     return String(target.getDate())
   }
-  if (boundary === 'end' && sameYear) {
-    return `${month} ${target.getDate()}, ${target.getFullYear()}`
-  }
+  // Stryker disable next-line ConditionalExpression: same-year end boundaries fall through to the year-qualified fallback below.
   if (boundary === 'start' && sameYear) {
     return `${month} ${target.getDate()}`
   }

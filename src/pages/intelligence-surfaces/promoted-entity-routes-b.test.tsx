@@ -120,6 +120,125 @@ describe('intelligence surfaces', () => {
     )
   })
 
+  test('keeps session route placeholders and empty optional sections honest', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const detailSpy = vi.spyOn(coreIntelligenceApi, 'getSessionDetail')
+
+    const placeholder = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/session"
+          element={<SessionInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/session',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByText(intelligenceT('sessionGroupEmpty')),
+    ).toBeVisible()
+    expect(detailSpy).not.toHaveBeenCalled()
+    placeholder.unmount()
+
+    detailSpy.mockRejectedValueOnce(new Error('session unavailable'))
+    const errorView = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/session/:sessionId"
+          element={<SessionInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/session/session-error',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByText('session unavailable')).toBeVisible()
+    errorView.unmount()
+
+    detailSpy.mockResolvedValueOnce({
+      session: null,
+      visits: [],
+      trails: [],
+    } as unknown as Awaited<
+      ReturnType<typeof coreIntelligenceApi.getSessionDetail>
+    >)
+    const emptyDetail = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/session/:sessionId"
+          element={<SessionInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/session/session-empty-detail',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByText(intelligenceT('sessionGroupEmpty')),
+    ).toBeVisible()
+    emptyDetail.unmount()
+
+    detailSpy.mockResolvedValueOnce({
+      session: {
+        sessionId: 'session-empty',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:30:00Z'),
+        visitCount: 1,
+        searchCount: 0,
+        domainCount: 1,
+        isDeepDive: false,
+        autoTitle: null,
+      },
+      visits: [
+        {
+          visitId: 104,
+          url: 'https://www.sqlite.org/without-title.html',
+          title: null,
+          registrableDomain: 'sqlite.org',
+          visitTimeMs: Date.parse('2026-04-05T14:05:00Z'),
+          isSearchEvent: false,
+          searchQuery: null,
+          searchEngine: null,
+          trailId: null,
+          transitionType: 'typed',
+        },
+      ],
+      trails: [],
+    })
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/session/:sessionId"
+          element={<SessionInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/session/session-empty?range=custom&start=2026-04-01&end=2026-04-07',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', {
+        name: intelligenceT('sessionUntitled'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByText('https://www.sqlite.org/without-title.html'),
+    ).toBeVisible()
+    expect(screen.getByText(intelligenceT('trailGroupEmpty'))).toBeVisible()
+  })
+
   test('renders trail insights with session handoff and member entity links', async () => {
     const { snapshot } = await seedArchiveState()
     vi.spyOn(coreIntelligenceApi, 'getTrailDetail').mockResolvedValue({
@@ -179,6 +298,140 @@ describe('intelligence surfaces', () => {
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-05&end=2026-04-05&profileId=chrome%3ADefault',
     )
+  })
+
+  test('keeps trail route placeholders and optional member actions honest', async () => {
+    const { snapshot } = await seedArchiveState()
+    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+    const detailSpy = vi.spyOn(coreIntelligenceApi, 'getTrailDetail')
+
+    const placeholder = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/trail',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByText(intelligenceT('trailGroupEmpty')),
+    ).toBeVisible()
+    expect(detailSpy).not.toHaveBeenCalled()
+    placeholder.unmount()
+
+    detailSpy.mockRejectedValueOnce(new Error('trail unavailable'))
+    const errorView = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail/:trailId"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/trail/trail-error',
+        snapshot,
+      },
+    )
+
+    expect(await screen.findByText('trail unavailable')).toBeVisible()
+    errorView.unmount()
+
+    detailSpy.mockResolvedValueOnce({
+      trail: null,
+      members: [],
+    } as unknown as Awaited<
+      ReturnType<typeof coreIntelligenceApi.getTrailDetail>
+    >)
+    const emptyDetail = renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail/:trailId"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route: '/intelligence/trail/trail-empty-detail',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByText(intelligenceT('trailGroupEmpty')),
+    ).toBeVisible()
+    emptyDetail.unmount()
+
+    detailSpy.mockResolvedValueOnce({
+      trail: {
+        trailId: 'trail-empty',
+        sessionId: null,
+        initialQuery: 'sqlite triggers',
+        searchEngine: 'Google',
+        reformulationCount: 0,
+        visitCount: 2,
+        landingUrl: 'https://www.sqlite.org/lang_createtrigger.html',
+        landingDomain: 'sqlite.org',
+        firstVisitMs: Date.parse('2026-04-05T14:00:00Z'),
+        lastVisitMs: Date.parse('2026-04-05T14:20:00Z'),
+        maxDepth: 1,
+        queries: ['sqlite triggers'],
+      },
+      members: [
+        {
+          trailId: 'trail-empty',
+          visitId: 302,
+          ordinal: 1,
+          role: 'search_event',
+          url: 'https://google.com/search?q=sqlite+triggers',
+          title: null,
+          registrableDomain: null,
+          visitTimeMs: Date.parse('2026-04-05T14:03:00Z'),
+          searchQuery: 'sqlite triggers',
+        },
+        {
+          trailId: 'trail-empty',
+          visitId: 303,
+          ordinal: 2,
+          role: 'click',
+          url: 'https://www.sqlite.org/lang_createtrigger.html',
+          title: null,
+          registrableDomain: null,
+          visitTimeMs: Date.parse('2026-04-05T14:06:00Z'),
+          searchQuery: null,
+        },
+      ],
+    })
+
+    renderSurface(
+      <Routes>
+        <Route
+          path="/intelligence/trail/:trailId"
+          element={<TrailInsightsRoutePage />}
+        />
+      </Routes>,
+      {
+        route:
+          '/intelligence/trail/trail-empty?range=custom&start=2026-04-01&end=2026-04-07',
+        snapshot,
+      },
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: /sqlite triggers/i }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('link', {
+        name: intelligenceT('trailRouteOpenSession'),
+      }),
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText('"sqlite triggers"').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('https://www.sqlite.org/lang_createtrigger.html'),
+    ).toBeVisible()
   })
 
   test('shows compare-set focus context inside trail insights and highlights matching members', async () => {

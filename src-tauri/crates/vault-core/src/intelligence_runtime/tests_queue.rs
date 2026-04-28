@@ -1,15 +1,18 @@
 use super::*;
 use crate::{
+    VISIT_DERIVED_FACTS_MODULE_ID,
     archive::open_intelligence_connection,
     config::{ProjectPaths, ensure_paths, project_paths_with_root},
-    models::{AppConfig, ArchiveMode},
+    models::{AppConfig, ArchiveMode, EnrichmentPluginPreference},
 };
 use rusqlite::{Connection, params};
 use serde_json::json;
 use tempfile::tempdir;
 
 use super::{
-    claims::{queued_enrichment_candidates_page, try_claim_enrichment_job},
+    claims::{
+        claim_enrichment_job_by_id, queued_enrichment_candidates_page, try_claim_enrichment_job,
+    },
     recovery::requeue_running_enrichment_jobs_for_run,
     snapshot::load_queue_status,
 };
@@ -91,6 +94,145 @@ fn deterministic_rebuild_jobs_are_traced_in_runtime_queue() {
 }
 
 #[test]
+fn enqueue_runtime_helpers_dedupe_refresh_and_mark_stale_contracts() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+
+    let invalid = enqueue_core_intelligence_job(
+        &connection,
+        "unknown-stage",
+        &CoreIntelligenceRebuildRequest::default(),
+        "invalid stage",
+    )
+    .expect_err("invalid core intelligence job type should fail");
+    assert!(invalid.to_string().contains("unknown-stage"));
+
+    let request = CoreIntelligenceRebuildRequest {
+        profile_id: Some("chrome:Default".to_string()),
+        full_rebuild: false,
+        limit: Some(0),
+    };
+    let first_id =
+        enqueue_core_intelligence_job(&connection, VISIT_DERIVE_JOB_TYPE, &request, "first")
+            .expect("enqueue first deterministic job");
+    let refreshed_id =
+        enqueue_core_intelligence_job(&connection, VISIT_DERIVE_JOB_TYPE, &request, "second")
+            .expect("refresh deterministic job");
+    assert_eq!(first_id, refreshed_id);
+    connection
+        .execute(
+            "UPDATE intelligence_jobs SET state = 'running', last_error = 'old', stop_requested = 1 WHERE id = ?1",
+            [first_id],
+        )
+        .expect("mark deterministic job running");
+    let running_id =
+        enqueue_core_intelligence_job(&connection, VISIT_DERIVE_JOB_TYPE, &request, "third")
+            .expect("running deterministic job is deduped without reset");
+    assert_eq!(running_id, first_id);
+    let (state, last_error, stop_requested): (String, Option<String>, i64) = connection
+        .query_row(
+            "SELECT state, last_error, stop_requested FROM intelligence_jobs WHERE id = ?1",
+            [first_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load refreshed deterministic state");
+    assert_eq!(state, "running");
+    assert_eq!(last_error.as_deref(), Some("old"));
+    assert_eq!(stop_requested, 1);
+    let trigger_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM intelligence_job_triggers WHERE job_id = ?1",
+            [first_id],
+            |row| row.get(0),
+        )
+        .expect("deterministic trigger count");
+    assert_eq!(trigger_count, 3);
+
+    let enrichment_payload = EnrichmentJobPayload {
+        history_id: 42,
+        profile_id: "chrome:Default".to_string(),
+        url: "https://example.com/docs".to_string(),
+        title: Some("Docs".to_string()),
+    };
+    enqueue_enrichment_job(&connection, 7, &BUILT_IN_ENRICHMENT_PLUGINS[0], &enrichment_payload)
+        .expect("enqueue enrichment");
+    connection
+        .execute(
+            "UPDATE intelligence_jobs SET state = 'failed', last_error = 'old failure', stop_requested = 1 WHERE plugin_id = ?1",
+            [TITLE_NORMALIZATION_PLUGIN_ID],
+        )
+        .expect("mark enrichment failed");
+    enqueue_enrichment_job(&connection, 8, &BUILT_IN_ENRICHMENT_PLUGINS[0], &enrichment_payload)
+        .expect("refresh enrichment");
+    let (state, last_error, stop_requested): (String, Option<String>, i64) = connection
+        .query_row(
+            "SELECT state, last_error, stop_requested FROM intelligence_jobs WHERE plugin_id = ?1",
+            [TITLE_NORMALIZATION_PLUGIN_ID],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load refreshed enrichment state");
+    assert_eq!(state, "queued");
+    assert!(last_error.is_none());
+    assert_eq!(stop_requested, 0);
+    connection
+        .execute(
+            "UPDATE intelligence_jobs SET state = 'running', last_error = 'active' WHERE plugin_id = ?1",
+            [TITLE_NORMALIZATION_PLUGIN_ID],
+        )
+        .expect("mark enrichment running");
+    enqueue_enrichment_job(&connection, 9, &BUILT_IN_ENRICHMENT_PLUGINS[0], &enrichment_payload)
+        .expect("dedupe running enrichment");
+    let running_error: Option<String> = connection
+        .query_row(
+            "SELECT last_error FROM intelligence_jobs WHERE plugin_id = ?1",
+            [TITLE_NORMALIZATION_PLUGIN_ID],
+            |row| row.get(0),
+        )
+        .expect("running enrichment remains untouched");
+    assert_eq!(running_error.as_deref(), Some("active"));
+
+    persist_deterministic_module_runtime_updates(
+        &connection,
+        &[
+            DeterministicModuleRuntimeUpdate {
+                module_id: "unknown-module".to_string(),
+                status: "stale".to_string(),
+                last_run_id: None,
+                last_built_at: None,
+                last_invalidated_at: Some("2026-04-26T00:00:00Z".to_string()),
+                stale_reason: Some("ignored".to_string()),
+                notes: vec!["ignored".to_string()],
+            },
+            DeterministicModuleRuntimeUpdate {
+                module_id: VISIT_DERIVED_FACTS_MODULE_ID.to_string(),
+                status: "ready".to_string(),
+                last_run_id: Some(99),
+                last_built_at: Some("2026-04-26T00:00:00Z".to_string()),
+                last_invalidated_at: None,
+                stale_reason: None,
+                notes: vec!["fresh".to_string()],
+            },
+        ],
+    )
+    .expect("persist module updates");
+    let module_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM deterministic_module_runtime", [], |row| row.get(0))
+        .expect("module runtime count");
+    assert_eq!(module_count, 1);
+
+    mark_all_deterministic_modules_stale(&connection, "coverage stale")
+        .expect("mark deterministic modules stale");
+    let stale_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM deterministic_module_runtime WHERE status = 'stale' AND stale_reason = 'coverage stale'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stale module count");
+    assert_eq!(stale_count, built_in_deterministic_modules().len() as i64);
+}
+
+#[test]
 fn recent_jobs_surface_progress_for_running_deterministic_rebuilds() {
     let connection = Connection::open_in_memory().expect("memory db");
     ensure_intelligence_runtime_schema(&connection).expect("queue schema");
@@ -141,6 +283,105 @@ fn recent_jobs_surface_progress_for_running_deterministic_rebuilds() {
 }
 
 #[test]
+fn job_control_state_transitions_persist_success_failure_and_worker_cancel() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("queue schema");
+
+    let success_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("profile-success".to_string()),
+            ..CoreIntelligenceRebuildRequest::default()
+        },
+        "success fixture",
+    )
+    .expect("enqueue success");
+    claim_deterministic_rebuild_job(&connection, success_id).expect("claim success");
+    assert!(
+        mark_intelligence_job_succeeded(
+            &connection,
+            success_id,
+            &json!({ "status": "complete", "processedVisits": 3 }),
+        )
+        .expect("mark success")
+    );
+    assert!(
+        !mark_intelligence_job_succeeded(&connection, success_id, &json!({}))
+            .expect("second success should not update")
+    );
+
+    let failed_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("profile-failed".to_string()),
+            ..CoreIntelligenceRebuildRequest::default()
+        },
+        "failure fixture",
+    )
+    .expect("enqueue failed");
+    claim_deterministic_rebuild_job(&connection, failed_id).expect("claim failed");
+    assert!(
+        mark_intelligence_job_failed(&connection, failed_id, "stage failed").expect("mark failed")
+    );
+    assert!(
+        !mark_intelligence_job_failed(&connection, failed_id, "again")
+            .expect("second failed should not update")
+    );
+
+    let cancelled_id = enqueue_deterministic_rebuild_job(
+        &connection,
+        &CoreIntelligenceRebuildRequest {
+            profile_id: Some("profile-cancelled".to_string()),
+            ..CoreIntelligenceRebuildRequest::default()
+        },
+        "cancel fixture",
+    )
+    .expect("enqueue cancel");
+    claim_deterministic_rebuild_job(&connection, cancelled_id).expect("claim cancel");
+    connection
+        .execute("UPDATE intelligence_jobs SET stop_requested = 1 WHERE id = ?1", [cancelled_id])
+        .expect("request stop");
+    assert!(
+        !mark_intelligence_job_succeeded(&connection, cancelled_id, &json!({}))
+            .expect("stop-requested success should not update")
+    );
+    assert!(
+        !mark_intelligence_job_failed(&connection, cancelled_id, "cancelled")
+            .expect("stop-requested failure should not update")
+    );
+    assert!(
+        mark_running_intelligence_job_cancelled(&connection, cancelled_id, "cancelled from test")
+            .expect("mark cancelled")
+    );
+    assert!(
+        !mark_running_intelligence_job_cancelled(&connection, failed_id, "already failed")
+            .expect("failed job should not cancel")
+    );
+
+    let rows = connection
+        .prepare(
+            "SELECT id, state, last_error, cancellation_reason FROM intelligence_jobs ORDER BY id",
+        )
+        .expect("prepare state query")
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .expect("query states")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect states");
+    assert_eq!(rows[0].1, "succeeded");
+    assert_eq!(rows[1].1, "failed");
+    assert_eq!(rows[1].2.as_deref(), Some("stage failed"));
+    assert_eq!(rows[2].1, "cancelled");
+    assert_eq!(rows[2].3.as_deref(), Some("cancelled from test"));
+}
+
+#[test]
 fn deterministic_rebuild_jobs_run_before_optional_enrichment() {
     let connection = Connection::open_in_memory().expect("memory db");
     ensure_intelligence_runtime_schema(&connection).expect("queue schema");
@@ -157,6 +398,8 @@ fn deterministic_rebuild_jobs_run_before_optional_enrichment() {
         },
     )
     .expect("enqueue enrichment");
+    let enrichment_job_id =
+        next_queued_enrichment_job(&connection).expect("next enrichment job").expect("enrichment");
 
     let deterministic_job_id = enqueue_deterministic_rebuild_job(
         &connection,
@@ -169,6 +412,7 @@ fn deterministic_rebuild_jobs_run_before_optional_enrichment() {
         next_queued_intelligence_job(&connection).expect("next queued job").expect("queued job");
     assert_eq!(next_job.id, deterministic_job_id);
     assert_eq!(next_job.job_type, FULL_REBUILD_JOB_TYPE);
+    assert_ne!(enrichment_job_id, deterministic_job_id);
 }
 
 #[test]
@@ -180,6 +424,14 @@ fn plugin_enabled_respects_global_toggle() {
     };
     config.ai.enrichment_enabled = false;
     assert!(!enrichment_plugin_enabled(&config, TITLE_NORMALIZATION_PLUGIN_ID));
+    config.ai.enrichment_enabled = true;
+    config.enrichment.plugins.clear();
+    config.ai.enrichment_plugins = vec![EnrichmentPluginPreference {
+        plugin_id: TITLE_NORMALIZATION_PLUGIN_ID.to_string(),
+        enabled: true,
+    }];
+    assert!(enrichment_plugin_enabled(&config, TITLE_NORMALIZATION_PLUGIN_ID));
+    assert!(!enrichment_plugin_enabled(&config, "unknown-plugin"));
 }
 
 #[test]
@@ -358,6 +610,42 @@ fn compare_and_set_claim_skips_jobs_taken_by_another_connection() {
         .expect("job state after competing claims");
     assert_eq!(state, "running");
     assert_eq!(attempt, 1);
+
+    connection
+        .execute(
+            "INSERT INTO intelligence_jobs
+             (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+              artifact_json, created_at, scheduled_at, updated_at)
+             VALUES (?1, ?2, 12, 'queued', 10, 0, 'job-blocked', ?3, '{}', ?4, ?4, ?4)",
+            params![
+                ENRICHMENT_JOB_TYPE,
+                TITLE_NORMALIZATION_PLUGIN_ID,
+                serde_json::to_string(&EnrichmentJobPayload {
+                    history_id: 43,
+                    profile_id: "chrome:Default".to_string(),
+                    url: "https://example.com/blocked".to_string(),
+                    title: Some("Blocked".to_string()),
+                })
+                .expect("payload"),
+                now,
+            ],
+        )
+        .expect("insert blocked queued job");
+    let blocked_id = connection.last_insert_rowid();
+    connection
+        .execute(
+            &format!(
+                "CREATE TRIGGER block_enrichment_claim
+             BEFORE UPDATE OF state ON intelligence_jobs
+             WHEN OLD.id = {blocked_id} AND NEW.state = 'running'
+             BEGIN
+               SELECT RAISE(IGNORE);
+             END"
+            ),
+            [],
+        )
+        .expect("claim blocker trigger");
+    assert!(claim_enrichment_job_by_id(&connection, blocked_id).expect("blocked claim").is_none());
 }
 
 #[test]
@@ -369,11 +657,14 @@ fn retry_and_cancel_require_valid_job_states() {
     connection
         .execute(
             "INSERT INTO intelligence_jobs
-             (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
-              artifact_json, created_at, scheduled_at, updated_at)
-             VALUES
-                (?1, ?2, 21, 'succeeded', 10, 1, 'job-succeeded', ?3, '{}', ?4, ?4, ?4),
-                (?1, ?2, 22, 'queued', 10, 0, 'job-queued', ?3, '{}', ?4, ?4, ?4)",
+	             (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
+	              artifact_json, created_at, scheduled_at, updated_at)
+	             VALUES
+	                (?1, ?2, 21, 'succeeded', 10, 1, 'job-succeeded', ?3, '{}', ?4, ?4, ?4),
+	                (?1, ?2, 22, 'queued', 10, 0, 'job-queued', ?3, '{}', ?4, ?4, ?4),
+	                (?1, ?2, 23, 'failed', 10, 1, 'job-failed', ?3, '{}', ?4, ?4, ?4),
+	                (?1, ?2, 24, 'cancelled', 10, 1, 'job-cancelled', ?3, '{}', ?4, ?4, ?4),
+	                (?1, ?2, 25, 'running', 10, 1, 'job-running', ?3, '{}', ?4, ?4, ?4)",
             params![
                 ENRICHMENT_JOB_TYPE,
                 TITLE_NORMALIZATION_PLUGIN_ID,
@@ -404,6 +695,25 @@ fn retry_and_cancel_require_valid_job_states() {
         })
         .expect("cancelled state");
     assert_eq!(cancelled_state, "cancelled");
+
+    retry_intelligence_job(&paths, &config, None, 3).expect("retry failed job");
+    retry_intelligence_job(&paths, &config, None, 4).expect("retry cancelled job");
+    let retried_states = connection
+        .prepare("SELECT id, state FROM intelligence_jobs WHERE id IN (3, 4) ORDER BY id")
+        .expect("prepare retried states")
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .expect("query retried states")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect retried states");
+    assert_eq!(retried_states, vec![(3, "queued".to_string()), (4, "queued".to_string())]);
+
+    cancel_intelligence_job(&paths, &config, None, 5).expect("cancel running job");
+    let running_cancel: (String, i64) = connection
+        .query_row("SELECT state, stop_requested FROM intelligence_jobs WHERE id = 5", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("running cancel state");
+    assert_eq!(running_cancel, ("cancelled".to_string(), 1));
 }
 
 #[test]

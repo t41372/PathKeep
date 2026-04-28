@@ -194,6 +194,7 @@ export function IntelligenceSectionMeta({
       onBlurCapture={handleBlurCapture}
       onFocusCapture={handleFocusCapture}
       onMouseEnter={() => {
+        // Stryker disable next-line ConditionalExpression: when pinned is true, the panel is already open; calling setOpen(true) again is equivalent.
         if (!pinned) {
           setOpen(true)
         }

@@ -9,6 +9,7 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { CoreIntelligenceSectionResult } from './types'
 
 const { callMock } = vi.hoisted(() => ({
   callMock: vi.fn(),
@@ -160,6 +161,52 @@ describe('core intelligence api', () => {
     })
   })
 
+  test('prefers snake_case date-range metadata when camelCase metadata is malformed', async () => {
+    const { getDigestSummary } = await import('./api')
+
+    callMock.mockResolvedValueOnce({
+      data: {
+        dateRange: { start: '2024-04-01', end: '2024-04-30' },
+        totalVisits: { value: 42, trend: 'flat' },
+        totalSearches: { value: 7, trend: 'flat' },
+        newDomains: { value: 3, trend: 'flat' },
+        deepReadPages: { value: 2, trend: 'flat' },
+        refindPages: { value: 1, trend: 'flat' },
+      },
+      meta: {
+        sectionId: 'digest-summary',
+        generatedAt: '2026-04-18T12:00:00Z',
+        window: {
+          kind: 'date-range',
+          dateRange: 'bad-date-range',
+          date_range: {
+            start: '2024-04-02',
+            end: '2024-04-29',
+          },
+        },
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['daily_summary_rollups'],
+        includesEnrichment: false,
+        state: 'ready',
+        stateReason: null,
+        notes: [],
+      },
+    })
+
+    const result = await getDigestSummary({
+      start: '2024-04-01',
+      end: '2024-04-30',
+    })
+
+    expect(result.meta.window).toEqual({
+      kind: 'date-range',
+      dateRange: {
+        start: '2024-04-02',
+        end: '2024-04-29',
+      },
+    })
+  })
+
   test('normalizes legacy snake_case calendar-day-history metadata', async () => {
     const { getOnThisDay } = await import('./api')
 
@@ -187,6 +234,42 @@ describe('core intelligence api', () => {
       kind: 'calendar-day-history',
       referenceDate: '2026-04-18',
     })
+  })
+
+  test('falls back to the requested calendar-day-history window when metadata omits a reference date', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-19T12:00:00Z'))
+    try {
+      const { getOnThisDay } = await import('./api')
+
+      callMock.mockResolvedValueOnce({
+        data: [],
+        meta: {
+          sectionId: 'on-this-day',
+          generatedAt: '2026-04-18T12:00:00Z',
+          window: {
+            kind: 'calendar-day-history',
+            referenceDate: 123,
+            reference_date: null,
+          },
+          moduleIds: ['daily-rollups'],
+          sourceTables: ['daily_summary_rollups'],
+          includesEnrichment: false,
+          state: 'ready',
+          stateReason: null,
+          notes: [],
+        },
+      })
+
+      const result = await getOnThisDay('chrome:Default')
+
+      expect(result.meta.window).toEqual({
+        kind: 'calendar-day-history',
+        referenceDate: '2026-04-19',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('requests discovery trend with the explicit granularity and preserves available years', async () => {
@@ -233,6 +316,24 @@ describe('core intelligence api', () => {
       },
     })
     expect(result.data.availableYears).toEqual([2026, 2025, 2024])
+  })
+
+  test('requests activity mix trend with explicit granularity', async () => {
+    const { getActivityMixTrend } = await import('./api')
+
+    await getActivityMixTrend(
+      { start: '2026-04-01', end: '2026-04-30' },
+      'chrome:Default',
+      'week',
+    )
+
+    expect(callMock).toHaveBeenCalledWith('get_activity_mix_trend', {
+      request: {
+        dateRange: { start: '2026-04-01', end: '2026-04-30' },
+        profileId: 'chrome:Default',
+        granularity: 'week',
+      },
+    })
   })
 
   test('requests day insights through the dedicated day-entity command', async () => {
@@ -544,6 +645,458 @@ describe('core intelligence api', () => {
         compareSetId: 'compare:trail-1:docs_page',
         dateRange: { start: '2026-04-01', end: '2026-04-30' },
         profileId: 'chrome:Default',
+      },
+    })
+  })
+
+  test('normalizes section metadata fallbacks and filters malformed envelope fields', async () => {
+    const { normalizeSectionResult } = await import('./api/shared')
+    const fallbackWindow = {
+      kind: 'date-range' as const,
+      dateRange: { start: '2026-04-01', end: '2026-04-30' },
+    }
+
+    expect(
+      normalizeSectionResult('plain-section', fallbackWindow, {
+        value: 1,
+      }).meta,
+    ).toEqual({
+      sectionId: 'plain-section',
+      generatedAt: null,
+      window: fallbackWindow,
+      moduleIds: [],
+      sourceTables: [],
+      includesEnrichment: false,
+      state: 'degraded',
+      stateReason: null,
+      notes: [],
+    })
+
+    const normalized = normalizeSectionResult('safe-section', fallbackWindow, {
+      data: ['row'],
+      meta: {
+        sectionId: 42,
+        generatedAt: 7,
+        window: {
+          kind: 'date-range',
+          date_range: {
+            start: 1,
+          },
+        },
+        moduleIds: ['daily-rollups', 5],
+        sourceTables: ['daily_summary_rollups', null],
+        includesEnrichment: 1,
+        state: 'unknown',
+        stateReason: 123,
+        notes: ['kept', false],
+      },
+    } as unknown as CoreIntelligenceSectionResult<string[]>)
+
+    expect(normalized).toMatchObject({
+      data: ['row'],
+      meta: {
+        sectionId: 'safe-section',
+        generatedAt: null,
+        window: fallbackWindow,
+        moduleIds: ['daily-rollups'],
+        sourceTables: ['daily_summary_rollups'],
+        includesEnrichment: true,
+        state: 'degraded',
+        stateReason: null,
+        notes: ['kept'],
+      },
+    })
+
+    expect(
+      normalizeSectionResult('unknown-window', fallbackWindow, {
+        data: null,
+        meta: {
+          window: {
+            kind: 'not-supported',
+          },
+        },
+      } as unknown as CoreIntelligenceSectionResult<null>).meta.window,
+    ).toEqual(fallbackWindow)
+
+    expect(
+      normalizeSectionResult('missing-meta', fallbackWindow, {
+        data: ['row'],
+        meta: null,
+      } as unknown as CoreIntelligenceSectionResult<string[]>),
+    ).toEqual({
+      data: ['row'],
+      meta: {
+        sectionId: 'missing-meta',
+        generatedAt: null,
+        window: fallbackWindow,
+        moduleIds: [],
+        sourceTables: [],
+        includesEnrichment: false,
+        state: 'degraded',
+        stateReason: null,
+        notes: [],
+      },
+    })
+
+    expect(
+      normalizeSectionResult('non-object-window', fallbackWindow, {
+        data: [],
+        meta: {
+          window: 'last-thirty-days',
+        },
+      } as unknown as CoreIntelligenceSectionResult<unknown[]>).meta.window,
+    ).toBe(fallbackWindow)
+
+    expect(
+      normalizeSectionResult(
+        'date-range-without-fallback',
+        { kind: 'calendar-day-history', referenceDate: '2026-04-25' },
+        {
+          data: [],
+          meta: {
+            window: {
+              kind: 'date-range',
+              dateRange: {
+                start: 1,
+                end: 2,
+              },
+            },
+          },
+        } as unknown as CoreIntelligenceSectionResult<unknown[]>,
+      ).meta.window,
+    ).toEqual({
+      kind: 'date-range',
+      dateRange: { start: '', end: '' },
+    })
+
+    expect(
+      normalizeSectionResult('date-range-snake-case', fallbackWindow, {
+        data: [],
+        meta: {
+          window: {
+            kind: 'date-range',
+            date_range: {
+              start: '2026-05-01',
+              end: '2026-05-31',
+            },
+          },
+        },
+      } as unknown as CoreIntelligenceSectionResult<unknown[]>).meta.window,
+    ).toEqual({
+      kind: 'date-range',
+      dateRange: { start: '2026-05-01', end: '2026-05-31' },
+    })
+
+    expect(
+      normalizeSectionResult(
+        'date-range-malformed-snake-case',
+        fallbackWindow,
+        {
+          data: [],
+          meta: {
+            window: {
+              kind: 'date-range',
+              date_range: '2026-05',
+            },
+          },
+        } as unknown as CoreIntelligenceSectionResult<unknown[]>,
+      ).meta.window,
+    ).toEqual(fallbackWindow)
+
+    expect(
+      normalizeSectionResult('calendar-reference-date', fallbackWindow, {
+        data: [],
+        meta: {
+          window: {
+            kind: 'calendar-day-history',
+            referenceDate: '2026-04-25',
+          },
+        },
+      } as unknown as CoreIntelligenceSectionResult<unknown[]>).meta.window,
+    ).toEqual({
+      kind: 'calendar-day-history',
+      referenceDate: '2026-04-25',
+    })
+
+    expect(
+      normalizeSectionResult(
+        'calendar-reference-date-snake-case',
+        fallbackWindow,
+        {
+          data: [],
+          meta: {
+            window: {
+              kind: 'calendar-day-history',
+              reference_date: '2026-04-26',
+            },
+          },
+        } as unknown as CoreIntelligenceSectionResult<unknown[]>,
+      ).meta.window,
+    ).toEqual({
+      kind: 'calendar-day-history',
+      referenceDate: '2026-04-26',
+    })
+
+    expect(
+      normalizeSectionResult('calendar-without-fallback', fallbackWindow, {
+        data: [],
+        meta: {
+          window: {
+            kind: 'calendar-day-history',
+          },
+        },
+      } as unknown as CoreIntelligenceSectionResult<unknown[]>).meta.window,
+    ).toMatchObject({
+      kind: 'calendar-day-history',
+    })
+  })
+
+  test('reads cached profile/date-range sections after skipping non-matching overview entries', async () => {
+    const {
+      cachedPrimarySectionForProfile,
+      cachedSecondarySectionForDateRange,
+      writeOverviewCache,
+    } = await import('./api/shared')
+    const april = { start: '2026-04-01', end: '2026-04-30' }
+    const may = { start: '2026-05-01', end: '2026-05-31' }
+    const targetPrimary = { data: ['target-primary'], meta: null }
+    const targetSecondary = { data: ['target-secondary'], meta: null }
+
+    writeOverviewCache(april, 'safari:Default', () => ({
+      primary: {
+        interruptedHabits: { data: ['wrong-profile'], meta: null },
+      } as unknown as Parameters<
+        Parameters<typeof writeOverviewCache>[2]
+      >[0]['primary'],
+    }))
+    writeOverviewCache(may, 'chrome:Default', () => ({
+      secondary: {
+        multiBrowserDiff: { data: ['wrong-range'], meta: null },
+      } as unknown as Parameters<
+        Parameters<typeof writeOverviewCache>[2]
+      >[0]['secondary'],
+    }))
+    writeOverviewCache(april, 'chrome:Default', () => ({
+      primary: {
+        interruptedHabits: targetPrimary,
+      } as unknown as Parameters<
+        Parameters<typeof writeOverviewCache>[2]
+      >[0]['primary'],
+      secondary: {
+        multiBrowserDiff: targetSecondary,
+      } as unknown as Parameters<
+        Parameters<typeof writeOverviewCache>[2]
+      >[0]['secondary'],
+    }))
+
+    expect(
+      cachedPrimarySectionForProfile('chrome:Default', (overview) =>
+        (overview.interruptedHabits?.data as unknown as string[])[0] ===
+        'target-primary'
+          ? overview.interruptedHabits
+          : undefined,
+      ),
+    ).toBe(targetPrimary)
+    expect(
+      cachedSecondarySectionForDateRange(april, (overview) =>
+        (overview.multiBrowserDiff?.data as unknown as string[])[0] ===
+        'target-secondary'
+          ? overview.multiBrowserDiff
+          : undefined,
+      ),
+    ).toBe(targetSecondary)
+  })
+
+  test('normalizes secondary overview envelopes and drops malformed timing rows', async () => {
+    const { normalizeSecondaryOverview } = await import('./api/shared')
+    const dateRange = { start: '2026-04-01', end: '2026-04-30' }
+    const normalized = normalizeSecondaryOverview(dateRange, {
+      stableSources: ['stable'],
+      searchEffectiveness: [],
+      frictionSignals: [],
+      reopenedInvestigations: [],
+      discoveryTrendWeek: [],
+      breadthIndex: [],
+      pathFlows: [],
+      compareSets: [],
+      multiBrowserDiff: [],
+      observedInteractions: [],
+      timings: [
+        null,
+        { sectionId: 'missing-duration' },
+        { sectionId: 'bad-duration', durationMs: '4' },
+        { sectionId: 'stable-sources', durationMs: 4 },
+      ],
+      totalDurationMs: 'slow',
+    } as unknown as Parameters<typeof normalizeSecondaryOverview>[1])
+
+    expect(normalized.stableSources).toMatchObject({
+      data: ['stable'],
+      meta: {
+        sectionId: 'stable-sources',
+        state: 'degraded',
+        window: { kind: 'date-range', dateRange },
+      },
+    })
+    expect(normalized.timings).toEqual([
+      { sectionId: 'stable-sources', durationMs: 4 },
+    ])
+    expect(normalized.totalDurationMs).toBe(0)
+  })
+
+  test('normalizes primary overview timing and duration fallbacks', async () => {
+    const { normalizePrimaryOverview } = await import('./api/shared')
+    const dateRange = { start: '2026-04-01', end: '2026-04-30' }
+    const normalized = normalizePrimaryOverview(dateRange, {
+      digestSummary: {
+        dateRange,
+        totalVisits: { value: 1, trend: 'flat' },
+        totalSearches: { value: 0, trend: 'flat' },
+        newDomains: { value: 1, trend: 'flat' },
+        deepReadPages: { value: 0, trend: 'flat' },
+        refindPages: { value: 0, trend: 'flat' },
+      },
+      onThisDay: [],
+      topSites: [],
+      refindPages: [],
+      searchEngineRanking: [],
+      topSearchConcepts: [],
+      queryFamilies: [],
+      activityMix: [],
+      discoveryTrendDay: [],
+      habitPatterns: [],
+      interruptedHabits: [],
+      timings: { sectionId: 'not-an-array', durationMs: 1 },
+      totalDurationMs: 'slow',
+    } as unknown as Parameters<typeof normalizePrimaryOverview>[1])
+
+    expect(normalized.digestSummary).toMatchObject({
+      data: {
+        totalVisits: { value: 1, trend: 'flat' },
+      },
+      meta: {
+        sectionId: 'digest-summary',
+        state: 'degraded',
+        window: { kind: 'date-range', dateRange },
+      },
+    })
+    expect(normalized.onThisDay.meta.window).toMatchObject({
+      kind: 'calendar-day-history',
+    })
+    expect(normalized.timings).toEqual([])
+    expect(normalized.totalDurationMs).toBe(0)
+  })
+
+  test('requests entity drilldowns through stable command envelopes', async () => {
+    const {
+      explainEntity,
+      explainRefind,
+      getDomainDeepDive,
+      getDomainTrend,
+      getHubPages,
+      getNavigationPath,
+      getSearchTrails,
+      getSessionDetail,
+      getSessions,
+      getTrailDetail,
+    } = await import('./api/entities')
+    const dateRange = { start: '2026-04-01', end: '2026-04-30' }
+
+    await getDomainTrend('example.com', dateRange)
+    await explainRefind('https://example.com/docs')
+    await getSessions(dateRange, 'chrome:Default', { page: 2, pageSize: 30 })
+    await getSessionDetail('session-1')
+    await getSearchTrails(dateRange, 'chrome:Default', 'google', {
+      page: 1,
+      pageSize: 15,
+    })
+    await getTrailDetail('trail-1')
+    await getNavigationPath(42)
+    await getHubPages(dateRange, 'chrome:Default', 8)
+    await getDomainDeepDive('example.com', dateRange, 'chrome:Default')
+    await explainEntity('domain', 'example.com')
+
+    expect(callMock).toHaveBeenNthCalledWith(1, 'get_domain_trend', {
+      request: {
+        registrableDomain: 'example.com',
+        dateRange,
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(2, 'explain_refind', {
+      request: {
+        canonicalUrl: 'https://example.com/docs',
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(3, 'get_sessions', {
+      request: {
+        dateRange,
+        profileId: 'chrome:Default',
+        page: 2,
+        pageSize: 30,
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(4, 'get_session_detail', {
+      sessionId: 'session-1',
+    })
+    expect(callMock).toHaveBeenNthCalledWith(5, 'get_search_trails', {
+      request: {
+        dateRange,
+        profileId: 'chrome:Default',
+        engine: 'google',
+        page: 1,
+        pageSize: 15,
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(6, 'get_trail_detail', {
+      trailId: 'trail-1',
+    })
+    expect(callMock).toHaveBeenNthCalledWith(7, 'get_navigation_path', {
+      visitId: 42,
+    })
+    expect(callMock).toHaveBeenNthCalledWith(8, 'get_hub_pages', {
+      request: {
+        dateRange,
+        profileId: 'chrome:Default',
+        limit: 8,
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(9, 'get_domain_deep_dive', {
+      request: {
+        registrableDomain: 'example.com',
+        dateRange,
+        profileId: 'chrome:Default',
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(10, 'explain_entity', {
+      request: {
+        entityType: 'domain',
+        entityId: 'example.com',
+      },
+    })
+  })
+
+  test('uses default entity-list pagination when callers omit it', async () => {
+    const { getSearchTrails, getSessions } = await import('./api/entities')
+    const dateRange = { start: '2026-04-01', end: '2026-04-30' }
+
+    await getSessions(dateRange)
+    await getSearchTrails(dateRange)
+
+    expect(callMock).toHaveBeenNthCalledWith(1, 'get_sessions', {
+      request: {
+        dateRange,
+        profileId: undefined,
+        page: 0,
+        pageSize: 20,
+      },
+    })
+    expect(callMock).toHaveBeenNthCalledWith(2, 'get_search_trails', {
+      request: {
+        dateRange,
+        profileId: undefined,
+        engine: undefined,
+        page: 0,
+        pageSize: 20,
       },
     })
   })

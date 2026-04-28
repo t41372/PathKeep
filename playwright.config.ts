@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const macosSandboxLaunchArgs =
+  process.platform === 'darwin' ? ['--single-process'] : []
+
 export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: 'desktop-bridge.spec.ts',
@@ -22,7 +25,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: macosSandboxLaunchArgs,
+        },
+      },
     },
   ],
 })

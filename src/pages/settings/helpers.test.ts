@@ -27,6 +27,7 @@ import {
   cloneAiSettings,
   localizeAiIntegrationPreview,
   localizeIntelligenceLocalHostPreview,
+  makeDefaultAiProviderDraft,
   mergeAiProviderSecretState,
   patchAiProviderDraft,
   removeAiProviderDraft,
@@ -280,12 +281,114 @@ describe('settings helpers', () => {
     const withRemoved = removeAiProviderDraft(withSelected, 'llm', 'llm-2')
     expect(withRemoved.llmProviders).toHaveLength(1)
     expect(withRemoved.llmProviderId).toBeNull()
+    expect(
+      removeAiProviderDraft(withSelected, 'llm', 'llm-1').llmProviderId,
+    ).toBe('llm-2')
+
+    const embeddingProvider = makeDefaultAiProviderDraft(
+      'embedding',
+      'lm-studio',
+    )
+    const withEmbeddingAdded = appendAiProviderDraft(
+      aiSettingsFixture,
+      'embedding',
+      embeddingProvider,
+    )
+    expect(withEmbeddingAdded.embeddingProviders).toHaveLength(2)
+    expect(embeddingProvider.defaultModel).toBe('local-embed')
+    expect(embeddingProvider.temperature).toBeNull()
+    expect(embeddingProvider.dimensions).toBe(1536)
+
+    const withEmbeddingPatched = patchAiProviderDraft(
+      withEmbeddingAdded,
+      'embedding',
+      embeddingProvider.id,
+      {
+        defaultModel: 'patched-embed',
+      },
+    )
+    expect(withEmbeddingPatched.embeddingProviders[1].defaultModel).toBe(
+      'patched-embed',
+    )
+
+    const withEmbeddingSelected = selectAiProviderDraft(
+      withEmbeddingPatched,
+      'embedding',
+      embeddingProvider.id,
+    )
+    expect(withEmbeddingSelected.embeddingProviderId).toBe(embeddingProvider.id)
+
+    const withEmbeddingRemoved = removeAiProviderDraft(
+      withEmbeddingSelected,
+      'embedding',
+      embeddingProvider.id,
+    )
+    expect(withEmbeddingRemoved.embeddingProviders).toHaveLength(1)
+    expect(withEmbeddingRemoved.embeddingProviderId).toBeNull()
+    expect(
+      removeAiProviderDraft(withEmbeddingSelected, 'embedding', 'embed-1')
+        .embeddingProviderId,
+    ).toBe(embeddingProvider.id)
+  })
+
+  it('seeds AI provider drafts from every supported request format', () => {
+    expect(makeDefaultAiProviderDraft('llm', 'ollama')).toMatchObject({
+      baseUrl: 'http://localhost:11434',
+      defaultModel: 'llama3.2:8b',
+      maxTokens: 1200,
+      temperature: 0.7,
+    })
+    expect(makeDefaultAiProviderDraft('llm', 'openai')).toMatchObject({
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-4o',
+    })
+    expect(makeDefaultAiProviderDraft('llm', 'anthropic')).toMatchObject({
+      baseUrl: 'https://api.anthropic.com',
+      defaultModel: 'claude-sonnet-4-6',
+    })
+    expect(makeDefaultAiProviderDraft('embedding', 'google')).toMatchObject({
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      defaultModel: 'text-embedding-004',
+    })
   })
 
   it('localizes AI integration preview review copy through settings-owned strings', () => {
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')
     const localized = localizeAiIntegrationPreview(
-      aiIntegrationPreviewFixture,
+      {
+        ...aiIntegrationPreviewFixture,
+        manualSteps: [
+          ...aiIntegrationPreviewFixture.manualSteps,
+          'Copy the generated MCP JSON into your local MCP client configuration and restart that client.',
+          'Copy the generated skill markdown into your local skills directory if you want a reusable history-research workflow.',
+        ],
+        capabilityNotes: [
+          ...aiIntegrationPreviewFixture.capabilityNotes,
+          'MCP server toggle is currently enabled in saved Settings.',
+          'Skill integration toggle is currently enabled in saved Settings.',
+          'Semantic retrieval can use the configured embedding provider when the semantic index is built.',
+        ],
+        scopeBoundary: [
+          ...aiIntegrationPreviewFixture.scopeBoundary,
+          'If App Lock re-locks the session, MCP search returns a locked refusal instead of reading the archive behind the UI.',
+          'The MCP surface is localhost-only and never publishes the archive to a remote PathKeep service.',
+          'Unmapped scope note.',
+        ],
+        auditTrace: [
+          ...aiIntegrationPreviewFixture.auditTrace,
+          'Assistant answers keep their provider snapshot, retrieval provider, and citations inside `ai_assistant_runs`.',
+        ],
+        generatedFiles: [
+          ...aiIntegrationPreviewFixture.generatedFiles,
+          {
+            relativePath: 'skills/pathkeep.md',
+            absolutePath: '/tmp/pathkeep/skills/pathkeep.md',
+            purpose:
+              'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
+            contents: '# PathKeep',
+          },
+        ],
+      },
       settingsT,
     )
 
@@ -301,6 +404,34 @@ describe('settings helpers', () => {
     expect(localized.generatedFiles[0].purpose).toBe(
       settingsT('aiIntegrationGeneratedFileMcpPurpose'),
     )
+    expect(localized.generatedFiles[1].purpose).toBe(
+      settingsT('aiIntegrationGeneratedFileSkillPurpose'),
+    )
+    expect(localized.manualSteps).toContain(
+      settingsT('aiIntegrationManualCopyJson'),
+    )
+    expect(localized.manualSteps).toContain(
+      settingsT('aiIntegrationManualCopySkill'),
+    )
+    expect(localized.capabilityNotes).toContain(
+      settingsT('aiIntegrationCapabilityMcpEnabled'),
+    )
+    expect(localized.capabilityNotes).toContain(
+      settingsT('aiIntegrationCapabilitySkillEnabled'),
+    )
+    expect(localized.capabilityNotes).toContain(
+      settingsT('aiIntegrationCapabilityEmbeddingEnabled'),
+    )
+    expect(localized.scopeBoundary).toContain(
+      settingsT('aiIntegrationScopeLock'),
+    )
+    expect(localized.scopeBoundary).toContain(
+      settingsT('aiIntegrationScopeLocalhost'),
+    )
+    expect(localized.scopeBoundary).toContain('Unmapped scope note.')
+    expect(localized.auditTrace).toContain(
+      settingsT('aiIntegrationAuditAssistant'),
+    )
     expect(localized.warnings).toContain(
       settingsT('aiIntegrationWarningDisabled'),
     )
@@ -309,7 +440,29 @@ describe('settings helpers', () => {
   it('localizes trusted local-host preview fallback strings before settings renders them', () => {
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')
     const localized = localizeIntelligenceLocalHostPreview(
-      localHostPreviewFixture,
+      {
+        ...localHostPreviewFixture,
+        boundaryNotes: [
+          ...localHostPreviewFixture.boundaryNotes,
+          'Public snapshots intentionally omit visit-level identifiers and direct page URLs.',
+          'Unmapped local-host note.',
+        ],
+        manualSteps: [
+          ...localHostPreviewFixture.manualSteps,
+          'Rebuild this local snippet whenever scope, window, or locale changes.',
+        ],
+        generatedFiles: [
+          ...localHostPreviewFixture.generatedFiles,
+          {
+            relativePath:
+              'integrations/core-intelligence/browser-snippet-v1/bundle.json',
+            absolutePath: '/tmp/pathkeep/browser-snippet-v1/bundle.json',
+            purpose:
+              'Machine-readable JSON bundle for the same local host artifact.',
+            contents: '{}',
+          },
+        ],
+      },
       settingsT,
     )
 
@@ -319,8 +472,21 @@ describe('settings helpers', () => {
     expect(localized.manualSteps).toContain(
       settingsT('externalOutputsLocalHostManualReview'),
     )
+    expect(localized.manualSteps).toContain(
+      settingsT('externalOutputsLocalHostManualOpen'),
+    )
+    expect(localized.manualSteps).toContain(
+      settingsT('externalOutputsLocalHostManualRebuild'),
+    )
+    expect(localized.boundaryNotes).toContain(
+      settingsT('externalOutputsLocalHostBoundaryPublic'),
+    )
+    expect(localized.boundaryNotes).toContain('Unmapped local-host note.')
     expect(localized.generatedFiles[0].purpose).toBe(
       settingsT('externalOutputsLocalHostPurposeEntry'),
+    )
+    expect(localized.generatedFiles[1].purpose).toBe(
+      settingsT('externalOutputsLocalHostPurposeBundle'),
     )
     expect(localized.warnings).toContain(
       settingsT('externalOutputsLocalHostWarningTrusted'),

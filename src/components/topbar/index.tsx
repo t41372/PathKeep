@@ -24,6 +24,7 @@ import { isArchiveUnlockRequiredMessage } from '../../lib/archive-access'
 import { useI18n } from '../../lib/i18n'
 import { ProfileSwitcher } from '../profile-switcher'
 import { useShellData } from '../../app/shell-data-context'
+import { readRouteHistoryIndex } from './history'
 
 /**
  * Describes the props accepted by `Topbar`.
@@ -32,15 +33,6 @@ import { useShellData } from '../../app/shell-data-context'
  */
 interface TopbarProps {
   screen: AppScreen
-}
-
-function readRouteHistoryIndex() {
-  if (typeof window === 'undefined') {
-    return 0
-  }
-
-  const historyState = window.history.state as { idx?: unknown } | null
-  return typeof historyState?.idx === 'number' ? historyState.idx : 0
 }
 
 /**
@@ -96,7 +88,6 @@ export function Topbar({ screen }: TopbarProps) {
             disabled={!canGoBack}
             type="button"
             onClick={() => {
-              if (!canGoBack) return
               setForwardAvailable(true)
               void navigate(-1)
             }}
@@ -109,7 +100,6 @@ export function Topbar({ screen }: TopbarProps) {
             disabled={!canGoForward}
             type="button"
             onClick={() => {
-              if (!canGoForward) return
               setForwardAvailable(false)
               void navigate(1)
             }}

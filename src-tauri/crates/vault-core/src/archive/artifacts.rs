@@ -463,3 +463,94 @@ fn open_readonly_source(path: &Path) -> Result<Connection> {
     )
     .with_context(|| format!("opening source {}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn checkpoint_profile_reconstruction_covers_missing_source_rows_and_artifact_edges() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        create_schema(&connection).expect("archive schema");
+        let root = tempdir().expect("tempdir");
+        let checkpoint = root.path().join("checkpoint");
+        fs::create_dir_all(checkpoint.join("nested")).expect("checkpoint dirs");
+        fs::write(checkpoint.join("History"), "history").expect("history");
+        fs::write(checkpoint.join("Favicons"), "favicons").expect("favicons");
+        fs::write(checkpoint.join("nested").join("child.txt"), "child").expect("child");
+
+        let profile = load_snapshot_browser_profile(
+            &connection,
+            "firefox:default",
+            &checkpoint.join("History"),
+            true,
+        )
+        .expect("fallback profile");
+        assert_eq!(profile.browser_family, "firefox");
+        assert_eq!(profile.browser_name, "Firefox");
+        assert_eq!(profile.history_file_name, "places.sqlite");
+        assert!(profile.favicons_path.expect("favicons path").ends_with("Favicons"));
+
+        let fingerprints = snapshot_file_fingerprints(
+            &checkpoint.join("History"),
+            Some(&checkpoint.join("Favicons")),
+        )
+        .expect("fingerprints");
+        assert_eq!(fingerprints.len(), 2);
+
+        let (missing_size, missing_checksum) =
+            snapshot_artifact_bytes_and_checksum(&checkpoint.join("missing")).expect("missing");
+        assert_eq!((missing_size, missing_checksum), (0, None));
+        let (file_size_bytes, file_checksum) =
+            snapshot_artifact_bytes_and_checksum(&checkpoint.join("History")).expect("file hash");
+        assert_eq!(file_size_bytes, 7);
+        assert!(file_checksum.is_some());
+        let (dir_size_bytes, dir_checksum) =
+            snapshot_artifact_bytes_and_checksum(&checkpoint).expect("dir hash");
+        assert!(dir_size_bytes >= file_size_bytes);
+        assert!(dir_checksum.is_some());
+        assert!(
+            collect_path_file_hashes(&checkpoint, &checkpoint.join("History"))
+                .expect("file as dir")
+                .is_empty()
+        );
+        assert_eq!(snapshot_path_parent_display(Path::new("History")), "");
+
+        let broken_snapshot = SnapshotRecord {
+            run_id: 1,
+            profile_scope: vec!["chrome:Default".to_string()],
+            file_path: checkpoint.display().to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            reason: Some("test".to_string()),
+        };
+        let missing_history = root.path().join("missing-history-checkpoint");
+        fs::create_dir_all(&missing_history).expect("missing history dir");
+        let error =
+            load_checkpoint_profile_snapshot(&connection, &missing_history, &broken_snapshot)
+                .expect_err("missing history should fail");
+        assert!(format!("{error:#}").contains("saved browser source checkpoint"));
+    }
+
+    #[test]
+    fn checkpoint_browser_name_helpers_cover_supported_kinds() {
+        for (kind, family, name, filename) in [
+            ("atlas", "chromium", "ChatGPT Atlas", "History"),
+            ("comet", "chromium", "Perplexity Comet", "History"),
+            ("edge", "chromium", "Microsoft Edge", "History"),
+            ("brave", "chromium", "Brave", "History"),
+            ("vivaldi", "chromium", "Vivaldi", "History"),
+            ("arc", "chromium", "Arc", "History"),
+            ("firefox", "firefox", "Firefox", "places.sqlite"),
+            ("librewolf", "firefox", "LibreWolf", "places.sqlite"),
+            ("floorp", "firefox", "Floorp", "places.sqlite"),
+            ("waterfox", "firefox", "Waterfox", "places.sqlite"),
+            ("safari", "safari", "Safari", "History.db"),
+            ("chrome", "chromium", "Google Chrome", "History"),
+        ] {
+            assert_eq!(browser_family_for_profile(kind), family);
+            assert_eq!(browser_name_for_profile(kind), name);
+            assert_eq!(history_file_name_for_profile(kind), filename);
+        }
+    }
+}

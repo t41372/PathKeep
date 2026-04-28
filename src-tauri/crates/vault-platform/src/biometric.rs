@@ -17,6 +17,7 @@ pub fn authenticate_app_lock_biometric() -> Result<(), String> {
 }
 
 /// Translates platform Touch ID errors into user-facing App Lock messages.
+#[cfg_attr(coverage, allow(dead_code))]
 fn map_touch_id_error(code: Option<isize>, description: Option<String>) -> String {
     match code {
         Some(-1) => "Touch ID could not verify your identity. Try again or use the app lock passcode."
@@ -47,7 +48,7 @@ fn map_touch_id_error(code: Option<isize>, description: Option<String>) -> Strin
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(coverage)))]
 mod platform {
     use super::map_touch_id_error;
     use block2::RcBlock;
@@ -116,11 +117,12 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(coverage, not(target_os = "macos")))]
 mod platform {
     use vault_core::AppLockBiometricState;
 
-    /// Reports that biometric unlock is unsupported on this build target.
+    /// Reports that biometric unlock is unsupported on this build target or in
+    /// deterministic coverage runs.
     pub fn app_lock_biometric_state() -> AppLockBiometricState {
         AppLockBiometricState::Unsupported
     }
@@ -134,12 +136,35 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::map_touch_id_error;
+    #[cfg(coverage)]
+    use super::{app_lock_biometric_state, authenticate_app_lock_biometric};
+    #[cfg(coverage)]
+    use vault_core::AppLockBiometricState;
 
     #[test]
     fn maps_touch_id_errors_to_truthful_messages() {
+        for code in [-1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -12, -13] {
+            assert!(
+                !map_touch_id_error(Some(code), None).is_empty(),
+                "code {code} should map to copy"
+            );
+        }
         assert!(map_touch_id_error(Some(-2), None).contains("canceled"));
         assert!(map_touch_id_error(Some(-7), None).contains("no fingerprints"));
         assert!(map_touch_id_error(Some(-8), None).contains("locked out"));
         assert_eq!(map_touch_id_error(None, Some("Custom failure".to_string())), "Custom failure");
+        assert_eq!(
+            map_touch_id_error(Some(999), None),
+            "Touch ID unlock failed. Use the app lock passcode instead."
+        );
+    }
+
+    #[cfg(coverage)]
+    #[test]
+    fn coverage_biometric_adapter_uses_non_prompting_contract() {
+        assert_eq!(app_lock_biometric_state(), AppLockBiometricState::Unsupported);
+        let error =
+            authenticate_app_lock_biometric().expect_err("coverage adapter should not prompt");
+        assert!(error.contains("not available"));
     }
 }

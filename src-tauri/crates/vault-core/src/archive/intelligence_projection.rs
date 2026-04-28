@@ -197,4 +197,41 @@ mod tests {
         assert_eq!(visible_visits, 1);
         assert_eq!(term_count, 1);
     }
+
+    #[test]
+    fn intelligence_connection_call_monitor_tracks_current_thread_sites() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        reset_open_intelligence_connection_call_count();
+
+        let _ = open_intelligence_connection(&paths, &config, None).expect("intelligence");
+
+        assert_eq!(open_intelligence_connection_call_count(), 1);
+        let call_sites = open_intelligence_connection_call_sites();
+        assert_eq!(call_sites.len(), 1);
+        assert!(
+            call_sites[0].contains("intelligence_projection.rs"),
+            "unexpected call sites: {call_sites:?}"
+        );
+    }
+
+    #[test]
+    fn intelligence_connection_requires_key_for_encrypted_archive_attach() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Encrypted,
+            ..AppConfig::default()
+        };
+
+        let error = open_intelligence_connection(&paths, &config, None)
+            .expect_err("encrypted intelligence attach requires a key");
+        assert!(format!("{error:#}").contains("database key is required"));
+    }
 }

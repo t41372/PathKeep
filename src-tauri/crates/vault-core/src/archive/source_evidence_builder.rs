@@ -222,3 +222,78 @@ fn spool_file_prefix(label: &str) -> String {
     }
     format!("pathkeep-{prefix}-")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use browser_history_parser::NativeEntity;
+    use std::collections::BTreeMap;
+
+    fn native_payload(label: &str, payload_bytes: usize) -> SourceEvidencePayload {
+        SourceEvidencePayload {
+            typed_evidence: Default::default(),
+            native_entities: vec![NativeEntity {
+                entity_kind: "history".to_string(),
+                native_primary_key: label.to_string(),
+                parent_native_primary_key: None,
+                payload_json: "x".repeat(payload_bytes),
+                metadata: BTreeMap::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn deferred_builder_skips_empty_payloads_and_spools_large_chunks() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let mut builder = DeferredSourceEvidenceBuilder::new(&paths, "Chrome Default");
+
+        builder.push(SourceEvidencePayload::default()).expect("empty payload");
+        assert_eq!(builder.counts(), SourceEvidenceCounts::default());
+
+        builder.push(native_payload("small", 64)).expect("small payload");
+        assert_eq!(builder.counts().native_entities, 1);
+
+        builder
+            .push(native_payload("large", SOURCE_EVIDENCE_SPOOL_THRESHOLD_BYTES + 1))
+            .expect("large payload");
+        builder.push(native_payload("next", 64)).expect("append spooled payload");
+        assert_eq!(builder.counts().native_entities, 3);
+
+        match builder.finish().expect("finish builder") {
+            DeferredSourceEvidencePayload::ChunkFile(path) => {
+                let content = fs::read_to_string(&path).expect("chunk file");
+                assert_eq!(content.lines().count(), 3);
+            }
+            DeferredSourceEvidencePayload::InMemory(_)
+            | DeferredSourceEvidencePayload::SpoolFile(_) => {
+                panic!("large payload should finish as a chunk file")
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_builder_flushes_pending_payload_when_spool_is_already_allocated() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let mut builder = DeferredSourceEvidenceBuilder::new(&paths, "manual invariant");
+        builder.spool_file = Some(allocate_spool_file(&paths, "manual invariant").expect("spool"));
+        builder.pending_payload = native_payload("pending", 64);
+
+        match builder.finish().expect("finish builder") {
+            DeferredSourceEvidencePayload::ChunkFile(path) => {
+                let content = fs::read_to_string(&path).expect("chunk file");
+                assert_eq!(content.lines().count(), 1);
+            }
+            DeferredSourceEvidencePayload::InMemory(_)
+            | DeferredSourceEvidencePayload::SpoolFile(_) => {
+                panic!("allocated spool should finish as a chunk file")
+            }
+        }
+    }
+
+    #[test]
+    fn spool_file_prefix_falls_back_for_symbol_only_labels() {
+        assert_eq!(spool_file_prefix("###"), "pathkeep-source-evidence-");
+    }
+}

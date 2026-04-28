@@ -36,16 +36,17 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::{
-    CapabilitySnapshot, NativeEntity, ParsedHistory, SchemaObservation, TypedEvidenceBatch,
+    CapabilitySnapshot, NativeEntity, SchemaObservation, TypedEvidenceBatch,
 };
 use rusqlite::{Connection, Transaction, params};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{BufRead, BufReader},
+    path::Path,
     time::Duration as StdDuration,
 };
-use tempfile::{Builder as TempFileBuilder, TempPath};
+use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempPath};
 
 const SOURCE_EVIDENCE_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS source_batches (
@@ -258,16 +259,18 @@ pub(crate) fn defer_source_evidence_payload(
 
     let spool_dir = paths.staging_dir.join("source-evidence-spool");
     fs::create_dir_all(&spool_dir).with_context(|| format!("creating {}", spool_dir.display()))?;
-    let mut file = TempFileBuilder::new()
-        .prefix(&spool_file_prefix(label))
-        .suffix(".json")
-        .tempfile_in(&spool_dir)
-        .with_context(|| {
-            format!("allocating deferred source-evidence in {}", spool_dir.display())
-        })?;
+    let mut file = allocate_deferred_source_evidence_file(&spool_dir, label)?;
     serde_json::to_writer(file.as_file_mut(), &payload)
         .context("serializing deferred source-evidence payload")?;
     Ok(DeferredSourceEvidencePayload::SpoolFile(file.into_temp_path()))
+}
+
+fn allocate_deferred_source_evidence_file(spool_dir: &Path, label: &str) -> Result<NamedTempFile> {
+    TempFileBuilder::new()
+        .prefix(&spool_file_prefix(label))
+        .suffix(".json")
+        .tempfile_in(spool_dir)
+        .with_context(|| format!("allocating deferred source-evidence in {}", spool_dir.display()))
 }
 
 pub fn open_source_evidence_connection(
@@ -335,19 +338,6 @@ pub(crate) fn record_schema_observation(
         ],
     )?;
     Ok(())
-}
-
-/// Moves cold-evidence vectors out of a parsed history value once row ingest is finished.
-///
-/// Canonical ingest needs the full parser output while it is writing hot
-/// archive rows, but source-evidence persistence only needs typed evidence and
-/// native entities. Callers use this helper to drop now-unneeded URL/visit/
-/// download/search-term/favicon vectors before the post-commit evidence write.
-pub(crate) fn take_source_evidence_payload(parsed: &mut ParsedHistory) -> SourceEvidencePayload {
-    SourceEvidencePayload {
-        typed_evidence: std::mem::take(&mut parsed.typed_evidence),
-        native_entities: std::mem::take(&mut parsed.native_entities),
-    }
 }
 
 /// Persists typed evidence and native entities for one already-committed source batch.
@@ -555,4 +545,179 @@ fn spool_file_prefix(label: &str) -> String {
         prefix = "source-evidence".to_string();
     }
     format!("pathkeep-{prefix}-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use browser_history_parser::{
+        ContextEvidence, EngagementEvidence, NavigationEvidence, SearchEvidence, TypedEvidenceBatch,
+    };
+    use std::collections::BTreeMap;
+    use tempfile::{NamedTempFile, tempdir};
+
+    fn payload_with_all_evidence_families(label: &str) -> SourceEvidencePayload {
+        let mut metadata = BTreeMap::new();
+        metadata.insert("source".to_string(), label.to_string());
+        SourceEvidencePayload {
+            typed_evidence: TypedEvidenceBatch {
+                search: vec![SearchEvidence {
+                    source_visit_id: Some(1),
+                    source_url_id: Some(10),
+                    evidence_key: "query".to_string(),
+                    evidence_value: format!("{label} search"),
+                    normalized_value: Some(label.to_string()),
+                    source_field: "keyword_search_terms.term".to_string(),
+                }],
+                navigation: vec![NavigationEvidence {
+                    source_visit_id: 1,
+                    edge_kind: "referrer".to_string(),
+                    target_visit_id: Some(2),
+                    target_url: Some(format!("https://{label}.example/next")),
+                    transition: Some(805306368),
+                    source_field: "visits.from_visit".to_string(),
+                }],
+                engagement: vec![EngagementEvidence {
+                    source_visit_id: 1,
+                    metric_key: "duration_ms".to_string(),
+                    metric_value_int: Some(42),
+                    metric_value_real: Some(42.5),
+                    source_field: "visits.visit_duration".to_string(),
+                }],
+                context: vec![ContextEvidence {
+                    source_visit_id: Some(1),
+                    source_url_id: Some(10),
+                    context_key: "page_title".to_string(),
+                    value_json: serde_json::json!({ "title": label }).to_string(),
+                    source_field: "urls.title".to_string(),
+                }],
+            },
+            native_entities: vec![NativeEntity {
+                entity_kind: "history-row".to_string(),
+                native_primary_key: label.to_string(),
+                parent_native_primary_key: Some("parent".to_string()),
+                payload_json: serde_json::json!({ "id": label }).to_string(),
+                metadata,
+            }],
+        }
+    }
+
+    #[test]
+    fn deferred_payloads_persist_in_memory_spool_and_chunk_variants() {
+        let root = tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let config = AppConfig::default();
+        let mut connection =
+            open_source_evidence_connection(&paths, &config, None).expect("open evidence");
+
+        let spool_file = NamedTempFile::new_in(root.path()).expect("spool tempfile");
+        serde_json::to_writer(spool_file.as_file(), &payload_with_all_evidence_families("spool"))
+            .expect("write spool payload");
+        let chunk_file = NamedTempFile::new_in(root.path()).expect("chunk tempfile");
+        fs::write(
+            chunk_file.path(),
+            format!(
+                "\n{}\n",
+                serde_json::to_string(&payload_with_all_evidence_families("chunk"))
+                    .expect("serialize chunk payload")
+            ),
+        )
+        .expect("write chunk payload");
+
+        let deferred = [
+            DeferredSourceEvidencePayload::InMemory(payload_with_all_evidence_families("memory")),
+            DeferredSourceEvidencePayload::SpoolFile(spool_file.into_temp_path()),
+            DeferredSourceEvidencePayload::ChunkFile(chunk_file.into_temp_path()),
+        ];
+
+        let transaction = connection.transaction().expect("transaction");
+        for (index, payload) in deferred.iter().enumerate() {
+            payload
+                .persist(&transaction, 100 + index as i64, 200 + index as i64)
+                .expect("persist deferred payload");
+        }
+        transaction.commit().expect("commit");
+
+        for table in [
+            "visit_search_evidence",
+            "visit_navigation_evidence",
+            "visit_engagement_evidence",
+            "visit_context_evidence",
+            "native_entities",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                .expect("count evidence rows");
+            assert_eq!(count, 3, "{table}");
+        }
+    }
+
+    #[test]
+    fn source_evidence_sizing_and_spool_prefix_cover_optional_edges() {
+        let payload = payload_with_all_evidence_families("sizing");
+        assert!(approx_source_evidence_payload_bytes(&payload) > 0);
+        assert_eq!(option_i64_len(None), 0);
+        assert_eq!(option_f64_len(None), 0);
+        assert_eq!(option_str_len(None), 0);
+        assert_eq!(spool_file_prefix("!!!"), "pathkeep-source-evidence-");
+        assert_eq!(spool_file_prefix("Browser History Export"), "pathkeep-browser-history-export-");
+    }
+
+    #[test]
+    fn deferred_source_evidence_allocation_errors_name_the_spool_directory() {
+        let root = tempdir().expect("tempdir");
+        let missing_spool_dir = root.path().join("missing").join("source-evidence-spool");
+
+        let error = allocate_deferred_source_evidence_file(&missing_spool_dir, "fixture")
+            .expect_err("missing spool parent cannot allocate tempfile");
+
+        assert!(format!("{error:#}").contains("allocating deferred source-evidence"));
+    }
+
+    #[test]
+    fn deferred_payload_error_contexts_name_spool_and_chunk_paths() {
+        let root = tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let config = AppConfig::default();
+        let mut connection =
+            open_source_evidence_connection(&paths, &config, None).expect("open evidence");
+        let transaction = connection.transaction().expect("transaction");
+
+        let missing_spool = NamedTempFile::new_in(root.path()).expect("missing spool");
+        let missing_spool_path = missing_spool.into_temp_path();
+        fs::remove_file(&missing_spool_path).expect("remove spool");
+        let error = DeferredSourceEvidencePayload::SpoolFile(missing_spool_path)
+            .persist(&transaction, 1, 1)
+            .expect_err("missing spool");
+        assert!(format!("{error:#}").contains("opening deferred source-evidence"));
+
+        let bad_spool = NamedTempFile::new_in(root.path()).expect("bad spool");
+        fs::write(bad_spool.path(), b"{").expect("write bad spool");
+        let error = DeferredSourceEvidencePayload::SpoolFile(bad_spool.into_temp_path())
+            .persist(&transaction, 1, 1)
+            .expect_err("bad spool");
+        assert!(format!("{error:#}").contains("reading deferred source-evidence"));
+
+        let missing_chunk = NamedTempFile::new_in(root.path()).expect("missing chunk");
+        let missing_chunk_path = missing_chunk.into_temp_path();
+        fs::remove_file(&missing_chunk_path).expect("remove chunk");
+        let error = DeferredSourceEvidencePayload::ChunkFile(missing_chunk_path)
+            .persist(&transaction, 1, 1)
+            .expect_err("missing chunk");
+        assert!(format!("{error:#}").contains("opening deferred source-evidence chunk file"));
+
+        let bad_chunk = NamedTempFile::new_in(root.path()).expect("bad chunk");
+        fs::write(bad_chunk.path(), [0xff]).expect("write bad chunk");
+        let error = DeferredSourceEvidencePayload::ChunkFile(bad_chunk.into_temp_path())
+            .persist(&transaction, 1, 1)
+            .expect_err("bad chunk");
+        assert!(format!("{error:#}").contains("reading deferred source-evidence chunk"));
+
+        let bad_json_chunk = NamedTempFile::new_in(root.path()).expect("bad json chunk");
+        fs::write(bad_json_chunk.path(), "{\n").expect("write bad json chunk");
+        let error = DeferredSourceEvidencePayload::ChunkFile(bad_json_chunk.into_temp_path())
+            .persist(&transaction, 1, 1)
+            .expect_err("bad json chunk");
+        assert!(format!("{error:#}").contains("deserializing deferred source-evidence chunk"));
+    }
 }

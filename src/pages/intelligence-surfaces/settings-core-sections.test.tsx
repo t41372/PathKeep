@@ -66,6 +66,31 @@ describe('intelligence surfaces settings core sections', () => {
     ).toHaveAttribute('href', '/security')
   })
 
+  test('shows the generic unavailable state when settings support probes fail without an unlock signal', async () => {
+    const { snapshot } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    vi.spyOn(backend, 'scheduleStatus').mockRejectedValue(
+      new Error('schedule unavailable'),
+    )
+    vi.spyOn(backend, 'securityStatus').mockRejectedValue(
+      new Error('security unavailable'),
+    )
+
+    renderSurface(<SettingsPage />, {
+      snapshot,
+      shellValue: {
+        ...createShellValue(snapshot),
+        snapshot: null,
+      },
+    })
+
+    expect(
+      await screen.findByRole('heading', {
+        name: settingsT('unavailableTitle'),
+      }),
+    ).toBeVisible()
+  })
+
   test('localizes settings group dividers in zh-TW', async () => {
     const { snapshot, dashboard } = await seedArchiveState()
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')

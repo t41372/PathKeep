@@ -152,15 +152,13 @@ export function SchedulePage() {
    * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function handleApply() {
-    if (!plan) return
-
     setBusy(t('schedule.applySchedule'))
     setActionError(null)
     setExecutionResult(null)
 
     try {
       await waitForNextPaint()
-      const result = await backend.applySchedule(plan)
+      const result = await backend.applySchedule(plan!)
       setExecutionResult({ mode: 'apply', result })
       await refreshAppData()
     } catch (nextError) {
@@ -180,15 +178,13 @@ export function SchedulePage() {
    * Keeping this as a named declaration makes the Schedule surface easier to review and test than burying the behavior inside another anonymous callback.
    */
   async function handleRemove() {
-    if (!plan) return
-
     setBusy(t('schedule.removeSchedule'))
     setActionError(null)
     setExecutionResult(null)
 
     try {
       await waitForNextPaint()
-      const result = await backend.removeSchedule(plan)
+      const result = await backend.removeSchedule(plan!)
       setExecutionResult({ mode: 'remove', result })
       await refreshAppData()
     } catch (nextError) {

@@ -59,6 +59,10 @@ interface BridgeCoreIntelligenceRebuildReport {
   notes: string[]
 }
 
+interface BridgeSectionResult<T> {
+  data: T
+}
+
 interface BridgeDigestSummary {
   totalVisits: {
     value: number
@@ -116,7 +120,7 @@ async function invokeDesktopBridge<T>(
   return (await response.json()) as T
 }
 
-test.describe.configure({ mode: 'serial' })
+test.describe.configure({ mode: 'parallel' })
 
 const bridgeReadyTimeoutMs = 300_000
 
@@ -377,19 +381,16 @@ test('runs a live backup and core intelligence flow through the desktop command 
     ),
   ).toBe(true)
 
-  const digest = await invokeDesktopBridge<BridgeDigestSummary>(
-    request,
-    devIpcUrl,
-    'get_digest_summary',
-    {
-      request: {
-        dateRange,
-        profileId: 'chrome:Default',
-      },
+  const digest = await invokeDesktopBridge<
+    BridgeSectionResult<BridgeDigestSummary>
+  >(request, devIpcUrl, 'get_digest_summary', {
+    request: {
+      dateRange,
+      profileId: 'chrome:Default',
     },
-  )
-  expect(digest.totalVisits.value).toBe(backup.run?.newVisits)
-  expect(digest.totalSearches.value).toBeGreaterThan(0)
+  })
+  expect(digest.data.totalVisits.value).toBe(backup.run?.newVisits)
+  expect(digest.data.totalSearches.value).toBeGreaterThan(0)
 
   const sessions = await invokeDesktopBridge<BridgeSessionListResult>(
     request,

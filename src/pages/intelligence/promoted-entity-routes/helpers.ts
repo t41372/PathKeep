@@ -9,26 +9,56 @@ import { useI18n } from '../../../lib/i18n/hooks'
 import { intelligenceText } from '../copy'
 import { useIntelligenceRouteState } from '../route-state'
 
+/**
+ * Keeps promoted route scope copy shared between the hook and pure coverage so profile fallback wording cannot drift.
+ */
+export function buildScopeCalloutCopy({
+  archiveWideBadge,
+  archiveWideBody,
+  effectiveProfileId,
+  profileScopeLabel,
+  t,
+}: {
+  archiveWideBadge: string
+  archiveWideBody: string
+  effectiveProfileId: string | null
+  profileScopeLabel: string | null
+  t: (key: string, vars?: Record<string, string | number>) => string
+}) {
+  const scopedProfileLabel = effectiveProfileId
+    ? (profileScopeLabel ?? effectiveProfileId)
+    : null
+
+  return {
+    renderScopeCallout: () => ({
+      body: scopedProfileLabel
+        ? t('scopedViewBody', {
+            profile: scopedProfileLabel,
+          })
+        : archiveWideBody,
+      title: scopedProfileLabel ? t('scopedViewTitle') : archiveWideBadge,
+    }),
+    scopeLabel: scopedProfileLabel ?? archiveWideBadge,
+  }
+}
+
 export function useScopeCallout() {
   const { language, t } = useI18n('intelligence')
   const { effectiveProfileId, profileScopeLabel } = useIntelligenceRouteState()
   const archiveWideBadge = intelligenceText(language, t, 'archiveWideBadge')
   const archiveWideBody = intelligenceText(language, t, 'archiveWideBody')
+  const scopeCopy = buildScopeCalloutCopy({
+    archiveWideBadge,
+    archiveWideBody,
+    effectiveProfileId,
+    profileScopeLabel,
+    t,
+  })
 
   return {
     effectiveProfileId,
     profileScopeLabel,
-    renderScopeCallout: () => ({
-      body: effectiveProfileId
-        ? t('scopedViewBody', {
-            profile: profileScopeLabel ?? effectiveProfileId,
-          })
-        : archiveWideBody,
-      title: effectiveProfileId ? t('scopedViewTitle') : archiveWideBadge,
-    }),
-    scopeLabel: effectiveProfileId
-      ? (profileScopeLabel ?? effectiveProfileId)
-      : archiveWideBadge,
+    ...scopeCopy,
   }
 }
 

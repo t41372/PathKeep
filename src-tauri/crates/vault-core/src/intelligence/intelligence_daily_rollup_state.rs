@@ -150,22 +150,14 @@ impl DailyRollupAccumulator {
                         (date_key, profile_id),
                         (total_visits, total_searches, new_domains, unique_domains, domain_counts),
                     )| {
-                        let hhi = if total_visits == 0 {
-                            0.0
-                        } else {
-                            domain_counts
-                                .values()
-                                .map(|count| {
-                                    let share = *count as f32 / total_visits as f32;
-                                    share * share
-                                })
-                                .sum::<f32>()
-                        };
-                        let discovery_rate = if total_visits == 0 {
-                            0.0
-                        } else {
-                            new_domains.len() as f32 / total_visits as f32
-                        };
+                        let hhi = domain_counts
+                            .values()
+                            .map(|count| {
+                                let share = *count as f32 / total_visits as f32;
+                                share * share
+                            })
+                            .sum::<f32>();
+                        let discovery_rate = new_domains.len() as f32 / total_visits as f32;
                         (
                             date_key,
                             profile_id,

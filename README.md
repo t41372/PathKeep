@@ -18,7 +18,7 @@ PathKeep is a local-first desktop app for long-term browser history archiving an
 
 ## Why PathKeep
 
-Chrome keeps your browser history locally for only 90 days (or 18 months if synced with Google). Edge does the same. Safari defaults to a year. Many other browsers follow similar patterns — your browsing data expires on their schedule, not yours.
+Chrome keeps your browser history locally for only 90 days (or 18 months if synced with Google). Edge does the same. Safari defaults to a year. Almost none of the browsers keep your history forever by defaults — your browsing data expires on their schedule, not yours.
 
 Browser history is not just something that can be thrown away. It's how we think, how we learn, how we get information, how we entertain, and how we live on the internet. For many of us, a significant chunk of our life plays out online. We should be able to keep our own history forever, and get insights out of it. We should own our data without having to live under the rule set of the browsers.
 
@@ -163,6 +163,10 @@ bun run test:unit        # Vitest unit tests
 bun run test:e2e         # Playwright end-to-end tests
 bun run coverage:js      # JS coverage gate
 bun run coverage:rust    # Rust coverage gate
+bun run mutation:js      # Desktop-contract JS mutation gate
+bun run mutation:js:full # Full JS mutation deep sweep
+bun run mutation:rust    # Full Rust mutation deep sweep
+bun run verify           # check + debug desktop build rehearsal
 ```
 
 For the full gate matrix, deep checks, and release signoff commands, see [TESTING.md](./TESTING.md).

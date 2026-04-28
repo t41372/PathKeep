@@ -63,5 +63,42 @@ describe('build-info formatting', () => {
         gitDirty: true,
       }),
     ).toBe('0.1.0 (abc1234def5678+)')
+    expect(
+      formatBuildVersionTitle({
+        ...baseBuildInfo,
+        gitCommitShort: 'unknown',
+        gitCommitFull: 'unknown',
+      }),
+    ).toBe('0.1.0')
+  })
+
+  test('trims revision metadata and refuses unknown full hashes in titles', () => {
+    expect(
+      formatBuildRevisionLabel({
+        ...baseBuildInfo,
+        gitCommitShort: '  abc1234  ',
+      }),
+    ).toBe('abc1234')
+    expect(
+      formatBuildVersionTitle({
+        ...baseBuildInfo,
+        gitCommitShort: 'abc1234',
+        gitCommitFull: '  abc1234def5678  ',
+      }),
+    ).toBe('0.1.0 (abc1234def5678)')
+    expect(
+      formatBuildVersionTitle({
+        ...baseBuildInfo,
+        gitCommitShort: 'abc1234',
+        gitCommitFull: 'unknown',
+      }),
+    ).toBe('0.1.0')
+    expect(
+      formatBuildVersionTitle({
+        ...baseBuildInfo,
+        gitCommitShort: 'abc1234',
+        gitCommitFull: '   ',
+      }),
+    ).toBe('0.1.0')
   })
 })

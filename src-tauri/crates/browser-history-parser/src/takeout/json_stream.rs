@@ -107,55 +107,6 @@ where
         }
         Ok(())
     }
-
-    fn visit_bool<Err>(self, _: bool) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_i64<Err>(self, _: i64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_u64<Err>(self, _: u64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_f64<Err>(self, _: f64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_str<Err>(self, _: &str) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_none<Err>(self) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_unit<Err>(self) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
 }
 
 struct RecordArraySeed<'a, F> {
@@ -193,62 +144,6 @@ where
         while let Some(record) = seq.next_element::<Value>()? {
             (self.on_record)(record).map_err(de::Error::custom)?;
         }
-        Ok(())
-    }
-
-    fn visit_map<A>(self, _: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        Ok(())
-    }
-
-    fn visit_bool<Err>(self, _: bool) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_i64<Err>(self, _: i64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_u64<Err>(self, _: u64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_f64<Err>(self, _: f64) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_str<Err>(self, _: &str) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_none<Err>(self) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
-        Ok(())
-    }
-
-    fn visit_unit<Err>(self) -> Result<Self::Value, Err>
-    where
-        Err: de::Error,
-    {
         Ok(())
     }
 }

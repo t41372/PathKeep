@@ -82,9 +82,7 @@ export function BrowsingRhythmYearControls({
                 disabled={olderYear === null}
                 type="button"
                 onClick={() => {
-                  if (olderYear !== null) {
-                    onSelectYear(olderYear)
-                  }
+                  onSelectYear(olderYear as number)
                 }}
               >
                 {'<'}
@@ -110,9 +108,7 @@ export function BrowsingRhythmYearControls({
                 disabled={newerYear === null}
                 type="button"
                 onClick={() => {
-                  if (newerYear !== null) {
-                    onSelectYear(newerYear)
-                  }
+                  onSelectYear(newerYear as number)
                 }}
               >
                 {'>'}

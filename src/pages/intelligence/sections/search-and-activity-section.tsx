@@ -28,32 +28,9 @@ import {
 import * as api from '../../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../../lib/i18n/catalog'
 import { intelligenceCategoryLabel } from '../copy'
+import { scheduleIdlePrefetch } from './idle-prefetch'
 import { IntelligenceSectionBody } from './section-body'
 import { firstSectionMeta, formatNumber, type T } from './shared'
-
-function scheduleIdlePrefetch(callback: () => void) {
-  if (typeof window === 'undefined') {
-    return () => {}
-  }
-
-  const idleWindow = window as Window & {
-    requestIdleCallback?: (
-      cb: IdleRequestCallback,
-      options?: IdleRequestOptions,
-    ) => number
-    cancelIdleCallback?: (handle: number) => void
-  }
-
-  if (typeof idleWindow.requestIdleCallback === 'function') {
-    const handle = idleWindow.requestIdleCallback(() => callback(), {
-      timeout: 1200,
-    })
-    return () => idleWindow.cancelIdleCallback?.(handle)
-  }
-
-  const handle = window.setTimeout(callback, 160)
-  return () => window.clearTimeout(handle)
-}
 
 export function SearchActivitySection({
   dateRange,
@@ -189,7 +166,7 @@ function EngineRankingPanel({
     )
   }
 
-  const max = Math.max(data[0]?.searchCount ?? 0, 1)
+  const max = Math.max(data[0].searchCount, 1)
   return (
     <div className="engine-ranking">
       {data.map((engine) => (

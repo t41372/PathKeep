@@ -44,6 +44,144 @@ describe('intelligence surfaces', () => {
     resetIntelligenceSurfaceHarness()
   })
 
+  test('renders Jobs loading, setup, locked, runtime-loading, and runtime-error gates', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const commonT = createNamespaceTranslator('en', 'common')
+
+    const shellLoadingRender = renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue: {
+        ...createShellValue(snapshot),
+        snapshot: null,
+        loading: true,
+      },
+      snapshot,
+    })
+
+    expect(screen.getByText(jobsT('loadingPage'))).toBeVisible()
+    shellLoadingRender.unmount()
+
+    const uninitializedSnapshot = structuredClone(snapshot)
+    uninitializedSnapshot.config.initialized = false
+    const setupRender = renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      snapshot: uninitializedSnapshot,
+    })
+
+    expect(screen.getByText(jobsT('setupTitle'))).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: commonT('initializeFirst') }),
+    ).toHaveAttribute('href', '/onboarding')
+    setupRender.unmount()
+
+    const lockedSnapshot = structuredClone(snapshot)
+    lockedSnapshot.archiveStatus.unlocked = false
+    const lockedRender = renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      snapshot: lockedSnapshot,
+    })
+
+    expect(screen.getByText(jobsT('lockedTitle'))).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: commonT('reviewSecurity') }),
+    ).toHaveAttribute('href', '/security')
+    lockedRender.unmount()
+
+    const runtimeLoadingRender = renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue: {
+        ...createShellValue(snapshot),
+        runtimeStatus: {
+          aiQueue: null,
+          intelligence: null,
+          loading: false,
+          error: null,
+        },
+      },
+      snapshot,
+    })
+
+    expect(screen.getByText(jobsT('loadingPage'))).toBeVisible()
+    runtimeLoadingRender.unmount()
+
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: false,
+      error: 'runtime bridge unavailable',
+    }
+    shellValue.refreshAppData = vi.fn().mockResolvedValue(undefined)
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockResolvedValue(shellValue.runtimeStatus)
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(screen.getByText(jobsT('pageUnavailableTitle'))).toBeVisible()
+    expect(screen.getByText('runtime bridge unavailable')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: jobsT('refresh') }))
+
+    await waitFor(() => expect(shellValue.refreshAppData).toHaveBeenCalled())
+    expect(shellValue.refreshRuntimeStatus).toHaveBeenCalled()
+  })
+
+  test('surfaces a paused queued backlog and resumes the queue through config', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    snapshot.config.ai.jobQueuePaused = true
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: queueFixture({ queued: 2, recentJobs: [] }),
+      intelligence: runtimeFixture({
+        queue: {
+          ...runtimeFixture().queue,
+          queued: 1,
+        },
+      }),
+      loading: false,
+      error: null,
+    }
+    shellValue.saveConfig = vi.fn().mockResolvedValue({
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        ai: { ...snapshot.config.ai, jobQueuePaused: false },
+      },
+    })
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(await screen.findByText(jobsT('pausedTitle'))).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: jobsT('resumeQueue') }))
+
+    await waitFor(() =>
+      expect(shellValue.saveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai: expect.objectContaining({ jobQueuePaused: false }),
+        }),
+      ),
+    )
+  })
+
   test('renders background jobs controls and lets the user pause or replay work', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
@@ -415,6 +553,105 @@ describe('intelligence surfaces', () => {
     expect(loadRuntimeSpy).not.toHaveBeenCalled()
   })
 
+  test('renders partial queue/runtime snapshots without hiding fallback counts', async () => {
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: null,
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: null,
+        },
+        plugins: [
+          {
+            pluginId: 'readable-content-refetch',
+            sourceKind: 'network',
+            enabled: true,
+            storedRecords: 9,
+            queuedJobs: 0,
+            runningJobs: 2,
+            failedJobs: 0,
+            lastCompletedAt: null,
+            lastError: null,
+          },
+        ],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: 'runtime degraded but usable',
+    }
+
+    const runtimeOnly = renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    await screen.findByText('runtime degraded but usable')
+    expect(
+      screen.getAllByText(jobsT('contentFetchRunningBody', { stored: 9 }))
+        .length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('runtime degraded but usable')).toBeVisible()
+    runtimeOnly.unmount()
+
+    const aiOnlyShellValue = createShellValue(snapshot)
+    aiOnlyShellValue.runtimeStatus = {
+      aiQueue: queueFixture({
+        concurrency: 3,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [
+          {
+            id: 880,
+            jobType: 'assistant',
+            state: 'queued',
+            priority: 10,
+            attempt: 1,
+            maxAttempts: 3,
+            runId: null,
+            summary: null,
+            queuedAt: '2026-04-10T15:05:00Z',
+            availableAt: '2026-04-10T15:05:00Z',
+            startedAt: null,
+            finishedAt: null,
+            heartbeatAt: null,
+            errorCode: null,
+            errorMessage: null,
+          },
+        ],
+      }),
+      intelligence: null,
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue: aiOnlyShellValue,
+      snapshot,
+    })
+
+    await screen.findByText(jobsT('recentAiJobs'))
+    expect(
+      screen.getAllByText(jobsT('contentFetchFallbackBody')).length,
+    ).toBeGreaterThan(0)
+    expect(
+      screen.getAllByText(jobsT('sidebarIdleDetail')).length,
+    ).toBeGreaterThan(0)
+  })
+
   test('keeps the idle Jobs header focused on refresh and settings', async () => {
     const { snapshot } = await seedArchiveState()
     const jobsT = createNamespaceTranslator('en', 'jobs')
@@ -461,4 +698,273 @@ describe('intelligence surfaces', () => {
       screen.getByRole('link', { name: jobsT('openSettings') }),
     ).toBeVisible()
   })
+
+  test('routes cancel actions and runtime mutation recovery through the Jobs shell', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const aiQueue = queueFixture({
+      queued: 1,
+      recentJobs: [
+        {
+          id: 501,
+          jobType: 'assistant',
+          state: 'queued',
+          priority: 10,
+          attempt: 1,
+          maxAttempts: 3,
+          runId: null,
+          summary: 'Queued assistant answer',
+          queuedAt: '2026-04-10T15:05:00Z',
+          availableAt: '2026-04-10T15:05:00Z',
+          startedAt: null,
+          finishedAt: null,
+          heartbeatAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    })
+    const runtime = runtimeFixture({
+      recentJobs: [
+        runtimeJobFixture({
+          id: 601,
+          state: 'failed',
+          retryable: true,
+          cancellable: false,
+          lastError: 'stale derived row',
+        }),
+        runtimeJobFixture({
+          id: 602,
+          state: 'running',
+          retryable: false,
+          cancellable: true,
+          lastError: null,
+        }),
+        runtimeJobFixture({
+          id: 603,
+          state: 'running',
+          retryable: false,
+          cancellable: true,
+          lastError: null,
+        }),
+        runtimeJobFixture({
+          id: 604,
+          state: 'running',
+          retryable: false,
+          cancellable: true,
+          lastError: null,
+        }),
+      ],
+    })
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue,
+      intelligence: runtime,
+      loading: false,
+      error: null,
+    }
+    shellValue.refreshAppData = vi.fn().mockResolvedValue(undefined)
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockResolvedValue(shellValue.runtimeStatus)
+    const cancelAiSpy = vi
+      .spyOn(backend, 'cancelAiJob')
+      .mockResolvedValue({ ...aiQueue.recentJobs[0], state: 'cancelled' })
+    const retryRuntimeSpy = vi
+      .spyOn(backend, 'retryIntelligenceJob')
+      .mockRejectedValueOnce(
+        new Error(
+          "Intelligence job 601 is in state 'succeeded' and cannot be retried.",
+        ),
+      )
+      .mockRejectedValueOnce(new Error('retry exploded'))
+    const cancelRuntimeSpy = vi
+      .spyOn(backend, 'cancelIntelligenceJob')
+      .mockRejectedValueOnce(
+        new Error(
+          'Intelligence job 602 cannot be cancelled after it finished.',
+        ),
+      )
+      .mockResolvedValueOnce(runtime)
+      .mockRejectedValueOnce(new Error('cancel exploded'))
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    const aiPanel = (await screen.findByText(jobsT('recentAiJobs'))).closest(
+      '.panel',
+    )
+    expect(aiPanel).not.toBeNull()
+    if (!(aiPanel instanceof HTMLElement)) {
+      throw new Error('expected AI jobs panel')
+    }
+    await user.click(
+      within(aiPanel).getByRole('button', { name: jobsT('cancelJob') }),
+    )
+    await waitFor(() => expect(cancelAiSpy).toHaveBeenCalledWith(501))
+
+    const runtimePanel = screen
+      .getByText(jobsT('recentRuntimeJobs'))
+      .closest('.panel')
+    expect(runtimePanel).not.toBeNull()
+    if (!(runtimePanel instanceof HTMLElement)) {
+      throw new Error('expected runtime jobs panel')
+    }
+    await user.click(
+      within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    await waitFor(() => expect(retryRuntimeSpy).toHaveBeenCalledWith(601))
+    await waitFor(() =>
+      expect(shellValue.refreshRuntimeStatus).toHaveBeenCalled(),
+    )
+
+    await user.click(
+      within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    await waitFor(() => expect(retryRuntimeSpy).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('retry exploded')).toBeVisible()
+
+    const cancelButtons = within(runtimePanel).getAllByRole('button', {
+      name: jobsT('cancelJob'),
+    })
+    await user.click(cancelButtons[0])
+    await waitFor(() => expect(cancelRuntimeSpy).toHaveBeenCalledWith(602))
+    await waitFor(() =>
+      expect(shellValue.refreshRuntimeStatus).toHaveBeenCalled(),
+    )
+
+    await user.click(cancelButtons[1])
+    await waitFor(() => expect(cancelRuntimeSpy).toHaveBeenCalledWith(603))
+
+    await user.click(cancelButtons[2])
+    await waitFor(() => expect(cancelRuntimeSpy).toHaveBeenCalledWith(604))
+    expect(await screen.findByText('cancel exploded')).toBeVisible()
+  })
+
+  test('uses the common fallback for non-Error runtime action failures', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const commonT = createNamespaceTranslator('en', 'common')
+    const runtime = runtimeFixture({
+      recentJobs: [
+        runtimeJobFixture({
+          id: 701,
+          state: 'failed',
+          retryable: true,
+          cancellable: false,
+        }),
+        runtimeJobFixture({
+          id: 702,
+          state: 'running',
+          retryable: false,
+          cancellable: true,
+        }),
+      ],
+    })
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: queueFixture(),
+      intelligence: runtime,
+      loading: false,
+      error: null,
+    }
+    vi.spyOn(backend, 'retryIntelligenceJob').mockRejectedValueOnce(
+      'retry fallback',
+    )
+    vi.spyOn(backend, 'cancelIntelligenceJob').mockRejectedValueOnce(
+      'cancel fallback',
+    )
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    const runtimePanel = (
+      await screen.findByText(jobsT('recentRuntimeJobs'))
+    ).closest('.panel')
+    expect(runtimePanel).not.toBeNull()
+    if (!(runtimePanel instanceof HTMLElement)) {
+      throw new Error('expected runtime jobs panel')
+    }
+    await user.click(
+      within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+
+    await user.click(
+      within(runtimePanel).getByRole('button', { name: jobsT('cancelJob') }),
+    )
+    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+  })
 })
+
+function queueFixture(overrides: Partial<AiQueueStatus> = {}): AiQueueStatus {
+  return {
+    paused: false,
+    concurrency: 1,
+    queued: 0,
+    running: 0,
+    failed: 0,
+    recentJobs: [],
+    ...overrides,
+  }
+}
+
+function runtimeFixture(
+  overrides: Partial<IntelligenceRuntimeSnapshot> = {},
+): IntelligenceRuntimeSnapshot {
+  return {
+    queue: {
+      queued: 0,
+      running: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      lastActivityAt: null,
+    },
+    plugins: [],
+    modules: [],
+    recentJobs: [],
+    notes: [],
+    ...overrides,
+  }
+}
+
+function runtimeJobFixture(
+  overrides: Partial<IntelligenceRuntimeSnapshot['recentJobs'][number]> = {},
+): IntelligenceRuntimeSnapshot['recentJobs'][number] {
+  return {
+    id: 601,
+    jobType: 'deterministic-rebuild',
+    pluginId: null,
+    state: 'failed',
+    historyId: null,
+    profileId: 'chrome:Default',
+    url: null,
+    title: 'chrome:Default',
+    attempt: 1,
+    createdAt: '2026-04-10T15:20:00Z',
+    startedAt: '2026-04-10T15:21:00Z',
+    finishedAt: null,
+    updatedAt: '2026-04-10T15:22:00Z',
+    heartbeatAt: null,
+    progressLabel: null,
+    progressDetail: null,
+    progressCurrent: null,
+    progressTotal: null,
+    progressPercent: null,
+    lastError: null,
+    retryable: true,
+    cancellable: false,
+    ...overrides,
+  }
+}

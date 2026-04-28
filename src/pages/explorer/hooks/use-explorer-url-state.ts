@@ -148,8 +148,6 @@ export function useExplorerUrlState({
 
   const persistRecentSearch = useCallback(
     (params: RecentSearchEntry['params']) => {
-      if (typeof window === 'undefined') return
-
       const label = buildRecentSearchLabel(params)
       if (!label) return
 

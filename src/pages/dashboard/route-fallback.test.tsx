@@ -106,6 +106,19 @@ describe('dashboard route fallback', () => {
     ).toEqual({ kind: 'unlock-required' })
   })
 
+  test('resolves archive-unavailable when bootstrap has no ready snapshot pair', () => {
+    expect(
+      resolveDashboardRouteFallback({
+        archiveAccessFallback: null,
+        dashboard: null,
+        dashboardLoading: false,
+        error: null,
+        loading: false,
+        snapshot: null,
+      }),
+    ).toEqual({ kind: 'archive-unavailable' })
+  })
+
   test('renders the onboarding and security actions for non-ready fallback states', () => {
     render(
       <MemoryRouter>
@@ -125,6 +138,31 @@ describe('dashboard route fallback', () => {
     expect(
       screen.getByRole('link', { name: t('archiveUnlockAction') }),
     ).toHaveAttribute('href', '/security#unlock-archive')
+  })
+
+  test('renders loading, read-error, and archive-unavailable fallback branches', () => {
+    render(
+      <MemoryRouter>
+        <>
+          <DashboardRouteFallback state={{ kind: 'loading' }} t={t} />
+          <DashboardRouteFallback
+            state={{ kind: 'read-error', description: 'sqlite unavailable' }}
+            t={t}
+          />
+          <DashboardRouteFallback
+            state={{ kind: 'archive-unavailable' }}
+            t={t}
+          />
+        </>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByLabelText(t('loadingDashboard'))).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    expect(screen.getByText('sqlite unavailable')).toBeVisible()
+    expect(screen.getByText(t('archiveUnavailable'))).toBeVisible()
   })
 
   test('keeps archive-access probing limited to bootstrap error states', () => {
@@ -204,5 +242,51 @@ describe('dashboard route fallback', () => {
 
     await waitFor(() => expect(result.current).toBeNull())
     expect(securityStatusSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('ignores archive-access fallback probes that resolve after cleanup', async () => {
+    let resolveStatus: (status: SecurityStatus) => void = () => {}
+    const statusPromise = new Promise<SecurityStatus>((resolve) => {
+      resolveStatus = resolve
+    })
+    vi.spyOn(backend, 'securityStatus').mockReturnValue(statusPromise)
+
+    const { result, unmount } = renderHook(() =>
+      useDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: 'database key required',
+        refreshKey: 0,
+        snapshot: null,
+      }),
+    )
+
+    unmount()
+    resolveStatus(securityStatus)
+    await statusPromise
+
+    expect(result.current).toBeNull()
+  })
+
+  test('ignores archive-access fallback probes that reject after cleanup', async () => {
+    let rejectStatus: (error: Error) => void = () => {}
+    const statusPromise = new Promise<SecurityStatus>((_resolve, reject) => {
+      rejectStatus = reject
+    })
+    vi.spyOn(backend, 'securityStatus').mockReturnValue(statusPromise)
+
+    const { result, unmount } = renderHook(() =>
+      useDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: 'database key required',
+        refreshKey: 0,
+        snapshot: null,
+      }),
+    )
+
+    unmount()
+    rejectStatus(new Error('security unavailable'))
+    await statusPromise.catch(() => undefined)
+
+    expect(result.current).toBeNull()
   })
 })

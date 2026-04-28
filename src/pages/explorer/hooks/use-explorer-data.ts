@@ -212,11 +212,7 @@ export function useExplorerData({
       historyRequestRef.current.backgroundPrefetchPages * 2 + 2,
     )
     while (cache.size > cacheLimit) {
-      const oldestKey = cache.keys().next().value
-      if (!oldestKey) {
-        break
-      }
-      cache.delete(oldestKey)
+      cache.delete(cache.keys().next().value as string)
     }
   }
 

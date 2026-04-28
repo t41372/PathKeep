@@ -415,6 +415,13 @@ mod tests {
     async fn sync_count_and_clear_sidecar_rows() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths(dir.path());
+        assert_eq!(sidecar_storage_bytes(&paths), 0);
+        assert_eq!(
+            count_provider_embeddings(&paths, "embed", "text-embedding-3-small")
+                .await
+                .expect("missing table count"),
+            0
+        );
         let rows = vec![row(1, &[0.1, 0.2, 0.3]), row(2, &[0.3, 0.2, 0.1])];
 
         let indexed = sync_provider_embeddings(
@@ -525,5 +532,37 @@ mod tests {
         assert_eq!(filtered[0].history_id, 3);
         assert!(filtered[0].score > 0.0);
         assert!(sidecar_storage_bytes(&paths) > 0);
+    }
+
+    #[tokio::test]
+    async fn distance_and_large_index_helpers_cover_sidecar_edges() {
+        let distances = Float64Array::from(vec![0.25_f64]);
+        assert!((f32_distance(&distances, 0).expect("f64 distance") - 0.25).abs() < f32::EPSILON);
+        let unsupported = StringArray::from(vec!["bad"]);
+        let error = f32_distance(&unsupported, 0).expect_err("unsupported distance column");
+        assert!(error.to_string().contains("unsupported LanceDB _distance column type"));
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths(dir.path());
+        let rows =
+            (0..260).map(|index| row(index, &[index as f32 / 260.0, 0.2, 0.3])).collect::<Vec<_>>();
+        let indexed = sync_provider_embeddings(
+            &paths,
+            "embed",
+            "text-embedding-3-small",
+            &rows,
+            true,
+            false,
+            &[],
+        )
+        .await
+        .expect("large sync");
+        assert_eq!(indexed, 260);
+        assert_eq!(
+            count_provider_embeddings(&paths, "embed", "text-embedding-3-small")
+                .await
+                .expect("large count"),
+            260
+        );
     }
 }

@@ -30,17 +30,12 @@ export function waitForNextPaint() {
       return
     }
 
-    let settled = false
-
     /**
-     * Resolves the current paint wait exactly once, regardless of which
-     * scheduling path wins first.
+     * Resolves the current paint wait. Repeated resolution is harmless because
+     * Promise settlement is idempotent, and keeping this callback simple avoids
+     * turning a fallback race into extra mutable state.
      */
-    const finish = () => {
-      if (settled) return
-      settled = true
-      resolve()
-    }
+    const finish = () => resolve()
 
     window.requestAnimationFrame(() => finish())
     window.setTimeout(finish, 16)

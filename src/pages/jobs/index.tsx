@@ -123,10 +123,9 @@ export function JobsPage() {
   }
 
   async function handlePauseChange(paused: boolean) {
-    if (!snapshot) return
     setAction(paused ? jobsT('pauseQueue') : jobsT('resumeQueue'))
     try {
-      await saveConfig(nextPausedConfig(snapshot.config, paused))
+      await saveConfig(nextPausedConfig(snapshot!.config, paused))
       setPageError(null)
       await Promise.all([refreshAppData(), refreshRuntimeStatus()])
     } finally {

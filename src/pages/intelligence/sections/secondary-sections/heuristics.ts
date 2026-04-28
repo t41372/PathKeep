@@ -140,10 +140,6 @@ export function humanizeDiscoveryWeekLabel(dateKey: string, t: T) {
 
 function looksLikeUrlOrDomain(label: string) {
   const normalized = label.trim().toLowerCase()
-  if (!normalized) {
-    return false
-  }
-
   return (
     normalized.includes('://') ||
     /^www\./.test(normalized) ||

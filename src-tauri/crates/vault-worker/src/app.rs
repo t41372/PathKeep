@@ -41,33 +41,34 @@ pub struct RekeyRequest {
 fn snapshot_runtime_diagnostics(paths: &vault_core::ProjectPaths) -> RuntimeDiagnostics {
     match vault_core::load_runtime_diagnostics(paths) {
         Ok(diagnostics) => diagnostics,
-        Err(error) => {
-            log::warn!(
-                target: "pathkeep::app_snapshot",
-                "runtime diagnostics fallback during shell bootstrap: {error:#}"
-            );
-            RuntimeDiagnostics {
-                log_directory: paths.logs_dir.display().to_string(),
-                rust_log_path: paths.rust_log_path.display().to_string(),
-                frontend_log_path: paths.frontend_log_path.display().to_string(),
-                crash_reports_directory: paths.crash_reports_dir.display().to_string(),
-                latest_crash_report: None,
-            }
-        }
+        Err(error) => runtime_diagnostics_fallback(paths, &error),
+    }
+}
+
+fn runtime_diagnostics_fallback(
+    paths: &vault_core::ProjectPaths,
+    error: &anyhow::Error,
+) -> RuntimeDiagnostics {
+    log::warn!(target: "pathkeep::app_snapshot", "runtime diagnostics fallback during shell bootstrap: {error:#}");
+    RuntimeDiagnostics {
+        log_directory: paths.logs_dir.display().to_string(),
+        rust_log_path: paths.rust_log_path.display().to_string(),
+        frontend_log_path: paths.frontend_log_path.display().to_string(),
+        crash_reports_directory: paths.crash_reports_dir.display().to_string(),
+        latest_crash_report: None,
     }
 }
 
 fn snapshot_browser_profiles() -> Vec<vault_core::BrowserProfile> {
     match discover_browser_profiles() {
         Ok(profiles) => profiles,
-        Err(error) => {
-            log::warn!(
-                target: "pathkeep::app_snapshot",
-                "browser discovery fallback during shell bootstrap: {error:#}"
-            );
-            Vec::new()
-        }
+        Err(error) => browser_profiles_fallback(&error),
     }
+}
+
+fn browser_profiles_fallback(error: &anyhow::Error) -> Vec<vault_core::BrowserProfile> {
+    log::warn!(target: "pathkeep::app_snapshot", "browser discovery fallback during shell bootstrap: {error:#}");
+    Vec::new()
 }
 
 /// Builds the canonical desktop snapshot for the current unlocked session.
@@ -144,18 +145,39 @@ pub fn save_user_config(
         current_app_lock_biometric_state(),
     )?;
     save_config(&paths, &next_config)?;
-    if let Err(error) = vault_core::reconcile_ai_queue_controls(
+    reconcile_ai_queue_controls_or_restore_config(
         &paths,
         &previous_config,
         &next_config,
         session_database_key,
-    ) {
-        save_config(&paths, &previous_config).with_context(
-            || "restoring the previous config after AI queue control reconciliation failed",
-        )?;
-        return Err(error.context("syncing AI queue controls with the updated Settings"));
-    }
+    )?;
     app_snapshot(session_database_key)
+}
+
+fn reconcile_ai_queue_controls_or_restore_config(
+    paths: &vault_core::ProjectPaths,
+    previous_config: &AppConfig,
+    next_config: &AppConfig,
+    session_database_key: Option<&str>,
+) -> Result<()> {
+    vault_core::reconcile_ai_queue_controls(
+        paths,
+        previous_config,
+        next_config,
+        session_database_key,
+    )
+    .or_else(|error| restore_config_after_ai_reconcile_failure(paths, previous_config, error))
+}
+
+fn restore_config_after_ai_reconcile_failure(
+    paths: &vault_core::ProjectPaths,
+    previous_config: &AppConfig,
+    error: anyhow::Error,
+) -> Result<()> {
+    save_config(paths, previous_config).with_context(
+        || "restoring the previous config after AI queue control reconciliation failed",
+    )?;
+    Err(error.context("syncing AI queue controls with the updated Settings"))
 }
 
 /// Initializes the archive with the provided config and returns the hydrated snapshot.
@@ -190,4 +212,66 @@ pub fn rekey_archive_database(
     next_config.initialized = true;
     save_config(&paths, &next_config)?;
     app_snapshot(request.new_key.as_deref().or(old_key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{ffi::OsStr, fs};
+    use tempfile::tempdir;
+    use vault_core::config::project_paths_with_root;
+
+    const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
+
+    fn restore_env_var(name: &str, value: Option<&OsStr>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_helpers_fallback_to_truthful_empty_shell_values() {
+        let _guard = crate::tests::lock_env();
+        let original_chrome_root = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
+        let root = tempdir().expect("tempdir");
+        let invalid_root = root.path().join("not-a-directory");
+        fs::write(&invalid_root, "not a directory").expect("write invalid root");
+
+        let diagnostics = snapshot_runtime_diagnostics(&project_paths_with_root(&invalid_root));
+        assert_eq!(diagnostics.log_directory, invalid_root.join("logs").display().to_string());
+        assert!(diagnostics.latest_crash_report.is_none());
+        let diagnostics = runtime_diagnostics_fallback(
+            &project_paths_with_root(root.path()),
+            &anyhow::anyhow!("diagnostics failed"),
+        );
+        assert_eq!(
+            diagnostics.rust_log_path,
+            root.path().join("logs/rust.log").display().to_string()
+        );
+
+        unsafe {
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &invalid_root);
+        }
+        assert!(snapshot_browser_profiles().is_empty());
+        assert!(browser_profiles_fallback(&anyhow::anyhow!("discovery failed")).is_empty());
+
+        let restore_root = tempdir().expect("restore tempdir");
+        let restore_paths = project_paths_with_root(restore_root.path());
+        let previous_config = AppConfig { initialized: true, ..AppConfig::default() };
+        let error = restore_config_after_ai_reconcile_failure(
+            &restore_paths,
+            &previous_config,
+            anyhow::anyhow!("queue sync failed"),
+        )
+        .expect_err("restore helper returns sync failure");
+        assert!(error.to_string().contains("syncing AI queue controls"));
+        let restored_config = vault_core::load_config(&restore_paths).expect("restored config");
+        assert!(restored_config.initialized);
+
+        restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome_root.as_deref());
+    }
 }

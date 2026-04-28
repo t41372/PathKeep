@@ -277,8 +277,25 @@ describe('shell-data helpers', () => {
     })
 
     expect(shouldAttemptKeyringAutoUnlock(unlockable)).toBe(true)
-    expect(
-      shouldAttemptKeyringAutoUnlock(
+    const cases: Array<[string, AppSnapshot]> = [
+      [
+        'unencrypted archive',
+        buildSnapshot({
+          archiveStatus: {
+            initialized: true,
+            encrypted: false,
+            unlocked: false,
+            databasePath: '/tmp/archive.sqlite',
+          },
+          config: {
+            ...unlockable.config,
+            rememberDatabaseKeyInKeyring: true,
+          },
+          keyringStatus: unlockable.keyringStatus,
+        }),
+      ],
+      [
+        'already unlocked archive',
         buildSnapshot({
           archiveStatus: {
             initialized: true,
@@ -286,9 +303,51 @@ describe('shell-data helpers', () => {
             unlocked: true,
             databasePath: '/tmp/archive.sqlite',
           },
+          config: {
+            ...unlockable.config,
+            rememberDatabaseKeyInKeyring: true,
+          },
+          keyringStatus: unlockable.keyringStatus,
         }),
-      ),
-    ).toBe(false)
+      ],
+      [
+        'remembered key disabled',
+        buildSnapshot({
+          archiveStatus: unlockable.archiveStatus,
+          config: {
+            ...unlockable.config,
+            rememberDatabaseKeyInKeyring: false,
+          },
+          keyringStatus: unlockable.keyringStatus,
+        }),
+      ],
+      [
+        'keyring unavailable',
+        buildSnapshot({
+          archiveStatus: unlockable.archiveStatus,
+          config: unlockable.config,
+          keyringStatus: {
+            ...unlockable.keyringStatus,
+            available: false,
+          },
+        }),
+      ],
+      [
+        'no stored keyring secret',
+        buildSnapshot({
+          archiveStatus: unlockable.archiveStatus,
+          config: unlockable.config,
+          keyringStatus: {
+            ...unlockable.keyringStatus,
+            storedSecret: false,
+          },
+        }),
+      ],
+    ]
+
+    for (const [name, snapshot] of cases) {
+      expect(shouldAttemptKeyringAutoUnlock(snapshot), name).toBe(false)
+    }
   })
 
   test('returns neutral runtime status and stable scope keys for locked vs unlocked archives', () => {
@@ -375,10 +434,12 @@ describe('shell-data helpers', () => {
     const prepare = buildBackupOverlay(buildProgress(), t)
     expect(prepare).toMatchObject({
       label: t('shell.runningManualBackup'),
+      detail: t('shell.runningManualBackupDetail'),
       activeStep: 0,
       progressLabel: t('shell.backupProgressPending'),
       progressValue: null,
     })
+    expect(prepare.logLines).toEqual([t('shell.runningManualBackupDetail')])
 
     const fallback = buildBackupOverlay(
       buildProgress({
@@ -388,7 +449,10 @@ describe('shell-data helpers', () => {
       t,
     )
     expect(fallback.label).toBe(t('shell.runningManualBackup'))
+    expect(fallback.detail).toBe(t('shell.runningManualBackupDetail'))
+    expect(fallback.progressLabel).toBe(t('shell.backupProgressPending'))
     expect(fallback.progressValue).toBeNull()
+    expect(fallback.logLines).toEqual([t('shell.runningManualBackupDetail')])
   })
 
   test('maps profile and finalize progress to archive/write and refresh steps', () => {
@@ -424,9 +488,19 @@ describe('shell-data helpers', () => {
     expect(finalize).toMatchObject({
       label: t('shell.refreshingArchiveViews'),
       activeStep: 2,
+      detail: t('shell.backupFinalizeProgress', {
+        current: 4,
+        total: 4,
+      }),
       progressLabel: '4 / 4',
       progressValue: 100,
     })
+    expect(finalize.logLines).toEqual([
+      t('shell.backupFinalizeProgress', {
+        current: 4,
+        total: 4,
+      }),
+    ])
   })
 
   test('prefers record-level backup progress over profile-level percentages', () => {
@@ -457,5 +531,116 @@ describe('shell-data helpers', () => {
       '10,000 records processed',
       '9,500 new · 500 duplicates',
     ])
+  })
+
+  test('maps record totals, partial stats, and skipped rows into backup overlay detail', () => {
+    const duplicateOnly = buildBackupOverlay(
+      buildProgress({
+        phase: 'ingest-profile',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 1,
+        processedRecords: 10,
+        totalRecords: 20,
+        duplicateRecords: 3,
+        skippedRecords: 0,
+      }),
+      t,
+    )
+
+    expect(duplicateOnly.progressValue).toBe(50)
+    expect(duplicateOnly.logLines).toEqual([
+      '10 records processed',
+      '0 new · 3 duplicates',
+    ])
+
+    const importedAndSkipped = buildBackupOverlay(
+      buildProgress({
+        phase: 'ingest-profile',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 1,
+        processedRecords: 12,
+        totalRecords: 24,
+        importedRecords: 12,
+        duplicateRecords: null,
+        skippedRecords: 2,
+      }),
+      t,
+    )
+
+    expect(importedAndSkipped.progressValue).toBe(50)
+    expect(importedAndSkipped.logLines).toEqual([
+      '12 records processed',
+      '12 new · 0 duplicates',
+      '2 skipped',
+    ])
+  })
+
+  test('ignores invalid record counters instead of leaking impossible progress values', () => {
+    const overlay = buildBackupOverlay(
+      buildProgress({
+        phase: 'ingest-profile',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 1,
+        processedRecords: Number.NaN,
+        totalRecords: Number.POSITIVE_INFINITY,
+        importedRecords: -1,
+        duplicateRecords: Number.NEGATIVE_INFINITY,
+        skippedRecords: -5,
+      }),
+      t,
+    )
+
+    expect(overlay).toMatchObject({
+      progressLabel: t('shell.backupRecordProgressPending'),
+      progressValue: null,
+    })
+    expect(overlay.logLines).toEqual([t('shell.backupWritingArchiveDetail')])
+  })
+
+  test('keeps zero record totals and zero profile totals indeterminate', () => {
+    const recordOverlay = buildBackupOverlay(
+      buildProgress({
+        phase: 'ingest-profile',
+        step: 1,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 1,
+        processedRecords: 0,
+        totalRecords: 0,
+        importedRecords: 0,
+        duplicateRecords: 0,
+        skippedRecords: 0,
+      }),
+      t,
+    )
+
+    expect(recordOverlay).toMatchObject({
+      progressLabel: '0 records processed',
+      progressValue: null,
+    })
+    expect(recordOverlay.logLines).toEqual([
+      '0 records processed',
+      '0 new · 0 duplicates',
+    ])
+
+    const finalizeOverlay = buildBackupOverlay(
+      buildProgress({
+        phase: 'finalize',
+        step: 2,
+        totalSteps: 3,
+        completedProfiles: 0,
+        totalProfiles: 0,
+      }),
+      t,
+    )
+
+    expect(finalizeOverlay.progressLabel).toBeNull()
+    expect(finalizeOverlay.progressValue).toBeNull()
   })
 })

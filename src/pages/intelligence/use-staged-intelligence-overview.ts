@@ -42,11 +42,15 @@ function createOverviewState(
   }
 }
 
-function scheduleIdleLoad(callback: () => void) {
-  if (typeof window === 'undefined') {
-    return () => {}
-  }
+function stateForScope(
+  current: StagedOverviewState,
+  nextScopeKey: string,
+  nextCachedState: StagedOverviewState,
+) {
+  return current.scopeKey === nextScopeKey ? current : nextCachedState
+}
 
+function scheduleIdleLoad(callback: () => void) {
   const idleWindow = window as Window & {
     requestIdleCallback?: (
       cb: IdleRequestCallback,
@@ -92,15 +96,11 @@ export function useStagedIntelligenceOverview(
     )
 
     const startSecondaryLoad = () => {
-      if (typeof window === 'undefined') {
-        return
-      }
-
       frameId = window.requestAnimationFrame(() => {
         cancelIdle = scheduleIdleLoad(() => {
           if (cancelled) return
           setState((current) => ({
-            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+            ...stateForScope(current, nextScopeKey, nextCachedState),
             secondaryReady: hasSecondaryCache,
             secondaryLoading: !hasSecondaryCache,
             secondaryError: null,
@@ -111,9 +111,7 @@ export function useStagedIntelligenceOverview(
             .then(() => {
               if (cancelled) return
               setState((current) => ({
-                ...(current.scopeKey === nextScopeKey
-                  ? current
-                  : nextCachedState),
+                ...stateForScope(current, nextScopeKey, nextCachedState),
                 secondaryReady: true,
                 secondaryLoading: false,
                 secondaryError: null,
@@ -122,9 +120,7 @@ export function useStagedIntelligenceOverview(
             .catch((error: unknown) => {
               if (cancelled) return
               setState((current) => ({
-                ...(current.scopeKey === nextScopeKey
-                  ? current
-                  : nextCachedState),
+                ...stateForScope(current, nextScopeKey, nextCachedState),
                 secondaryReady: hasSecondaryCache,
                 secondaryLoading: false,
                 secondaryError:
@@ -136,34 +132,22 @@ export function useStagedIntelligenceOverview(
     }
 
     if (hasPrimaryCache) {
-      if (typeof window === 'undefined') {
-        queueMicrotask(() => {
-          if (cancelled) return
-          setState((current) => ({
-            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
-            primaryReady: true,
-            primaryError: null,
-          }))
-        })
+      frameId = window.requestAnimationFrame(() => {
+        if (cancelled) return
+        setState((current) => ({
+          ...stateForScope(current, nextScopeKey, nextCachedState),
+          primaryReady: true,
+          primaryError: null,
+        }))
         startSecondaryLoad()
-      } else {
-        frameId = window.requestAnimationFrame(() => {
-          if (cancelled) return
-          setState((current) => ({
-            ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
-            primaryReady: true,
-            primaryError: null,
-          }))
-          startSecondaryLoad()
-        })
-      }
+      })
 
       void loadIntelligencePrimaryOverview(nextDateRange, profileId, {
         force: true,
       }).catch((error: unknown) => {
         if (cancelled) return
         setState((current) => ({
-          ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+          ...stateForScope(current, nextScopeKey, nextCachedState),
           primaryReady: true,
           primaryError: error instanceof Error ? error.message : String(error),
         }))
@@ -174,7 +158,6 @@ export function useStagedIntelligenceOverview(
         cancelIdle()
         if (
           frameId !== null &&
-          typeof window !== 'undefined' &&
           typeof window.cancelAnimationFrame === 'function'
         ) {
           window.cancelAnimationFrame(frameId)
@@ -188,7 +171,7 @@ export function useStagedIntelligenceOverview(
       .then(() => {
         if (cancelled) return
         setState((current) => ({
-          ...(current.scopeKey === nextScopeKey ? current : nextCachedState),
+          ...stateForScope(current, nextScopeKey, nextCachedState),
           primaryReady: true,
           primaryError: null,
         }))
@@ -211,7 +194,6 @@ export function useStagedIntelligenceOverview(
       cancelIdle()
       if (
         frameId !== null &&
-        typeof window !== 'undefined' &&
         typeof window.cancelAnimationFrame === 'function'
       ) {
         window.cancelAnimationFrame(frameId)

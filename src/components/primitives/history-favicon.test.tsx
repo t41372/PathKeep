@@ -40,6 +40,10 @@ describe('HistoryFavicon', () => {
 
     expect(screen.getByText('E')).toBeInTheDocument()
     expect(screen.queryByRole('img', { hidden: true })).not.toBeInTheDocument()
+    expect(document.querySelector('.favicon-placeholder')).toHaveAttribute(
+      'class',
+      'favicon-placeholder ',
+    )
   })
 
   test('falls back to the placeholder when the image fails to load', () => {
@@ -58,5 +62,17 @@ describe('HistoryFavicon', () => {
     expect(document.querySelector('.favicon-placeholder')).not.toHaveClass(
       'has-image',
     )
+  })
+
+  test('uses the generic fallback when no domain initial is available', () => {
+    render(<HistoryFavicon domain="   " favicon={null} />)
+
+    expect(screen.getByText('?')).toBeInTheDocument()
+  })
+
+  test('uses the generic fallback when the domain is missing entirely', () => {
+    render(<HistoryFavicon favicon={null} />)
+
+    expect(screen.getByText('?')).toBeInTheDocument()
   })
 })

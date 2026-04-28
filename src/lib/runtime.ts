@@ -57,14 +57,11 @@ function hasTauriLocation() {
  * first-class signal instead of falling back to preview fixtures.
  */
 function resolveTauriInternals(): TauriInternalsShape | null {
-  const candidate =
-    typeof globalThis === 'object' && globalThis !== null
-      ? (
-          globalThis as typeof globalThis & {
-            __TAURI_INTERNALS__?: TauriInternalsShape
-          }
-        ).__TAURI_INTERNALS__
-      : undefined
+  const candidate = (
+    globalThis as typeof globalThis & {
+      __TAURI_INTERNALS__?: TauriInternalsShape
+    }
+  ).__TAURI_INTERNALS__
 
   if (typeof candidate !== 'object' || candidate === null) {
     return null

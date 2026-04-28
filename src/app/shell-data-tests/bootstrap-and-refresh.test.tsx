@@ -21,7 +21,7 @@
  * - Reuses the shared seeded archive bootstrap to avoid duplicating expensive provider setup in every split suite.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
@@ -43,6 +43,41 @@ import {
 describe('ShellDataProvider', () => {
   beforeEach(() => {
     resetShellDataHarness()
+  })
+
+  test('starts with shell loading and tracks dashboard refresh completion separately', async () => {
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveDashboard: ((value: DashboardSnapshot) => void) | undefined
+    const pendingDashboard = new Promise<DashboardSnapshot>((resolve) => {
+      resolveDashboard = resolve
+    })
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockReturnValue(pendingDashboard)
+
+    renderShellProbe()
+
+    expect(screen.getByTestId('loading')).toHaveTextContent('true')
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('false')
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('true')
+
+    await act(async () => {
+      resolveDashboard?.(dashboard)
+      await pendingDashboard
+    })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        dashboard.generatedAt,
+      ),
+    )
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('false')
   })
 
   test('loads and mutates shell data through provider actions', async () => {
@@ -98,6 +133,10 @@ describe('ShellDataProvider', () => {
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
     expect(languageSpy).toHaveBeenCalled()
+    expect(languageSpy).toHaveBeenCalledWith(
+      snapshot.config.preferredLanguage,
+      { persist: false },
+    )
 
     await user.click(screen.getByRole('button', { name: 'save' }))
     await waitFor(() =>
@@ -191,6 +230,88 @@ describe('ShellDataProvider', () => {
     }
   })
 
+  test('manual refresh keeps the shell loading flag true until the snapshot settles', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveRefreshSnapshot: ((value: AppSnapshot) => void) | undefined
+    const pendingRefreshSnapshot = new Promise<AppSnapshot>((resolve) => {
+      resolveRefreshSnapshot = resolve
+    })
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockReturnValueOnce(pendingRefreshSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() => expect(getAppSnapshotSpy).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('loading')).toHaveTextContent('true')
+
+    await act(async () => {
+      resolveRefreshSnapshot?.(snapshot)
+      await pendingRefreshSnapshot
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+  })
+
+  test('silent backup refresh does not clear a pending manual refresh spinner', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveManualRefresh: ((value: AppSnapshot) => void) | undefined
+    const pendingManualRefresh = new Promise<AppSnapshot>((resolve) => {
+      resolveManualRefresh = resolve
+    })
+    const getAppSnapshotSpy = vi
+      .spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockReturnValueOnce(pendingManualRefresh)
+      .mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'runBackupNow').mockResolvedValue({
+      dueSkipped: false,
+      run: null,
+      profiles: [],
+      warnings: [],
+      remoteBackup: null,
+    })
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() => expect(getAppSnapshotSpy).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId('loading')).toHaveTextContent('true')
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+    await waitFor(() => expect(getAppSnapshotSpy).toHaveBeenCalledTimes(3))
+    expect(screen.getByTestId('loading')).toHaveTextContent('true')
+
+    await act(async () => {
+      resolveManualRefresh?.(snapshot)
+      await pendingManualRefresh
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+  })
+
   test('localizes non-error dashboard refresh failures during bootstrap', async () => {
     const translator = createTranslator('en')
     const { snapshot } = await seedSnapshot()
@@ -244,9 +365,12 @@ describe('ShellDataProvider', () => {
       ),
     )
 
-    resolveStaleRefresh?.({
-      ...dashboard,
-      generatedAt: '2026-04-24T08:00:00.000Z',
+    await act(async () => {
+      resolveStaleRefresh?.({
+        ...dashboard,
+        generatedAt: '2026-04-24T08:00:00.000Z',
+      })
+      await staleRefresh
     })
     await waitFor(() =>
       expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
@@ -282,9 +406,117 @@ describe('ShellDataProvider', () => {
       ),
     )
 
-    rejectStaleRefresh?.(new Error('stale dashboard failed'))
+    await act(async () => {
+      rejectStaleRefresh?.(new Error('stale dashboard failed'))
+      await staleRefresh.catch(() => undefined)
+    })
     await waitFor(() =>
       expect(screen.getByTestId('error')).toHaveTextContent('none'),
+    )
+  })
+
+  test('keeps dashboard loading active when a stale refresh settles before the current one', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    let resolveStaleRefresh:
+      | ((dashboard: DashboardSnapshot) => void)
+      | undefined
+    let resolveCurrentRefresh:
+      | ((dashboard: DashboardSnapshot) => void)
+      | undefined
+    const staleRefresh = new Promise<DashboardSnapshot>((resolve) => {
+      resolveStaleRefresh = resolve
+    })
+    const currentRefresh = new Promise<DashboardSnapshot>((resolve) => {
+      resolveCurrentRefresh = resolve
+    })
+    const freshDashboard: DashboardSnapshot = {
+      ...dashboard,
+      generatedAt: '2026-04-24T10:00:00.000Z',
+    }
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    const loadDashboardSnapshotSpy = vi
+      .spyOn(backend, 'loadDashboardSnapshot')
+      .mockReturnValueOnce(staleRefresh)
+      .mockReturnValueOnce(currentRefresh)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('true')
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2),
+    )
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('true')
+    await act(async () => {
+      resolveStaleRefresh?.({
+        ...dashboard,
+        generatedAt: '2026-04-24T09:30:00.000Z',
+      })
+      await staleRefresh
+    })
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('true')
+
+    await act(async () => {
+      resolveCurrentRefresh?.(freshDashboard)
+      await currentRefresh
+    })
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        freshDashboard.generatedAt,
+      ),
+    )
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('false')
+  })
+
+  test('does not convert ordinary refresh errors into app-lock fallback state', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const lockedStatus = {
+      ...snapshot.appLockStatus,
+      enabled: true,
+      locked: true,
+      lockReason: 'manual',
+    }
+    vi.spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(new Error('ordinary refresh failed'))
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadAppLockStatus')
+      .mockResolvedValueOnce(snapshot.appLockStatus)
+      .mockResolvedValueOnce(snapshot.appLockStatus)
+      .mockResolvedValueOnce(lockedStatus)
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+        'none',
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'ordinary refresh failed',
+      ),
+    )
+    expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+    expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
+      'none',
     )
   })
 
@@ -305,8 +537,10 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
-    expect(screen.getByTestId('error')).toHaveTextContent(
-      'initial refresh failed',
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'initial refresh failed',
+      ),
     )
   })
 
@@ -343,6 +577,98 @@ describe('ShellDataProvider', () => {
     expect(screen.getByTestId('snapshot-language')).toHaveTextContent('system')
     expect(screen.getByTestId('dashboard-generated-at')).not.toHaveTextContent(
       'none',
+    )
+  })
+
+  test('surfaces each runtime crash report path once', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+    const crashSnapshot: AppSnapshot = {
+      ...snapshot,
+      runtimeDiagnostics: {
+        ...snapshot.runtimeDiagnostics,
+        latestCrashReport: {
+          source: 'rust-panic',
+          recordedAt: '2026-04-25T12:00:00.000Z',
+          fatal: true,
+          message: 'panic while importing browser history',
+          location: 'src-tauri/src/lib.rs:42',
+          path: '/tmp/pathkeep-crash.json',
+        },
+      },
+    }
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(crashSnapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('shell.runtimeCrashNotice'),
+      ),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'clear' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent('none'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(screen.getByTestId('notice')).toHaveTextContent('none')
+  })
+
+  test('does not let a crash report replace an existing notice', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('en')
+    const { dashboard, snapshot } = await seedSnapshot()
+    const initializedCrashSnapshot: AppSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        initialized: true,
+        preferredLanguage: 'zh-TW',
+      },
+      runtimeDiagnostics: {
+        ...snapshot.runtimeDiagnostics,
+        latestCrashReport: {
+          source: 'frontend-error',
+          recordedAt: '2026-04-25T13:00:00.000Z',
+          fatal: false,
+          message: 'render failed after route transition',
+          location: null,
+          path: '/tmp/pathkeep-render-crash.json',
+        },
+      },
+    }
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    vi.spyOn(backend, 'initializeArchive').mockResolvedValue(
+      initializedCrashSnapshot,
+    )
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    await user.click(screen.getByRole('button', { name: 'initialize' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('notice')).toHaveTextContent(
+        translator('shell.initializedNotice'),
+      ),
+    )
+    expect(screen.getByTestId('notice')).not.toHaveTextContent(
+      translator('shell.runtimeCrashNotice'),
     )
   })
 
@@ -448,5 +774,73 @@ describe('ShellDataProvider', () => {
       expect(screen.getByTestId('refresh-key')).toHaveTextContent('2'),
     )
     expect(loadDashboardSnapshotSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('surfaces dashboard refresh errors when runtime jobs drain', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+    const activeQueue: AiQueueStatus = {
+      paused: false,
+      concurrency: 1,
+      queued: 0,
+      running: 1,
+      failed: 0,
+      recentJobs: [],
+    }
+    const idleQueue: AiQueueStatus = {
+      ...activeQueue,
+      running: 0,
+    }
+    const activeRuntime: IntelligenceRuntimeSnapshot = {
+      queue: {
+        queued: 0,
+        running: 1,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        lastActivityAt: '2026-04-24T08:00:00Z',
+      },
+      plugins: [],
+      modules: [],
+      recentJobs: [],
+      notes: [],
+    }
+    const idleRuntime: IntelligenceRuntimeSnapshot = {
+      ...activeRuntime,
+      queue: {
+        ...activeRuntime.queue,
+        running: 0,
+        succeeded: 1,
+      },
+    }
+    vi.spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValueOnce(dashboard)
+      .mockRejectedValueOnce(new Error('runtime drain dashboard failed'))
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadAiQueueStatus')
+      .mockResolvedValueOnce(activeQueue)
+      .mockResolvedValue(idleQueue)
+    vi.spyOn(backend, 'loadIntelligenceRuntime')
+      .mockResolvedValueOnce(activeRuntime)
+      .mockResolvedValue(idleRuntime)
+
+    renderShellProbe()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('runtime-running')).toHaveTextContent('1'),
+    )
+    await user.click(screen.getByRole('button', { name: 'refresh-runtime' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('runtime-running')).toHaveTextContent('0'),
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'runtime drain dashboard failed',
+      ),
+    )
   })
 })

@@ -207,7 +207,7 @@ pub fn get_query_family_detail(
         |paths, config| {
             intelligence::get_query_family_detail(paths, config, session_database_key, request)
         },
-        |data| data.related_trails.is_empty(),
+        query_family_detail_is_empty,
     )
 }
 
@@ -263,12 +263,18 @@ pub fn get_refind_page_detail(
         |paths, config| {
             intelligence::get_refind_page_detail(paths, config, session_database_key, request)
         },
-        |data| {
-            data.explanation.visit_ids.is_empty()
-                && data.related_trails.is_empty()
-                && data.recent_days.is_empty()
-        },
+        refind_page_detail_is_empty,
     )
+}
+
+fn query_family_detail_is_empty(data: &QueryFamilyDetail) -> bool {
+    data.related_trails.is_empty()
+}
+
+fn refind_page_detail_is_empty(data: &RefindPageDetail) -> bool {
+    data.explanation.visit_ids.is_empty()
+        && data.related_trails.is_empty()
+        && data.recent_days.is_empty()
 }
 
 /// Explains why one canonical refind page qualifies as refind-worthy.
@@ -289,4 +295,22 @@ pub fn explain_entity(
     with_core_intelligence(session_database_key, |paths, config| {
         intelligence::explain_entity(paths, config, session_database_key, request)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detail_empty_predicates_cover_related_entity_edges() {
+        assert!(query_family_detail_is_empty(&QueryFamilyDetail::default()));
+        let mut query_detail = QueryFamilyDetail::default();
+        query_detail.related_trails.push(vault_core::TrailSummary::default());
+        assert!(!query_family_detail_is_empty(&query_detail));
+
+        assert!(refind_page_detail_is_empty(&RefindPageDetail::default()));
+        let mut refind_detail = RefindPageDetail::default();
+        refind_detail.explanation.visit_ids.push(42);
+        assert!(!refind_page_detail_is_empty(&refind_detail));
+    }
 }

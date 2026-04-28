@@ -36,7 +36,7 @@ describe('shared review primitives', () => {
   })
 
   test('renders shared target links with primary and secondary destinations', () => {
-    render(
+    const { container, rerender } = render(
       <MemoryRouter>
         <ReviewTargetLinksRow
           label="Open"
@@ -61,6 +61,28 @@ describe('shared review primitives', () => {
       'href',
       '/intelligence/domain/sqlite.org?range=custom&start=2026-04-18&end=2026-04-18&profileId=chrome%3ADefault',
     )
+
+    rerender(
+      <MemoryRouter>
+        <ReviewTargetLinksRow label="Open" fallback="No target available" />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('No target available')).toBeVisible()
+
+    rerender(
+      <MemoryRouter>
+        <ReviewTargetLinksRow label="Open" fallback={null} />
+      </MemoryRouter>,
+    )
+    expect(container).toBeEmptyDOMElement()
+
+    rerender(
+      <MemoryRouter>
+        <ReviewTargetLinksRow label="Open" primaryHref="/jobs" />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Open')).toBeVisible()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   test('switches generated artifact tabs and delegates copy/open actions', async () => {
@@ -116,6 +138,55 @@ describe('shared review primitives', () => {
     expect(onCopy).toHaveBeenCalledWith('path:b.txt', '/tmp/b.txt')
   })
 
+  test('hides the generated artifact viewer when no files are available', () => {
+    const { container } = render(
+      <GeneratedArtifactViewer
+        copyFeedback={null}
+        copyLabel="Copy"
+        copyPathLabel="Copy path"
+        errorMessage="Copy failed"
+        files={[]}
+        onCopy={vi.fn()}
+        onOpenPath={vi.fn()}
+        openPathLabel="Open path"
+        successMessage="Copied"
+      />,
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  test('renders generated artifacts without absolute-path actions', async () => {
+    const user = userEvent.setup()
+    const onCopy = vi.fn()
+
+    render(
+      <GeneratedArtifactViewer
+        copyFeedback={{ key: 'contents:notes.md', tone: 'error' }}
+        copyLabel="Copy"
+        copyPathLabel="Copy path"
+        errorMessage="Copy failed"
+        files={[
+          {
+            absolutePath: null,
+            contents: 'inline notes',
+            purpose: 'Notes',
+            relativePath: 'notes.md',
+          },
+        ]}
+        onCopy={onCopy}
+        openPathLabel="Open path"
+        successMessage="Copied"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(onCopy).toHaveBeenCalledWith('contents:notes.md', 'inline notes')
+    expect(screen.queryByRole('button', { name: 'Copy path' })).toBeNull()
+    expect(screen.queryByText('Open path')).toBeNull()
+    expect(screen.getByText('Copy failed')).toBeVisible()
+  })
+
   test('copies review values through the shared clipboard helper', async () => {
     const writeText = vi.fn(() => Promise.resolve(undefined))
     const originalClipboard = navigator.clipboard
@@ -145,6 +216,32 @@ describe('shared review primitives', () => {
       key: 'settings:app-root',
       tone: 'success',
     })
+
+    await expect(
+      copyReviewValue('/tmp/default-key', {
+        onFeedback,
+      }),
+    ).resolves.toBe('success')
+    expect(onFeedback).toHaveBeenLastCalledWith({
+      key: '/tmp/default-key',
+      tone: 'success',
+    })
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+
+    try {
+      await expect(copyReviewValue('/tmp/missing-clipboard')).resolves.toBe(
+        'error',
+      )
+    } finally {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
   })
 
   test('renders shared path-action rows with open/copy chrome and feedback', async () => {
@@ -178,6 +275,103 @@ describe('shared review primitives', () => {
       screen.getByText('Shared support actions stay reviewable.'),
     ).toBeVisible()
     expect(screen.getByText('Copied')).toBeVisible()
+  })
+
+  test('renders shared path-action rows with copy-only fallback keys', async () => {
+    const user = userEvent.setup()
+    const onCopy = vi.fn()
+    render(
+      <ReviewPathActionRow
+        copyFeedback={null}
+        copyLabel="Copy"
+        errorMessage="Copy failed"
+        label="Manifest"
+        onCopy={onCopy}
+        openPathLabel="Open path"
+        successMessage="Copied"
+        value="/tmp/pathkeep/manifest.json"
+      />,
+    )
+
+    expect(screen.getByText('/tmp/pathkeep/manifest.json')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Open path' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(onCopy).toHaveBeenCalledWith(
+      'path:/tmp/pathkeep/manifest.json',
+      '/tmp/pathkeep/manifest.json',
+    )
+  })
+
+  test('renders shared path-action rows without optional actions', () => {
+    render(
+      <ReviewPathActionRow
+        copyFeedback={null}
+        copyLabel="Copy"
+        errorMessage="Copy failed"
+        label="Manifest"
+        openPathLabel="Open path"
+        successMessage="Copied"
+        value="/tmp/pathkeep/manifest.json"
+      />,
+    )
+
+    expect(screen.getByText('/tmp/pathkeep/manifest.json')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Open path' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull()
+  })
+
+  test('renders shared path-action rows with open-only actions', async () => {
+    const user = userEvent.setup()
+    const onOpenPath = vi.fn()
+
+    render(
+      <ReviewPathActionRow
+        copyFeedback={null}
+        copyLabel="Copy"
+        errorMessage="Copy failed"
+        label="Manifest"
+        onOpenPath={onOpenPath}
+        openPathLabel="Open path"
+        successMessage="Copied"
+        value="/tmp/pathkeep/manifest.json"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Open path' }))
+    expect(onOpenPath).toHaveBeenCalledWith('/tmp/pathkeep/manifest.json')
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull()
+  })
+
+  test('renders generated artifact copy-path actions without open handlers', async () => {
+    const user = userEvent.setup()
+    const onCopy = vi.fn()
+
+    render(
+      <GeneratedArtifactViewer
+        copyFeedback={null}
+        copyLabel="Copy"
+        copyPathLabel="Copy path"
+        errorMessage="Copy failed"
+        files={[
+          {
+            absolutePath: '/tmp/manifest.json',
+            contents: '{}',
+            purpose: 'Manifest',
+            relativePath: 'manifest.json',
+          },
+        ]}
+        onCopy={onCopy}
+        openPathLabel="Open path"
+        successMessage="Copied"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Open path' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Copy path' }))
+    expect(onCopy).toHaveBeenCalledWith(
+      'path:manifest.json',
+      '/tmp/manifest.json',
+    )
   })
 
   test('renders shared runtime-boundary cards with metrics, notes, and actions', async () => {
@@ -220,6 +414,23 @@ describe('shared review primitives', () => {
     expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
+  test('renders runtime-boundary cards with plain metric values only', () => {
+    render(
+      <ReviewRuntimeBoundaryCard
+        metrics={[
+          {
+            label: 'Queue depth',
+            value: 0,
+          },
+        ]}
+        title="Queue"
+      />,
+    )
+
+    expect(screen.getByText('Queue depth')).toBeVisible()
+    expect(screen.getByText('0')).toHaveClass('config-value')
+  })
+
   test('renders verify-result rows as shared review sections', () => {
     render(
       <VerifyCheckList
@@ -245,6 +456,12 @@ describe('shared review primitives', () => {
     expect(
       screen.getByText('Manifest checksums and required entries match.'),
     ).toBeVisible()
+  })
+
+  test('renders no verify-result wrapper when there are no rows', () => {
+    const { container } = render(<VerifyCheckList items={[]} />)
+
+    expect(container).toBeEmptyDOMElement()
   })
 
   test('keeps PME tabs keyboard reachable and updates selection', async () => {

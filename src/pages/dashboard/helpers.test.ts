@@ -74,6 +74,11 @@ describe('dashboard helpers', () => {
     expect(summarizeRunSources(['chrome:Default', 'takeout:Google'], t)).toBe(
       'Chrome · Google Takeout',
     )
+    expect(summarizeRunSources(['firefox:default', 'safari:Personal'], t)).toBe(
+      'Firefox · Safari',
+    )
+    expect(summarizeRunSources(undefined, t)).toBe('Archive-wide')
+    expect(summarizeRunSources(['custom:Profile'], t)).toBe('custom')
   })
 
   test('buildDashboardStats preserves shipped details and unlock tone behavior', () => {

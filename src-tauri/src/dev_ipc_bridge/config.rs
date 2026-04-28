@@ -88,10 +88,12 @@ mod tests {
     #[test]
     fn resolves_bridge_config_from_env_with_defaults() {
         unsafe {
+            std::env::remove_var(DEV_IPC_BRIDGE_ENABLED_ENV);
             std::env::remove_var(DEV_IPC_BRIDGE_PORT_ENV);
             std::env::remove_var(DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV);
         }
 
+        assert!(!bridge_enabled());
         let config = resolve_bridge_config_from_env().expect("resolve config");
 
         assert_eq!(config.port, DEFAULT_DEV_IPC_BRIDGE_PORT);
@@ -99,5 +101,37 @@ mod tests {
             config.allowed_origins,
             vec!["http://127.0.0.1:1420".to_string(), "http://localhost:1420".to_string()]
         );
+
+        unsafe {
+            std::env::set_var(DEV_IPC_BRIDGE_ENABLED_ENV, " YES ");
+            std::env::set_var(DEV_IPC_BRIDGE_PORT_ENV, "43118");
+            std::env::set_var(
+                DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV,
+                " http://127.0.0.1:1420, ,http://localhost:1420 ",
+            );
+        }
+
+        assert!(bridge_enabled());
+        let config = resolve_bridge_config_from_env().expect("resolve overridden config");
+        assert_eq!(config.port, 43_118);
+        assert_eq!(
+            config.allowed_origins,
+            vec!["http://127.0.0.1:1420".to_string(), "http://localhost:1420".to_string()]
+        );
+
+        unsafe {
+            std::env::set_var(DEV_IPC_BRIDGE_ENABLED_ENV, "false");
+            std::env::set_var(DEV_IPC_BRIDGE_PORT_ENV, "not-a-port");
+        }
+
+        assert!(!bridge_enabled());
+        let invalid_port = resolve_bridge_config_from_env().expect_err("invalid bridge port");
+        assert!(format!("{invalid_port:#}").contains("PATHKEEP_DEV_IPC_PORT"));
+
+        unsafe {
+            std::env::remove_var(DEV_IPC_BRIDGE_ENABLED_ENV);
+            std::env::remove_var(DEV_IPC_BRIDGE_PORT_ENV);
+            std::env::remove_var(DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV);
+        }
     }
 }

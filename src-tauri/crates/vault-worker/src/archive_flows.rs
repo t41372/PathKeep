@@ -20,7 +20,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use vault_core::{
-    AiIndexRequest, BackupProgressEvent, BrowserHistoryImportRequest,
+    AiIndexRequest, AiQueueJob, BackupProgressEvent, BrowserHistoryImportRequest,
     ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest, DashboardSnapshot,
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
     ImportBatchDetail, ImportProgressEvent, RemoteBackupPreview, RemoteBackupResult,
@@ -134,31 +134,16 @@ where
                     provider_id: Some(provider.config.id),
                     ..AiIndexRequest::default()
                 };
-                match ai_archive_connection(&paths, &config, session_database_key) {
-                    Ok(connection) => match ai_queue::enqueue_index_job(
-                        &connection,
-                        &auto_index_request,
-                        config.ai.job_queue_paused,
-                    ) {
-                        Ok(job) if config.ai.job_queue_paused => report.warnings.push(format!(
-                            "AI auto-index queued job {} while the AI queue is paused.",
-                            job.id
-                        )),
-                        Ok(_job) => {
-                            maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
-                        }
-                        Err(error) => report.warnings.push(format!(
-                            "AI auto-index could not enqueue a follow-up job: {error}"
-                        )),
-                    },
-                    Err(error) => report.warnings.push(format!(
-                        "AI auto-index is enabled, but the embedding provider is not ready: {error}"
-                    )),
+                if append_ai_auto_index_archive_result(
+                    &mut report.warnings,
+                    ai_archive_connection(&paths, &config, session_database_key),
+                    &auto_index_request,
+                    config.ai.job_queue_paused,
+                ) {
+                    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, 1);
                 }
             }
-            Err(error) => report.warnings.push(format!(
-                "AI auto-index is enabled, but the embedding provider is not ready: {error}"
-            )),
+            Err(error) => append_ai_auto_index_provider_warning(&mut report.warnings, error),
         }
     }
     if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
@@ -170,16 +155,15 @@ where
             })
             .map(|profile| profile.profile_id.clone())
             .collect::<Vec<_>>();
-        if let Err(error) = enqueue_and_spawn_deterministic_refresh(
-            &paths,
-            &config,
-            session_database_key,
-            &dirty_profiles,
-        ) {
-            report
-                .warnings
-                .push(format!("Core Intelligence could not refresh after backup: {error}"));
-        }
+        append_core_refresh_backup_result(
+            &mut report.warnings,
+            enqueue_and_spawn_deterministic_refresh(
+                &paths,
+                &config,
+                session_database_key,
+                &dirty_profiles,
+            ),
+        );
     }
     Ok(report)
 }
@@ -310,24 +294,15 @@ where
         report_progress,
     )?;
     if inspection.imported_items > 0 {
-        match enqueue_and_spawn_deterministic_refresh(
-            &paths,
-            &config,
-            session_database_key,
-            &["takeout::browser-history".to_string()],
-        ) {
-            Ok(job_ids) => inspection.notes.push(format!(
-                "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
-                job_ids
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )),
-            Err(error) => inspection.notes.push(format!(
-                "Core Intelligence could not refresh automatically after import: {error}"
-            )),
-        }
+        append_core_refresh_import_result(
+            &mut inspection.notes,
+            enqueue_and_spawn_deterministic_refresh(
+                &paths,
+                &config,
+                session_database_key,
+                &["takeout::browser-history".to_string()],
+            ),
+        );
     }
     Ok(inspection)
 }
@@ -361,24 +336,15 @@ where
         if let Some(profile_id) =
             inspection.import_batch.as_ref().map(|batch| batch.profile_id.clone())
         {
-            match enqueue_and_spawn_deterministic_refresh(
-                &paths,
-                &config,
-                session_database_key,
-                &[profile_id],
-            ) {
-                Ok(job_ids) => inspection.notes.push(format!(
-                    "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
-                    job_ids
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )),
-                Err(error) => inspection.notes.push(format!(
-                    "Core Intelligence could not refresh automatically after import: {error}"
-                )),
-            }
+            append_core_refresh_import_result(
+                &mut inspection.notes,
+                enqueue_and_spawn_deterministic_refresh(
+                    &paths,
+                    &config,
+                    session_database_key,
+                    &[profile_id],
+                ),
+            );
         }
     }
     Ok(inspection)
@@ -443,17 +409,7 @@ fn enqueue_and_spawn_deterministic_refresh(
         &connection,
         "Archive data changed and Core Intelligence refresh jobs were queued.",
     )?;
-    let rebuild_scopes = if dirty_profiles.is_empty() {
-        vec![CoreIntelligenceRebuildRequest::default()]
-    } else {
-        dirty_profiles
-            .iter()
-            .map(|profile_id| CoreIntelligenceRebuildRequest {
-                profile_id: Some(profile_id.clone()),
-                ..CoreIntelligenceRebuildRequest::default()
-            })
-            .collect::<Vec<_>>()
-    };
+    let rebuild_scopes = core_refresh_rebuild_scopes(dirty_profiles);
     let mut job_ids = Vec::with_capacity(rebuild_scopes.len() * 3);
     for request in &rebuild_scopes {
         let scope_label = request.profile_id.as_deref().unwrap_or("all profiles").to_string();
@@ -482,4 +438,148 @@ fn enqueue_and_spawn_deterministic_refresh(
         maybe_spawn_intelligence_queue_drain(paths, config, session_database_key, job_ids.len());
     }
     Ok(job_ids)
+}
+
+fn append_core_refresh_backup_result(warnings: &mut Vec<String>, result: Result<Vec<i64>>) {
+    if let Err(error) = result {
+        warnings.push(format!("Core Intelligence could not refresh after backup: {error}"));
+    }
+}
+
+fn append_ai_auto_index_enqueue_result(
+    warnings: &mut Vec<String>,
+    result: Result<AiQueueJob>,
+    queue_paused: bool,
+) -> bool {
+    match result {
+        Ok(job) if queue_paused => {
+            warnings
+                .push(format!("AI auto-index queued job {} while the AI queue is paused.", job.id));
+            false
+        }
+        Ok(_) => true,
+        Err(error) => {
+            warnings.push(format!("AI auto-index could not enqueue a follow-up job: {error}"));
+            false
+        }
+    }
+}
+
+fn append_ai_auto_index_archive_result(
+    warnings: &mut Vec<String>,
+    connection: Result<rusqlite::Connection>,
+    request: &AiIndexRequest,
+    queue_paused: bool,
+) -> bool {
+    match connection {
+        Ok(connection) => append_ai_auto_index_enqueue_result(
+            warnings,
+            ai_queue::enqueue_index_job(&connection, request, queue_paused),
+            queue_paused,
+        ),
+        Err(error) => {
+            append_ai_auto_index_provider_warning(warnings, error);
+            false
+        }
+    }
+}
+
+fn append_ai_auto_index_provider_warning(warnings: &mut Vec<String>, error: anyhow::Error) {
+    warnings.push(format!(
+        "AI auto-index is enabled, but the embedding provider is not ready: {error}"
+    ));
+}
+
+fn append_core_refresh_import_result(notes: &mut Vec<String>, result: Result<Vec<i64>>) {
+    match result {
+        Ok(job_ids) => notes.push(core_refresh_import_note(&job_ids)),
+        Err(error) => notes.push(format!(
+            "Core Intelligence could not refresh automatically after import: {error}"
+        )),
+    }
+}
+
+fn core_refresh_import_note(job_ids: &[i64]) -> String {
+    format!(
+        "Core Intelligence refresh jobs {} were queued automatically after import and will finish in the background.",
+        job_ids.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+    )
+}
+
+fn core_refresh_rebuild_scopes(dirty_profiles: &[String]) -> Vec<CoreIntelligenceRebuildRequest> {
+    if dirty_profiles.is_empty() {
+        vec![CoreIntelligenceRebuildRequest::default()]
+    } else {
+        dirty_profiles
+            .iter()
+            .map(|profile_id| CoreIntelligenceRebuildRequest {
+                profile_id: Some(profile_id.clone()),
+                ..CoreIntelligenceRebuildRequest::default()
+            })
+            .collect::<Vec<_>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        append_ai_auto_index_archive_result, append_ai_auto_index_enqueue_result,
+        append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
+        append_core_refresh_import_result, core_refresh_import_note, core_refresh_rebuild_scopes,
+    };
+    use vault_core::AiQueueJob;
+
+    #[test]
+    fn core_refresh_note_helpers_cover_success_error_and_scope_edges() {
+        assert!(core_refresh_import_note(&[1, 2, 3]).contains("1, 2, 3"));
+
+        let mut notes = Vec::new();
+        append_core_refresh_import_result(&mut notes, Ok(vec![7, 8]));
+        append_core_refresh_import_result(&mut notes, Err(anyhow::anyhow!("queue offline")));
+        assert!(notes.iter().any(|note| note.contains("7, 8")));
+        assert!(notes.iter().any(|note| note.contains("queue offline")));
+
+        let mut warnings = Vec::new();
+        append_core_refresh_backup_result(&mut warnings, Ok(vec![1]));
+        append_core_refresh_backup_result(&mut warnings, Err(anyhow::anyhow!("archive locked")));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("archive locked"));
+
+        let mut ai_warnings = Vec::new();
+        assert!(!append_ai_auto_index_enqueue_result(
+            &mut ai_warnings,
+            Ok(AiQueueJob { id: 42, ..AiQueueJob::default() }),
+            true,
+        ));
+        assert!(ai_warnings[0].contains("queued job 42"));
+        assert!(append_ai_auto_index_enqueue_result(
+            &mut ai_warnings,
+            Ok(AiQueueJob::default()),
+            false,
+        ));
+        assert!(!append_ai_auto_index_enqueue_result(
+            &mut ai_warnings,
+            Err(anyhow::anyhow!("queue offline")),
+            false,
+        ));
+        append_ai_auto_index_provider_warning(
+            &mut ai_warnings,
+            anyhow::anyhow!("provider missing"),
+        );
+        assert!(!append_ai_auto_index_archive_result(
+            &mut ai_warnings,
+            Err(anyhow::anyhow!("archive unavailable")),
+            &vault_core::AiIndexRequest::default(),
+            false,
+        ));
+        assert!(ai_warnings.iter().any(|warning| warning.contains("queue offline")));
+        assert!(ai_warnings.iter().any(|warning| warning.contains("provider missing")));
+        assert!(ai_warnings.iter().any(|warning| warning.contains("archive unavailable")));
+
+        let all_profiles = core_refresh_rebuild_scopes(&[]);
+        assert_eq!(all_profiles.len(), 1);
+        assert!(all_profiles[0].profile_id.is_none());
+        let scoped = core_refresh_rebuild_scopes(&["chrome:Default".to_string()]);
+        assert_eq!(scoped[0].profile_id.as_deref(), Some("chrome:Default"));
+    }
 }

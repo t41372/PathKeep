@@ -231,6 +231,22 @@ mod tests {
             Some("data:image/png;base64,iVBORw0KGgoB".to_string())
         );
         assert_eq!(
+            image_data_to_data_url(&[0xFF, 0xD8, 0xFF, 0x00]),
+            Some("data:image/jpeg;base64,/9j/AA==".to_string())
+        );
+        assert_eq!(
+            image_data_to_data_url(b"GIF89a"),
+            Some("data:image/gif;base64,R0lGODlh".to_string())
+        );
+        assert_eq!(
+            image_data_to_data_url(&[0x00, 0x00, 0x01, 0x00]),
+            Some("data:image/x-icon;base64,AAABAA==".to_string())
+        );
+        assert_eq!(
+            image_data_to_data_url(b"RIFF\x00\x00\x00\x00WEBP"),
+            Some("data:image/webp;base64,UklGRgAAAABXRUJQ".to_string())
+        );
+        assert_eq!(
             image_data_to_data_url(br#"<?xml version="1.0"?><svg viewBox="0 0 1 1"></svg>"#),
             Some(
                 "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB2aWV3Qm94PSIwIDAgMSAxIj48L3N2Zz4="

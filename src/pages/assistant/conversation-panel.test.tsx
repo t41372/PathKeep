@@ -151,6 +151,65 @@ describe('assistant conversation panel', () => {
     expect(handleCancelJob).toHaveBeenCalledWith(77)
   })
 
+  test('renders sparse assistant responses without queued actions', () => {
+    const response: AiAssistantResponse = {
+      state: 'queued',
+      answer: '',
+      jobId: null,
+      runId: null,
+      providerId: '',
+      embeddingProviderId: '',
+      citations: [
+        {
+          historyId: 10,
+          profileId: '',
+          url: 'https://fallback.example/source',
+          title: null,
+          visitedAt: 'not-a-date',
+          score: 0.25,
+        },
+      ],
+      notes: [],
+    }
+
+    render(
+      <MemoryRouter>
+        <AssistantConversationPanel
+          assistantT={assistantT}
+          handleCancelJob={vi.fn()}
+          handleDrainQueue={vi.fn()}
+          handleLoadQueuedJob={vi.fn()}
+          input=""
+          language="en"
+          messages={[
+            {
+              id: 'assistant-sparse',
+              role: 'assistant',
+              content: '',
+              response,
+            },
+          ]}
+          onInputChange={vi.fn()}
+          onPromptPick={vi.fn()}
+          onSend={vi.fn()}
+          queueAction={null}
+          responseMetaFor={() => ({ label: 'Queued', tone: 'warning' })}
+          sending={false}
+          suggestedQuestions={[]}
+          t={t}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText(/not-a-date/)).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: /https:\/\/fallback\.example\/source/ }),
+    ).toHaveAttribute('href', expect.stringContaining('/explorer?'))
+    expect(
+      screen.queryByRole('button', { name: assistantT('checkStatus') }),
+    ).toBeNull()
+  })
+
   test('renders the sending state and disables composer actions while a reply is pending', async () => {
     const user = userEvent.setup()
     const onInputChange = vi.fn()

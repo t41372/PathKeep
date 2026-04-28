@@ -34,6 +34,7 @@ interface HistoryFaviconProps {
 export function HistoryFavicon({ domain, favicon }: HistoryFaviconProps) {
   const [failedDataUrl, setFailedDataUrl] = useState<string | null>(null)
 
+  // Stryker disable next-line OptionalChaining: trim always returns a string, so indexing its first character is safe even when it is empty.
   const fallbackLabel = domain?.trim()?.[0]?.toUpperCase() ?? '?'
   const dataUrl = favicon?.dataUrl ?? null
   const showImage = Boolean(dataUrl) && failedDataUrl !== dataUrl

@@ -19,9 +19,6 @@
 //!   is the main guardrail that keeps repeat backups from replaying old rows.
 
 use super::super::*;
-use browser_history_parser::{
-    ChromiumReadCursor, HistoryDatabaseSet, ParsedHistory, chromium, firefox, safari,
-};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OpenFlags};
 
@@ -38,16 +35,6 @@ pub(super) struct Watermark {
     pub(super) updated_at: String,
 }
 
-/// Carries parser output plus the newest cursors observed in one staged snapshot.
-#[derive(Debug)]
-pub(super) struct ParsedProfileSnapshot {
-    pub(super) history: ParsedHistory,
-    pub(super) last_visit_id: i64,
-    pub(super) last_url_marker: Option<i64>,
-    pub(super) last_download_id: Option<i64>,
-    pub(super) last_favicon_marker: Option<i64>,
-}
-
 /// Parses a saved source checkpoint without incremental cursors so restore preview can size the replay.
 pub(super) fn preview_snapshot_counts(
     snapshot: &ProfileSnapshot,
@@ -57,88 +44,6 @@ pub(super) fn preview_snapshot_counts(
         "chromium" => preview_chromium_snapshot_counts(snapshot),
         "firefox" => preview_firefox_snapshot_counts(snapshot),
         "safari" => preview_safari_snapshot_counts(snapshot),
-        family => anyhow::bail!("browser family `{family}` is not supported by the archive engine"),
-    }
-}
-
-/// Parses one staged profile snapshot using the correct browser-family parser and cursors.
-pub(super) fn parse_profile_snapshot(
-    snapshot: &ProfileSnapshot,
-    config: &AppConfig,
-    watermark: &Watermark,
-) -> Result<ParsedProfileSnapshot> {
-    match snapshot.profile.browser_family.as_str() {
-        "chromium" => {
-            let history = chromium::parse_history(
-                &HistoryDatabaseSet {
-                    history_path: snapshot.history_path.clone(),
-                    favicons_path: if config.capture_favicons {
-                        snapshot.favicons_path.clone()
-                    } else {
-                        None
-                    },
-                },
-                ChromiumReadCursor {
-                    after_visit_id: watermark.last_visit_id,
-                    after_url_last_visit_time: watermark.last_url_last_visit_time,
-                    after_download_id: watermark.last_download_id,
-                    after_favicon_last_updated: watermark.last_favicon_last_updated,
-                },
-            )?;
-            let last_visit_id =
-                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
-            let last_url_marker =
-                history.urls.iter().map(|url| ms_to_chromium_time(url.last_visit_ms)).max();
-            let last_download_id =
-                history.downloads.iter().map(|download| download.source_download_id).max();
-            let last_favicon_marker = history
-                .favicons
-                .iter()
-                .map(|favicon| ms_to_chromium_time(favicon.last_updated_ms))
-                .max();
-
-            Ok(ParsedProfileSnapshot {
-                history,
-                last_visit_id,
-                last_url_marker,
-                last_download_id,
-                last_favicon_marker,
-            })
-        }
-        "firefox" => {
-            let history = firefox::parse_history(
-                &snapshot.history_path,
-                watermark.last_visit_id,
-                watermark.last_url_last_visit_time,
-            )?;
-            let last_visit_id =
-                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
-            let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
-            Ok(ParsedProfileSnapshot {
-                history,
-                last_visit_id,
-                last_url_marker,
-                last_download_id: None,
-                last_favicon_marker: None,
-            })
-        }
-        "safari" => {
-            let history = safari::parse_history(
-                &snapshot.history_path,
-                watermark.last_visit_id,
-                watermark.last_url_last_visit_time,
-            )?;
-            let last_visit_id =
-                history.visits.iter().map(|visit| visit.source_visit_id).max().unwrap_or_default();
-            let last_url_marker = history.urls.iter().map(|url| url.last_visit_ms).max();
-            Ok(ParsedProfileSnapshot {
-                history,
-                last_visit_id,
-                last_url_marker,
-                last_download_id: None,
-                last_favicon_marker: None,
-            })
-        }
         family => anyhow::bail!("browser family `{family}` is not supported by the archive engine"),
     }
 }
@@ -240,11 +145,6 @@ pub(super) fn should_checkpoint(
     Utc::now() - last_checkpoint_at.with_timezone(&Utc) > Duration::days(checkpoint_days as i64)
 }
 
-/// Converts canonical visit milliseconds back into Chromium's microsecond epoch for fingerprints.
-fn ms_to_chromium_time(value_ms: i64) -> i64 {
-    unix_micros_to_chrome_time(value_ms.saturating_mul(1_000))
-}
-
 fn preview_chromium_snapshot_counts(snapshot: &ProfileSnapshot) -> Result<(usize, usize, usize)> {
     let connection = open_snapshot_connection(&snapshot.history_path)?;
     let urls = query_table_count(&connection, "urls", "SELECT COUNT(*) FROM urls")?;
@@ -320,4 +220,196 @@ fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
         )
         .map(|exists| exists != 0)
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    use tempfile::tempdir;
+
+    fn profile(family: &str) -> crate::models::BrowserProfile {
+        crate::models::BrowserProfile {
+            profile_id: format!("{family}:Default"),
+            profile_name: "Default".to_string(),
+            browser_family: family.to_string(),
+            browser_name: family.to_string(),
+            user_name: None,
+            profile_path: "/tmp/profile".to_string(),
+            history_path: None,
+            favicons_path: None,
+            history_exists: true,
+            history_readable: true,
+            access_issue: None,
+            browser_version: None,
+            history_file_name: "History".to_string(),
+            history_bytes: 0,
+            favicons_bytes: 0,
+            supporting_bytes: 0,
+            retention_boundary: crate::models::BrowserRetentionBoundary::default(),
+        }
+    }
+
+    fn snapshot(
+        temp_dir: tempfile::TempDir,
+        family: &str,
+        history_path: std::path::PathBuf,
+    ) -> ProfileSnapshot {
+        ProfileSnapshot {
+            profile: profile(family),
+            temp_dir,
+            history_path,
+            favicons_path: None,
+            source_hashes: vec![],
+        }
+    }
+
+    #[test]
+    fn preview_snapshot_counts_cover_supported_families_optional_tables_and_errors() {
+        let chromium_dir = tempdir().expect("chromium tempdir");
+        let chromium_path = chromium_dir.path().join("History");
+        Connection::open(&chromium_path)
+            .expect("chromium db")
+            .execute_batch(
+                "CREATE TABLE urls (id INTEGER PRIMARY KEY);
+                 CREATE TABLE visits (id INTEGER PRIMARY KEY);
+                 INSERT INTO urls (id) VALUES (1), (2);
+                 INSERT INTO visits (id) VALUES (1), (2), (3);",
+            )
+            .expect("chromium schema");
+        assert_eq!(
+            preview_snapshot_counts(
+                &snapshot(chromium_dir, "chromium", chromium_path),
+                &AppConfig::default(),
+            )
+            .expect("chromium counts"),
+            (3, 2, 0)
+        );
+
+        let firefox_dir = tempdir().expect("firefox tempdir");
+        let firefox_path = firefox_dir.path().join("places.sqlite");
+        Connection::open(&firefox_path)
+            .expect("firefox db")
+            .execute_batch(
+                "CREATE TABLE moz_places (id INTEGER PRIMARY KEY, last_visit_date INTEGER);
+                 CREATE TABLE moz_historyvisits (id INTEGER PRIMARY KEY);
+                 INSERT INTO moz_places (id, last_visit_date) VALUES (1, 1), (2, NULL);
+                 INSERT INTO moz_historyvisits (id) VALUES (1), (2);",
+            )
+            .expect("firefox schema");
+        assert_eq!(
+            preview_snapshot_counts(
+                &snapshot(firefox_dir, "firefox", firefox_path),
+                &AppConfig::default(),
+            )
+            .expect("firefox counts"),
+            (2, 1, 0)
+        );
+
+        let safari_dir = tempdir().expect("safari tempdir");
+        let safari_path = safari_dir.path().join("History.db");
+        Connection::open(&safari_path)
+            .expect("safari db")
+            .execute_batch(
+                "CREATE TABLE history_items (id INTEGER PRIMARY KEY);
+                 CREATE TABLE history_visits (id INTEGER PRIMARY KEY, history_item INTEGER);
+                 INSERT INTO history_items (id) VALUES (1), (2);
+                 INSERT INTO history_visits (id, history_item) VALUES (1, 1), (2, 1), (3, 2);",
+            )
+            .expect("safari schema");
+        assert_eq!(
+            preview_snapshot_counts(
+                &snapshot(safari_dir, "safari", safari_path),
+                &AppConfig::default()
+            )
+            .expect("safari counts"),
+            (3, 2, 0)
+        );
+
+        let unsupported_dir = tempdir().expect("unsupported tempdir");
+        let unsupported_path = unsupported_dir.path().join("History");
+        Connection::open(&unsupported_path).expect("unsupported db");
+        let error = preview_snapshot_counts(
+            &snapshot(unsupported_dir, "netscape", unsupported_path),
+            &AppConfig::default(),
+        )
+        .expect_err("unsupported family");
+        assert!(error.to_string().contains("not supported"));
+
+        let missing_table_dir = tempdir().expect("missing table tempdir");
+        let missing_table_path = missing_table_dir.path().join("History");
+        Connection::open(&missing_table_path).expect("missing table db");
+        let error = preview_snapshot_counts(
+            &snapshot(missing_table_dir, "chromium", missing_table_path),
+            &AppConfig::default(),
+        )
+        .expect_err("missing required table");
+        assert!(error.to_string().contains("required table `urls`"));
+    }
+
+    #[test]
+    fn watermark_helpers_round_trip_and_checkpoint_edges() {
+        let connection = Connection::open_in_memory().expect("memory db");
+        crate::archive::create_schema(&connection).expect("schema");
+        let mut connection = connection;
+        let transaction = connection.transaction().expect("transaction");
+
+        let missing = load_watermark(&transaction, "chrome:Default").expect("missing watermark");
+        assert_eq!(missing.last_visit_id, 0);
+        assert!(!missing.updated_at.is_empty());
+
+        let saved = Watermark {
+            last_visit_id: 7,
+            last_url_last_visit_time: 8,
+            last_download_id: 9,
+            last_favicon_last_updated: 10,
+            last_checkpoint_at: Some("2026-04-01T00:00:00+00:00".to_string()),
+            last_schema_hash: Some("schema-a".to_string()),
+            last_source_batch_id: Some(11),
+            updated_at: "2026-04-02T00:00:00+00:00".to_string(),
+        };
+        save_watermark(&transaction, "chrome:Default", &saved).expect("save watermark");
+        let loaded = load_watermark(&transaction, "chrome:Default").expect("load watermark");
+        assert_eq!(loaded.last_visit_id, 7);
+        assert_eq!(loaded.last_url_last_visit_time, 8);
+        assert_eq!(loaded.last_download_id, 9);
+        assert_eq!(loaded.last_favicon_last_updated, 10);
+        assert_eq!(loaded.last_checkpoint_at.as_deref(), Some("2026-04-01T00:00:00+00:00"));
+        assert_eq!(loaded.last_schema_hash.as_deref(), Some("schema-a"));
+        assert_eq!(loaded.last_source_batch_id, Some(11));
+
+        assert!(should_checkpoint(&loaded, "schema-b", 30));
+        assert!(should_checkpoint(
+            &Watermark { last_schema_hash: Some("schema-a".to_string()), ..Watermark::default() },
+            "schema-a",
+            30,
+        ));
+        assert!(should_checkpoint(
+            &Watermark {
+                last_schema_hash: Some("schema-a".to_string()),
+                last_checkpoint_at: Some("not-a-date".to_string()),
+                ..Watermark::default()
+            },
+            "schema-a",
+            30,
+        ));
+        assert!(should_checkpoint(
+            &Watermark {
+                last_schema_hash: Some("schema-a".to_string()),
+                last_checkpoint_at: Some("2020-01-01T00:00:00+00:00".to_string()),
+                ..Watermark::default()
+            },
+            "schema-a",
+            30,
+        ));
+        assert!(!should_checkpoint(
+            &Watermark {
+                last_schema_hash: Some("schema-a".to_string()),
+                last_checkpoint_at: Some(Utc::now().to_rfc3339()),
+                ..Watermark::default()
+            },
+            "schema-a",
+            30,
+        ));
+    }
 }

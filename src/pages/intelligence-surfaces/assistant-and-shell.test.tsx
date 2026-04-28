@@ -30,6 +30,7 @@ import { backend } from '../../lib/backend-client'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import type {
+  AiAssistantResponse,
   AiProviderConnectionTestReport,
   AiQueueStatus,
 } from '../../lib/types'
@@ -171,6 +172,441 @@ describe('intelligence surfaces', () => {
     ).toBeVisible()
 
     window.localStorage.removeItem('pathkeep.profile-scope')
+  })
+
+  test('renders assistant setup, lock, and disabled gates truthfully', async () => {
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+
+    const uninitialized = structuredClone(snapshot)
+    uninitialized.config.initialized = false
+    const setupView = renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot: uninitialized,
+    })
+    expect(
+      await screen.findByText(assistantT('archiveNotInitializedTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: assistantT('goToSetup') }),
+    ).toHaveAttribute('href', '/onboarding')
+    setupView.unmount()
+
+    const locked = structuredClone(snapshot)
+    locked.archiveStatus.unlocked = false
+    locked.appLockStatus.locked = true
+    const lockedView = renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot: locked,
+    })
+    expect(await screen.findByText(assistantT('lockedTitle'))).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: assistantT('reviewSecurity') }),
+    ).toHaveAttribute('href', '/security')
+    lockedView.unmount()
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot,
+    })
+    expect(await screen.findByText(assistantT('disabledTitle'))).toBeVisible()
+    expect(screen.getByText(assistantT('examplePromptTimeline'))).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: assistantT('openSettings') }),
+    ).toHaveAttribute('href', '/settings')
+  })
+
+  test('handles assistant queue refresh, queued answers, run, cancel, and failures', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+
+    const queuedResponse = (jobId: number): AiAssistantResponse => ({
+      state: 'queued',
+      answer: `queued answer ${jobId}`,
+      jobId,
+      runId: null,
+      providerId: 'llm-local',
+      embeddingProviderId: 'embed-local',
+      citations: [],
+      notes: [],
+    })
+    const completedResponse = (
+      jobId: number,
+      answer: string,
+    ): AiAssistantResponse => ({
+      state: 'completed',
+      answer,
+      jobId,
+      runId: 44,
+      providerId: 'llm-local',
+      embeddingProviderId: 'embed-local',
+      citations: [],
+      notes: ['Queue action completed.'],
+    })
+    const shellValue = createShellValue(snapshot)
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockRejectedValueOnce('refresh unavailable')
+      .mockResolvedValue({
+        aiQueue: {
+          paused: false,
+          concurrency: 1,
+          queued: 0,
+          running: 0,
+          failed: 0,
+          recentJobs: [],
+        },
+        intelligence: createEmptyRuntimeSnapshot(),
+        loading: false,
+        error: null,
+      })
+    const askAssistant = vi
+      .spyOn(backend, 'askAiAssistant')
+      .mockResolvedValueOnce(queuedResponse(501))
+      .mockResolvedValueOnce(queuedResponse(502))
+      .mockResolvedValueOnce(queuedResponse(503))
+      .mockResolvedValueOnce(queuedResponse(504))
+      .mockResolvedValueOnce(queuedResponse(505))
+      .mockRejectedValueOnce('assistant offline')
+      .mockResolvedValueOnce({
+        state: 'completed',
+        answer: 'Immediate answer without queue id.',
+        jobId: null,
+        runId: null,
+        providerId: 'llm-local',
+        embeddingProviderId: 'embed-local',
+        citations: [],
+        notes: [],
+      })
+    const loadAssistantJob = vi
+      .spyOn(backend, 'loadAiAssistantJob')
+      .mockResolvedValueOnce(completedResponse(501, 'Loaded queued answer.'))
+      .mockResolvedValueOnce(completedResponse(502, 'Cancelled queued answer.'))
+      .mockRejectedValueOnce(new Error('queued load failed'))
+    const runQueue = vi.spyOn(backend, 'runAiQueueJobs').mockResolvedValue({
+      paused: false,
+      concurrency: 1,
+      queued: 0,
+      running: 0,
+      failed: 0,
+      recentJobs: [],
+    })
+    const cancelJob = vi.spyOn(backend, 'cancelAiJob').mockResolvedValue({
+      id: 502,
+      jobType: 'assistant',
+      state: 'cancelled',
+      priority: 10,
+      attempt: 1,
+      maxAttempts: 3,
+      runId: null,
+      summary: null,
+      queuedAt: '2026-04-07T18:00:00Z',
+      availableAt: '2026-04-07T18:00:00Z',
+      startedAt: null,
+      finishedAt: '2026-04-07T18:10:00Z',
+      heartbeatAt: null,
+      errorCode: null,
+      errorMessage: null,
+    })
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant?question=seeded%20question',
+      shellValue,
+      snapshot,
+    })
+
+    const refreshButton = await screen.findByRole('button', {
+      name: assistantT('refreshQueue'),
+    })
+    await user.click(refreshButton)
+    expect(
+      await screen.findByText(assistantT('loadingQueueAction')),
+    ).toBeVisible()
+
+    const input = await screen.findByLabelText(assistantT('inputLabel'))
+    expect(input).toHaveValue('seeded question')
+    await user.clear(input)
+    await user.type(input, 'run queued answer{enter}')
+    expect(await screen.findByText('queued answer 501')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: assistantT('runQueuedJob') }),
+    )
+    await waitFor(() => {
+      expect(runQueue).toHaveBeenCalledWith(1)
+    })
+    expect(loadAssistantJob).toHaveBeenCalledWith(501)
+    expect(await screen.findByText('Loaded queued answer.')).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'cancel queued answer{enter}')
+    expect(await screen.findByText('queued answer 502')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: assistantT('cancel') }))
+    await waitFor(() => {
+      expect(cancelJob).toHaveBeenCalledWith(502)
+    })
+    expect(loadAssistantJob).toHaveBeenCalledWith(502)
+    expect(await screen.findByText('Cancelled queued answer.')).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'check queued failure{enter}')
+    expect(await screen.findByText('queued answer 503')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: assistantT('checkStatus') }),
+    )
+    await waitFor(() => {
+      expect(loadAssistantJob).toHaveBeenCalledWith(503)
+    })
+    expect(await screen.findByText('queued load failed')).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'run queue failure{enter}')
+    expect(await screen.findByText('queued answer 504')).toBeVisible()
+    runQueue.mockRejectedValueOnce(new Error('queue run failed'))
+    await user.click(
+      screen
+        .getAllByRole('button', { name: assistantT('runQueuedJob') })
+        .at(-1)!,
+    )
+    await waitFor(() => {
+      expect(runQueue).toHaveBeenCalledTimes(2)
+    })
+    expect(await screen.findByText('queue run failed')).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'cancel queued failure{enter}')
+    expect(await screen.findByText('queued answer 505')).toBeVisible()
+    cancelJob.mockRejectedValueOnce(new Error('cancel failed'))
+    await user.click(
+      screen.getAllByRole('button', { name: assistantT('cancel') }).at(-1)!,
+    )
+    await waitFor(() => {
+      expect(cancelJob).toHaveBeenCalledWith(505)
+    })
+    expect(await screen.findByText('cancel failed')).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'force failure{enter}')
+    expect(
+      (await screen.findAllByText(assistantT('failedResponse')))[0],
+    ).toBeVisible()
+    expect(askAssistant).toHaveBeenLastCalledWith({
+      question: 'force failure',
+      profileId: null,
+    })
+
+    await user.clear(input)
+    await user.type(input, 'answer immediately{enter}')
+    expect(
+      await screen.findByText('Immediate answer without queue id.'),
+    ).toBeVisible()
+  })
+
+  test('surfaces assistant provider probe failures without masking the runtime panel', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    vi.spyOn(backend, 'testAiProviderConnection').mockRejectedValue(
+      new Error('provider offline'),
+    )
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot,
+    })
+
+    await user.click(
+      await screen.findByRole('button', { name: assistantT('testProvider') }),
+    )
+
+    expect(await screen.findByText('provider offline')).toBeVisible()
+    expect(screen.getByText(assistantT('runningContext'))).toBeVisible()
+  })
+
+  test('ignores blank assistant submissions without touching the backend', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    const askAssistant = vi.spyOn(backend, 'askAiAssistant')
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot,
+    })
+
+    await user.click(
+      await screen.findByRole('button', { name: assistantT('sendAction') }),
+    )
+
+    expect(askAssistant).not.toHaveBeenCalled()
+  })
+
+  test('keeps assistant gates truthful when the shell snapshot is missing', async () => {
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      shellValue: {
+        ...createShellValue(snapshot),
+        snapshot: null,
+      },
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(assistantT('archiveNotInitializedTitle')),
+    ).toBeVisible()
+  })
+
+  test('uses assistant fallback copy for non-Error queue action failures', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+
+    vi.spyOn(backend, 'askAiAssistant')
+      .mockResolvedValueOnce(queuedAssistantResponse(601))
+      .mockResolvedValueOnce(queuedAssistantResponse(602))
+      .mockResolvedValueOnce(queuedAssistantResponse(603))
+    vi.spyOn(backend, 'loadAiAssistantJob').mockRejectedValue(
+      'queued status unavailable',
+    )
+    vi.spyOn(backend, 'runAiQueueJobs').mockRejectedValue('run unavailable')
+    vi.spyOn(backend, 'cancelAiJob').mockRejectedValue('cancel unavailable')
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot,
+    })
+
+    const input = await screen.findByLabelText(assistantT('inputLabel'))
+
+    await user.type(input, 'load fallback{enter}')
+    expect(await screen.findByText('queued answer 601')).toBeVisible()
+    await user.click(
+      screen.getByRole('button', { name: assistantT('checkStatus') }),
+    )
+    expect(
+      await screen.findByText(assistantT('loadingQueuedAnswerAction')),
+    ).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'run fallback{enter}')
+    expect(await screen.findByText('queued answer 602')).toBeVisible()
+    await user.click(
+      screen
+        .getAllByRole('button', { name: assistantT('runQueuedJob') })
+        .at(-1)!,
+    )
+    expect(
+      await screen.findByText(assistantT('runningQueuedJobsAction')),
+    ).toBeVisible()
+
+    await user.clear(input)
+    await user.type(input, 'cancel fallback{enter}')
+    expect(await screen.findByText('queued answer 603')).toBeVisible()
+    await user.click(
+      screen.getAllByRole('button', { name: assistantT('cancel') }).at(-1)!,
+    )
+    expect(
+      await screen.findByText(assistantT('cancellingAssistantJobAction')),
+    ).toBeVisible()
+  })
+
+  test('surfaces provider, assistant, and runtime queue fallback states', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    snapshot.aiStatus.queuedJobs = 4
+    snapshot.aiStatus.runningJobs = 2
+
+    vi.spyOn(backend, 'testAiProviderConnection').mockRejectedValue(
+      'provider returned a non-error failure',
+    )
+    vi.spyOn(backend, 'askAiAssistant').mockRejectedValue(
+      new Error('assistant hard fail'),
+    )
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: null,
+      intelligence: createEmptyRuntimeSnapshot(),
+      loading: false,
+      error: 'queue health failed',
+    }
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      shellValue,
+      snapshot,
+    })
+
+    expect(await screen.findByText('queue health failed')).toBeVisible()
+    expect(screen.getAllByText('4').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0)
+
+    await user.click(
+      screen.getByRole('button', { name: assistantT('testProvider') }),
+    )
+    expect(
+      await screen.findByText(assistantT('testingProviderAction')),
+    ).toBeVisible()
+
+    const input = await screen.findByLabelText(assistantT('inputLabel'))
+    await user.type(input, 'force error branch{enter}')
+
+    expect((await screen.findAllByText('assistant hard fail')).length).toBe(2)
+  })
+
+  test('keeps assistant providerless runtime states explicit', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    snapshot.config.ai.llmProviderId = null
+    snapshot.config.ai.embeddingProviderId = null
+    snapshot.config.ai.llmProviders = []
+    snapshot.config.ai.embeddingProviders = []
+    const providerProbe = vi.spyOn(backend, 'testAiProviderConnection')
+    vi.spyOn(backend, 'askAiAssistant').mockRejectedValue(
+      'providerless failure',
+    )
+    const shellValue = createShellValue(snapshot)
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockRejectedValue(new Error('refresh hard fail'))
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      shellValue,
+      snapshot,
+    })
+
+    const testProvider = await screen.findByRole('button', {
+      name: assistantT('testProvider'),
+    })
+    expect(testProvider).toBeDisabled()
+    await user.click(testProvider)
+    expect(providerProbe).not.toHaveBeenCalled()
+    expect(screen.getByText(assistantT('noLlmProviderSelected'))).toBeVisible()
+    expect(
+      screen.getAllByText(assistantT('lexicalFallback')).length,
+    ).toBeGreaterThan(0)
+
+    await user.click(
+      screen.getByRole('button', { name: assistantT('refreshQueue') }),
+    )
+    expect(await screen.findByText('refresh hard fail')).toBeVisible()
+
+    const input = await screen.findByLabelText(assistantT('inputLabel'))
+    await user.type(input, 'ask without providers{enter}')
+    expect(
+      (await screen.findAllByText(assistantT('failedResponse'))).length,
+    ).toBeGreaterThan(0)
   })
 
   test('inherits shared intelligence scope and lets explicit profileId override it', async () => {
@@ -583,3 +1019,16 @@ describe('intelligence surfaces', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+function queuedAssistantResponse(jobId: number): AiAssistantResponse {
+  return {
+    state: 'queued',
+    answer: `queued answer ${jobId}`,
+    jobId,
+    runId: null,
+    providerId: 'llm-local',
+    embeddingProviderId: 'embed-local',
+    citations: [],
+    notes: [],
+  }
+}

@@ -182,14 +182,9 @@ export function dominantStorageGroup(
     ? value
     : buildStorageAnalyticsSummary(value)
 
-  return (
-    [...storageAnalyticsGroups(summary)].sort(
-      (left, right) => right.bytes - left.bytes,
-    )[0] ?? {
-      id: 'coreHistory',
-      bytes: 0,
-    }
-  )
+  return [...storageAnalyticsGroups(summary)].sort(
+    (left, right) => right.bytes - left.bytes,
+  )[0]
 }
 
 /**

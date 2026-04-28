@@ -37,7 +37,8 @@ pub use self::{
 use self::{
     discovery::{
         direct_root_chromium_profile, discover_chromium_profiles, discover_firefox_profiles,
-        discover_safari_profile, fallback_chromium_profiles, parse_firefox_profile_names,
+        discover_safari_profile, fallback_chromium_profiles, history_access_state,
+        parse_firefox_profile_names,
     },
     paths::{
         chromium_relative_paths, current_chromium_relative_paths, current_firefox_relative_paths,

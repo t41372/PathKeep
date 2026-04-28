@@ -5,6 +5,9 @@ import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 import { resolveDesktopBridgeEnv } from './scripts/pathkeep-dev-desktop-bridge.mjs'
 
+const macosSandboxLaunchArgs =
+  process.platform === 'darwin' ? ['--single-process'] : []
+
 function chromeTimestampMicros(timestampMs: number) {
   return Math.trunc(timestampMs * 1_000 + 11_644_473_600_000_000)
 }
@@ -264,6 +267,9 @@ export default defineConfig({
       name: 'chrome-desktop-bridge',
       use: {
         ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: macosSandboxLaunchArgs,
+        },
       },
     },
   ],

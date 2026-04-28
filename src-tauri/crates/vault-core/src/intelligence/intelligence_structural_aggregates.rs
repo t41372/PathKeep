@@ -184,10 +184,8 @@ pub(super) fn build_source_effectiveness(
                 trail_counts.get(&domain).map(|value| value.len()).unwrap_or(0) as i64;
             let source_role = if reference_count >= stable_landing_count && reference_count > 0 {
                 "reference"
-            } else if stable_landing_count > 0 {
-                "landing"
             } else {
-                "entry"
+                "landing"
             };
             let effectiveness_score = (stable_landing_count as f32 * 2.0)
                 + (reference_count as f32 * 1.5)
@@ -535,9 +533,6 @@ fn habit_records_for_domains(
                 .windows(2)
                 .map(|window| (window[1] - window[0]).num_days() as f32)
                 .collect::<Vec<_>>();
-            if intervals.is_empty() {
-                return None;
-            }
             let mean = intervals.iter().sum::<f32>() / intervals.len() as f32;
             let variance = intervals.iter().map(|value| (*value - mean).powi(2)).sum::<f32>()
                 / intervals.len() as f32;

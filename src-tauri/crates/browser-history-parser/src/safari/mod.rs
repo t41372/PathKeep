@@ -563,53 +563,60 @@ fn extend_typed_evidence_from_visit_row(
                     stats.scores += 1;
                 }
             }
-            SafariVisitExtraColumn::LoadSuccessful
-            | SafariVisitExtraColumn::HttpNonGet
-            | SafariVisitExtraColumn::Synthesized
-            | SafariVisitExtraColumn::Origin
+            SafariVisitExtraColumn::LoadSuccessful => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    typed_evidence.context.push(ContextEvidence {
+                        source_visit_id: Some(visit.source_visit_id),
+                        source_url_id: Some(visit.source_url_id),
+                        context_key: "safari.load_successful".to_string(),
+                        value_json: json!(value != 0).to_string(),
+                        source_field: column.source_field(),
+                    });
+                    stats.load_outcomes += 1;
+                }
+            }
+            SafariVisitExtraColumn::HttpNonGet => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    typed_evidence.context.push(ContextEvidence {
+                        source_visit_id: Some(visit.source_visit_id),
+                        source_url_id: Some(visit.source_url_id),
+                        context_key: "safari.http_non_get".to_string(),
+                        value_json: json!(value != 0).to_string(),
+                        source_field: column.source_field(),
+                    });
+                    stats.http_methods += 1;
+                }
+            }
+            SafariVisitExtraColumn::Synthesized => {
+                if let Some(value) = row.get::<_, Option<i64>>(index)? {
+                    typed_evidence.context.push(ContextEvidence {
+                        source_visit_id: Some(visit.source_visit_id),
+                        source_url_id: Some(visit.source_url_id),
+                        context_key: "safari.synthesized".to_string(),
+                        value_json: json!(value != 0).to_string(),
+                        source_field: column.source_field(),
+                    });
+                    stats.synthesized_rows += 1;
+                }
+            }
+            SafariVisitExtraColumn::Origin
             | SafariVisitExtraColumn::Generation
             | SafariVisitExtraColumn::Attributes => {
                 if let Some(value) = row.get::<_, Option<i64>>(index)? {
-                    let context_key = match column {
-                        SafariVisitExtraColumn::LoadSuccessful => "safari.load_successful",
-                        SafariVisitExtraColumn::HttpNonGet => "safari.http_non_get",
-                        SafariVisitExtraColumn::Synthesized => "safari.synthesized",
-                        SafariVisitExtraColumn::Origin => "safari.origin",
-                        SafariVisitExtraColumn::Generation => "safari.generation",
-                        SafariVisitExtraColumn::Attributes => "safari.attributes",
-                        SafariVisitExtraColumn::RedirectSource
-                        | SafariVisitExtraColumn::RedirectDestination
-                        | SafariVisitExtraColumn::Score => unreachable!(),
-                    };
-                    let value_json = match column {
-                        SafariVisitExtraColumn::LoadSuccessful
-                        | SafariVisitExtraColumn::HttpNonGet
-                        | SafariVisitExtraColumn::Synthesized => json!(value != 0).to_string(),
-                        SafariVisitExtraColumn::Origin
-                        | SafariVisitExtraColumn::Generation
-                        | SafariVisitExtraColumn::Attributes => json!(value).to_string(),
-                        SafariVisitExtraColumn::RedirectSource
-                        | SafariVisitExtraColumn::RedirectDestination
-                        | SafariVisitExtraColumn::Score => unreachable!(),
+                    let context_key = if *column == SafariVisitExtraColumn::Origin {
+                        "safari.origin"
+                    } else if *column == SafariVisitExtraColumn::Generation {
+                        "safari.generation"
+                    } else {
+                        "safari.attributes"
                     };
                     typed_evidence.context.push(ContextEvidence {
                         source_visit_id: Some(visit.source_visit_id),
                         source_url_id: Some(visit.source_url_id),
                         context_key: context_key.to_string(),
-                        value_json,
+                        value_json: json!(value).to_string(),
                         source_field: column.source_field(),
                     });
-                    match column {
-                        SafariVisitExtraColumn::LoadSuccessful => stats.load_outcomes += 1,
-                        SafariVisitExtraColumn::HttpNonGet => stats.http_methods += 1,
-                        SafariVisitExtraColumn::Synthesized => stats.synthesized_rows += 1,
-                        SafariVisitExtraColumn::Origin
-                        | SafariVisitExtraColumn::Generation
-                        | SafariVisitExtraColumn::Attributes => {}
-                        SafariVisitExtraColumn::RedirectSource
-                        | SafariVisitExtraColumn::RedirectDestination
-                        | SafariVisitExtraColumn::Score => unreachable!(),
-                    }
                 }
             }
         }
@@ -761,11 +768,17 @@ mod tests {
                    synthesized INTEGER,
                    redirect_source INTEGER,
                    redirect_destination INTEGER,
-                   origin INTEGER,
-                   generation INTEGER,
-                   attributes INTEGER,
-                   score REAL
-                 );",
+	                   origin INTEGER,
+	                   generation INTEGER,
+	                   attributes INTEGER,
+	                   score REAL
+	                 );
+	                 CREATE TABLE history_tombstones (
+	                   id INTEGER PRIMARY KEY,
+	                   reason TEXT
+	                 );
+	                 INSERT INTO history_tombstones (id, reason)
+	                 VALUES (101, 'deleted'), (102, 'synced');",
             )
             .expect("create current safari schema");
         connection
@@ -880,7 +893,7 @@ mod tests {
         assert_eq!(sink.navigation_evidence, 2);
         assert_eq!(sink.engagement_evidence, 2);
         assert!(sink.context_evidence >= 6);
-        assert!(sink.native_entities >= 3);
+        assert!(sink.native_entities >= 5);
         assert!(streamed.native_entities.is_empty());
         assert!(streamed.typed_evidence.navigation.is_empty());
         assert!(streamed.typed_evidence.engagement.is_empty());

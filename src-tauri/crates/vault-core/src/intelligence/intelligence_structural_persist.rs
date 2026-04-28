@@ -247,3 +247,45 @@ fn delete_structural_memberships_in_range(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structural_profile_aggregate_replace_persists_habit_patterns() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+        crate::intelligence::ensure_core_intelligence_schema(&connection).expect("schema");
+        let habits = vec![super::super::HabitPatternRecord {
+            profile_id: "p1".to_string(),
+            registrable_domain: "example.com".to_string(),
+            habit_type: "weekly".to_string(),
+            mean_interval_days: 7.0,
+            cv: 0.15,
+            visit_count: 8,
+            last_visited_ms: 1767225600000,
+            is_interrupted: true,
+        }];
+
+        replace_structural_profile_aggregates(
+            &connection,
+            "p1",
+            &[],
+            &[],
+            &habits,
+            &[],
+            &[],
+            "2026-01-01T00:00:00Z",
+        )
+        .expect("replace aggregates");
+
+        let row: (String, i64) = connection
+            .query_row(
+                "SELECT habit_type, is_interrupted FROM habit_patterns WHERE profile_id = 'p1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("habit row");
+        assert_eq!(row, ("weekly".to_string(), 1));
+    }
+}

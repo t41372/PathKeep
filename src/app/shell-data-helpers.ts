@@ -206,29 +206,9 @@ export function buildBackupOverlay(
         })
       : null,
   ].filter((line): line is string => Boolean(line))
-  const profileCurrent =
-    progress.phase === 'stage-profile' || progress.phase === 'ingest-profile'
-      ? progress.completedProfiles + 1
-      : progress.completedProfiles
   const sourceDetail = progress.sourceLabel ?? progress.profileId ?? null
-  const progressLabel =
-    progress.totalProfiles > 0
-      ? `${profileCurrent.toLocaleString()} / ${progress.totalProfiles.toLocaleString()}`
-      : null
 
   switch (progress.phase) {
-    case 'prepare': {
-      const detail = t('shell.runningManualBackupDetail')
-      return {
-        label: t('shell.runningManualBackup'),
-        detail,
-        progressLabel: t('shell.backupProgressPending'),
-        progressValue: null,
-        steps: backupSteps,
-        activeStep: 0,
-        logLines: [detail],
-      }
-    }
     case 'stage-profile':
     case 'ingest-profile': {
       const detail = sourceDetail ?? t('shell.backupWritingArchiveDetail')
@@ -237,8 +217,7 @@ export function buildBackupOverlay(
         detail,
         progressLabel:
           recordProgressLabel ?? t('shell.backupRecordProgressPending'),
-        progressValue:
-          recordProgressLabel !== null ? recordProgressValue : null,
+        progressValue: recordProgressValue,
         steps: backupSteps,
         activeStep: 1,
         logLines: recordLogLines.length > 0 ? recordLogLines : [detail],
@@ -249,6 +228,10 @@ export function buildBackupOverlay(
         current: progress.completedProfiles,
         total: progress.totalProfiles,
       })
+      const progressLabel =
+        progress.totalProfiles > 0
+          ? `${progress.completedProfiles.toLocaleString()} / ${progress.totalProfiles.toLocaleString()}`
+          : null
       return {
         label: t('shell.refreshingArchiveViews'),
         detail,

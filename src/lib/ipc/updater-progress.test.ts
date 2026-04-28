@@ -57,4 +57,20 @@ describe('subscribeToUpdaterProgress', () => {
     )
     expect(result).toBe(unsubscribe)
   })
+
+  test('ignores empty updater payloads and degrades to a noop unsubscribe', async () => {
+    const listener = vi.fn()
+    listen.mockImplementationOnce((_event, handler) => {
+      handler({ payload: null })
+      return Promise.resolve(vi.fn())
+    })
+
+    await subscribeToUpdaterProgress(listener)
+    expect(listener).not.toHaveBeenCalled()
+
+    listen.mockReset()
+    listen.mockRejectedValueOnce(new Error('event bridge unavailable'))
+    const result = await subscribeToUpdaterProgress(listener)
+    expect(result()).toBeUndefined()
+  })
 })

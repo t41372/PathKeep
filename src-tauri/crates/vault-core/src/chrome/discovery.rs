@@ -365,7 +365,7 @@ pub(super) fn discover_safari_profile() -> Result<Option<BrowserProfile>> {
     }))
 }
 
-fn history_access_state(
+pub(super) fn history_access_state(
     history_path: &Path,
     history_exists: bool,
     browser_family: &str,

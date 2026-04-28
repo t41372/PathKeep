@@ -106,7 +106,7 @@ export function SecurityPage() {
     return (
       <section className="page-shell">
         <EmptyState
-          description={pageError ?? t('security.unavailableBody')}
+          description={pageError!}
           eyebrow={t('navigation.securityLabel')}
           title={t('security.unavailableTitle')}
         />

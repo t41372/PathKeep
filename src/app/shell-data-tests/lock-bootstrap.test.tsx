@@ -100,6 +100,7 @@ describe('ShellDataProvider', () => {
   })
 
   test('keeps the locked snapshot when the keyring returns no database key', async () => {
+    const user = userEvent.setup()
     const { dashboard, snapshot } = await seedSnapshot()
     const rememberedSnapshot: AppSnapshot = {
       ...snapshot,
@@ -142,6 +143,16 @@ describe('ShellDataProvider', () => {
     expect(keyringSpy).toHaveBeenCalledTimes(1)
     expect(sessionSpy).not.toHaveBeenCalled()
     expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('false')
+
+    const refreshKeyBefore = screen.getByTestId('refresh-key').textContent
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('refresh-key')).not.toHaveTextContent(
+        refreshKeyBefore ?? '',
+      ),
+    )
+    expect(keyringSpy).toHaveBeenCalledTimes(1)
+    expect(sessionSpy).not.toHaveBeenCalled()
   })
 
   test('boots into the lock state and reloads shell data after unlock', async () => {
@@ -181,6 +192,7 @@ describe('ShellDataProvider', () => {
     expect(screen.getByTestId('app-lock-enabled')).toHaveTextContent('true')
     expect(screen.getByTestId('app-lock-locked')).toHaveTextContent('true')
     expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
+    expect(screen.getByTestId('refresh-key')).toHaveTextContent(/^1$/)
     expect(getAppSnapshotSpy).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'unlock' }))
@@ -278,5 +290,6 @@ describe('ShellDataProvider', () => {
     )
     expect(screen.getByTestId('snapshot-language')).toHaveTextContent('none')
     expect(screen.getByTestId('error')).toHaveTextContent('none')
+    expect(screen.getByTestId('refresh-key')).toHaveTextContent(/^2$/)
   })
 })

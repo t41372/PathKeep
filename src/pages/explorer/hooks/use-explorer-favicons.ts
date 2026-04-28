@@ -130,11 +130,7 @@ export function useExplorerFavicons({
         }
 
         setCacheState((current) => {
-          const baseEntries =
-            current.token === cacheToken
-              ? current.entries
-              : new Map<string, HistoryEntry['favicon'] | null>()
-          const next = new Map(baseEntries)
+          const next = new Map(current.entries)
           for (const entry of missingEntries) {
             next.set(entry.cacheKey, null)
           }

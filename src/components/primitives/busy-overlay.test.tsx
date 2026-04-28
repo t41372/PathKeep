@@ -19,9 +19,12 @@ import { BusyOverlay } from './busy-overlay'
 
 describe('BusyOverlay', () => {
   test('renders the primary status label on its own', () => {
-    render(<BusyOverlay label="Running backup" />)
+    const { container } = render(<BusyOverlay label="Running backup" />)
 
     expect(screen.getByRole('status')).toHaveTextContent('Running backup')
+    expect(container.querySelector('.busy-overlay__detail')).toBeNull()
+    expect(container.querySelector('.busy-overlay__progress')).toBeNull()
+    expect(container.querySelector('.busy-overlay__steps')).toBeNull()
   })
 
   test('renders detail text and step progress when provided', () => {
@@ -80,5 +83,55 @@ describe('BusyOverlay', () => {
       container.querySelector('.busy-overlay__progress-fill--indeterminate'),
     ).toBeTruthy()
     expect(screen.queryByText(/%/)).not.toBeInTheDocument()
+  })
+
+  test('renders numeric progress without a label and pending steps without an active index', () => {
+    render(
+      <BusyOverlay
+        label="Refreshing derived views"
+        progressValue={2}
+        steps={['Open archive', 'Refresh summaries']}
+      />,
+    )
+
+    expect(screen.getByText('2%')).toBeVisible()
+    expect(
+      screen.getByText('Open archive').closest('.busy-overlay__step'),
+    ).toHaveClass('busy-overlay__step--pending')
+    expect(document.querySelector('.busy-overlay__progress-track')).toHaveClass(
+      'busy-overlay__progress-track',
+    )
+    expect(
+      document.querySelector('.busy-overlay__progress-track'),
+    ).toHaveAttribute('class', 'busy-overlay__progress-track')
+    expect(document.querySelector('.busy-overlay__progress-fill')).toHaveClass(
+      'busy-overlay__progress-fill',
+    )
+    expect(
+      document.querySelector('.busy-overlay__progress-fill'),
+    ).toHaveAttribute('class', 'busy-overlay__progress-fill')
+    expect(document.querySelector('.busy-overlay__progress-fill')).toHaveStyle({
+      width: '4%',
+    })
+  })
+
+  test('clamps progress and keeps only the latest log lines visible', () => {
+    const { container } = render(
+      <BusyOverlay
+        label="Streaming import"
+        progressValue={150.4}
+        logLines={['queued', 'opened', 'parsed', 'written', 'finalized']}
+      />,
+    )
+
+    expect(screen.getByText('100%')).toBeVisible()
+    expect(container.querySelector('.busy-overlay__progress-fill')).toHaveStyle(
+      {
+        width: '100%',
+      },
+    )
+    expect(screen.queryByText('queued')).not.toBeInTheDocument()
+    expect(screen.getByText('opened')).toBeVisible()
+    expect(screen.getByText('finalized')).toHaveClass('mono-support')
   })
 })

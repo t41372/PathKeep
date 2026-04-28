@@ -13,6 +13,7 @@
  * - Avoid locking tests to decorative markup when the actual contract is state visibility, routing, or accessible labeling.
  */
 
+import userEvent from '@testing-library/user-event'
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -25,6 +26,7 @@ import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
+import { ProfileScopeContext } from '../../lib/profile-scope-context'
 import { Sidebar } from './index'
 
 describe('Sidebar', () => {
@@ -34,6 +36,7 @@ describe('Sidebar', () => {
   })
 
   test('renders the product name, sections, and archive status', async () => {
+    const user = userEvent.setup()
     const router = createMemoryRouter(
       [
         {
@@ -66,6 +69,15 @@ describe('Sidebar', () => {
     expect(await screen.findByText('Encrypted archive')).toBeVisible()
     expect(screen.getByText('0 B')).toBeVisible()
     expect(screen.getByText('Profile scope: All profiles')).toBeVisible()
+
+    document.documentElement.setAttribute('data-theme', 'light')
+    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    expect(window.localStorage.getItem('pathkeep.theme')).toBe('dark')
+
+    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+    expect(window.localStorage.getItem('pathkeep.theme')).toBe('light')
   })
 
   test('renders the optional assistant badge', () => {
@@ -207,6 +219,147 @@ describe('Sidebar', () => {
     expect(
       screen.queryByText('Archive not initialized'),
     ).not.toBeInTheDocument()
+  })
+
+  test('keeps archive warnings and active profile names visible in the footer', async () => {
+    const snapshot = await backend.getAppSnapshot()
+    snapshot.config.initialized = true
+    snapshot.archiveStatus.initialized = true
+    snapshot.archiveStatus.warning = 'low disk headroom'
+    snapshot.archiveStatus.encrypted = false
+    snapshot.browserProfiles = [
+      {
+        profileId: 'chrome:Default',
+        profileName: 'Personal research',
+      },
+    ] as typeof snapshot.browserProfiles
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: snapshot.appLockStatus,
+      snapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <ProfileScopeContext.Provider
+          value={{
+            activeProfileId: 'chrome:Default',
+            setActiveProfileId: vi.fn(),
+          }}
+        >
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeContext.Provider>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Archive attention needed')).toBeVisible()
+    expect(screen.getByText('Plaintext archive')).toBeVisible()
+    expect(screen.getByText('Profile scope: Personal research')).toBeVisible()
+  })
+
+  test('falls back to readable profile id labels when active metadata is stale', async () => {
+    const snapshot = await backend.getAppSnapshot()
+    snapshot.config.initialized = true
+    snapshot.archiveStatus.initialized = true
+    snapshot.browserProfiles = []
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: snapshot.appLockStatus,
+      snapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <Sidebar collapsed={false} onToggle={() => {}} />,
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <ProfileScopeContext.Provider
+          value={{
+            activeProfileId: 'safari:Archived',
+            setActiveProfileId: vi.fn(),
+          }}
+        >
+          <ShellDataContext.Provider value={shellValue}>
+            <RouterProvider router={router} />
+          </ShellDataContext.Provider>
+        </ProfileScopeContext.Provider>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Profile scope: Archived')).toBeVisible()
   })
 
   test('shows the compact build revision and routes background work toward Security while locked', async () => {

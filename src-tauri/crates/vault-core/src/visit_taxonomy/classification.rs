@@ -292,3 +292,73 @@ fn matches_host_path_rule(normalized_url: &NormalizedVisitUrl, rule: &HostPathRu
 fn path_segments(path: &str) -> usize {
     path.split('/').filter(|segment| !segment.is_empty()).count()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{DomainCategory, InteractionKind, PageCategory};
+    use super::*;
+
+    fn normalized_url(preserved_query: Vec<(String, String)>) -> NormalizedVisitUrl {
+        NormalizedVisitUrl {
+            canonical_url: "https://www.youtube.com/watch".to_string(),
+            host: "www.youtube.com".to_string(),
+            registrable_domain: "youtube.com".to_string(),
+            subdomain: Some("www".to_string()),
+            path: "/watch".to_string(),
+            preserved_query,
+            dropped_tracking_params: Vec::new(),
+            search_query: None,
+            is_search_results: false,
+        }
+    }
+
+    fn query_rule() -> HostPathRule {
+        HostPathRule {
+            rule: TaxonomyRule {
+                id: "query-fixture",
+                domain_category: DomainCategory::Video,
+                page_category: PageCategory::VideoPage,
+                interaction_kind: InteractionKind::Watch,
+            },
+            host_suffixes: &["youtube.com"],
+            path_prefixes: &["/watch"],
+            path_contains: &[],
+            query_keys: &["v"],
+            query_value_contains: &["needle"],
+            path_segment_count_at_least: 0,
+        }
+    }
+
+    #[test]
+    fn taxonomy_fallback_reports_invalid_or_empty_domains() {
+        let analysis = analyze_visit(
+            VisitAnalysisInput {
+                url: "",
+                title: None,
+                query: None,
+                has_canonical_search_term: false,
+                external_referrer_url: None,
+                from_visit: None,
+            },
+            &[],
+        );
+
+        assert_eq!(analysis.taxonomy.domain_category, DomainCategory::Unknown);
+        assert!(analysis.taxonomy.reasons.iter().any(|reason| reason == "invalid-or-empty-domain"));
+    }
+
+    #[test]
+    fn host_path_rule_checks_query_keys_and_values() {
+        let rule = query_rule();
+
+        assert!(!matches_host_path_rule(&normalized_url(Vec::new()), &rule));
+        assert!(!matches_host_path_rule(
+            &normalized_url(vec![("v".to_string(), "plain".to_string())]),
+            &rule
+        ));
+        assert!(matches_host_path_rule(
+            &normalized_url(vec![("v".to_string(), "has-needle".to_string())]),
+            &rule
+        ));
+    }
+}

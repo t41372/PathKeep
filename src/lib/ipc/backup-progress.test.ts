@@ -60,4 +60,20 @@ describe('subscribeToBackupProgress', () => {
     )
     expect(result).toBe(unsubscribe)
   })
+
+  test('ignores empty backup payloads and degrades to a noop unsubscribe', async () => {
+    const listener = vi.fn()
+    listen.mockImplementationOnce((_event, handler) => {
+      handler({ payload: null })
+      return Promise.resolve(vi.fn())
+    })
+
+    await subscribeToBackupProgress(listener)
+    expect(listener).not.toHaveBeenCalled()
+
+    listen.mockReset()
+    listen.mockRejectedValueOnce(new Error('event bridge unavailable'))
+    const result = await subscribeToBackupProgress(listener)
+    expect(result()).toBeUndefined()
+  })
 })

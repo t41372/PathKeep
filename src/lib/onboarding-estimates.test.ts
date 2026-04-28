@@ -96,4 +96,26 @@ describe('onboarding storage estimates', () => {
       totalBytes: 0,
     })
   })
+
+  test('scales manifest storage once readable profile count exceeds the base allowance', () => {
+    const manyProfiles = Array.from({ length: 5 }, (_, index) => ({
+      ...profiles[0],
+      profileId: `chrome:Profile ${index + 1}`,
+      profileName: `Profile ${index + 1}`,
+    }))
+
+    expect(
+      estimateOnboardingStorage(
+        manyProfiles,
+        manyProfiles.map((profile) => profile.profileId),
+      ),
+    ).toEqual({
+      profileCount: 5,
+      sourceBytes: 575,
+      archiveDbBytes: 460,
+      manifestBytes: 327680,
+      snapshotsBytes: 575,
+      totalBytes: 328715,
+    })
+  })
 })

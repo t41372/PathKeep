@@ -80,7 +80,13 @@ function formatDate(d: Date): string {
 // Generic async data hook
 // ---------------------------------------------------------------------------
 
-interface AsyncState<T> {
+/**
+ * Names the route-facing async read state returned by Core Intelligence hooks.
+ *
+ * Exporting the shape keeps mutation and declaration checkers from inferring an
+ * unnamed private type through helper hooks that compose `useAsyncData()`.
+ */
+export interface AsyncState<T> {
   data: T | null
   loading: boolean
   error: string | null
@@ -120,47 +126,43 @@ export function useAsyncData<T>(
     fetcherRef.current = fetcher
   }, [fetcher])
 
-  const fetchData = useCallback(
-    (preferCached = false) => {
-      const requestId = requestIdRef.current + 1
-      requestIdRef.current = requestId
-      const cached = readCached()
-      setState((prev) => ({
-        data: cached ?? (preferCached ? prev.data : null),
-        loading: cached === null,
-        error: null,
-      }))
-      void fetcherRef.current().then(
-        (data) => {
-          if (requestIdRef.current !== requestId) {
-            return
-          }
-          setState({ data, loading: false, error: null })
-        },
-        (err: unknown) => {
-          if (requestIdRef.current !== requestId) {
-            return
-          }
-          const message = err instanceof Error ? err.message : String(err)
-          setState((prev) =>
-            prev.data === null
-              ? { ...prev, loading: false, error: message }
-              : { ...prev, loading: false, error: null },
-          )
-        },
-      )
-    },
-    [readCached],
-  )
+  const fetchData = useCallback(() => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
+    const cached = readCached()
+    setState({
+      data: cached,
+      loading: cached === null,
+      error: null,
+    })
+    void fetcherRef.current().then(
+      (data) => {
+        if (requestIdRef.current !== requestId) {
+          return
+        }
+        setState({ data, loading: false, error: null })
+      },
+      (err: unknown) => {
+        if (requestIdRef.current !== requestId) {
+          return
+        }
+        const message = err instanceof Error ? err.message : String(err)
+        setState((prev) =>
+          prev.data === null
+            ? { ...prev, loading: false, error: message }
+            : { ...prev, loading: false, error: null },
+        )
+      },
+    )
+  }, [readCached])
 
   useEffect(() => {
     if (depsRef.current !== depsJson) {
-      const preferCached = readCached() !== null
       let cancelled = false
       queueMicrotask(() => {
         if (!cancelled) {
           depsRef.current = depsJson
-          fetchData(preferCached)
+          fetchData()
         }
       })
       return () => {
@@ -201,11 +203,13 @@ export function useTimeRange(
     if (p !== 'custom') {
       setDateRange(dateRangeFromPreset(p))
     }
+    // Stryker disable next-line ArrayDeclaration: any constant dependency array preserves this callback contract.
   }, [])
 
   const setCustomRange = useCallback((range: DateRange) => {
     setPresetState('custom')
     setDateRange(range)
+    // Stryker disable next-line ArrayDeclaration: any constant dependency array preserves this callback contract.
   }, [])
 
   return { preset, dateRange, setPreset, setCustomRange }

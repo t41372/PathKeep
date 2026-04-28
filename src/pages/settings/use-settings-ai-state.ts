@@ -68,7 +68,9 @@ export function useSettingsAiState({
   const settingsNs = ns('settings')
   const intelligenceT = ns('intelligence')
   const [saving, setSaving] = useState(false)
-  const [aiDraft, setAiDraft] = useState<AiSettings | null>(null)
+  const [aiDraft, setAiDraft] = useState<AiSettings | null>(() =>
+    snapshot?.config.ai ? cloneAiSettings(snapshot.config.ai) : null,
+  )
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
   const [aiIntegrationPreview, setAiIntegrationPreview] =
     useState<AiIntegrationPreview | null>(null)
@@ -173,13 +175,11 @@ export function useSettingsAiState({
   }, [enableIntegrationPreview, snapshotAiSignature, t])
 
   function updateAiDraft(updater: (current: AiSettings) => AiSettings) {
-    if (!snapshot?.config.ai && !aiDraft) {
+    if (!aiDraft) {
       return
     }
 
-    setAiDraft((current) =>
-      updater(current ?? cloneAiSettings(snapshot!.config.ai)),
-    )
+    setAiDraft((current) => updater(current as AiSettings))
   }
 
   function syncAiDraft(settings: AiSettings) {

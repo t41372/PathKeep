@@ -1,13 +1,103 @@
 //! Regression tests for the Takeout parser boundary.
 
 use super::*;
-use crate::types::{HistoryBatchConsumer, ParsedUrl, ParsedVisit};
-use std::{fs, io::Write};
+use crate::types::{
+    HistoryBatchConsumer, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit,
+};
+use serde_json::Value;
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::PathBuf,
+};
 use tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
 fn browser_history_payload(records: &[&str]) -> String {
     format!(r#"{{"Browser History":[{}]}}"#, records.join(","))
+}
+
+fn collect_json_stream_records(bytes: &[u8], keys: &[&str]) -> Result<Vec<(Value, usize)>, String> {
+    let mut records = Vec::new();
+    json_stream::stream_payload_records(bytes, "payload.json", keys, |record, ordinal| {
+        records.push((record, ordinal));
+        Ok::<(), String>(())
+    })
+    .map_err(|error| error.to_string())?;
+    Ok(records)
+}
+
+#[test]
+fn json_stream_records_arrays_ordinals_errors_and_shape_rejections() {
+    let top_level = collect_json_stream_records(
+        br#"[{"url":"https://example.com/one"},{"url":"https://example.com/two"}]"#,
+        &[],
+    )
+    .expect("top-level records");
+    assert_eq!(top_level.len(), 2);
+    assert_eq!(top_level[1].1, 1);
+
+    let named = collect_json_stream_records(
+        br#"{"Ignored":[{"skip":true}],"Rows":[{"id":1},{"id":2}]}"#,
+        &["Rows"],
+    )
+    .expect("named records");
+    assert_eq!(named.len(), 2);
+    assert_eq!(named[0].0["id"], 1);
+
+    for bytes in [
+        br#"true"#.as_slice(),
+        br#"-1"#.as_slice(),
+        br#"18446744073709551615"#.as_slice(),
+        br#"1.5"#.as_slice(),
+        br#""literal""#.as_slice(),
+        br#"null"#.as_slice(),
+    ] {
+        let error = collect_json_stream_records(bytes, &["Rows"]).expect_err("primitive root");
+        assert!(error.contains("Takeout payload array or object"));
+    }
+
+    for bytes in [
+        br#"{"Rows":true}"#.as_slice(),
+        br#"{"Rows":-1}"#.as_slice(),
+        br#"{"Rows":18446744073709551615}"#.as_slice(),
+        br#"{"Rows":1.5}"#.as_slice(),
+        br#"{"Rows":"literal"}"#.as_slice(),
+        br#"{"Rows":null}"#.as_slice(),
+        br#"{"Rows":{"id":1}}"#.as_slice(),
+    ] {
+        let error =
+            collect_json_stream_records(bytes, &["Rows"]).expect_err("primitive named value");
+        assert!(error.contains("array of Takeout payload records"));
+    }
+
+    let callback = json_stream::stream_payload_records(
+        br#"[{"id":1},{"id":2}]"#,
+        "payload.json",
+        &[],
+        |_record, ordinal| {
+            if ordinal == 1 {
+                return Err("stop at second row".to_string());
+            }
+            Ok(())
+        },
+    )
+    .expect_err("callback error");
+    assert!(matches!(
+        callback,
+        json_stream::JsonRecordStreamError::Callback(ref error) if error == "stop at second row"
+    ));
+
+    let parse_error =
+        json_stream::stream_payload_records::<_, String>(b"{", "broken.json", &[], |_record, _| {
+            Ok(())
+        })
+        .expect_err("parse error");
+    assert!(matches!(
+        parse_error,
+        json_stream::JsonRecordStreamError::Parse(ref error)
+            if error.to_string().contains("broken.json")
+    ));
 }
 
 #[test]
@@ -38,6 +128,10 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
     assert_eq!(english.locale, Some("en"));
     assert_eq!(english.disposition, TakeoutPathDisposition::WillImport);
 
+    let spaced_backslash = classify_payload_path(" Chrome\\BrowserHistory.json ");
+    assert_eq!(spaced_backslash.recognized_kind, Some(KIND_BROWSER_JSON));
+    assert_eq!(spaced_backslash.locale, Some("en"));
+
     let german = classify_payload_path("Chrome/Verlauf.json");
     assert_eq!(german.recognized_kind, Some(KIND_BROWSER_JSON));
     assert_eq!(german.locale, Some("de"));
@@ -65,6 +159,72 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
 }
 
 #[test]
+fn classify_payload_path_covers_takeout_scope_matrix() {
+    let jsonl = classify_payload_path("entries.jsonl");
+    assert_eq!(jsonl.recognized_kind, Some(KIND_JSONL));
+    assert_eq!(jsonl.reason_code, "jsonl-history-fixture");
+
+    for typed_url in ["TypedUrl.json", "Typed Url.json"] {
+        let matched = classify_payload_path(typed_url);
+        assert_eq!(matched.recognized_kind, Some(KIND_TYPED_URL_JSON));
+        assert_eq!(matched.disposition, TakeoutPathDisposition::KnownIgnored);
+    }
+
+    for session in ["Session.json", "Sessions.json"] {
+        let matched = classify_payload_path(session);
+        assert_eq!(matched.recognized_kind, Some(KIND_SESSION_JSON));
+        assert_eq!(matched.reason_code, "source-evidence-only");
+    }
+
+    let index = classify_payload_path("archive_browser.html");
+    assert_eq!(index.recognized_kind, Some(KIND_INDEX));
+    assert_eq!(index.locale, Some("en"));
+
+    let german_index = classify_payload_path("archiv_übersicht.html");
+    assert_eq!(german_index.recognized_kind, Some(KIND_INDEX));
+    assert_eq!(german_index.locale, Some("de"));
+
+    let german_activity = classify_payload_path("Meine Aktivitäten/Chrome/Meine Aktivitäten.json");
+    assert_eq!(german_activity.reason_code, "chrome-my-activity-json");
+    assert_eq!(german_activity.locale, Some("de"));
+
+    let zh_cn_activity = classify_payload_path("我的活动/Chrome/我的活动.html");
+    assert_eq!(zh_cn_activity.reason_code, "chrome-my-activity-html");
+    assert_eq!(zh_cn_activity.locale, Some("zh-cn"));
+
+    let chrome_support = classify_payload_path("Chrome/Bookmarks.json");
+    assert_eq!(chrome_support.family, "chrome-supporting-file");
+    assert_eq!(chrome_support.disposition, TakeoutPathDisposition::KnownIgnored);
+    assert_eq!(chrome_support.reason_code, "chrome-supporting-file");
+
+    let chrome_history_like = classify_payload_path("Chrome/Browser-Backup.sqlite");
+    assert_eq!(chrome_history_like.disposition, TakeoutPathDisposition::NeedsReview);
+    assert_eq!(chrome_history_like.reason_code, "unrecognized-history-file");
+
+    let outside_activity = classify_payload_path("Meine Aktivitäten/Suche/MyActivity.json");
+    assert_eq!(outside_activity.family, "google-activity");
+    assert_eq!(outside_activity.locale, Some("de"));
+    assert_eq!(outside_activity.disposition, TakeoutPathDisposition::KnownIgnored);
+
+    let german_outside_scope = classify_payload_path("Google Fotos/metadata.json");
+    assert_eq!(german_outside_scope.locale, Some("de"));
+    assert_eq!(german_outside_scope.reason_code, "outside-chrome-scope");
+
+    let normalized_spaces = classify_payload_path("Google  Fotos/metadata.json");
+    assert_eq!(normalized_spaces.locale, Some("de"));
+
+    let unknown_history = classify_payload_path("some/random/history-export.txt");
+    assert_eq!(unknown_history.family, "unknown-history-like");
+    assert_eq!(unknown_history.disposition, TakeoutPathDisposition::NeedsReview);
+
+    let outside = classify_payload_path("some/random/file.txt");
+    assert_eq!(outside.family, "outside-scope");
+    assert_eq!(outside.disposition, TakeoutPathDisposition::KnownIgnored);
+
+    assert_eq!(recognize_payload("Chrome/History.json"), Some(KIND_BROWSER_JSON));
+}
+
+#[test]
 fn gather_takeout_files_skips_common_system_noise() {
     let dir = tempdir().expect("tempdir");
     let chrome_dir = dir.path().join("Chrome");
@@ -78,6 +238,108 @@ fn gather_takeout_files_skips_common_system_noise() {
     let files = source::gather_takeout_files(dir.path()).expect("gather files");
     assert_eq!(files.len(), 1);
     assert!(files[0].path.ends_with("Chrome/BrowserHistory.json"));
+}
+
+#[test]
+fn source_discovery_handles_empty_sources_direct_noise_and_zip_sniffing() {
+    let empty_dir = tempdir().expect("empty tempdir");
+    let inspection = inspect_history(empty_dir.path()).expect("inspect empty dir");
+    assert!(inspection.table_names.is_empty());
+    assert!(inspection.warnings.iter().any(|warning| warning.code == "no-recognized-payload"));
+
+    let noise = empty_dir.path().join(".DS_Store");
+    fs::write(&noise, "noise").expect("write noise");
+    let noise_files = source::gather_takeout_files(&noise).expect("gather direct noise");
+    assert!(noise_files.is_empty());
+
+    let direct = empty_dir.path().join("BrowserHistory.json");
+    fs::write(&direct, browser_history_payload(&[])).expect("write direct history");
+    let direct_files = source::gather_takeout_files(&direct).expect("gather direct file");
+    assert_eq!(direct_files.len(), 1);
+    let direct_bytes =
+        source::read_takeout_file(&direct, &direct_files[0]).expect("read direct file");
+    assert!(String::from_utf8_lossy(&direct_bytes).contains("Browser History"));
+
+    let zip_path = empty_dir.path().join("takeout.zip");
+    let file = fs::File::create(&zip_path).expect("create zip");
+    let mut zip = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default();
+    zip.start_file("__MACOSX/ignored.json", options).expect("start ignored entry");
+    zip.write_all(b"{}").expect("write ignored entry");
+    zip.start_file("Chrome/anything.json", options).expect("start sniff entry");
+    zip.write_all(
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/zip","title":"Zip","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
+    )
+    .expect("write sniff entry");
+    zip.finish().expect("finish zip");
+
+    let files = source::gather_takeout_files(&zip_path).expect("gather zip");
+    assert_eq!(files.len(), 1);
+    assert!(files[0].from_zip);
+    let path_match =
+        classify_payload_path_with_sniff(&zip_path, &files[0].path, true).expect("sniff zip");
+    assert_eq!(path_match.recognized_kind, Some(KIND_BROWSER_JSON));
+    let zip_bytes = source::read_takeout_file(&zip_path, &files[0]).expect("read zip entry");
+    assert!(String::from_utf8_lossy(&zip_bytes).contains("Browser History"));
+
+    let non_history = empty_dir.path().join("whatever.json");
+    fs::write(&non_history, r#"{"not":"browser history"}"#).expect("write non-history");
+    let no_sniff_match =
+        classify_payload_path_with_sniff(&non_history, &non_history.display().to_string(), false)
+            .expect("classify non-history direct file");
+    assert_eq!(no_sniff_match.recognized_kind, None);
+
+    let non_json_match =
+        classify_payload_path_with_sniff(empty_dir.path(), "Chrome/notes.txt", false)
+            .expect("classify non-json");
+    assert_eq!(non_json_match.recognized_kind, None);
+
+    let missing_zip = empty_dir.path().join("missing.zip");
+    let missing_zip_error =
+        source::gather_takeout_files(&missing_zip).expect_err("missing zip source");
+    assert!(missing_zip_error.to_string().contains("missing.zip"));
+
+    let missing_zip_sniff_error =
+        classify_payload_path_with_sniff(&missing_zip, "Chrome/anything.json", true)
+            .expect_err("missing zip sniff source");
+    assert!(missing_zip_sniff_error.to_string().contains("missing.zip"));
+
+    let missing_zip_entry =
+        source::TakeoutFile { path: "Chrome/BrowserHistory.json".to_string(), from_zip: true };
+    let missing_entry_error =
+        source::read_takeout_file(&missing_zip, &missing_zip_entry).expect_err("missing zip file");
+    assert!(missing_entry_error.to_string().contains("missing.zip"));
+
+    let missing_direct = empty_dir.path().join("Chrome").join("missing-direct.json");
+    let missing_direct_error = classify_payload_path_with_sniff(
+        empty_dir.path(),
+        &missing_direct.display().to_string(),
+        false,
+    )
+    .expect_err("missing direct sniff source");
+    assert!(missing_direct_error.to_string().contains("missing-direct.json"));
+}
+
+#[test]
+fn source_zip_reader_preserves_read_error_path_context() {
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("zip reader failed"))
+        }
+    }
+
+    let error = source::read_takeout_zip_reader(
+        FailingReader,
+        PathBuf::from("/tmp/takeout.zip::Chrome/BrowserHistory.json"),
+    )
+    .expect_err("failing zip reader");
+
+    assert!(error.to_string().contains("takeout.zip::Chrome/BrowserHistory.json"));
 }
 
 #[test]
@@ -121,7 +383,7 @@ fn parse_payload_extracts_browser_history_records() {
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
         browser_history_payload(&[
-            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000,"client_id":"abc"}"#,
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000,"client_id":"abc","favicon_url":"https://example.com/favicon.ico","page_transition":"LINK","ptoken":"token"}"#,
         ])
         .as_bytes(),
     )
@@ -138,6 +400,76 @@ fn parse_payload_extracts_browser_history_records() {
             .iter()
             .any(|item| item.key == "canonical.visits" && item.available)
     );
+}
+
+#[test]
+fn browser_history_payload_covers_jsonl_skips_duplicates_and_error_paths() {
+    let jsonl = parse_payload(
+        "entries.jsonl",
+        KIND_JSONL,
+        b"\n{\"url\":\"\",\"time_usec\":1711965600000000}\n{\"url\":\"https://example.com/repeat\",\"title\":\"Old\",\"time_usec\":\"1711965600000000\"}\n{\"url\":\"https://example.com/repeat\",\"title\":\"New\",\"visitedAt\":\"2024-04-01T11:00:00+00:00\"}\n{\"url\":\"https://example.com/missing-time\"}\n",
+    )
+    .expect("jsonl payload");
+    assert_eq!(jsonl.record_count, 2);
+    assert_eq!(jsonl.skipped_missing_visit_time, 1);
+    assert_eq!(jsonl.history.urls.len(), 1);
+    assert_eq!(jsonl.history.urls[0].visit_count, 2);
+    assert_eq!(jsonl.history.urls[0].title.as_deref(), Some("New"));
+    assert!(jsonl.history.warnings.iter().any(|warning| warning.code == "missing-visit-time"));
+
+    let bad_jsonl =
+        parse_payload("entries.jsonl", KIND_JSONL, b"{").expect_err("bad jsonl payload");
+    assert!(bad_jsonl.to_string().contains("entries.jsonl line 1"));
+
+    let bad_browser_json =
+        parse_payload("BrowserHistory.json", KIND_BROWSER_JSON, b"{").expect_err("bad json");
+    assert!(bad_browser_json.to_string().contains("BrowserHistory.json"));
+
+    #[derive(Default)]
+    struct FailingConsumer;
+
+    impl HistoryBatchConsumer for FailingConsumer {
+        type Error = String;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Err("url sink offline".to_string())
+        }
+
+        fn visits(&mut self, _batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl TakeoutSourceEvidenceConsumer<String> for FailingConsumer {
+        fn source_evidence(&mut self, _chunk: TakeoutSourceEvidenceChunk) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    let mut failing = FailingConsumer;
+    let sink_error = stream_payload(
+        "BrowserHistory.json",
+        KIND_BROWSER_JSON,
+        browser_history_payload(&[
+            r#"{"url":"https://example.com","title":"Example","time_usec":1711965600000000}"#,
+        ])
+        .as_bytes(),
+        1,
+        &mut failing,
+    )
+    .expect_err("canonical sink error");
+    assert!(sink_error.to_string().contains("url sink offline"));
+
+    let unsupported = browser_history::stream_browser_history_payload(
+        "Unknown.json",
+        "unknown-kind",
+        b"[]",
+        1,
+        TakeoutStreamOptions::default(),
+        &mut failing,
+    )
+    .expect_err("unsupported browser-history payload");
+    assert!(unsupported.to_string().contains("google-takeout-browser-history"));
 }
 
 #[test]
@@ -309,6 +641,164 @@ fn parse_payload_preserves_typed_url_and_session_payloads_as_native_entities() {
 }
 
 #[test]
+fn stream_payload_routes_index_unsupported_and_native_only_edges() {
+    #[derive(Default)]
+    struct RecordingConsumer {
+        source_chunks: usize,
+        native_entities: usize,
+    }
+
+    impl HistoryBatchConsumer for RecordingConsumer {
+        type Error = std::convert::Infallible;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn visits(&mut self, _batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl TakeoutSourceEvidenceConsumer<std::convert::Infallible> for RecordingConsumer {
+        fn source_evidence(
+            &mut self,
+            chunk: TakeoutSourceEvidenceChunk,
+        ) -> Result<(), std::convert::Infallible> {
+            self.source_chunks += 1;
+            self.native_entities += chunk.native_entities.len();
+            Ok(())
+        }
+    }
+
+    let mut consumer = RecordingConsumer::default();
+    let index = stream_payload_with_sink(
+        "archive_browser.html",
+        KIND_INDEX,
+        b"<html></html>",
+        10,
+        TakeoutStreamOptions::default(),
+        &mut consumer,
+    )
+    .expect("index report");
+    assert_eq!(index.kind, KIND_INDEX);
+    assert_eq!(index.record_count, 0);
+    assert!(index.history.warnings.iter().any(|warning| warning.code == "index-only"));
+
+    let unsupported = stream_payload_with_sink(
+        "Unknown.json",
+        "unknown-kind",
+        b"[]",
+        10,
+        TakeoutStreamOptions::default(),
+        &mut consumer,
+    )
+    .expect_err("unsupported kind");
+    assert!(unsupported.to_string().contains("google-takeout-payload"));
+
+    let typed = stream_payload_with_sink(
+        "TypedUrl.json",
+        KIND_TYPED_URL_JSON,
+        br#"{"Typed Url":[{"url":"https://example.com/a"},{"titleUrl":"https://example.com/b"},{"other":true}]}"#,
+        2,
+        TakeoutStreamOptions {
+            collect_source_evidence: true,
+            retain_report_source_evidence: true,
+        },
+        &mut consumer,
+    )
+    .expect("typed native payload");
+    assert_eq!(typed.record_count, 3);
+    assert_eq!(typed.history.native_entities.len(), 3);
+    assert_eq!(consumer.source_chunks, 2);
+    assert_eq!(consumer.native_entities, 3);
+    assert!(
+        typed
+            .history
+            .capability_snapshot
+            .items
+            .iter()
+            .any(|item| item.key == "context.takeout.typed_url" && item.available)
+    );
+
+    let mut metadata_keys =
+        typed.history.native_entities[0].metadata.keys().cloned().collect::<Vec<_>>();
+    metadata_keys.sort();
+    assert_eq!(metadata_keys, vec!["payloadKind".to_string(), "sourcePath".to_string()]);
+
+    let no_evidence = stream_payload_with_sink(
+        "Session.json",
+        KIND_SESSION_JSON,
+        br#"{"Session":[{"sessionTag":"device-1"}]}"#,
+        10,
+        TakeoutStreamOptions {
+            collect_source_evidence: false,
+            retain_report_source_evidence: false,
+        },
+        &mut consumer,
+    )
+    .expect("session without evidence");
+    assert_eq!(no_evidence.record_count, 1);
+    assert!(no_evidence.history.native_entities.is_empty());
+
+    let parse_error = stream_payload_with_sink(
+        "TypedUrl.json",
+        KIND_TYPED_URL_JSON,
+        b"{",
+        10,
+        TakeoutStreamOptions::default(),
+        &mut consumer,
+    )
+    .expect_err("native-only parse error");
+    assert!(parse_error.to_string().contains("TypedUrl.json"));
+
+    #[derive(Default)]
+    struct FailingConsumer;
+
+    impl HistoryBatchConsumer for FailingConsumer {
+        type Error = String;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn visits(&mut self, _batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    impl TakeoutSourceEvidenceConsumer<String> for FailingConsumer {
+        fn source_evidence(&mut self, _chunk: TakeoutSourceEvidenceChunk) -> Result<(), String> {
+            Err("sink offline".to_string())
+        }
+    }
+
+    let mut failing = FailingConsumer;
+    let sink_error = stream_payload_with_sink(
+        "TypedUrl.json",
+        KIND_TYPED_URL_JSON,
+        br#"{"TypedUrl":[{"url":"https://example.com"}]}"#,
+        1,
+        TakeoutStreamOptions::default(),
+        &mut failing,
+    )
+    .expect_err("source evidence sink error");
+    assert!(sink_error.to_string().contains("sink offline"));
+
+    let mut failing_at_final_flush = FailingConsumer;
+    let final_flush_error = stream_payload_with_sink(
+        "TypedUrl.json",
+        KIND_TYPED_URL_JSON,
+        br#"{"TypedUrl":[{"url":"https://example.com/final"}]}"#,
+        10,
+        TakeoutStreamOptions::default(),
+        &mut failing_at_final_flush,
+    )
+    .expect_err("final source evidence sink error");
+    assert!(final_flush_error.to_string().contains("sink offline"));
+}
+
+#[test]
 fn parse_history_reads_directory_and_zip_sources() {
     let dir = tempdir().expect("tempdir");
     let chrome_dir = dir.path().join("Chrome");
@@ -346,4 +836,83 @@ fn parse_history_reads_directory_and_zip_sources() {
     let parsed_zip = parse_history(&zip_path).expect("parse zip");
     assert_eq!(parsed_zip.visits.len(), 1);
     assert_eq!(parsed_zip.native_entities.len(), 2);
+}
+
+#[test]
+fn parse_history_returns_payload_parse_errors_from_streaming_path() {
+    let dir = tempdir().expect("tempdir");
+    let chrome_dir = dir.path().join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create chrome dir");
+    fs::write(chrome_dir.join("BrowserHistory.json"), "{").expect("write malformed history");
+
+    let error = parse_history(dir.path()).expect_err("malformed takeout history");
+
+    assert!(error.to_string().contains("BrowserHistory.json"));
+}
+
+#[test]
+fn parse_history_merges_reports_and_adapter_passthrough_edges() {
+    let dir = tempdir().expect("tempdir");
+    let chrome_dir = dir.path().join("Chrome");
+    fs::create_dir_all(&chrome_dir).expect("create chrome dir");
+    fs::write(chrome_dir.join("archive_browser.html"), "<html></html>").expect("write index");
+    fs::write(chrome_dir.join("Bookmarks.json"), "{}").expect("write ignored chrome file");
+    fs::write(
+        chrome_dir.join("BrowserHistory.json"),
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/merge","title":"First","time_usec":1711965600000000}"#,
+        ]),
+    )
+    .expect("write first history");
+    fs::write(
+        chrome_dir.join("History.json"),
+        browser_history_payload(&[
+            r#"{"url":"https://example.com/merge","title":"Second","time_usec":1711969200000000}"#,
+        ]),
+    )
+    .expect("write second history");
+
+    let parsed = parse_history(dir.path()).expect("parse merged directory");
+    assert_eq!(parsed.urls.len(), 1);
+    assert_eq!(parsed.urls[0].visit_count, 2);
+    assert_eq!(parsed.urls[0].title.as_deref(), Some("Second"));
+    assert_eq!(parsed.visits.len(), 2);
+
+    let mut collector = TakeoutHistoryCollector::default();
+    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: &mut collector };
+    adapter
+        .downloads(vec![ParsedDownload {
+            source_download_id: 1,
+            guid: None,
+            current_path: None,
+            target_path: None,
+            start_time_ms: None,
+            start_time_iso: None,
+            received_bytes: None,
+            total_bytes: None,
+            state: None,
+            mime_type: None,
+            original_mime_type: None,
+        }])
+        .expect("download passthrough");
+    adapter
+        .search_terms(vec![ParsedSearchTerm {
+            keyword_id: 1,
+            url_id: 1,
+            term: "pathkeep".to_string(),
+            normalized_term: "pathkeep".to_string(),
+        }])
+        .expect("search term passthrough");
+    adapter
+        .favicons(vec![ParsedFavicon {
+            page_url: "https://example.com".to_string(),
+            icon_url: "https://example.com/favicon.ico".to_string(),
+            icon_type: None,
+            width: 16,
+            height: 16,
+            last_updated_ms: 1,
+            last_updated_iso: "1970-01-01T00:00:00+00:00".to_string(),
+            image_data: None,
+        }])
+        .expect("favicon passthrough");
 }

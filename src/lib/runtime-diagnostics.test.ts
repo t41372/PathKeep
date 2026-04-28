@@ -112,6 +112,64 @@ describe('runtime diagnostics', () => {
     })
   })
 
+  test('installs diagnostics on a fresh module load without requiring a test reset first', async () => {
+    vi.resetModules()
+    const freshModule = await import('./runtime-diagnostics')
+
+    await freshModule.installRuntimeDiagnostics()
+
+    expect(attachConsoleMock).toHaveBeenCalledTimes(1)
+    freshModule.resetRuntimeDiagnosticsForTests()
+  })
+
+  test('records fallback text for sparse window errors and empty rejection errors', async () => {
+    await installRuntimeDiagnostics()
+    const noStackError = new Error('')
+    noStackError.stack = undefined
+
+    window.dispatchEvent(
+      new ErrorEvent('error', {
+        message: '',
+        filename: '',
+        lineno: 0,
+        colno: 0,
+        error: noStackError,
+      }),
+    )
+    window.dispatchEvent(
+      new PromiseRejectionEvent('unhandledrejection', {
+        promise: Promise.reject(noStackError).catch(() => undefined),
+        reason: noStackError,
+      }),
+    )
+    await Promise.resolve()
+
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      1,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message: 'Unhandled window error',
+          stack: '',
+          url: null,
+          line: null,
+          column: null,
+        }),
+      },
+    )
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      2,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message: 'Unhandled promise rejection',
+          stack: null,
+          fatal: true,
+        }),
+      },
+    )
+  })
+
   test('records unhandled promise rejections only once when installed twice', async () => {
     await installRuntimeDiagnostics()
     await installRuntimeDiagnostics()
@@ -126,6 +184,84 @@ describe('runtime diagnostics', () => {
     expect(attachConsoleMock).toHaveBeenCalledTimes(1)
     expect(logErrorMock).toHaveBeenCalledWith('[unhandledrejection] reject me')
     expect(invokeCommandMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('describes string, missing, and non-serializable promise rejection reasons', async () => {
+    await installRuntimeDiagnostics()
+
+    window.dispatchEvent(
+      new PromiseRejectionEvent('unhandledrejection', {
+        promise: Promise.resolve(undefined),
+        reason: 'plain reject',
+      }),
+    )
+    window.dispatchEvent(
+      new PromiseRejectionEvent('unhandledrejection', {
+        promise: Promise.resolve(undefined),
+        reason: undefined,
+      }),
+    )
+    window.dispatchEvent(
+      new PromiseRejectionEvent('unhandledrejection', {
+        promise: Promise.resolve(undefined),
+        reason: '   ',
+      }),
+    )
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+    window.dispatchEvent(
+      new PromiseRejectionEvent('unhandledrejection', {
+        promise: Promise.resolve(undefined),
+        reason: cyclic,
+      }),
+    )
+    await Promise.resolve()
+
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      1,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message: 'plain reject',
+          stack: null,
+          fatal: true,
+        }),
+      },
+    )
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      2,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message: 'Unhandled promise rejection',
+          stack: null,
+          fatal: true,
+        }),
+      },
+    )
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      3,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message: 'Unhandled promise rejection',
+          stack: null,
+          fatal: true,
+        }),
+      },
+    )
+    expect(invokeCommandMock).toHaveBeenNthCalledWith(
+      4,
+      'record_frontend_error',
+      {
+        request: expect.objectContaining({
+          message:
+            'Unhandled promise rejection with a non-serializable reason.',
+          stack: null,
+          fatal: true,
+        }),
+      },
+    )
   })
 
   test('keeps recording errors if console forwarding cannot attach', async () => {

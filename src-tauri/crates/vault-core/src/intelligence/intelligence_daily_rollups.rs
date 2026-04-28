@@ -32,7 +32,7 @@ use super::{
     unique_date_keys,
 };
 use anyhow::{Context, Result};
-use chrono::{Local, LocalResult, NaiveDate, TimeZone};
+use chrono::{DateTime, Local, LocalResult, NaiveDate, TimeZone};
 use rusqlite::{Connection, params};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -231,14 +231,10 @@ pub(super) fn execute_daily_rollup_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
-        notes: vec![match execution_mode {
-            StageExecutionMode::Incremental => {
-                format!("Refreshed dirty daily rollups for {profile_id}.")
-            }
-            StageExecutionMode::FallbackFull => {
-                format!("Rebuilt all daily rollups for {profile_id}.")
-            }
-            StageExecutionMode::Noop => unreachable!(),
+        notes: vec![if matches!(execution_mode, StageExecutionMode::Incremental) {
+            format!("Refreshed dirty daily rollups for {profile_id}.")
+        } else {
+            format!("Rebuilt all daily rollups for {profile_id}.")
         }],
         ..StageRunResult::default()
     })
@@ -613,13 +609,8 @@ fn build_daily_rollups_for_profile_in_batches(
                 (date_key, profile_id),
                 (total_visits, total_searches, new_domains, unique_domains, sumsq_domain_visits),
             )| {
-                let hhi_score = if total_visits == 0 {
-                    0.0
-                } else {
-                    sumsq_domain_visits / (total_visits * total_visits) as f32
-                };
-                let discovery_rate =
-                    if total_visits == 0 { 0.0 } else { new_domains as f32 / total_visits as f32 };
+                let hhi_score = sumsq_domain_visits / (total_visits * total_visits) as f32;
+                let discovery_rate = new_domains as f32 / total_visits as f32;
                 (
                     date_key,
                     profile_id,
@@ -716,13 +707,10 @@ fn local_day_start_ms(date_key: &str) -> Result<i64> {
     let date = NaiveDate::parse_from_str(date_key, "%Y-%m-%d")
         .with_context(|| format!("parsing local date key '{date_key}'"))?;
     let start = date.and_hms_opt(0, 0, 0).context("building local day start")?;
-    match Local.from_local_datetime(&start) {
-        LocalResult::Single(value) => Ok(value.timestamp_millis()),
-        LocalResult::Ambiguous(first, _) => Ok(first.timestamp_millis()),
-        LocalResult::None => {
-            Err(anyhow::anyhow!("Local timezone could not represent day start for {date_key}."))
-        }
-    }
+    local_result_timestamp_millis(
+        Local.from_local_datetime(&start),
+        format!("Local timezone could not represent day start for {date_key}."),
+    )
 }
 
 fn local_day_end_exclusive_ms(date_key: &str) -> Result<i64> {
@@ -730,11 +718,100 @@ fn local_day_end_exclusive_ms(date_key: &str) -> Result<i64> {
         .with_context(|| format!("parsing local date key '{date_key}'"))?;
     let next = date.succ_opt().context("computing next local day for dirty rollup range")?;
     let start = next.and_hms_opt(0, 0, 0).context("building local day end")?;
-    match Local.from_local_datetime(&start) {
+    local_result_timestamp_millis(
+        Local.from_local_datetime(&start),
+        format!("Local timezone could not represent next day start for {date_key}."),
+    )
+}
+
+fn local_result_timestamp_millis(
+    result: LocalResult<DateTime<Local>>,
+    none_message: String,
+) -> Result<i64> {
+    match result {
         LocalResult::Single(value) => Ok(value.timestamp_millis()),
         LocalResult::Ambiguous(first, _) => Ok(first.timestamp_millis()),
-        LocalResult::None => Err(anyhow::anyhow!(
-            "Local timezone could not represent next day start for {date_key}."
-        )),
+        LocalResult::None => Err(anyhow::anyhow!(none_message)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_rows_and_empty_dirty_dates_are_guarded() {
+        let duplicate_rows = vec![
+            (
+                "2026-04-25".to_string(),
+                "chrome:Default".to_string(),
+                "example.com".to_string(),
+                "docs".to_string(),
+                1,
+                0,
+                1,
+                1,
+            ),
+            (
+                "2026-04-25".to_string(),
+                "chrome:Default".to_string(),
+                "example.com".to_string(),
+                "docs".to_string(),
+                2,
+                0,
+                0,
+                2,
+            ),
+        ];
+        let duplicate_error =
+            ensure_unique_domain_rollup_rows(&duplicate_rows).expect_err("duplicate row");
+        assert!(duplicate_error.to_string().contains("duplicate domain daily rollup row"));
+
+        let connection = Connection::open_in_memory().expect("in-memory sqlite");
+        let visits = load_profile_derived_visits_for_date_keys(&connection, "chrome:Default", &[])
+            .expect("empty dirty date list");
+        assert!(visits.is_empty());
+    }
+
+    #[test]
+    fn local_result_timestamp_millis_covers_timezone_edges() {
+        let now = Local::now();
+        assert_eq!(
+            local_result_timestamp_millis(LocalResult::Single(now), "none".to_string())
+                .expect("single local result"),
+            now.timestamp_millis()
+        );
+        assert_eq!(
+            local_result_timestamp_millis(LocalResult::Ambiguous(now, now), "none".to_string())
+                .expect("ambiguous local result"),
+            now.timestamp_millis()
+        );
+        let error = local_result_timestamp_millis(LocalResult::None, "missing".to_string())
+            .expect_err("missing local result");
+        assert!(error.to_string().contains("missing"));
+
+        let connection = Connection::open_in_memory().expect("memory");
+        connection
+            .execute_batch(
+                "ATTACH DATABASE ':memory:' AS archive;
+                 CREATE TABLE visit_derived_facts (
+                   visit_id INTEGER NOT NULL,
+                   profile_id TEXT NOT NULL,
+                   registrable_domain TEXT,
+                   domain_category TEXT,
+                   page_category TEXT,
+                   is_search INTEGER NOT NULL DEFAULT 0,
+                   search_engine TEXT
+                 );
+                 CREATE TABLE archive.visits (
+                   id INTEGER PRIMARY KEY,
+                   visit_time_ms INTEGER NOT NULL,
+                   reverted_at TEXT
+                 );",
+            )
+            .expect("empty fallback schema");
+        let summary = build_daily_rollups_for_profile_in_batches(&connection, "chrome:Default", 10)
+            .expect("empty fallback summary");
+        assert_eq!(summary.processed_visits, 0);
     }
 }

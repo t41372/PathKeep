@@ -223,11 +223,13 @@ export function renderTrustPage(
     dashboard = null,
     language = 'en' as ResolvedLanguage,
     route = '/',
+    shellValue = null,
     snapshot,
   }: {
     dashboard?: DashboardSnapshot | null
     language?: ResolvedLanguage
     route?: string
+    shellValue?: ShellDataContextValue | null
     snapshot: AppSnapshot
   },
 ) {
@@ -236,7 +238,7 @@ export function renderTrustPage(
       <I18nContext.Provider value={createI18nValue(language)}>
         <ProfileScopeProvider>
           <ShellDataContext.Provider
-            value={createShellValue(snapshot, dashboard)}
+            value={shellValue ?? createShellValue(snapshot, dashboard)}
           >
             {ui}
           </ShellDataContext.Provider>

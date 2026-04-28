@@ -281,7 +281,7 @@ export function AuditRunDetailPanel({
                         type="button"
                         onClick={() => {
                           void backend.openPathInFileManager(
-                            relatedBatchDetail.batch.auditPath ?? '',
+                            relatedBatchDetail.batch.auditPath!,
                           )
                         }}
                       >

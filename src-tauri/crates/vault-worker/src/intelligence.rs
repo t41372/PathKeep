@@ -56,6 +56,11 @@ pub use self::ai_queue::{
     preview_ai_integration_files, replay_ai_job, run_ai_queue_jobs, search_ai_history,
     test_ai_provider_connection_report,
 };
+#[cfg(all(test, coverage))]
+pub(crate) use self::ai_queue::{
+    complete_claimed_assistant_job, complete_claimed_index_job, drain_one_ai_queue_job,
+    start_ai_job_control,
+};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,
     get_intelligence_primary_overview, get_navigation_path, get_query_families,
@@ -68,6 +73,11 @@ pub(crate) use self::runtime::maybe_spawn_intelligence_queue_drain;
 pub use self::runtime::{
     cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
     queue_core_intelligence_rebuild, retry_intelligence_job_now, run_core_intelligence_now,
+};
+#[cfg(all(test, coverage))]
+pub(crate) use self::runtime::{
+    drain_one_enrichment_intelligence_job, drain_one_priority_intelligence_job,
+    execute_core_intelligence_job,
 };
 pub use self::section_queries::{
     build_intelligence_local_host, get_activity_mix, get_activity_mix_trend, get_breadth_index,

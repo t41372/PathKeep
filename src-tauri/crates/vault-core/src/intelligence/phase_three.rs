@@ -297,7 +297,19 @@ pub(crate) fn get_observed_interactions_with_connection(
 
     let source_evidence = open_source_evidence_connection(paths, config, key)?;
     let evidence = load_engagement_evidence(&source_evidence, &visits)?;
-    let mut interactions = visits
+    let mut interactions = observed_interactions_from_visits(visits, &evidence);
+    interactions.sort_by(|left, right| right.visit_id.cmp(&left.visit_id));
+    Ok(interactions)
+}
+
+fn observed_interactions_from_visits(
+    visits: Vec<ObservedVisit>,
+    evidence: &HashMap<(i64, String), ObservedEvidence>,
+) -> Vec<ObservedInteraction> {
+    if visits.is_empty() {
+        return Vec::new();
+    }
+    visits
         .into_iter()
         .filter_map(|visit| {
             let observed =
@@ -319,9 +331,7 @@ pub(crate) fn get_observed_interactions_with_connection(
                 page_end_reason: observed.page_end_reason.clone(),
             })
         })
-        .collect::<Vec<_>>();
-    interactions.sort_by(|left, right| right.visit_id.cmp(&left.visit_id));
-    Ok(interactions)
+        .collect()
 }
 
 fn build_path_flow_id(profile_id: Option<&str>, step_count: usize, flow_pattern: &str) -> String {
@@ -375,7 +385,7 @@ struct ObservedVisit {
     browser_family: String,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct ObservedEvidence {
     foreground_duration_ms: Option<i64>,
     scrolling_time_ms: Option<i64>,
@@ -412,9 +422,6 @@ fn classify_habit_pattern(domain: &str, series: &DomainSeries) -> Option<HabitPa
         .windows(2)
         .map(|window| (window[1] - window[0]).num_days() as f32)
         .collect::<Vec<_>>();
-    if intervals.is_empty() {
-        return None;
-    }
 
     let mean_interval_days = intervals.iter().sum::<f32>() / intervals.len() as f32;
     let variance = intervals.iter().map(|value| (*value - mean_interval_days).powi(2)).sum::<f32>()
@@ -623,29 +630,22 @@ fn load_context_evidence(
             let rows = statement.query_map(params_from_iter(bindings.iter()), |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                 ))
             })?;
             for row in rows {
                 let (source_profile_id, source_visit_id, context_key, value_json) = row?;
-                let Some(source_visit_id) = source_visit_id else {
-                    continue;
-                };
                 has_rows = true;
                 let entry = evidence.entry((source_profile_id, source_visit_id)).or_default();
-                match context_key.as_str() {
-                    "context.load_successful" => {
-                        entry.load_successful = serde_json::from_str::<bool>(&value_json).ok();
-                    }
-                    "context.page_end_reason" => {
-                        entry.page_end_reason = serde_json::from_str::<Option<String>>(&value_json)
-                            .ok()
-                            .flatten()
-                            .or_else(|| serde_json::from_str::<String>(&value_json).ok());
-                    }
-                    _ => {}
+                if context_key == "context.load_successful" {
+                    entry.load_successful = serde_json::from_str::<bool>(&value_json).ok();
+                } else {
+                    entry.page_end_reason = serde_json::from_str::<Option<String>>(&value_json)
+                        .ok()
+                        .flatten()
+                        .or_else(|| serde_json::from_str::<String>(&value_json).ok());
                 }
             }
         }
@@ -656,8 +656,13 @@ fn load_context_evidence(
 
 #[cfg(test)]
 mod tests {
-    use super::{DomainSeries, classify_habit_pattern, finalize_path_sequence};
+    use super::*;
+    use crate::config::project_paths_with_root;
+    use crate::models::{DateRange, PathFlowRequest, ProfileScopedRequest, ScopedDateRangeRequest};
+    use chrono::NaiveDate;
+    use rusqlite::{Connection, params};
     use std::collections::{BTreeSet, HashMap};
+    use tempfile::tempdir;
 
     #[test]
     fn classify_habit_pattern_requires_five_visits_and_two_weeks() {
@@ -680,6 +685,35 @@ mod tests {
         let habit = classify_habit_pattern("example.com", &series).expect("habit");
         assert_eq!(habit.habit_type, "weekly_habit");
         assert!(!habit.is_interrupted);
+
+        let mut daily_days = BTreeSet::new();
+        for day in 1..=15 {
+            daily_days.insert(chrono::NaiveDate::from_ymd_opt(2026, 4, day).expect("date"));
+        }
+        let daily = classify_habit_pattern(
+            "daily.example",
+            &DomainSeries {
+                days: daily_days,
+                last_visited_ms: chrono::Local::now().timestamp_millis(),
+            },
+        )
+        .expect("daily habit");
+        assert_eq!(daily.habit_type, "daily_habit");
+
+        let mut periodic_days = BTreeSet::new();
+        let first_periodic_day = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).expect("date");
+        for offset in [0, 15, 30, 45, 60] {
+            periodic_days.insert(first_periodic_day + chrono::Duration::days(offset));
+        }
+        let periodic = classify_habit_pattern(
+            "periodic.example",
+            &DomainSeries {
+                days: periodic_days,
+                last_visited_ms: chrono::Local::now().timestamp_millis(),
+            },
+        )
+        .expect("periodic habit");
+        assert_eq!(periodic.habit_type, "periodic_reference");
     }
 
     #[test]
@@ -696,5 +730,362 @@ mod tests {
         assert!(flows.contains_key(&("google.com → github.com".to_string(), 2)));
         assert!(flows.contains_key(&("github.com → sqlite.org".to_string(), 2)));
         assert!(flows.contains_key(&("google.com → github.com → sqlite.org".to_string(), 3)));
+
+        let steps = build_path_flow_steps("valid.example → bad/path → .hidden → localhost");
+        assert_eq!(steps[0].registrable_domain.as_deref(), Some("valid.example"));
+        assert!(steps[1].registrable_domain.is_none());
+        assert!(steps[2].registrable_domain.is_none());
+        assert!(steps[3].registrable_domain.is_none());
+
+        let mut one_step_flows = HashMap::new();
+        finalize_path_sequence(&sequence, 1, &mut one_step_flows);
+        assert!(one_step_flows.is_empty());
+    }
+
+    #[test]
+    fn phase_three_read_models_cover_breadth_habits_interruptions_and_flows() {
+        let connection = phase_three_connection();
+        seed_rollups(&connection);
+        seed_visits_and_facts(&connection);
+        seed_interrupted_habits(&connection);
+
+        let scoped = ScopedDateRangeRequest { date_range: april_range(), profile_id: None };
+        let breadth =
+            get_breadth_index_with_connection(&connection, &scoped).expect("breadth index");
+        assert!(breadth.hhi > 0.0);
+        assert_eq!(breadth.concentration_domain_count, 1);
+
+        let empty = get_breadth_index_with_connection(
+            &connection,
+            &ScopedDateRangeRequest {
+                date_range: DateRange {
+                    start: "2026-05-01".to_string(),
+                    end: "2026-05-02".to_string(),
+                },
+                profile_id: None,
+            },
+        )
+        .expect("empty breadth");
+        assert_eq!(empty.breadth_score, 0.0);
+
+        let habits = get_habit_patterns_with_connection(&connection, &scoped).expect("habits");
+        assert!(habits.iter().any(|habit| habit.registrable_domain == "weekly.example"));
+
+        let interrupted = get_interrupted_habits_with_connection(
+            &connection,
+            &ProfileScopedRequest { profile_id: Some("chrome:Default".to_string()) },
+        )
+        .expect("interrupted habits");
+        assert_eq!(interrupted.len(), 1);
+        assert!(interrupted[0].days_since_last_visit >= 0);
+
+        let flows = get_path_flows_with_connection(
+            &connection,
+            &PathFlowRequest {
+                date_range: april_range(),
+                profile_id: None,
+                step_count: 2,
+                limit: Some(5),
+            },
+        )
+        .expect("path flows");
+        assert!(flows.iter().any(|flow| flow.flow_pattern == "daily.example → weekly.example"));
+
+        let scoped_flows = get_path_flows_with_connection(
+            &connection,
+            &PathFlowRequest {
+                date_range: april_range(),
+                profile_id: Some("chrome:Default".to_string()),
+                step_count: 8,
+                limit: Some(1),
+            },
+        )
+        .expect("scoped path flows");
+        assert!(scoped_flows.len() <= 1);
+        assert!(scoped_flows.iter().all(|flow| flow.step_count == 4));
+
+        let root = tempdir().expect("tempdir");
+        let empty_observed = get_observed_interactions_with_connection(
+            &project_paths_with_root(root.path()),
+            &AppConfig::default(),
+            None,
+            &connection,
+            &ScopedDateRangeRequest {
+                date_range: DateRange {
+                    start: "2026-05-01".to_string(),
+                    end: "2026-05-02".to_string(),
+                },
+                profile_id: None,
+            },
+        )
+        .expect("empty observed interactions");
+        assert!(empty_observed.is_empty());
+    }
+
+    #[test]
+    fn observed_interaction_evidence_merges_metrics_and_context_fallbacks() {
+        let source_evidence = Connection::open_in_memory().expect("source evidence");
+        source_evidence
+            .execute_batch(
+                "
+                CREATE TABLE visit_engagement_evidence (
+                    source_profile_id INTEGER NOT NULL,
+                    source_visit_id TEXT NOT NULL,
+                    metric_key TEXT NOT NULL,
+                    metric_value_int INTEGER,
+                    metric_value_real REAL
+                );
+                CREATE TABLE visit_context_evidence (
+                    source_profile_id INTEGER NOT NULL,
+                    source_visit_id TEXT,
+                    context_key TEXT NOT NULL,
+                    value_json TEXT NOT NULL
+                );
+                ",
+            )
+            .expect("schema");
+
+        let visits = vec![
+            ObservedVisit {
+                visit_id: 1,
+                source_profile_id: 7,
+                source_visit_id: "a".to_string(),
+                url: "https://example.com/a".to_string(),
+                title: Some("A".to_string()),
+                browser_family: "chrome".to_string(),
+            },
+            ObservedVisit {
+                visit_id: 2,
+                source_profile_id: 7,
+                source_visit_id: "b".to_string(),
+                url: "https://example.com/b".to_string(),
+                title: None,
+                browser_family: "chrome".to_string(),
+            },
+        ];
+
+        for (visit_id, metric_key, value_int, value_real) in [
+            ("a", "engagement.total_foreground_duration_ms", Some(10), None),
+            ("a", "engagement.scrolling_time_ms", None, Some(20.4)),
+            ("a", "engagement.scrolling_distance_px", Some(30), None),
+            ("a", "engagement.key_presses", Some(4), None),
+            ("a", "engagement.typing_time_ms", Some(50), None),
+            ("a", "engagement.load_successful", Some(1), None),
+            ("a", "engagement.unknown", Some(999), None),
+            ("b", "engagement.visit_duration_ms", None, Some(7.6)),
+        ] {
+            source_evidence
+                .execute(
+                    "INSERT INTO visit_engagement_evidence
+                     (source_profile_id, source_visit_id, metric_key, metric_value_int, metric_value_real)
+                     VALUES (7, ?1, ?2, ?3, ?4)",
+                    params![visit_id, metric_key, value_int, value_real],
+                )
+                .expect("metric");
+        }
+        for (visit_id, context_key, value_json) in [
+            (Some("a"), "context.load_successful", "false"),
+            (Some("a"), "context.page_end_reason", "\"closed\""),
+            (Some("a"), "context.unknown", "true"),
+            (Some("b"), "context.load_successful", "true"),
+            (Some("b"), "context.page_end_reason", "null"),
+            (None, "context.page_end_reason", "\"ignored\""),
+        ] {
+            source_evidence
+                .execute(
+                    "INSERT INTO visit_context_evidence
+                     (source_profile_id, source_visit_id, context_key, value_json)
+                     VALUES (7, ?1, ?2, ?3)",
+                    params![visit_id, context_key, value_json],
+                )
+                .expect("context");
+        }
+
+        let evidence = load_engagement_evidence(&source_evidence, &visits).expect("evidence");
+        let first = evidence.get(&(7, "a".to_string())).expect("first visit evidence");
+        assert_eq!(first.foreground_duration_ms, Some(10));
+        assert_eq!(first.scrolling_time_ms, Some(20));
+        assert_eq!(first.scrolling_distance, Some(30));
+        assert_eq!(first.key_presses, Some(4));
+        assert_eq!(first.typing_time_ms, Some(50));
+        assert_eq!(first.load_successful, Some(true));
+        assert_eq!(first.page_end_reason.as_deref(), Some("closed"));
+        assert!(first.has_any_signal());
+
+        let second = evidence.get(&(7, "b".to_string())).expect("second visit evidence");
+        assert_eq!(second.foreground_duration_ms, Some(8));
+        assert_eq!(second.load_successful, Some(true));
+        assert!(second.page_end_reason.is_none());
+
+        let no_context =
+            load_context_evidence(&source_evidence, &[]).expect("empty context evidence");
+        assert!(no_context.is_none());
+
+        assert!(observed_interactions_from_visits(Vec::new(), &HashMap::new()).is_empty());
+        let skipped = observed_interactions_from_visits(
+            vec![ObservedVisit {
+                visit_id: 3,
+                source_profile_id: 7,
+                source_visit_id: "c".to_string(),
+                url: "https://example.com/c".to_string(),
+                title: None,
+                browser_family: "chrome".to_string(),
+            }],
+            &HashMap::from([((7, "c".to_string()), ObservedEvidence::default())]),
+        );
+        assert!(skipped.is_empty());
+
+        for evidence in [
+            ObservedEvidence::default(),
+            ObservedEvidence { foreground_duration_ms: Some(1), ..ObservedEvidence::default() },
+            ObservedEvidence { scrolling_time_ms: Some(1), ..ObservedEvidence::default() },
+            ObservedEvidence { scrolling_distance: Some(1), ..ObservedEvidence::default() },
+            ObservedEvidence { key_presses: Some(1), ..ObservedEvidence::default() },
+            ObservedEvidence { typing_time_ms: Some(1), ..ObservedEvidence::default() },
+            ObservedEvidence { load_successful: Some(false), ..ObservedEvidence::default() },
+            ObservedEvidence {
+                page_end_reason: Some("closed".to_string()),
+                ..ObservedEvidence::default()
+            },
+        ] {
+            let expected = evidence != ObservedEvidence::default();
+            assert_eq!(evidence.has_any_signal(), expected);
+        }
+    }
+
+    fn phase_three_connection() -> Connection {
+        let connection = Connection::open_in_memory().expect("connection");
+        connection
+            .execute_batch(
+                "
+                ATTACH DATABASE ':memory:' AS archive;
+                CREATE TABLE domain_daily_rollups (
+                    profile_id TEXT NOT NULL,
+                    date_key TEXT NOT NULL,
+                    registrable_domain TEXT NOT NULL,
+                    visit_count INTEGER NOT NULL
+                );
+                CREATE TABLE visit_derived_facts (
+                    visit_id INTEGER NOT NULL,
+                    profile_id TEXT NOT NULL,
+                    registrable_domain TEXT NOT NULL,
+                    session_id TEXT
+                );
+                CREATE TABLE archive.urls (
+                    id INTEGER PRIMARY KEY,
+                    url TEXT NOT NULL,
+                    title TEXT
+                );
+                CREATE TABLE archive.source_profiles (
+                    id INTEGER PRIMARY KEY,
+                    profile_key TEXT NOT NULL,
+                    browser_kind TEXT NOT NULL,
+                    browser_family TEXT
+                );
+                CREATE TABLE archive.visits (
+                    id INTEGER PRIMARY KEY,
+                    url_id INTEGER,
+                    source_visit_id TEXT,
+                    visit_time_ms INTEGER NOT NULL,
+                    source_profile_id INTEGER,
+                    reverted_at TEXT
+                );
+                CREATE TABLE habit_patterns (
+                    profile_id TEXT NOT NULL,
+                    registrable_domain TEXT NOT NULL,
+                    habit_type TEXT NOT NULL,
+                    mean_interval_days REAL NOT NULL,
+                    cv REAL NOT NULL,
+                    visit_count INTEGER NOT NULL,
+                    last_visited_ms INTEGER NOT NULL,
+                    is_interrupted INTEGER NOT NULL
+                );
+                ",
+            )
+            .expect("schema");
+        connection
+    }
+
+    fn april_range() -> DateRange {
+        DateRange { start: "2026-04-01".to_string(), end: "2026-04-30".to_string() }
+    }
+
+    fn day_ms(day: u32) -> i64 {
+        NaiveDate::from_ymd_opt(2026, 4, day)
+            .expect("date")
+            .and_hms_opt(12, 0, 0)
+            .expect("time")
+            .and_utc()
+            .timestamp_millis()
+    }
+
+    fn seed_rollups(connection: &Connection) {
+        for (domain, visits) in [("daily.example", 12), ("weekly.example", 6), ("docs.example", 3)]
+        {
+            connection
+                .execute(
+                    "INSERT INTO domain_daily_rollups
+                     (profile_id, date_key, registrable_domain, visit_count)
+                     VALUES ('chrome:Default', '2026-04-15', ?1, ?2)",
+                    params![domain, visits],
+                )
+                .expect("rollup");
+        }
+    }
+
+    fn seed_visits_and_facts(connection: &Connection) {
+        let mut visit_id = 1_i64;
+        for day in 1..=15 {
+            insert_visit_fact(connection, visit_id, "daily.example", "session-a", day);
+            visit_id += 1;
+        }
+        for day in [1, 8, 15, 22, 29] {
+            insert_visit_fact(connection, visit_id, "weekly.example", "session-a", day);
+            visit_id += 1;
+        }
+        insert_visit_fact(connection, visit_id, "docs.example", "session-b", 20);
+        insert_visit_fact(connection, visit_id + 1, "daily.example", "session-b", 21);
+    }
+
+    fn insert_visit_fact(
+        connection: &Connection,
+        visit_id: i64,
+        domain: &str,
+        session_id: &str,
+        day: u32,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO archive.visits (id, visit_time_ms) VALUES (?1, ?2)",
+                params![visit_id, day_ms(day)],
+            )
+            .expect("visit");
+        connection
+            .execute(
+                "INSERT INTO visit_derived_facts
+                 (visit_id, profile_id, registrable_domain, session_id)
+                 VALUES (?1, 'chrome:Default', ?2, ?3)",
+                params![visit_id, domain, session_id],
+            )
+            .expect("fact");
+    }
+
+    fn seed_interrupted_habits(connection: &Connection) {
+        connection
+            .execute(
+                "INSERT INTO habit_patterns
+                 (profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted)
+                 VALUES ('chrome:Default', 'weekly.example', 'weekly_habit', 7.0, 0.1, 5, ?1, 1)",
+                params![day_ms(1)],
+            )
+            .expect("interrupted habit");
+        connection
+            .execute(
+                "INSERT INTO habit_patterns
+                 (profile_id, registrable_domain, habit_type, mean_interval_days, cv, visit_count, last_visited_ms, is_interrupted)
+                 VALUES ('safari:Default', 'other.example', 'weekly_habit', 7.0, 0.1, 5, ?1, 1)",
+                params![day_ms(1)],
+            )
+            .expect("scoped out habit");
     }
 }

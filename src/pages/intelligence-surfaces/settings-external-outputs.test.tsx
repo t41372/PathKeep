@@ -240,6 +240,14 @@ describe('intelligence surfaces', () => {
     expect(
       within(panel).getByText(settingsT('externalOutputsSummaryTitle')),
     ).toBeVisible()
+    await user.click(
+      within(panel).getByRole('button', {
+        name: commonT('refreshAction'),
+      }),
+    )
+    await waitFor(() => {
+      expect(embedSpy).toHaveBeenCalledTimes(2)
+    })
     expect(within(panel).getByText('SQLite WAL guide')).toBeVisible()
     expect(
       within(panel).getByText(settingsT('externalOutputsTrustedOnlyBadge')),
@@ -342,6 +350,135 @@ describe('intelligence surfaces', () => {
       expect(localHostPreviewSpy).not.toHaveBeenCalled()
     },
   )
+
+  test('lets users retry unavailable manual external outputs', async () => {
+    const user = userEvent.setup()
+    const { snapshot, dashboard } = await seedArchiveState()
+    const settingsT = createNamespaceTranslator('en', 'settings')
+    const commonT = createNamespaceTranslator('en', 'common')
+
+    vi.spyOn(backend, 'loadIntelligenceRuntime').mockResolvedValue(
+      createEmptyRuntimeSnapshot(),
+    )
+    const embedSpy = vi
+      .spyOn(coreIntelligenceApi, 'getIntelligenceEmbedCards')
+      .mockRejectedValueOnce(new Error('embed failed'))
+      .mockResolvedValue([])
+    vi.spyOn(coreIntelligenceApi, 'getIntelligenceWidgetSnapshot')
+      .mockRejectedValueOnce(new Error('widget failed'))
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          totalSearches: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          newDomains: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          deepReadPages: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          refindPages: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+        },
+        highlights: [],
+        notes: [],
+      })
+    vi.spyOn(coreIntelligenceApi, 'getIntelligencePublicSnapshot')
+      .mockRejectedValueOnce(new Error('public failed'))
+      .mockResolvedValue({
+        generatedAt: '2026-04-17T09:45:00Z',
+        dateRange: { start: '2026-03-17', end: '2026-04-17' },
+        digestSummary: {
+          dateRange: { start: '2026-03-17', end: '2026-04-17' },
+          totalVisits: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          totalSearches: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          newDomains: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          deepReadPages: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+          refindPages: {
+            value: 0,
+            previousValue: 0,
+            changePercent: 0,
+            trend: 'flat',
+          },
+        },
+        topDomains: [],
+        searchEngines: [],
+        discoveryTrend: { availableYears: [], points: [] },
+        notes: [],
+      })
+    vi.spyOn(
+      coreIntelligenceApi,
+      'previewIntelligenceLocalHost',
+    ).mockResolvedValue(createLocalHostPreview('en'))
+
+    renderSurface(<IntegrationsPage />, {
+      dashboard,
+      language: 'en',
+      route: '/integrations',
+      snapshot,
+    })
+
+    const panel = await screen.findByTestId('settings-external-outputs')
+    expect(
+      await within(panel).findByText(
+        settingsT('externalOutputsUnavailableTitle'),
+      ),
+    ).toBeVisible()
+
+    await user.click(
+      within(panel)
+        .getAllByRole('button', {
+          name: commonT('refreshAction'),
+        })
+        .at(-1)!,
+    )
+
+    await waitFor(() => {
+      expect(embedSpy).toHaveBeenCalledTimes(2)
+    })
+  })
 
   test('refetches settings manual external outputs when shared scope or time range changes', async () => {
     const user = userEvent.setup()

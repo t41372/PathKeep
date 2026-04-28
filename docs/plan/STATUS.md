@@ -11,6 +11,9 @@
 > 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
+
+> 2026-04-27 QA gate closeout：`WORK-QA-GATE-A` 已完成並 append 到 `CHANGELOG.md`。`bun run check` 與 `bun run verify` 已回綠；`BACKLOG.md` 新增 blocked `WORK-QA-GATE-B`，專門保留未來 full JS/Rust mutation deep sweep 與 survivor closeout。
+
 > 2026-04-18 planning note：使用者已明確把第二台主機 benchmark parity 從當前計劃移除；current-host `14.4M / 60y` signoff 仍是目前的 stop point。其後這輪 desktop truth audit 已落地 source-level repair 與第一輪 Computer Use / profiling evidence，但 full real-data pass 仍卡在 current-host locked-archive bootstrap / unlock drift，因此 `STATUS.md` 目前仍暫無新的 active current-focus work block。
 > 2026-04-18 UI polish closeout：使用者臨時插單的 Explorer / Intelligence polish 已完成並 append 到 `CHANGELOG.md`。source 現在有 topbar 全局上一頁 / 下一頁、Explorer 分頁列的當前頁 / 總頁數與每頁筆數控制、sticky detail rail，以及 `/intelligence` 的注意力重排（移除頂部 archive-wide / Settings 大橫幅、縮小 runtime digest、提升 habits、refind 改半寬、activity mix 補分類示例、browsing rhythm 改成可點日格 + 當日 digest、低價值空卡降到 secondary grid）。`STATUS.md` 仍暫無新的 active current-focus block；`BACKLOG.md` 頂部仍只有 blocked 的 `WORK-CI-N`。
 > 2026-04-18 UI follow-up note：上一輪 `/intelligence` polish 又被使用者實機 review 打回一輪。source 現在已把 `Browsing Rhythm` 還原成週內 × 小時熱力圖，並在同一卡片補上近期實際日期 chooser + 當天 digest；`Stable Sources`、`Search Effectiveness`、`Discovery Trend`、`Breadth Index` 與 `Habits` 也都改成更誠實的人話說明與可讀排版。這一輪後續修補也明確改成 desktop-only truth gate：browser preview 不再算 `/intelligence` 驗收替身；low-signal 的 `Stable Sources` / `Friction` / `Reopened Investigations` / `Path Flows` 現在會直接讓位或隱藏，而 Explorer 的 timeline summary 也會同步顯示當前頁 / 總頁數，避免只剩 loaded count。

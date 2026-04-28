@@ -360,6 +360,26 @@ mod tests {
     use rusqlite::params;
     use tempfile::tempdir;
 
+    #[derive(Default)]
+    struct RecordingConsumer {
+        url_batches: Vec<usize>,
+        visit_batches: Vec<usize>,
+    }
+
+    impl HistoryBatchConsumer for RecordingConsumer {
+        type Error = Infallible;
+
+        fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            self.url_batches.push(batch.len());
+            Ok(())
+        }
+
+        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visit_batches.push(batch.len());
+            Ok(())
+        }
+    }
+
     fn write_history_fixture(path: &Path) {
         let connection = Connection::open(path).expect("open firefox fixture");
         connection
@@ -419,6 +439,70 @@ mod tests {
         assert_eq!(parsed.visits[0].source_visit_id, 11);
         assert_eq!(parsed.visits[0].app_id.as_deref(), Some("firefox"));
         assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
+    }
+
+    #[test]
+    fn stream_history_flushes_small_batches_and_captures_optional_native_tables() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    8_i64,
+                    "https://example.com/firefox-two",
+                    "Firefox Example Two",
+                    1_i64,
+                    0_i64,
+                    1_744_146_000_001_000_i64,
+                ],
+            )
+            .expect("insert second place");
+        connection
+            .execute(
+                "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![12_i64, 8_i64, 1_744_146_000_001_000_i64, Some(11_i64), 1_i64,],
+            )
+            .expect("insert second visit");
+        connection
+            .execute_batch(
+                "CREATE TABLE moz_inputhistory (id INTEGER PRIMARY KEY, place_id INTEGER, input TEXT);
+                 CREATE TABLE moz_places_metadata (id INTEGER PRIMARY KEY, place_id INTEGER);
+                 CREATE TABLE moz_places_metadata_search_queries (id INTEGER PRIMARY KEY, query TEXT);
+                 INSERT INTO moz_inputhistory (id, place_id, input) VALUES (1, 7, 'firefox');
+                 INSERT INTO moz_places_metadata (id, place_id) VALUES (2, 7);
+                 INSERT INTO moz_places_metadata_search_queries (id, query) VALUES (3, 'firefox');",
+            )
+            .expect("optional firefox tables");
+        drop(connection);
+
+        let mut consumer = RecordingConsumer::default();
+        let streamed =
+            stream_history(&history_path, 0, 0, 1, &mut consumer).expect("stream firefox");
+
+        assert_eq!(consumer.url_batches, vec![1, 1]);
+        assert_eq!(consumer.visit_batches, vec![1, 1]);
+        assert!(
+            streamed
+                .native_entities
+                .iter()
+                .any(|entity| entity.entity_kind == "firefox-moz-inputhistory")
+        );
+        assert!(
+            streamed
+                .native_entities
+                .iter()
+                .any(|entity| entity.entity_kind == "firefox-moz-places-metadata")
+        );
+        assert!(
+            streamed.native_entities.iter().any(|entity| {
+                entity.entity_kind == "firefox-moz-places-metadata-search-queries"
+            })
+        );
     }
 
     #[test]

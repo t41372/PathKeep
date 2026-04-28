@@ -136,13 +136,18 @@ fn write_report(path: &Path, report: &StoredCrashReport) -> Result<()> {
     fs::write(&temp_path, content)
         .with_context(|| format!("writing crash report {}", temp_path.display()))?;
     if let Err(error) = fs::rename(&temp_path, path) {
-        if path.exists() {
-            let _ = fs::remove_file(path);
-            fs::rename(&temp_path, path)
-                .with_context(|| format!("replacing crash report {}", path.display()))?;
-        } else {
-            return Err(error).with_context(|| format!("writing crash report {}", path.display()));
-        }
+        recover_report_rename(path, &temp_path, error)?;
+    }
+    Ok(())
+}
+
+fn recover_report_rename(path: &Path, temp_path: &Path, error: std::io::Error) -> Result<()> {
+    if path.exists() {
+        let _ = fs::remove_file(path);
+        fs::rename(temp_path, path)
+            .with_context(|| format!("replacing crash report {}", path.display()))?;
+    } else {
+        return Err(error).with_context(|| format!("writing crash report {}", path.display()));
     }
     Ok(())
 }
@@ -180,6 +185,10 @@ fn panic_payload(panic_info: &std::panic::PanicHookInfo<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        panic::{AssertUnwindSafe, UnwindSafe},
+        sync::{Arc, Mutex, OnceLock},
+    };
     use tempfile::tempdir;
 
     fn sample_paths(root: &Path) -> ProjectPaths {
@@ -213,6 +222,81 @@ mod tests {
         }
     }
 
+    fn stored_report(
+        source: &str,
+        recorded_at: &str,
+        message: &str,
+        path: &Path,
+    ) -> StoredCrashReport {
+        StoredCrashReport {
+            source: source.to_string(),
+            recorded_at: recorded_at.to_string(),
+            fatal: true,
+            message: message.to_string(),
+            location: None,
+            path: path.display().to_string(),
+            stack: None,
+            thread: None,
+            url: None,
+            line: None,
+            column: None,
+        }
+    }
+
+    fn panic_hook_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn capture_panic_summary<F>(paths: &ProjectPaths, panic_fn: F) -> CrashReportSummary
+    where
+        F: FnOnce() + UnwindSafe,
+    {
+        let _guard = panic_hook_lock().lock().expect("panic hook lock");
+        let captured = Arc::new(Mutex::new(None));
+        let hook_paths = paths.clone();
+        let captured_for_hook = Arc::clone(&captured);
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let summary = record_rust_panic(&hook_paths, info).expect("record rust panic");
+            *captured_for_hook.lock().expect("captured panic summary") = Some(summary);
+        }));
+
+        let panic_result = std::panic::catch_unwind(panic_fn);
+        std::panic::set_hook(default_hook);
+
+        assert!(panic_result.is_err());
+        captured
+            .lock()
+            .expect("captured panic summary")
+            .take()
+            .expect("panic hook recorded summary")
+    }
+
+    fn capture_unnamed_thread_panic_report(paths: &ProjectPaths) -> StoredCrashReport {
+        let _guard = panic_hook_lock().lock().expect("panic hook lock");
+        let captured = Arc::new(Mutex::new(None));
+        let hook_paths = paths.clone();
+        let captured_for_hook = Arc::clone(&captured);
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            record_rust_panic(&hook_paths, info).expect("record rust panic");
+            let report = read_report(&hook_paths.rust_panic_report_path)
+                .expect("read rust panic report")
+                .expect("stored rust panic report");
+            *captured_for_hook.lock().expect("captured panic report") = Some(report);
+        }));
+
+        let panic_result = std::thread::spawn(|| {
+            panic!("unnamed thread panic fixture");
+        })
+        .join();
+        std::panic::set_hook(default_hook);
+
+        assert!(panic_result.is_err());
+        captured.lock().expect("captured panic report").take().expect("panic hook recorded report")
+    }
+
     #[test]
     fn diagnostics_report_paths_even_before_crashes() {
         let dir = tempdir().expect("tempdir");
@@ -223,6 +307,29 @@ mod tests {
         assert!(diagnostics.latest_crash_report.is_none());
         assert!(paths.logs_dir.exists());
         assert!(paths.crash_reports_dir.exists());
+    }
+
+    #[test]
+    fn frontend_location_formats_partial_source_positions() {
+        let mut request = FrontendErrorReportRequest {
+            source: "window-error".to_string(),
+            message: "boom".to_string(),
+            stack: None,
+            url: Some("app://main".to_string()),
+            line: Some(12),
+            column: Some(4),
+            fatal: false,
+        };
+        assert_eq!(frontend_location(&request).as_deref(), Some("app://main:12:4"));
+
+        request.column = None;
+        assert_eq!(frontend_location(&request).as_deref(), Some("app://main:12"));
+
+        request.line = None;
+        assert_eq!(frontend_location(&request).as_deref(), Some("app://main"));
+
+        request.url = None;
+        assert!(frontend_location(&request).is_none());
     }
 
     #[test]
@@ -253,6 +360,115 @@ mod tests {
     }
 
     #[test]
+    fn record_frontend_error_reports_unwritable_existing_report_path() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        fs::create_dir_all(&paths.frontend_error_report_path).expect("directory at report path");
+
+        let error = record_frontend_error(
+            &paths,
+            &FrontendErrorReportRequest {
+                source: "window-error".to_string(),
+                message: "boom".to_string(),
+                stack: None,
+                url: None,
+                line: None,
+                column: None,
+                fatal: true,
+            },
+        )
+        .expect_err("directory report path is not writable as a report file");
+
+        let message = format!("{error:#}");
+        assert!(message.contains("replacing crash report"));
+    }
+
+    #[test]
+    fn recover_report_rename_replaces_existing_report_file() {
+        let dir = tempdir().expect("tempdir");
+        let report_path = dir.path().join("report.json");
+        let temp_path = dir.path().join("report.tmp");
+        fs::write(&report_path, "old-report").expect("write old report");
+        fs::write(&temp_path, "new-report").expect("write temp report");
+
+        recover_report_rename(&report_path, &temp_path, std::io::Error::other("rename failed"))
+            .expect("recover rename");
+
+        assert_eq!(fs::read_to_string(&report_path).expect("read replaced report"), "new-report");
+        assert!(!temp_path.exists());
+    }
+
+    #[test]
+    fn recover_report_rename_reports_missing_target_write_failure() {
+        let dir = tempdir().expect("tempdir");
+        let report_path = dir.path().join("missing").join("report.json");
+        let temp_path = dir.path().join("report.tmp");
+        fs::write(&temp_path, "new-report").expect("write temp report");
+
+        let error =
+            recover_report_rename(&report_path, &temp_path, std::io::Error::other("rename failed"))
+                .expect_err("missing target cannot be recovered by replacement");
+
+        let message = format!("{error:#}");
+        assert!(message.contains("writing crash report"));
+        assert!(temp_path.exists());
+    }
+
+    #[test]
+    fn rust_panic_reports_capture_payload_location_and_thread() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+
+        let summary = capture_panic_summary(
+            &paths,
+            AssertUnwindSafe(|| {
+                panic!("diagnostic panic fixture");
+            }),
+        );
+
+        assert_eq!(summary.source, "rust-panic");
+        assert!(summary.fatal);
+        assert_eq!(summary.message, "diagnostic panic fixture");
+        assert!(summary.location.as_deref().expect("panic location").contains("diagnostics.rs"));
+        assert!(paths.rust_panic_report_path.exists());
+    }
+
+    #[test]
+    fn rust_panic_payloads_keep_owned_strings_and_fallback_text() {
+        let string_dir = tempdir().expect("tempdir");
+        let string_paths = sample_paths(string_dir.path());
+        let string_summary = capture_panic_summary(
+            &string_paths,
+            AssertUnwindSafe(|| {
+                std::panic::panic_any(String::from("owned diagnostic panic"));
+            }),
+        );
+        assert_eq!(string_summary.message, "owned diagnostic panic");
+
+        let fallback_dir = tempdir().expect("tempdir");
+        let fallback_paths = sample_paths(fallback_dir.path());
+        let fallback_summary = capture_panic_summary(
+            &fallback_paths,
+            AssertUnwindSafe(|| {
+                std::panic::panic_any(42_u8);
+            }),
+        );
+        assert_eq!(fallback_summary.message, "Rust panic with non-string payload");
+    }
+
+    #[test]
+    fn rust_panic_report_uses_unnamed_thread_fallback() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+
+        let report = capture_unnamed_thread_panic_report(&paths);
+
+        assert_eq!(report.message, "unnamed thread panic fixture");
+        assert_eq!(report.thread.as_deref(), Some("unnamed"));
+    }
+
+    #[test]
     fn latest_crash_prefers_most_recent_report() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
@@ -260,41 +476,58 @@ mod tests {
 
         write_report(
             &paths.rust_panic_report_path,
-            &StoredCrashReport {
-                source: "rust-panic".to_string(),
-                recorded_at: "2026-04-10T00:00:00Z".to_string(),
-                fatal: true,
-                message: "panic".to_string(),
-                location: None,
-                path: paths.rust_panic_report_path.display().to_string(),
-                stack: None,
-                thread: None,
-                url: None,
-                line: None,
-                column: None,
-            },
+            &stored_report(
+                "rust-panic",
+                "2026-04-10T00:00:00Z",
+                "panic",
+                &paths.rust_panic_report_path,
+            ),
         )
         .expect("write rust report");
         write_report(
             &paths.frontend_error_report_path,
-            &StoredCrashReport {
-                source: "window-error".to_string(),
-                recorded_at: "2026-04-10T01:00:00Z".to_string(),
-                fatal: true,
-                message: "frontend".to_string(),
-                location: None,
-                path: paths.frontend_error_report_path.display().to_string(),
-                stack: None,
-                thread: None,
-                url: None,
-                line: None,
-                column: None,
-            },
+            &stored_report(
+                "window-error",
+                "2026-04-10T01:00:00Z",
+                "frontend",
+                &paths.frontend_error_report_path,
+            ),
         )
         .expect("write frontend report");
 
         let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
         assert_eq!(diagnostics.latest_crash_report.expect("latest crash").source, "window-error");
+    }
+
+    #[test]
+    fn latest_crash_prefers_rust_report_when_timestamps_tie() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+
+        write_report(
+            &paths.rust_panic_report_path,
+            &stored_report(
+                "rust-panic",
+                "2026-04-10T01:00:00Z",
+                "panic",
+                &paths.rust_panic_report_path,
+            ),
+        )
+        .expect("write rust report");
+        write_report(
+            &paths.frontend_error_report_path,
+            &stored_report(
+                "window-error",
+                "2026-04-10T01:00:00Z",
+                "frontend",
+                &paths.frontend_error_report_path,
+            ),
+        )
+        .expect("write frontend report");
+
+        let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
+        assert_eq!(diagnostics.latest_crash_report.expect("latest crash").source, "rust-panic");
     }
 
     #[test]
@@ -307,6 +540,18 @@ mod tests {
             .expect("write malformed crash report");
 
         let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
+        assert!(diagnostics.latest_crash_report.is_none());
+    }
+
+    #[test]
+    fn diagnostics_ignore_unreadable_crash_report_paths() {
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        ensure_paths(&paths).expect("ensure paths");
+        fs::create_dir_all(&paths.frontend_error_report_path).expect("directory report path");
+
+        let diagnostics = load_runtime_diagnostics(&paths).expect("diagnostics");
+
         assert!(diagnostics.latest_crash_report.is_none());
     }
 }

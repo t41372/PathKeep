@@ -530,12 +530,12 @@ pub(super) async fn semantic_matches(
             return Ok(SemanticMatchReport { items: visible_rows, notes });
         }
         Ok(Some(_)) | Ok(None) => {
-            if provider_embedding_count(
+            let sqlite_embedding_count = provider_embedding_count(
                 &connection,
                 &provider.config.id,
                 &provider.config.default_model,
-            )? > 0
-            {
+            )?;
+            if sqlite_embedding_count > 0 {
                 notes.push(
                     "The LanceDB semantic sidecar is missing or empty, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
                         .to_string(),

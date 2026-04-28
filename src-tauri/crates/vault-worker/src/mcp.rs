@@ -253,7 +253,7 @@ impl BrowserHistoryMcpServer {
         name = "search-history",
         description = "Search PathKeep for relevant visits, URLs, titles, profiles, or domains."
     )]
-    async fn search_history(
+    pub(crate) async fn search_history(
         &self,
         Parameters(request): Parameters<McpSearchRequest>,
     ) -> Result<Json<McpSearchResult>, rmcp::ErrorData> {
@@ -267,7 +267,7 @@ impl BrowserHistoryMcpServer {
         name = "archive-status",
         description = "Report whether PathKeep is initialized, unlocked, and AI-ready."
     )]
-    async fn archive_status(&self) -> Result<Json<McpArchiveStatus>, rmcp::ErrorData> {
+    pub(crate) async fn archive_status(&self) -> Result<Json<McpArchiveStatus>, rmcp::ErrorData> {
         let snapshot = mcp_archive_status_result(self.database_key.as_deref())
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         Ok(Json(snapshot))

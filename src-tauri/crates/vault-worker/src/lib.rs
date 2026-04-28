@@ -23,6 +23,11 @@ mod mcp;
 mod schedule;
 mod security;
 
+#[cfg(all(test, coverage))]
+pub(crate) use self::intelligence::{
+    complete_claimed_assistant_job, complete_claimed_index_job, execute_core_intelligence_job,
+    maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain, start_ai_job_control,
+};
 pub use self::{
     app::{
         RekeyRequest, app_snapshot, initialize_archive_database, rekey_archive_database,
@@ -81,4 +86,4 @@ pub(crate) use self::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

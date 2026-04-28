@@ -9,7 +9,6 @@
  * - `ShellRouteErrorBoundary`
  */
 
-import { useMemo } from 'react'
 import { Link, isRouteErrorResponse, useRouteError } from 'react-router-dom'
 import { ErrorState } from '../components/primitives/error-state'
 import { useI18n } from '../lib/i18n/hooks'
@@ -38,7 +37,7 @@ export function ShellRouteErrorBoundary() {
   const { ns } = useI18n()
   const commonT = ns('common')
   const jobsT = ns('jobs')
-  const details = useMemo(() => routeErrorMessage(error), [error])
+  const details = routeErrorMessage(error)
 
   return (
     <section className="page-shell" data-testid="shell-route-error-boundary">
@@ -52,9 +51,7 @@ export function ShellRouteErrorBoundary() {
               className="btn-secondary"
               type="button"
               onClick={() => {
-                if (typeof window !== 'undefined') {
-                  window.location.reload()
-                }
+                window.history.go(0)
               }}
             >
               {commonT('routeRenderErrorRetry')}

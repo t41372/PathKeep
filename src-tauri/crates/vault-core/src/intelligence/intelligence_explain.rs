@@ -16,7 +16,7 @@
 //! ## Dependencies
 //! - `intelligence_refind` for persisted refind score evidence.
 //! - Parent-module helpers for query normalization and trail/session ids.
-//! - `module_descriptor_for_entity_type` to enforce the accepted explainability
+//! - The explicit entity-type dispatcher to enforce the accepted explainability
 //!   surface.
 //!
 //! ## Performance notes
@@ -35,7 +35,6 @@ use super::{
 use crate::{
     archive::open_intelligence_connection,
     config::ProjectPaths,
-    intelligence_catalog::module_descriptor_for_entity_type,
     models::{AppConfig, EntityExplanationRequest, ExplainabilityFactor, Explanation},
 };
 use anyhow::{Context, Result};
@@ -44,7 +43,7 @@ use std::collections::{BTreeSet, HashSet};
 
 /// Builds the public explanation payload for one Core Intelligence entity id.
 ///
-/// The entity type is validated against the accepted deterministic registry so
+/// The entity type is validated against the accepted deterministic dispatcher so
 /// the frontend cannot ask for explanations that the backend does not ship.
 pub fn explain_entity(
     paths: &ProjectPaths,
@@ -55,9 +54,6 @@ pub fn explain_entity(
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let entity_type = request.entity_type.as_str();
-    module_descriptor_for_entity_type(entity_type).with_context(|| {
-        format!("Core Intelligence explainability does not support entity type '{entity_type}'.")
-    })?;
     match entity_type {
         "session" => explain_session(&connection, &request.entity_id),
         "search_trail" => explain_search_trail(&connection, &request.entity_id),
@@ -88,7 +84,9 @@ pub fn explain_entity(
         "habit_pattern" => explain_habit_pattern(&connection, &request.entity_id),
         "path_flow" => explain_path_flow(&connection, &request.entity_id),
         "compare_set" => explain_compare_set(&connection, &request.entity_id),
-        _ => unreachable!("unsupported entity types were rejected by the registry"),
+        _ => anyhow::bail!(
+            "Core Intelligence explainability does not support entity type '{entity_type}'."
+        ),
     }
 }
 
@@ -501,4 +499,165 @@ fn explain_compare_set(connection: &Connection, entity_id: &str) -> Result<Expla
         ],
         participating_visit_ids,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seeded_explanation_connection() -> Connection {
+        let connection = Connection::open_in_memory().expect("connection");
+        ensure_core_intelligence_schema(&connection).expect("schema");
+        connection
+            .execute_batch(
+                "
+                ATTACH DATABASE ':memory:' AS archive;
+                CREATE TABLE archive.visits (
+                  id INTEGER PRIMARY KEY,
+                  from_visit INTEGER,
+                  visit_time_ms INTEGER NOT NULL
+                );
+                INSERT INTO archive.visits (id, from_visit, visit_time_ms) VALUES
+                  (1, NULL, 1000),
+                  (2, 1, 2000),
+                  (3, 2, 3000),
+                  (4, 3, 4000),
+                  (5, NULL, 5000);
+
+                INSERT INTO sessions
+                  (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count,
+                   search_count, domain_count, is_deep_dive, auto_title, computed_at)
+                VALUES
+                  ('session-1', 'p1', 1000, 301000, 4, 2, 3, 1, 'Deep research', 'now'),
+                  ('session-2', 'p1', 5000, 65000, 1, 0, 1, 0, 'Quick read', 'now');
+
+                INSERT INTO visit_derived_facts
+                  (visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
+                   domain_category, page_category, search_engine, search_query, is_new_domain,
+                   is_search_event, evidence_tier, taxonomy_source, computed_at)
+                VALUES
+                  (1, 'p1', 'session-1', 'trail-1', 'search.com', 'https://search.com/?q=pathkeep',
+                   'search', 'search', 'google', 'pathkeep coverage', 1, 1, 'tier-a', 'fixture', 'now'),
+                  (2, 'p1', 'session-1', 'trail-1', 'docs.com', 'https://docs.com/a',
+                   'reference', 'article', NULL, NULL, 1, 0, 'tier-b', 'fixture', 'now'),
+                  (3, 'p1', 'session-1', 'trail-1', 'alt.com', 'https://alt.com/b',
+                   'reference', 'article', NULL, NULL, 1, 0, 'tier-b', 'fixture', 'now'),
+                  (4, 'p1', 'session-1', NULL, 'docs.com', 'https://docs.com/c',
+                   'reference', 'article', NULL, NULL, 0, 0, 'tier-c', 'fixture', 'now'),
+                  (5, 'p1', 'session-2', NULL, 'quiet.example', 'https://quiet.example/',
+                   'reference', 'article', NULL, NULL, 0, 0, 'tier-c', 'fixture', 'now');
+
+                INSERT INTO search_trails
+                  (trail_id, profile_id, session_id, initial_query, search_engine,
+                   reformulation_count, visit_count, landing_url, landing_domain,
+                   first_visit_ms, last_visit_ms, max_depth, queries_json, computed_at)
+                VALUES
+                  ('trail-1', 'p1', 'session-1', 'pathkeep coverage', 'google',
+                   1, 3, 'https://docs.com/a', 'docs.com', 1000, 3000, 2,
+                   '[\"pathkeep coverage\", \"pathkeep docs\"]', 'now');
+
+                INSERT INTO search_trail_members (trail_id, profile_id, visit_id, ordinal, role)
+                VALUES
+                  ('trail-1', 'p1', 1, 0, 'search'),
+                  ('trail-1', 'p1', 2, 1, 'landing'),
+                  ('trail-1', 'p1', 3, 2, 'comparison');
+
+                INSERT INTO search_events
+                  (visit_id, profile_id, search_engine, raw_query, normalized_query,
+                   query_kind, trail_id, computed_at)
+                VALUES
+                  (1, 'p1', 'google', 'PathKeep coverage', 'pathkeep coverage', 'keyword', 'trail-1', 'now'),
+                  (4, 'p1', 'google', 'PathKeep docs', 'pathkeep docs', 'keyword', NULL, 'now');
+
+                INSERT INTO query_families
+                  (family_id, profile_id, anchor_query, member_count, search_engine,
+                   first_seen_ms, last_seen_ms, queries_json, computed_at)
+                VALUES
+                  ('family-1', 'p1', 'pathkeep coverage', 2, 'google', 1000, 4000,
+                   '[\"pathkeep coverage\", \"pathkeep docs\"]', 'now');
+
+                INSERT INTO habit_patterns
+                  (profile_id, registrable_domain, habit_type, mean_interval_days, cv,
+                   visit_count, last_visited_ms, is_interrupted, computed_at)
+                VALUES
+                  ('p1', 'docs.com', 'weekly', 7.0, 0.25, 5, 4000, 1, 'now'),
+                  ('p1', 'quiet.example', 'daily', 1.0, 0.1, 3, 5000, 0, 'now');
+
+                INSERT INTO reopened_investigations
+                  (investigation_id, profile_id, anchor_type, anchor_id, anchor_label,
+                   occurrence_count, distinct_days, first_seen_ms, last_seen_ms, evidence_json, computed_at)
+                VALUES
+                  ('reopened-query', 'p1', 'query_family', 'family-1', 'pathkeep coverage',
+                   2, 2, 1000, 4000, '{\"visitIds\":[1,4]}', 'now'),
+                  ('reopened-reference', 'p1', 'reference_page', 'https://docs.com/a', 'Docs',
+                   2, 2, 1000, 4000, '{\"visitIds\":[2,3,\"skip\"]}', 'now'),
+                  ('reopened-other', 'p1', 'other', 'other', 'Other',
+                   1, 1, 1000, 1000, '{}', 'now');
+
+                INSERT INTO path_flows
+                  (profile_id, flow_pattern, step_count, occurrence_count, last_seen_ms)
+                VALUES ('p1', 'search.com → docs.com', 2, 2, 4000);
+                ",
+            )
+            .expect("seed explanation tables");
+        connection
+    }
+
+    #[test]
+    fn explanation_builders_cover_all_supported_entity_shapes() {
+        let connection = seeded_explanation_connection();
+
+        let deep_session = explain_session(&connection, "session-1").expect("deep session");
+        assert!(deep_session.trigger_rule.contains("Deep dive"));
+        assert_eq!(deep_session.participating_visit_ids, vec![1, 2, 3, 4]);
+
+        let shallow_session = explain_session(&connection, "session-2").expect("shallow session");
+        assert!(shallow_session.trigger_rule.contains("30 minutes"));
+
+        let trail = explain_search_trail(&connection, "trail-1").expect("trail explanation");
+        assert_eq!(trail.participating_visit_ids, vec![1, 2, 3]);
+        assert!(trail.factors.iter().any(|factor| factor.label == "landing_detected"));
+
+        let family = explain_query_family(&connection, "family-1").expect("family explanation");
+        assert_eq!(family.participating_visit_ids, vec![1, 4]);
+
+        let reopened_query =
+            explain_reopened_investigation(&connection, "reopened-query").expect("reopened query");
+        assert_eq!(reopened_query.participating_visit_ids, vec![1, 4]);
+        let reopened_reference = explain_reopened_investigation(&connection, "reopened-reference")
+            .expect("reopened reference");
+        assert_eq!(reopened_reference.participating_visit_ids, vec![2, 3]);
+        let reopened_other =
+            explain_reopened_investigation(&connection, "reopened-other").expect("reopened other");
+        assert!(reopened_other.participating_visit_ids.is_empty());
+
+        let interrupted =
+            explain_habit_pattern(&connection, "p1::docs.com").expect("habit explanation");
+        assert!(interrupted.trigger_rule.contains("interruption"));
+        let active = explain_habit_pattern(&connection, "p1::quiet.example").expect("active habit");
+        assert!(active.trigger_rule.contains("cross-day"));
+
+        let path_flow =
+            explain_path_flow(&connection, "p1::2::search.com → docs.com").expect("path flow");
+        assert_eq!(path_flow.participating_visit_ids, vec![1, 2]);
+
+        let compare =
+            explain_compare_set(&connection, "compare:trail-1:article").expect("compare set");
+        assert_eq!(compare.participating_visit_ids, vec![2, 3]);
+        assert!(compare.factors.iter().any(|factor| factor.label == "alternation_count"));
+        assert!(explain_compare_set(&connection, "compare:trail-1:missing").is_err());
+    }
+
+    #[test]
+    fn explanation_builders_report_missing_or_malformed_entity_ids() {
+        let connection = seeded_explanation_connection();
+
+        assert!(explain_session(&connection, "missing").is_err());
+        assert!(explain_search_trail(&connection, "missing").is_err());
+        assert!(explain_query_family(&connection, "missing").is_err());
+        assert!(explain_reopened_investigation(&connection, "missing").is_err());
+        assert!(explain_habit_pattern(&connection, "malformed").is_err());
+        assert!(explain_path_flow(&connection, "p1::two::docs.com").is_err());
+        assert!(explain_path_flow(&connection, "p1::2::").is_err());
+    }
 }

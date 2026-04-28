@@ -136,7 +136,6 @@ CREATE TABLE IF NOT EXISTS search_events (
 );
 CREATE INDEX IF NOT EXISTS idx_search_events_profile_engine ON search_events(profile_id, search_engine);
 CREATE INDEX IF NOT EXISTS idx_search_events_profile_visit ON search_events(profile_id, visit_id);
-CREATE INDEX IF NOT EXISTS idx_search_events_profile_kind ON search_events(profile_id, query_kind);
 
 CREATE TABLE IF NOT EXISTS search_event_terms (
   visit_id           INTEGER NOT NULL,

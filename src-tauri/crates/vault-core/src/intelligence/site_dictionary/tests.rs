@@ -25,6 +25,9 @@ use super::{
     normalize_query, upsert_search_engine_rule, upsert_site_dictionary_override,
 };
 use crate::models::SearchEngineRuleInput;
+use crate::visit_taxonomy::{
+    DomainCategory, InteractionKind, PageCategory, TaxonomyOverrideTarget,
+};
 use rusqlite::Connection;
 
 #[test]
@@ -92,6 +95,304 @@ fn persisted_user_override_beats_builtin_rule_pack() {
     assert_eq!(entry.domain_category, "work");
     assert_eq!(entry.page_category, "dashboard");
     assert_eq!(entry.display_name.as_deref(), Some("GitHub Work"));
+
+    upsert_site_dictionary_override(
+        &connection,
+        &SiteDictionaryOverrideUpsert {
+            target_kind: SiteDictionaryOverrideTargetKind::Host,
+            target_value: "app.hosted.example".to_string(),
+            domain_category: Some("docs".to_string()),
+            page_category: Some("docs_page".to_string()),
+            interaction_kind: Some("learn".to_string()),
+            display_name: Some("Hosted App Docs".to_string()),
+            search_engine: None,
+            is_noisy: false,
+            note: None,
+        },
+    )
+    .expect("insert host override");
+    upsert_site_dictionary_override(
+        &connection,
+        &SiteDictionaryOverrideUpsert {
+            target_kind: SiteDictionaryOverrideTargetKind::UrlPrefix,
+            target_value: "https://prefix.example/search".to_string(),
+            domain_category: Some("search".to_string()),
+            page_category: Some("search_results".to_string()),
+            interaction_kind: Some("discover".to_string()),
+            display_name: Some("Prefix Search".to_string()),
+            search_engine: Some("prefix".to_string()),
+            is_noisy: false,
+            note: None,
+        },
+    )
+    .expect("insert url prefix override");
+    let overrides = load_site_dictionary_overrides(&connection).expect("reload overrides");
+    let docs_entry = classify_visit(
+        "https://app.hosted.example/docs",
+        Some("Actions"),
+        None,
+        false,
+        None,
+        None,
+        &overrides,
+        &rules,
+    );
+    assert_eq!(docs_entry.display_name.as_deref(), Some("Hosted App Docs"));
+    let search_entry = classify_visit(
+        "https://prefix.example/search?q=pathkeep",
+        Some("Search"),
+        None,
+        false,
+        None,
+        None,
+        &overrides,
+        &rules,
+    );
+    assert_eq!(search_entry.display_name.as_deref(), Some("Prefix Search"));
+    assert_eq!(search_entry.search_engine.as_deref(), Some("prefix"));
+    assert_eq!(SiteDictionaryOverrideTargetKind::from_str("unsupported"), None);
+}
+
+#[test]
+fn persisted_overrides_parse_all_taxonomy_keys_and_target_kinds() {
+    let connection = Connection::open_in_memory().expect("in memory sqlite");
+    let cases = [
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "ai.example",
+            "ai",
+            "search-results",
+            "compare",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Ai,
+            PageCategory::SearchResults,
+            InteractionKind::Compare,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::Host,
+            "community.example",
+            "community",
+            "docs-page",
+            "discover",
+            TaxonomyOverrideTarget::Host,
+            DomainCategory::Community,
+            PageCategory::DocsPage,
+            InteractionKind::Discover,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::UrlPrefix,
+            "https://developer.example/repo",
+            "developer",
+            "repo",
+            "discuss",
+            TaxonomyOverrideTarget::UrlPrefix,
+            DomainCategory::Developer,
+            PageCategory::Repo,
+            InteractionKind::Discuss,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "docs.example",
+            "docs",
+            "issue",
+            "learn",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Docs,
+            PageCategory::Issue,
+            InteractionKind::Learn,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "education.example",
+            "education",
+            "pull_request",
+            "manage",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Education,
+            PageCategory::PullRequest,
+            InteractionKind::Manage,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "entertainment.example",
+            "entertainment",
+            "forum_thread",
+            "resolve",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Entertainment,
+            PageCategory::ForumThread,
+            InteractionKind::Resolve,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "finance.example",
+            "finance",
+            "product_page",
+            "transact",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Finance,
+            PageCategory::ProductPage,
+            InteractionKind::Transact,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "news.example",
+            "news",
+            "category_page",
+            "watch",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::News,
+            PageCategory::CategoryPage,
+            InteractionKind::Watch,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "search.example",
+            "search",
+            "video_page",
+            "unknown",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Search,
+            PageCategory::VideoPage,
+            InteractionKind::Unknown,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "shopping.example",
+            "shopping",
+            "article_page",
+            "compare",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Shopping,
+            PageCategory::ArticlePage,
+            InteractionKind::Compare,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "social.example",
+            "social",
+            "profile",
+            "discover",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Social,
+            PageCategory::Profile,
+            InteractionKind::Discover,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "travel.example",
+            "travel",
+            "dashboard",
+            "discuss",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Travel,
+            PageCategory::Dashboard,
+            InteractionKind::Discuss,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "video.example",
+            "video",
+            "home",
+            "learn",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Video,
+            PageCategory::Home,
+            InteractionKind::Learn,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "work.example",
+            "work",
+            "unknown",
+            "manage",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Work,
+            PageCategory::Unknown,
+            InteractionKind::Manage,
+        ),
+        (
+            SiteDictionaryOverrideTargetKind::ExactDomain,
+            "unknown.example",
+            "unknown",
+            "search_results",
+            "resolve",
+            TaxonomyOverrideTarget::ExactDomain,
+            DomainCategory::Unknown,
+            PageCategory::SearchResults,
+            InteractionKind::Resolve,
+        ),
+    ];
+
+    for (
+        target_kind,
+        target_value,
+        domain_category,
+        page_category,
+        interaction_kind,
+        expected_target,
+        expected_domain,
+        expected_page,
+        expected_interaction,
+    ) in cases
+    {
+        upsert_site_dictionary_override(
+            &connection,
+            &SiteDictionaryOverrideUpsert {
+                target_kind,
+                target_value: target_value.to_string(),
+                domain_category: Some(domain_category.to_string()),
+                page_category: Some(page_category.to_string()),
+                interaction_kind: Some(interaction_kind.to_string()),
+                display_name: None,
+                search_engine: None,
+                is_noisy: false,
+                note: Some("taxonomy coverage".to_string()),
+            },
+        )
+        .expect("insert taxonomy override");
+        let overrides = load_site_dictionary_overrides(&connection).expect("load overrides");
+        let override_rule = overrides
+            .iter()
+            .find(|candidate| candidate.target_value == target_value)
+            .expect("loaded override");
+        let taxonomy = override_rule.taxonomy_override.as_ref().expect("taxonomy override");
+        assert_eq!(taxonomy.target, expected_target);
+        assert_eq!(taxonomy.domain_category, expected_domain);
+        assert_eq!(taxonomy.page_category, expected_page);
+        assert_eq!(taxonomy.interaction_kind, expected_interaction);
+    }
+}
+
+#[test]
+fn persisted_overrides_ignore_partial_or_invalid_taxonomy_rows() {
+    let connection = Connection::open_in_memory().expect("in memory sqlite");
+    for (target, domain_category, page_category, interaction_kind) in [
+        ("partial.example", Some("work"), None, Some("manage")),
+        ("bad-domain.example", Some("bad-domain"), Some("home"), Some("manage")),
+        ("bad-page.example", Some("work"), Some("bad-page"), Some("manage")),
+        ("bad-interaction.example", Some("work"), Some("home"), Some("bad-interaction")),
+    ] {
+        upsert_site_dictionary_override(
+            &connection,
+            &SiteDictionaryOverrideUpsert {
+                target_kind: SiteDictionaryOverrideTargetKind::ExactDomain,
+                target_value: target.to_string(),
+                domain_category: domain_category.map(str::to_string),
+                page_category: page_category.map(str::to_string),
+                interaction_kind: interaction_kind.map(str::to_string),
+                display_name: None,
+                search_engine: None,
+                is_noisy: false,
+                note: None,
+            },
+        )
+        .expect("insert invalid override");
+    }
+
+    let overrides = load_site_dictionary_overrides(&connection).expect("load overrides");
+    assert_eq!(overrides.len(), 4);
+    assert!(overrides.iter().all(|override_rule| override_rule.taxonomy_override.is_none()));
 }
 
 #[test]
@@ -171,7 +472,7 @@ fn list_rules_merges_builtin_and_custom_rules() {
     upsert_search_engine_rule(
         &connection,
         &SearchEngineRuleInput {
-            rule_id: Some("custom-amazon-de".to_string()),
+            rule_id: None,
             engine_id: "amazon-de".to_string(),
             display_name: "Amazon DE".to_string(),
             host_pattern: "amazon.de".to_string(),
@@ -186,5 +487,7 @@ fn list_rules_merges_builtin_and_custom_rules() {
 
     let rules = list_search_engine_rules(&connection).expect("list rules");
     assert!(rules.iter().any(|rule| rule.rule_id == "builtin:bilibili"));
-    assert!(rules.iter().any(|rule| rule.rule_id == "custom-amazon-de"));
+    assert!(rules.iter().any(|rule| {
+        rule.rule_id.starts_with("custom-search-rule-") && rule.engine_id == "amazon-de"
+    }));
 }

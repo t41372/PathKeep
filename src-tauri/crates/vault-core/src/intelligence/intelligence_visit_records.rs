@@ -62,13 +62,17 @@ pub(super) fn load_visible_visits(
     let rows = statement.query_map([profile_id], visit_from_row)?;
     let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     hydrate_search_terms(connection, &mut visits)?;
+    Ok(trim_visits_to_limit(visits, limit))
+}
+
+fn trim_visits_to_limit(mut visits: Vec<VisitRecord>, limit: Option<u32>) -> Vec<VisitRecord> {
     if let Some(limit) = limit {
         let keep = limit.max(1) as usize;
         if visits.len() > keep {
             visits = visits.split_off(visits.len() - keep);
         }
     }
-    Ok(visits)
+    visits
 }
 
 /// Normalizes one archive row into the unclassified `VisitRecord` shell used
@@ -300,4 +304,54 @@ fn apply_site_dictionary(
     visit.taxonomy_pack = dictionary.taxonomy_pack;
     visit.taxonomy_version = dictionary.taxonomy_version;
     visit.display_name = dictionary.display_name;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VisitRecord, trim_visits_to_limit};
+
+    fn visit(visit_id: i64) -> VisitRecord {
+        VisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".to_string(),
+            source_profile_id: 1,
+            source_visit_id: visit_id,
+            source_url_id: visit_id,
+            url: format!("https://example.com/{visit_id}"),
+            title: None,
+            visit_time_ms: visit_id,
+            from_visit: None,
+            transition_type: None,
+            external_referrer_url: None,
+            canonical_url: format!("https://example.com/{visit_id}"),
+            registrable_domain: "example.com".to_string(),
+            domain_category: "reference".to_string(),
+            page_category: "article".to_string(),
+            search_engine: None,
+            search_query: None,
+            is_new_domain: false,
+            is_search_event: false,
+            evidence_tier: "deterministic".to_string(),
+            taxonomy_source: "rules".to_string(),
+            taxonomy_pack: None,
+            taxonomy_version: None,
+            display_name: None,
+            session_id: None,
+            trail_id: None,
+        }
+    }
+
+    #[test]
+    fn trim_visits_to_limit_keeps_the_newest_tail_and_treats_zero_as_one() {
+        let visits = vec![visit(1), visit(2), visit(3)];
+
+        let limited = trim_visits_to_limit(visits.clone(), Some(2));
+        assert_eq!(limited.iter().map(|visit| visit.visit_id).collect::<Vec<_>>(), vec![2, 3]);
+
+        let zero = trim_visits_to_limit(visits.clone(), Some(0));
+        assert_eq!(zero.iter().map(|visit| visit.visit_id).collect::<Vec<_>>(), vec![3]);
+
+        let unlimited = trim_visits_to_limit(visits, None);
+        assert_eq!(unlimited.len(), 3);
+    }
 }

@@ -38,6 +38,11 @@ describe('intelligence display copy helpers', () => {
         downloads: 3,
       }),
     ).toContain('12')
+    expect(
+      intelligenceText('en', brokenTranslator, 'latestRunGrowthBody', {
+        visits: 12,
+      }),
+    ).toBe('Added 12 visits,  URLs, and  downloads.')
   })
 
   test('falls back to shipped storage labels when common keys are missing', () => {
@@ -64,6 +69,12 @@ describe('intelligence display copy helpers', () => {
     expect(intelligenceCategoryLabel('en', brokenTranslator, 'community')).toBe(
       'Community',
     )
+    expect(intelligenceCategoryLabel('en', brokenTranslator, 'unknown')).toBe(
+      'unknown',
+    )
+    expect(
+      intelligenceCategoryLabel('en', () => 'Translated category', 'unknown'),
+    ).toBe('Translated category')
   })
 
   test('decodes domain page paths for visible UI text', () => {
@@ -72,5 +83,7 @@ describe('intelligence display copy helpers', () => {
         '/wiki/%E5%93%88%E5%B8%83%E6%96%AF%E5%A0%A1%E5%90%9B%E4%B8%BB%E5%9C%8B',
       ),
     ).toBe('/wiki/哈布斯堡君主國')
+    expect(formatDomainPagePath('')).toBe('/')
+    expect(formatDomainPagePath('%E0%A4%A')).toBe('%E0%A4%A')
   })
 })

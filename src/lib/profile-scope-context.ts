@@ -66,5 +66,5 @@ export function profileIdLabel(profileId: string) {
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 export function profileIdBrowserKind(profileId: string) {
-  return profileId.split(':')[0] ?? profileId
+  return profileId.split(':')[0]
 }

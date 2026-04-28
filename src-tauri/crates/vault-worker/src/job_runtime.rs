@@ -35,20 +35,19 @@ pub(crate) fn maybe_spawn_worker_pool<F>(
         if active >= desired_workers {
             break;
         }
-        if active_workers
-            .compare_exchange(active, active + 1, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            continue;
+        if claim_worker_slot(active_workers, active) {
+            let worker = Arc::clone(&worker);
+            let thread_name = format!("{base_name}-{}", active + 1);
+            let _ = thread::Builder::new().name(thread_name).spawn(move || {
+                worker();
+                active_workers.fetch_sub(1, Ordering::AcqRel);
+            });
         }
-
-        let worker = Arc::clone(&worker);
-        let thread_name = format!("{base_name}-{}", active + 1);
-        let _ = thread::Builder::new().name(thread_name).spawn(move || {
-            worker();
-            active_workers.fetch_sub(1, Ordering::AcqRel);
-        });
     }
+}
+
+fn claim_worker_slot(active_workers: &AtomicUsize, active: usize) -> bool {
+    active_workers.compare_exchange(active, active + 1, Ordering::AcqRel, Ordering::Acquire).is_ok()
 }
 
 /// Background cooperative-stop monitor for one long-running queue job.
@@ -146,5 +145,33 @@ mod tests {
 
         assert_eq!(peak.load(Ordering::Acquire), 2);
         assert_eq!(ACTIVE_WORKERS.load(Ordering::Acquire), 0);
+
+        let claimed = AtomicUsize::new(0);
+        assert!(claim_worker_slot(&claimed, 0));
+        assert!(!claim_worker_slot(&claimed, 0));
+    }
+
+    #[test]
+    fn background_job_control_reports_requested_stop_at_checkpoints() {
+        let control = BackgroundJobControl::spawn(
+            Duration::from_millis(5),
+            Duration::from_secs(60),
+            || Ok(()),
+            || Ok(true),
+        );
+
+        for _ in 0..100 {
+            if control.cancelled() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        assert!(control.cancelled());
+        let cancelled = control
+            .checkpoint("background job noticed a stop request")
+            .expect_err("checkpoint should report cancellation");
+        assert!(cancelled.to_string().contains("stop request"));
+        control.shutdown();
     }
 }

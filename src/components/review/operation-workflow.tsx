@@ -53,7 +53,7 @@ interface OperationWorkflowProps {
     pending: string
     command: (index: number) => string
   }
-  onCopy: (value: string) => Promise<void>
+  onCopy: (value: string) => Promise<unknown>
   steps: WorkflowStep[]
 }
 

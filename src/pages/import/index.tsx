@@ -358,16 +358,17 @@ export function ImportPage() {
       void refreshAppData().catch((nextError) => {
         reportActionError(nextError)
       })
-      if (result.importBatch) {
-        selectBatchId(result.importBatch.id)
-        try {
-          setLoadedBatchDetail(
-            await backend.previewImportBatch(result.importBatch.id),
-          )
-        } catch (nextError) {
-          setLoadedBatchDetail(null)
-          reportActionError(nextError)
-        }
+      const importBatch = result.importBatch
+      if (!importBatch) {
+        return
+      }
+
+      selectBatchId(importBatch.id)
+      try {
+        setLoadedBatchDetail(await backend.previewImportBatch(importBatch.id))
+      } catch (nextError) {
+        setLoadedBatchDetail(null)
+        reportActionError(nextError)
       }
     } catch (nextError) {
       reportActionError(nextError)
@@ -427,9 +428,7 @@ export function ImportPage() {
         workflowExpanded={workflowExpanded}
         workflowSteps={workflowSteps}
         onBrowseSource={handleBrowseSource}
-        onCopyWorkflowValue={async (value) => {
-          await copyReviewValue(value)
-        }}
+        onCopyWorkflowValue={copyReviewValue}
         onImport={handleImport}
         onImportAnother={handleImportAnother}
         onManualPathExpandedChange={setManualPathExpanded}

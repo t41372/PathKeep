@@ -73,9 +73,6 @@ export function SettingsExternalOutputsPanel({
     null,
   )
   const ready = initialized && unlocked
-  const profileScopeLabel = activeProfileId
-    ? profileIdLabel(activeProfileId)
-    : null
   const outputs = useAsyncData<ExternalOutputsPayload | null>(async () => {
     if (!ready) {
       return null
@@ -155,7 +152,7 @@ export function SettingsExternalOutputsPanel({
           body={
             activeProfileId
               ? t('externalOutputsScopedBody', {
-                  profile: profileScopeLabel ?? activeProfileId,
+                  profile: profileIdLabel(activeProfileId),
                 })
               : t('externalOutputsArchiveWideBody')
           }

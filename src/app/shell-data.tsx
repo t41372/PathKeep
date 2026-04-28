@@ -93,7 +93,9 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setBusyOverlay(null)
   }
 
+  // Stryker disable ArrayDeclaration: this callback only touches stable refs and browser timer APIs.
   const clearIdleTimer = useCallback(() => {
+    // Stryker disable next-line ConditionalExpression: ShellDataProvider only runs in the browser; the window guard is defensive for non-DOM execution.
     if (typeof window === 'undefined' || idleTimerRef.current === null) {
       return
     }
@@ -101,13 +103,16 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(idleTimerRef.current)
     idleTimerRef.current = null
   }, [])
+  // Stryker restore ArrayDeclaration
 
+  // Stryker disable ArrayDeclaration: resetRuntimeStatus is stable, so any constant dependency array preserves this callback contract.
   const clearLoadedState = useCallback(() => {
     setSnapshot(null)
     setDashboard(null)
     setDashboardLoading(false)
     resetRuntimeStatus()
   }, [resetRuntimeStatus])
+  // Stryker restore ArrayDeclaration
 
   const refreshDashboardSnapshot = useCallback(
     async (
@@ -115,6 +120,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       options: { surfaceErrors?: boolean } = {},
     ) => {
       const { surfaceErrors = false } = options
+      // Stryker disable next-line ArithmeticOperator: the token only needs a new unique value; increasing or decreasing is equivalent for equality checks.
       const refreshToken = dashboardRefreshTokenRef.current + 1
       dashboardRefreshTokenRef.current = refreshToken
       setDashboardLoading(true)

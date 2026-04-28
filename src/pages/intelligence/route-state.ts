@@ -120,8 +120,7 @@ export function useIntelligenceRouteState() {
             : overrides.profileId,
         focus: overrides.focus === undefined ? focus : overrides.focus,
       })
-      const query = nextParams.toString()
-      return query ? `?${query}` : ''
+      return `?${nextParams.toString()}`
     },
     [dateRange, effectiveProfileId, focus, preset],
   )

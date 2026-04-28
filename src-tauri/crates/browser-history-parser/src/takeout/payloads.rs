@@ -48,23 +48,31 @@ where
         }
         KIND_TYPED_URL_JSON => {
             stream_native_only_payload::<C>(
-                source_path,
-                kind,
-                bytes,
-                chunk_size,
-                "takeout-typed-url",
-                options,
+                NativeOnlyPayloadSpec {
+                    source_path,
+                    kind,
+                    bytes,
+                    chunk_size,
+                    entity_kind: "takeout-typed-url",
+                    record_keys: &["TypedUrl", "Typed Url", "TypedUrls", "typedUrl"],
+                    capability_key: "context.takeout.typed_url",
+                    options,
+                },
                 consumer,
             )
         }
         KIND_SESSION_JSON => {
             stream_native_only_payload::<C>(
-                source_path,
-                kind,
-                bytes,
-                chunk_size,
-                "takeout-session",
-                options,
+                NativeOnlyPayloadSpec {
+                    source_path,
+                    kind,
+                    bytes,
+                    chunk_size,
+                    entity_kind: "takeout-session",
+                    record_keys: &["Session", "Sessions", "session"],
+                    capability_key: "context.takeout.session",
+                    options,
+                },
                 consumer,
             )
         }
@@ -79,13 +87,19 @@ where
     }
 }
 
-fn stream_native_only_payload<C>(
-    source_path: &str,
-    kind: &str,
-    bytes: &[u8],
+struct NativeOnlyPayloadSpec<'a> {
+    source_path: &'a str,
+    kind: &'a str,
+    bytes: &'a [u8],
     chunk_size: usize,
-    entity_kind: &str,
+    entity_kind: &'a str,
+    record_keys: &'a [&'a str],
+    capability_key: &'a str,
     options: TakeoutStreamOptions,
+}
+
+fn stream_native_only_payload<C>(
+    spec: NativeOnlyPayloadSpec<'_>,
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
@@ -94,27 +108,27 @@ where
     let mut observed_columns = BTreeSet::new();
     let mut native_entities = Vec::new();
     let mut pending_native_entities = Vec::new();
-    let chunk_size = chunk_size.max(1);
+    let chunk_size = spec.chunk_size.max(1);
     let record_count = json_stream::stream_payload_records(
-        bytes,
-        source_path,
-        payload_record_keys(kind),
+        spec.bytes,
+        spec.source_path,
+        spec.record_keys,
         |record, ordinal| {
             if let Some(object) = record.as_object() {
                 observed_columns.extend(object.keys().cloned());
             }
-            if options.collect_source_evidence {
+            if spec.options.collect_source_evidence {
                 let entity = NativeEntity {
-                    entity_kind: entity_kind.to_string(),
+                    entity_kind: spec.entity_kind.to_string(),
                     native_primary_key: native_primary_key(&record, ordinal as i64),
                     parent_native_primary_key: None,
                     payload_json: record.to_string(),
                     metadata: BTreeMap::from([
-                        ("sourcePath".to_string(), source_path.to_string()),
-                        ("payloadKind".to_string(), kind.to_string()),
+                        ("sourcePath".to_string(), spec.source_path.to_string()),
+                        ("payloadKind".to_string(), spec.kind.to_string()),
                     ]),
                 };
-                if options.retain_report_source_evidence {
+                if spec.options.retain_report_source_evidence {
                     native_entities.push(entity.clone());
                 }
                 pending_native_entities.push(entity);
@@ -143,21 +157,16 @@ where
         },
     )?;
 
-    let capability_key = match kind {
-        KIND_TYPED_URL_JSON => "context.takeout.typed_url",
-        KIND_SESSION_JSON => "context.takeout.session",
-        _ => "context.takeout.unknown",
-    };
     Ok(TakeoutPayloadStreamReport {
-        kind: kind.to_string(),
+        kind: spec.kind.to_string(),
         history: StreamedHistory {
             inspection: crate::types::DatabaseInspection {
-                table_names: vec![kind.to_string()],
+                table_names: vec![spec.kind.to_string()],
                 warnings: Vec::new(),
             },
             schema_observation: SchemaObservation {
                 tables: vec![ObservedTable {
-                    name: kind.to_string(),
+                    name: spec.kind.to_string(),
                     present: true,
                     required: false,
                     row_count: Some(record_count as i64),
@@ -173,11 +182,11 @@ where
                 }],
             },
             capability_snapshot: capability_snapshot(vec![CapabilityCoverage {
-                key: capability_key.to_string(),
+                key: spec.capability_key.to_string(),
                 available: record_count > 0,
                 populated_rows: record_count,
                 total_rows: record_count,
-                notes: vec![format!("Takeout payload kind `{kind}`")],
+                notes: vec![format!("Takeout payload kind `{}`", spec.kind)],
             }]),
             typed_evidence: TypedEvidenceBatch::default(),
             native_entities,
@@ -236,14 +245,6 @@ fn empty_stream_report(
         skipped_missing_visit_time: 0,
         earliest_visit_iso: None,
         latest_visit_iso: None,
-    }
-}
-
-fn payload_record_keys(kind: &str) -> &[&str] {
-    match kind {
-        KIND_TYPED_URL_JSON => &["TypedUrl", "Typed Url", "TypedUrls", "typedUrl"],
-        KIND_SESSION_JSON => &["Session", "Sessions", "session"],
-        _ => &[],
     }
 }
 

@@ -24,7 +24,7 @@
 use super::{INTELLIGENCE_ENRICHMENT_WORKERS, INTELLIGENCE_PRIORITY_WORKERS};
 use crate::context::{ai_archive_connection, load_unlocked_config};
 use crate::job_runtime::maybe_spawn_worker_pool;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::json;
 use vault_core::{
     AppConfig, CoreIntelligenceQueueReport, CoreIntelligenceRebuildReport,
@@ -73,46 +73,14 @@ fn spawn_intelligence_queue_drain(
         let paths = paths.clone();
         let session_database_key = session_database_key.clone();
         move || loop {
-            let config = match load_unlocked_config(&paths) {
-                Ok(config) => config,
+            match drain_one_priority_intelligence_job(&paths, session_database_key.as_deref()) {
+                Ok(true) => {}
+                Ok(false) => break,
                 Err(error) => {
-                    eprintln!("PathKeep could not load intelligence queue config: {error:#}");
+                    eprintln!("PathKeep could not drain intelligence queue work: {error:#}");
                     break;
                 }
-            };
-            if !config.initialized || config.ai.job_queue_paused {
-                break;
             }
-            let connection = match ai_archive_connection(
-                &paths,
-                &config,
-                session_database_key.as_deref(),
-            ) {
-                Ok(connection) => connection,
-                Err(error) => {
-                    eprintln!(
-                        "PathKeep could not open the archive for intelligence queue work: {error:#}"
-                    );
-                    break;
-                }
-            };
-            let Some(job) = (match next_queued_intelligence_job(&connection) {
-                Ok(job) => job,
-                Err(error) => {
-                    eprintln!("PathKeep could not load the next intelligence queue job: {error:#}");
-                    break;
-                }
-            }) else {
-                break;
-            };
-
-            let _ = execute_core_intelligence_job(
-                &paths,
-                &config,
-                session_database_key.as_deref(),
-                job.id,
-                &job.job_type,
-            );
         }
     });
 
@@ -125,41 +93,64 @@ fn spawn_intelligence_queue_drain(
         &INTELLIGENCE_ENRICHMENT_WORKERS,
         enrichment_workers,
         move || loop {
-            let config = match load_unlocked_config(&paths) {
-                Ok(config) => config,
-                Err(error) => {
-                    eprintln!("PathKeep could not load intelligence queue config: {error:#}");
-                    break;
-                }
-            };
-            if !config.initialized || config.ai.job_queue_paused {
+            if !continue_enrichment_queue_drain(drain_one_enrichment_intelligence_job(
+                &paths,
+                session_database_key.as_deref(),
+            )) {
                 break;
             }
-            let connection = match ai_archive_connection(
-                &paths,
-                &config,
-                session_database_key.as_deref(),
-            ) {
-                Ok(connection) => connection,
-                Err(error) => {
-                    eprintln!(
-                        "PathKeep could not open the archive for intelligence queue work: {error:#}"
-                    );
-                    break;
-                }
-            };
-            let Some(job_id) = (match next_queued_enrichment_job(&connection) {
-                Ok(job) => job,
-                Err(error) => {
-                    eprintln!("PathKeep could not load the next queued enrichment job: {error:#}");
-                    break;
-                }
-            }) else {
-                break;
-            };
-            let _ = execute_enrichment_job_by_id(&paths, &connection, job_id);
         },
     );
+}
+
+fn continue_enrichment_queue_drain(result: Result<bool>) -> bool {
+    match result {
+        Ok(true) => true,
+        Ok(false) => false,
+        Err(error) => {
+            eprintln!("PathKeep could not drain enrichment queue work: {error:#}");
+            false
+        }
+    }
+}
+
+pub(crate) fn drain_one_priority_intelligence_job(
+    paths: &vault_core::ProjectPaths,
+    session_database_key: Option<&str>,
+) -> Result<bool> {
+    let config = load_unlocked_config(paths).context("load intelligence queue config")?;
+    if !config.initialized || config.ai.job_queue_paused {
+        return Ok(false);
+    }
+    let connection = ai_archive_connection(paths, &config, session_database_key)
+        .context("open archive for intelligence queue work")?;
+    let Some(job) =
+        next_queued_intelligence_job(&connection).context("load next intelligence queue job")?
+    else {
+        return Ok(false);
+    };
+    let _ =
+        execute_core_intelligence_job(paths, &config, session_database_key, job.id, &job.job_type);
+    Ok(true)
+}
+
+pub(crate) fn drain_one_enrichment_intelligence_job(
+    paths: &vault_core::ProjectPaths,
+    session_database_key: Option<&str>,
+) -> Result<bool> {
+    let config = load_unlocked_config(paths).context("load intelligence queue config")?;
+    if !config.initialized || config.ai.job_queue_paused {
+        return Ok(false);
+    }
+    let connection = ai_archive_connection(paths, &config, session_database_key)
+        .context("open archive for intelligence queue work")?;
+    let Some(job_id) =
+        next_queued_enrichment_job(&connection).context("load next queued enrichment job")?
+    else {
+        return Ok(false);
+    };
+    let _ = execute_enrichment_job_by_id(paths, &connection, job_id);
+    Ok(true)
 }
 
 /// Runs one deterministic Core Intelligence rebuild synchronously for the caller.
@@ -194,17 +185,21 @@ pub fn queue_core_intelligence_rebuild(
     Ok(CoreIntelligenceQueueReport {
         job_id,
         state: state.clone(),
-        notes: vec![if config.ai.job_queue_paused {
-            format!("Queued Core Intelligence job {} while the runtime queue is paused.", job_id)
-        } else if state == "running" {
-            format!("Core Intelligence job {} is already running in the background.", job_id)
-        } else {
-            format!(
-                "Queued Core Intelligence job {}. PathKeep is processing it in the background.",
-                job_id
-            )
-        }],
+        notes: vec![core_intelligence_queue_note(job_id, &state, config.ai.job_queue_paused)],
     })
+}
+
+fn core_intelligence_queue_note(job_id: i64, state: &str, queue_paused: bool) -> String {
+    if queue_paused {
+        format!("Queued Core Intelligence job {} while the runtime queue is paused.", job_id)
+    } else if state == "running" {
+        format!("Core Intelligence job {} is already running in the background.", job_id)
+    } else {
+        format!(
+            "Queued Core Intelligence job {}. PathKeep is processing it in the background.",
+            job_id
+        )
+    }
 }
 
 /// Executes one claimed deterministic rebuild job and writes progress artifacts back to SQLite.
@@ -212,7 +207,7 @@ pub fn queue_core_intelligence_rebuild(
 /// This is the worker-side bridge between the persisted queue row and the
 /// rebuild code in `vault_core::intelligence`. It keeps progress snapshots and
 /// cancellation handling explicit so the UI can render honest job state.
-fn execute_core_intelligence_job(
+pub(crate) fn execute_core_intelligence_job(
     paths: &vault_core::ProjectPaths,
     config: &AppConfig,
     session_database_key: Option<&str>,
@@ -235,12 +230,7 @@ fn execute_core_intelligence_job(
         _ => "Core Intelligence rebuild",
     };
     let cancel_requested = |detail: &str| -> Result<()> {
-        if intelligence_job_stop_requested(&connection, job_id)? {
-            let _ =
-                mark_running_intelligence_job_cancelled(&connection, job_id, "cancelled from UI");
-            anyhow::bail!(detail.to_string());
-        }
-        Ok(())
+        bail_if_core_intelligence_job_cancelled(&connection, job_id, detail)
     };
     cancel_requested(&format!("{job_label} was cancelled before work started."))?;
     let _ = update_intelligence_job_artifact(
@@ -279,62 +269,98 @@ fn execute_core_intelligence_job(
         },
     ) {
         Ok(report) => {
-            if intelligence_job_stop_requested(&connection, job_id)? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-                return Ok(true);
-            }
-            if !mark_intelligence_job_succeeded(
-                &connection,
-                job_id,
-                &json!({
-                    "kind": job_type,
-                    "phase": "completed",
-                    "detail": format!(
-                        "{} finished with {} visits processed.",
-                        job_label,
-                        report.processed_visits,
-                    ),
-                    "processedItems": report.processed_visits,
-                    "totalItems": report.processed_visits,
-                    "progressPercent": 100.0,
-                    "processedVisits": report.processed_visits,
-                    "sessionCount": report.sessions,
-                    "trailCount": report.search_trails,
-                    "queryFamilyCount": report.query_families,
-                    "refindPageCount": report.refind_pages,
-                    "executionMode": report.execution_mode,
-                    "affectedProfiles": report.affected_profiles,
-                    "dirtyVisitCount": report.dirty_visit_count,
-                    "dirtyDateKeys": report.dirty_date_keys,
-                    "fallbackReason": report.fallback_reason,
-                    "notes": report.notes,
-                }),
-            )? {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-            }
-            Ok(true)
+            finish_core_intelligence_job_success(&connection, job_id, job_type, job_label, report)
         }
-        Err(error) => {
-            if error.to_string().contains("cancelled") {
-                let _ = mark_running_intelligence_job_cancelled(
-                    &connection,
-                    job_id,
-                    "cancelled from UI",
-                );
-                return Ok(true);
-            }
-            mark_intelligence_job_failed(&connection, job_id, &error.to_string())?;
-            Err(error)
-        }
+        Err(error) => record_core_intelligence_job_error(&connection, job_id, error),
     }
+}
+
+fn finish_core_intelligence_job_success(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+    job_type: &str,
+    job_label: &str,
+    report: CoreIntelligenceRebuildReport,
+) -> Result<bool> {
+    if cancel_core_intelligence_job_if_requested(connection, job_id)? {
+        return Ok(true);
+    }
+    finalize_core_intelligence_job_success(
+        connection,
+        job_id,
+        json!({
+            "kind": job_type,
+            "phase": "completed",
+            "detail": format!(
+                "{} finished with {} visits processed.",
+                job_label,
+                report.processed_visits,
+            ),
+            "processedItems": report.processed_visits,
+            "totalItems": report.processed_visits,
+            "progressPercent": 100.0,
+            "processedVisits": report.processed_visits,
+            "sessionCount": report.sessions,
+            "trailCount": report.search_trails,
+            "queryFamilyCount": report.query_families,
+            "refindPageCount": report.refind_pages,
+            "executionMode": report.execution_mode,
+            "affectedProfiles": report.affected_profiles,
+            "dirtyVisitCount": report.dirty_visit_count,
+            "dirtyDateKeys": report.dirty_date_keys,
+            "fallbackReason": report.fallback_reason,
+            "notes": report.notes,
+        }),
+    )?;
+    Ok(true)
+}
+
+fn bail_if_core_intelligence_job_cancelled(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+    detail: &str,
+) -> Result<()> {
+    if intelligence_job_stop_requested(connection, job_id)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+        anyhow::bail!(detail.to_string());
+    }
+    Ok(())
+}
+
+fn cancel_core_intelligence_job_if_requested(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+) -> Result<bool> {
+    if intelligence_job_stop_requested(connection, job_id)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn finalize_core_intelligence_job_success(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+    artifact: serde_json::Value,
+) -> Result<()> {
+    if !mark_intelligence_job_succeeded(connection, job_id, &artifact)? {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+    }
+    Ok(())
+}
+
+fn record_core_intelligence_job_error(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+    error: anyhow::Error,
+) -> Result<bool> {
+    let message = error.to_string();
+    if message.contains("cancelled") {
+        let _ = mark_running_intelligence_job_cancelled(connection, job_id, "cancelled from UI");
+        return Ok(true);
+    }
+    mark_intelligence_job_failed(connection, job_id, &message)?;
+    Err(error)
 }
 
 /// Loads the Settings-facing runtime snapshot and opportunistically restarts drains.
@@ -382,4 +408,131 @@ pub fn cancel_intelligence_job_now(
     let mut config = vault_core::load_config(&paths)?;
     crate::context::hydrate_derived_config_state(&mut config);
     cancel_intelligence_job(&paths, &config, session_database_key, job_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use vault_core::{
+        ArchiveMode, archive::open_intelligence_connection, config::project_paths_with_root,
+    };
+
+    fn runtime_connection() -> (tempfile::TempDir, rusqlite::Connection) {
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let connection =
+            open_intelligence_connection(&paths, &config, None).expect("runtime connection");
+        (root, connection)
+    }
+
+    fn insert_runtime_job(
+        connection: &rusqlite::Connection,
+        state: &str,
+        stop_requested: bool,
+    ) -> i64 {
+        let now = chrono::Utc::now().to_rfc3339();
+        connection
+            .execute(
+                "INSERT INTO intelligence_jobs (
+                    job_type, state, priority, attempt, dedupe_key, payload_json, artifact_json,
+                    created_at, scheduled_at, started_at, updated_at, stop_requested
+                 )
+                 VALUES (?1, ?2, 1, 0, ?3, '{}', '{}', ?4, ?4, ?4, ?4, ?5)",
+                rusqlite::params![
+                    VISIT_DERIVE_JOB_TYPE,
+                    state,
+                    format!(
+                        "runtime-helper:{state}:{stop_requested}:{}",
+                        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+                    ),
+                    now,
+                    i64::from(stop_requested),
+                ],
+            )
+            .expect("insert runtime job");
+        connection.last_insert_rowid()
+    }
+
+    #[test]
+    fn runtime_helpers_cover_queue_notes_and_cancellation_branches() {
+        assert!(
+            core_intelligence_queue_note(1, "queued", true).contains("runtime queue is paused")
+        );
+        assert!(core_intelligence_queue_note(2, "running", false).contains("already running"));
+        assert!(core_intelligence_queue_note(3, "queued", false).contains("processing it"));
+        assert!(continue_enrichment_queue_drain(Ok(true)));
+        assert!(!continue_enrichment_queue_drain(Ok(false)));
+        assert!(!continue_enrichment_queue_drain(Err(anyhow::anyhow!("drain failed"))));
+
+        let (_root, connection) = runtime_connection();
+        let stopped_id = insert_runtime_job(&connection, "running", true);
+        let stopped_error = bail_if_core_intelligence_job_cancelled(
+            &connection,
+            stopped_id,
+            "cancelled before test",
+        )
+        .expect_err("stop request should bail");
+        assert!(stopped_error.to_string().contains("cancelled before test"));
+        let stopped_state: String = connection
+            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [stopped_id], |row| {
+                row.get(0)
+            })
+            .expect("stopped state");
+        assert_eq!(stopped_state, "cancelled");
+
+        let post_success_id = insert_runtime_job(&connection, "running", true);
+        assert!(
+            cancel_core_intelligence_job_if_requested(&connection, post_success_id)
+                .expect("post success cancellation")
+        );
+        let finish_cancelled_id = insert_runtime_job(&connection, "running", true);
+        assert!(
+            finish_core_intelligence_job_success(
+                &connection,
+                finish_cancelled_id,
+                VISIT_DERIVE_JOB_TYPE,
+                "visit-derived facts refresh",
+                CoreIntelligenceRebuildReport::default(),
+            )
+            .expect("finish helper handles cancellation")
+        );
+
+        let stale_id = insert_runtime_job(&connection, "queued", false);
+        finalize_core_intelligence_job_success(
+            &connection,
+            stale_id,
+            json!({"phase": "completed"}),
+        )
+        .expect("stale success finalization should not fail");
+        let stale_state: String = connection
+            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [stale_id], |row| {
+                row.get(0)
+            })
+            .expect("stale state");
+        assert_eq!(stale_state, "queued");
+
+        let cancelled_error_id = insert_runtime_job(&connection, "running", false);
+        assert!(
+            record_core_intelligence_job_error(
+                &connection,
+                cancelled_error_id,
+                anyhow::anyhow!("cancelled by test"),
+            )
+            .expect("cancelled error is terminal success")
+        );
+        let cancelled_error_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [cancelled_error_id],
+                |row| row.get(0),
+            )
+            .expect("cancelled error state");
+        assert_eq!(cancelled_error_state, "cancelled");
+    }
 }

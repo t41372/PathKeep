@@ -268,3 +268,75 @@ fn page_category_key(category: PageCategory) -> &'static str {
         PageCategory::Unknown => "unknown",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_mappings_cover_rule_and_taxonomy_boundaries() {
+        assert_eq!(search_engine_id("baidu.com", "www.baidu.com"), "baidu");
+        assert_eq!(search_engine_id("bing.com", "www.bing.com"), "bing");
+        assert_eq!(search_engine_id("brave.com", "search.brave.com"), "brave");
+        assert_eq!(search_engine_id("duckduckgo.com", "duckduckgo.com"), "duckduckgo");
+        assert_eq!(search_engine_id("google.com", "www.google.com"), "google");
+        assert_eq!(search_engine_id("sogou.com", "www.sogou.com"), "sogou");
+        assert_eq!(search_engine_id("so.com", "www.so.com"), "so");
+        assert_eq!(search_engine_id("yahoo.com", "search.yahoo.com"), "yahoo");
+        assert_eq!(search_engine_id("yandex.ru", "yandex.ru"), "yandex");
+        assert_eq!(search_engine_id("example.com", "search.example.com"), "search.example.com");
+
+        assert!(!host_matches_rule("search.example.com", "example.com", "   "));
+        assert!(host_matches_rule("search.example.com", "example.com", "example.com."));
+        assert!(host_matches_rule(
+            "docs.internal.example.com",
+            "internal.example.com",
+            "example.com"
+        ));
+        assert!(path_matches_rule("/search/all", None));
+        assert!(path_matches_rule("/search/all", Some("/search")));
+        assert!(!path_matches_rule("/docs", Some("/search")));
+        assert_eq!(normalize_query_spacing("  rust\tcoverage\n gate  "), "rust coverage gate");
+
+        let domain_categories = [
+            (DomainCategory::Ai, "ai"),
+            (DomainCategory::Community, "community"),
+            (DomainCategory::Developer, "developer"),
+            (DomainCategory::Docs, "docs"),
+            (DomainCategory::Education, "education"),
+            (DomainCategory::Entertainment, "entertainment"),
+            (DomainCategory::Finance, "finance"),
+            (DomainCategory::News, "news"),
+            (DomainCategory::Search, "search"),
+            (DomainCategory::Shopping, "shopping"),
+            (DomainCategory::Social, "social"),
+            (DomainCategory::Travel, "travel"),
+            (DomainCategory::Video, "video"),
+            (DomainCategory::Work, "work"),
+            (DomainCategory::Unknown, "unknown"),
+        ];
+        for (category, expected) in domain_categories {
+            assert_eq!(domain_category_key(category), expected);
+        }
+
+        let page_categories = [
+            (PageCategory::SearchResults, "search_results"),
+            (PageCategory::DocsPage, "docs_page"),
+            (PageCategory::Repo, "repo"),
+            (PageCategory::Issue, "issue"),
+            (PageCategory::PullRequest, "pull_request"),
+            (PageCategory::ForumThread, "forum_thread"),
+            (PageCategory::ProductPage, "product_page"),
+            (PageCategory::CategoryPage, "category_page"),
+            (PageCategory::VideoPage, "video_page"),
+            (PageCategory::ArticlePage, "article_page"),
+            (PageCategory::Profile, "profile"),
+            (PageCategory::Dashboard, "dashboard"),
+            (PageCategory::Home, "home"),
+            (PageCategory::Unknown, "unknown"),
+        ];
+        for (category, expected) in page_categories {
+            assert_eq!(page_category_key(category), expected);
+        }
+    }
+}

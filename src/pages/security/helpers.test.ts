@@ -71,6 +71,22 @@ describe('security helpers', () => {
     ).toBe(
       'Unlock this encrypted archive with the current password before reviewing history or audit data.',
     )
+    expect(
+      localizeSecurityWarning(
+        'warning: no native keyring backend is available on this machine.',
+        t,
+      ),
+    ).toBe(
+      'PathKeep cannot remember the archive key on this machine until a native keyring backend is available.',
+    )
+    expect(
+      localizeSecurityWarning(
+        'warning: database key is not currently stored in the system keyring.',
+        t,
+      ),
+    ).toBe(
+      'PathKeep expected the archive key in the system keyring, but it is missing right now.',
+    )
   })
 
   test('preserves unknown warnings verbatim', () => {

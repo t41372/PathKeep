@@ -173,7 +173,9 @@ export function ExplorerSemanticPanel({
               <button
                 className="btn-secondary"
                 type="button"
-                onClick={() => onNextPage(semanticResults.nextCursor ?? null)}
+                onClick={() =>
+                  onNextPage(semanticResults.nextCursor as string | null)
+                }
                 disabled={!semanticResults.nextCursor}
               >
                 {explorerT('nextEvidencePage')}

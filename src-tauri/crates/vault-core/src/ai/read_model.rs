@@ -7,6 +7,7 @@
 //! Keeping these together makes the public AI surface easier to scan without
 //! digging through embedding/search/assistant execution internals.
 
+use super::provider::ProviderReadiness;
 use super::*;
 
 /// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
@@ -116,25 +117,15 @@ pub fn ai_index_status(
         )
     });
     let ready = indexed_items > 0 && provider_readiness.available;
-    let state = if !config.ai.enabled {
-        "disabled".to_string()
-    } else if !provider_readiness.available {
-        "degraded".to_string()
-    } else if index_queue_counts.running > 0 {
-        "rebuilding".to_string()
-    } else if queue_status.paused && index_queue_counts.queued > 0 {
-        "paused".to_string()
-    } else if ledger.state == "failed" {
-        "failed".to_string()
-    } else if staleness_reason.is_some() {
-        "stale".to_string()
-    } else if ready {
-        "ready".to_string()
-    } else if index_queue_counts.queued > 0 {
-        "queued".to_string()
-    } else {
-        "empty".to_string()
-    };
+    let (state, warning) = ai_index_state_and_warning(
+        config,
+        &provider_readiness,
+        &queue_status,
+        &index_queue_counts,
+        &ledger,
+        staleness_reason,
+        ready,
+    );
     Ok(AiIndexStatus {
         enabled: config.ai.enabled,
         assistant_enabled: config.ai.assistant_enabled,
@@ -155,18 +146,53 @@ pub fn ai_index_status(
         semantic_sidecar_bytes,
         semantic_metadata_bytes,
         estimated_embedding_tokens,
-        warning: if ledger.state == "failed" {
-            ledger.failure_reason.or(ledger.last_failure_at)
-        } else if !provider_readiness.available {
-            provider_readiness.warning
-        } else if staleness_reason.is_some() {
-            staleness_reason
-        } else if config.ai.enabled && !ready {
-            Some("Run Build index after configuring an embedding provider to enable semantic search.".to_string())
-        } else {
-            None
-        },
+        warning,
     })
+}
+
+fn ai_index_state_and_warning(
+    config: &AppConfig,
+    provider_readiness: &ProviderReadiness,
+    queue_status: &AiQueueStatus,
+    index_queue_counts: &ai_queue::QueueJobCounts,
+    ledger: &AiIndexLedgerRow,
+    staleness_reason: Option<String>,
+    ready: bool,
+) -> (String, Option<String>) {
+    let state = if !config.ai.enabled {
+        "disabled".to_string()
+    } else if !provider_readiness.available {
+        "degraded".to_string()
+    } else if index_queue_counts.running > 0 {
+        "rebuilding".to_string()
+    } else if queue_status.paused && index_queue_counts.queued > 0 {
+        "paused".to_string()
+    } else if ledger.state == "failed" {
+        "failed".to_string()
+    } else if staleness_reason.is_some() {
+        "stale".to_string()
+    } else if ready {
+        "ready".to_string()
+    } else if index_queue_counts.queued > 0 {
+        "queued".to_string()
+    } else {
+        "empty".to_string()
+    };
+    let warning = if ledger.state == "failed" {
+        ledger.failure_reason.clone().or_else(|| ledger.last_failure_at.clone())
+    } else if !provider_readiness.available {
+        provider_readiness.warning.clone()
+    } else if staleness_reason.is_some() {
+        staleness_reason
+    } else if config.ai.enabled && !ready {
+        Some(
+            "Run Build index after configuring an embedding provider to enable semantic search."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    (state, warning)
 }
 
 /// Loads the persisted AI queue read model.
@@ -234,24 +260,16 @@ pub fn provider_capabilities(config: &AiProviderConfig) -> AiProviderCapabilityR
     );
     let supports_chat = matches!(config.purpose, AiProviderPurpose::Llm);
     let supports_streaming = supports_chat;
-    let supports_tool_use = supports_chat
-        && matches!(
-            config.request_format,
-            AiRequestFormat::OpenAi
-                | AiRequestFormat::Anthropic
-                | AiRequestFormat::Google
-                | AiRequestFormat::Ollama
-                | AiRequestFormat::LmStudio
-        );
-    let supports_structured_output = supports_chat
-        && matches!(
-            config.request_format,
-            AiRequestFormat::OpenAi
-                | AiRequestFormat::Anthropic
-                | AiRequestFormat::Google
-                | AiRequestFormat::Ollama
-                | AiRequestFormat::LmStudio
-        );
+    let supports_interactive_chat_format = matches!(
+        config.request_format,
+        AiRequestFormat::OpenAi
+            | AiRequestFormat::Anthropic
+            | AiRequestFormat::Google
+            | AiRequestFormat::Ollama
+            | AiRequestFormat::LmStudio
+    );
+    let supports_tool_use = supports_chat && supports_interactive_chat_format;
+    let supports_structured_output = supports_chat && supports_interactive_chat_format;
     AiProviderCapabilityReport {
         supports_chat,
         supports_embeddings,
@@ -429,4 +447,155 @@ pub fn preview_ai_integrations(
             vec!["MCP and skill integration are both disabled in Settings right now.".to_string()]
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::AiSettings;
+
+    fn enabled_config() -> AppConfig {
+        AppConfig {
+            ai: AiSettings { enabled: true, ..AiSettings::default() },
+            ..AppConfig::default()
+        }
+    }
+
+    #[test]
+    fn ai_index_state_helper_covers_ordered_status_and_warning_edges() {
+        let mut config = enabled_config();
+        let ready_provider = ProviderReadiness {
+            available: true,
+            warning: None,
+            selected_model: Some("model".to_string()),
+        };
+        let unavailable_provider = ProviderReadiness {
+            available: false,
+            warning: Some("provider warning".to_string()),
+            selected_model: None,
+        };
+        let queue = AiQueueStatus::default();
+        let empty_counts = ai_queue::QueueJobCounts { queued: 0, running: 0, failed: 0 };
+        let queued_counts = ai_queue::QueueJobCounts { queued: 1, running: 0, failed: 0 };
+        let running_counts = ai_queue::QueueJobCounts { queued: 0, running: 1, failed: 0 };
+        let failed_ledger = AiIndexLedgerRow {
+            state: "failed".to_string(),
+            failure_reason: Some("embedding run failed".to_string()),
+            ..AiIndexLedgerRow::default()
+        };
+
+        config.ai.enabled = false;
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &empty_counts,
+                &AiIndexLedgerRow::default(),
+                None,
+                false,
+            )
+            .0,
+            "disabled"
+        );
+
+        config.ai.enabled = true;
+        let degraded = ai_index_state_and_warning(
+            &config,
+            &unavailable_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            None,
+            false,
+        );
+        assert_eq!(degraded, ("degraded".to_string(), Some("provider warning".to_string())));
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &running_counts,
+                &AiIndexLedgerRow::default(),
+                None,
+                false,
+            )
+            .0,
+            "rebuilding"
+        );
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &AiQueueStatus { paused: true, ..AiQueueStatus::default() },
+                &queued_counts,
+                &AiIndexLedgerRow::default(),
+                None,
+                false,
+            )
+            .0,
+            "paused"
+        );
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &empty_counts,
+                &failed_ledger,
+                None,
+                false,
+            ),
+            ("failed".to_string(), Some("embedding run failed".to_string()))
+        );
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &empty_counts,
+                &AiIndexLedgerRow::default(),
+                Some("source watermark moved".to_string()),
+                true,
+            ),
+            ("stale".to_string(), Some("source watermark moved".to_string()))
+        );
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &empty_counts,
+                &AiIndexLedgerRow::default(),
+                None,
+                true,
+            )
+            .0,
+            "ready"
+        );
+        assert_eq!(
+            ai_index_state_and_warning(
+                &config,
+                &ready_provider,
+                &queue,
+                &queued_counts,
+                &AiIndexLedgerRow::default(),
+                None,
+                false,
+            )
+            .0,
+            "queued"
+        );
+        let empty = ai_index_state_and_warning(
+            &config,
+            &ready_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            None,
+            false,
+        );
+        assert_eq!(empty.0, "empty");
+        assert!(empty.1.expect("empty warning").contains("Build index"));
+    }
 }

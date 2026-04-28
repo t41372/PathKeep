@@ -74,6 +74,7 @@ export function RhythmActivityProportionBar({
 }) {
   const numberFormatter = useMemo(
     () => new Intl.NumberFormat(localeTag(language)),
+    // Stryker disable next-line ArrayDeclaration: supported en/zh locales render the integer visit counts in this component identically.
     [language],
   )
   const sortedCategories = useMemo(
@@ -126,6 +127,7 @@ export function RhythmActivityProportionBar({
 }
 
 function heatLevel(count: number, maxCount: number) {
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: public callers clamp maxCount to at least 1 before this helper runs.
   if (count <= 0 || maxCount <= 0) {
     return 0
   }

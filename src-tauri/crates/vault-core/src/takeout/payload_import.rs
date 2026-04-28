@@ -169,64 +169,63 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
     }
 
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
-        let batch_len = batch.len();
         for visit in batch {
-            let Some(&url_id) = self.url_id_map.get(&visit.source_url_id) else {
-                self.stats.skipped_items += 1;
-                continue;
-            };
-            let payload_hash = sha256_hex(
-                serde_json::to_string(&visit)
-                    .context("serializing Takeout visit for payload hash")?
-                    .as_bytes(),
-            );
-            let inserted = self.archive.execute(
-                "INSERT OR IGNORE INTO visits (
-                   url_id,
-                   source_visit_id,
-                   visit_time_ms,
-                   visit_time_iso,
-                   transition_type,
-                   visit_duration_ms,
-                   source_profile_id,
-                   created_by_run_id,
-                   from_visit,
-                   is_known_to_sync,
-                   visited_link_id,
-                   external_referrer_url,
-                   app_id,
-                   event_fingerprint,
-                   payload_hash,
-                   recorded_at,
-                   import_batch_id
-                 )
-                 VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
-                params![
-                    url_id,
-                    visit.source_visit_id.to_string(),
-                    visit.visit_time_ms,
-                    visit.visit_time_iso,
-                    self.source_profile_id,
-                    self.run_id,
-                    self.source_path,
-                    visit_event_fingerprint(
-                        "takeout",
-                        &visit.url,
+            if let Some(url_id) =
+                resolve_takeout_visit_url_id(&self.url_id_map, &mut self.stats, visit.source_url_id)
+            {
+                let payload_hash = sha256_hex(
+                    serde_json::to_string(&visit)
+                        .context("serializing Takeout visit for payload hash")?
+                        .as_bytes(),
+                );
+                let inserted = self.archive.execute(
+                    "INSERT OR IGNORE INTO visits (
+                       url_id,
+                       source_visit_id,
+                       visit_time_ms,
+                       visit_time_iso,
+                       transition_type,
+                       visit_duration_ms,
+                       source_profile_id,
+                       created_by_run_id,
+                       from_visit,
+                       is_known_to_sync,
+                       visited_link_id,
+                       external_referrer_url,
+                       app_id,
+                       event_fingerprint,
+                       payload_hash,
+                       recorded_at,
+                       import_batch_id
+                     )
+                     VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
+                    params![
+                        url_id,
+                        visit.source_visit_id.to_string(),
                         visit.visit_time_ms,
-                        visit.title.as_deref(),
-                        None,
-                        Some("takeout"),
-                    ),
-                    payload_hash,
-                    now_rfc3339(),
-                    self.batch_id,
-                ],
-            )?;
+                        visit.visit_time_iso,
+                        self.source_profile_id,
+                        self.run_id,
+                        self.source_path,
+                        visit_event_fingerprint(
+                            "takeout",
+                            &visit.url,
+                            visit.visit_time_ms,
+                            visit.title.as_deref(),
+                            None,
+                            Some("takeout"),
+                        ),
+                        payload_hash,
+                        now_rfc3339(),
+                        self.batch_id,
+                    ],
+                )?;
 
-            if inserted > 0 {
-                self.stats.imported_items += 1;
-            } else {
-                self.stats.duplicate_items += 1;
+                if inserted > 0 {
+                    self.stats.imported_items += 1;
+                } else {
+                    self.stats.duplicate_items += 1;
+                }
             }
         }
         if let Some(progress) = self.progress.as_mut() {
@@ -238,9 +237,6 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                 duplicate_records: self.stats.duplicate_items,
                 skipped_records: self.stats.skipped_items,
             });
-        }
-        if batch_len == 0 {
-            return Ok(());
         }
         Ok(())
     }
@@ -286,10 +282,7 @@ pub(super) fn import_supported_payload_with_progress<'a>(
         },
         &mut consumer,
     )
-    .map_err(|error| match error {
-        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
-        StreamHistoryError::Consumer(error) => error,
-    })
+    .map_err(takeout_stream_error_to_anyhow)
     .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
     let (stats, deferred_source_evidence_payload, source_evidence_counts) =
         consumer.finish(report.skipped_missing_visit_time)?;
@@ -409,6 +402,25 @@ pub(super) fn persist_takeout_source_evidence_plans(
     Ok(())
 }
 
+fn resolve_takeout_visit_url_id(
+    url_id_map: &std::collections::BTreeMap<i64, i64>,
+    stats: &mut ImportStats,
+    source_url_id: i64,
+) -> Option<i64> {
+    let Some(&url_id) = url_id_map.get(&source_url_id) else {
+        stats.skipped_items += 1;
+        return None;
+    };
+    Some(url_id)
+}
+
+fn takeout_stream_error_to_anyhow(error: StreamHistoryError<anyhow::Error>) -> anyhow::Error {
+    match error {
+        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
+        StreamHistoryError::Consumer(error) => error,
+    }
+}
+
 /// Advances the Takeout watermark so later provenance reads can find the newest source batch.
 fn touch_takeout_source_batch_watermark(
     archive: &Connection,
@@ -477,4 +489,45 @@ pub(super) fn upsert_takeout_profile(
             row.get(0)
         })
         .map_err(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::project_paths_with_root;
+    use std::collections::BTreeMap;
+    use tempfile::tempdir;
+
+    #[test]
+    fn takeout_payload_helpers_cover_missing_urls_empty_plans_and_parse_errors() {
+        let mut stats = ImportStats::default();
+        let mut url_ids = BTreeMap::new();
+
+        assert_eq!(resolve_takeout_visit_url_id(&url_ids, &mut stats, 404), None);
+        assert_eq!(stats.skipped_items, 1);
+
+        url_ids.insert(404, 7);
+        assert_eq!(resolve_takeout_visit_url_id(&url_ids, &mut stats, 404), Some(7));
+        assert_eq!(stats.skipped_items, 1);
+
+        let error = takeout_stream_error_to_anyhow(StreamHistoryError::<anyhow::Error>::Parse(
+            browser_history_parser::ParseError::UnsupportedProvider { provider: "fixture" },
+        ));
+        assert!(format!("{error:#}").contains("fixture"));
+        let error = takeout_stream_error_to_anyhow(StreamHistoryError::Consumer(anyhow::anyhow!(
+            "consumer failed"
+        )));
+        assert!(format!("{error:#}").contains("consumer failed"));
+
+        let root = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        persist_takeout_source_evidence_plans(
+            &paths,
+            &AppConfig::default(),
+            None,
+            "takeout:browser-history",
+            &[],
+        )
+        .expect("empty plans are a no-op");
+    }
 }

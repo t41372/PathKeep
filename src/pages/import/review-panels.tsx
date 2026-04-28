@@ -86,6 +86,7 @@ export function ImportReviewPanels({
   onSelectBatch,
 }: ImportReviewPanelsProps) {
   const { t } = useI18n()
+  const recentBatches = recentImportBatches ?? []
 
   return (
     <div className="import-review-stack">
@@ -206,11 +207,11 @@ export function ImportReviewPanels({
                     <p className="dashboard-next-action">
                       {t('import.recentBatchesBody')}
                     </p>
-                    {(recentImportBatches?.length ?? 0) === 0 ? (
+                    {recentBatches.length === 0 ? (
                       <p className="dim">{t('import.noImportBatches')}</p>
                     ) : (
                       <div className="result-list">
-                        {(recentImportBatches ?? []).map((batch) => (
+                        {recentBatches.map((batch) => (
                           <button
                             key={batch.id}
                             className={`result-row ${

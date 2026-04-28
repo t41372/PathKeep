@@ -82,8 +82,7 @@ export function DayInsightsRoutePage() {
     preset: 'custom',
     profileId: effectiveProfileId,
   })
-  const backQuery = backParams.toString()
-  const backHref = `/intelligence${backQuery ? `?${backQuery}` : ''}`
+  const backHref = `/intelligence?${backParams.toString()}`
 
   return (
     <div
@@ -146,6 +145,15 @@ export function DayInsightsPage({
   )
     ? focusedCompareSetCandidate
     : null
+  const topSiteMaxVisits = detail
+    ? Math.max(
+        detail.topSites.reduce(
+          (maxVisits, site) => Math.max(maxVisits, site.visitCount),
+          0,
+        ),
+        1,
+      )
+    : 1
   const explorerHref = detail
     ? evidenceHref({
         profileId,
@@ -303,9 +311,7 @@ export function DayInsightsPage({
                       className="top-site-row__bar-fill"
                       style={{
                         width: `${Math.round(
-                          (site.visitCount /
-                            Math.max(detail.topSites[0]?.visitCount ?? 1, 1)) *
-                            100,
+                          (site.visitCount / topSiteMaxVisits) * 100,
                         )}%`,
                       }}
                     />

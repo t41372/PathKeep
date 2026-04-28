@@ -32,6 +32,7 @@ import {
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import type { AppSnapshot } from '../../lib/types'
+import { readRouteHistoryIndex } from './history'
 import { Topbar } from './index'
 
 describe('Topbar', () => {
@@ -44,10 +45,32 @@ describe('Topbar', () => {
         <button type="button" onClick={() => navigate('/explorer')}>
           Go to explorer
         </button>
-        <p>{location.pathname}</p>
+        <p>{`${location.pathname}${location.search}`}</p>
       </>
     )
   }
+
+  test('reads the browser history index defensively', () => {
+    expect(readRouteHistoryIndex()).toBe(0)
+    const browserWindow = window
+    vi.stubGlobal('window', undefined)
+    try {
+      expect(readRouteHistoryIndex()).toBe(0)
+    } finally {
+      vi.stubGlobal('window', browserWindow)
+    }
+    expect(readRouteHistoryIndex(null)).toBe(0)
+    expect(
+      readRouteHistoryIndex({
+        history: { state: { idx: 7 } },
+      } as Pick<Window, 'history'>),
+    ).toBe(7)
+    expect(
+      readRouteHistoryIndex({
+        history: { state: { idx: '7' } },
+      } as Pick<Window, 'history'>),
+    ).toBe(0)
+  })
 
   test('renders the active screen metadata and shell actions', async () => {
     render(
@@ -84,7 +107,8 @@ describe('Topbar', () => {
     ).toBeVisible()
   })
 
-  test('routes the primary shell action to security when the archive needs unlocking', () => {
+  test('routes the primary shell action to security when the archive needs unlocking', async () => {
+    const user = userEvent.setup()
     const shellValue: ShellDataContextValue = {
       buildInfo: null,
       appLockStatus: null,
@@ -132,6 +156,7 @@ describe('Topbar', () => {
                   subtitleKey: 'navigation.dashboardSubtitle',
                 }}
               />
+              <RouteDriver />
             </MemoryRouter>
           </ShellDataContext.Provider>
         </ProfileScopeProvider>
@@ -139,6 +164,158 @@ describe('Topbar', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Check security' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Check security' }))
+    expect(screen.getByText('/security')).toBeVisible()
+  })
+
+  test('routes uninitialized archives to onboarding from the shell action', async () => {
+    const user = userEvent.setup()
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: null,
+      snapshot: {
+        config: {
+          initialized: false,
+          selectedProfileIds: [],
+        },
+        browserProfiles: [],
+      } as unknown as AppSnapshot,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+              <RouteDriver />
+            </MemoryRouter>
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Initialize first' }))
+    expect(screen.getByText('/onboarding')).toBeVisible()
+  })
+
+  test('locks the app session from the topbar app-lock action', async () => {
+    const user = userEvent.setup()
+    const lockAppSession = vi.fn().mockResolvedValue({
+      enabled: true,
+      locked: true,
+      idleTimeoutMinutes: 15,
+      biometricAvailable: false,
+      biometricEnabled: false,
+      biometricState: 'unsupported',
+      passcodeEnabled: true,
+      passcodeConfigured: true,
+      configPath: '/tmp/pathkeep/app-lock.json',
+      warnings: [],
+      degradationNotes: [],
+    })
+    const shellValue: ShellDataContextValue = {
+      buildInfo: null,
+      appLockStatus: {
+        enabled: true,
+        locked: false,
+        idleTimeoutMinutes: 15,
+        biometricAvailable: false,
+        biometricEnabled: false,
+        biometricState: 'unsupported',
+        passcodeEnabled: true,
+        passcodeConfigured: true,
+        configPath: '/tmp/pathkeep/app-lock.json',
+        warnings: [],
+        degradationNotes: [],
+      },
+      snapshot: null,
+      dashboard: null,
+      loading: false,
+      busyAction: null,
+      busyOverlay: null,
+      error: null,
+      notice: null,
+      refreshKey: 0,
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshRuntimeStatus: vi.fn().mockResolvedValue({
+        aiQueue: null,
+        intelligence: null,
+        loading: false,
+        error: null,
+      }),
+      saveConfig: vi.fn().mockRejectedValue(new Error('not implemented')),
+      initializeArchive: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      runBackup: vi.fn().mockRejectedValue(new Error('not implemented')),
+      setAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      clearAppLockPasscode: vi
+        .fn()
+        .mockRejectedValue(new Error('not implemented')),
+      lockAppSession,
+      unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
+      clearNotice: vi.fn(),
+    }
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataContext.Provider value={shellValue}>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataContext.Provider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Lock now' }))
+    expect(lockAppSession).toHaveBeenCalledWith('manual')
   })
 
   test('starts manual backups without leaking rejected promises from chrome buttons', async () => {
@@ -217,6 +394,40 @@ describe('Topbar', () => {
     } finally {
       window.removeEventListener('unhandledrejection', unhandledRejection)
     }
+  })
+
+  test('routes global search submissions with and without a query', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+              <RouteDriver />
+            </MemoryRouter>
+          </ShellDataProvider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    const input = screen.getByRole('searchbox', { name: 'Search history' })
+    await user.type(input, '  openai docs  {Enter}')
+
+    expect(await screen.findByText('/explorer?q=openai%20docs')).toBeVisible()
+
+    await user.clear(input)
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText('/explorer')).toBeVisible()
   })
 
   test('tracks in-app route history for the global back and forward buttons', async () => {

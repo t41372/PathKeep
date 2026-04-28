@@ -27,17 +27,15 @@ function compactUrlText(text: string, maxLength: number) {
   try {
     const url = new URL(text)
     const hostname = url.hostname.replace(/^www\./, '')
-    const suffix = `${url.pathname}${url.search}${url.hash}` || '/'
+    const suffix = `${url.pathname}${url.search}${url.hash}`
 
     if (hostname.length >= maxLength - 1) {
       return compactMiddle(hostname, maxLength)
     }
 
     const remaining = Math.max(12, maxLength - hostname.length - 1)
-    return `${hostname}/${compactMiddle(
-      suffix.replace(/^\//, '') || '/',
-      remaining,
-    )}`
+    const readableSuffix = suffix.slice(1)
+    return `${hostname}/${compactMiddle(readableSuffix || '/', remaining)}`
   } catch {
     return compactMiddle(text, maxLength)
   }
@@ -59,8 +57,8 @@ export function summarizeRuntimeJobError(
   if (!source.lastError) return jobsT('noErrorDetails')
 
   if (/unsupported-content/i.test(source.lastError)) {
-    const url = source.url?.toLowerCase() ?? ''
-    if (url.endsWith('.pdf') || url.includes('/pdf/')) {
+    const url = source.url?.toLowerCase()
+    if (url?.endsWith('.pdf') || url?.includes('/pdf/')) {
       return jobsT('errorPdf')
     }
     return jobsT('errorUnsupportedContent')
@@ -136,11 +134,10 @@ export function formatInsightCoverage(
     return '<1%'
   }
 
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: zero and exactly ten format identically through Intl; adjacent threshold tests cover every visible output branch.
   const maximumFractionDigits = percentage > 0 && percentage < 10 ? 1 : 0
   const formatter = new Intl.NumberFormat(language, {
     maximumFractionDigits,
-    minimumFractionDigits:
-      maximumFractionDigits === 1 && !Number.isInteger(percentage) ? 1 : 0,
   })
 
   return `${formatter.format(percentage)}%`

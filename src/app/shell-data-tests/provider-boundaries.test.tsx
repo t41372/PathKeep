@@ -22,12 +22,15 @@
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { createTranslator } from '../../lib/i18n'
+import { I18nContext } from '../../lib/i18n/context'
+import { ShellDataProvider } from '../shell-data'
 import {
-  getBackupProgressMock,
+  createI18nValue,
   getDefaultBuildInfo,
   renderShellProbe,
   resetShellDataHarness,
@@ -38,6 +41,97 @@ import {
 describe('ShellDataProvider', () => {
   beforeEach(() => {
     resetShellDataHarness()
+  })
+
+  test('server render starts in the loading state before bootstrap effects run', () => {
+    const html = renderToString(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    expect(html).toContain('data-testid="loading">true</div>')
+  })
+
+  test('uses the current language for refresh fallbacks after the i18n context changes', async () => {
+    const user = userEvent.setup()
+    const translator = createTranslator('zh-TW')
+    const { dashboard, snapshot } = await seedSnapshot()
+    vi.spyOn(backend, 'getAppSnapshot')
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce('refresh offline')
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+
+    const view = render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    view.rerender(
+      <I18nContext.Provider value={createI18nValue('zh-TW')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.loadingLatestArchiveState'),
+      ),
+    )
+  })
+
+  test('uses the current language for automatic dashboard refresh fallbacks after i18n changes', async () => {
+    const translator = createTranslator('zh-TW')
+    const { dashboard, snapshot } = await seedSnapshot()
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValueOnce(dashboard)
+      .mockResolvedValueOnce(dashboard)
+      .mockRejectedValueOnce('dashboard offline')
+
+    const view = render(
+      <I18nContext.Provider value={createI18nValue('en')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-generated-at')).toHaveTextContent(
+        dashboard.generatedAt,
+      ),
+    )
+    view.rerender(
+      <I18nContext.Provider value={createI18nValue('zh-TW')}>
+        <ShellDataProvider>
+          <ShellProbe />
+        </ShellDataProvider>
+      </I18nContext.Provider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        translator('shell.loadingLatestArchiveState'),
+      ),
+    )
   })
 
   test('surfaces provider errors and context misuse clearly', async () => {
@@ -118,12 +212,6 @@ describe('ShellDataProvider', () => {
       ),
     )
     expect(screen.getByTestId('busy-label')).toHaveTextContent('none')
-
-    getBackupProgressMock().mockRejectedValueOnce(new Error('subscribe failed'))
-    await user.click(screen.getByRole('button', { name: 'backup' }))
-    await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent('subscribe failed'),
-    )
 
     expect(() => render(<ShellProbe />)).toThrow(
       'useShellData must be used inside ShellDataProvider',

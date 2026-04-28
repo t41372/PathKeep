@@ -58,13 +58,7 @@ pub fn get_digest_summary(
         |paths, config| {
             intelligence::get_digest_summary(paths, config, session_database_key, request)
         },
-        |data| {
-            data.total_visits.value == 0
-                && data.total_searches.value == 0
-                && data.new_domains.value == 0
-                && data.deep_read_pages.value == 0
-                && data.refind_pages.value == 0
-        },
+        digest_summary_is_empty,
     )
 }
 
@@ -96,11 +90,7 @@ pub fn get_search_effectiveness(
         |paths, config| {
             intelligence::get_search_effectiveness(paths, config, session_database_key, request)
         },
-        |data| {
-            data.engine_stats.is_empty()
-                && data.top_resolving_sources.is_empty()
-                && data.hardest_topics.is_empty()
-        },
+        search_effectiveness_is_empty,
     )
 }
 
@@ -148,15 +138,7 @@ pub fn get_domain_deep_dive(
         |paths, config| {
             intelligence::get_domain_deep_dive(paths, config, session_database_key, request)
         },
-        |data| {
-            data.total_visits == 0
-                && data.active_days == 0
-                && data.trail_count == 0
-                && data.top_pages.is_empty()
-                && data.top_referrers.is_empty()
-                && data.top_exits.is_empty()
-                && data.visit_trend.is_empty()
-        },
+        domain_deep_dive_is_empty,
     )
 }
 
@@ -398,8 +380,36 @@ pub fn get_compare_set_detail(
         |paths, config| {
             intelligence::get_compare_set_detail(paths, config, session_database_key, request)
         },
-        |data| data.compare_set.pages.is_empty() && data.recent_days.is_empty(),
+        compare_set_detail_is_empty,
     )
+}
+
+fn digest_summary_is_empty(data: &DigestSummary) -> bool {
+    data.total_visits.value == 0
+        && data.total_searches.value == 0
+        && data.new_domains.value == 0
+        && data.deep_read_pages.value == 0
+        && data.refind_pages.value == 0
+}
+
+fn search_effectiveness_is_empty(data: &SearchEffectiveness) -> bool {
+    data.engine_stats.is_empty()
+        && data.top_resolving_sources.is_empty()
+        && data.hardest_topics.is_empty()
+}
+
+fn domain_deep_dive_is_empty(data: &DomainDeepDive) -> bool {
+    data.total_visits == 0
+        && data.active_days == 0
+        && data.trail_count == 0
+        && data.top_pages.is_empty()
+        && data.top_referrers.is_empty()
+        && data.top_exits.is_empty()
+        && data.visit_trend.is_empty()
+}
+
+fn compare_set_detail_is_empty(data: &CompareSetDetail) -> bool {
+    data.compare_set.pages.is_empty() && data.recent_days.is_empty()
 }
 
 /// Loads the section-wrapped multi-browser diff payload.
@@ -431,4 +441,35 @@ pub fn get_intelligence_secondary_overview(
             request,
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn section_empty_helpers_cover_composite_payload_edges() {
+        assert!(digest_summary_is_empty(&DigestSummary::default()));
+        let mut digest = DigestSummary::default();
+        digest.refind_pages.value = 1;
+        assert!(!digest_summary_is_empty(&digest));
+
+        assert!(search_effectiveness_is_empty(&SearchEffectiveness::default()));
+        let search = SearchEffectiveness {
+            top_resolving_sources: vec![StableSource::default()],
+            ..SearchEffectiveness::default()
+        };
+        assert!(!search_effectiveness_is_empty(&search));
+
+        assert!(domain_deep_dive_is_empty(&DomainDeepDive::default()));
+        let domain = DomainDeepDive { total_visits: 1, ..DomainDeepDive::default() };
+        assert!(!domain_deep_dive_is_empty(&domain));
+
+        assert!(compare_set_detail_is_empty(&CompareSetDetail::default()));
+        let compare = CompareSetDetail {
+            recent_days: vec!["2026-04-26".to_string()],
+            ..CompareSetDetail::default()
+        };
+        assert!(!compare_set_detail_is_empty(&compare));
+    }
 }

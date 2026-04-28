@@ -106,21 +106,7 @@ pub fn repair_health_issues(
             |row| row.get::<_, i64>(0),
         )?
         .max(0) as usize;
-    let stale_ai_embeddings = if table_exists(&intelligence, "ai_embeddings")? {
-        intelligence
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                 )",
-                [],
-                |row| row.get::<_, i64>(0),
-            )?
-            .max(0) as usize
-    } else {
-        0
-    };
+    let stale_ai_embeddings = count_stale_ai_embeddings(&intelligence)?;
     let stale_insight_state = if table_exists(&intelligence, "search_trail_members")?
         || table_exists(&intelligence, "visit_derived_facts")?
     {
@@ -215,17 +201,7 @@ pub fn repair_health_issues(
             ));
         }
 
-        let cleared_ai_embeddings = if table_exists(&intelligence, "ai_embeddings")? {
-            intelligence.execute(
-                "DELETE FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                 )",
-                [],
-            )?
-        } else {
-            0
-        };
+        let cleared_ai_embeddings = clear_stale_ai_embeddings(&intelligence)?;
         if cleared_ai_embeddings > 0 {
             notes.push(format!(
                 "Removed {} stale AI embedding rows that pointed at hidden or missing visits.",
@@ -521,11 +497,47 @@ fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
 
 /// Checks whether a table exists in the current archive schema.
 fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
-    Ok(connection.query_row(
+    let table_count = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
         [table_name],
         |row| row.get::<_, i64>(0),
-    )? > 0)
+    )?;
+    Ok(table_count > 0)
+}
+
+fn count_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
+    if table_exists(intelligence, "ai_embeddings")? {
+        intelligence
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM ai_embeddings
+                 WHERE history_id NOT IN (
+                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                 )",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count.max(0) as usize)
+            .map_err(Into::into)
+    } else {
+        Ok(0)
+    }
+}
+
+fn clear_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
+    if table_exists(intelligence, "ai_embeddings")? {
+        intelligence
+            .execute(
+                "DELETE FROM ai_embeddings
+                 WHERE history_id NOT IN (
+                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
+                 )",
+                [],
+            )
+            .map_err(Into::into)
+    } else {
+        Ok(0)
+    }
 }
 
 /// Lists import batches whose review artifacts need to be rebuilt.
@@ -560,10 +572,16 @@ fn rewrite_import_audit_artifacts(
         return Ok(Vec::new());
     }
 
+    let mut repair_config = config.clone();
+    repair_config.git_enabled = false;
     let mut rewritten = Vec::new();
     for batch_id in batch_ids {
         let (audit_path, _) = crate::takeout::ensure_import_batch_audit_artifact(
-            paths, config, key, *batch_id, None,
+            paths,
+            &repair_config,
+            key,
+            *batch_id,
+            None,
         )?;
         if let Some(audit_path) = audit_path {
             rewritten.push((*batch_id, audit_path));
@@ -605,4 +623,24 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
         "Archive visibility or rollback state changed after the last Core Intelligence rebuild.",
     )?;
     Ok(cleared_rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clear_stale_ai_embeddings, count_stale_ai_embeddings, table_exists};
+    use rusqlite::Connection;
+
+    #[test]
+    fn stale_ai_embedding_helpers_treat_missing_optional_table_as_clean() {
+        let connection = Connection::open_in_memory().expect("sqlite");
+
+        assert!(!table_exists(&connection, "ai_embeddings").expect("table exists"));
+        connection
+            .execute("CREATE TABLE ai_embeddings (history_id INTEGER)", [])
+            .expect("create optional embeddings table");
+        assert!(table_exists(&connection, "ai_embeddings").expect("table exists"));
+        connection.execute("DROP TABLE ai_embeddings", []).expect("drop optional embeddings table");
+        assert_eq!(count_stale_ai_embeddings(&connection).expect("count stale embeddings"), 0);
+        assert_eq!(clear_stale_ai_embeddings(&connection).expect("clear stale embeddings"), 0);
+    }
 }

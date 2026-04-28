@@ -118,7 +118,7 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
         return TakeoutPathMatch {
             family: "chrome-activity",
             recognized_kind: None,
-            locale: chrome_activity_locale(&normalized),
+            locale: Some(chrome_activity_locale(&normalized)),
             disposition: TakeoutPathDisposition::NeedsReview,
             reason_code: "chrome-my-activity-json",
         };
@@ -128,7 +128,7 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
         return TakeoutPathMatch {
             family: "chrome-activity",
             recognized_kind: None,
-            locale: chrome_activity_locale(&normalized),
+            locale: Some(chrome_activity_locale(&normalized)),
             disposition: TakeoutPathDisposition::NeedsReview,
             reason_code: "chrome-my-activity-html",
         };
@@ -348,25 +348,24 @@ fn is_session_path(file_name: &str) -> bool {
 }
 
 fn is_chrome_activity_json_path(normalized: &str) -> bool {
-    chrome_activity_suffixes(".json").iter().any(|suffix| normalized.ends_with(suffix))
+    chrome_activity_json_suffixes().iter().any(|suffix| normalized.ends_with(suffix))
 }
 
 fn is_chrome_activity_html_path(normalized: &str) -> bool {
-    chrome_activity_suffixes(".html").iter().any(|suffix| normalized.ends_with(suffix))
+    chrome_activity_html_suffixes().iter().any(|suffix| normalized.ends_with(suffix))
 }
 
-fn chrome_activity_locale(normalized: &str) -> Option<&'static str> {
-    for (segment, locale) in [
-        ("my activity", "en"),
-        ("meine aktivitäten", "de"),
-        ("我的活动", "zh-cn"),
-        ("我的活動", "zh-tw"),
-    ] {
-        if normalized.contains(&normalize_takeout_path(segment)) {
-            return Some(locale);
-        }
+fn chrome_activity_locale(normalized: &str) -> &'static str {
+    if normalized.contains("my activity") {
+        return "en";
     }
-    None
+    if normalized.contains("meine aktivitäten") {
+        return "de";
+    }
+    if normalized.contains("我的活动") {
+        return "zh-cn";
+    }
+    "zh-tw"
 }
 
 fn chrome_supporting_file_disposition(file_name: &str) -> TakeoutPathDisposition {
@@ -400,28 +399,21 @@ fn chrome_history_file_locale(file_name: &str) -> Option<&'static str> {
     }
 }
 
-fn chrome_activity_suffixes(extension: &str) -> [&'static str; 4] {
+fn chrome_activity_json_suffixes() -> [&'static str; 4] {
     [
-        match extension {
-            ".json" => "my activity/chrome/myactivity.json",
-            ".html" => "my activity/chrome/myactivity.html",
-            _ => unreachable!("unsupported chrome activity extension"),
-        },
-        match extension {
-            ".json" => "meine aktivitäten/chrome/meine aktivitäten.json",
-            ".html" => "meine aktivitäten/chrome/meine aktivitäten.html",
-            _ => unreachable!("unsupported chrome activity extension"),
-        },
-        match extension {
-            ".json" => "我的活动/chrome/我的活动.json",
-            ".html" => "我的活动/chrome/我的活动.html",
-            _ => unreachable!("unsupported chrome activity extension"),
-        },
-        match extension {
-            ".json" => "我的活動/chrome/我的活動.json",
-            ".html" => "我的活動/chrome/我的活動.html",
-            _ => unreachable!("unsupported chrome activity extension"),
-        },
+        "my activity/chrome/myactivity.json",
+        "meine aktivitäten/chrome/meine aktivitäten.json",
+        "我的活动/chrome/我的活动.json",
+        "我的活動/chrome/我的活動.json",
+    ]
+}
+
+fn chrome_activity_html_suffixes() -> [&'static str; 4] {
+    [
+        "my activity/chrome/myactivity.html",
+        "meine aktivitäten/chrome/meine aktivitäten.html",
+        "我的活动/chrome/我的活动.html",
+        "我的活動/chrome/我的活動.html",
     ]
 }
 
@@ -478,12 +470,10 @@ fn read_zip_entry(source: &Path, entry_name: &str) -> Result<Vec<u8>, ParseError
     })?;
     let mut archive = ZipArchive::new(file)?;
     let mut entry = archive.by_name(entry_name)?;
-    let mut bytes = Vec::new();
-    entry.read_to_end(&mut bytes).map_err(|source_error| ParseError::ReadSource {
-        path: PathBuf::from(format!("{}::{entry_name}", source.display())),
-        source: source_error,
-    })?;
-    Ok(bytes)
+    read_takeout_zip_reader(
+        &mut entry,
+        PathBuf::from(format!("{}::{entry_name}", source.display())),
+    )
 }
 
 fn should_skip_takeout_file(path: &str) -> bool {
@@ -529,14 +519,10 @@ fn read_takeout_snippet(
         })?;
         let mut archive = ZipArchive::new(file)?;
         let entry = archive.by_name(path)?;
-        let mut bytes = Vec::new();
-        entry.take(SNIFF_BYTE_LIMIT).read_to_end(&mut bytes).map_err(|source_error| {
-            ParseError::ReadSource {
-                path: PathBuf::from(format!("{}::{path}", source_root.display())),
-                source: source_error,
-            }
-        })?;
-        return Ok(bytes);
+        return read_takeout_zip_reader(
+            entry.take(SNIFF_BYTE_LIMIT),
+            PathBuf::from(format!("{}::{path}", source_root.display())),
+        );
     }
 
     let file_path = PathBuf::from(path);
@@ -548,6 +534,15 @@ fn read_takeout_snippet(
     file.take(SNIFF_BYTE_LIMIT)
         .read_to_end(&mut bytes)
         .map_err(|source_error| ParseError::ReadSource { path: file_path, source: source_error })?;
+    Ok(bytes)
+}
+
+pub(super) fn read_takeout_zip_reader(
+    mut reader: impl Read,
+    path: PathBuf,
+) -> Result<Vec<u8>, ParseError> {
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).map_err(|source| ParseError::ReadSource { path, source })?;
     Ok(bytes)
 }
 

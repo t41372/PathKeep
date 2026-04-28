@@ -178,3 +178,17 @@ fn value_to_key(value: &Value) -> String {
 fn quoted_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_value_conversion_preserves_non_text_keys() {
+        assert_eq!(value_ref_to_json(ValueRef::Blob(&[0xab, 0xcd])), json!("abcd"));
+        assert_eq!(value_to_key(&Value::Null), "null");
+        assert_eq!(value_to_key(&json!(true)), "true");
+        assert_eq!(value_to_key(&json!(["a", 2])), r#"["a",2]"#);
+        assert_eq!(value_to_key(&json!({"kind": "native"})), r#"{"kind":"native"}"#);
+    }
+}

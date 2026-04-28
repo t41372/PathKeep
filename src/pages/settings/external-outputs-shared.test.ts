@@ -31,9 +31,11 @@ describe('external-output preview localization helpers', () => {
     const t = createNamespaceTranslator('zh-CN', 'settings')
 
     expect(localizeOutputCardTitle('Visits', t)).toBe('访问')
+    expect(localizeOutputCardTitle('Searches', t)).toBe('搜索')
     expect(localizeOutputCardTitle('On This Day · 2025', t)).toBe(
       '历史今日 · 2025',
     )
+    expect(localizeOutputCardEyebrow('top site', t)).toBe('常访站点')
     expect(localizeOutputCardEyebrow('STABLE SOURCE', t)).toBe('稳定来源')
     expect(
       localizeOutputCardBody(
@@ -41,6 +43,18 @@ describe('external-output preview localization helpers', () => {
         t,
       ),
     ).toBe('这个智能时间窗口内的总访问次数。')
+    expect(
+      localizeOutputCardBody(
+        'Total search events observed in the selected intelligence window.',
+        t,
+      ),
+    ).toBe('这个智能时间窗口内观察到的搜索事件总数。')
+    expect(
+      localizeOutputCardBody(
+        'example.com was one of the most frequently visited domains in this window.',
+        t,
+      ),
+    ).toBe('example.com 是这个时间窗口中最常访问的域名之一。')
     expect(
       localizeOutputCardBody(
         'This page kept resurfacing across 348 days and 1089 trails.',
@@ -53,6 +67,12 @@ describe('external-output preview localization helpers', () => {
         t,
       ),
     ).toBe('github.com 经常作为参考来源帮助收束浏览轨迹。')
+    expect(
+      localizeOutputCardBody(
+        'docs.example often resolves trails as a research source.',
+        t,
+      ),
+    ).toBe('docs.example 经常作为research来源帮助收束浏览轨迹。')
     expect(localizeOutputCardBody('Mostly browsing linux.do', t)).toBe(
       '主要在浏览 linux.do',
     )

@@ -4,6 +4,8 @@ import path from 'node:path'
 const workspaceRoot = process.cwd()
 const lcovPath = process.argv[2] ?? path.join('coverage', 'rust.lcov.info')
 const coverageScope = process.argv[3] ?? 'quality'
+const sourceLineCache = new Map()
+const testOnlyLineCache = new Map()
 
 const rustQualitySurface = new Set(
   [
@@ -28,7 +30,7 @@ if (records.length === 0) {
 const uncoveredLines = records
   .map((record) => ({
     file: record.file,
-    lines: [...record.lines.entries()]
+    lines: semanticLineEntries(record)
       .filter(([, count]) => count === 0)
       .map(([line]) => line),
   }))
@@ -43,14 +45,13 @@ for (const record of records) {
   totalFunctionCount += functions.length
 
   for (const fn of functions) {
-    const relevantLines = [...record.lines.entries()].filter(
+    const relevantLines = semanticLineEntries(record).filter(
       ([line]) => line >= fn.startLine && line <= fn.endLine,
     )
     if (relevantLines.length === 0) {
       continue
     }
 
-    totalFunctionCount += 1
     const covered = relevantLines.some(([, count]) => count > 0)
     if (!covered) {
       uncoveredFunctions.push({ file: record.file, ...fn })
@@ -77,7 +78,7 @@ if (uncoveredLines.length > 0 || uncoveredFunctions.length > 0) {
 }
 
 const totalLineCount = records.reduce(
-  (sum, record) => sum + record.lines.size,
+  (sum, record) => sum + semanticLineEntries(record).length,
   0,
 )
 console.log(
@@ -104,11 +105,51 @@ function isCoveredRustSource(file) {
     return false
   }
 
+  if (isRustTestSource(file)) {
+    return false
+  }
+
   if (coverageScope === 'full') {
     return file.includes(`${path.sep}src${path.sep}`)
   }
 
   return rustQualitySurface.has(relative(file))
+}
+
+function semanticLineEntries(record) {
+  let sourceLines = sourceLineCache.get(record.file)
+  if (!sourceLines) {
+    sourceLines = fs.readFileSync(record.file, 'utf8').split(/\r?\n/)
+    sourceLineCache.set(record.file, sourceLines)
+  }
+  const testOnlyLines = testOnlyLineNumbers(record.file)
+  return [...record.lines.entries()].filter(
+    ([line]) =>
+      !testOnlyLines.has(line) &&
+      isSemanticRustLine(sourceLines[line - 1] ?? ''),
+  )
+}
+
+function isRustTestSource(file) {
+  const normalized = relative(file)
+  return (
+    normalized.endsWith('/tests.rs') ||
+    normalized.includes('/tests/') ||
+    normalized.endsWith('/test_support.rs')
+  )
+}
+
+function isSemanticRustLine(sourceLine) {
+  const trimmed = sourceLine.trim()
+  if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('#[')) {
+    return false
+  }
+
+  // LLVM coverage can mark expression-closing delimiters such as `)?;`,
+  // `})?`, or `],` as source lines. They carry no branch or statement
+  // semantics by themselves, so counting them makes the 100% gate report
+  // misleading misses after the executable line above has already been tested.
+  return /[A-Za-z0-9_]/.test(trimmed)
 }
 
 function parseLcov(content) {
@@ -143,6 +184,7 @@ function parseLcov(content) {
 function parseRustFunctions(source) {
   const masked = maskNonCode(source)
   const lineOffsets = buildLineOffsets(masked)
+  const maskedLines = masked.split(/\r?\n/)
   const functions = []
   const pattern =
     /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:const\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]+"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\b/gm
@@ -161,7 +203,118 @@ function parseRustFunctions(source) {
     })
   }
 
-  return functions
+  return functions.filter(
+    (fn) => !isFunctionInsideTestOnlyBlock(maskedLines, fn.startLine),
+  )
+}
+
+function testOnlyLineNumbers(file) {
+  let cached = testOnlyLineCache.get(file)
+  if (cached) {
+    return cached
+  }
+
+  const source = fs.readFileSync(file, 'utf8')
+  const lines = source.split(/\r?\n/)
+  const maskedLines = maskNonCode(source).split(/\r?\n/)
+  const testOnlyLines = new Set()
+  let pendingTestOnlyCfg = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim()
+    if (isTestOnlyCfgAttribute(trimmed)) {
+      testOnlyLines.add(index + 1)
+      pendingTestOnlyCfg = true
+      continue
+    }
+
+    if (!pendingTestOnlyCfg) {
+      continue
+    }
+
+    if (trimmed.startsWith('#[')) {
+      testOnlyLines.add(index + 1)
+      continue
+    }
+
+    if (trimmed === '') {
+      testOnlyLines.add(index + 1)
+      continue
+    }
+
+    markCfgItemLines(maskedLines, index, testOnlyLines)
+    pendingTestOnlyCfg = false
+  }
+
+  testOnlyLineCache.set(file, testOnlyLines)
+  return testOnlyLines
+}
+
+function isTestOnlyCfgAttribute(trimmed) {
+  const compact = trimmed.replace(/\s+/g, '')
+  if (compact === '#[cfg(test)]') {
+    return true
+  }
+  if (compact.startsWith('#[cfg(all(') && /\btest\b/.test(trimmed)) {
+    return true
+  }
+  return (
+    compact === '#[cfg(any(test,coverage))]' ||
+    compact === '#[cfg(any(coverage,test))]'
+  )
+}
+
+function markCfgItemLines(maskedLines, startIndex, testOnlyLines) {
+  let depth = 0
+  let sawBrace = false
+
+  for (let index = startIndex; index < maskedLines.length; index += 1) {
+    testOnlyLines.add(index + 1)
+    const line = maskedLines[index]
+    for (const character of line) {
+      if (character === '{') {
+        depth += 1
+        sawBrace = true
+      } else if (character === '}') {
+        depth -= 1
+      }
+    }
+
+    if (!sawBrace && line.includes(';')) {
+      return
+    }
+    if (sawBrace && depth <= 0) {
+      return
+    }
+  }
+}
+
+function isFunctionInsideTestOnlyBlock(maskedLines, startLine) {
+  let pendingTestOnlyCfg = false
+
+  for (let index = 0; index < startLine - 1; index += 1) {
+    const trimmed = maskedLines[index].trim()
+    if (isTestOnlyCfgAttribute(trimmed)) {
+      pendingTestOnlyCfg = true
+      continue
+    }
+    if (pendingTestOnlyCfg && trimmed.startsWith('#[')) {
+      continue
+    }
+    if (pendingTestOnlyCfg && trimmed === '') {
+      continue
+    }
+    if (pendingTestOnlyCfg) {
+      const marked = new Set()
+      markCfgItemLines(maskedLines, index, marked)
+      if (marked.has(startLine)) {
+        return true
+      }
+      pendingTestOnlyCfg = false
+    }
+  }
+
+  return false
 }
 
 function buildLineOffsets(source) {

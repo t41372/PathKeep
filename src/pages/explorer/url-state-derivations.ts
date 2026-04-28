@@ -221,9 +221,7 @@ export function buildExplorerSemanticQuerySignature(args: {
  */
 export function buildExplorerBrowserKinds(selectedProfileIds: string[]) {
   return Array.from(
-    new Set(
-      selectedProfileIds.map((profile) => profile.split(':')[0] ?? profile),
-    ),
+    new Set(selectedProfileIds.map((profile) => profile.split(':')[0])),
   )
 }
 

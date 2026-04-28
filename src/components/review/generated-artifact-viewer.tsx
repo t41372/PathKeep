@@ -53,6 +53,7 @@ export function GeneratedArtifactViewer({
 
   const pathKey = `path:${selectedFile.relativePath}`
   const contentsKey = `contents:${selectedFile.relativePath}`
+  const selectedAbsolutePath = selectedFile.absolutePath || null
 
   return (
     <>
@@ -61,7 +62,7 @@ export function GeneratedArtifactViewer({
           <button
             key={file.relativePath}
             className={`chip-button ${
-              selectedFile?.relativePath === file.relativePath
+              selectedFile.relativePath === file.relativePath
                 ? 'chip-button--active'
                 : ''
             }`}
@@ -74,14 +75,14 @@ export function GeneratedArtifactViewer({
       </div>
       <ReviewCodePreview
         actions={
-          selectedFile.absolutePath ? (
+          selectedAbsolutePath ? (
             <>
               {onOpenPath ? (
                 <button
                   className="btn-tiny"
                   type="button"
                   onClick={() => {
-                    void onOpenPath(selectedFile.absolutePath ?? '')
+                    void onOpenPath(selectedAbsolutePath)
                   }}
                 >
                   {openPathLabel}
@@ -91,10 +92,7 @@ export function GeneratedArtifactViewer({
                 className="btn-tiny"
                 type="button"
                 onClick={() => {
-                  void onCopy(
-                    pathKey,
-                    selectedFile.absolutePath ?? selectedFile.relativePath,
-                  )
+                  void onCopy(pathKey, selectedAbsolutePath)
                 }}
               >
                 {copyPathLabel}
@@ -115,7 +113,7 @@ export function GeneratedArtifactViewer({
           <span className="mono dim">{selectedFile.relativePath}</span>
         }
       />
-      {selectedFile.absolutePath ? (
+      {selectedAbsolutePath ? (
         <ReviewCopyStatus
           copyFeedback={copyFeedback}
           copyKey={pathKey}

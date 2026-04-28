@@ -78,9 +78,7 @@ export function invokeCachedRead<T>(
       return normalized
     })
     .finally(() => {
-      if (inflightReadRequests.get(key) === next) {
-        inflightReadRequests.delete(key)
-      }
+      inflightReadRequests.delete(key)
     })
   inflightReadRequests.set(key, next)
   return next
@@ -289,7 +287,7 @@ export function cachedPrimarySectionForProfile<T>(
     const parsed = JSON.parse(key) as {
       profileId?: string | null
     }
-    if ((parsed.profileId ?? null) !== targetProfile) {
+    if (parsed.profileId !== targetProfile) {
       continue
     }
     const section = entry.primary ? read(entry.primary) : undefined

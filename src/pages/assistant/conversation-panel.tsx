@@ -48,7 +48,7 @@ export interface AssistantConversationMessage {
 interface AssistantConversationPanelProps {
   assistantT: Translator
   handleCancelJob: (jobId: number) => Promise<void>
-  handleDrainQueue: (jobId?: number | null) => Promise<void>
+  handleDrainQueue: (jobId: number) => Promise<void>
   handleLoadQueuedJob: (jobId: number) => Promise<void>
   input: string
   language: ResolvedLanguage
@@ -203,7 +203,7 @@ export function AssistantConversationPanel({
                   <button
                     className="btn-tiny"
                     type="button"
-                    onClick={() => void handleDrainQueue(response.jobId)}
+                    onClick={() => void handleDrainQueue(response.jobId!)}
                     disabled={Boolean(queueAction)}
                   >
                     {assistantT('runQueuedJob')}

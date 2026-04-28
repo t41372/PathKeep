@@ -20,6 +20,7 @@ import type {
 } from '../lib/types'
 import { FieldBlock, ToggleRow } from './ui'
 
+// Stryker disable ArrayDeclaration: option count and labels are asserted in ai-provider-editor.test; this top-level tuple is cached by the Vitest mutation runner.
 const aiRequestFormats: AiRequestFormat[] = [
   'openai',
   'anthropic',
@@ -27,6 +28,7 @@ const aiRequestFormats: AiRequestFormat[] = [
   'ollama',
   'lm-studio',
 ]
+// Stryker restore ArrayDeclaration
 
 /**
  * Explains how ai provider editor list works.

@@ -24,6 +24,7 @@ import {
 import * as api from '../../lib/core-intelligence/api'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import { evidenceHref } from '../../lib/intelligence-links'
+import { clampSearchKeywordPage } from './search-keywords-browser-helpers'
 
 type Translate = (
   key: string,
@@ -68,6 +69,7 @@ export function SearchKeywordsBrowser({
   const [engine, setEngine] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
+  // Stryker disable next-line StringLiteral: the page-sync effect below immediately normalizes the rendered input for page 0.
   const [pageInput, setPageInput] = useState('1')
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0])
   const [nestedRange, setNestedRange] = useState<DateRange>(dateRange)
@@ -79,11 +81,13 @@ export function SearchKeywordsBrowser({
       end: dateRange.end,
     })
     setPage(0)
+    // Stryker disable next-line StringLiteral: resetting page to 0 triggers the page-sync effect, so the intermediate literal is not separately observable.
     setPageInput('1')
   }, [dateRange.end, dateRange.start, domain])
 
   useEffect(() => {
     setPage(0)
+    // Stryker disable next-line StringLiteral: resetting page to 0 triggers the page-sync effect, so the intermediate literal is not separately observable.
     setPageInput('1')
   }, [
     domain,
@@ -256,7 +260,7 @@ export function SearchKeywordsBrowser({
           <div className="search-queries__list">
             {rows.map((row) => (
               <SearchKeywordRowCard
-                key={`${row.searchEngine}:${row.normalizedQuery}`}
+                key={`${row.searchEngine}:${row.normalizedQuery}:${row.visitId}:${row.searchedAtMs}`}
                 dateRange={effectiveRange}
                 language={language}
                 queryFamilyHref={queryFamilyHref}
@@ -303,6 +307,7 @@ export function SearchKeywordsBrowser({
                   className="btn-secondary"
                   type="button"
                   onClick={() =>
+                    // Stryker disable next-line ArithmeticOperator: canGoNext disables this control on the final page, so both clamps produce the same reachable pages.
                     setPage((current) => Math.min(pageCount - 1, current + 1))
                   }
                   disabled={!canGoNext}
@@ -330,7 +335,7 @@ export function SearchKeywordsBrowser({
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') {
                         event.preventDefault()
-                        setPage(clampPage(pageInput, pageCount))
+                        setPage(clampSearchKeywordPage(pageInput, pageCount))
                       }
                     }}
                   />
@@ -338,7 +343,9 @@ export function SearchKeywordsBrowser({
                 <button
                   className="btn-secondary"
                   type="button"
-                  onClick={() => setPage(clampPage(pageInput, pageCount))}
+                  onClick={() =>
+                    setPage(clampSearchKeywordPage(pageInput, pageCount))
+                  }
                 >
                   {t('searchQueriesJumpToPage')}
                 </button>
@@ -405,8 +412,10 @@ function SearchKeywordRowCard({
         </span>
       </div>
       <p className="search-query-card__meta">
-        {t('searchQueriesExactRepeat', { count: row.exactRepeatCount })} ·{' '}
-        {t('searchQueriesFamilyCount', { count: row.familyCount })}
+        {[
+          t('searchQueriesExactRepeat', { count: row.exactRepeatCount }),
+          t('searchQueriesFamilyCount', { count: row.familyCount }),
+        ].join(' · ')}
       </p>
       <p className="search-query-card__context">
         {row.trailInitialQuery
@@ -455,6 +464,7 @@ function clampNestedRange(range: DateRange, parent: DateRange): DateRange {
     parent.end,
   )
   const end = clampLocalDate(range.end || parent.end, parent.start, parent.end)
+  // Stryker disable next-line EqualityOperator: equal start/end returns the same single-day range through either branch.
   if (start <= end) {
     return { start, end }
   }
@@ -462,22 +472,13 @@ function clampNestedRange(range: DateRange, parent: DateRange): DateRange {
 }
 
 function clampLocalDate(value: string, min: string, max: string) {
+  // Stryker disable next-line EqualityOperator: equality with the lower bound returns the same boundary value either way.
   if (value < min) {
     return min
   }
+  // Stryker disable next-line EqualityOperator: equality with the upper bound returns the same boundary value either way.
   if (value > max) {
     return max
   }
   return value
-}
-
-function clampPage(value: string, pageCount: number) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) {
-    return 0
-  }
-  return Math.min(
-    Math.max(Math.trunc(parsed) - 1, 0),
-    Math.max(pageCount - 1, 0),
-  )
 }

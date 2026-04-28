@@ -82,6 +82,8 @@ export function ExplorerRuntimePanel({
   queueStatus,
   snapshotAiStatus,
 }: ExplorerRuntimePanelProps) {
+  const activeAction = indexAction ?? queueAction
+
   return (
     <>
       {intelligenceError ? (
@@ -198,12 +200,10 @@ export function ExplorerRuntimePanel({
               </button>
             </div>
 
-            {indexAction || queueAction ? (
+            {activeAction ? (
               <LoadingState
                 compact
-                label={
-                  indexAction ?? queueAction ?? explorerT('preparingRecall')
-                }
+                label={activeAction}
                 detail={explorerT('semanticRecallNeedsAttentionBody')}
                 progressLabel={explorerT('queueProgressLabel', {
                   queued: (

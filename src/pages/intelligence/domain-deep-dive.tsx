@@ -528,7 +528,7 @@ function formatNumber(value: number): string {
 function canonicalPath(value: string | null | undefined) {
   if (!value) return null
   try {
-    return new URL(value).pathname || '/'
+    return new URL(value).pathname
   } catch {
     return null
   }

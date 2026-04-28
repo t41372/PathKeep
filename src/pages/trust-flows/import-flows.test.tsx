@@ -35,20 +35,26 @@ import { backend } from '../../lib/backend-client'
 import { ImportPage } from '../import'
 import {
   expectHtmlElement,
+  createShellValue,
   renderTrustPage,
   resetTrustFlowHarness,
   seedInitializedSnapshot,
 } from './test-helpers'
 
-const { invoke, isTauri, subscribeToImportProgress } = vi.hoisted(() => ({
+const { invoke, isTauri, open, subscribeToImportProgress } = vi.hoisted(() => ({
   invoke: vi.fn(),
   isTauri: vi.fn(() => false),
+  open: vi.fn(),
   subscribeToImportProgress: vi.fn(() => Promise.resolve(vi.fn())),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke,
   isTauri,
+}))
+
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  open,
 }))
 
 vi.mock('../../lib/ipc/import-progress', () => ({
@@ -58,6 +64,7 @@ vi.mock('../../lib/ipc/import-progress', () => ({
 describe('trust flows/import flows', () => {
   beforeEach(() => {
     resetTrustFlowHarness({ invoke, isTauri, subscribeToImportProgress })
+    open.mockReset()
   })
 
   test('covers import preview, execute, revert, and doctor review in a translated locale', async () => {
@@ -172,6 +179,109 @@ describe('trust flows/import flows', () => {
       screen.getByRole('button', { name: importT('showManualPath') }),
     )
     expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
+  })
+
+  test('keeps file-picker selection, method reset, and browser manual fallback honest', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+
+    open.mockResolvedValueOnce('/tmp/takeout-dialog.zip')
+
+    const pickerRender = renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: importT('chooseTakeoutFile') }),
+    )
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          directory: false,
+          title: importT('chooseTakeoutFile'),
+        }),
+      ),
+    )
+    expect(screen.getByText('/tmp/takeout-dialog.zip')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(screen.getByRole('button', { name: /Google Takeout/i }))
+
+    expect(screen.getByPlaceholderText('/path/to/takeout.zip')).toHaveValue('')
+    pickerRender.unmount()
+
+    const snapshotWithoutProfiles = {
+      ...snapshot,
+      browserProfiles: [],
+    }
+    open.mockReset()
+    open.mockResolvedValueOnce('/tmp/manual-browser/History')
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot: snapshotWithoutProfiles,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+
+    expect(
+      await screen.findByText(importT('noDetectedBrowserProfilesTitle')),
+    ).toBeVisible()
+    expect(screen.getByPlaceholderText('/path/to/History')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('chooseHistoryFile') }),
+    )
+
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        expect.objectContaining({
+          directory: false,
+          title: importT('chooseHistoryFile'),
+        }),
+      ),
+    )
+    expect(screen.getByText('/tmp/manual-browser/History')).toBeVisible()
+
+    open.mockRejectedValueOnce('picker unavailable')
+    await user.click(
+      screen.getByRole('button', { name: importT('chooseHistoryFile') }),
+    )
+    expect(
+      await screen.findByText(importT('filePickerUnavailable')),
+    ).toBeVisible()
+  })
+
+  test('auto-recovers Browser Direct source selection after the manual path is cleared', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const chromeProfile = snapshot.browserProfiles.find(
+      (profile) => profile.profileId === 'chrome:Default',
+    )
+    expect(chromeProfile?.historyPath).toBeTruthy()
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      screen.getByRole('button', { name: importT('showManualPath') }),
+    )
+    const manualInput = screen.getByPlaceholderText('/path/to/History')
+    await user.clear(manualInput)
+
+    await waitFor(() =>
+      expect(screen.getByText(chromeProfile!.historyPath!)).toBeVisible(),
+    )
   })
 
   test('routes Browser Direct scan and import through browser-history commands', async () => {
@@ -468,6 +578,177 @@ describe('trust flows/import flows', () => {
     )
   })
 
+  test('returns to preview when import progress subscription fails before execution starts', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const previewInspection = {
+      dryRun: true,
+      sourcePath: '/tmp/takeout',
+      recognizedFiles: [
+        {
+          path: '/tmp/takeout/BrowserHistory.json',
+          kind: 'browser-json',
+          status: 'previewed',
+          records: 1,
+          classification: 'will-import',
+          reasonCode: 'chrome-history-json',
+          reasonDetail: null,
+          detectedLocale: null,
+        },
+      ],
+      quarantinedFiles: [],
+      previewEntries: [
+        {
+          sourcePath: '/tmp/takeout/BrowserHistory.json',
+          url: 'https://example.com/import-preview',
+          title: 'Import preview row',
+          visitedAt: '2026-04-20T10:00:00.000Z',
+          sourceVisitId: 1,
+          status: 'candidate',
+        },
+      ],
+      candidateItems: 1,
+      importedItems: 0,
+      duplicateItems: 0,
+      notes: ['Preview ready.'],
+      detectedLocale: null,
+      previewRangeStart: '2026-04-20T10:00:00.000Z',
+      previewRangeEnd: '2026-04-20T10:00:00.000Z',
+      importBatch: null,
+    } satisfies Awaited<ReturnType<typeof backend.inspectTakeout>>
+    const inspectTakeoutSpy = vi
+      .spyOn(backend, 'inspectTakeout')
+      .mockResolvedValue(previewInspection)
+    const importTakeoutSpy = vi.spyOn(backend, 'importTakeout')
+    vi.mocked(subscribeToImportProgressModule).mockRejectedValueOnce(
+      new Error('progress unavailable'),
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.type(
+      screen.getByPlaceholderText('/path/to/takeout.zip'),
+      '/tmp/takeout',
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+
+    await waitFor(() => expect(inspectTakeoutSpy).toHaveBeenCalled())
+    expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('confirmImport') }),
+    )
+
+    expect(await screen.findByText('progress unavailable')).toBeVisible()
+    expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
+    expect(importTakeoutSpy).not.toHaveBeenCalled()
+  })
+
+  test('keeps completed imports usable when selected-batch preview fails, then resets for another import', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const shellValue = createShellValue(snapshot)
+    const refreshAppData = vi
+      .fn()
+      .mockRejectedValue(new Error('refresh failed after import'))
+    shellValue.refreshAppData = refreshAppData
+    const importedBatch: ImportBatchOverview = {
+      id: 99,
+      sourceKind: 'takeout',
+      sourcePath: '/tmp/takeout',
+      profileId: 'takeout::browser-history',
+      createdAt: '2026-04-20T10:00:00.000Z',
+      importedAt: '2026-04-20T10:01:00.000Z',
+      revertedAt: null,
+      status: 'imported',
+      candidateItems: 1,
+      importedItems: 1,
+      duplicateItems: 0,
+      visibleItems: 1,
+      auditPath: '/tmp/import-audit.json',
+      gitCommit: null,
+    }
+    const previewInspection = {
+      dryRun: true,
+      sourcePath: '/tmp/takeout',
+      recognizedFiles: [
+        {
+          path: '/tmp/takeout/BrowserHistory.json',
+          kind: 'browser-json',
+          status: 'previewed',
+          records: 1,
+          classification: 'will-import',
+          reasonCode: 'chrome-history-json',
+          reasonDetail: null,
+          detectedLocale: null,
+        },
+      ],
+      quarantinedFiles: [],
+      previewEntries: [],
+      candidateItems: 1,
+      importedItems: 0,
+      duplicateItems: 0,
+      notes: [],
+      detectedLocale: null,
+      previewRangeStart: null,
+      previewRangeEnd: null,
+      importBatch: null,
+    } satisfies Awaited<ReturnType<typeof backend.inspectTakeout>>
+    const importedInspection = {
+      ...previewInspection,
+      dryRun: false,
+      importedItems: 1,
+      importBatch: importedBatch,
+    } satisfies Awaited<ReturnType<typeof backend.importTakeout>>
+
+    vi.spyOn(backend, 'inspectTakeout').mockResolvedValue(previewInspection)
+    vi.spyOn(backend, 'importTakeout').mockResolvedValue(importedInspection)
+    vi.spyOn(backend, 'previewImportBatch').mockRejectedValue(
+      new Error('selected batch preview failed'),
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      shellValue,
+      snapshot,
+    })
+
+    await user.type(
+      screen.getByPlaceholderText('/path/to/takeout.zip'),
+      '/tmp/takeout',
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+    expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('confirmImport') }),
+    )
+
+    expect(await screen.findByText(importT('completeTitle'))).toBeVisible()
+    await waitFor(() => expect(refreshAppData).toHaveBeenCalledTimes(1))
+    expect(
+      await screen.findByText('selected batch preview failed'),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('importAnother') }),
+    )
+
+    expect(screen.getByPlaceholderText('/path/to/takeout.zip')).toHaveValue('')
+    expect(screen.queryByText(importT('completeTitle'))).not.toBeInTheDocument()
+  })
+
   test('opens macOS Full Disk Access settings from the Safari access warning', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
@@ -552,6 +833,127 @@ describe('trust flows/import flows', () => {
         macosFullDiskAccessSettingsUrl,
       ),
     )
+  })
+
+  test('surfaces a settings-open failure from the Full Disk Access recovery action', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const openSettingsSpy = vi
+      .spyOn(backend, 'openExternalUrl')
+      .mockRejectedValue(new Error('settings pane failed'))
+    vi.spyOn(backend, 'inspectBrowserHistory').mockRejectedValue(
+      new Error(
+        'Safari History.db is not readable yet. Grant Full Disk Access to PathKeep, then retry Browser Direct import.',
+      ),
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.click(screen.getByRole('button', { name: /Browser Direct/i }))
+    await user.click(
+      await screen.findByRole('button', { name: /Safari · Safari/i }),
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+    await user.click(
+      await screen.findByRole('button', {
+        name: importT('openFullDiskAccessSettings'),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(openSettingsSpy).toHaveBeenCalledWith(
+        macosFullDiskAccessSettingsUrl,
+      ),
+    )
+    expect(await screen.findByText('settings pane failed')).toBeVisible()
+  })
+
+  test('surfaces import execution failures without leaving the preview flow', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+    const previewInspection = {
+      dryRun: true,
+      sourcePath: '/tmp/takeout',
+      recognizedFiles: [
+        {
+          path: '/tmp/takeout/BrowserHistory.json',
+          kind: 'browser-json',
+          status: 'previewed',
+          records: 1,
+          classification: 'will-import',
+          reasonCode: 'chrome-history-json',
+          reasonDetail: null,
+          detectedLocale: null,
+        },
+      ],
+      quarantinedFiles: [],
+      previewEntries: [],
+      candidateItems: 1,
+      importedItems: 0,
+      duplicateItems: 0,
+      notes: [],
+      detectedLocale: null,
+      previewRangeStart: null,
+      previewRangeEnd: null,
+      importBatch: null,
+    } satisfies Awaited<ReturnType<typeof backend.inspectTakeout>>
+
+    vi.spyOn(backend, 'inspectTakeout').mockResolvedValue(previewInspection)
+    vi.spyOn(backend, 'importTakeout').mockRejectedValue(
+      new Error('import execution failed'),
+    )
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot,
+    })
+
+    await user.type(
+      screen.getByPlaceholderText('/path/to/takeout.zip'),
+      '/tmp/takeout',
+    )
+    await user.click(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    )
+    expect(await screen.findByText(importT('previewTitle'))).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', { name: importT('confirmImport') }),
+    )
+
+    expect(await screen.findByText('import execution failed')).toBeVisible()
+    expect(screen.getByText(importT('previewTitle'))).toBeVisible()
+  })
+
+  test('renders the setup gate while the archive is not initialized', async () => {
+    const { snapshot } = await seedInitializedSnapshot()
+    const importT = createNamespaceTranslator('en', 'import')
+
+    renderTrustPage(<ImportPage />, {
+      language: 'en',
+      route: '/import',
+      snapshot: {
+        ...snapshot,
+        config: {
+          ...snapshot.config,
+          initialized: false,
+        },
+      },
+    })
+
+    expect(screen.getByText(importT('archiveNotInitialized'))).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: importT('goToSetup') }),
+    ).toHaveAttribute('href', '/onboarding')
   })
 
   test('paints scan and import overlays before long-running import work settles', async () => {

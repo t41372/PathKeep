@@ -114,6 +114,10 @@ fn biometric_available(state: AppLockBiometricState) -> bool {
 }
 
 fn biometric_note(state: AppLockBiometricState) -> Option<String> {
+    biometric_note_for_platform(state, cfg!(target_os = "linux"))
+}
+
+fn biometric_note_for_platform(state: AppLockBiometricState, linux: bool) -> Option<String> {
     match state {
         AppLockBiometricState::TouchIdAvailable => Some(
             "Touch ID is available on this Mac and can unlock the current PathKeep session."
@@ -124,7 +128,7 @@ fn biometric_note(state: AppLockBiometricState) -> Option<String> {
                 .to_string(),
         ),
         AppLockBiometricState::Unsupported => {
-            if cfg!(target_os = "linux") {
+            if linux {
                 Some(
                     "Linux currently uses passcode-only app lock because biometric integration is not wired into this build."
                         .to_string(),
@@ -380,9 +384,17 @@ pub fn unlock_app_session(
     config: &AppConfig,
     request: &UnlockAppSessionRequest,
 ) -> Result<AppLockStatus> {
-    unlock_app_session_with_biometric(paths, config, request, default_biometric_state(), || {
-        bail!("Biometric unlock is not available in the current desktop build.")
-    })
+    unlock_app_session_with_biometric(
+        paths,
+        config,
+        request,
+        default_biometric_state(),
+        default_biometric_unlock_unavailable,
+    )
+}
+
+fn default_biometric_unlock_unavailable() -> Result<()> {
+    bail!("Biometric unlock is not available in the current desktop build.")
 }
 
 /// Stores a new App Lock passcode and returns the updated status.
@@ -470,6 +482,13 @@ mod tests {
         config.app_lock.enabled = true;
         validate_app_lock_config(&paths, &config).expect("valid config");
 
+        initialize_app_lock_session(&paths, &config).expect("initialize startup lock");
+        let startup = app_lock_status(&paths, &config).expect("startup status");
+        assert!(startup.locked);
+        assert_eq!(startup.lock_reason.as_deref(), Some("startup"));
+        let guard = ensure_app_lock_unlocked(&paths, &config).expect_err("startup lock guard");
+        assert!(guard.to_string().contains("currently locked"));
+
         let locked = lock_app_session(&paths, &config, Some("manual")).expect("lock session");
         assert!(locked.locked);
 
@@ -493,6 +512,8 @@ mod tests {
         let cleared = clear_app_lock_passcode(&paths, &mut config).expect("clear passcode");
         assert!(!cleared.enabled);
         assert!(!cleared.passcode_configured);
+        initialize_app_lock_session(&paths, &config).expect("disabled clears startup state");
+        assert!(!app_lock_state_path(&paths).exists());
     }
 
     #[test]
@@ -601,5 +622,107 @@ mod tests {
         )
         .expect_err("missing auth should fail");
         assert!(error.to_string().contains("cannot unlock without an enabled app lock credential"));
+    }
+
+    #[test]
+    fn validation_status_and_unlock_cover_unavailable_edges() {
+        let paths = temp_paths();
+        let no_credentials = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig {
+                enabled: true,
+                idle_timeout_minutes: 5,
+                biometric_enabled: false,
+                passcode_enabled: false,
+                passcode_configured: false,
+                recovery_hint: None,
+            },
+            ..AppConfig::default()
+        };
+        let no_credential_error = validate_app_lock_config_with_biometric(
+            &paths,
+            &no_credentials,
+            AppLockBiometricState::Unsupported,
+        )
+        .expect_err("app lock requires a credential");
+        assert!(no_credential_error.to_string().contains("Enable a passcode"));
+
+        let mut missing_secret = no_credentials.clone();
+        missing_secret.app_lock.passcode_enabled = true;
+        let missing_secret_error = validate_app_lock_config_with_biometric(
+            &paths,
+            &missing_secret,
+            AppLockBiometricState::Unsupported,
+        )
+        .expect_err("passcode config requires stored secret");
+        assert!(missing_secret_error.to_string().contains("Set an app lock passcode"));
+        let missing_secret_status = app_lock_status_with_biometric(
+            &paths,
+            &missing_secret,
+            AppLockBiometricState::Unsupported,
+        )
+        .expect("missing secret status");
+        assert!(
+            missing_secret_status
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Set an app lock passcode"))
+        );
+        let default_biometric_error =
+            default_biometric_unlock_unavailable().expect_err("default biometric unavailable");
+        assert!(default_biometric_error.to_string().contains("not available"));
+
+        let short_passcode = set_app_lock_passcode(
+            &paths,
+            &mut missing_secret,
+            &SetAppLockPasscodeRequest { passcode: "123".to_string(), recovery_hint: None },
+        )
+        .expect_err("short passcode");
+        assert!(short_passcode.to_string().contains("at least 4"));
+
+        let mut biometric_config = missing_secret;
+        set_app_lock_passcode(
+            &paths,
+            &mut biometric_config,
+            &SetAppLockPasscodeRequest { passcode: "1234".to_string(), recovery_hint: None },
+        )
+        .expect("set passcode");
+        biometric_config.app_lock.enabled = true;
+        biometric_config.app_lock.biometric_enabled = true;
+        hydrate_app_lock_config(&paths, &mut biometric_config).expect("hydrate");
+
+        let status = app_lock_status_with_biometric(
+            &paths,
+            &biometric_config,
+            AppLockBiometricState::TouchIdUnavailable,
+        )
+        .expect("status");
+        assert!(status.warnings.iter().any(|warning| warning.contains("Touch ID is unavailable")));
+        assert!(
+            status.degradation_notes.iter().any(|note| note.contains("Touch ID is unavailable"))
+        );
+        assert!(
+            biometric_note_for_platform(AppLockBiometricState::Unsupported, true)
+                .expect("linux note")
+                .contains("Linux currently uses passcode-only")
+        );
+
+        let unavailable_unlock = unlock_app_session_with_biometric(
+            &paths,
+            &biometric_config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+            AppLockBiometricState::TouchIdUnavailable,
+            || unreachable!("unavailable biometric must not authenticate"),
+        )
+        .expect_err("unavailable biometric");
+        assert!(unavailable_unlock.to_string().contains("Touch ID is unavailable"));
+
+        let default_unlock = unlock_app_session(
+            &paths,
+            &biometric_config,
+            &UnlockAppSessionRequest { passcode: None, use_biometric: true },
+        )
+        .expect_err("default biometric unavailable");
+        assert!(default_unlock.to_string().contains("not available"));
     }
 }

@@ -26,7 +26,6 @@ const profileScopeStorageKey = 'pathkeep.profile-scope'
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
 function loadStoredProfileScope() {
-  if (typeof window === 'undefined') return null
   const value = window.localStorage.getItem(profileScopeStorageKey)
   return value?.trim() ? value : null
 }
@@ -42,8 +41,6 @@ export function ProfileScopeProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-
     if (activeProfileId) {
       window.localStorage.setItem(profileScopeStorageKey, activeProfileId)
       return

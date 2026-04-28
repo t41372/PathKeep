@@ -916,6 +916,113 @@ mod tests {
         );
     }
 
+    #[test]
+    fn installed_host_loader_reports_missing_corrupt_and_valid_artifacts() {
+        let (_root, paths, config) = prepared_archive();
+        let artifact_root = local_host_root(&paths);
+        let bundle_path = artifact_root.join("bundle.json");
+        let entry_path = artifact_root.join("index.html");
+
+        let (empty, warnings) = load_installed_host(&paths, "en").expect("empty load");
+        assert!(empty.is_none());
+        assert!(warnings.is_empty());
+
+        fs::create_dir_all(&artifact_root).expect("artifact root");
+        fs::create_dir_all(&bundle_path).expect("bundle path as dir");
+        let (missing, warnings) = load_installed_host(&paths, "zh-TW").expect("read failure");
+        assert!(missing.is_none());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("無法讀取"));
+        fs::remove_dir(&bundle_path).expect("remove bundle dir");
+
+        fs::write(&bundle_path, "{not-json").expect("corrupt bundle");
+        let (missing, warnings) = load_installed_host(&paths, "zh-CN").expect("parse failure");
+        assert!(missing.is_none());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("无法解析"));
+
+        let built = build_intelligence_local_host(
+            &paths,
+            &config,
+            None,
+            &IntelligenceLocalHostRequest {
+                date_range: crate::models::DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: None,
+                locale: "en".to_string(),
+            },
+        )
+        .expect("build");
+        fs::remove_file(&entry_path).expect("remove entry");
+        let (missing, warnings) = load_installed_host(&paths, "en").expect("missing entry");
+        assert!(missing.is_none());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("index.html"));
+
+        fs::write(&entry_path, "ok").expect("restore entry");
+        let (installed, warnings) = load_installed_host(&paths, "en").expect("valid load");
+        assert!(warnings.is_empty());
+        assert_eq!(
+            installed.expect("installed").bundle.bundle_version,
+            built.bundle.bundle_version
+        );
+    }
+
+    #[test]
+    fn local_host_rendering_covers_locales_empty_states_and_html_escaping() {
+        assert!(host_copy("zh-TW").summary_title.contains("受信任"));
+        assert!(host_copy("zh-CN").summary_title.contains("受信任"));
+        assert!(host_copy("en-US").summary_title.contains("Trusted"));
+        assert!(build_boundary_notes("zh-TW")[0].contains("deterministic"));
+        assert!(build_boundary_notes("zh-CN")[1].contains("trusted-only"));
+
+        let (_root, paths, config) = prepared_archive();
+        let mut bundle = preview_intelligence_local_host(
+            &paths,
+            &config,
+            None,
+            &IntelligenceLocalHostRequest {
+                date_range: crate::models::DateRange {
+                    start: "2024-04-01".to_string(),
+                    end: "2024-04-30".to_string(),
+                },
+                profile_id: None,
+                locale: "en".to_string(),
+            },
+        )
+        .expect("preview")
+        .bundle;
+        bundle.locale = "zh-CN".to_string();
+        bundle.profile_id = Some("chrome:<Default>".to_string());
+        bundle.embed_cards.clear();
+        bundle.widget_snapshot.highlights.clear();
+        bundle.widget_snapshot.notes.clear();
+        bundle.public_snapshot.top_domains.clear();
+        bundle.public_snapshot.search_engines.clear();
+        bundle.public_snapshot.discovery_trend.points.clear();
+        bundle.public_snapshot.notes.clear();
+        let html = render_browser_snippet_html(&bundle, &host_copy("zh-CN"));
+        assert!(html.contains("Profile: chrome:&lt;Default&gt;"));
+        assert!(html.contains("暂时没有可用的卡片"));
+        assert!(html.contains("没有可用的搜索引擎活动"));
+        assert!(html.contains("没有可用的发现趋势点"));
+
+        let plain_card = crate::models::IntelligenceEmbedCardPayload {
+            card_id: "plain".to_string(),
+            card_type: "summary".to_string(),
+            title: "A <plain> card".to_string(),
+            body: "Body & detail".to_string(),
+            internal_only: false,
+            ..Default::default()
+        };
+        let cards = render_embed_cards(&[plain_card], &host_copy("en"));
+        assert!(cards.contains("A &lt;plain&gt; card"));
+        assert!(!cards.contains("badge"));
+        assert!(!cards.contains("metric"));
+    }
+
     fn prepared_archive() -> (tempfile::TempDir, ProjectPaths, AppConfig) {
         let root = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());

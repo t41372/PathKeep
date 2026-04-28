@@ -219,14 +219,10 @@ pub(super) fn execute_visit_derive_stage(
         dirty_visit_count: Some(dirty_visit_count),
         dirty_date_keys,
         fallback_reason: fallback_reason.clone(),
-        notes: vec![match execution_mode {
-            StageExecutionMode::Incremental => {
-                format!("Incrementally refreshed visit-derived facts for {profile_id}.")
-            }
-            StageExecutionMode::FallbackFull => {
-                format!("Rebuilt visit-derived facts for {profile_id} with a scoped full refresh.")
-            }
-            StageExecutionMode::Noop => unreachable!(),
+        notes: vec![if execution_mode == StageExecutionMode::Incremental {
+            format!("Incrementally refreshed visit-derived facts for {profile_id}.")
+        } else {
+            format!("Rebuilt visit-derived facts for {profile_id} with a scoped full refresh.")
         }],
         ..StageRunResult::default()
     })

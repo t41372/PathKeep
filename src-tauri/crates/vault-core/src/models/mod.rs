@@ -65,19 +65,36 @@ mod tests {
     }
 
     #[test]
+    fn ai_settings_deserialization_uses_current_enrichment_defaults() {
+        let settings: super::AiSettings =
+            serde_json::from_str("{}").expect("deserialize default ai settings");
+        assert!(settings.enrichment_enabled);
+        assert_eq!(settings.enrichment_plugins.len(), 2);
+    }
+
+    #[test]
     fn enrichment_plugin_states_merge_with_defaults() {
-        let merged = merge_enrichment_plugin_states(&[super::EnrichmentPluginState {
-            id: READABLE_CONTENT_PLUGIN_ID.to_string(),
-            enabled: false,
-            version: String::new(),
-        }]);
-        assert_eq!(merged.len(), 2);
+        let merged = merge_enrichment_plugin_states(&[
+            super::EnrichmentPluginState {
+                id: READABLE_CONTENT_PLUGIN_ID.to_string(),
+                enabled: false,
+                version: String::new(),
+            },
+            super::EnrichmentPluginState {
+                id: "custom-plugin".to_string(),
+                enabled: true,
+                version: "local-v1".to_string(),
+            },
+        ]);
+        assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].id, TITLE_NORMALIZATION_PLUGIN_ID);
         assert!(merged[0].enabled);
         assert_eq!(merged[0].version, TITLE_NORMALIZATION_PLUGIN_VERSION);
         assert_eq!(merged[1].id, READABLE_CONTENT_PLUGIN_ID);
         assert!(!merged[1].enabled);
         assert_eq!(merged[1].version, READABLE_CONTENT_PLUGIN_VERSION);
+        assert_eq!(merged[2].id, "custom-plugin");
+        assert_eq!(merged[2].version, "local-v1");
     }
 
     #[test]

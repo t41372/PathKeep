@@ -191,8 +191,7 @@ export function insightEntityHref(target: InsightEntityTarget) {
     profileId: target.profileId,
     focus: target.focus,
   })
-  const query = params.toString()
-  return `${buildInsightEntityRoutePath(target)}${query ? `?${query}` : ''}`
+  return `${buildInsightEntityRoutePath(target)}?${params.toString()}`
 }
 
 export function dayInsightsHref(

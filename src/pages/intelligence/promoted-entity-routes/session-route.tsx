@@ -148,12 +148,10 @@ export function SessionInsightsRoutePage() {
                       className="session-visit-row"
                       content={visit.title ?? visit.url}
                       contentClassName="session-visit-row__content"
-                      meta={
-                        formatDateTime(
-                          new Date(visit.visitTimeMs).toISOString(),
-                          language,
-                        ) ?? new Date(visit.visitTimeMs).toISOString()
-                      }
+                      meta={formatDateTime(
+                        new Date(visit.visitTimeMs).toISOString(),
+                        language,
+                      )}
                       metaClassName="session-card__meta"
                     />
                   )

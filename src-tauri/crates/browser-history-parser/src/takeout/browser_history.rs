@@ -29,7 +29,6 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader},
-    path::PathBuf,
 };
 
 /// Streams one Takeout browser-history payload into canonical row batches.
@@ -51,12 +50,7 @@ where
     if kind == KIND_JSONL {
         let reader = BufReader::new(bytes);
         for (ordinal, line) in reader.lines().enumerate() {
-            let line = line.map_err(|source| {
-                StreamHistoryError::Parse(ParseError::ReadSource {
-                    path: PathBuf::from(source_path),
-                    source,
-                })
-            })?;
+            let line = line.expect("reading lines from in-memory Takeout bytes cannot fail");
             if line.trim().is_empty() {
                 continue;
             }

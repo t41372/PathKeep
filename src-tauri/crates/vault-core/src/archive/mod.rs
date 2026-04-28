@@ -66,8 +66,7 @@ pub(crate) use self::search_projection::{
 pub use self::source_evidence::open_source_evidence_connection;
 pub(crate) use self::source_evidence::{
     DeferredSourceEvidencePayload, SourceBatchInput, SourceEvidencePayload,
-    defer_source_evidence_payload, record_schema_observation, take_source_evidence_payload,
-    upsert_source_batch,
+    defer_source_evidence_payload, record_schema_observation, upsert_source_batch,
 };
 pub(crate) use self::source_evidence_builder::{
     DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,

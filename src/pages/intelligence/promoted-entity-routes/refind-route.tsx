@@ -102,9 +102,7 @@ export function RefindPageInsightsRoutePage() {
             subtitle={t('refindRouteSubtitle')}
             title={detail.page.title ?? detail.page.url}
           />
-          {data ? (
-            <IntelligenceSectionMeta meta={data.meta} scopeLabel={scopeLabel} />
-          ) : null}
+          <IntelligenceSectionMeta meta={data!.meta} scopeLabel={scopeLabel} />
           <IntelligenceMetricGrid
             className="day-insights__stats"
             items={[

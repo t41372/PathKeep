@@ -28,10 +28,9 @@ import { appScreens, readRouteHandle } from './router'
  */
 export function AppShell() {
   const { busyAction, busyOverlay } = useShellData()
+  const matchMedia = window.matchMedia as Window['matchMedia'] | undefined
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    typeof window !== 'undefined' && 'matchMedia' in window
-      ? window.matchMedia('(max-width: 1200px)').matches
-      : false,
+    matchMedia ? matchMedia('(max-width: 1200px)').matches : false,
   )
   const activeScreen =
     [...useMatches()]
@@ -39,8 +38,10 @@ export function AppShell() {
       .find(Boolean)?.screen ?? appScreens[0]
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('matchMedia' in window)) return
-    const mediaQuery = window.matchMedia('(max-width: 1200px)')
+    if (!matchMedia) {
+      return
+    }
+    const mediaQuery = matchMedia('(max-width: 1200px)')
     /**
      * Handles change.
      *
@@ -54,7 +55,7 @@ export function AppShell() {
     return () => {
       mediaQuery.removeEventListener('change', handleChange)
     }
-  }, [])
+  }, [matchMedia])
 
   return (
     <div

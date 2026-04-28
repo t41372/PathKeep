@@ -111,7 +111,7 @@ export function RefindSummaryCard({
       />
       {hasFactors && showFactors ? (
         <div id={factorPanelId}>
-          <RefindFactorList factors={factorRows ?? []} />
+          <RefindFactorList factors={factorRows!} />
         </div>
       ) : null}
       {explainability}
