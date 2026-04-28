@@ -5,7 +5,7 @@
 //!   concrete SQLite history file the parser can read.
 //! - Snapshot or copy live browser SQLite databases into the import staging
 //!   directory before parser access.
-//! - Detect whether the staged database uses the Chromium or Safari history
+//! - Detect whether the staged database uses the Chromium, Firefox, or Safari history
 //!   schema and attach profile metadata for the canonical import path.
 //!
 //! ## Not responsible for
@@ -14,7 +14,7 @@
 //! - Discovering installed browser profiles before the user selects one.
 //!
 //! ## Dependencies
-//! - `browser-history-parser` streaming contracts for Chromium and Safari.
+//! - `browser-history-parser` streaming contracts for Chromium, Firefox, and Safari.
 //! - SQLite backup APIs for coherent local snapshots.
 //! - The surrounding Takeout import module for shared path, hash, and model
 //!   types.
@@ -26,7 +26,7 @@
 use super::*;
 use browser_history_parser::{
     ChromiumReadCursor, HistoryBatchConsumer, HistoryDatabaseSet, StreamHistoryError,
-    StreamedHistory, chromium, safari,
+    StreamedHistory, chromium, firefox, safari,
 };
 use rusqlite::{MAIN_DB, OpenFlags};
 use tempfile::TempDir;
@@ -36,6 +36,7 @@ const BROWSER_IMPORT_CHUNK_SIZE: usize = 10_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BrowserHistoryFamily {
     Chromium,
+    Firefox,
     Safari,
 }
 
@@ -43,6 +44,7 @@ impl BrowserHistoryFamily {
     pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Chromium => "chromium",
+            Self::Firefox => "firefox",
             Self::Safari => "safari",
         }
     }
@@ -50,6 +52,7 @@ impl BrowserHistoryFamily {
     pub(super) fn source_kind(self) -> &'static str {
         match self {
             Self::Chromium => "chromium-history",
+            Self::Firefox => "firefox-history",
             Self::Safari => "safari-history",
         }
     }
@@ -57,6 +60,7 @@ impl BrowserHistoryFamily {
     fn file_kind(self) -> &'static str {
         match self {
             Self::Chromium => "chromium-history-db",
+            Self::Firefox => "firefox-places-db",
             Self::Safari => "safari-history-db",
         }
     }
@@ -64,6 +68,7 @@ impl BrowserHistoryFamily {
     fn default_browser_name(self) -> &'static str {
         match self {
             Self::Chromium => "Google Chrome",
+            Self::Firefox => "Firefox",
             Self::Safari => "Safari",
         }
     }
@@ -160,6 +165,9 @@ where
                 consumer,
             )
         }
+        BrowserHistoryFamily::Firefox => {
+            firefox::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
+        }
         BrowserHistoryFamily::Safari => {
             safari::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
         }
@@ -196,14 +204,14 @@ pub(super) fn browser_file_report(
 
 fn resolve_requested_history_path(path: &Path) -> Result<PathBuf> {
     if path.is_dir() {
-        for file_name in ["History.db", "History"] {
+        for file_name in ["History.db", "History", "places.sqlite"] {
             let candidate = path.join(file_name);
             if candidate.exists() {
                 return Ok(candidate);
             }
         }
         anyhow::bail!(
-            "browser directory {} does not contain History.db or History",
+            "browser directory {} does not contain History.db, History, or places.sqlite",
             path.display()
         );
     }
@@ -294,8 +302,11 @@ fn detect_browser_history_family(path: &Path) -> Result<BrowserHistoryFamily> {
     if has_tables(&tables, &["urls", "visits"]) {
         return Ok(BrowserHistoryFamily::Chromium);
     }
+    if has_tables(&tables, &["moz_places", "moz_historyvisits"]) {
+        return Ok(BrowserHistoryFamily::Firefox);
+    }
     anyhow::bail!(
-        "unsupported browser history database {}; expected Safari History.db or Chromium History",
+        "unsupported browser history database {}; expected Safari History.db, Chromium History, or Firefox places.sqlite",
         path.display()
     )
 }
@@ -307,6 +318,7 @@ fn has_tables(tables: &[String], required: &[&str]) -> bool {
 fn normalize_requested_family(value: Option<&str>) -> Option<BrowserHistoryFamily> {
     match value.map(|item| item.to_ascii_lowercase()) {
         Some(value) if value == "safari" => Some(BrowserHistoryFamily::Safari),
+        Some(value) if value == "firefox" => Some(BrowserHistoryFamily::Firefox),
         Some(value) if value == "chromium" || value == "chrome" => {
             Some(BrowserHistoryFamily::Chromium)
         }
@@ -425,6 +437,37 @@ mod tests {
             .expect("write safari history");
     }
 
+    fn write_minimal_firefox_history(path: &Path) {
+        let connection = Connection::open(path).expect("open firefox history");
+        connection
+            .execute_batch(
+                "CREATE TABLE moz_places (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER,
+                   hidden INTEGER,
+                   last_visit_date INTEGER
+                 );
+                 CREATE TABLE moz_historyvisits (
+                   id INTEGER PRIMARY KEY,
+                   place_id INTEGER NOT NULL,
+                   visit_date INTEGER NOT NULL,
+                   from_visit INTEGER,
+                   visit_type INTEGER
+                 );
+                 INSERT INTO moz_places (
+                   id, url, title, visit_count, hidden, last_visit_date
+                 )
+                 VALUES (1, 'https://example.test/firefox', 'Firefox', 1, 0, 1744146000000000);
+                 INSERT INTO moz_historyvisits (
+                   id, place_id, visit_date, from_visit, visit_type
+                 )
+                 VALUES (9, 1, 1744146000000000, NULL, 1);",
+            )
+            .expect("write firefox history");
+    }
+
     #[test]
     fn copy_sqlite_database_with_sidecars_preserves_wal_backed_chromium_rows() {
         let source_dir = tempfile::tempdir().expect("source dir");
@@ -521,7 +564,42 @@ mod tests {
         let empty_dir = root.path().join("EmptyProfile");
         fs::create_dir_all(&empty_dir).expect("empty profile");
         let missing = resolve_requested_history_path(&empty_dir).expect_err("missing history");
-        assert!(missing.to_string().contains("does not contain History.db or History"));
+        assert!(missing.to_string().contains("does not contain History.db, History, or places.sqlite"));
+    }
+
+    #[test]
+    fn stage_browser_history_source_accepts_firefox_places_sqlite() {
+        let root = tempfile::tempdir().expect("root");
+        let paths = project_paths_with_root(root.path());
+        fs::create_dir_all(&paths.staging_dir).expect("staging dir");
+        let profile_dir = root.path().join("FirefoxProfile");
+        fs::create_dir_all(&profile_dir).expect("profile dir");
+        let history = profile_dir.join("places.sqlite");
+        write_minimal_firefox_history(&history);
+
+        let staged = stage_browser_history_source(
+            &paths,
+            &browser_history_request(&profile_dir, Some("firefox")),
+        )
+        .expect("stage firefox directory");
+        assert_eq!(staged.requested_path, history);
+        assert_eq!(staged.family, BrowserHistoryFamily::Firefox);
+        assert_eq!(staged.family.source_kind(), "firefox-history");
+        assert_eq!(staged.browser_name, "Firefox");
+        assert_eq!(staged.profile_name, "Imported browser profile");
+        assert!(staged.profile_id.starts_with("browser-direct::firefox::"));
+        assert!(staged.favicons_path.is_none());
+
+        let report = browser_file_report(&staged, "recognized", 1);
+        assert_eq!(report.kind, "firefox-places-db");
+        assert_eq!(report.reason_code.as_deref(), Some("firefox-history-sqlite"));
+
+        let mismatch = stage_browser_history_source(
+            &paths,
+            &browser_history_request(&profile_dir, Some("safari")),
+        )
+        .expect_err("family mismatch");
+        assert!(mismatch.to_string().contains("selected file looks like firefox"));
     }
 
     #[test]
@@ -544,6 +622,18 @@ mod tests {
             Some(BrowserHistoryFamily::Chromium)
         );
         assert_eq!(normalize_requested_family(Some("unknown")), None);
+
+        let firefox_history = root.path().join("places.sqlite");
+        write_minimal_firefox_history(&firefox_history);
+        let detected = detect_browser_history_family(&firefox_history).expect("detect firefox");
+        assert_eq!(detected, BrowserHistoryFamily::Firefox);
+        assert_eq!(BrowserHistoryFamily::Firefox.source_kind(), "firefox-history");
+        assert_eq!(BrowserHistoryFamily::Firefox.file_kind(), "firefox-places-db");
+        assert_eq!(BrowserHistoryFamily::Firefox.default_browser_name(), "Firefox");
+        assert_eq!(
+            normalize_requested_family(Some("Firefox")),
+            Some(BrowserHistoryFamily::Firefox)
+        );
 
         let staged_favicons =
             stage_chromium_favicons(&history, staged_favicons_dir.path()).expect("stage favicons");

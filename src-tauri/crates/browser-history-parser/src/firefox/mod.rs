@@ -10,7 +10,7 @@ use crate::{
     types::{
         CapabilityCoverage, ContextEvidence, DatabaseInspection, HistoryBatchConsumer,
         NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning, StreamHistoryError,
-        StreamedHistory, TypedEvidenceBatch,
+        SourceEvidenceChunk, StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
@@ -69,6 +69,31 @@ impl HistoryBatchConsumer for FirefoxHistoryCollector {
 
 fn stream_sql<T, E>(result: Result<T, rusqlite::Error>) -> Result<T, StreamHistoryError<E>> {
     result.map_err(ParseError::from).map_err(StreamHistoryError::Parse)
+}
+
+fn flush_source_evidence<C>(
+    consumer: &mut C,
+    retain_source_evidence: bool,
+    typed_evidence: &mut TypedEvidenceBatch,
+    native_entities: &mut Vec<crate::types::NativeEntity>,
+    chunk: &mut SourceEvidenceChunk,
+) -> Result<(), StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    if chunk.is_empty() {
+        return Ok(());
+    }
+
+    let chunk = std::mem::take(chunk);
+    if retain_source_evidence {
+        typed_evidence.navigation.extend(chunk.typed_evidence.navigation);
+        typed_evidence.context.extend(chunk.typed_evidence.context);
+        native_entities.extend(chunk.native_entities);
+    } else {
+        consumer.source_evidence(chunk).map_err(StreamHistoryError::Consumer)?;
+    }
+    Ok(())
 }
 
 /// Inspects a Firefox `places.sqlite` file and reports required-table coverage.
@@ -147,8 +172,12 @@ where
     let chunk_size = chunk_size.max(1);
     let warnings = inspection.warnings.clone();
     let mut visit_count = 0usize;
+    let mut navigation_count = 0usize;
+    let mut from_visit_count = 0usize;
+    let retain_source_evidence = consumer.retain_source_evidence_in_report();
     let mut typed_evidence = TypedEvidenceBatch::default();
     let mut native_entities = Vec::new();
+    let mut source_evidence_chunk = SourceEvidenceChunk::default();
 
     {
         let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
@@ -159,7 +188,7 @@ where
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             batch.push(stream_sql(parsed_url_from_row(row))?);
-            native_entities.push(stream_sql(capture_native_row(
+            source_evidence_chunk.native_entities.push(stream_sql(capture_native_row(
                 row,
                 &column_names,
                 "firefox-place-row",
@@ -168,11 +197,25 @@ where
             ))?);
             if batch.len() >= chunk_size {
                 consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
+                flush_source_evidence(
+                    consumer,
+                    retain_source_evidence,
+                    &mut typed_evidence,
+                    &mut native_entities,
+                    &mut source_evidence_chunk,
+                )?;
             }
         }
         if !batch.is_empty() {
             consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
         }
+        flush_source_evidence(
+            consumer,
+            retain_source_evidence,
+            &mut typed_evidence,
+            &mut native_entities,
+            &mut source_evidence_chunk,
+        )?;
     }
 
     {
@@ -185,10 +228,14 @@ where
             let visit = stream_sql(parsed_visit_from_row(row))?;
             visit_count += 1;
             if let Some(evidence) = navigation_evidence_for_visit(&visit) {
-                typed_evidence.navigation.push(evidence)
+                navigation_count += 1;
+                if evidence.target_visit_id.is_some() {
+                    from_visit_count += 1;
+                }
+                source_evidence_chunk.typed_evidence.navigation.push(evidence)
             }
-            typed_evidence.context.push(context_evidence_for_visit(&visit));
-            native_entities.push(stream_sql(capture_native_row(
+            source_evidence_chunk.typed_evidence.context.push(context_evidence_for_visit(&visit));
+            source_evidence_chunk.native_entities.push(stream_sql(capture_native_row(
                 row,
                 &column_names,
                 "firefox-historyvisit-row",
@@ -200,11 +247,25 @@ where
                 consumer
                     .visits(std::mem::take(&mut batch))
                     .map_err(StreamHistoryError::Consumer)?;
+                flush_source_evidence(
+                    consumer,
+                    retain_source_evidence,
+                    &mut typed_evidence,
+                    &mut native_entities,
+                    &mut source_evidence_chunk,
+                )?;
             }
         }
         if !batch.is_empty() {
             consumer.visits(batch).map_err(StreamHistoryError::Consumer)?;
         }
+        flush_source_evidence(
+            consumer,
+            retain_source_evidence,
+            &mut typed_evidence,
+            &mut native_entities,
+            &mut source_evidence_chunk,
+        )?;
     }
 
     for optional_table in
@@ -213,18 +274,30 @@ where
         if inspection.table_names.iter().any(|existing| existing == optional_table) {
             let sql = format!("SELECT * FROM {optional_table}");
             let entity_kind = format!("firefox-{}", optional_table.replace('_', "-"));
-            native_entities.extend(capture_native_rows(
+            let optional_rows = capture_native_rows(
                 &connection,
                 &sql,
                 &[],
                 &entity_kind,
                 "id",
                 None,
-            )?);
+            )?;
+            if retain_source_evidence {
+                native_entities.extend(optional_rows);
+            } else {
+                source_evidence_chunk.native_entities.extend(optional_rows);
+                flush_source_evidence(
+                    consumer,
+                    retain_source_evidence,
+                    &mut typed_evidence,
+                    &mut native_entities,
+                    &mut source_evidence_chunk,
+                )?;
+            }
         }
     }
 
-    let capability_snapshot = build_capability_snapshot(&typed_evidence, visit_count);
+    let capability_snapshot = build_capability_snapshot(from_visit_count, navigation_count, visit_count);
     Ok(StreamedHistory {
         inspection,
         schema_observation,
@@ -305,28 +378,22 @@ fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
 }
 
 fn build_capability_snapshot(
-    typed_evidence: &TypedEvidenceBatch,
+    from_visit_count: usize,
+    navigation_count: usize,
     visit_count: usize,
 ) -> crate::types::CapabilitySnapshot {
     capability_snapshot(vec![
         CapabilityCoverage {
             key: "nav.from_visit".to_string(),
-            available: typed_evidence
-                .navigation
-                .iter()
-                .any(|evidence| evidence.target_visit_id.is_some()),
-            populated_rows: typed_evidence
-                .navigation
-                .iter()
-                .filter(|evidence| evidence.target_visit_id.is_some())
-                .count(),
+            available: from_visit_count > 0,
+            populated_rows: from_visit_count,
             total_rows: visit_count,
             notes: vec!["Firefox moz_historyvisits.from_visit".to_string()],
         },
         CapabilityCoverage {
             key: "nav.transition".to_string(),
-            available: !typed_evidence.navigation.is_empty(),
-            populated_rows: typed_evidence.navigation.len(),
+            available: navigation_count > 0,
+            populated_rows: navigation_count,
             total_rows: visit_count,
             notes: vec!["Firefox moz_historyvisits.visit_type".to_string()],
         },

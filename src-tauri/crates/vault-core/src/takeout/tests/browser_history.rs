@@ -25,9 +25,12 @@ fn browser_history_request(
         dry_run,
         browser_family: Some(browser_family.to_string()),
         profile_id: Some(profile_id.to_string()),
-        browser_name: Some(
-            if browser_family == "safari" { "Safari" } else { "Google Chrome" }.to_string(),
-        ),
+        browser_name: Some(match browser_family {
+            "firefox" => "Firefox",
+            "safari" => "Safari",
+            _ => "Google Chrome",
+        }
+        .to_string()),
         profile_name: Some("Primary".to_string()),
     }
 }
@@ -165,6 +168,59 @@ fn write_chromium_history_db(dir: &Path) -> PathBuf {
     source
 }
 
+fn write_firefox_history_db(dir: &Path) -> PathBuf {
+    let source = dir.join("places.sqlite");
+    let connection = Connection::open(&source).expect("open firefox db");
+    connection
+        .execute_batch(
+            "CREATE TABLE moz_places (
+               id INTEGER PRIMARY KEY,
+               url TEXT NOT NULL,
+               title TEXT,
+               visit_count INTEGER,
+               hidden INTEGER,
+               last_visit_date INTEGER
+             );
+             CREATE TABLE moz_historyvisits (
+               id INTEGER PRIMARY KEY,
+               place_id INTEGER NOT NULL,
+               visit_date INTEGER NOT NULL,
+               from_visit INTEGER,
+               visit_type INTEGER
+             );",
+        )
+        .expect("create firefox db schema");
+    let firefox_time = 1_744_146_000_000_000_i64;
+    connection
+        .execute(
+            "INSERT INTO moz_places (
+               id, url, title, visit_count, hidden, last_visit_date
+             )
+             VALUES (?1, ?2, ?3, 2, 0, ?4), (?5, ?6, ?7, 1, 0, ?8)",
+            params![
+                1_i64,
+                "https://example.com/firefox-one",
+                "Firefox One",
+                firefox_time,
+                2_i64,
+                "https://example.com/firefox-two",
+                "Firefox Two",
+                firefox_time + 1_000_000
+            ],
+        )
+        .expect("insert firefox urls");
+    connection
+        .execute(
+            "INSERT INTO moz_historyvisits (
+               id, place_id, visit_date, from_visit, visit_type
+             )
+             VALUES (?1, ?2, ?3, NULL, 1), (?4, ?5, ?6, ?7, 2)",
+            params![9_i64, 1_i64, firefox_time, 10_i64, 2_i64, firefox_time + 1_000_000, 9_i64],
+        )
+        .expect("insert firefox visits");
+    source
+}
+
 #[test]
 fn inspect_browser_history_previews_reference_safari_database() {
     let dir = tempdir().expect("tempdir");
@@ -275,6 +331,87 @@ fn import_browser_history_accepts_chromium_history_database() {
         .expect("fts chrome match count");
     assert_eq!(search_documents, 1);
     assert_eq!(chrome_matches, 1);
+}
+
+#[test]
+fn import_browser_history_accepts_firefox_places_database_and_review_contract() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let profile_dir = dir.path().join("FirefoxProfile");
+    std::fs::create_dir_all(&profile_dir).expect("profile dir");
+    let source = write_firefox_history_db(&profile_dir);
+    let request = browser_history_request(&profile_dir, false, "firefox", "firefox:Primary");
+    let first = import_browser_history(&paths, &config, None, &request).expect("import firefox");
+    let batch = first.import_batch.clone().expect("import batch");
+
+    assert_eq!(batch.source_kind, "browser-history");
+    assert_eq!(batch.profile_id, "firefox:Primary");
+    assert_eq!(first.imported_items, 2);
+    assert_eq!(first.duplicate_items, 0);
+    assert_eq!(first.recognized_files[0].path, source.display().to_string());
+    assert_eq!(first.recognized_files[0].kind, "firefox-places-db");
+    assert_eq!(
+        first.recognized_files[0].reason_code.as_deref(),
+        Some("firefox-history-sqlite")
+    );
+    assert!(
+        first
+            .notes
+            .iter()
+            .any(|note| note.contains("Firefox baseline ingest captures visits and URLs"))
+    );
+
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let (profile_family, profile_product): (String, String) = archive
+        .query_row(
+            "SELECT browser_family, browser_product
+               FROM source_profiles
+              WHERE profile_key = 'firefox:Primary'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load firefox profile");
+    assert_eq!(profile_family, "firefox");
+    assert_eq!(profile_product, "Firefox");
+    drop(archive);
+
+    let source_evidence =
+        open_source_evidence_connection(&paths, &config, None).expect("open source evidence");
+    let source_batches: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+        .expect("source batch count");
+    let native_rows: i64 = source_evidence
+        .query_row("SELECT COUNT(*) FROM native_entities", [], |row| row.get(0))
+        .expect("native evidence count");
+    assert_eq!(source_batches, 1);
+    assert!(native_rows >= 2);
+
+    let second = import_browser_history(&paths, &config, None, &request).expect("re-import firefox");
+    assert_eq!(second.imported_items, 0);
+    assert_eq!(second.duplicate_items, 2);
+
+    let search = Connection::open(&paths.search_database_path).expect("open search projection");
+    let firefox_matches: i64 = search
+        .query_row(
+            "SELECT COUNT(*) FROM history_search WHERE history_search MATCH ?1",
+            ["firefox"],
+            |row| row.get(0),
+        )
+        .expect("fts firefox match count");
+    assert_eq!(firefox_matches, 2);
+
+    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert firefox");
+    assert_eq!(reverted.batch.status, "reverted");
+    assert_eq!(reverted.batch.visible_items, 0);
+    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore firefox");
+    assert_eq!(restored.batch.status, "imported");
+    assert_eq!(restored.batch.visible_items, 2);
 }
 
 #[test]
