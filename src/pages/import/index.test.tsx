@@ -175,6 +175,27 @@ describe('ImportPage route owner', () => {
             profileName: 'Default',
           }),
           browserProfileFixture({
+            appDisplayName: 'Microsoft Edge',
+            browserName: 'Microsoft Edge',
+            profileId: 'edge:Default',
+            profileName: 'Edge Work',
+          }),
+          browserProfileFixture({
+            appDisplayName: 'Microsoft Edge Dev',
+            browserName: 'Microsoft Edge Dev',
+            profileId: 'edge-dev:Default',
+            profileName: 'Edge Dev',
+          }),
+          browserProfileFixture({
+            appDisplayName: 'Firefox',
+            browserFamily: 'firefox',
+            browserName: 'Firefox',
+            faviconsPath: null,
+            historyPath: '/profiles/Firefox/places.sqlite',
+            profileId: 'firefox:default-release',
+            profileName: 'Default',
+          }),
+          browserProfileFixture({
             browserName: 'Unknown Chromium',
             profileId: 'atlas:work',
             profileName: 'Atlas Work',
@@ -193,7 +214,18 @@ describe('ImportPage route owner', () => {
       }),
     })
 
-    expect(latestWorkflowProps().detectedBrowserProfiles).toHaveLength(4)
+    expect(latestWorkflowProps().detectedBrowserProfiles).toHaveLength(7)
+    expect(
+      latestWorkflowProps().detectedBrowserProfiles.map(
+        (profile) => profile.profileId,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'edge:Default',
+        'edge-dev:Default',
+        'firefox:default-release',
+      ]),
+    )
 
     act(() => {
       latestWorkflowProps().onMethodChange('takeout')
@@ -453,6 +485,63 @@ describe('ImportPage route owner', () => {
       profileId: null,
       browserName: null,
       profileName: null,
+    })
+  })
+
+  test('passes Edge Browser Direct profile metadata through scan and import', async () => {
+    const inspectBrowserHistory = vi
+      .spyOn(backend, 'inspectBrowserHistory')
+      .mockResolvedValue(inspectionFixture({ dryRun: true }))
+    const importBrowserHistory = vi
+      .spyOn(backend, 'importBrowserHistory')
+      .mockResolvedValue(
+        inspectionFixture({ dryRun: false, importBatch: null }),
+      )
+    renderPage({
+      snapshot: snapshotFixture({
+        browserProfiles: [
+          browserProfileFixture({
+            appDisplayName: 'Microsoft Edge',
+            browserName: 'Microsoft Edge',
+            historyPath: '/edge/User Data/Default/History',
+            profileId: 'edge:Default',
+            profileName: 'Default',
+            profilePath: '/edge/User Data/Default',
+          }),
+        ],
+      }),
+    })
+
+    act(() => {
+      latestWorkflowProps().onMethodChange('browser')
+    })
+    await waitFor(() =>
+      expect(latestWorkflowProps().selectedBrowserProfileId).toBe(
+        'edge:Default',
+      ),
+    )
+    await act(async () => {
+      await latestWorkflowProps().onScan()
+    })
+    expect(inspectBrowserHistory).toHaveBeenCalledWith({
+      sourcePath: '/edge/User Data/Default/History',
+      dryRun: true,
+      browserFamily: 'chromium',
+      profileId: 'edge:Default',
+      browserName: 'Microsoft Edge',
+      profileName: 'Default',
+    })
+
+    await act(async () => {
+      await latestWorkflowProps().onImport()
+    })
+    expect(importBrowserHistory).toHaveBeenCalledWith({
+      sourcePath: '/edge/User Data/Default/History',
+      dryRun: false,
+      browserFamily: 'chromium',
+      profileId: 'edge:Default',
+      browserName: 'Microsoft Edge',
+      profileName: 'Default',
     })
   })
 

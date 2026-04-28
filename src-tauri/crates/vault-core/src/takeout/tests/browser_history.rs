@@ -57,6 +57,17 @@ fn comet_browser_history_request(source: &Path, dry_run: bool) -> BrowserHistory
     }
 }
 
+fn edge_browser_history_request(source: &Path, dry_run: bool) -> BrowserHistoryImportRequest {
+    BrowserHistoryImportRequest {
+        source_path: source.display().to_string(),
+        dry_run,
+        browser_family: Some("chromium".to_string()),
+        profile_id: Some("edge:Default".to_string()),
+        browser_name: Some("Microsoft Edge".to_string()),
+        profile_name: Some("Default".to_string()),
+    }
+}
+
 fn write_safari_history_db(dir: &Path) -> PathBuf {
     let source = dir.join("History.db");
     let connection = Connection::open(&source).expect("open safari db");
@@ -331,6 +342,53 @@ fn import_browser_history_accepts_chromium_history_database() {
         .expect("fts chrome match count");
     assert_eq!(search_documents, 1);
     assert_eq!(chrome_matches, 1);
+}
+
+#[test]
+fn import_browser_history_preserves_microsoft_edge_product_metadata() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    ensure_paths(&paths).expect("ensure paths");
+    let config = initialized_plaintext_config();
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    create_schema(&archive).expect("schema");
+    drop(archive);
+
+    let source = write_chromium_history_db(dir.path());
+    let request = edge_browser_history_request(&source, false);
+    let first = import_browser_history(&paths, &config, None, &request).expect("import edge");
+    let batch = first.import_batch.clone().expect("import batch");
+
+    assert_eq!(batch.source_kind, "browser-history");
+    assert_eq!(batch.profile_id, "edge:Default");
+    assert_eq!(first.imported_items, 1);
+    assert_eq!(first.duplicate_items, 0);
+    assert_eq!(first.recognized_files[0].kind, "chromium-history-db");
+
+    let archive = open_archive_connection(&paths, &config, None).expect("open archive");
+    let (profile_family, profile_product): (String, String) = archive
+        .query_row(
+            "SELECT browser_family, browser_product
+               FROM source_profiles
+              WHERE profile_key = 'edge:Default'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load edge profile");
+    assert_eq!(profile_family, "chromium");
+    assert_eq!(profile_product, "Microsoft Edge");
+    drop(archive);
+
+    let second = import_browser_history(&paths, &config, None, &request).expect("re-import edge");
+    assert_eq!(second.imported_items, 0);
+    assert_eq!(second.duplicate_items, 1);
+
+    let reverted = revert_import_batch(&paths, &config, None, batch.id).expect("revert edge");
+    assert_eq!(reverted.batch.status, "reverted");
+    assert_eq!(reverted.batch.visible_items, 0);
+    let restored = restore_import_batch(&paths, &config, None, batch.id).expect("restore edge");
+    assert_eq!(restored.batch.status, "imported");
+    assert_eq!(restored.batch.visible_items, 1);
 }
 
 #[test]

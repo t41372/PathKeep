@@ -46,12 +46,18 @@ function isValidatedBrowserDirectProfile(profile: BrowserProfile) {
   const browserName = profile.browserName.toLocaleLowerCase()
   return (
     profile.browserFamily === 'safari' ||
+    profile.browserFamily === 'firefox' ||
     browserName === 'google chrome' ||
+    browserName === 'microsoft edge' ||
+    browserName === 'microsoft edge dev' ||
     browserName === 'chatgpt atlas' ||
     browserName === 'perplexity comet' ||
     profile.profileId.startsWith('atlas:') ||
     profile.profileId.startsWith('comet:') ||
-    profile.profileId.startsWith('chrome:')
+    profile.profileId.startsWith('chrome:') ||
+    profile.profileId.startsWith('edge:') ||
+    profile.profileId.startsWith('edge-dev:') ||
+    profile.profileId.startsWith('firefox:')
   )
 }
 
