@@ -1,16 +1,30 @@
-[![CI](https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/ci.yml)
-[![Release](https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/release.yml)
-[![Mutation](https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg)](https://github.com/t41372/PathKeep/actions/workflows/mutation.yml)
-[![Latest release](https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag)](https://github.com/t41372/PathKeep/releases)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg)](./LICENSE)
+<div align="center">
 
-# PathKeep
+# PathKeep - Keep the path you've walked
 
-**Keep the path you've walked.**
+<img alt="demo" src="https://github.com/user-attachments/assets/6118f6f4-80ee-4cd2-bf44-3989d26eb5e5" />
 
-<!-- TODO: add screenshot to docs/assets/ and uncomment:
-![PathKeep screenshot](./docs/assets/screenshot.png)
--->
+**Stop losing your browsing history**
+
+<a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml">
+  <img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg" />
+</a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
+  <img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg" />
+</a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml">
+  <img alt="Mutation" src="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg" />
+</a>
+<a href="https://github.com/t41372/PathKeep/releases">
+  <img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag" />
+</a>
+<a href="./LICENSE">
+  <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg" />
+</a>
+
+</div>
+
+<br/>
 
 PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Publicly validated support currently covers Google Chrome, ChatGPT Atlas on macOS, Perplexity Comet on macOS, and Safari on macOS with Full Disk Access; additional Chromium / Firefox-family adapters remain implemented but not yet publicly promised.
 
