@@ -252,6 +252,7 @@ pub(super) fn select_supported_profiles<'a>(
     discovered
         .iter()
         .filter(|profile| profile.history_exists)
+        .filter(|profile| profile.history_readable)
         .filter(|profile| {
             selected_profile_ids.iter().any(|selected| selected == &profile.profile_id)
         })
@@ -265,7 +266,7 @@ pub(super) fn collect_skipped_profiles(
 ) -> Vec<String> {
     let mut warnings = discovered
         .iter()
-        .filter(|profile| !profile.history_exists)
+        .filter(|profile| !profile.history_exists || !profile.history_readable)
         .filter(|profile| {
             selected_profile_ids
                 .iter()
@@ -853,12 +854,17 @@ mod tests {
         missing_chrome.profile_path = "/profiles/missing".to_string();
         let mut missing_safari = profile("safari", "safari:Default");
         missing_safari.history_exists = false;
+        let mut unreadable_edge = profile("chromium", "edge:Default");
+        unreadable_edge.browser_name = "Microsoft Edge".to_string();
+        unreadable_edge.history_readable = false;
+        unreadable_edge.profile_path = "/profiles/edge/Default".to_string();
 
-        let discovered = vec![readable.clone(), missing_chrome, missing_safari];
+        let discovered = vec![readable.clone(), missing_chrome, missing_safari, unreadable_edge];
         let selected = vec![
             "chrome:Default".to_string(),
             "chrome:Missing".to_string(),
             "safari:Default".to_string(),
+            "edge:Default".to_string(),
             "chrome:Gone".to_string(),
         ];
         let supported = select_supported_profiles(&discovered, &selected);
@@ -870,6 +876,8 @@ mod tests {
         let warnings = collect_skipped_profiles(&discovered, &selected);
         assert!(warnings.iter().any(|warning| warning.contains("Full Disk Access")));
         assert!(warnings.iter().any(|warning| warning.contains("History is missing")));
+        assert!(warnings.iter().any(|warning| warning.contains("edge:Default")));
+        assert!(warnings.iter().any(|warning| warning.contains("missing or unreadable")));
         assert!(warnings.iter().any(|warning| warning.contains("chrome:Gone")));
 
         let firefox = profile("firefox", "firefox:Default");

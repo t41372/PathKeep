@@ -156,6 +156,19 @@ fn seed_chrome_fixture(root: &Path) -> PathBuf {
     chrome_root
 }
 
+fn seed_missing_chrome_history_fixture(root: &Path) -> PathBuf {
+    let chrome_root = root.join("chrome-missing-history");
+    let profile_dir = chrome_root.join("Default");
+    fs::create_dir_all(&profile_dir).expect("create missing chrome profile dir");
+    fs::write(chrome_root.join("Last Version"), "146.0.0.0").expect("write version");
+    fs::write(
+        chrome_root.join("Local State"),
+        r#"{"profile":{"info_cache":{"Default":{"name":"Default","user_name":"tim@example.com"}}}}"#,
+    )
+    .expect("write local state");
+    chrome_root
+}
+
 fn seed_firefox_fixture(root: &Path) -> PathBuf {
     let firefox_root = root.join("firefox");
     let profiles_dir = firefox_root.join("Profiles");
@@ -1359,6 +1372,46 @@ fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
 
     assert!(format!("{error:#}").contains("staging profile chrome:Default"));
     assert_eq!(status, "failed");
+}
+
+#[test]
+fn backup_skips_unreadable_selected_profile_when_another_profile_is_readable() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let firefox_profiles = seed_firefox_fixture(dir.path());
+    let chrome_root = seed_missing_chrome_history_fixture(dir.path());
+    let original_firefox = std::env::var_os("CHB_FIREFOX_PROFILES_DIR");
+    let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_FIREFOX_PROFILES_DIR", &firefox_profiles);
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec![
+            "firefox:abcd.default-release".to_string(),
+            "chrome:Default".to_string(),
+        ],
+        ..AppConfig::default()
+    };
+
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    let report = run_backup(&paths, &config, None, false).expect("run backup with skipped profile");
+
+    restore_test_env_var("CHB_FIREFOX_PROFILES_DIR", original_firefox.as_deref());
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
+
+    assert_eq!(report.run.as_ref().expect("run").new_visits, 1);
+    assert_eq!(report.profiles.len(), 1);
+    assert_eq!(report.profiles[0].profile_id, "firefox:abcd.default-release");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("chrome:Default") && warning.contains("unreadable"))
+    );
 }
 
 #[test]
