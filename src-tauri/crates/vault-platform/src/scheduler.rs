@@ -14,9 +14,7 @@ use chrono::Utc;
 use directories::UserDirs;
 use serde::Serialize;
 #[cfg(not(any(test, coverage)))]
-use std::process::Command;
-#[cfg(not(any(test, coverage)))]
-use std::process::Output;
+use std::process::{Command, Output};
 use std::{
     collections::BTreeMap,
     fs,
@@ -34,6 +32,11 @@ pub struct ScheduleParameters {
     pub due_after_hours: u64,
     pub check_interval_hours: u64,
 }
+
+#[cfg(any(test, coverage))]
+const TEST_SCHTASKS_MODE_ENV: &str = "PATHKEEP_TEST_SCHTASKS_MODE";
+#[cfg(any(test, coverage))]
+const TEST_SCHTASKS_QUERY_XML_ENV: &str = "PATHKEEP_TEST_SCHTASKS_QUERY_XML";
 
 /// Builds a preview-only native schedule plan for the requested platform.
 pub fn preview_schedule(
@@ -62,6 +65,9 @@ pub fn preview_schedule(
 
 /// Applies a previously previewed native schedule plan when the platform supports it.
 pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    if plan.platform == "windows" {
+        return apply_windows_schedule(plan, paths);
+    }
     if plan.platform != "macos" {
         return Ok(ApplyResult {
             applied: false,
@@ -109,6 +115,9 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
 
 /// Removes a previously applied native schedule plan when the platform supports it.
 pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    if plan.platform == "windows" {
+        return remove_windows_schedule(plan, paths);
+    }
     if plan.platform != "macos" {
         return Ok(ApplyResult {
             applied: false,
@@ -164,7 +173,7 @@ pub fn schedule_status(
         due_after_hours: params.due_after_hours,
         check_interval_hours: params.check_interval_hours,
         apply_supported: plan.apply_supported,
-        install_state: if plan.platform == "macos" {
+        install_state: if plan.platform == "macos" || plan.platform == "windows" {
             "not-installed".to_string()
         } else {
             "manual-review".to_string()
@@ -173,6 +182,10 @@ pub fn schedule_status(
         audit_path: latest_schedule_audit_path(paths),
         ..ScheduleStatus::default()
     };
+
+    if plan.platform == "windows" {
+        return windows_schedule_status(&plan, status);
+    }
 
     if plan.platform != "macos" {
         status.warnings.push(
@@ -215,6 +228,110 @@ fn generated_plist_target_path(plan: &SchedulePlan, launch_agents_dir: &Path) ->
         plan.generated_files.first().context("missing plist file for macOS schedule plan")?;
     Ok(launch_agents_dir
         .join(PathBuf::from(&generated.relative_path).file_name().unwrap_or_default()))
+}
+
+fn generated_windows_task_file(plan: &SchedulePlan) -> Result<&GeneratedFile> {
+    plan.generated_files
+        .first()
+        .context("missing Task Scheduler XML file for Windows schedule plan")
+}
+
+fn write_windows_task_xml(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<PathBuf> {
+    let generated = generated_windows_task_file(plan)?;
+    let target_path = paths.schedule_dir.join(&generated.relative_path);
+    ensure_parent_dir(&target_path)?;
+    fs::write(&target_path, &generated.contents)
+        .with_context(|| format!("writing Task Scheduler XML to {}", target_path.display()))?;
+    Ok(target_path)
+}
+
+fn apply_windows_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    let xml_path = write_windows_task_xml(plan, paths)?;
+    let args = vec![
+        "/Create".to_string(),
+        "/TN".to_string(),
+        plan.label.clone(),
+        "/XML".to_string(),
+        xml_path.display().to_string(),
+        "/F".to_string(),
+    ];
+    let outcome = run_schtasks(&args).context("installing Windows Task Scheduler task")?;
+    let audit_path = write_windows_schedule_audit(paths, plan, "apply", &xml_path, &outcome)?;
+
+    Ok(ApplyResult {
+        applied: outcome.success,
+        platform: plan.platform.clone(),
+        files: vec![xml_path.display().to_string()],
+        audit_path: Some(audit_path.display().to_string()),
+        message: if outcome.success {
+            "Task Scheduler task registered.".to_string()
+        } else {
+            format!(
+                "Task Scheduler XML was written, but schtasks /Create did not report success: {}",
+                outcome.status_description
+            )
+        },
+    })
+}
+
+fn remove_windows_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    let args = vec![
+        "/Delete".to_string(),
+        "/TN".to_string(),
+        plan.label.clone(),
+        "/F".to_string(),
+    ];
+    let outcome = run_schtasks(&args).context("removing Windows Task Scheduler task")?;
+    let audit_path =
+        write_windows_schedule_audit(paths, plan, "remove", Path::new("Task Scheduler"), &outcome)?;
+
+    Ok(ApplyResult {
+        applied: outcome.success,
+        platform: plan.platform.clone(),
+        files: Vec::new(),
+        audit_path: Some(audit_path.display().to_string()),
+        message: if outcome.success {
+            "Task Scheduler task removed.".to_string()
+        } else if windows_schtasks_not_found(&outcome) {
+            "No installed PathKeep Task Scheduler task was found to remove.".to_string()
+        } else {
+            format!("schtasks /Delete did not report success: {}", outcome.status_description)
+        },
+    })
+}
+
+fn windows_schedule_status(plan: &SchedulePlan, mut status: ScheduleStatus) -> Result<ScheduleStatus> {
+    let expected_xml = &generated_windows_task_file(plan)?.contents;
+    let args = vec!["/Query".to_string(), "/TN".to_string(), plan.label.clone(), "/XML".to_string()];
+    let outcome = run_schtasks(&args).context("querying Windows Task Scheduler task")?;
+
+    if outcome.success {
+        status.detected_files.push(format!("Task Scheduler:{}", plan.label));
+        status.install_state = if normalize_scheduler_xml(&outcome.stdout)
+            == normalize_scheduler_xml(expected_xml)
+        {
+            "installed".to_string()
+        } else {
+            status.warnings.push(
+                "Installed Task Scheduler XML no longer matches the current PathKeep schedule plan."
+                    .to_string(),
+            );
+            "mismatch".to_string()
+        };
+        return Ok(status);
+    }
+
+    if windows_schtasks_not_found(&outcome) {
+        status.install_state = "not-installed".to_string();
+        return Ok(status);
+    }
+
+    status.install_state = "permission-warning".to_string();
+    status.warnings.push(format!(
+        "PathKeep could not inspect the Windows Task Scheduler task `{}`: {}",
+        plan.label, outcome.status_description
+    ));
+    Ok(status)
 }
 
 fn write_schedule_apply_audit(
@@ -264,6 +381,31 @@ fn write_schedule_remove_audit(
                     .collect::<Vec<_>>(),
             )?,
         ),
+    ]))?;
+    fs::write(&audit_path, contents)?;
+    Ok(audit_path)
+}
+
+fn write_windows_schedule_audit(
+    paths: &ProjectPaths,
+    plan: &SchedulePlan,
+    action: &str,
+    xml_path: &Path,
+    outcome: &SchtasksOutcome,
+) -> Result<PathBuf> {
+    let audit_path = paths.audit_repo_path.join("scheduler").join(format!(
+        "{action}-windows-{}.json",
+        Utc::now().to_rfc3339().replace(':', "-")
+    ));
+    ensure_parent_dir(&audit_path)?;
+
+    let contents = serde_json::to_string_pretty(&BTreeMap::from([
+        ("action".to_string(), action.to_string()),
+        ("platform".to_string(), plan.platform.clone()),
+        ("label".to_string(), plan.label.clone()),
+        ("xmlPath".to_string(), xml_path.display().to_string()),
+        ("success".to_string(), outcome.success.to_string()),
+        ("status".to_string(), outcome.status_description.clone()),
     ]))?;
     fs::write(&audit_path, contents)?;
     Ok(audit_path)
@@ -413,10 +555,20 @@ fn windows_schedule_plan(
             contents: xml,
         }],
         manual_steps: vec![
-            "Save the XML file and import it in Task Scheduler.".to_string(),
-            format!("Alternatively run `schtasks /Create /TN {label} /XML {label}.task.xml`."),
+            "Review the XML file before registering it with Task Scheduler.".to_string(),
+            format!("PathKeep can register it with `schtasks /Create /TN {label} /XML <generated XML> /F`."),
         ],
-        apply_commands: Vec::new(),
+        apply_commands: vec![
+            vec![
+                "schtasks".to_string(),
+                "/Create".to_string(),
+                "/TN".to_string(),
+                label.to_string(),
+                "/XML".to_string(),
+                format!("windows/{label}.task.xml"),
+                "/F".to_string(),
+            ],
+        ],
         rollback_commands: vec![vec![
             "schtasks".to_string(),
             "/Delete".to_string(),
@@ -424,7 +576,7 @@ fn windows_schedule_plan(
             label.to_string(),
             "/F".to_string(),
         ]],
-        apply_supported: false,
+        apply_supported: true,
     })
 }
 
@@ -492,9 +644,20 @@ fn xml_escape(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+fn normalize_scheduler_xml(value: &str) -> String {
+    value.split_whitespace().collect::<String>()
+}
+
 struct LaunchctlOutcome {
     success: bool,
     status_description: String,
+}
+
+struct SchtasksOutcome {
+    success: bool,
+    status_description: String,
+    stdout: String,
+    stderr: String,
 }
 
 #[cfg(not(any(test, coverage)))]
@@ -510,6 +673,82 @@ fn describe_launchctl_output(action: &str, target: &str, output: &Output) -> Str
             format!("{action} {target}: {:?}; stdout: {stdout}; stderr: {stderr}", output.status)
         }
     }
+}
+
+#[cfg(not(any(test, coverage)))]
+fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
+    let output = Command::new("schtasks")
+        .args(args)
+        .output()
+        .context("running schtasks.exe")?;
+    let status_description = describe_launchctl_output("schtasks", &args.join(" "), &output);
+    Ok(SchtasksOutcome {
+        success: output.status.success(),
+        status_description,
+        stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+    })
+}
+
+#[cfg(any(test, coverage))]
+fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
+    let is_query = args.iter().any(|arg| arg.eq_ignore_ascii_case("/Query"));
+    let is_delete = args.iter().any(|arg| arg.eq_ignore_ascii_case("/Delete"));
+    let mode = std::env::var(TEST_SCHTASKS_MODE_ENV).unwrap_or_else(|_| "success".to_string());
+
+    if is_query {
+        return Ok(match mode.as_str() {
+            "missing" => SchtasksOutcome {
+                success: false,
+                status_description: "stub schtasks query: task not found".to_string(),
+                stdout: String::new(),
+                stderr: "ERROR: The system cannot find the file specified.".to_string(),
+            },
+            "denied" => SchtasksOutcome {
+                success: false,
+                status_description: "stub schtasks query: access denied".to_string(),
+                stdout: String::new(),
+                stderr: "Access is denied.".to_string(),
+            },
+            "mismatch" => SchtasksOutcome {
+                success: true,
+                status_description: "stub schtasks query: mismatch".to_string(),
+                stdout: "<Task><Actions /></Task>".to_string(),
+                stderr: String::new(),
+            },
+            _ => SchtasksOutcome {
+                success: true,
+                status_description: "stub schtasks query: installed".to_string(),
+                stdout: std::env::var(TEST_SCHTASKS_QUERY_XML_ENV).unwrap_or_default(),
+                stderr: String::new(),
+            },
+        });
+    }
+
+    if mode == "fail" {
+        return Ok(SchtasksOutcome {
+            success: false,
+            status_description: format!("stub schtasks {}: failed", args.join(" ")),
+            stdout: String::new(),
+            stderr: "schtasks failed".to_string(),
+        });
+    }
+
+    Ok(SchtasksOutcome {
+        success: true,
+        status_description: format!(
+            "stub schtasks {}: {}",
+            if is_delete { "delete" } else { "create" },
+            args.join(" ")
+        ),
+        stdout: String::new(),
+        stderr: String::new(),
+    })
+}
+
+fn windows_schtasks_not_found(outcome: &SchtasksOutcome) -> bool {
+    let text = format!("{} {}", outcome.status_description, outcome.stderr).to_ascii_lowercase();
+    text.contains("cannot find") || text.contains("not found") || text.contains("does not exist")
 }
 
 #[cfg(not(any(test, coverage)))]
@@ -620,7 +859,7 @@ mod tests {
         assert!(!windows.generated_files.is_empty());
         assert!(!linux.generated_files.is_empty());
         assert!(mac.apply_supported);
-        assert!(!windows.apply_supported);
+        assert!(windows.apply_supported);
         assert!(!linux.apply_supported);
         assert!(windows.generated_files[0].contents.contains("<Task"));
         assert!(windows.generated_files[0].contents.contains("encoding=\"UTF-8\""));
@@ -705,7 +944,7 @@ mod tests {
     }
 
     #[test]
-    fn non_macos_apply_is_manual_only() {
+    fn linux_apply_is_manual_only() {
         let dir = tempdir().expect("tempdir");
         let result = apply_schedule(
             &SchedulePlan {
@@ -727,7 +966,7 @@ mod tests {
     }
 
     #[test]
-    fn non_macos_remove_is_manual_only() {
+    fn linux_remove_is_manual_only() {
         let dir = tempdir().expect("tempdir");
         let result = remove_schedule(
             &SchedulePlan {
@@ -746,6 +985,107 @@ mod tests {
 
         assert!(!result.applied);
         assert!(result.message.contains("Manual"));
+    }
+
+    #[test]
+    fn windows_apply_status_and_remove_use_schtasks() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        let original_schtasks_mode = std::env::var_os(TEST_SCHTASKS_MODE_ENV);
+        let original_schtasks_xml = std::env::var_os(TEST_SCHTASKS_QUERY_XML_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "success");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("windows"), Path::new("C:/PathKeep/pathkeep.exe"), &paths, &params)
+                .expect("windows plan");
+        unsafe {
+            std::env::set_var(TEST_SCHTASKS_QUERY_XML_ENV, &plan.generated_files[0].contents);
+        }
+
+        let applied = apply_schedule(&plan, &paths).expect("apply windows schedule");
+        let status = schedule_status(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("windows status");
+        let removed = remove_schedule(&plan, &paths).expect("remove windows schedule");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+        restore_env_var(TEST_SCHTASKS_MODE_ENV, original_schtasks_mode.as_deref());
+        restore_env_var(TEST_SCHTASKS_QUERY_XML_ENV, original_schtasks_xml.as_deref());
+
+        assert!(applied.applied);
+        assert_eq!(applied.files.len(), 1);
+        assert!(Path::new(&applied.files[0]).exists());
+        assert!(Path::new(applied.audit_path.as_deref().expect("apply audit")).exists());
+        assert_eq!(status.install_state, "installed");
+        assert_eq!(
+            status.detected_files,
+            vec!["Task Scheduler:com.yi-ting.pathkeep.tests".to_string()]
+        );
+        assert!(removed.applied);
+        assert!(Path::new(removed.audit_path.as_deref().expect("remove audit")).exists());
+    }
+
+    #[test]
+    fn windows_schedule_status_reports_missing_mismatch_and_permission_warning() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        let original_schtasks_mode = std::env::var_os(TEST_SCHTASKS_MODE_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        unsafe {
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "missing");
+        }
+        let missing = schedule_status(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("missing status");
+        unsafe {
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "mismatch");
+        }
+        let mismatch = schedule_status(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("mismatch status");
+        unsafe {
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "denied");
+        }
+        let denied = schedule_status(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("denied status");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+        restore_env_var(TEST_SCHTASKS_MODE_ENV, original_schtasks_mode.as_deref());
+
+        assert_eq!(missing.install_state, "not-installed");
+        assert_eq!(mismatch.install_state, "mismatch");
+        assert!(mismatch.warnings.iter().any(|warning| warning.contains("no longer matches")));
+        assert_eq!(denied.install_state, "permission-warning");
+        assert!(denied.warnings.iter().any(|warning| warning.contains("could not inspect")));
     }
 
     #[test]

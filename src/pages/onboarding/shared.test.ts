@@ -70,14 +70,14 @@ describe('onboarding shared helpers', () => {
     ).toBe('scheduleManualStepLaunchAgentRemove')
     expect(
       localizeScheduleManualStep(
-        'Save the XML file and import it in Task Scheduler.',
+        'Review the XML file before registering it with Task Scheduler.',
         label,
         t,
       ),
     ).toBe('scheduleManualStepWindowsSaveXml')
     expect(
       localizeScheduleManualStep(
-        `Alternatively run \`schtasks /Create /TN ${label} /XML ${label}.task.xml\`.`,
+        `PathKeep can register it with \`schtasks /Create /TN ${label} /XML <generated XML> /F\`.`,
         label,
         t,
       ),

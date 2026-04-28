@@ -89,12 +89,17 @@ export function localizeScheduleManualStep(
   if (step === 'Remove the LaunchAgent if you no longer want automation.') {
     return t('scheduleManualStepLaunchAgentRemove')
   }
-  if (step === 'Save the XML file and import it in Task Scheduler.') {
+  if (
+    step === 'Review the XML file before registering it with Task Scheduler.' ||
+    step === 'Save the XML file and import it in Task Scheduler.'
+  ) {
     return t('scheduleManualStepWindowsSaveXml')
   }
   if (
     step ===
-    `Alternatively run \`schtasks /Create /TN ${label} /XML ${label}.task.xml\`.`
+      `PathKeep can register it with \`schtasks /Create /TN ${label} /XML <generated XML> /F\`.` ||
+    step ===
+      `Alternatively run \`schtasks /Create /TN ${label} /XML ${label}.task.xml\`.`
   ) {
     return t('scheduleManualStepWindowsCreateTask', { label })
   }

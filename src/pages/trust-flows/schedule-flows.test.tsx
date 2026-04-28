@@ -85,20 +85,28 @@ describe('schedule trust flows', () => {
       ],
       manualSteps: ['Review the XML before import.'],
       applyCommands: [
-        ['schtasks', '/Create', '/XML', 'com.yi-ting.pathkeep.task.xml'],
+        [
+          'schtasks',
+          '/Create',
+          '/TN',
+          'com.yi-ting.pathkeep.backup',
+          '/XML',
+          'com.yi-ting.pathkeep.task.xml',
+          '/F',
+        ],
       ],
       rollbackCommands: [
         ['schtasks', '/Delete', '/TN', 'com.yi-ting.pathkeep.backup', '/F'],
       ],
-      applySupported: false,
+      applySupported: true,
     })
     const statusSpy = vi.spyOn(backend, 'scheduleStatus').mockResolvedValue({
       platform: 'windows',
       label: 'com.yi-ting.pathkeep.backup',
       dueAfterHours: 48,
       checkIntervalHours: 6,
-      applySupported: false,
-      installState: 'manual-review',
+      applySupported: true,
+      installState: 'not-installed',
       detectedFiles: [],
       manualSteps: ['Import the XML in Task Scheduler.'],
       auditPath: null,

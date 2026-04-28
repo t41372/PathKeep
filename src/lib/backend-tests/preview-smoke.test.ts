@@ -332,6 +332,7 @@ describe('backend facade preview smoke', () => {
     })
     await expect(backend.previewSchedule('windows')).resolves.toMatchObject({
       platform: 'windows',
+      applySupported: true,
       generatedFiles: [
         expect.objectContaining({
           relativePath: 'schedule/com.yi-ting.pathkeep.task.xml',

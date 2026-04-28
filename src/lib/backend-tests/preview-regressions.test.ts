@@ -82,6 +82,8 @@ describe('backend facade preview regressions', () => {
 
     await expect(backend.scheduleStatus('windows')).resolves.toMatchObject({
       platform: 'windows',
+      applySupported: true,
+      installState: 'not-installed',
       manualSteps: [
         expect.stringContaining('Task Scheduler'),
         expect.stringContaining('XML'),

@@ -154,9 +154,9 @@ export const onboardingNamespaceCatalog = {
     scheduleManualStepLaunchAgentRemove:
       'Remove the LaunchAgent if you no longer want automatic backups.',
     scheduleManualStepWindowsSaveXml:
-      'Save the XML file and import it in Task Scheduler.',
+      'Review the XML file before registering it with Task Scheduler.',
     scheduleManualStepWindowsCreateTask:
-      'Alternatively run `schtasks /Create /TN {label} /XML {label}.task.xml`.',
+      'PathKeep can register it with `schtasks /Create /TN {label} /XML <generated XML> /F`.',
     scheduleManualStepLinuxCopy: 'Copy the files to ~/.config/systemd/user/.',
     scheduleManualStepLinuxReload: 'Run `systemctl --user daemon-reload`.',
     scheduleManualStepLinuxEnable:
@@ -310,9 +310,9 @@ export const onboardingNamespaceCatalog = {
     scheduleManualStepLaunchAgentRemove:
       '如果你不再需要自动备份，请移除这个 LaunchAgent。',
     scheduleManualStepWindowsSaveXml:
-      '保存 XML 文件，然后在任务计划程序中导入。',
+      '先检查 XML 文件，再把它注册到任务计划程序。',
     scheduleManualStepWindowsCreateTask:
-      '也可以运行 `schtasks /Create /TN {label} /XML {label}.task.xml`。',
+      'PathKeep 可以用 `schtasks /Create /TN {label} /XML <generated XML> /F` 注册任务。',
     scheduleManualStepLinuxCopy: '把这些文件复制到 ~/.config/systemd/user/。',
     scheduleManualStepLinuxReload: '运行 `systemctl --user daemon-reload`。',
     scheduleManualStepLinuxEnable:
@@ -465,9 +465,10 @@ export const onboardingNamespaceCatalog = {
       '打開桌面應用，檢查 LaunchAgent 檔案與安裝狀態。',
     scheduleManualStepLaunchAgentRemove:
       '如果你不再需要自動備份，請移除這個 LaunchAgent。',
-    scheduleManualStepWindowsSaveXml: '儲存 XML 檔案，然後在工作排程器中匯入。',
+    scheduleManualStepWindowsSaveXml:
+      '先檢查 XML 檔案，再把它註冊到工作排程器。',
     scheduleManualStepWindowsCreateTask:
-      '也可以執行 `schtasks /Create /TN {label} /XML {label}.task.xml`。',
+      'PathKeep 可以用 `schtasks /Create /TN {label} /XML <generated XML> /F` 註冊工作。',
     scheduleManualStepLinuxCopy: '把這些檔案複製到 ~/.config/systemd/user/。',
     scheduleManualStepLinuxReload: '執行 `systemctl --user daemon-reload`。',
     scheduleManualStepLinuxEnable:

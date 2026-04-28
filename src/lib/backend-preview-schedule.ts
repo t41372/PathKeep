@@ -1,6 +1,6 @@
 /**
  * @file backend-preview-schedule.ts
- * @description Browser-preview schedule helpers that keep manual-review scheduler payloads consistent across Settings, Schedule, and tests.
+ * @description Browser-preview schedule helpers that keep scheduler payloads consistent across Settings, Schedule, and tests.
  * @module lib/backend-preview-schedule
  *
  * ## Responsibilities
@@ -38,7 +38,7 @@ export function normalizeMockPlatform(
 }
 
 /**
- * Builds the manual-review schedule artifact bundle that the UI previews before native installation.
+ * Builds the schedule artifact bundle that the UI previews before native installation.
  *
  * Browser preview cannot talk to LaunchAgents, Task Scheduler, or systemd, so this helper mirrors the
  * desktop contract with deterministic files and commands rather than leaving each route to improvise.
@@ -65,12 +65,20 @@ export function buildMockSchedulePlan(platform?: unknown): SchedulePlan {
         'Import it manually in Task Scheduler if you do not want PathKeep to apply it.',
       ],
       applyCommands: [
-        ['schtasks', '/Create', '/XML', 'com.yi-ting.pathkeep.task.xml'],
+        [
+          'schtasks',
+          '/Create',
+          '/TN',
+          'com.yi-ting.pathkeep.backup',
+          '/XML',
+          'com.yi-ting.pathkeep.task.xml',
+          '/F',
+        ],
       ],
       rollbackCommands: [
         ['schtasks', '/Delete', '/TN', 'com.yi-ting.pathkeep.backup', '/F'],
       ],
-      applySupported: false,
+      applySupported: true,
     }
   }
 
@@ -171,8 +179,9 @@ export function buildMockScheduleStatus(
     label: 'com.yi-ting.pathkeep.backup',
     dueAfterHours: state.snapshot.config.dueAfterHours,
     checkIntervalHours: state.snapshot.config.scheduleCheckIntervalHours,
-    applySupported: false,
-    installState: 'manual-review',
+    applySupported: resolvedPlatform === 'windows',
+    installState:
+      resolvedPlatform === 'windows' ? 'not-installed' : 'manual-review',
     detectedFiles: [],
     manualSteps:
       resolvedPlatform === 'windows'
