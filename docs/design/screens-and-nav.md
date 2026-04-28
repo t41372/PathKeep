@@ -65,10 +65,11 @@
 - Jobs 頁是正式 shipping route：顯示 background queue summary、archive write tasks（import / backup）進度與 console log、recent AI jobs、recent derived-data jobs、pause / resume control、plugin / module runtime status，以及 crash / restart recovery note；它不是 hidden diagnostics page。
 - Jobs 頁的閱讀順序必須先回答「現在在做什麼、什麼只是排隊或延後、哪裡需要我處理」，再展開 plugin / module / recent job 細節。`readable-content-refetch` 的大型 backlog 不能被排版誤導成「全部失敗」；頁面要先把 deterministic rebuild 優先、network fetch deferred、少量 failed/retry 的邊界講清楚。
 - Maintenance 的 diagnostics 現在是 support / release 文檔依賴的正式入口：至少要顯示 app data root、archive DB path、audit repo path、app version、git short SHA，並提供直接打開對應路徑的動作。
+- Settings / Maintenance 頂部的 sticky section nav 必須使用 route-aware hash links（例如 `#/settings#settings-general`、`#/maintenance#settings-derived`），而且 same-route click 與初次載入 hash route 都要 scroll + focus 對應 panel；不能只更新 URL hash 但畫面停在原位。
 - Intelligence 現在除了既有 card / topic / thread surface 外，還要顯示 storage analytics 與 latest growth signal，並提供回到 Audit run 的 deep-link。storage analytics 的 top-level summary 先固定為 `core history` / `other data` 兩個 bucket，detail 再在卡內展開。
 - Intelligence 頁的主閱讀順序必須是 `analysis snapshot -> spotlight -> research signals -> evidence / health`。完整 queue / retry / cancel review 留在 Jobs；Intelligence 只保留一個小型 runtime digest 與回到 Jobs 的入口，避免真正的洞察被 runtime chrome 擠到頁面下半部。
 - Intelligence 首屏只有 **執行摘要 / 時段概覽 / 瀏覽節奏** 可以佔滿主內容欄寬；其餘卡片一律留在 half-width row 或 secondary grid，並遵守限高 + 卡片內滾動。
-- Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。卡片頂部固定顯示 visit-based summary line：Dashboard 用 calendar-year wording，`/intelligence` overview 則按目前實際選定的單日 / 整月 / 整年 / date span 顯示 exact-range wording。`/intelligence` overview 與 Dashboard 的這張卡現在採 **preview-first**：點某一天後，先在卡片下方 lazy-load 當天摘要 / 全寬 24 小時分布 / 全寬重點網站列 / proportion bar 活動構成；只有使用者再按明確的 `查看詳情` CTA，才進 `/intelligence/day/:date` 的完整 day insights route。這是 `Browsing Rhythm` 卡片的特例，不可外溢成其他 day entry surface 的通則。
+- Intelligence 的 `Browsing Rhythm` 主圖現在正式採用 **真實日期日曆熱力圖**；每個方格都必須對應一天真實日期。卡片頂部固定顯示 visit-based summary line：Dashboard 用 calendar-year wording，`/intelligence` overview 則按目前實際選定的單日 / 整月 / 整年 / 全部時間 / date span 顯示 exact-range wording。`/intelligence` 的 `All time` scope 不能把 1900 年以來的空白日期全量渲染成熱力圖；UI 應只顯示實際有資料的日期 span，沒有資料時收斂到當前 scope end date。`/intelligence` overview 與 Dashboard 的這張卡現在採 **preview-first**：點某一天後，先在卡片下方 lazy-load 當天摘要 / 全寬 24 小時分布 / 全寬重點網站列 / proportion bar 活動構成；只有使用者再按明確的 `查看詳情` CTA，才進 `/intelligence/day/:date` 的完整 day insights route。這是 `Browsing Rhythm` 卡片的特例，不可外溢成其他 day entry surface 的通則。
 - Dashboard 也正式共用同一套 `Browsing Rhythm` 真實日期日曆熱力圖，但固定以**單一 calendar year** 呈現。若 archive 內有多個年份，卡片必須顯示當前查看年份，並以 bounded pager 在「最早有資料的年份」到 `max(當前年份, 最晚有資料的年份)` 的**連續年份帶**之間前後翻頁；左箭頭代表更早的年份、右箭頭代表較新的年份，中間空白年份仍要顯示空熱力圖，而當前年份永遠要存在並提供明確的 `回到當前年份` 捷徑。這個捷徑必須在 pager 左側，不能把年份 pager 推向右側。若目前年份只覆蓋部分日期，卡片也必須直接顯示這個年份裡實際有資料的起訖範圍，避免把 partial year 誤讀成資料遺失。不得翻到這條連續年份帶之外的年份。這張卡不受 `/intelligence` route time scope 影響，但必須跟隨 shell/import refresh token 重新讀取資料；匯入完成後不能要求使用者重啟 app 才看到新的 heatmap。
 - `/intelligence` 頂部現在固定有一條精簡的 `Insight Access` strip：可直接用本地日曆日或 domain 打開完整 insights route。這條 strip 是 entity-first entry，不是另一套獨立 fetch surface。
 - `/intelligence` 不再承擔 external-output full review。它只保留一個小型 CTA，把使用者帶到 Integrations 的 manual review / trusted-local-host surface，避免主產品分析頁再次長出第二套 export / host-integration chrome。
@@ -155,6 +156,7 @@
 ### Profile-Scoped Intelligence 導航規則
 
 - Intelligence 頁面支援透過 shell chrome 的共享 profile scope 篩選 deterministic analysis 資料。
+- Intelligence time scope bar 支援 `All time`，但首載預設仍是 `Month`；deep link 使用 `?range=all`，不是 custom `start/end`。
 - 當使用者在 topbar 選擇特定 profile 時，Intelligence 的 cards、topic timeline、threads 等 surface 都切換為該 profile 的 scoped view。
 - 若 `profileId` 已經出現在 `/intelligence`、`/intelligence/day/:date` 或 `/intelligence/domain/:domain` 的 query string，頁面級 scope 優先於 shared profile scope；route 重新整理後仍必須保持這個 explicit scope。
 - Dashboard 的 aggregate KPIs 仍維持 archive-wide；Intelligence 頁面在 scoped 模式下必須以 callout 或 badge 明確標示「目前為 profile-scoped view」。

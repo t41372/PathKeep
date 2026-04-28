@@ -233,7 +233,7 @@ Core Intelligence 的功能分布在三個位置：
 ```
 ┌─ Intelligence ───────────────────────────────────────────────────────────────┐
 │                                                                              │
-│  [日] [週] [月] [季] [年] [自訂 ▾]     ← 全局時間範圍選擇器                  │
+│  [日] [週] [月] [季] [年] [全部時間] [自訂 ▾] ← 全局時間範圍選擇器          │
 │  ─────────────────────────────────────────────────────────────────────────── │
 │                                                                              │
 │  ┌─ 本期摘要 ────────────────────────────────────────────────────────────┐   │
@@ -292,6 +292,8 @@ Core Intelligence 的功能分布在三個位置：
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> 2026-04-28 implementation note：`全部時間 / All time` 是可手動選擇的 preset，不是首次進入預設。route grammar 使用 `?range=all`；目前 transport 仍沿用 concrete `DateRange`，後續 all-time cache / preload / invalidation 策略見 [`../plan/intelligence-all-time-cache-invalidation.md`](../plan/intelligence-all-time-cache-invalidation.md)。
 
 ### 2.3 Explorer 頁面的 Intelligence 增強
 

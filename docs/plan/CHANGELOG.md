@@ -1007,3 +1007,17 @@
   - UI truth：topbar global search box / route submission tests 已移除；notification button 置於 ProfileSwitcher 左側，開啟後標記已讀並可逐條 dismiss；`ProfileSwitcher` 與 `Backup now` 維持最右兩個 controls。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收：targeted Vitest / Rust progress tests、`bun run check`、fresh desktop Computer Use truth pass。
+
+- [x] **WORK-INTEL-SCOPE-A** — Intelligence All-Time Scope And Progressive Loading
+  - 讀先：
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+  - 目標：修復 Settings / Maintenance 頂部 sticky section nav hash link 只改 URL 不 scroll 的問題；為 `/intelligence` 增加 all-time scope preset；把 secondary grid 從整批 ready gate 改成 warm-cache progressive reveal；先寫清楚 deeper all-time preload/cache/invalidation 策略。
+  - 契約：`Month` 仍是初始預設；`All time` deep link 使用 `?range=all`，不輸出 custom `start/end`；本 slice 不新增 Tauri command 或 backend payload shape；cold secondary load 仍走 overview batch，不能退回多 foreground IPC fan-out。
+  - 2026-04-28 closeout：`TimeRangePreset`、route parsing/building、time selector與三語 i18n 已支援 `all`；route-level all-time 目前映射到 broad concrete `DateRange`，`Browsing Rhythm` 顯示層只渲染實際有資料的日期 span；secondary slots 會先顯示已 cached card，未 cached card 保持 card-level skeleton；Settings / Maintenance section nav click 與 initial hash route 都會 scroll+focus 對應 panel。
+  - 同步回寫 [`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/design/ux-principles.md`](../design/ux-principles.md)、[`docs/plan/intelligence-all-time-cache-invalidation.md`](intelligence-all-time-cache-invalidation.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：targeted Vitest section-nav / route-state / time selector / secondary grid / browsing rhythm tests、`bun run check`。本輪已重啟 debug desktop app 嘗試 fresh native truth pass，但 Computer Use 對 Finder / PathKeep 均返回 macOS `Apple event error -10000`，`screencapture` 也無法從 display 產圖；可執行桌面驗收以 `bun run check` 內的 desktop bridge truth gate 為準。

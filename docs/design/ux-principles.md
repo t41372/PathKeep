@@ -75,14 +75,14 @@
 
 ### 各頁面 Loading 規範
 
-| 頁面             | Loading 表現                                                                                                                                                                                                                               |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Dashboard**    | Skeleton stat cards 匹配最終卡片佈局，加上 skeleton recent runs table 與 On This Day placeholder                                                                                                                                           |
-| **Explorer**     | Skeleton timeline rail + skeleton list items（約 5–8 行），保持列表區域寬度與排版一致                                                                                                                                                      |
-| **Intelligence** | 先顯示 runtime digest + primary overview skeleton；digest / top summary / first-visible cards 先到，secondary grid 與較低優先 detail 在 first paint / idle 後分段載入                                                                      |
-| **Insights**     | Skeleton KPI cards + insight panel placeholders，配合 badge 顯示 "Loading insights..."                                                                                                                                                     |
-| **Import**       | 導入 scan / import / onboarding finalize / manual backup 過程中以 progress overlay 顯示：至少包含 phase、已處理筆數、百分比、近期 log line；未知總量時保留 indeterminate progress，且 follow-up rebuild / refresh 不得阻塞 overlay repaint |
-| **AI 操作**      | AI assistant / insights refresh 使用 pulsing status indicator + 描述文字（例如 "正在檢索相關記錄..."、"正在生成洞察..."）                                                                                                                  |
+| 頁面             | Loading 表現                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dashboard**    | Skeleton stat cards 匹配最終卡片佈局，加上 skeleton recent runs table 與 On This Day placeholder                                                                                                                                                                    |
+| **Explorer**     | Skeleton timeline rail + skeleton list items（約 5–8 行），保持列表區域寬度與排版一致                                                                                                                                                                               |
+| **Intelligence** | 先顯示 runtime digest + primary overview skeleton；digest / top summary / first-visible cards 先到，secondary grid 與較低優先 detail 在 first paint / idle 後分段載入。secondary cards 若已有 warm cache 要逐張顯示，不等整批 secondary overview 全部完成才一起跳出 |
+| **Insights**     | Skeleton KPI cards + insight panel placeholders，配合 badge 顯示 "Loading insights..."                                                                                                                                                                              |
+| **Import**       | 導入 scan / import / onboarding finalize / manual backup 過程中以 progress overlay 顯示：至少包含 phase、已處理筆數、百分比、近期 log line；未知總量時保留 indeterminate progress，且 follow-up rebuild / refresh 不得阻塞 overlay repaint                          |
+| **AI 操作**      | AI assistant / insights refresh 使用 pulsing status indicator + 描述文字（例如 "正在檢索相關記錄..."、"正在生成洞察..."）                                                                                                                                           |
 
 ### 視覺規範
 

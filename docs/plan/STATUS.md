@@ -12,6 +12,22 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+> 2026-04-28 intelligence scope closeout：使用者插單的 `WORK-INTEL-SCOPE-A` 已完成並 append 到 `CHANGELOG.md`。source 現在修復 Settings / Maintenance sticky section nav 的 same-route hash click / initial hash scroll+focus；`/intelligence` 新增 `All time / 全部时间 / 全部時間` preset，首載仍維持 Month，deep link 使用 `?range=all`；secondary grid 改成 cache-aware progressive reveal，已 warm 的 card 不再等整批 secondary overview 完成才一起顯示；all-time preload/cache/invalidation follow-up 設計記在 [`docs/plan/intelligence-all-time-cache-invalidation.md`](intelligence-all-time-cache-invalidation.md)。
+
+- [x] **WORK-INTEL-SCOPE-A** — Intelligence All-Time Scope And Progressive Loading
+  - 讀先：
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+  - 目標：修復 Settings / Maintenance 頂部 sticky section nav hash link 只改 URL 不 scroll 的問題；為 `/intelligence` 增加 all-time scope preset；把 secondary grid 從整批 ready gate 改成 warm-cache progressive reveal；先寫清楚 deeper all-time preload/cache/invalidation 策略。
+  - 契約：`Month` 仍是初始預設；`All time` deep link 使用 `?range=all`，不輸出 custom `start/end`；本 slice 不新增 Tauri command 或 backend payload shape；cold secondary load 仍走 overview batch，不能退回多 foreground IPC fan-out。
+  - 2026-04-28 closeout：`TimeRangePreset`、route parsing/building、time selector與三語 i18n 已支援 `all`；route-level all-time 目前映射到 broad concrete `DateRange`，`Browsing Rhythm` 顯示層只渲染實際有資料的日期 span；secondary slots 會先顯示已 cached card，未 cached card 保持 card-level skeleton；Settings / Maintenance section nav click 與 initial hash route 都會 scroll+focus 對應 panel。
+  - 同步回寫 [`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/design/ux-principles.md`](../design/ux-principles.md)、[`docs/plan/intelligence-all-time-cache-invalidation.md`](intelligence-all-time-cache-invalidation.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：targeted Vitest section-nav / route-state / time selector / secondary grid / browsing rhythm tests、`bun run check`。本輪已重啟 debug desktop app 嘗試 fresh native truth pass，但 Computer Use 對 Finder / PathKeep 均返回 macOS `Apple event error -10000`，`screencapture` 也無法從 display 產圖；可執行桌面驗收以 `bun run check` 內的 desktop bridge truth gate 為準。
+
 > 2026-04-27 UI progress closeout：使用者插單的 `WORK-UI-PROGRESS-A` 已完成並 append 到 `CHANGELOG.md`。source 現在把 Import / Backup archive-write progress 下沉到 shell-owned global task store：Import route 只顯示 handoff card，Jobs 是 canonical live progress / bounded console surface，sidebar footer 顯示 compact active archive task，topbar 則改成 persistent notification queue。頂部 global search 已移除；右側順序固定為 optional lock、notifications、ProfileSwitcher、Backup now。
 
 - [x] **WORK-UI-PROGRESS-A** — Global Task Progress And Topbar Cleanup
