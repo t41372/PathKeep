@@ -12,6 +12,17 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [ ] **WORK-RELEASE-010-A** — Browser Support And Windows Scheduler Release Blockers
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+    `docs/architecture/desktop-command-surface.md`
+    `TESTING.md`
+    `docs/plan/m4-full-polish/release-readiness-runbook.md`
+  - 目標：在 0.1.0 release 前，把 Chrome / Edge / Firefox 的 support 定義收斂成 backup + Browser Direct import；把 Windows scheduler 從 manual-review 升級為 app 可 preview / apply / status / remove 的 Task Scheduler support；同時保持 Atlas / Comet 既有 macOS scope 不擴張。
+  - 契約：不新增 Tauri command name 或 `BrowserHistoryImportRequest` payload field；Firefox Browser Direct 走 `places.sqlite` + history-only parser；Edge 走 Chromium parser 但保留 Microsoft Edge / Edge Dev product metadata；Windows scheduler 使用 `schtasks`，Linux 仍維持 manual-review；所有新 user-visible copy 必須同步 `en` / `zh-CN` / `zh-TW`。
+  - 驗收：Firefox / Edge Browser Direct Rust + Vitest acceptance、backup readable-profile hardening tests、Windows scheduler apply/status/remove tests、更新 release docs 與 `bun run check`。
+
 > 2026-04-28 intelligence scope closeout：使用者插單的 `WORK-INTEL-SCOPE-A` 已完成並 append 到 `CHANGELOG.md`。source 現在修復 Settings / Maintenance sticky section nav 的 same-route hash click / initial hash scroll+focus；`/intelligence` 新增 `All time / 全部时间 / 全部時間` preset，首載仍維持 Month，deep link 使用 `?range=all`；secondary grid 改成 cache-aware progressive reveal，已 warm 的 card 不再等整批 secondary overview 完成才一起顯示；all-time preload/cache/invalidation follow-up 設計記在 [`docs/plan/intelligence-all-time-cache-invalidation.md`](intelligence-all-time-cache-invalidation.md)。
 
 - [x] **WORK-INTEL-SCOPE-A** — Intelligence All-Time Scope And Progressive Loading
