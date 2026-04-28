@@ -12,8 +12,8 @@ This is the contributor-facing release runbook. The implementation-level source 
 
 ## Browser Support Promise
 
-- `Validated now`: Google Chrome; ChatGPT Atlas on macOS; Perplexity Comet on macOS; Safari baseline on macOS after Full Disk Access is granted.
-- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- `Validated now`: Google Chrome; Microsoft Edge / Edge Dev; Firefox history-only baseline; ChatGPT Atlas on macOS; Perplexity Comet on macOS; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Brave, Vivaldi, Arc, Opera, Opera GX, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release claims requires the gate in [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md).
 
 ## Artifact Matrix
@@ -133,10 +133,12 @@ Every release rehearsal should cover:
 
 - fresh install
 - first-run onboarding
-- first local backup on Google Chrome
+- first local backup on Google Chrome, Microsoft Edge, and Firefox
+- Browser Direct preview / execute / re-import / revert / restore on Chrome, Edge, and Firefox, with Edge metadata preserved and Firefox kept history-only
 - Safari visible-but-unreadable guidance before Full Disk Access
 - Safari baseline backup after Full Disk Access is granted
 - schedule preview / install / verify / remove
+- Windows Task Scheduler apply / status / mismatch or not-installed / remove on a real Windows host or VM
 - encrypted archive unlock and re-open
 - remote backup preview / execute / verify
 - upgrade or reinstall over existing data
@@ -168,7 +170,8 @@ If a release is bad:
 ## Known Limitations
 
 - Safari access on macOS still depends on Full Disk Access outside the app.
-- Firefox and other browser adapters remain implementation coverage until they have dedicated promotion evidence.
+- Firefox support is a history-only baseline in this release; Firefox favicons, downloads, keyword-search sidecars, and richer `moz_*` evidence remain future work.
+- ChatGPT Atlas / Perplexity Comet support remains scoped to the validated macOS browser-history profile layouts; Windows / Linux locations are not public release promises.
 - Windows SmartScreen reputation depends on maintainer signing policy and reputation, not just a successful CI build.
 - Linux keyring behavior varies by desktop environment; encrypted mode remains supported, but unattended unlock can degrade.
 - App Lock remains a session-only boundary; only macOS currently ships a real Touch ID unlock path.

@@ -26,7 +26,7 @@
 
 <br/>
 
-PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Publicly validated support currently covers Google Chrome, ChatGPT Atlas on macOS, Perplexity Comet on macOS, and Safari on macOS with Full Disk Access; additional Chromium / Firefox-family adapters remain implemented but not yet publicly promised.
+PathKeep is a local-first desktop app for long-term browser history archiving and intelligence. Built with Tauri 2, Rust, React 19, TypeScript, Vite, and Bun. Publicly validated support currently covers Google Chrome, Microsoft Edge, Firefox, ChatGPT Atlas on macOS, Perplexity Comet on macOS, and Safari on macOS with Full Disk Access; additional Chromium / Firefox-family adapters remain implemented but not yet publicly promised.
 
 ---
 
@@ -64,7 +64,7 @@ The foundation. Everything else depends on a trustworthy archive.
 
 - **Incremental backup** — staged database copies (never reads live browser DBs), append-only archive, automatic deduplication
 - **Multi-browser discovery** — auto-detects installed browsers and profiles; you choose which to back up
-- **Scheduled backups** — native scheduler support for macOS (`launchd`), Windows (Task Scheduler), and Linux (`systemd --user`)
+- **Scheduled backups** — native install / status / remove support for macOS (`launchd`) and Windows (Task Scheduler), with Linux `systemd --user` preview kept manual-review
 - **Google Takeout import** — preview, import, revert, restore, and repair flows with full dry-run
 - **Encryption** — plaintext or SQLCipher-encrypted archive, with re-key preview and audit trail
 - **Audit ledger** — every backup, import, rollback, and restore leaves an immutable run record with manifests and artifacts forming a hash chain
@@ -97,10 +97,10 @@ Understanding your browsing patterns, built on top of a solid archive. **All AI 
 
 PathKeep separates implemented adapters from publicly validated support. The README only promises what has been independently verified.
 
-| Status          | Browsers                                                                                                       |
-| --------------- | -------------------------------------------------------------------------------------------------------------- |
-| **Validated**   | Google Chrome; ChatGPT Atlas (macOS); Perplexity Comet (macOS); Safari (macOS, requires Full Disk Access)      |
-| **Implemented** | Chromium, Microsoft Edge, Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox |
+| Status          | Browsers                                                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Validated**   | Google Chrome; Microsoft Edge / Edge Dev; Firefox; ChatGPT Atlas (macOS); Perplexity Comet (macOS); Safari (macOS, requires Full Disk Access) |
+| **Implemented** | Chromium, Brave, Vivaldi, Arc, Opera, Opera GX, LibreWolf, Floorp, Waterfox                                                                   |
 
 Implemented browsers appear in discovery and archive data but are not yet in the public support promise. See the [adapter playbook](./docs/architecture/browser-support-and-adapter-playbook.md) for the promotion gate.
 

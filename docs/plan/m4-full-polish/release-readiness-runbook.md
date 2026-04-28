@@ -26,8 +26,8 @@
 
 ## Browser Support Promise
 
-- `Validated now`: Google Chrome; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Perplexity Comet on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.
-- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- `Validated now`: Google Chrome; Microsoft Edge / Edge Dev, including Browser Direct local `History` import through the Chromium parser while preserving Edge metadata; Firefox history-only baseline, including Browser Direct local `places.sqlite` import; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Perplexity Comet on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.
+- `Implemented, not yet publicly promised`: Chromium, Brave, Vivaldi, Arc, Opera, Opera GX, LibreWolf, Floorp, Waterfox.
 - Promotion into README / onboarding / release docs follows [../../architecture/browser-support-and-adapter-playbook.md](../../architecture/browser-support-and-adapter-playbook.md), not just the broadest internal implementation surface.
 
 ## Platform Validation Matrix
@@ -36,6 +36,8 @@
 
 - install app bundle and confirm first-run onboarding succeeds
 - verify first backup on Google Chrome
+- verify Microsoft Edge / Edge Dev backup and Browser Direct `History` preview / execute / re-import dedupe / revert / restore where the browser is installed; source profile metadata must preserve `Microsoft Edge` / `Microsoft Edge Dev`
+- verify Firefox backup and Browser Direct `places.sqlite` preview / execute / re-import dedupe / revert / restore; record that the release promise is history-only
 - verify ChatGPT Atlas Browser Direct `History` preview / execute / re-import dedupe / revert / restore against the validated macOS `com.openai.atlas/browser-data/host` layout; record schema coverage, aggregate counts, and time range only
 - verify Perplexity Comet Browser Direct `History` preview / execute / re-import dedupe / revert / restore against the validated macOS `~/Library/Application Support/Comet` layout; record schema coverage, aggregate counts, and time range only
 - verify Safari stays visible with needs-access guidance when Full Disk Access is missing
@@ -62,7 +64,8 @@ Known limitations:
 ### Windows
 
 - install packaged build and confirm onboarding, first backup, and Settings diagnostics
-- review Task Scheduler XML preview and manual install path
+- verify Google Chrome, Microsoft Edge, and Firefox discovery, selected-profile backup, Browser Direct preview / execute / re-import dedupe / revert / restore, and degraded unreadable-profile reporting
+- review Task Scheduler XML preview, app apply, status, mismatch/not-installed handling, and remove flow through Task Scheduler / `schtasks`
 - validate keyring availability and degradation messaging
 - validate remote backup preview / execute / verify
 - upgrade over an existing installation and confirm archive reuse
@@ -76,6 +79,7 @@ Support stance:
 Known limitations:
 
 - SmartScreen reputation and code signing are not repo-defaulted
+- ChatGPT Atlas on Windows is exploratory for this release blocker; only the macOS Atlas browser-history profile is part of the public support promise.
 
 ### Linux
 

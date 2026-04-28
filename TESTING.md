@@ -79,7 +79,7 @@ bun run mutation:rust:quality
 
 - Focused helpers do not replace `bun run check`.
 - The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
-- Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects.
+- Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
 - Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 - User-facing support diagnostics and redaction rules live in [SUPPORT.md](./SUPPORT.md).
@@ -87,27 +87,33 @@ bun run mutation:rust:quality
 ## Browser Support Truth
 
 - Public browser support claims must follow [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md), not just the broadest code path currently implemented in the repo.
-- `Validated now`: Google Chrome; ChatGPT Atlas on macOS; Perplexity Comet on macOS; Safari baseline on macOS after Full Disk Access is granted.
-- `Implemented, not yet publicly promised`: Chromium, Microsoft Edge, Microsoft Edge Dev, Brave, Vivaldi, Arc, Opera, Opera GX, Firefox, LibreWolf, Floorp, Waterfox.
+- `Validated now`: Google Chrome; Microsoft Edge / Edge Dev; Firefox history-only baseline; ChatGPT Atlas on macOS; Perplexity Comet on macOS; Safari baseline on macOS after Full Disk Access is granted.
+- `Implemented, not yet publicly promised`: Chromium, Brave, Vivaldi, Arc, Opera, Opera GX, LibreWolf, Floorp, Waterfox.
 
 ## Local Browser Validation Recipe
 
 Use this recipe before promoting any browser into README or onboarding promise copy:
 
 1. Verify one successful Google Chrome backup / recall path on the current local host.
-2. Verify `/import` Browser Direct against one local ChatGPT Atlas macOS `History` profile under `com.openai.atlas/browser-data/host`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only schema coverage, aggregate counts, and time ranges; never paste private URLs or titles into docs, logs, or chat.
-3. Verify `/import` Browser Direct against one local Perplexity Comet macOS `History` profile under `~/Library/Application Support/Comet/<profile>`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only schema coverage, aggregate counts, and time ranges; never paste private URLs or titles into docs, logs, or chat.
-4. Verify Safari remains visible but unreadable when `History.db` cannot be accessed, and Browser Direct reports Full Disk Access guidance instead of a generic parse failure.
-5. Verify Safari baseline backup succeeds after Full Disk Access is granted.
-6. Verify `/import` Browser Direct against Safari `History.db`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only aggregate counts and time ranges; never paste private URLs into docs, logs, or chat.
+2. Verify one successful Microsoft Edge backup / recall path, then verify `/import` Browser Direct against one Edge `History` profile: preview, execute, re-import dedupe, import batch preview, revert, and restore. Confirm source profile metadata preserves `Microsoft Edge` rather than generic Chrome.
+3. Verify one successful Firefox backup / recall path, then verify `/import` Browser Direct against one Firefox profile directory or `places.sqlite`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record that Firefox is history-only in this release slice.
+4. Verify `/import` Browser Direct against one local ChatGPT Atlas macOS `History` profile under `com.openai.atlas/browser-data/host`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only schema coverage, aggregate counts, and time ranges; never paste private URLs or titles into docs, logs, or chat.
+5. Verify `/import` Browser Direct against one local Perplexity Comet macOS `History` profile under `~/Library/Application Support/Comet/<profile>`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only schema coverage, aggregate counts, and time ranges; never paste private URLs or titles into docs, logs, or chat.
+6. Verify Safari remains visible but unreadable when `History.db` cannot be accessed, and Browser Direct reports Full Disk Access guidance instead of a generic parse failure.
+7. Verify Safari baseline backup succeeds after Full Disk Access is granted.
+8. Verify `/import` Browser Direct against Safari `History.db`: preview, execute, re-import dedupe, import batch preview, revert, and restore. Record only aggregate counts and time ranges; never paste private URLs into docs, logs, or chat.
 
-Focused Atlas / Comet / Safari Browser Direct gates:
+Focused browser / scheduler release-blocker gates:
 
+- `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser firefox -- --test-threads=1`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core takeout::tests::browser_history -- --test-threads=1`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core backup_ -- --test-threads=1`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform scheduler -- --test-threads=1`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core atlas -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core comet -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-parser safari -- --nocapture`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core browser_history -- --nocapture`
-- `bun run test:unit -- src/pages/trust-flows/import-flows.test.tsx src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`
+- `bun run test:unit -- src/pages/import/index.test.tsx src/pages/trust-flows/import-flows.test.tsx src/pages/trust-flows/schedule-flows.test.tsx src/pages/onboarding/shared.test.ts src/lib/browser-icons.test.tsx src/lib/i18n.test.ts`
 
 Additional adapters may keep shipping as implementation coverage, but they stay out of public promise copy until the same recipe is documented for them.
 

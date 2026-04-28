@@ -11,6 +11,17 @@
   - Parser / ingest: shipping via the Chromium family pipeline
   - Public promise: allowed in README, onboarding, and release docs
   - Validation evidence required: local backup / recall pass on the current dev host
+- `Microsoft Edge` / `Microsoft Edge Dev`
+  - Discovery: shipping on macOS / Windows / Linux through the Chromium-family profile matrix
+  - Parser / ingest: shipping via the Chromium family pipeline for backup and Browser Direct local `History` import
+  - Public promise: allowed in README, onboarding, and release docs
+  - Validation evidence required: Edge Browser Direct preview / import / re-import / revert / restore, backup readability handling, and source-profile metadata checks that preserve `Microsoft Edge` / `Microsoft Edge Dev` instead of collapsing to generic Chrome
+- `Firefox`
+  - Discovery: shipping on macOS / Windows / Linux through the Firefox-family profile matrix
+  - Parser / ingest: shipping as a history-only baseline through `places.sqlite` for backup and Browser Direct import
+  - Public promise: allowed in README, onboarding, and release docs with the history-only caveat
+  - Validation evidence required: Firefox `places.sqlite` Browser Direct preview / import / re-import / revert / restore, backup readability handling, source evidence, and schema mismatch / quick-check failure coverage
+  - Explicitly out of scope: Firefox downloads, favicons, keyword-search sidecars, and richer `moz_*` evidence promotion until separate follow-up validation lands
 - `ChatGPT Atlas` on macOS
   - Discovery: shipping for `~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>`
   - Parser / ingest: shipping via the Chromium family pipeline for browser history data only
@@ -33,15 +44,12 @@
 
 - Chromium-family adapters currently wired into discovery and ingest:
   - `Chromium`
-  - `Microsoft Edge`
-  - `Microsoft Edge Dev`
   - `Brave`
   - `Vivaldi`
   - `Arc`
   - `Opera`
   - `Opera GX`
 - Firefox-family adapters currently wired into discovery and ingest:
-  - `Firefox`
   - `LibreWolf`
   - `Floorp`
   - `Waterfox`
@@ -95,7 +103,9 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - Keep staging in `vault-core` / `vault-platform`; keep parsing in `browser-history-parser`.
 - Wire the adapter into archive ingest only after schema warnings, source-batch provenance, watermarks, capability tags, and source-kind naming are explicit.
 - Browser Direct local database import must use `inspect_browser_history` / `import_browser_history`, not Takeout commands. It must stage a SQLite snapshot, run `PRAGMA quick_check`, create an import batch, preserve source evidence, refresh search projection, and reuse import-batch revert / restore.
-- Browser Direct support parity means end-to-end reliability within the source's real capabilities. Safari must not fabricate Chrome-only Favicons, downloads, or keyword-search sidecars.
+- Browser Direct support parity means end-to-end reliability within the source's real capabilities. Safari and Firefox must not fabricate Chrome-only Favicons, downloads, or keyword-search sidecars.
+- Microsoft Edge and Microsoft Edge Dev are Chromium-family adapters, but source profile metadata must preserve their product identity. Discovery-sourced Edge imports must not fall back to generic `Google Chrome`; generic Chromium fallback is only allowed when a user manually picks a raw `History` file without profile metadata.
+- Firefox support uses `places.sqlite` and `browser-history-parser::firefox::stream_history` for a history-only baseline. It preserves source evidence and import-batch rollback / restore, but richer favicon/download/search evidence stays additive follow-up work.
 - ChatGPT Atlas support is a Chromium-family adapter with a narrower source boundary: PathKeep reads `<profile>/History` and Chromium sidecars such as `<profile>/Favicons` from the validated `com.openai.atlas/browser-data/host` macOS profile root. It must not inspect or import Atlas workspace, chat, tab, bookmark, or suggestion data.
 - Perplexity Comet support is a Chromium-family adapter with a narrower source boundary: PathKeep reads `<profile>/History` and Chromium sidecars such as `<profile>/Favicons` from the validated `~/Library/Application Support/Comet` macOS profile root. It must not inspect or import Comet AI memory, Perplexity account/workspace data, chats, tabs, bookmarks, or suggestion data.
 
@@ -131,6 +141,15 @@ If any one of these is missing, the browser stays in `implemented, not yet publi
 - `Google Chrome`
   - successful local backup path
   - archive recall still works after the backup
+- `Microsoft Edge` / `Microsoft Edge Dev`
+  - Browser Direct local `History` preview / import / re-import / revert / restore succeeds through the Chromium parser path
+  - source profile metadata preserves `Microsoft Edge` / `Microsoft Edge Dev` instead of collapsing the profile into generic Chrome
+  - backup discovery and selected-profile handling treat unreadable Edge profiles as skipped/degraded when another selected profile is readable
+- `Firefox`
+  - profile-directory and direct `places.sqlite` Browser Direct preview / import / re-import / revert / restore succeeds through the Firefox parser path
+  - source profile metadata uses `Firefox`, `firefox-history`, and `firefox-places-db`
+  - backup discovery and selected-profile handling treat unreadable Firefox profiles as skipped/degraded when another selected profile is readable
+  - validation records aggregate counts and time ranges only; private URLs and titles must not be copied into docs or chat
 - `ChatGPT Atlas`
   - macOS discovery finds profiles under `~/Library/Application Support/com.openai.atlas/browser-data/host`
   - Browser Direct local `History` preview / import / re-import / revert / restore succeeds through the Chromium parser path
