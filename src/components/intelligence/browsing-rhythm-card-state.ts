@@ -244,9 +244,32 @@ export function useBrowsingRhythmCardState({
     () => new Map(points.map((point) => [point.dateKey, point])),
     [points],
   )
+  const calendarDateRange = useMemo(() => {
+    if (mode !== 'range' || summaryPreset !== 'all') {
+      return effectiveDateRange
+    }
+
+    const sortedDateKeys = points
+      .map((point) => point.dateKey)
+      .filter((dateKey) => /^\d{4}-\d{2}-\d{2}$/.test(dateKey))
+      .sort()
+
+    if (sortedDateKeys.length === 0) {
+      return {
+        start: effectiveDateRange.end,
+        end: effectiveDateRange.end,
+      }
+    }
+
+    const start = sortedDateKeys[0]
+    return {
+      start,
+      end: sortedDateKeys[sortedDateKeys.length - 1],
+    }
+  }, [effectiveDateRange, mode, points, summaryPreset])
   const calendarWeeks = useMemo(
-    () => buildCalendarWeeks(effectiveDateRange, pointByDate),
-    [effectiveDateRange, pointByDate],
+    () => buildCalendarWeeks(calendarDateRange, pointByDate),
+    [calendarDateRange, pointByDate],
   )
   const calendarDays = useMemo(
     () => calendarWeeks.flat().filter((cell) => cell.inRange),

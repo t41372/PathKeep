@@ -146,6 +146,10 @@ export function buildVisitSummary({
     })
   }
 
+  if (summaryPreset === 'all') {
+    return t('rhythmVisitSummaryAll', { count })
+  }
+
   if (dateRange.start === dateRange.end) {
     return t('rhythmVisitSummaryDay', {
       count,

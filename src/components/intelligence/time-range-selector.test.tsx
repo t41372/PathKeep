@@ -50,6 +50,9 @@ describe('TimeRangeSelector', () => {
     await user.click(screen.getByRole('button', { name: t('rangeWeek') }))
     expect(onPresetChange).toHaveBeenCalledWith('week')
 
+    await user.click(screen.getByRole('button', { name: t('rangeAll') }))
+    expect(onPresetChange).toHaveBeenCalledWith('all')
+
     await user.click(screen.getByRole('button', { name: t('rangeCustom') }))
     expect(onPresetChange).toHaveBeenCalledWith('custom')
 
@@ -64,4 +67,25 @@ describe('TimeRangeSelector', () => {
       end: '2026-03-31',
     })
   })
+
+  test.each(['en', 'zh-CN', 'zh-TW'] as const)(
+    'renders the all-time preset label in %s',
+    (language) => {
+      const t = createNamespaceTranslator(language, 'intelligence')
+
+      render(
+        <TimeRangeSelector
+          dateRange={{ start: '2026-04-01', end: '2026-04-30' }}
+          preset="month"
+          onPresetChange={vi.fn()}
+          onCustomRange={vi.fn()}
+          t={t}
+        />,
+      )
+
+      expect(
+        screen.getByRole('button', { name: t('rangeAll') }),
+      ).toBeInTheDocument()
+    },
+  )
 })

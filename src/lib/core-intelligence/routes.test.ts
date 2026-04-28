@@ -109,5 +109,19 @@ describe('core intelligence routes', () => {
         { dateRange },
       ),
     ).toBe('/intelligence/day/2026-04-25')
+
+    expect(
+      insightEntityReferenceHref(
+        { kind: 'domain', domain: 'docs.example' },
+        {
+          dateRange,
+          preset: 'all',
+          profileId: 'chrome:Default',
+          focus: { focusType: 'path-flow', focusId: 'flow-1' },
+        },
+      ),
+    ).toBe(
+      '/intelligence/domain/docs.example?range=all&profileId=chrome%3ADefault&focusType=path-flow&focusId=flow-1',
+    )
   })
 })

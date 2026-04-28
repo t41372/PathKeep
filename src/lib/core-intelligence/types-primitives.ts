@@ -163,4 +163,5 @@ export type TimeRangePreset =
   | 'month'
   | 'quarter'
   | 'year'
+  | 'all'
   | 'custom'

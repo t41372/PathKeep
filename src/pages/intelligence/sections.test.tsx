@@ -33,6 +33,7 @@ import type {
   TopSite,
 } from '../../lib/core-intelligence'
 import * as api from '../../lib/core-intelligence/api'
+import type { DashboardSnapshot } from '../../lib/types'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
 
 vi.mock('../../components/intelligence/section-meta', () => ({
@@ -94,6 +95,18 @@ describe('IntelligenceSections', () => {
     vi.spyOn(api, 'peekRefindPages').mockReturnValue(
       section([], 'refind-pages'),
     )
+    vi.spyOn(api, 'peekStableSources').mockReturnValue(null)
+    vi.spyOn(api, 'peekSearchEffectiveness').mockReturnValue(null)
+    vi.spyOn(api, 'peekFrictionSignals').mockReturnValue(null)
+    vi.spyOn(api, 'peekHabitPatterns').mockReturnValue(null)
+    vi.spyOn(api, 'peekInterruptedHabits').mockReturnValue(null)
+    vi.spyOn(api, 'peekReopenedInvestigations').mockReturnValue(null)
+    vi.spyOn(api, 'peekDiscoveryTrend').mockReturnValue(null)
+    vi.spyOn(api, 'peekBreadthIndex').mockReturnValue(null)
+    vi.spyOn(api, 'peekPathFlows').mockReturnValue(null)
+    vi.spyOn(api, 'peekCompareSets').mockReturnValue(null)
+    vi.spyOn(api, 'peekMultiBrowserDiff').mockReturnValue(null)
+    vi.spyOn(api, 'peekObservedInteractions').mockReturnValue(null)
   })
 
   test('renders digest fallback and secondary skeletons while deferred sections warm', () => {
@@ -112,7 +125,34 @@ describe('IntelligenceSections', () => {
       container.querySelectorAll(
         '.intelligence-secondary-grid .intelligence-skeleton--card',
       ),
-    ).toHaveLength(4)
+    ).toHaveLength(13)
+  })
+
+  test('renders warm cached secondary cards without waiting for the full secondary overview', () => {
+    vi.spyOn(api, 'peekStableSources').mockReturnValue(
+      section([], 'stable-sources'),
+    )
+
+    const { container } = renderSections({ secondaryReady: false })
+
+    expect(screen.getByText('stable sources')).toBeInTheDocument()
+    expect(screen.queryByText('search effectiveness')).not.toBeInTheDocument()
+    expect(
+      container.querySelectorAll(
+        '.intelligence-secondary-grid .intelligence-skeleton--card',
+      ),
+    ).toHaveLength(12)
+  })
+
+  test('renders cached health cards independently while deferred secondary cards warm', () => {
+    renderSections({
+      dashboard: dashboardFixture(),
+      secondaryReady: false,
+    })
+
+    expect(screen.getByText('storage analytics')).toBeInTheDocument()
+    expect(screen.getByText('growth signal')).toBeInTheDocument()
+    expect(screen.queryByText('breadth index')).not.toBeInTheDocument()
   })
 
   test('filters and sorts Top Sites without changing the route factories', async () => {
@@ -254,12 +294,18 @@ describe('IntelligenceSectionsSkeleton', () => {
   })
 })
 
-function renderSections({ secondaryReady }: { secondaryReady: boolean }) {
+function renderSections({
+  dashboard = null,
+  secondaryReady,
+}: {
+  dashboard?: DashboardSnapshot | null
+  secondaryReady: boolean
+}) {
   return render(
     <MemoryRouter>
       <IntelligenceSections
         compareSetHref={(compareSetId) => `/compare/${compareSetId}`}
-        dashboard={null}
+        dashboard={dashboard}
         dateRange={dateRange}
         dayHref={(date) => `/day/${date}`}
         domainHref={(domain) => `/domain/${domain}`}
@@ -280,6 +326,42 @@ function renderSections({ secondaryReady }: { secondaryReady: boolean }) {
       />
     </MemoryRouter>,
   )
+}
+
+function dashboardFixture(): DashboardSnapshot {
+  return {
+    generatedAt: '2026-04-25T12:00:00Z',
+    lastSuccessfulBackupAt: '2026-04-25T12:00:00Z',
+    recentRuns: [
+      {
+        id: 42,
+        finishedAt: '2026-04-25T12:00:00Z',
+        newDownloads: 1,
+        newUrls: 2,
+        newVisits: 3,
+        profilesProcessed: 1,
+        startedAt: '2026-04-25T11:59:00Z',
+        status: 'success',
+      },
+    ],
+    storage: {
+      archiveDatabaseBytes: 10,
+      exportBytes: 0,
+      intelligenceBlobBytes: 0,
+      intelligenceDatabaseBytes: 0,
+      manifestBytes: 0,
+      quarantineBytes: 0,
+      searchDatabaseBytes: 0,
+      semanticSidecarBytes: 0,
+      snapshotBytes: 0,
+      sourceEvidenceDatabaseBytes: 5,
+      stagingBytes: 0,
+    },
+    totalDownloads: 1,
+    totalProfiles: 1,
+    totalUrls: 2,
+    totalVisits: 3,
+  }
 }
 
 function section<T>(

@@ -722,6 +722,77 @@ describe('useBrowsingRhythmCardState', () => {
     expect(result.current.waitingForYearRealignment).toBe(false)
   })
 
+  test('all-time range mode renders only the occupied calendar span', async () => {
+    const dateRange: DateRange = {
+      start: '1900-01-01',
+      end: '2026-04-25',
+    }
+    getDiscoveryTrendMock.mockResolvedValue(
+      trendFor(
+        dateRange,
+        [point('2024-02-02', 2), point('2024-02-04', 4)],
+        [2024],
+      ),
+    )
+
+    const { result } = renderHook(() =>
+      useBrowsingRhythmCardState({
+        dateRange,
+        language: 'en',
+        mode: 'range',
+        profileId: null,
+        showCurrentYearShortcut: false,
+        summaryPreset: 'all',
+        t,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.trendLoading).toBe(false))
+
+    expect(getDiscoveryTrendMock).toHaveBeenCalledWith(
+      dateRange,
+      null,
+      'day',
+      undefined,
+    )
+    expect(result.current.calendarDays.map((cell) => cell.dateKey)).toEqual([
+      '2024-02-02',
+      '2024-02-03',
+      '2024-02-04',
+    ])
+    expect(result.current.visitSummary).toContain('rhythmVisitSummaryAll')
+    expect(result.current.visitSummary).toContain('count=6')
+  })
+
+  test('all-time range mode keeps an empty calendar bounded to the current range end', async () => {
+    const dateRange: DateRange = {
+      start: '1900-01-01',
+      end: '2026-04-25',
+    }
+    getDiscoveryTrendMock.mockResolvedValue(trendFor(dateRange, [], []))
+
+    const { result } = renderHook(() =>
+      useBrowsingRhythmCardState({
+        dateRange,
+        language: 'en',
+        mode: 'range',
+        profileId: null,
+        showCurrentYearShortcut: false,
+        summaryPreset: 'all',
+        t,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.trendLoading).toBe(false))
+
+    expect(result.current.calendarDays.map((cell) => cell.dateKey)).toEqual([
+      '2026-04-25',
+    ])
+    expect(result.current.hasCalendarVisits).toBe(false)
+    expect(result.current.visitSummary).toContain('rhythmVisitSummaryAll')
+    expect(result.current.visitSummary).toContain('count=0')
+  })
+
   test('updates calendar labels and weekday copy when language and translator props change', async () => {
     const dateRange: DateRange = {
       start: '2026-01-01',

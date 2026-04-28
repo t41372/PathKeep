@@ -106,6 +106,7 @@ export const intelligenceSearchAndRhythmNamespace = {
     rhythmVisitSummaryMonth: '{count} visits in {monthYear}',
     rhythmVisitSummaryDay: '{count} visits on {date}',
     rhythmVisitSummaryRange: '{count} visits from {start} to {end}',
+    rhythmVisitSummaryAll: '{count} visits across all archived history',
     rhythmVisibleRange:
       'Data in this year currently runs from {start} to {end}',
     rhythmSelectDayPrompt:
@@ -217,6 +218,7 @@ export const intelligenceSearchAndRhythmNamespace = {
     rhythmVisitSummaryMonth: '{monthYear} 共浏览 {count} 次',
     rhythmVisitSummaryDay: '{date} 共浏览 {count} 次',
     rhythmVisitSummaryRange: '{start} 至 {end}，共浏览 {count} 次',
+    rhythmVisitSummaryAll: '全部归档历史共浏览 {count} 次',
     rhythmVisibleRange: '当前年份里的数据范围：{start} 至 {end}',
     rhythmSelectDayPrompt: '选择某一天后，才会加载当天摘要和小时分布。',
     rhythmDetailLoading: '正在加载这一天的摘要和小时分布。',
@@ -324,6 +326,7 @@ export const intelligenceSearchAndRhythmNamespace = {
     rhythmVisitSummaryMonth: '{monthYear} 共瀏覽 {count} 次',
     rhythmVisitSummaryDay: '{date} 共瀏覽 {count} 次',
     rhythmVisitSummaryRange: '{start} 至 {end}，共瀏覽 {count} 次',
+    rhythmVisitSummaryAll: '全部歸檔歷史共瀏覽 {count} 次',
     rhythmVisibleRange: '目前年份裡的資料範圍：{start} 至 {end}',
     rhythmSelectDayPrompt: '選擇某一天後，才會載入當天摘要和小時分布。',
     rhythmDetailLoading: '正在載入這一天的摘要和小時分布。',

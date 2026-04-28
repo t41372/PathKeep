@@ -39,7 +39,7 @@ const {
   const routeState = {
     dateRange: { start: '2026-04-01', end: '2026-04-30' },
     effectiveProfileId: null as string | null,
-    preset: 'month' as const,
+    preset: 'month' as coreIntelligenceModule.TimeRangePreset,
     profileScopeLabel: null as string | null,
   }
 
@@ -70,6 +70,9 @@ vi.mock('../../components/intelligence/time-range-selector', () => ({
     <div data-testid="time-range-selector">
       <button type="button" onClick={() => onPresetChange('week')}>
         preset-week
+      </button>
+      <button type="button" onClick={() => onPresetChange('all')}>
+        preset-all
       </button>
       <button
         type="button"
@@ -254,6 +257,8 @@ describe('IntelligencePage', () => {
 
     await user.click(screen.getByRole('button', { name: 'preset-week' }))
     expect(setPresetMock).toHaveBeenCalledWith('week')
+    await user.click(screen.getByRole('button', { name: 'preset-all' }))
+    expect(setPresetMock).toHaveBeenCalledWith('all')
     await user.click(screen.getByRole('button', { name: 'custom-range' }))
     expect(setCustomRangeMock).toHaveBeenCalledWith({
       start: '2026-04-10',
@@ -280,6 +285,7 @@ describe('IntelligencePage', () => {
 
   test('renders ready sections with scoped href factories and cached suggestions', () => {
     routeState.effectiveProfileId = 'chrome:Default'
+    routeState.preset = 'all'
     useStagedIntelligenceOverviewMock.mockReturnValue({
       scopeKey: '2026-04-01:2026-04-30:chrome:Default',
       primaryReady: true,
@@ -314,35 +320,35 @@ describe('IntelligencePage', () => {
     )
     expect(screen.getByTestId('domain-href')).toHaveAttribute(
       'href',
-      '/intelligence/domain/example.com?range=month&profileId=chrome%3ADefault',
+      '/intelligence/domain/example.com?range=all&profileId=chrome%3ADefault',
     )
     expect(screen.getByTestId('focused-domain-href')).toHaveAttribute(
       'href',
-      '/intelligence/domain/example.com?range=month&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare-1',
+      '/intelligence/domain/example.com?range=all&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare-1',
     )
     expect(screen.getByTestId('query-family-href')).toHaveAttribute(
       'href',
-      '/intelligence/query-family/family-1?range=month&profileId=chrome%3ADefault',
+      '/intelligence/query-family/family-1?range=all&profileId=chrome%3ADefault',
     )
     expect(screen.getByTestId('query-family-override-href')).toHaveAttribute(
       'href',
-      '/intelligence/query-family/family-2?range=month&profileId=safari%3AWork',
+      '/intelligence/query-family/family-2?range=all&profileId=safari%3AWork',
     )
     expect(screen.getByTestId('refind-href')).toHaveAttribute(
       'href',
-      '/intelligence/refind/https%3A%2F%2Fexample.com%2Farticle?range=month&profileId=chrome%3ADefault',
+      '/intelligence/refind/https%3A%2F%2Fexample.com%2Farticle?range=all&profileId=chrome%3ADefault',
     )
     expect(screen.getByTestId('trail-href')).toHaveAttribute(
       'href',
-      '/intelligence/trail/trail-1?range=month&profileId=chrome%3ADefault',
+      '/intelligence/trail/trail-1?range=all&profileId=chrome%3ADefault',
     )
     expect(screen.getByTestId('trail-override-href')).toHaveAttribute(
       'href',
-      '/intelligence/trail/trail-2?range=month&profileId=safari%3AWork',
+      '/intelligence/trail/trail-2?range=all&profileId=safari%3AWork',
     )
     expect(screen.getByTestId('compare-set-href')).toHaveAttribute(
       'href',
-      '/intelligence/compare-set/compare-1?range=month&profileId=chrome%3ADefault',
+      '/intelligence/compare-set/compare-1?range=all&profileId=chrome%3ADefault',
     )
     expect(screen.getByTestId('day-href')).toHaveAttribute(
       'href',

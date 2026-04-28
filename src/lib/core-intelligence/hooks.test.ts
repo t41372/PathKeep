@@ -43,6 +43,10 @@ describe('core intelligence hooks', () => {
       start: '2025-04-25',
       end: '2026-04-25',
     })
+    expect(dateRangeFromPreset('all')).toEqual({
+      start: '1900-01-01',
+      end: '2026-04-25',
+    })
     expect(dateRangeFromPreset('custom')).toEqual({
       start: '2026-03-25',
       end: '2026-04-25',
@@ -171,6 +175,15 @@ describe('core intelligence hooks', () => {
     expect(result.current.preset).toBe('custom')
     expect(result.current.dateRange).toEqual({
       start: '2026-04-18',
+      end: '2026-04-25',
+    })
+
+    act(() => {
+      result.current.setPreset('all')
+    })
+    expect(result.current.preset).toBe('all')
+    expect(result.current.dateRange).toEqual({
+      start: '1900-01-01',
       end: '2026-04-25',
     })
 

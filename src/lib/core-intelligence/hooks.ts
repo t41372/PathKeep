@@ -18,6 +18,15 @@ import type { DateRange, TimeRangePreset } from './types'
 // ---------------------------------------------------------------------------
 
 /**
+ * Lower bound for the route-level all-time preset.
+ *
+ * The backend command contract still accepts concrete `DateRange` payloads, so
+ * the UI maps all-time to a deliberately broad browser-history window instead
+ * of introducing a second transport shape.
+ */
+export const ALL_TIME_DATE_RANGE_START = '1900-01-01'
+
+/**
  * Computes a concrete DateRange from a preset relative to today.
  *
  * All dates are formatted as ISO date strings (YYYY-MM-DD).
@@ -49,6 +58,9 @@ export function dateRangeFromPreset(preset: TimeRangePreset): DateRange {
       const start = new Date(now)
       start.setFullYear(start.getFullYear() - 1)
       return { start: formatDate(start), end }
+    }
+    case 'all': {
+      return { start: ALL_TIME_DATE_RANGE_START, end }
     }
     case 'custom':
       // Custom requires explicit start/end — default to month as fallback

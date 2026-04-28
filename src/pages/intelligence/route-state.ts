@@ -35,6 +35,7 @@ const validPresets: TimeRangePreset[] = [
   'month',
   'quarter',
   'year',
+  'all',
   'custom',
 ]
 

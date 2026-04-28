@@ -28,6 +28,8 @@ const t: BrowsingRhythmTranslator = (key, vars) => {
       return `${vars?.count} visits in ${vars?.monthYear}`
     case 'rhythmVisitSummaryRange':
       return `${vars?.count} visits from ${vars?.start} to ${vars?.end}`
+    case 'rhythmVisitSummaryAll':
+      return `${vars?.count} visits across all history`
     default:
       return key
   }
@@ -158,6 +160,17 @@ test('buildVisitSummary preserves the calendar-year and range branches', () => {
       t,
     }),
   ).toBe('120 visits in 2026')
+
+  expect(
+    buildVisitSummary({
+      dateRange: { start: '1900-01-01', end: '2026-04-25' },
+      language: 'en',
+      selectedYear: 2026,
+      summaryPreset: 'all',
+      totalVisits: 480,
+      t,
+    }),
+  ).toBe('480 visits across all history')
 
   expect(
     buildVisitSummary({

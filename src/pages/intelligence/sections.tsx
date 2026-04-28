@@ -16,7 +16,7 @@
  * - Keep scope honesty and deep-link behavior aligned with `docs/design/screens-and-nav.md`.
  */
 
-import { useState, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../components/intelligence/explainability-panel'
 import { Glyph } from '../../components/ui'
@@ -80,6 +80,12 @@ interface IntelligenceSectionsProps {
   t: T
 }
 
+interface SecondarySectionSlot {
+  isReady: () => boolean
+  key: string
+  node: ReactNode
+}
+
 /**
  * Renders the complete set of Core Intelligence overview sections.
  */
@@ -126,6 +132,165 @@ export function IntelligenceSections({
   const deferredHealthSections = healthSections
     .filter((section) => section.empty)
     .map((section) => section.element)
+  const secondarySlots: SecondarySectionSlot[] = [
+    {
+      isReady: () => Boolean(api.peekStableSources(dateRange, profileId)),
+      key: 'stable-sources',
+      node: (
+        <StableSourcesSection
+          dateRange={dateRange}
+          domainHref={domainHref}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () => Boolean(api.peekSearchEffectiveness(dateRange, profileId)),
+      key: 'search-effectiveness',
+      node: (
+        <SearchEffectivenessSection
+          dateRange={dateRange}
+          domainHref={domainHref}
+          profileId={profileId}
+          queryFamilyHref={queryFamilyHref}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () => Boolean(api.peekFrictionSignals(dateRange, profileId)),
+      key: 'friction-signals',
+      node: (
+        <FrictionDetectionSection
+          dateRange={dateRange}
+          domainHref={domainHref}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () =>
+        Boolean(api.peekHabitPatterns(dateRange, profileId)) ||
+        Boolean(api.peekInterruptedHabits(profileId)),
+      key: 'habits',
+      node: (
+        <HabitsSection
+          dateRange={dateRange}
+          domainHref={domainHref}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () =>
+        Boolean(api.peekReopenedInvestigations(dateRange, profileId)),
+      key: 'reopened-investigations',
+      node: (
+        <ReopenedInvestigationsSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () =>
+        Boolean(api.peekDiscoveryTrend(dateRange, profileId, 'week')),
+      key: 'discovery-trend',
+      node: (
+        <DiscoveryTrendSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    ...primaryHealthSections.map((node, index) => ({
+      isReady: () => true,
+      key: `primary-health-${index}`,
+      node,
+    })),
+    {
+      isReady: () => Boolean(api.peekBreadthIndex(dateRange, profileId)),
+      key: 'breadth-index',
+      node: (
+        <BreadthIndexSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () => Boolean(api.peekPathFlows(dateRange, profileId, 3, 15)),
+      key: 'path-flows',
+      node: (
+        <PathFlowsSection
+          dateRange={dateRange}
+          focusedDomainHref={focusedDomainHref}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () => Boolean(api.peekCompareSets(dateRange, profileId)),
+      key: 'compare-sets',
+      node: (
+        <CompareSetsSection
+          compareSetHref={compareSetHref}
+          dateRange={dateRange}
+          focusedDomainHref={focusedDomainHref}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          trailHref={trailHref}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () => Boolean(api.peekMultiBrowserDiff(dateRange)),
+      key: 'multi-browser-diff',
+      node: (
+        <MultiBrowserDiffSection
+          dateRange={dateRange}
+          domainHref={domainHref}
+          language={language}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    {
+      isReady: () =>
+        Boolean(api.peekObservedInteractions(dateRange, profileId)),
+      key: 'observed-interactions',
+      node: (
+        <ObservedInteractionsSection
+          dateRange={dateRange}
+          profileId={profileId}
+          scopeLabel={scopeLabel}
+          t={t}
+        />
+      ),
+    },
+    ...deferredHealthSections.map((node, index) => ({
+      isReady: () => false,
+      key: `deferred-health-${index}`,
+      node,
+    })),
+  ]
 
   return (
     <div className="intelligence-grid">
@@ -179,96 +344,15 @@ export function IntelligenceSections({
         scopeLabel={scopeLabel}
         t={t}
       />
-      {secondaryReady ? (
-        <div className="intelligence-secondary-grid">
-          <StableSourcesSection
-            dateRange={dateRange}
-            domainHref={domainHref}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <SearchEffectivenessSection
-            dateRange={dateRange}
-            domainHref={domainHref}
-            profileId={profileId}
-            queryFamilyHref={queryFamilyHref}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <FrictionDetectionSection
-            dateRange={dateRange}
-            domainHref={domainHref}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <HabitsSection
-            dateRange={dateRange}
-            domainHref={domainHref}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <ReopenedInvestigationsSection
-            dateRange={dateRange}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <DiscoveryTrendSection
-            dateRange={dateRange}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          {primaryHealthSections}
-          <BreadthIndexSection
-            dateRange={dateRange}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <PathFlowsSection
-            dateRange={dateRange}
-            focusedDomainHref={focusedDomainHref}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <CompareSetsSection
-            compareSetHref={compareSetHref}
-            dateRange={dateRange}
-            focusedDomainHref={focusedDomainHref}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            trailHref={trailHref}
-            t={t}
-          />
-          <MultiBrowserDiffSection
-            dateRange={dateRange}
-            domainHref={domainHref}
-            language={language}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          <ObservedInteractionsSection
-            dateRange={dateRange}
-            profileId={profileId}
-            scopeLabel={scopeLabel}
-            t={t}
-          />
-          {deferredHealthSections}
-        </div>
-      ) : (
-        <div className="intelligence-secondary-grid">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <section key={index} className="intelligence-section">
-              <div className="intelligence-skeleton intelligence-skeleton--card" />
-            </section>
-          ))}
-        </div>
-      )}
+      <div className="intelligence-secondary-grid">
+        {secondarySlots.map((slot) =>
+          secondaryReady || slot.isReady() ? (
+            <Fragment key={slot.key}>{slot.node}</Fragment>
+          ) : (
+            <SecondarySectionSkeleton key={slot.key} sectionKey={slot.key} />
+          ),
+        )}
+      </div>
     </div>
   )
 }
@@ -306,6 +390,17 @@ export function IntelligenceSectionsSkeleton() {
         ))}
       </div>
     </div>
+  )
+}
+
+function SecondarySectionSkeleton({ sectionKey }: { sectionKey: string }) {
+  return (
+    <section
+      className="intelligence-section"
+      data-testid={`secondary-section-skeleton-${sectionKey}`}
+    >
+      <div className="intelligence-skeleton intelligence-skeleton--card" />
+    </section>
   )
 }
 

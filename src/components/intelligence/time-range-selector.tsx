@@ -45,6 +45,7 @@ export function TimeRangeSelector({
     { key: 'month', label: t('rangeMonth') },
     { key: 'quarter', label: t('rangeQuarter') },
     { key: 'year', label: t('rangeYear') },
+    { key: 'all', label: t('rangeAll') },
     { key: 'custom', label: t('rangeCustom') },
   ]
   const [customStart, setCustomStart] = useState(dateRange.start)

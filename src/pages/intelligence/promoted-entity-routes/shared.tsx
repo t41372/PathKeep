@@ -15,6 +15,7 @@ import { StatusCallout } from '../../../components/primitives/status-callout'
 import {
   type DateRange,
   type RefindScoreFactor,
+  type TimeRangePreset,
   type TrailSummary,
 } from '../../../lib/core-intelligence'
 import { trailInsightsHref } from '../../../lib/core-intelligence/routes'
@@ -31,7 +32,7 @@ export function TrailLinkCard({
   trail,
 }: {
   dateRange: DateRange
-  preset: 'day' | 'week' | 'month' | 'quarter' | 'year' | 'custom'
+  preset: TimeRangePreset
   profileId: string | null
   t: (key: string, vars?: Record<string, string | number>) => string
   trail: TrailSummary

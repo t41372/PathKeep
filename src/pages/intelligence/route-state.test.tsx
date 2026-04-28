@@ -21,7 +21,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ProfileScopeContext } from '../../lib/profile-scope-context'
 import { useIntelligenceRouteState } from './route-state'
 
@@ -46,6 +46,10 @@ function wrapperFor(
 }
 
 describe('useIntelligenceRouteState', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   test('falls back from incomplete custom ranges while preserving profile scope', () => {
     const { result } = renderHook(() => useIntelligenceRouteState(), {
       wrapper: wrapperFor(
@@ -120,6 +124,45 @@ describe('useIntelligenceRouteState', () => {
         focus: null,
       }),
     ).toBe('?range=day')
+  })
+
+  test('parses all-time scope and keeps entity deep-link params without custom dates', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-25T12:00:00'))
+
+    const { result } = renderHook(() => useIntelligenceRouteState(), {
+      wrapper: wrapperFor(
+        '/intelligence?range=all&start=2025-01-01&end=2025-12-31&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare-1',
+        null,
+      ),
+    })
+
+    expect(result.current.preset).toBe('all')
+    expect(result.current.dateRange).toEqual({
+      start: '1900-01-01',
+      end: '2026-04-25',
+    })
+    expect(result.current.withCurrentRouteSearch()).toBe(
+      '?range=all&profileId=chrome%3ADefault&focusType=compare-set&focusId=compare-1',
+    )
+
+    vi.useRealTimers()
+
+    act(() => {
+      result.current.setCustomRange({
+        start: '2026-04-10',
+        end: '2026-04-12',
+      })
+    })
+    await waitFor(() => expect(result.current.preset).toBe('custom'))
+
+    act(() => {
+      result.current.setPreset('all')
+    })
+    await waitFor(() => expect(result.current.preset).toBe('all'))
+    expect(result.current.withCurrentRouteSearch({ focus: null })).toBe(
+      '?range=all&profileId=chrome%3ADefault',
+    )
   })
 
   test('normalizes invalid range links and keeps custom preset mutation branches explicit', async () => {
