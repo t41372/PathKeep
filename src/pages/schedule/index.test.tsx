@@ -138,6 +138,39 @@ describe('SchedulePage', () => {
     expect(screen.getByText('no-audit')).toBeVisible()
   })
 
+  test.each([
+    [
+      'manual-review',
+      'schedule.manualReviewBadge',
+      'schedule.manualReviewDescription',
+    ],
+    [
+      'not-installed',
+      'schedule.notInstalledBadge',
+      'schedule.notInstalledDescription',
+    ],
+    ['mismatch', 'schedule.attentionBadge', 'schedule.mismatchDescription'],
+    [
+      'permission-warning',
+      'schedule.attentionBadge',
+      'schedule.permissionWarningDescription',
+    ],
+    [
+      'legacy-install-detected',
+      'schedule.attentionBadge',
+      'schedule.legacyInstallDescription',
+    ],
+  ])('renders %s install state copy', async (installState, badge, body) => {
+    backendMock.scheduleStatus.mockResolvedValueOnce(
+      statusFixture({ installState }),
+    )
+
+    render(<SchedulePage />)
+
+    expect(await screen.findAllByText(badge)).not.toHaveLength(0)
+    expect(screen.getAllByText(body)).not.toHaveLength(0)
+  })
+
   test('surfaces apply and remove failures without leaving the route busy', async () => {
     const user = userEvent.setup()
     backendMock.applySchedule.mockRejectedValueOnce('apply failed')

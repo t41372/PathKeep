@@ -564,7 +564,9 @@ mod tests {
         let empty_dir = root.path().join("EmptyProfile");
         fs::create_dir_all(&empty_dir).expect("empty profile");
         let missing = resolve_requested_history_path(&empty_dir).expect_err("missing history");
-        assert!(missing.to_string().contains("does not contain History.db, History, or places.sqlite"));
+        assert!(
+            missing.to_string().contains("does not contain History.db, History, or places.sqlite")
+        );
     }
 
     #[test]

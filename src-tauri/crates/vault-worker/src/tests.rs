@@ -836,11 +836,14 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
     let preview = preview_schedule_plan(Some("windows"), Some(PathBuf::from("/tmp/bhb")))
         .expect("preview schedule");
     assert_eq!(preview.platform, "windows");
-    let applied = apply_schedule_plan(&preview).expect("apply schedule");
+    assert!(preview.apply_supported);
+    let linux_preview = preview_schedule_plan(Some("linux"), Some(PathBuf::from("/tmp/bhb")))
+        .expect("preview linux schedule");
+    let applied = apply_schedule_plan(&linux_preview).expect("apply schedule");
     assert!(!applied.applied);
-    let removed = remove_schedule_plan(&preview).expect("remove schedule");
+    let removed = remove_schedule_plan(&linux_preview).expect("remove schedule");
     assert!(!removed.applied);
-    let schedule = schedule_status(None, Some("windows"), Some(PathBuf::from("/tmp/bhb")))
+    let schedule = schedule_status(None, Some("linux"), Some(PathBuf::from("/tmp/bhb")))
         .expect("schedule status");
     assert_eq!(schedule.install_state, "manual-review");
     assert!(!schedule.warnings.is_empty());

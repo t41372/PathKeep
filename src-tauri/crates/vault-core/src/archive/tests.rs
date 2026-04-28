@@ -1537,19 +1537,13 @@ fn backup_keeps_chrome_successful_when_selected_safari_is_unreadable() {
 #[cfg(unix)]
 #[test]
 fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
-    use std::os::unix::fs::PermissionsExt;
-
     let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
     let chrome_root = seed_chrome_fixture(dir.path());
     let safari_root = dir.path().join("Safari");
     fs::create_dir_all(&safari_root).expect("create safari root");
     let safari_history = safari_root.join("History.db");
-    fs::write(&safari_history, b"safari exists but cannot be copied").expect("write safari db");
-    let mut locked_permissions =
-        fs::metadata(&safari_history).expect("safari metadata").permissions();
-    locked_permissions.set_mode(0o000);
-    fs::set_permissions(&safari_history, locked_permissions).expect("lock safari db");
+    fs::create_dir(&safari_history).expect("create unreadable staging source");
     let original_chrome = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
     let original_safari = std::env::var_os("CHB_SAFARI_ROOT");
     unsafe {
@@ -1578,10 +1572,6 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
     assert_eq!(history.total, 2);
     assert!(history.items.iter().all(|entry| entry.profile_id.starts_with("chrome:")));
 
-    let mut restored_permissions =
-        fs::metadata(&safari_history).expect("safari metadata").permissions();
-    restored_permissions.set_mode(0o600);
-    fs::set_permissions(&safari_history, restored_permissions).expect("unlock safari db");
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
 }

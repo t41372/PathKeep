@@ -25,12 +25,14 @@ fn browser_history_request(
         dry_run,
         browser_family: Some(browser_family.to_string()),
         profile_id: Some(profile_id.to_string()),
-        browser_name: Some(match browser_family {
-            "firefox" => "Firefox",
-            "safari" => "Safari",
-            _ => "Google Chrome",
-        }
-        .to_string()),
+        browser_name: Some(
+            match browser_family {
+                "firefox" => "Firefox",
+                "safari" => "Safari",
+                _ => "Google Chrome",
+            }
+            .to_string(),
+        ),
         profile_name: Some("Primary".to_string()),
     }
 }
@@ -414,10 +416,7 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
     assert_eq!(first.duplicate_items, 0);
     assert_eq!(first.recognized_files[0].path, source.display().to_string());
     assert_eq!(first.recognized_files[0].kind, "firefox-places-db");
-    assert_eq!(
-        first.recognized_files[0].reason_code.as_deref(),
-        Some("firefox-history-sqlite")
-    );
+    assert_eq!(first.recognized_files[0].reason_code.as_deref(), Some("firefox-history-sqlite"));
     assert!(
         first
             .notes
@@ -450,7 +449,8 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
     assert_eq!(source_batches, 1);
     assert!(native_rows >= 2);
 
-    let second = import_browser_history(&paths, &config, None, &request).expect("re-import firefox");
+    let second =
+        import_browser_history(&paths, &config, None, &request).expect("re-import firefox");
     assert_eq!(second.imported_items, 0);
     assert_eq!(second.duplicate_items, 2);
 

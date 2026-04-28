@@ -9,8 +9,8 @@ use crate::{
     observation::{capability_snapshot, capture_native_row, capture_native_rows, inspect_schema},
     types::{
         CapabilityCoverage, ContextEvidence, DatabaseInspection, HistoryBatchConsumer,
-        NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning, StreamHistoryError,
-        SourceEvidenceChunk, StreamedHistory, TypedEvidenceBatch,
+        NavigationEvidence, ParsedUrl, ParsedVisit, ParserWarning, SourceEvidenceChunk,
+        StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
     },
 };
 use chrono::{TimeZone, Utc};
@@ -274,14 +274,8 @@ where
         if inspection.table_names.iter().any(|existing| existing == optional_table) {
             let sql = format!("SELECT * FROM {optional_table}");
             let entity_kind = format!("firefox-{}", optional_table.replace('_', "-"));
-            let optional_rows = capture_native_rows(
-                &connection,
-                &sql,
-                &[],
-                &entity_kind,
-                "id",
-                None,
-            )?;
+            let optional_rows =
+                capture_native_rows(&connection, &sql, &[], &entity_kind, "id", None)?;
             if retain_source_evidence {
                 native_entities.extend(optional_rows);
             } else {
@@ -297,7 +291,8 @@ where
         }
     }
 
-    let capability_snapshot = build_capability_snapshot(from_visit_count, navigation_count, visit_count);
+    let capability_snapshot =
+        build_capability_snapshot(from_visit_count, navigation_count, visit_count);
     Ok(StreamedHistory {
         inspection,
         schema_observation,
@@ -431,6 +426,8 @@ mod tests {
     struct RecordingConsumer {
         url_batches: Vec<usize>,
         visit_batches: Vec<usize>,
+        source_evidence_chunks: Vec<SourceEvidenceChunk>,
+        spool_source_evidence: bool,
     }
 
     impl HistoryBatchConsumer for RecordingConsumer {
@@ -444,6 +441,15 @@ mod tests {
         fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
             self.visit_batches.push(batch.len());
             Ok(())
+        }
+
+        fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
+            self.source_evidence_chunks.push(chunk);
+            Ok(())
+        }
+
+        fn retain_source_evidence_in_report(&self) -> bool {
+            !self.spool_source_evidence
         }
     }
 
@@ -570,6 +576,34 @@ mod tests {
                 entity.entity_kind == "firefox-moz-places-metadata-search-queries"
             })
         );
+    }
+
+    #[test]
+    fn stream_history_can_move_optional_native_tables_out_of_the_returned_report() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE moz_inputhistory (id INTEGER PRIMARY KEY, place_id INTEGER, input TEXT);
+                 INSERT INTO moz_inputhistory (id, place_id, input) VALUES (1, 7, 'firefox');",
+            )
+            .expect("optional firefox table");
+        drop(connection);
+
+        let mut consumer =
+            RecordingConsumer { spool_source_evidence: true, ..RecordingConsumer::default() };
+        let streamed =
+            stream_history(&history_path, 0, 0, 10, &mut consumer).expect("stream firefox");
+
+        assert!(streamed.native_entities.is_empty());
+        assert!(consumer.source_evidence_chunks.iter().any(|chunk| {
+            chunk
+                .native_entities
+                .iter()
+                .any(|entity| entity.entity_kind == "firefox-moz-inputhistory")
+        }));
     }
 
     #[test]

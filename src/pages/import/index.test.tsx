@@ -175,19 +175,16 @@ describe('ImportPage route owner', () => {
             profileName: 'Default',
           }),
           browserProfileFixture({
-            appDisplayName: 'Microsoft Edge',
             browserName: 'Microsoft Edge',
             profileId: 'edge:Default',
             profileName: 'Edge Work',
           }),
           browserProfileFixture({
-            appDisplayName: 'Microsoft Edge Dev',
             browserName: 'Microsoft Edge Dev',
             profileId: 'edge-dev:Default',
             profileName: 'Edge Dev',
           }),
           browserProfileFixture({
-            appDisplayName: 'Firefox',
             browserFamily: 'firefox',
             browserName: 'Firefox',
             faviconsPath: null,
@@ -501,7 +498,6 @@ describe('ImportPage route owner', () => {
       snapshot: snapshotFixture({
         browserProfiles: [
           browserProfileFixture({
-            appDisplayName: 'Microsoft Edge',
             browserName: 'Microsoft Edge',
             historyPath: '/edge/User Data/Default/History',
             profileId: 'edge:Default',
