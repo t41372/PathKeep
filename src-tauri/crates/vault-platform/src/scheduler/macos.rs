@@ -377,6 +377,32 @@ pub(super) fn macos_schedule_status(
                 });
             }
         }
+    } else if macos_launch_agent_loaded(&plan.label) {
+        status.install_state = "permission-warning".to_string();
+        status.issues.push(ScheduleIssue {
+            code: "macos-plist-missing-loaded".to_string(),
+            severity: "error".to_string(),
+            title_key: "schedule.issuePlistMissingLoadedTitle".to_string(),
+            detail_key: "schedule.issuePlistMissingLoadedDetail".to_string(),
+            consequence_key: "schedule.issuePlistMissingLoadedConsequence".to_string(),
+            evidence: vec![format!("LaunchAgent:{}", plan.label)],
+            repair_action: Some("reinstall".to_string()),
+            dismissible: false,
+        });
+        status.verification_checks.push(verification_check(
+            "macos-plist-content",
+            "error",
+            "schedule.verifyMacosPlist",
+            "schedule.verifyMacosPlistMissingLoaded",
+            vec![format!("LaunchAgent:{}", plan.label)],
+        ));
+        status.verification_checks.push(verification_check(
+            "macos-launch-agent-loaded",
+            "warning",
+            "schedule.verifyMacosLoaded",
+            "schedule.verifyMacosLoadedWithoutPlist",
+            vec![plan.label.clone()],
+        ));
     } else {
         status.verification_checks.push(verification_check(
             "macos-plist-content",
@@ -579,13 +605,14 @@ fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<La
 
 #[cfg(not(any(test, coverage)))]
 fn bootout_launch_agent(uid: &str, label: &str) -> Result<LaunchctlOutcome> {
+    let target = format!("gui/{uid}/{label}");
     let output = Command::new("launchctl")
-        .args(["bootout", &format!("gui/{uid}"), label])
+        .args(["bootout", &target])
         .output()
         .context("unloading launch agent")?;
     Ok(LaunchctlOutcome {
         success: output.status.success(),
-        status_description: describe_launchctl_output("bootout", label, &output),
+        status_description: describe_launchctl_output("bootout", &target, &output),
     })
 }
 

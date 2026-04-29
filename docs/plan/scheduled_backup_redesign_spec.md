@@ -144,7 +144,7 @@ The current state-machine redesign is route-owned. Onboarding keeps the existing
 
 ## Validation Requirements
 
-- Rust scheduler tests must cover not installed, installed loaded, installed but not loaded, mismatch, permission/read failure, legacy detection, and legacy repair.
+- Rust scheduler tests must cover not installed, installed loaded, installed but not loaded, loaded without plist, mismatch, permission/read failure, legacy detection, and legacy repair.
 - Vitest must cover `ScheduleUiState` mapping, workflow detection/action recovery, route rendering for all five states, manual mode controls, read-only profile link, and i18n parity.
 - `bun run check` remains the per-commit gate.
 - After code changes, relaunch the debug desktop app and validate `/schedule` with Computer Use so stale WebView state cannot be mistaken for current source.
@@ -155,3 +155,4 @@ The current state-machine redesign is route-owned. Onboarding keeps the existing
 - Computer Use validation used the freshly built repo debug bundle at `src-tauri/target/debug/bundle/macos/PathKeep.app`, not the stale `/Applications/PathKeep.app`. The live `/schedule` page showed the new `INSTALLED_WARN` legacy state, integrated issue detail, `重新偵測` timestamp update, and expanded manual repair steps with plist content, command, open-path hint, and per-step verification controls.
 - The truth pass deliberately did not click repair, reinstall, or remove controls, because those actions would mutate the user's real LaunchAgents without explicit confirmation. Native behavior remains covered by Rust/platform tests and the desktop bridge truth gate.
 - `bunx tauri build --debug` produced the debug `.app` bundle needed for the truth pass, then failed during DMG bundling. That bundling failure was not used as a release gate for this work block.
+- Follow-up Computer Use validation with explicit LaunchAgent mutation permission found one host-real edge case: both canonical and legacy jobs could remain loaded after their plist files were gone. The backend now reports canonical loaded-without-plist as `INSTALLED_ERROR`, and macOS remove/repair uses the `gui/$UID/<label>` service target so loaded jobs without plist files can be unloaded. The retest exercised reinstall, legacy repair, verify, details, interval update, remove, manual install fallback, and final reinstall; the host ended in `INSTALLED_OK` with `StartInterval=21600` and no known legacy service loaded.

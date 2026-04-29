@@ -285,6 +285,42 @@ mod tests {
     }
 
     #[test]
+    fn macos_schedule_status_reports_loaded_agent_with_missing_plist() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let fallback_launch_agents = std::env::temp_dir().join("pathkeep-launch-agents");
+        let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        let original_loaded_labels = std::env::var_os(macos::loaded_labels_env_name());
+        unsafe {
+            std::env::remove_var(TEST_LAUNCH_AGENTS_DIR_ENV);
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+            std::env::set_var(macos::loaded_labels_env_name(), "com.yi-ting.pathkeep.tests");
+        }
+        let _ = fs::remove_dir_all(&fallback_launch_agents);
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let status =
+            schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
+
+        restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+        restore_env_var(macos::loaded_labels_env_name(), original_loaded_labels.as_deref());
+        let _ = fs::remove_dir_all(&fallback_launch_agents);
+
+        assert_eq!(status.install_state, "permission-warning");
+        assert!(status.issues.iter().any(|issue| {
+            issue.code == "macos-plist-missing-loaded" && issue.severity == "error"
+        }));
+        assert!(status.verification_checks.iter().any(|check| {
+            check.key == "macos-plist-content"
+                && check.status == "error"
+                && check.detail_key == "schedule.verifyMacosPlistMissingLoaded"
+        }));
+    }
+
+    #[test]
     fn macos_schedule_status_detects_mismatch() {
         let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");
@@ -420,6 +456,51 @@ mod tests {
             check.key == "macos-repair-legacy"
                 && check.detail_key == "schedule.verifyMacosRepairLegacyNoop"
                 && check.evidence.is_empty()
+        }));
+    }
+
+    #[test]
+    fn macos_repair_schedule_unloads_legacy_agent_without_plist_file() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let fallback_launch_agents = std::env::temp_dir().join("pathkeep-launch-agents");
+        let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+        let original_launchctl_success = std::env::var_os(TEST_LAUNCHCTL_SUCCESS_ENV);
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        let original_loaded_labels = std::env::var_os(macos::loaded_labels_env_name());
+        unsafe {
+            std::env::remove_var(TEST_LAUNCH_AGENTS_DIR_ENV);
+            std::env::set_var(TEST_LAUNCHCTL_SUCCESS_ENV, "1");
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+            std::env::set_var(
+                macos::loaded_labels_env_name(),
+                "dev.codex.browser-history-backup.backup",
+            );
+        }
+        let _ = fs::remove_dir_all(&fallback_launch_agents);
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let plan =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
+
+        let result = repair_schedule(&plan, &paths).expect("repair loaded legacy");
+
+        restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
+        restore_env_var(TEST_LAUNCHCTL_SUCCESS_ENV, original_launchctl_success.as_deref());
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+        restore_env_var(macos::loaded_labels_env_name(), original_loaded_labels.as_deref());
+        let _ = fs::remove_dir_all(&fallback_launch_agents);
+
+        assert!(result.applied);
+        assert!(result.files.is_empty());
+        assert!(result.step_results.iter().any(|check| {
+            check.key == "macos-repair-legacy"
+                && check.detail_key == "schedule.verifyMacosRepairLegacyOk"
+                && check
+                    .evidence
+                    .iter()
+                    .any(|line| line.contains("dev.codex.browser-history-backup"))
         }));
     }
 

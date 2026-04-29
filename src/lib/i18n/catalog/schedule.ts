@@ -183,6 +183,11 @@ export const scheduleNamespaceCatalog = {
       'The LaunchAgent file exists, but its contents differ from the plan PathKeep would install now.',
     issuePlistMismatchConsequence:
       'The background task may run with an outdated interval or command path.',
+    issuePlistMissingLoadedTitle: 'LaunchAgent is loaded without its plist',
+    issuePlistMissingLoadedDetail:
+      'launchd still has the current PathKeep agent loaded, but the plist file is missing from LaunchAgents.',
+    issuePlistMissingLoadedConsequence:
+      'PathKeep cannot edit or remove the schedule predictably until it is reinstalled or unloaded.',
     issueTaskMismatchTitle: 'Installed task does not match current settings',
     issueTaskMismatchDetail:
       'The native scheduler task exists, but its XML differs from the current PathKeep plan.',
@@ -255,8 +260,12 @@ export const scheduleNamespaceCatalog = {
     verifyMacosLoadedOk: 'launchd reports the current agent as loaded.',
     verifyMacosLoadedFailed:
       'launchd does not report the current agent as loaded.',
+    verifyMacosLoadedWithoutPlist:
+      'launchd still has the current agent loaded, but the plist file is missing.',
     verifyMacosPlist: 'LaunchAgent plist',
     verifyMacosPlistMissing: 'No canonical LaunchAgent plist is installed.',
+    verifyMacosPlistMissingLoaded:
+      'No canonical LaunchAgent plist is installed, but launchd still has the current agent loaded.',
     verifyMacosPlistMismatch:
       'The installed plist differs from the current plan.',
     verifyMacosLegacy: 'Legacy LaunchAgents',
@@ -409,6 +418,11 @@ export const scheduleNamespaceCatalog = {
     issuePlistMismatchDetail:
       'LaunchAgent 文件存在，但内容不是 PathKeep 现在会安装的计划。',
     issuePlistMismatchConsequence: '后台任务可能使用过期的间隔或命令路径。',
+    issuePlistMissingLoadedTitle: 'LaunchAgent 已载入但 plist 缺失',
+    issuePlistMissingLoadedDetail:
+      'launchd 仍载入当前 PathKeep agent，但 LaunchAgents 文件夹里没有对应 plist。',
+    issuePlistMissingLoadedConsequence:
+      '重新安装或卸载前，PathKeep 无法可靠修改或移除这个定时任务。',
     issueTaskMismatchTitle: '已安装任务与当前设置不一致',
     issueTaskMismatchDetail:
       '系统定时任务存在，但 XML 与当前 PathKeep 计划不同。',
@@ -464,8 +478,12 @@ export const scheduleNamespaceCatalog = {
     verifyMacosLoaded: 'LaunchAgent 已载入',
     verifyMacosLoadedOk: 'launchd 显示当前 agent 已载入。',
     verifyMacosLoadedFailed: 'launchd 未显示当前 agent 已载入。',
+    verifyMacosLoadedWithoutPlist:
+      'launchd 仍载入当前 agent，但 plist 文件已经缺失。',
     verifyMacosPlist: 'LaunchAgent plist',
     verifyMacosPlistMissing: '未安装当前 LaunchAgent plist。',
+    verifyMacosPlistMissingLoaded:
+      '未安装当前 LaunchAgent plist，但 launchd 仍载入当前 agent。',
     verifyMacosPlistMismatch: '已安装 plist 与当前计划不同。',
     verifyMacosLegacy: '旧版 LaunchAgent',
     verifyMacosLegacyFound: '仍存在已知旧版 LaunchAgent。',
@@ -616,6 +634,11 @@ export const scheduleNamespaceCatalog = {
     issuePlistMismatchDetail:
       'LaunchAgent 檔案存在，但內容不是 PathKeep 現在會安裝的計畫。',
     issuePlistMismatchConsequence: '背景任務可能使用過期的間隔或命令路徑。',
+    issuePlistMissingLoadedTitle: 'LaunchAgent 已載入但 plist 缺失',
+    issuePlistMissingLoadedDetail:
+      'launchd 仍載入目前 PathKeep agent，但 LaunchAgents 資料夾裡沒有對應 plist。',
+    issuePlistMissingLoadedConsequence:
+      '重新安裝或卸載前，PathKeep 無法可靠修改或移除這個排程。',
     issueTaskMismatchTitle: '已安裝任務與目前設定不一致',
     issueTaskMismatchDetail: '系統排程存在，但 XML 與目前 PathKeep 計畫不同。',
     issueTaskMismatchConsequence: '背景任務可能使用過期的間隔或命令路徑。',
@@ -671,8 +694,12 @@ export const scheduleNamespaceCatalog = {
     verifyMacosLoaded: 'LaunchAgent 已載入',
     verifyMacosLoadedOk: 'launchd 顯示目前 agent 已載入。',
     verifyMacosLoadedFailed: 'launchd 未顯示目前 agent 已載入。',
+    verifyMacosLoadedWithoutPlist:
+      'launchd 仍載入目前 agent，但 plist 檔案已經缺失。',
     verifyMacosPlist: 'LaunchAgent plist',
     verifyMacosPlistMissing: '未安裝目前 LaunchAgent plist。',
+    verifyMacosPlistMissingLoaded:
+      '未安裝目前 LaunchAgent plist，但 launchd 仍載入目前 agent。',
     verifyMacosPlistMismatch: '已安裝 plist 與目前計畫不同。',
     verifyMacosLegacy: '舊版 LaunchAgent',
     verifyMacosLegacyFound: '仍存在已知舊版 LaunchAgent。',

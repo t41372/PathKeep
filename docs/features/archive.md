@@ -103,6 +103,7 @@
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。
+- 2026-04-29 live repair follow-up：macOS canonical `com.yi-ting.pathkeep.backup` 如果仍 loaded 但 plist 已缺失，status 必須顯示 typed `macos-plist-missing-loaded` error 並映射到 `INSTALLED_ERROR`，提供 reinstall / remove / diagnostics，不得把 loaded-but-uneditable scheduler 當成普通未安裝。macOS remove / repair 必須用 `launchctl bootout gui/$UID/<label>` service target，才能移除沒有 plist 檔但仍留在 launchd 內的 canonical 或 known legacy jobs。
 
 ### 平台注意事項
 
