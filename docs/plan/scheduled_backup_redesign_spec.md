@@ -1,18 +1,19 @@
-# Scheduled Backup Redesign Spec
+# Scheduled Backup State-Machine Redesign Spec
 
 Date: 2026-04-29  
-Scope: Ticket A Phase 1 plus the design brief for Phase 2. Phase 3 implementation must wait for confirmed design mockups.
+Scope: user-directed `/schedule` redesign implementation. This supersedes the earlier Phase 2 mockup / Phase 3 waiting gate for Scheduled Backup Settings.
 
 ## Product Goal
 
-Scheduled backup should read as a persistent system setting, not as a one-off operations task. Users need to answer four questions quickly:
+Scheduled backup is a persistent system setting, not a one-off operations task. The route should answer five questions without exposing every possible operation at once:
 
-1. Is native scheduled backup installed?
-2. What interval is configured?
-3. Can I install, update, or remove it here?
-4. If I skip setup during onboarding, where do I find it later?
+1. What is PathKeep checking right now?
+2. Is native scheduled backup installed and healthy?
+3. What should I do next in this state?
+4. What manual path exists if the automatic path is unavailable?
+5. How do I recover if install, verification, repair, or removal fails?
 
-The route remains `/schedule`. Sidebar placement moves from `OPERATIONS` to `SYSTEM`. Navigation label changes to:
+The route remains `/schedule`. Sidebar placement remains under `SYSTEM` with this label set:
 
 - English: `Scheduled Backup Settings`
 - Simplified Chinese: `定时备份设置`
@@ -20,156 +21,137 @@ The route remains `/schedule`. Sidebar placement moves from `OPERATIONS` to `SYS
 
 ## State Machine
 
-`ScheduleStatus.installState` remains the source field. UI may derive a display state from `installState`, `SchedulePlan.applySupported`, busy state, and the local config draft.
+`ScheduleStatus.installState` is still the native backend read-model field, but the route renders only the product-level states below. `useScheduleWorkflow` owns detection, busy progress, timestamps, action result feedback, and post-action transitions.
 
-| State                     | Meaning                                                                          | Primary actions                                      | Secondary actions                                           |
-| ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- |
-| `loading`                 | Preview/status still loading                                                     | None                                                 | Show skeleton/loading row                                   |
-| `unavailable`             | Preview/status command failed                                                    | Retry by refreshing route                            | Show error detail                                           |
-| `not-installed`           | No canonical schedule installed                                                  | Install schedule                                     | Change interval, view preview/manual steps                  |
-| `installed`               | Canonical schedule matches current config                                        | Remove schedule                                      | Change interval, view config/status/audit                   |
-| `update-needed`           | User changed interval or status reports mismatch with current settings           | Update schedule                                      | Revert unsaved interval, remove schedule, view diff/preview |
-| `mismatch`                | Canonical native artifact exists but no longer matches current generated plan    | Reinstall schedule                                   | Remove schedule, view detected file, view warning           |
-| `permission-warning`      | Native status could not inspect files/tasks                                      | View recovery guidance                               | Retry, copy/open detected path if available                 |
-| `legacy-install-detected` | Known pre-rename LaunchAgent exists or is loaded                                 | Review legacy warning and install canonical schedule | Open/copy legacy path, manual removal guidance              |
-| `manual-review`           | Platform has preview/manual artifacts but app-side apply/status is not supported | Follow manual steps                                  | Copy commands/files, view generated artifacts               |
-| `busy-apply`              | Install/update request is running                                                | None                                                 | Busy overlay with current action                            |
-| `busy-remove`             | Remove request is running                                                        | None                                                 | Busy overlay with current action                            |
-| `action-error`            | Last apply/remove failed                                                         | Retry action                                         | Show error and keep current status visible                  |
+| UI state          | Meaning                                                             | Primary path                                                | Recovery path                                                                |
+| ----------------- | ------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `CHECKING`        | Initial load or manual re-detect is reading preview/status          | Show spinner plus what is being checked                     | Finish with `checkedAt`; on failure show unavailable state with retry        |
+| `NOT_INSTALLED`   | No canonical schedule is installed and no blocking issue is present | Configure interval and install automatically                | Expand manual install steps; after manual completion run detection again     |
+| `INSTALLED_OK`    | Canonical schedule is installed, loaded, and matches current config | Verify, inspect details, update changed interval, or remove | Manual details remain available; verification can be rerun inline            |
+| `INSTALLED_WARN`  | Installed but attention is needed                                   | Repair known issues, verify, update/reinstall, or remove    | Manual repair steps; only dismiss issues marked `dismissible` by the backend |
+| `INSTALLED_ERROR` | Installed but PathKeep cannot trust operation or inspection         | Reinstall, remove, re-detect, or copy diagnostics           | Manual removal path and diagnostic payload for support                       |
 
-State priority:
+State derivation rules:
 
-1. `loading` / `unavailable`
-2. `busy-*`
-3. `legacy-install-detected`
-4. `permission-warning`
-5. `mismatch` / `update-needed`
-6. `installed`
-7. `manual-review`
-8. `not-installed`
+- Loading, missing status, or stale preview/status pairs map to `CHECKING`.
+- `ScheduleIssue.severity = error` and `permission-warning` map to `INSTALLED_ERROR`.
+- `not-installed` maps to `NOT_INSTALLED`.
+- `legacy-install-detected`, `mismatch`, `manual-review`, missing `lastSuccessfulBackupAt`, or a visible warning issue maps to `INSTALLED_WARN`.
+- Everything else with an installed canonical schedule maps to `INSTALLED_OK`.
 
-Legacy wins over healthy installed display because duplicate legacy and canonical schedules can trigger multiple workers.
+## Backend Contract
 
-## Main Settings Page Requirements
+The frontend must consume typed read-model fields instead of parsing raw English warning strings.
 
-The page should be rebuilt around a settings/control layout while keeping PME transparency available.
+- `SchedulePlan.manualStepDetails`: structured manual steps with copy keys, command/file content, optional directory path, and per-step capability flags.
+- `ScheduleStatus.issues`: typed issue rows with severity, localized copy keys, concrete evidence, repair action, and dismissibility.
+- `ScheduleStatus.verificationChecks`: typed check rows for canonical artifact presence, load/query status, mismatch, legacy evidence, and permission failures.
+- `ScheduleStatus.checkedAt`: timestamp for the latest detection pass.
+- `ScheduleStatus.lastAction`: optional durable action result when a native operation can report one.
+- `ApplyResult.stepResults`: action-level verification rows for install/remove/repair progress.
+- `warnings` remains for compatibility and diagnostics, but route copy must prefer typed `issues` / `verificationChecks`.
 
-Top status band:
+Existing commands stay in use:
 
-- Platform label and native mechanism.
-- Install state badge.
-- One sentence status explanation.
-- Primary CTA based on state: install, update, remove, or manual setup.
+- `preview_schedule`
+- `schedule_status`
+- `apply_schedule`
+- `remove_schedule`
 
-Configuration panel:
+New command:
 
-- Backup trigger interval selector using the existing interval options at minimum (`6`, `12`, `24`, `72` hours) and preserving the current config field `dueAfterHours`.
-- Health-check cadence display from `scheduleCheckIntervalHours`, read-only for this ticket.
-- Selected browser profiles summary.
-- Last successful backup.
-- Scheduler label.
-- Apply support / manual review state.
+- `repair_schedule`: explicit user-triggered repair for known scheduler conflicts. macOS currently uses it only to remove known pre-rename PathKeep LaunchAgent labels after user confirmation; it must not silently migrate/remove unknown scheduler artifacts.
 
-Action panel:
+Native scheduler ownership:
 
-- `Install schedule` when `not-installed`.
-- `Update schedule` when the user changed interval or current artifact is mismatched.
-- `Remove schedule` when installed, mismatched, legacy-detected, or detected files exist.
-- Buttons must disable while busy and must not hide the current status.
-- `Remove schedule` removes only the current canonical schedule unless backend reports otherwise; legacy state must explain manual cleanup.
+- `vault-platform::scheduler` is a facade.
+- `scheduler/macos.rs` owns launchd plist generation, install/remove, loaded checks, legacy detection, and legacy repair.
+- `scheduler/windows.rs` owns Task Scheduler XML generation and `schtasks` apply/status/remove.
+- `scheduler/linux.rs` owns manual-review systemd timer artifacts.
+- `scheduler/audit.rs` owns schedule audit artifact writing and latest-audit lookup.
 
-Review panel:
+## Route Workflow
 
-- Keep Preview / Manual / Execute / Verify tabs or an equivalent segmented control.
-- Preview shows generated artifacts.
-- Manual shows platform-specific steps.
-- Execute shows commands plus install/remove CTAs.
-- Verify shows install state, detected files, warnings, latest audit path, and last action result.
+`src/pages/schedule/use-schedule-workflow.ts` is the route-owned workflow owner:
 
-Error and warning copy:
+- On mount, call `preview_schedule` and `schedule_status` once and render `CHECKING` until both complete.
+- Manual re-detect resets the UI to `CHECKING`, then displays `偵測完成於 HH:MM:SS` / localized equivalent through `checkedAt` or the route timestamp.
+- Install/update persists the draft interval first, refreshes the plan, then runs the native apply action.
+- Remove calls `remove_schedule` and refreshes status afterward.
+- Repair calls `repair_schedule` and refreshes status afterward.
+- Verify reruns detection and renders typed verification checks inline.
+- Copy diagnostics serializes typed status/issue/check evidence; it does not expose private browsing records.
 
-- `not-installed`: no native schedule is installed yet.
-- `installed`: scheduled backup is installed and matches current settings.
-- `update-needed`: interval changed; install/update to write the new native schedule.
-- `mismatch`: native schedule exists but does not match current settings.
-- `permission-warning`: PathKeep cannot inspect the native scheduler; check file/task permissions.
-- `legacy-install-detected`: an older background task is present. PathKeep will not migrate or remove it automatically because the namespace rename was a clean break.
-- `manual-review`: this platform needs manual setup.
+Every async action must show inline progress with the current step count and a localized message. Completed actions must leave an inline result:
 
-## Onboarding Requirements
+- Success: show concrete outcome, audit path when present, and follow-up status.
+- Failure: show the error plus an actionable recovery path.
+- No modal progress is allowed for schedule actions.
 
-Onboarding keeps a dedicated backup schedule step after Security and before Ready.
+## State-Local UI Requirements
 
-Happy path:
+`CHECKING`:
 
-- Show concise interval options.
-- Show a small native-platform preview summary.
-- Let the user continue without installing the schedule immediately.
-- If app-side apply is supported and design confirmation chooses to offer install during onboarding, use the same schedule action component/command path as the settings page. The first implementation may defer native install to the Schedule route if the design presents onboarding as config-only.
+- Spinner / loading affordance.
+- Short explanation that PathKeep is checking the native scheduler and generated plan.
 
-Skip path:
+`NOT_INSTALLED`:
 
-- Provide an explicit `Skip scheduled backup` action.
-- Skip must not call `apply_schedule`, `remove_schedule`, or any backup mutation.
-- Skip should preserve selected interval only if the user already changed it; otherwise leave current config untouched.
-- After skip, show copy that scheduled backup can be configured later in `Scheduled Backup Settings` under `System`.
+- Configuration block is editable before install: `6h`, `12h`, `24h`, `72h`.
+- Browser profile list is read-only and links to `/settings#settings-profiles` with explicit copy: `Settings > Browser Profiles`.
+- Primary action is automatic install.
+- Manual install expands into structured steps with command/file content and verification controls.
 
-Suggested skip copy:
+`INSTALLED_OK`:
 
-- English: `You can turn on scheduled backup later in System -> Scheduled Backup Settings.`
-- Simplified Chinese: `你之后可以在“系统”里的“定时备份设置”中开启定时备份。`
-- Traditional Chinese: `你之後可以在「系統」裡的「定時備份設定」中開啟定時備份。`
+- Summary shows interval, selected browsers, install method/platform, last successful backup or `尚未成功執行`, scheduler label, and last verification timestamp.
+- Actions are verify, view details, update after interval change, and remove.
+- Details show generated file contents, detected paths, audit path, and verification rows.
 
-Ready summary:
+`INSTALLED_WARN`:
 
-- If schedule was skipped, summarize as `Scheduled backup: not installed yet`.
-- If interval was selected but not installed, summarize as `Backup interval selected; native schedule not installed yet`.
-- If installed during onboarding, summarize as `Scheduled backup installed`.
+- Issues must explain the problem, why it matters, evidence, and consequence.
+- Known legacy LaunchAgent warning uses repair action `repair-legacy`; it is not dismissible because duplicate background tasks can run twice.
+- Non-blocking warnings may be dismissible only when backend marks them `dismissible`.
+- Manual repair path remains visible and `我已完成操作` reruns detection.
 
-## Component And Data Boundaries
+`INSTALLED_ERROR`:
 
-- Reuse existing commands: `preview_schedule`, `schedule_status`, `apply_schedule`, `remove_schedule`.
-- Reuse config save path for `dueAfterHours`.
-- Do not add a new Tauri command for Ticket A.
-- Do not alter native detection or scheduler behavior in Ticket A.
-- Do not alter backup worker execution.
-- Prefer shared component extraction only if both Schedule page and Onboarding need the same interval/action UI. The shared owner should accept loaded `SchedulePlan` / `ScheduleStatus` and callbacks rather than fetch data itself.
+- The route must show concrete issue rows when available: unreadable plist/task, canonical agent not loaded, permission/query failure, or backend command failure.
+- Available actions are reinstall, remove/manual removal, re-detect, and copy diagnostics.
+- Manual removal path must never leave the user without a next step.
 
-## Phase 3 Implementation Notes
+## Manual Mode
 
-- Keep `/schedule` as the route while moving the sidebar entry to `SYSTEM` and renaming it to `Scheduled Backup Settings` / `定时备份设置` / `定時備份設定`.
-- Use one shared interval selector for Schedule and Onboarding so the interval options and chip grammar cannot drift.
-- Schedule page saves `dueAfterHours` through the existing config path, then refreshes `preview_schedule` before install/update when the draft interval changed.
-- Onboarding records an install-or-skip intent on the schedule step. Install is deferred until archive initialization and optional keyring setup have completed; skip only continues and shows the `System -> Scheduled Backup Settings` recovery location.
-- Browser-preview and native unsupported platforms keep the same read-only/manual-review boundaries from `SchedulePlan.applySupported`; no Ticket A code changes scheduler detection or native scheduling behavior.
+Manual mode is state-local and first-class for install, remove, repair, and verify:
 
-## Phase 2 Design Brief
+- Each step has a one-line purpose.
+- Each step has a collapsed reason/background section.
+- Commands render as copyable code blocks.
+- File creation/edit steps show full file contents and target path.
+- Directory hints use the platform's reveal/open helper when the path is safe to open; otherwise the path remains visible for manual navigation.
+- Steps can expose automatic and verification buttons only when `canAutoRun` / `canVerify` is true.
+- `一鍵全部自動執行` calls the state-appropriate native action.
+- `我已完成操作` reruns detection and shows verification results.
 
-Use image generation to create mockups in PathKeep's existing desktop-app style:
+## Onboarding Boundary
 
-- Quiet operational UI.
-- Dense but scannable settings controls.
-- No marketing hero.
-- No nested cards.
-- Strong status hierarchy without oversized decorative panels.
-- Native desktop sidebar and topbar retained.
-- Avoid purple/blue gradient dominance and decorative orbs.
+The current state-machine redesign is route-owned. Onboarding keeps the existing schedule intent behavior from the previous closeout:
 
-Required mockups:
+- The schedule setup step may collect the interval and install/skip intent.
+- Native install still waits until archive initialization and optional keyring setup have completed.
+- Skip never calls `apply_schedule`, `remove_schedule`, or `repair_schedule`; it only tells the user they can return to `System -> Scheduled Backup Settings`.
 
-1. Main `Scheduled Backup Settings` page, `not-installed`.
-2. Main page, `installed`.
-3. Main page, error/attention state covering `legacy-install-detected` or `permission-warning`.
-4. Onboarding backup schedule step with interval selection and preview.
-5. Onboarding skip path hint.
+## Validation Requirements
 
-Reference inputs for image generation:
+- Rust scheduler tests must cover not installed, installed loaded, installed but not loaded, mismatch, permission/read failure, legacy detection, and legacy repair.
+- Vitest must cover `ScheduleUiState` mapping, workflow detection/action recovery, route rendering for all five states, manual mode controls, read-only profile link, and i18n parity.
+- `bun run check` remains the per-commit gate.
+- After code changes, relaunch the debug desktop app and validate `/schedule` with Computer Use so stale WebView state cannot be mistaken for current source.
 
-- Current Schedule page screenshot.
-- Current Onboarding schedule step screenshot.
-- This state/action spec.
+## Implementation Validation (2026-04-29)
 
-Design confirmation gate:
-
-- Stop after mockups are generated.
-- Do not implement Phase 3 UI until the design direction is confirmed.
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform repair_schedule -- --test-threads=1`, targeted Schedule / workflow / command Vitest slices, `bun run test:e2e`, and `bun run check` passed. The full check covered base checks, 100% JS/Rust coverage, browser-preview e2e, desktop-bridge truth gate, and desktop-contract mutation.
+- Computer Use validation used the freshly built repo debug bundle at `src-tauri/target/debug/bundle/macos/PathKeep.app`, not the stale `/Applications/PathKeep.app`. The live `/schedule` page showed the new `INSTALLED_WARN` legacy state, integrated issue detail, `重新偵測` timestamp update, and expanded manual repair steps with plist content, command, open-path hint, and per-step verification controls.
+- The truth pass deliberately did not click repair, reinstall, or remove controls, because those actions would mutate the user's real LaunchAgents without explicit confirmation. Native behavior remains covered by Rust/platform tests and the desktop bridge truth gate.
+- `bunx tauri build --debug` produced the debug `.app` bundle needed for the truth pass, then failed during DMG bundling. That bundling failure was not used as a release gate for this work block.

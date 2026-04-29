@@ -12,6 +12,25 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-SCHED-STATE-A** — Scheduled Backup Settings State-Machine Redesign
+  - 讀先：
+    `docs/plan/scheduled_backup_redesign_spec.md`
+    `docs/plan/scheduled_backup_audit.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+    `docs/features/archive.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/plan/backend-hotspot-decomposition.md`
+    `TESTING.md`
+  - 目標：依使用者新插單，把 `/schedule` 重新改成狀態機驅動的系統設定頁：`CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR`；同時先拆 `vault-platform::scheduler`，避免繼續往超過 1400 行的巨檔加業務邏輯。
+  - 契約：保留 `preview_schedule`、`schedule_status`、`apply_schedule`、`remove_schedule`，新增明確的 `repair_schedule`；不改 backup worker 的實際備份語義、不改 interval options、不靜默 migrate/remove legacy scheduler artifacts；瀏覽器清單在 `/schedule` 只讀，修改入口指向 `Settings > Browser Profiles`。
+  - 2026-04-29 closeout：`vault-platform::scheduler` 已拆成 721 行 facade，平台 owner 下沉到 `scheduler/{macos,windows,linux,audit}.rs`；macOS status 現在回報 canonical loaded check、mismatch、permission/read failure、known legacy evidence 與 typed verification checks。`repair_schedule` 只在使用者明確點擊後移除 known pre-rename macOS LaunchAgent labels。
+  - UI truth：`/schedule` 由 route-owned `useScheduleWorkflow` 管理初次偵測、手動重新偵測 timestamp、install/update/remove/repair/verify/copy-diagnostics progress/result 與 state transitions；Legacy warning 已併入 `INSTALLED_WARN`，installed-but-never-run 也會走 warning state。手動模式是 state-local step list，包含目的、折疊原因、命令/完整檔案內容、目錄提示、單步自動/驗證 controls、一鍵全部自動執行與「我已完成操作」重新偵測。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/architecture/module-boundary-map.md`](../architecture/module-boundary-map.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/scheduled_backup_redesign_spec.md`](scheduled_backup_redesign_spec.md)、[`docs/plan/backend-hotspot-decomposition.md`](backend-hotspot-decomposition.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform repair_schedule -- --test-threads=1`、targeted Schedule / workflow / command Vitest slices、`bun run test:e2e`、`bun run check` 全通過（100% JS/Rust coverage、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。fresh debug `.app` Computer Use truth pass 使用 repo bundle `src-tauri/target/debug/bundle/macos/PathKeep.app`，確認 current-host `INSTALLED_WARN` legacy state、`重新偵測` timestamp、手動修復步驟的 plist/command/open-path/單步驗證 controls；未點擊 repair/reinstall/remove，避免未確認地修改使用者 LaunchAgents。
+  - 驗收備註：直接啟動 debug binary 沒有 bundle identity，Computer Use 會抓到 `/Applications/PathKeep.app` stale UI；本輪改用 repo debug `.app` bundle 驗證。`bunx tauri build --debug` 已產生可驗證的 `.app` bundle，但後續 DMG bundling 失敗，未作為 release gate。
+
 - [x] **WORK-SCHED-REDESIGN-B** — Scheduled Backup Settings UI And Onboarding Integration
   - 讀先：
     `docs/plan/scheduled_backup_redesign_spec.md`
@@ -30,7 +49,7 @@
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/scheduled_backup_redesign_spec.md`](scheduled_backup_redesign_spec.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted Vitest / browser-preview e2e slices、`bun run check`、`bunx tauri build --debug --bundles app --no-sign`、fresh debug `.app` Computer Use truth pass。current-host truth pass 驗到 `legacy-install-detected` attention state 與 schedule controls；為避免改動使用者 LaunchAgents，未在真機點擊 install/remove/final finish，native apply/remove 行為由既有 Rust/platform tests 與 desktop bridge truth gate 覆蓋。
 
-> 2026-04-29 scheduled backup UI closeout：`WORK-SCHED-REDESIGN-B` 已完成並 append 到 `CHANGELOG.md`。BACKLOG 目前只有 blocked 的 `WORK-QA-GATE-B` 與 `WORK-SCHED-MAINT-A`，沒有可提升的未阻塞 work block。
+> 2026-04-29 scheduled backup state-machine closeout：使用者插單的 `WORK-SCHED-STATE-A` 已完成並 append 到 `CHANGELOG.md`。BACKLOG 目前只有 blocked 的 `WORK-QA-GATE-B`，沒有可提升的未阻塞 work block。
 
 - [x] **WORK-SCHED-REDESIGN-A** — Scheduled Backup Detection Audit And Design Gate
   - 讀先：

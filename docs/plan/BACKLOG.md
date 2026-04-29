@@ -32,6 +32,7 @@
 > 2026-04-28 intelligence scope closeout note：使用者插單的 `WORK-INTEL-SCOPE-A` 已完成並 append 到 `CHANGELOG.md`。`/intelligence` 現在有非預設的 all-time preset、cache-aware progressive secondary reveal，Settings / Maintenance hash section nav 也恢復 scroll+focus。deeper all-time cache/preload/invalidation 已記成 design note，不直接升成未阻塞 work block；BACKLOG 目前仍只有 blocked 的 `WORK-QA-GATE-B`。
 > 2026-04-28 release blocker follow-up note：`WORK-RELEASE-010-A` 的 Windows scheduler support 讓 `src-tauri/crates/vault-platform/src/scheduler.rs` 升到 `1261` 行，超過 1200 行維護性 review threshold。依 `AGENTS.md` 規則，已新增 blocked follow-up `WORK-SCHED-MAINT-A`，等 release blocker 實機驗收後用專門窗口審查是否拆分；不要在 0.1.0 blocker closeout 中順手重構 scheduler。
 > 2026-04-29 scheduled-backup audit follow-up：`WORK-SCHED-REDESIGN-A` 只允許修高優先級 macOS legacy detection bug，修後 `scheduler.rs` 已到 `1411` 行並超過 1400 行硬限制。本次改動是既有巨檔內的最小 bug fix；`WORK-SCHED-MAINT-A` 升級為 high-priority maintainability review，必須在 scheduled-backup design gate / release acceptance 後專門處理，後續不得再往該檔新增業務邏輯。
+> 2026-04-29 scheduled-backup state-machine closeout note：使用者直接插單的 `WORK-SCHED-STATE-A` 已把 scheduler maintainability follow-up 和 `/schedule` state-machine redesign 合併收口。`vault-platform::scheduler` 現在是 721 行 facade，平台 owner 分別在 `scheduler/{macos,windows,linux,audit}.rs`；原 blocked `WORK-SCHED-MAINT-A` 已完成並從 BACKLOG 移除。BACKLOG 目前仍只有 blocked 的 `WORK-QA-GATE-B`。
 
 - [!] **WORK-QA-GATE-B** — Full Mutation Deep Sweep And Survivor Closeout [!blocked: schedule a dedicated multi-hour mutation hardening window]
   - 讀先：
@@ -45,16 +46,6 @@
   - 已知起點（2026-04-27）：`bun run mutation:js:full --dryRunOnly` 約 2m20s，full JS Stryker 21769 mutants，按 44m/32% 實測估算約 2-3 小時；`cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --list --json` 顯示 5869 Rust candidates，且 current copy-sandbox baseline 會因 repo-root Safari reference fixture path 缺失失敗。
   - 執行順序：先確認 `bun run check` 綠；再跑 `bun run mutation:js:full` 並從 top survivor/timeouts files 補測；Rust 先修 cargo-mutants copy-sandbox fixture contract，再用 shards 跑 `bun run mutation:rust:full` 或等價 `cargo mutants --shard n/m`，合併 survivor 清單後逐項處理。
   - 驗收：`bun run check`、`bun run mutation:js:full`、`bun run mutation:rust:full`、更新 `docs/plan/program/quality-matrix.md` / `TESTING.md` / `CHANGELOG.md` 的耗時、survivor closeout 與任何 narrow equivalent evidence。
-
-- [!] **WORK-SCHED-MAINT-A** — Scheduler Platform Module High-Priority Maintainability Review [!blocked: schedule after scheduled-backup design confirmation and 0.1.0 browser/scheduler VM acceptance]
-  - 讀先：
-    `src-tauri/crates/vault-platform/src/scheduler.rs`
-    `docs/plan/backend-hotspot-decomposition.md`
-    `docs/features/archive.md`
-    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
-  - 目標：審查 `vault-platform::scheduler` 在加入 Windows Task Scheduler apply/status/remove 與 macOS legacy detection 後的職責邊界；目前檔案已達 `1411` 行並超過 1400 行硬限制，需輸出是否拆分成 macOS / Windows / Linux platform owners、shared plan/audit helpers、test stubs 的決策。
-  - 契約：第一階段只做架構審查與測試地圖，不改產品碼；不得在沒有測試保護的情況下重排 macOS launchd、legacy detection、或 Windows `schtasks` 行為；在 review 完成前，不得再往 `scheduler.rs` 新增業務邏輯。
-  - 驗收：更新 backend hotspot map、列出保持單文件或拆分的 trade-off、確認 `cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform scheduler -- --test-threads=1` 與 `bun run check` 可覆蓋拆分風險。
 
 ---
 

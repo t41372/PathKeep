@@ -78,9 +78,9 @@
 - Maintenance 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
-- Scheduled Backup Settings 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
+- Scheduled Backup Settings 是 state-driven system settings route，而不是常駐 PME tabs。第一層只渲染 `CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 當前狀態需要的內容；Preview / Manual / Execute / Verify 資訊保留在該狀態的 details / manual path 裡。
 - Schedule 的 cadence copy 必須拆清楚：`dueAfterHours` 是下一次備份到期 / trigger cadence，`checkIntervalHours` 是 PathKeep 檢查已安裝 schedule 是否健康的 verification cadence；兩者不能都只寫成「每 N 小時」。
-- Scheduled Backup Settings 的主頁必須直接提供 interval selection、current config/status view、install/update CTA、remove CTA 與 legacy/error attention state；PME tabs 是詳細審查層，不可再作為唯一可操作入口。
+- Scheduled Backup Settings 的主頁必須直接提供 interval selection、read-only browser profile summary、current config/status view、install/update CTA、repair CTA、remove CTA、re-detect timestamp、inline operation progress/result，以及 legacy/error attention state。Legacy warning 必須整合進 `INSTALLED_WARN`，不得再用獨立黃色 banner 浮出。
 - Onboarding 與 Dashboard 的 browser profile surface 現在也屬於 trust-critical review surface：除了 `history found / missing` 之外，還要顯示 browser-retention honesty，明講 browser-managed local history 可能在下一次 backup 前消失，而 PathKeep 只有在成功 backup 後才開始提供 append-only 保存。
 - Onboarding、Settings 與 Import 的 browser profile 選擇第一層只顯示 browser / profile / history file label；完整 source path、raw profile id、或 UUID-like identifier 只能放在明確的 detail / support / review row，不能當成主要 profile 名稱壓給普通使用者。
 

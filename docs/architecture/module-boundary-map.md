@@ -150,6 +150,7 @@ Tauri facade 暫時仍集中在 `src-tauri/src/lib.rs`，但命名與回傳 enve
 - `archive.rollback.execute`
 - `schedule.install.preview`
 - `schedule.install.execute`
+- `schedule.install.repair`
 - `security.rekey.preview`
 - `security.rekey.execute`
 
