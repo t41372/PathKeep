@@ -201,21 +201,20 @@ describe('Import wizard render modules', () => {
     const user = userEvent.setup()
     const onOpenFullDiskAccessSettings = vi.fn()
     const onSelectBrowserProfile = vi.fn()
+    const readyProfile = browserProfileFixture({
+      historyPath: '/profiles/Ready/History',
+      profileId: 'chrome:ready',
+      profileName: 'Ready',
+      profilePath: '/profiles/Ready',
+    })
     const readyView = render(
       <I18nProvider>
         <ImportSelectStep
-          detectedBrowserProfiles={[
-            browserProfileFixture({
-              historyPath: '/profiles/Ready/History',
-              profileId: 'chrome:ready',
-              profileName: 'Ready',
-              profilePath: '/profiles/Ready',
-            }),
-          ]}
+          detectedBrowserProfiles={[readyProfile]}
           language="en"
           manualPathExpanded={false}
           method="browser"
-          selectedBrowserProfile={null}
+          selectedBrowserProfile={readyProfile}
           selectedBrowserProfileId="chrome:ready"
           sourcePath="/profiles/Ready/History"
           onBrowseSource={vi.fn()}
@@ -229,9 +228,11 @@ describe('Import wizard render modules', () => {
       </I18nProvider>,
     )
 
-    expect(
-      screen.getAllByText('/profiles/Ready/History').length,
-    ).toBeGreaterThan(0)
+    expect(screen.getAllByText('History').length).toBeGreaterThan(0)
+    const sourcePath = screen.getByText('/profiles/Ready/History')
+    expect(sourcePath).not.toBeVisible()
+    await user.click(screen.getByText(importT('browserProfileSourcePath')))
+    expect(sourcePath).toBeVisible()
     await user.click(
       screen.getByRole('button', { name: 'Google Chrome · Ready' }),
     )
@@ -280,7 +281,7 @@ describe('Import wizard render modules', () => {
 
     expect(screen.getByText(importT('safariFullDiskAccessHint'))).toBeVisible()
     expect(screen.getByText(importT('browserProfileUnreadable'))).toBeVisible()
-    expect(screen.getByText('/profiles/Safari')).toBeVisible()
+    expect(screen.queryByText('/profiles/Safari')).not.toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
         name: importT('openFullDiskAccessSettings'),

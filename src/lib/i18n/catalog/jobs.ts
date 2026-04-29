@@ -30,7 +30,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: 'BACKGROUND WORK',
     readyTitle: 'Background work is idle',
     readyBody:
-      'No work is waiting. New analysis refreshes, page-text fetches, and AI tasks will appear here.',
+      'No work is waiting. New analysis refreshes, page-text fetches, assistant tasks, and embedding tasks will appear here.',
     pausedTitle: 'Background work is paused',
     pausedBody: 'Queued work is saved and will stay here until you resume it.',
     runningTitle: 'Background work is running',
@@ -59,9 +59,9 @@ export const jobsNamespaceCatalog = {
     overviewHeadline: 'Refresh local analysis first, then collect page text',
     overviewBody:
       'Local rebuilds update cards and evidence first. Slower network fetches keep running in the background.',
-    queueSummaryTitle: 'AI tasks',
+    queueSummaryTitle: 'Assistant and embedding queue',
     queueSummaryBody:
-      'Assistant and embedding tasks can finish after you leave the foreground action.',
+      'Optional assistant and embedding work appears here when those features are on; existing queued items stay reviewable.',
     runtimeSummaryTitle: 'Local analysis',
     runtimeSummaryBody:
       'Analysis refreshes and content work keep a recoverable record of what ran, failed, or still waits.',
@@ -71,7 +71,7 @@ export const jobsNamespaceCatalog = {
     noRecoveryNotes: 'No recovery notes right now.',
     pluginsTitle: 'Content workers',
     modulesTitle: 'Analysis modules',
-    recentAiJobs: 'Recent AI jobs',
+    recentAiJobs: 'Recent assistant jobs',
     recentRuntimeJobs: 'Recent derived-data jobs',
     recentJobsEmpty: 'No background jobs recorded yet.',
     queuedCount: 'Queued',
@@ -79,7 +79,7 @@ export const jobsNamespaceCatalog = {
     failedCount: 'Failed',
     concurrency: 'Workers',
     queueStatePaused: 'Paused',
-    queueStateLive: 'Enabled',
+    queueStateLive: 'Queue active',
     lastActivity: 'Last activity',
     lastCompletedAt: 'Last completed',
     derivedTables: 'Derived tables',
@@ -118,7 +118,7 @@ export const jobsNamespaceCatalog = {
       'Content workers, analysis modules, and recovery notes stay here for deeper review.',
     recentActivityTitle: 'Recent activity',
     recentActivityBody:
-      'Review recent AI and analysis tasks by family. Retry failures, cancel queued work, or confirm the queue is still moving.',
+      'Review recent assistant and analysis tasks by family. Retry failures, cancel queued work, or confirm the queue is still moving.',
     errorPdf:
       'This page returned a PDF, so PathKeep skipped readable-text extraction.',
     errorUnsupportedContent:
@@ -178,7 +178,8 @@ export const jobsNamespaceCatalog = {
     archiveTaskUpdated: 'Updated',
     archiveTaskRecords: 'records',
     archiveTaskConsole: 'Console log',
-    archiveTaskNoLogs: 'No log entries yet.',
+    archiveTaskNoLogs:
+      'Waiting for the next progress event. Large browser profiles can spend a while copying and validating before record counts appear.',
     archiveTaskOpenResult: 'Open result',
     archiveTaskOpenJobs: 'Open Jobs',
     now: 'just now',
@@ -194,7 +195,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: '后台工作',
     readyTitle: '后台工作已空闲',
     readyBody:
-      '当前没有等待的任务。新的分析刷新、网页正文抓取和 AI 任务会显示在这里。',
+      '当前没有等待的任务。新的分析刷新、网页正文抓取、助手任务和嵌入任务会显示在这里。',
     pausedTitle: '后台工作已暂停',
     pausedBody: '排队任务已经保存，恢复后会继续处理。',
     runningTitle: '后台工作正在运行',
@@ -220,8 +221,9 @@ export const jobsNamespaceCatalog = {
     overviewTitle: '队列总览',
     overviewHeadline: '先刷新本地分析，再补抓网页正文',
     overviewBody: '本地重建会先更新卡片和证据；较慢的网络抓取会在后台继续。',
-    queueSummaryTitle: 'AI 任务',
-    queueSummaryBody: '助手和 embedding 任务可以在前台操作结束后继续完成。',
+    queueSummaryTitle: '助手与嵌入队列',
+    queueSummaryBody:
+      '开启对应功能后，助手与嵌入任务会显示在这里；已有排队项仍可检查。',
     runtimeSummaryTitle: '本地分析',
     runtimeSummaryBody:
       '分析刷新和内容任务会保留可恢复记录，方便查看哪些已完成、失败或仍在等待。',
@@ -231,7 +233,7 @@ export const jobsNamespaceCatalog = {
     noRecoveryNotes: '当前没有恢复备注。',
     pluginsTitle: '内容任务',
     modulesTitle: '分析模块',
-    recentAiJobs: '最近的 AI 任务',
+    recentAiJobs: '最近的助手任务',
     recentRuntimeJobs: '最近的衍生数据任务',
     recentJobsEmpty: '还没有后台任务记录。',
     queuedCount: '排队中',
@@ -239,7 +241,7 @@ export const jobsNamespaceCatalog = {
     failedCount: '失败',
     concurrency: 'Worker 数',
     queueStatePaused: '已暂停',
-    queueStateLive: '已开启',
+    queueStateLive: '队列可用',
     lastActivity: '最近活动',
     lastCompletedAt: '上次完成',
     derivedTables: '衍生表',
@@ -277,7 +279,7 @@ export const jobsNamespaceCatalog = {
       '内容任务、分析模块和恢复记录放在这里，方便需要时深入检查。',
     recentActivityTitle: '最近活动',
     recentActivityBody:
-      '按任务类型查看最近的 AI 和分析任务；失败可重试，排队项可取消，也能确认队列是否仍在推进。',
+      '按任务类型查看最近的助手和分析任务；失败可重试，排队项可取消，也能确认队列是否仍在推进。',
     errorPdf: '这个页面返回的是 PDF，当前网页正文抓取会跳过非 HTML 内容。',
     errorUnsupportedContent:
       '这个页面不是可读取的 HTML 正文，所以 PathKeep 跳过了正文抓取。',
@@ -333,7 +335,8 @@ export const jobsNamespaceCatalog = {
     archiveTaskUpdated: '更新',
     archiveTaskRecords: '条记录',
     archiveTaskConsole: '控制台日志',
-    archiveTaskNoLogs: '还没有日志。',
+    archiveTaskNoLogs:
+      '正在等待下一条进度事件。大型浏览器配置在复制和校验阶段可能会停留一会儿，之后才出现记录数。',
     archiveTaskOpenResult: '打开结果',
     archiveTaskOpenJobs: '打开后台任务',
     now: '刚刚',
@@ -349,7 +352,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: '背景工作',
     readyTitle: '背景工作目前空閒',
     readyBody:
-      '目前沒有等待的任務。新的分析重新整理、網頁正文擷取與 AI 任務會顯示在這裡。',
+      '目前沒有等待的任務。新的分析重新整理、網頁正文擷取、助手任務與嵌入任務會顯示在這裡。',
     pausedTitle: '背景工作已暫停',
     pausedBody: '排隊任務已經保存，恢復後就會繼續處理。',
     runningTitle: '背景工作正在執行',
@@ -375,8 +378,9 @@ export const jobsNamespaceCatalog = {
     overviewTitle: '佇列總覽',
     overviewHeadline: '先重新整理本機分析，再補抓網頁正文',
     overviewBody: '本機重建會先更新卡片和證據；較慢的網路擷取會在背景繼續。',
-    queueSummaryTitle: 'AI 任務',
-    queueSummaryBody: '助手和 embedding 任務可以在前景操作結束後繼續完成。',
+    queueSummaryTitle: '助手與嵌入佇列',
+    queueSummaryBody:
+      '開啟對應功能後，助手與嵌入任務會顯示在這裡；既有排隊項仍可檢查。',
     runtimeSummaryTitle: '本機分析',
     runtimeSummaryBody:
       '分析重新整理和內容任務會保留可恢復紀錄，方便查看哪些已完成、失敗或仍在等待。',
@@ -386,7 +390,7 @@ export const jobsNamespaceCatalog = {
     noRecoveryNotes: '目前沒有恢復備註。',
     pluginsTitle: '內容任務',
     modulesTitle: '分析模組',
-    recentAiJobs: '最近的 AI 任務',
+    recentAiJobs: '最近的助手任務',
     recentRuntimeJobs: '最近的衍生資料任務',
     recentJobsEmpty: '還沒有背景任務紀錄。',
     queuedCount: '排隊中',
@@ -394,7 +398,7 @@ export const jobsNamespaceCatalog = {
     failedCount: '失敗',
     concurrency: 'Worker 數',
     queueStatePaused: '已暫停',
-    queueStateLive: '已開啟',
+    queueStateLive: '佇列可用',
     lastActivity: '最近活動',
     lastCompletedAt: '上次完成',
     derivedTables: '衍生資料表',
@@ -432,7 +436,7 @@ export const jobsNamespaceCatalog = {
       '內容任務、分析模組和恢復紀錄放在這裡，方便需要時深入檢查。',
     recentActivityTitle: '最近活動',
     recentActivityBody:
-      '按任務類型查看最近的 AI 和分析任務；失敗可重試，排隊項可取消，也能確認佇列是否仍在推進。',
+      '按任務類型查看最近的助手和分析任務；失敗可重試，排隊項可取消，也能確認佇列是否仍在推進。',
     errorPdf: '這個頁面回傳的是 PDF，目前網頁正文抓取會跳過非 HTML 內容。',
     errorUnsupportedContent:
       '這個頁面不是可讀的 HTML 正文，所以 PathKeep 跳過了正文抓取。',
@@ -489,7 +493,8 @@ export const jobsNamespaceCatalog = {
     archiveTaskUpdated: '更新',
     archiveTaskRecords: '筆紀錄',
     archiveTaskConsole: 'Console log',
-    archiveTaskNoLogs: '還沒有日誌。',
+    archiveTaskNoLogs:
+      '正在等待下一筆進度事件。大型瀏覽器設定檔在複製和驗證階段可能會停留一會兒，之後才出現記錄數。',
     archiveTaskOpenResult: '打開結果',
     archiveTaskOpenJobs: '打開背景工作',
     now: '剛剛',

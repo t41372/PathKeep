@@ -181,7 +181,7 @@ describe('useExplorerUrlState', () => {
     ).toEqual([
       expect.objectContaining({
         label:
-          'Semantic · Enabled · sqlite · example.com · Default · Chrome · Apr 1 - Apr 20',
+          'Semantic · Enabled · sqlite · example.com · Chrome · Default · Chrome · Apr 1 - Apr 20',
         params: expect.objectContaining({ q: 'sqlite', sort: 'newest' }),
       }),
     ])

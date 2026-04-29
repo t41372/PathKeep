@@ -79,7 +79,9 @@
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
+- Schedule 的 cadence copy 必須拆清楚：`dueAfterHours` 是下一次備份到期 / trigger cadence，`checkIntervalHours` 是 PathKeep 檢查已安裝 schedule 是否健康的 verification cadence；兩者不能都只寫成「每 N 小時」。
 - Onboarding 與 Dashboard 的 browser profile surface 現在也屬於 trust-critical review surface：除了 `history found / missing` 之外，還要顯示 browser-retention honesty，明講 browser-managed local history 可能在下一次 backup 前消失，而 PathKeep 只有在成功 backup 後才開始提供 append-only 保存。
+- Onboarding、Settings 與 Import 的 browser profile 選擇第一層只顯示 browser / profile / history file label；完整 source path、raw profile id、或 UUID-like identifier 只能放在明確的 detail / support / review row，不能當成主要 profile 名稱壓給普通使用者。
 
 ---
 
@@ -104,6 +106,7 @@
 - Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態、background-work strip 與 theme toggle 在不捲動主內容區的情況下也要可見。
 - Settings 擁有 day-one 語言切換與持久偏好；Maintenance 擁有平台 troubleshooting、updates、cleanup、derived rebuild / clear 與 support diagnostics；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
 - 共享 profile scope 存在於 shell chrome，而不是散落在各頁各自記憶；Explorer 若未指定 page-specific `profileId`，必須明講自己目前沿用 shared scope。
+- Explorer 的 profile / browser filter option、active chip、recent search label 都必須使用 display label（例如 `Chrome · Default`、`Safari`），不得外露 `chrome:Default`、`browserKind=chrome` 這類 internal token。
 
 ### M3 Intelligence deep-link 規則
 
@@ -126,6 +129,7 @@
 - shell footer、Import inline task card 與 Jobs 頁要形成同一套 queue grammar：footer 負責小型摘要與入口，Import 負責當前 handoff card，Jobs 頁負責完整 progress / log / recovery；不能讓三處各自發明不同的狀態名稱。
 - import / backup 這類 archive-write 任務必須由 shell-owned task store 管理，使用者離開 `/import` 或 Dashboard 後仍能從 Jobs 與 sidebar footer 找回進度；同一時間只允許一個 archive-write 任務，第二個 import / backup action 應連到現有任務而不是啟動第二條寫入。
 - archive-write progress surface 必須使用 shared progress card / meter / console component。console log 顯示 timestamp、severity、source/profile label、record counters 與 bounded recent entries；raw backend log lines 只能作 fallback，產品 UI 應優先消費 structured progress `logEvents`。
+- Jobs 的 queue copy 只能描述 queue/runtime 狀態。`Queue active` 代表背景隊列可接收與處理工作，不等於 optional assistant / embedding / AI provider 已啟用；相關 panels 必須把 optional work 說成「開啟對應功能後會出現在這裡」。
 - 對長時間 deterministic rebuild，footer 與 Jobs 頁都必須優先顯示 phase / heartbeat / coarse percent，而不是永遠只給一條無信息的 indeterminate bar；使用者需要知道工作仍在前進，還是停在某個 phase 沒有 heartbeat。
 - Intelligence 的 top-of-page runtime digest 與 Jobs / footer 必須使用同一套 queue grammar，但只保留摘要與 deep-link；不可在 Intelligence 重新長出一個第二套 full queue review wall。
 - Intelligence section cards、day insights 與 domain deep dive 的 evidence / freshness badge / floating panel 必須沿用同一套 scope/window/module/source-table grammar；如果要做 rebuild / clear / retry，仍然導回 Maintenance / Jobs，而不是在分析頁面就地長出 mutation controls。

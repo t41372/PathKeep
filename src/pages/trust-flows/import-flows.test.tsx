@@ -279,9 +279,15 @@ describe('trust flows/import flows', () => {
     const manualInput = screen.getByPlaceholderText('/path/to/History')
     await user.clear(manualInput)
 
-    await waitFor(() =>
-      expect(screen.getByText(chromeProfile!.historyPath!)).toBeVisible(),
-    )
+    expect(
+      await screen.findByText(importT('browserProfileSourcePath')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: importT('scanSource') }),
+    ).toBeEnabled()
+    expect(
+      screen.queryByText(chromeProfile!.historyPath!),
+    ).not.toBeInTheDocument()
   })
 
   test('routes Browser Direct scan and import through browser-history commands', async () => {

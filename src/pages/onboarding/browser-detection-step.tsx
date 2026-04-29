@@ -91,6 +91,10 @@ export function BrowserDetectionStep({
               const retention = browserRetentionMeta(profile, commonT)
               const ready = isBrowserProfileReadable(profile)
               const accessIssue = hasBrowserProfileAccessIssue(profile)
+              const historyFileLabel =
+                profile.historyFileName ||
+                profile.historyPath?.split(/[\\/]/).pop() ||
+                profile.profileName
               const statusLabel = ready
                 ? t('historyFound')
                 : accessIssue
@@ -114,7 +118,7 @@ export function BrowserDetectionStep({
                     ? t('safariAccessHint')
                     : t('cannotReadHint').replace(
                         '{fileName}',
-                        profile.historyFileName,
+                        historyFileLabel,
                       )
 
               return (
@@ -141,7 +145,7 @@ export function BrowserDetectionStep({
                       {profile.browserName} / {profile.profileName}
                     </div>
                     <div className="profile-path dim mono">
-                      {profile.profilePath}
+                      {historyFileLabel}
                     </div>
                   </div>
                   <div className="profile-detection">

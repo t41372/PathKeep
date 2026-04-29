@@ -83,6 +83,10 @@ describe('ExplorerQueryFiltersPanel', () => {
     expect(
       screen.getByText(explorerT('visibleRecords', { count: 42 })),
     ).toBeVisible()
+    expect(
+      screen.getByRole('option', { name: 'Chrome · Default' }),
+    ).toHaveValue('chrome:Default')
+    expect(screen.queryByText('chrome:Default')).not.toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
         name: explorerT('removeFilter', {

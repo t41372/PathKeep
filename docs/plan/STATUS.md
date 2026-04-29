@@ -12,6 +12,19 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-RELEASE-011-A** — Judge Review Demo Trust Polish
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/archive.md`
+    `TESTING.md`
+  - 目標：逐項驗證早期評審報告，排除使用者不同意的「明文預設 / 強化加密引導」建議後，只修會降低 demo 信任風險或狀態誤讀的 release polish 問題。
+  - 契約：不改 archive encryption / plaintext default policy；不新增 Tauri command、IPC payload、browser support scope、或 backend ingest 行為；所有 user-visible copy 維持 `en` / `zh-CN` / `zh-TW` parity。
+  - 2026-04-28 closeout：當前 `bun run check` 已證明評審提到的 Safari fixture / reference path failure 不再存在。Schedule copy 現在拆清 backup trigger cadence 與 installed-schedule health-check cadence；Jobs queue copy 不再把 queue active 說成 AI enabled；Explorer filter option / chip / recent-search label 不再外露 raw profile/browser tokens；Onboarding / Settings / Import profile selectors 第一層改顯示 browser/profile/history filename，Browser Direct source path 收進 selected-source detail；archive-write empty console copy 改成等待下一條 progress event 的誠實說明。
+  - 同步回寫 [`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：pre-change `bun run check`、`bun run check:i18n`、targeted Vitest release polish slices、post-change `bun run check`。
+
 - [x] **WORK-RELEASE-010-A** — Browser Support And Windows Scheduler Release Blockers
   - 讀先：
     `docs/features/archive.md`

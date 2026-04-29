@@ -50,6 +50,7 @@ describe('ProfileSelectionSection', () => {
                 profileName: 'Personal research',
                 browserVersion: '124.0.0',
                 historyExists: true,
+                historyFileName: '',
               }),
               createProfile({
                 browserName: 'Safari',
@@ -57,6 +58,7 @@ describe('ProfileSelectionSection', () => {
                 profileName: 'Work',
                 browserVersion: null,
                 historyExists: false,
+                historyFileName: '',
               }),
             ],
             saving: false,
@@ -70,6 +72,10 @@ describe('ProfileSelectionSection', () => {
     expect(screen.getByText('Browser profiles')).toBeVisible()
     expect(screen.getByText('Google Chrome / Personal research')).toBeVisible()
     expect(screen.getByText('Safari / Work')).toBeVisible()
+    expect(screen.getByText('History')).toBeVisible()
+    expect(
+      screen.queryByText('/Users/test/chrome:Default'),
+    ).not.toBeInTheDocument()
     expect(screen.getByText('History found · 124.0.0')).toBeVisible()
     expect(screen.getByText('No history file found')).toBeVisible()
 
@@ -118,7 +124,8 @@ function createProfile(
     | 'historyExists'
     | 'profileId'
     | 'profileName'
-  >,
+  > &
+    Partial<Pick<BrowserProfile, 'historyFileName'>>,
 ): BrowserProfile {
   return {
     ...profile,
@@ -132,7 +139,8 @@ function createProfile(
     historyReadable: profile.historyExists,
     accessIssue: null,
     historyFileName:
-      profile.browserName === 'Safari' ? 'History.db' : 'History',
+      profile.historyFileName ??
+      (profile.browserName === 'Safari' ? 'History.db' : 'History'),
     historyBytes: profile.historyExists ? 1024 : 0,
     faviconsBytes: 0,
     supportingBytes: profile.historyExists ? 1024 : 0,

@@ -229,14 +229,21 @@ export function buildExplorerBrowserKinds(selectedProfileIds: string[]) {
  * Builds the active-filter chip list shown above the Explorer query controls.
  */
 export function buildExplorerActiveFilters(args: {
+  browserLabelForKind?: (kind: string) => string
   explorerT: Translator
   mode: ExplorerMode
+  profileLabelForId?: (profileId: string) => string
   regexMode: boolean
   searchParams: URLSearchParams
   view: ExplorerViewMode
   start: string | null
   end: string | null
 }) {
+  const profileLabelForId =
+    args.profileLabelForId ?? ((profileId: string) => profileId)
+  const browserLabelForKind =
+    args.browserLabelForKind ?? ((kind: string) => kind)
+
   return [
     args.searchParams.get('q')
       ? {
@@ -283,14 +290,18 @@ export function buildExplorerActiveFilters(args: {
       ? {
           id: 'profileId',
           label: args.explorerT('filterProfile'),
-          value: args.searchParams.get('profileId') as string,
+          value: profileLabelForId(
+            args.searchParams.get('profileId') as string,
+          ),
         }
       : null,
     args.searchParams.get('browserKind')
       ? {
           id: 'browserKind',
           label: args.explorerT('filterBrowser'),
-          value: args.searchParams.get('browserKind') as string,
+          value: browserLabelForKind(
+            args.searchParams.get('browserKind') as string,
+          ),
         }
       : null,
     args.start

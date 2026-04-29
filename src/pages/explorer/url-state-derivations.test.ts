@@ -173,9 +173,12 @@ describe('explorer url-state derivations', () => {
 
     expect(
       buildExplorerActiveFilters({
+        browserLabelForKind: (kind) => (kind === 'chrome' ? 'Chrome' : kind),
         end: '2026-04-20',
         explorerT,
         mode: 'hybrid',
+        profileLabelForId: (profileId) =>
+          profileId === 'chrome:Default' ? 'Default' : profileId,
         regexMode: true,
         searchParams: params,
         start: '2026-04-01',
@@ -187,10 +190,28 @@ describe('explorer url-state derivations', () => {
       { id: 'view', label: 'View by', value: 'Search Trail' },
       { id: 'regex', label: 'REGEX', value: 'Enabled' },
       { id: 'domain', label: 'DOMAIN', value: 'example.com' },
-      { id: 'profileId', label: 'PROFILE', value: 'chrome:Default' },
-      { id: 'browserKind', label: 'BROWSER', value: 'chrome' },
+      { id: 'profileId', label: 'PROFILE', value: 'Default' },
+      { id: 'browserKind', label: 'BROWSER', value: 'Chrome' },
       { id: 'start', label: 'START', value: '2026-04-01' },
       { id: 'end', label: 'END', value: '2026-04-20' },
+    ])
+
+    expect(
+      buildExplorerActiveFilters({
+        end: null,
+        explorerT,
+        mode: 'keyword',
+        regexMode: false,
+        searchParams: new URLSearchParams({
+          profileId: 'chrome:Default',
+          browserKind: 'chrome',
+        }),
+        start: null,
+        view: 'time',
+      }),
+    ).toEqual([
+      { id: 'profileId', label: 'PROFILE', value: 'chrome:Default' },
+      { id: 'browserKind', label: 'BROWSER', value: 'chrome' },
     ])
   })
 

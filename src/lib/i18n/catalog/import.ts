@@ -231,6 +231,7 @@ export const importNamespaceCatalog = {
     showManualPath: 'Enter path manually',
     hideManualPath: 'Hide manual path',
     selectedSource: 'SELECTED SOURCE',
+    browserProfileSourcePath: 'Show source path',
     actionErrorTitle: 'Import could not continue',
     batchReviewTitle: 'Current import result',
     batchReviewBody:
@@ -468,6 +469,7 @@ export const importNamespaceCatalog = {
     showManualPath: '手动输入路径',
     hideManualPath: '隐藏手动路径',
     selectedSource: '当前来源',
+    browserProfileSourcePath: '显示来源路径',
     actionErrorTitle: '导入无法继续',
     batchReviewTitle: '当前导入结果',
     batchReviewBody: '最新导入的批次会先显示在这里，方便你立刻核对或撤销。',
@@ -699,6 +701,7 @@ export const importNamespaceCatalog = {
     showManualPath: '手動輸入路徑',
     hideManualPath: '隱藏手動路徑',
     selectedSource: '目前來源',
+    browserProfileSourcePath: '顯示來源路徑',
     actionErrorTitle: '匯入無法繼續',
     batchReviewTitle: '目前匯入結果',
     batchReviewBody: '最新匯入的批次會先顯示在這裡，方便你立刻核對或復原。',

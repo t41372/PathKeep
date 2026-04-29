@@ -1035,3 +1035,16 @@
   - 同步回寫 [`README.md`](../../README.md)、[`RELEASE.md`](../../RELEASE.md)、[`TESTING.md`](../../TESTING.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/browser-support-and-adapter-playbook.md`](../architecture/browser-support-and-adapter-playbook.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/m4-full-polish/release-readiness-runbook.md`](m4-full-polish/release-readiness-runbook.md)、[`docs/plan/backend-hotspot-decomposition.md`](backend-hotspot-decomposition.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 維護性 follow-up：`src-tauri/crates/vault-platform/src/scheduler.rs` 因 Windows Task Scheduler support 升到 `1261` 行，已按 `AGENTS.md` 在 [`BACKLOG.md`](BACKLOG.md) 新增 blocked `WORK-SCHED-MAINT-A`，等 Windows VM acceptance 後再做 scheduler module maintainability review。
   - 驗收：Firefox / Edge Browser Direct Rust + Vitest acceptance、backup readable-profile hardening tests、Windows scheduler apply/status/remove tests、Import / Schedule / onboarding / i18n Vitest slices、`bun run check`。
+
+- [x] **WORK-RELEASE-011-A** — Judge Review Demo Trust Polish
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+    `docs/design/screens-and-nav.md`
+    `docs/features/archive.md`
+    `TESTING.md`
+  - 目標：逐項驗證早期評審報告，排除使用者不同意的「明文預設 / 強化加密引導」建議後，只修會降低 demo 信任風險或狀態誤讀的 release polish 問題。
+  - 契約：不改 archive encryption / plaintext default policy；不新增 Tauri command、IPC payload、browser support scope、或 backend ingest 行為；所有 user-visible copy 維持 `en` / `zh-CN` / `zh-TW` parity。
+  - 2026-04-28 closeout：當前 `bun run check` 已證明評審提到的 Safari fixture / reference path failure 不再存在。Schedule copy 現在拆清 backup trigger cadence 與 installed-schedule health-check cadence；Jobs queue copy 不再把 queue active 說成 AI enabled；Explorer filter option / chip / recent-search label 不再外露 raw profile/browser tokens；Onboarding / Settings / Import profile selectors 第一層改顯示 browser/profile/history filename，Browser Direct source path 收進 selected-source detail；archive-write empty console copy 改成等待下一條 progress event 的誠實說明。
+  - 同步回寫 [`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收：pre-change `bun run check`、`bun run check:i18n`、targeted Vitest release polish slices、post-change `bun run check`。

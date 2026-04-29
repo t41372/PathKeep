@@ -73,6 +73,10 @@ export function ProfileSelectionSection({
         <div className="profile-list">
           {profiles.map((profile) => {
             const checked = selectedIds.has(profile.profileId)
+            const historyFileLabel =
+              profile.historyFileName ||
+              profile.historyPath?.split(/[\\/]/).pop() ||
+              profile.profileName
             return (
               <button
                 className={`profile-item ${checked ? 'checked' : ''}`}
@@ -96,7 +100,7 @@ export function ProfileSelectionSection({
                     {profile.browserName} / {profile.profileName}
                   </div>
                   <div className="profile-path dim mono">
-                    {profile.profilePath}
+                    {historyFileLabel}
                   </div>
                 </div>
                 <div className="profile-stats mono dim">

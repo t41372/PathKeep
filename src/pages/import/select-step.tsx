@@ -251,20 +251,27 @@ export function ImportSelectStep({
             <Glyph icon="check" />
             <span>{t('import.selectedSource')}</span>
           </div>
-          <div className="import-source-summary__path">{sourcePath}</div>
           {method === 'browser' && selectedBrowserProfile ? (
-            <div className="import-source-summary__profile">
-              <BrowserIcon
-                browserName={selectedBrowserProfile.browserName}
-                className="import-source-summary__icon"
-                decorative
-              />
-              <span>
-                {selectedBrowserProfile.browserName} ·{' '}
-                {selectedBrowserProfile.profileName}
-              </span>
-            </div>
-          ) : null}
+            <>
+              <div className="import-source-summary__profile">
+                <BrowserIcon
+                  browserName={selectedBrowserProfile.browserName}
+                  className="import-source-summary__icon"
+                  decorative
+                />
+                <span>
+                  {selectedBrowserProfile.browserName} ·{' '}
+                  {selectedBrowserProfile.profileName}
+                </span>
+              </div>
+              <details className="import-source-summary__details">
+                <summary>{t('import.browserProfileSourcePath')}</summary>
+                <div className="import-source-summary__path">{sourcePath}</div>
+              </details>
+            </>
+          ) : (
+            <div className="import-source-summary__path">{sourcePath}</div>
+          )}
         </div>
       ) : null}
 
@@ -330,6 +337,10 @@ function BrowserProfileCard({
   onOpenFullDiskAccessSettings: () => void | Promise<void>
 }) {
   const profileLabel = `${profile.browserName} · ${profile.profileName}`
+  const historyFileLabel =
+    profile.historyFileName ||
+    profile.historyPath?.split(/[\\/]/).pop() ||
+    profile.profileName
   const cardContent = (
     <>
       <div className="browser-profile-card__header">
@@ -358,9 +369,7 @@ function BrowserProfileCard({
             : t('import.browserProfileNeedsAccess')}
         </span>
       </div>
-      <div className="browser-profile-card__path">
-        {profile.historyPath || profile.profilePath}
-      </div>
+      <div className="browser-profile-card__path">{historyFileLabel}</div>
       {!ready && (
         <div className="browser-profile-card__help">
           <p className="browser-profile-card__hint">

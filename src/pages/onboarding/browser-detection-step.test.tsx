@@ -101,6 +101,7 @@ describe('BrowserDetectionStep', () => {
               browserFamily: 'chromium',
               browserName: 'Google Chrome',
               browserVersion: null,
+              historyFileName: '',
               profileId: 'chrome:Default',
               profileName: 'Default',
             }),
@@ -127,6 +128,8 @@ describe('BrowserDetectionStep', () => {
               browserFamily: 'brave',
               browserName: 'Brave',
               historyExists: false,
+              historyFileName: '',
+              historyPath: null,
               historyReadable: false,
               profileId: 'brave:Missing',
               profileName: 'Missing',
@@ -156,13 +159,19 @@ describe('BrowserDetectionStep', () => {
     expect(
       screen.getByText(commonT('browserRetentionManagedLabel')),
     ).toBeVisible()
+    expect(
+      screen.queryByText(
+        '/Users/test/Library/Application Support/Browser/Profile',
+      ),
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByText('History').length).toBeGreaterThan(0)
     expect(screen.getAllByText(onboardingT('safariAccessHint')).length).toBe(2)
     expect(
       screen.getByText(onboardingT('browserProfileAccessHint')),
     ).toBeVisible()
     expect(
       screen.getByText(
-        onboardingT('cannotReadHint').replace('{fileName}', 'History'),
+        onboardingT('cannotReadHint').replace('{fileName}', 'Missing'),
       ),
     ).toBeVisible()
     expect(screen.getByText(onboardingT('firefoxSafariInfo'))).toBeVisible()

@@ -23,12 +23,19 @@
  */
 
 import { browserLabel } from './helpers'
+import { profileIdLabel } from '../../lib/profile-scope-context'
 import type {
   ExplorerMode,
   ExplorerViewMode,
   RecentSearchEntry,
   Translator,
 } from './types'
+
+function explorerProfileLabel(profileId: string) {
+  const browserKind = profileId.split(':')[0]
+  const profileLabel = profileIdLabel(profileId)
+  return `${browserLabel(browserKind)} · ${profileLabel}`
+}
 
 interface ExplorerQueryFiltersPanelProps {
   activeFilters: Array<{
@@ -256,7 +263,7 @@ export function ExplorerQueryFiltersPanel({
                 <option value="">{explorerT('allProfiles')}</option>
                 {selectedProfileIds.map((id) => (
                   <option key={id} value={id}>
-                    {id}
+                    {explorerProfileLabel(id)}
                   </option>
                 ))}
               </select>

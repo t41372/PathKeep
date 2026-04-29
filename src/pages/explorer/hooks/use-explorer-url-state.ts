@@ -63,6 +63,12 @@ interface UseExplorerUrlStateOptions {
   selectedProfileIds: string[]
 }
 
+function explorerProfileLabel(profileId: string) {
+  const browserKind = profileId.split(':')[0]
+  const profileLabel = profileIdLabel(profileId)
+  return `${browserLabel(browserKind)} · ${profileLabel}`
+}
+
 /**
  * Provides the `useExplorerUrlState` hook.
  *
@@ -136,7 +142,9 @@ export function useExplorerUrlState({
         formatRecentDate,
         params: {
           ...params,
-          profileId: params.profileId ? profileIdLabel(params.profileId) : null,
+          profileId: params.profileId
+            ? explorerProfileLabel(params.profileId)
+            : null,
           browserKind: params.browserKind
             ? browserLabel(params.browserKind)
             : null,
@@ -290,9 +298,11 @@ export function useExplorerUrlState({
 
   const browserKinds = buildExplorerBrowserKinds(selectedProfileIds)
   const activeFilters = buildExplorerActiveFilters({
+    browserLabelForKind: browserLabel,
     end,
     explorerT,
     mode,
+    profileLabelForId: explorerProfileLabel,
     regexMode,
     searchParams,
     start,
