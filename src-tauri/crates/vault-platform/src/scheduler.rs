@@ -37,6 +37,8 @@ pub struct ScheduleParameters {
 const TEST_SCHTASKS_MODE_ENV: &str = "PATHKEEP_TEST_SCHTASKS_MODE";
 #[cfg(any(test, coverage))]
 const TEST_SCHTASKS_QUERY_XML_ENV: &str = "PATHKEEP_TEST_SCHTASKS_QUERY_XML";
+const LEGACY_MACOS_SCHEDULE_LABELS: &[&str] =
+    &["dev.codex.pathkeep.backup", "dev.codex.browser-history-backup.backup"];
 
 /// Builds a preview-only native schedule plan for the requested platform.
 pub fn preview_schedule(
@@ -220,7 +222,61 @@ pub fn schedule_status(
         }
     }
 
+    let legacy_agents = detect_legacy_macos_launch_agents(&launch_agents_dir);
+    if !legacy_agents.is_empty() {
+        status.detected_files.extend(legacy_agents.iter().map(LegacyLaunchAgent::detected_value));
+        status.install_state = "legacy-install-detected".to_string();
+        status.warnings.push(format!(
+            "A legacy PathKeep LaunchAgent is still present: {}. Current PathKeep uses `{}` and will not migrate or remove legacy schedules automatically.",
+            legacy_agents
+                .iter()
+                .map(LegacyLaunchAgent::summary)
+                .collect::<Vec<_>>()
+                .join(", "),
+            plan.label
+        ));
+    }
+
     Ok(status)
+}
+
+struct LegacyLaunchAgent {
+    label: &'static str,
+    path: PathBuf,
+    file_present: bool,
+    loaded: bool,
+}
+
+impl LegacyLaunchAgent {
+    fn detected_value(&self) -> String {
+        if self.file_present {
+            self.path.display().to_string()
+        } else {
+            format!("LaunchAgent:{}", self.label)
+        }
+    }
+
+    fn summary(&self) -> String {
+        if self.loaded { format!("{} (loaded)", self.label) } else { self.label.to_string() }
+    }
+}
+
+fn detect_legacy_macos_launch_agents(launch_agents_dir: &Path) -> Vec<LegacyLaunchAgent> {
+    LEGACY_MACOS_SCHEDULE_LABELS
+        .iter()
+        .copied()
+        .filter_map(|label| {
+            let path = launch_agents_dir.join(format!("{label}.plist"));
+            let file_present = path.exists();
+            let loaded = launch_agents_dir_override().is_none() && macos_launch_agent_loaded(label);
+            (file_present || loaded).then_some(LegacyLaunchAgent {
+                label,
+                path,
+                file_present,
+                loaded,
+            })
+        })
+        .collect()
 }
 
 fn generated_plist_target_path(plan: &SchedulePlan, launch_agents_dir: &Path) -> Result<PathBuf> {
@@ -781,6 +837,24 @@ fn scheduler_uid() -> Result<String> {
 }
 
 #[cfg(not(any(test, coverage)))]
+fn macos_launch_agent_loaded(label: &str) -> bool {
+    let Ok(uid) = scheduler_uid() else {
+        return false;
+    };
+    Command::new("launchctl")
+        .args(["print", &format!("gui/{uid}/{label}")])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(any(test, coverage))]
+fn macos_launch_agent_loaded(label: &str) -> bool {
+    let _ = label;
+    false
+}
+
+#[cfg(not(any(test, coverage)))]
 fn bootstrap_launch_agent(uid: &str, label: &str, plist_path: &str) -> Result<LaunchctlOutcome> {
     let _ = bootout_launch_agent(uid, label);
     let output = Command::new("launchctl")
@@ -945,6 +1019,48 @@ mod tests {
 
         assert_eq!(status.install_state, "mismatch");
         assert!(status.warnings.iter().any(|warning| warning.contains("no longer matches")));
+    }
+
+    #[test]
+    fn macos_schedule_status_detects_legacy_launch_agent() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let launch_agents_dir = dir.path().join("LaunchAgents");
+        let original_launch_agents = std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV);
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_LAUNCH_AGENTS_DIR_ENV, &launch_agents_dir);
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
+        let legacy_path = launch_agents_dir.join("dev.codex.pathkeep.backup.plist");
+        fs::write(&legacy_path, "<plist>legacy</plist>").expect("write legacy plist");
+
+        let status =
+            schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
+
+        restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert_eq!(status.install_state, "legacy-install-detected");
+        assert!(status.detected_files.contains(&legacy_path.display().to_string()));
+        assert!(status.warnings.iter().any(|warning| warning.contains("legacy PathKeep")));
+    }
+
+    #[test]
+    fn legacy_launch_agent_detected_value_covers_loaded_without_file() {
+        let agent = LegacyLaunchAgent {
+            label: "dev.codex.browser-history-backup.backup",
+            path: PathBuf::from("/tmp/missing-legacy.plist"),
+            file_present: false,
+            loaded: true,
+        };
+
+        assert_eq!(agent.detected_value(), "LaunchAgent:dev.codex.browser-history-backup.backup");
+        assert_eq!(agent.summary(), "dev.codex.browser-history-backup.backup (loaded)");
     }
 
     #[test]
