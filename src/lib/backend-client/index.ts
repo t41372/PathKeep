@@ -85,6 +85,7 @@ export const backend = {
   scheduleStatus: scheduleClient.getStatus,
   applySchedule: scheduleClient.applyInstall,
   removeSchedule: scheduleClient.removeInstall,
+  repairSchedule: scheduleClient.repairInstall,
   doctor: auditClient.getHealthReport,
   repairHealth: auditClient.repairHealth,
   keyringStatus: securityClient.getKeyringStatus,

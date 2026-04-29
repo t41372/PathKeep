@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use vault_core::{SchedulePlan, ScheduleStatus, load_config};
 use vault_platform::{
-    ScheduleParameters, apply_schedule, preview_schedule, remove_schedule,
+    ScheduleParameters, apply_schedule, preview_schedule, remove_schedule, repair_schedule,
     schedule_status as detect_schedule_status,
 };
 
@@ -44,6 +44,12 @@ pub fn apply_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResul
 pub fn remove_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
     let paths = vault_core::project_paths()?;
     remove_schedule(plan, &paths)
+}
+
+/// Repairs known scheduler conflicts after explicit user confirmation.
+pub fn repair_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
+    let paths = vault_core::project_paths()?;
+    repair_schedule(plan, &paths)
 }
 
 /// Loads the current schedule status and annotates it with the last successful backup.

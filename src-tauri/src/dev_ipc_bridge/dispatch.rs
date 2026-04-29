@@ -247,6 +247,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<PlanPayload>(payload)?;
             json_value!(worker_bridge::remove_schedule_impl(payload.plan)?)
         }
+        "repair_schedule" => {
+            let payload = parse_payload::<PlanPayload>(payload)?;
+            json_value!(worker_bridge::repair_schedule_impl(payload.plan)?)
+        }
         "doctor_report" => {
             json_value!(worker_bridge::doctor_report_impl(session_key(&state.session).as_deref())?)
         }

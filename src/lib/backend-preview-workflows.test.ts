@@ -162,4 +162,17 @@ describe('backend preview workflow helpers', () => {
       ],
     })
   })
+
+  test('returns an explicit browser-preview response for schedule repair', () => {
+    const state = createMockState()
+
+    expect(
+      handlePreviewWorkflowCommand('repair_schedule', undefined, state),
+    ).toMatchObject({
+      applied: false,
+      files: [],
+      message: 'Repair is not available in browser preview mode.',
+      platform: 'macos',
+    })
+  })
 })

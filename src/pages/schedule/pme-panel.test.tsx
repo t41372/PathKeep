@@ -334,6 +334,9 @@ describe('schedule pme panel', () => {
     expect(screen.getAllByText(t('common.verifyTab')).length).toBeGreaterThan(0)
     expect(screen.getByText('3 days ago')).toBeVisible()
     expect(screen.getByText(scheduleStatus.auditPath ?? '')).toBeVisible()
+    expect(
+      screen.getAllByText(t('schedule.removeSchedule')).length,
+    ).toBeGreaterThan(0)
     expect(screen.getByText('Removed schedule successfully.')).toBeVisible()
 
     await user.click(
@@ -381,6 +384,27 @@ describe('schedule pme panel', () => {
       />,
     )
     expect(screen.getByText('Applied schedule successfully.')).toBeVisible()
+  })
+
+  test('renders remove execution results without relying on a rerender transition', () => {
+    renderPanel({
+      executionResult: {
+        mode: 'remove',
+        result: {
+          applied: false,
+          auditPath: '/Users/test/AppData/remove-audit.json',
+          files: [],
+          message: 'Removed schedule successfully.',
+          platform: 'macos',
+        },
+      },
+      pmeTab: 'execute',
+    })
+
+    expect(
+      screen.getAllByText(t('schedule.removeSchedule')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByText('Removed schedule successfully.')).toBeVisible()
   })
 
   test('renders execute guardrails for errors, busy labels, and unsupported plans', () => {

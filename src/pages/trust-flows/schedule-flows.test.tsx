@@ -1,27 +1,27 @@
 /**
  * @file schedule-flows.test.tsx
- * @description Split trust-flow regression suite for schedule PMEs, platform guidance, and direct-execution controls.
+ * @description Split trust-flow regression suite for the schedule state machine.
  * @module pages/trust-flows
  *
  * ## Responsibilities
- * - Verify the schedule page keeps its platform-specific guidance and PME sequencing intact.
- * - Protect keyboard reachability across Preview, Manual, Execute, and Verify tabs.
- * - Confirm direct apply/remove controls stay visible when the schedule runtime supports them.
+ * - Verify state-local schedule actions replace the old always-visible PME tab layout.
+ * - Protect manual fallback, repair, reinstall, remove, and verification recovery paths.
+ * - Confirm scheduler action failures stay inline and do not strand the user.
  *
  * ## Non-Responsibilities
  * - Does not cover import, security, settings, or audit trust flows.
- * - Does not own the shared route harness or cross-suite fixtures.
- * - Does not rewrite the original mega-suite during the split phase.
+ * - Does not exercise real LaunchAgent, Task Scheduler, or systemd state.
+ * - Does not snapshot visual styling.
  *
  * ## Dependencies
  * - Depends on shared trust-flow helpers for seeded archive state and shell/i18n providers.
- * - Keeps the Tauri core and import-progress module boundaries mocked so route modules load under test.
+ * - Uses the backend preview harness for route-level schedule plan/status fixtures.
  *
  * ## Performance Notes
- * - Reuses the shared initialized snapshot helper so splitting the mega-suite does not multiply setup cost.
+ * - Reuses the shared initialized snapshot helper so this suite stays bounded to tiny in-memory fixtures.
  */
 
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
@@ -48,11 +48,11 @@ vi.mock('../../lib/wait-for-next-paint', () => ({
 
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
-import { createNamespaceTranslator, createTranslator } from '../../lib/i18n'
-import { platformLabelKey } from '../../lib/platform-guidance'
+import { createNamespaceTranslator } from '../../lib/i18n'
+import type { ScheduleIssue, ScheduleStatus } from '../../lib/types'
 import { SchedulePage } from '../schedule'
 import {
-  expectHtmlElement,
+  createShellValue,
   renderTrustPage,
   resetTrustFlowHarness,
   seedInitializedSnapshot,
@@ -64,54 +64,14 @@ describe('schedule trust flows', () => {
     waitForNextPaint.mockResolvedValue(undefined)
   })
 
-  test('renders Windows scheduler guidance and keeps PME tabs keyboard reachable', async () => {
-    const user = userEvent.setup()
+  test('renders a localized not-installed state with read-only browser scope and manual steps', async () => {
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('zh-TW', 'schedule')
-    const zhTwT = createTranslator('zh-TW')
-    const previewSpy = vi.spyOn(backend, 'previewSchedule').mockResolvedValue({
-      platform: 'windows',
-      label: 'com.yi-ting.pathkeep.backup',
-      executablePath: 'C:/Program Files/PathKeep/pathkeep.exe',
-      generatedFiles: [
-        {
-          relativePath: 'schedule/com.yi-ting.pathkeep.task.xml',
-          absolutePath:
-            'C:/Users/test/AppData/Local/com.yi-ting.pathkeep/schedule/com.yi-ting.pathkeep.task.xml',
-          purpose: 'Task Scheduler XML',
-          contents:
-            '<Task><Settings><StartWhenAvailable>true</StartWhenAvailable></Settings></Task>',
-        },
-      ],
-      manualSteps: ['Review the XML before import.'],
-      applyCommands: [
-        [
-          'schtasks',
-          '/Create',
-          '/TN',
-          'com.yi-ting.pathkeep.backup',
-          '/XML',
-          'com.yi-ting.pathkeep.task.xml',
-          '/F',
-        ],
-      ],
-      rollbackCommands: [
-        ['schtasks', '/Delete', '/TN', 'com.yi-ting.pathkeep.backup', '/F'],
-      ],
-      applySupported: true,
-    })
-    const statusSpy = vi.spyOn(backend, 'scheduleStatus').mockResolvedValue({
-      platform: 'windows',
-      label: 'com.yi-ting.pathkeep.backup',
-      dueAfterHours: 48,
-      checkIntervalHours: 6,
-      applySupported: true,
+
+    backendTestHarness.seedSchedule(schedulePlanFixture(), {
+      ...scheduleStatusFixture(),
       installState: 'not-installed',
-      detectedFiles: [],
-      manualSteps: ['Import the XML in Task Scheduler.'],
-      auditPath: null,
       lastSuccessfulBackupAt: null,
-      warnings: ['Review StartWhenAvailable before trusting the schedule.'],
     })
 
     renderTrustPage(<SchedulePage />, {
@@ -120,101 +80,37 @@ describe('schedule trust flows', () => {
       snapshot,
     })
 
-    const workflowPanel = expectHtmlElement(
-      (await screen.findByText(scheduleT('pmeTitle'))).closest('.panel'),
-    )
-
     expect(
-      await screen.findByRole('heading', {
-        name: zhTwT(platformLabelKey('windows')),
+      await screen.findByText(scheduleT('stateNotInstalledTitle')),
+    ).toBeVisible()
+    expect(screen.getByText(scheduleT('preInstallConfig'))).toBeVisible()
+    expect(screen.getByText(scheduleT('backupScope'))).toBeVisible()
+    expect(
+      screen.getByRole('link', {
+        name: scheduleT('editProfilesInSettings'),
       }),
-    ).toBeVisible()
+    ).toHaveAttribute('href', '/settings#settings-profiles')
     expect(
-      await screen.findByText(scheduleT('intervalValue', { hours: 48 })),
+      screen.getByRole('button', { name: scheduleT('autoInstall') }),
     ).toBeVisible()
-    expect(
-      await screen.findByText(scheduleT('verificationValue', { hours: 6 })),
-    ).toBeVisible()
-
-    const previewTab = within(workflowPanel).getByRole('button', {
-      name: zhTwT('common.previewTab'),
-    })
-    const manualTab = within(workflowPanel).getByRole('button', {
-      name: zhTwT('common.manualTab'),
-    })
-    const executeTab = within(workflowPanel).getByRole('button', {
-      name: zhTwT('common.executeTab'),
-    })
-    const verifyTab = within(workflowPanel).getByRole('button', {
-      name: zhTwT('common.verifyTab'),
-    })
-
-    previewTab.focus()
-    expect(previewTab).toHaveFocus()
-    await user.tab()
-    expect(manualTab).toHaveFocus()
-    await user.tab()
-    expect(executeTab).toHaveFocus()
-    await user.tab()
-    expect(verifyTab).toHaveFocus()
-
-    await user.click(verifyTab)
-    expect(
-      (
-        await within(workflowPanel).findAllByText(
-          'Review StartWhenAvailable before trusting the schedule.',
-        )
-      )[0],
-    ).toBeVisible()
-
-    previewSpy.mockRestore()
-    statusSpy.mockRestore()
+    expect(screen.getByText(scheduleT('manualInstall'))).toBeVisible()
+    expect(screen.getByText('launchctl bootstrap')).toBeInTheDocument()
   })
 
-  test('shows apply and remove controls when the schedule supports direct execution', async () => {
+  test('keeps installed-ok actions focused on verify, detail, update, remove, and re-detect', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const enT = createTranslator('en')
+    const plan = schedulePlanFixture()
+    const applySchedule = vi.spyOn(backend, 'applySchedule').mockResolvedValue({
+      applied: true,
+      auditPath: '/Users/test/AppData/apply-audit.json',
+      files: ['~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist'],
+      message: 'Applied from route test.',
+      platform: 'macos',
+    })
 
-    backendTestHarness.seedSchedule(
-      {
-        platform: 'macos',
-        label: 'com.yi-ting.pathkeep.backup',
-        executablePath: '/Applications/PathKeep.app',
-        generatedFiles: [
-          {
-            relativePath: 'schedule/com.yi-ting.pathkeep.backup.plist',
-            absolutePath:
-              '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
-            purpose: 'LaunchAgent plist',
-            contents:
-              '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
-          },
-        ],
-        manualSteps: ['Review the LaunchAgent install.'],
-        applyCommands: [['launchctl', 'bootstrap']],
-        rollbackCommands: [['launchctl', 'bootout']],
-        applySupported: true,
-      },
-      {
-        platform: 'macos',
-        label: 'com.yi-ting.pathkeep.backup',
-        dueAfterHours: 72,
-        checkIntervalHours: 6,
-        applySupported: true,
-        installState: 'installed',
-        detectedFiles: [
-          '~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
-        ],
-        manualSteps: [
-          'Remove the LaunchAgent if you no longer want automation.',
-        ],
-        auditPath: null,
-        lastSuccessfulBackupAt: null,
-        warnings: [],
-      },
-    )
+    backendTestHarness.seedSchedule(plan, scheduleStatusFixture())
 
     renderTrustPage(<SchedulePage />, {
       language: 'en',
@@ -222,46 +118,32 @@ describe('schedule trust flows', () => {
       snapshot,
     })
 
-    const workflowPanel = expectHtmlElement(
-      (await screen.findByText(scheduleT('pmeTitle'))).closest('.panel'),
-    )
+    expect(
+      await screen.findByText(scheduleT('stateInstalledOkTitle')),
+    ).toBeVisible()
+    expect(screen.getByText(scheduleT('installedSummary'))).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: scheduleT('verifyInstallation') }),
+    ).toBeVisible()
+    expect(screen.getByText(scheduleT('viewInstallDetails'))).toBeVisible()
 
     await user.click(
-      within(workflowPanel).getByRole('button', {
-        name: enT('common.executeTab'),
-      }),
+      screen.getByRole('button', { name: scheduleT('modifyInstallation') }),
     )
 
-    expect(await screen.findByText('launchctl bootstrap')).toBeVisible()
-    expect(
-      screen.getByRole('button', { name: scheduleT('applySchedule') }),
-    ).toBeEnabled()
-    expect(
-      screen.getByRole('button', { name: scheduleT('removeSchedule') }),
-    ).toBeEnabled()
-  })
-
-  test('surfaces schedule load failures with the route error state', async () => {
-    const { snapshot } = await seedInitializedSnapshot()
-    const scheduleT = createNamespaceTranslator('en', 'schedule')
-    vi.spyOn(backend, 'previewSchedule').mockRejectedValue(
-      new Error('Preview exploded'),
-    )
-
-    renderTrustPage(<SchedulePage />, {
-      language: 'en',
-      route: '/schedule',
-      snapshot,
+    await waitFor(() => {
+      expect(applySchedule).toHaveBeenCalledWith(plan)
     })
-
-    expect(await screen.findByText(scheduleT('unavailableTitle'))).toBeVisible()
-    expect(screen.getByText('Preview exploded')).toBeVisible()
+    expect(await screen.findByText('Applied from route test.')).toBeVisible()
   })
 
-  test('falls back to localized schedule error copy for non-error failures', async () => {
+  test('surfaces missing schedule plans with route-local recovery copy', async () => {
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    vi.spyOn(backend, 'previewSchedule').mockRejectedValue('offline')
+    vi.spyOn(backend, 'previewSchedule').mockResolvedValue(null as never)
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(
+      scheduleStatusFixture(),
+    )
 
     renderTrustPage(<SchedulePage />, {
       language: 'en',
@@ -280,11 +162,11 @@ describe('schedule trust flows', () => {
     vi.spyOn(backend, 'previewSchedule').mockReturnValueOnce(plan.promise)
     vi.spyOn(backend, 'scheduleStatus').mockReturnValueOnce(status.promise)
 
-    const successRender = renderTrustPage(<SchedulePage />, {
+    const rendered = renderTrustPage(<SchedulePage />, {
       route: '/schedule',
       snapshot,
     })
-    successRender.unmount()
+    rendered.unmount()
 
     await act(async () => {
       plan.resolve(schedulePlanFixture())
@@ -292,118 +174,53 @@ describe('schedule trust flows', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-
-    const rejectedPlan = deferred<ReturnType<typeof schedulePlanFixture>>()
-    vi.spyOn(backend, 'previewSchedule').mockReturnValueOnce(
-      rejectedPlan.promise,
-    )
-    vi.spyOn(backend, 'scheduleStatus').mockResolvedValueOnce(
-      scheduleStatusFixture(),
-    )
-
-    const failureRender = renderTrustPage(<SchedulePage />, {
-      route: '/schedule',
-      snapshot,
-    })
-    failureRender.unmount()
-
-    await act(async () => {
-      rejectedPlan.reject(new Error('late preview failure'))
-      await Promise.resolve()
-      await Promise.resolve()
-    })
   })
 
-  test('renders route-level schedule install-state descriptions', async () => {
+  test('maps typed warning and error issues into the warning/error states', async () => {
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const cases = [
-      {
-        installState: 'not-installed' as const,
-        badge: scheduleT('notInstalledBadge'),
-        description: scheduleT('notInstalledDescription'),
-      },
-      {
-        installState: 'mismatch' as const,
-        badge: scheduleT('attentionBadge'),
-        description: scheduleT('mismatchDescription'),
-      },
-      {
-        installState: 'permission-warning' as const,
-        badge: scheduleT('attentionBadge'),
-        description: scheduleT('permissionWarningDescription'),
-      },
-      {
-        installState: 'legacy-install-detected' as const,
-        badge: scheduleT('attentionBadge'),
-        description: scheduleT('legacyInstallDescription'),
-      },
-    ]
 
-    for (const testCase of cases) {
-      backendTestHarness.seedSchedule(schedulePlanFixture(), {
-        ...scheduleStatusFixture(),
-        installState: testCase.installState,
-      })
-      const rendered = renderTrustPage(<SchedulePage />, {
-        route: '/schedule',
-        snapshot,
-      })
-
-      expect(
-        (await screen.findAllByText(testCase.badge)).length,
-      ).toBeGreaterThan(0)
-      expect(screen.getAllByText(testCase.description).length).toBeGreaterThan(
-        0,
-      )
-      rendered.unmount()
-    }
-  })
-
-  test('surfaces non-error apply failures without losing the execute controls', async () => {
-    const user = userEvent.setup()
-    const { snapshot } = await seedInitializedSnapshot()
-    const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const enT = createTranslator('en')
-    const plan = schedulePlanFixture()
-
-    backendTestHarness.seedSchedule(plan, scheduleStatusFixture())
-    const applySchedule = vi
-      .spyOn(backend, 'applySchedule')
-      .mockRejectedValue('offline')
-
-    renderTrustPage(<SchedulePage />, {
-      language: 'en',
+    backendTestHarness.seedSchedule(schedulePlanFixture(), {
+      ...scheduleStatusFixture(),
+      installState: 'legacy-install-detected',
+      issues: [legacyIssueFixture()],
+    })
+    const warningRender = renderTrustPage(<SchedulePage />, {
       route: '/schedule',
       snapshot,
     })
 
-    await screen.findByTestId('schedule-page')
-    await user.click(
-      screen.getAllByRole('button', { name: enT('common.executeTab') })[0],
-    )
-    await user.click(
-      await screen.findByRole('button', { name: scheduleT('applySchedule') }),
-    )
-
-    await waitFor(() => {
-      expect(applySchedule).toHaveBeenCalledWith(plan)
-    })
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      enT('common.unavailable'),
-    )
     expect(
-      screen.getByRole('button', { name: scheduleT('removeSchedule') }),
-    ).toBeEnabled()
+      await screen.findByText(scheduleT('stateInstalledWarnTitle')),
+    ).toBeVisible()
+    expect(screen.getByText(scheduleT('issueLegacyAgentTitle'))).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: scheduleT('ignoreWarning') }),
+    ).not.toBeInTheDocument()
+    warningRender.unmount()
+
+    backendTestHarness.seedSchedule(schedulePlanFixture(), {
+      ...scheduleStatusFixture(),
+      issues: [errorIssueFixture()],
+    })
+    renderTrustPage(<SchedulePage />, {
+      route: '/schedule',
+      snapshot,
+    })
+
+    expect(
+      await screen.findByText(scheduleT('stateInstalledErrorTitle')),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: scheduleT('copyDiagnostics') }),
+    ).toBeVisible()
   })
 
-  test('surfaces Error apply failures and non-error remove failures', async () => {
+  test('surfaces apply and remove failures inline while leaving recovery actions available', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const enT = createTranslator('en')
     const plan = schedulePlanFixture()
-
     backendTestHarness.seedSchedule(plan, scheduleStatusFixture())
     vi.spyOn(backend, 'applySchedule').mockRejectedValue(
       new Error('apply denied'),
@@ -416,39 +233,83 @@ describe('schedule trust flows', () => {
       snapshot,
     })
 
-    await screen.findByTestId('schedule-page')
+    await screen.findByText(scheduleT('stateInstalledOkTitle'))
     await user.click(
-      screen.getAllByRole('button', { name: enT('common.executeTab') })[0],
-    )
-    await user.click(
-      await screen.findByRole('button', { name: scheduleT('applySchedule') }),
+      screen.getByRole('button', { name: scheduleT('modifyInstallation') }),
     )
     expect(await screen.findByRole('alert')).toHaveTextContent('apply denied')
 
     await user.click(
-      screen.getByRole('button', { name: scheduleT('removeSchedule') }),
+      screen.getByRole('button', {
+        name: scheduleT('removeInstalledSchedule'),
+      }),
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      enT('common.unavailable'),
+      scheduleT('operationFailed'),
     )
+    expect(
+      screen.getByRole('button', {
+        name: scheduleT('removeInstalledSchedule'),
+      }),
+    ).toBeEnabled()
   })
 
-  test('reports successful schedule removal and refreshes app data', async () => {
+  test('reports successful schedule removal and refreshes shell data before re-detecting', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
+    const shellValue = createShellValue(snapshot)
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const enT = createTranslator('en')
     const plan = schedulePlanFixture()
-
     backendTestHarness.seedSchedule(plan, scheduleStatusFixture())
     const removeSchedule = vi
       .spyOn(backend, 'removeSchedule')
       .mockResolvedValue({
         applied: true,
-        platform: 'macos',
-        files: ['~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist'],
         auditPath: '/Users/test/AppData/remove-audit.json',
+        files: ['~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist'],
         message: 'Removed from route test.',
+        platform: 'macos',
+      })
+
+    renderTrustPage(<SchedulePage />, {
+      language: 'en',
+      route: '/schedule',
+      shellValue,
+      snapshot,
+    })
+
+    await screen.findByText(scheduleT('stateInstalledOkTitle'))
+    await user.click(
+      screen.getByRole('button', {
+        name: scheduleT('removeInstalledSchedule'),
+      }),
+    )
+
+    await waitFor(() => {
+      expect(removeSchedule).toHaveBeenCalledWith(plan)
+      expect(shellValue.refreshAppData).toHaveBeenCalledTimes(1)
+    })
+    expect(await screen.findByText('Removed from route test.')).toBeVisible()
+  })
+
+  test('repairs known legacy scheduler artifacts through the explicit repair action', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedInitializedSnapshot()
+    const scheduleT = createNamespaceTranslator('en', 'schedule')
+    const plan = schedulePlanFixture()
+    backendTestHarness.seedSchedule(plan, {
+      ...scheduleStatusFixture(),
+      installState: 'legacy-install-detected',
+      issues: [legacyIssueFixture()],
+    })
+    const repairSchedule = vi
+      .spyOn(backend, 'repairSchedule')
+      .mockResolvedValue({
+        applied: true,
+        auditPath: '/Users/test/AppData/repair-audit.json',
+        files: [],
+        message: 'Legacy task removed.',
+        platform: 'macos',
       })
 
     renderTrustPage(<SchedulePage />, {
@@ -457,76 +318,27 @@ describe('schedule trust flows', () => {
       snapshot,
     })
 
-    await screen.findByTestId('schedule-page')
+    await screen.findByText(scheduleT('stateInstalledWarnTitle'))
     await user.click(
-      screen.getAllByRole('button', { name: enT('common.executeTab') })[0],
-    )
-    await user.click(
-      await screen.findByRole('button', { name: scheduleT('removeSchedule') }),
+      screen.getAllByRole('button', { name: scheduleT('repairLegacy') })[0],
     )
 
     await waitFor(() => {
-      expect(removeSchedule).toHaveBeenCalledWith(plan)
+      expect(repairSchedule).toHaveBeenCalledWith(plan)
     })
-    expect(await screen.findByText('Removed from route test.')).toBeVisible()
+    expect(await screen.findByText('Legacy task removed.')).toBeVisible()
   })
 
-  test('routes top-level tab shortcuts and direct execution side effects', async () => {
+  test('manual completion and verify buttons run detection without native mutation', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedInitializedSnapshot()
     const scheduleT = createNamespaceTranslator('en', 'schedule')
-    const enT = createTranslator('en')
-    const plan = {
-      platform: 'macos' as const,
-      label: 'com.yi-ting.pathkeep.backup',
-      executablePath: '/Applications/PathKeep.app',
-      generatedFiles: [
-        {
-          relativePath: 'schedule/com.yi-ting.pathkeep.backup.plist',
-          absolutePath:
-            '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
-          purpose: 'LaunchAgent plist',
-          contents:
-            '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
-        },
-      ],
-      manualSteps: ['Review the LaunchAgent install.'],
-      applyCommands: [['launchctl', 'bootstrap']],
-      rollbackCommands: [['launchctl', 'bootout']],
-      applySupported: true,
-    }
-    const status = {
-      platform: 'macos' as const,
-      label: 'com.yi-ting.pathkeep.backup',
-      dueAfterHours: 72,
-      checkIntervalHours: 6,
-      applySupported: true,
-      installState: 'installed' as const,
-      detectedFiles: [
-        '~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
-      ],
-      manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
-      auditPath: '/Users/test/AppData/schedule-audit.json',
-      lastSuccessfulBackupAt: '2026-04-10T12:00:00Z',
-      warnings: ['Existing schedule was refreshed after the last backup.'],
-    }
-    backendTestHarness.seedSchedule(plan, status)
-    const applySchedule = vi.spyOn(backend, 'applySchedule').mockResolvedValue({
-      applied: true,
-      platform: 'macos',
-      files: ['~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist'],
-      auditPath: '/Users/test/AppData/apply-audit.json',
-      message: 'Applied from route test.',
+    backendTestHarness.seedSchedule(schedulePlanFixture(), {
+      ...scheduleStatusFixture(),
+      installState: 'not-installed',
+      lastSuccessfulBackupAt: null,
     })
-    const removeSchedule = vi
-      .spyOn(backend, 'removeSchedule')
-      .mockRejectedValue(new Error('remove denied'))
-    const openPath = vi
-      .spyOn(backend, 'openPathInFileManager')
-      .mockResolvedValue('/Users/test/AppData/apply-audit.json')
-    const writeText = vi
-      .spyOn(navigator.clipboard, 'writeText')
-      .mockResolvedValue(undefined)
+    const scheduleStatus = vi.spyOn(backend, 'scheduleStatus')
 
     renderTrustPage(<SchedulePage />, {
       language: 'en',
@@ -534,63 +346,17 @@ describe('schedule trust flows', () => {
       snapshot,
     })
 
-    await screen.findByTestId('schedule-page')
+    await screen.findByText(scheduleT('stateNotInstalledTitle'))
     await user.click(
-      screen.getAllByRole('button', { name: enT('common.manualTab') })[0],
+      screen.getByRole('button', { name: scheduleT('manualComplete') }),
     )
-    expect(
-      await screen.findByText(
-        'Remove the LaunchAgent if you no longer want automation.',
-      ),
-    ).toBeVisible()
     await user.click(
-      screen.getAllByRole('button', { name: enT('common.previewTab') })[0],
-    )
-    expect(await screen.findByText(scheduleT('previewBoundary'))).toBeVisible()
-    await user.click(
-      screen.getAllByRole('button', { name: enT('common.verifyTab') })[0],
-    )
-    expect(
-      (
-        await screen.findAllByText(
-          'Existing schedule was refreshed after the last backup.',
-        )
-      )[0],
-    ).toBeVisible()
-    await user.click(
-      screen.getAllByRole('button', { name: enT('common.executeTab') })[0],
-    )
-
-    await user.click(
-      await screen.findByRole('button', { name: scheduleT('applySchedule') }),
+      screen.getByRole('button', { name: scheduleT('verifyStep') }),
     )
 
     await waitFor(() => {
-      expect(applySchedule).toHaveBeenCalledWith(plan)
+      expect(scheduleStatus).toHaveBeenCalledTimes(3)
     })
-    expect(waitForNextPaint).toHaveBeenCalled()
-    expect(await screen.findByText('Applied from route test.')).toBeVisible()
-
-    await user.click(
-      screen.getByRole('button', { name: enT('common.openPath') }),
-    )
-    await user.click(
-      screen.getByRole('button', { name: enT('common.copyAction') }),
-    )
-    expect(openPath).toHaveBeenCalledWith(
-      '/Users/test/AppData/apply-audit.json',
-    )
-    expect(writeText).toHaveBeenCalledWith(
-      '/Users/test/AppData/apply-audit.json',
-    )
-
-    await user.click(
-      screen.getByRole('button', { name: scheduleT('removeSchedule') }),
-    )
-    await waitFor(() => {
-      expect(removeSchedule).toHaveBeenCalledWith(plan)
-    })
-    expect(await screen.findByRole('alert')).toHaveTextContent('remove denied')
   })
 })
 
@@ -609,6 +375,22 @@ function schedulePlanFixture() {
           '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
       },
     ],
+    manualStepDetails: [
+      {
+        canAutoRun: true,
+        canVerify: true,
+        command: ['launchctl', 'bootstrap'],
+        directoryPath: '/Users/test/Library/LaunchAgents',
+        fileContents:
+          '<?xml version="1.0"?><plist><dict><key>Label</key><string>com.yi-ting.pathkeep.backup</string></dict></plist>',
+        filePath:
+          '/Users/test/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist',
+        id: 'macos-save-plist',
+        summaryKey: 'schedule.manualMacosSavePlistSummary',
+        titleKey: 'schedule.manualMacosSavePlistTitle',
+        whyKey: 'schedule.manualMacosSavePlistWhy',
+      },
+    ],
     manualSteps: ['Review the LaunchAgent install.'],
     applyCommands: [['launchctl', 'bootstrap']],
     rollbackCommands: [['launchctl', 'bootout']],
@@ -616,7 +398,7 @@ function schedulePlanFixture() {
   }
 }
 
-function scheduleStatusFixture() {
+function scheduleStatusFixture(overrides: Partial<ScheduleStatus> = {}) {
   return {
     platform: 'macos' as const,
     label: 'com.yi-ting.pathkeep.backup',
@@ -626,9 +408,39 @@ function scheduleStatusFixture() {
     installState: 'installed' as const,
     detectedFiles: ['~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist'],
     manualSteps: ['Remove the LaunchAgent if you no longer want automation.'],
-    auditPath: null,
-    lastSuccessfulBackupAt: null,
+    auditPath: '/Users/test/AppData/schedule-audit.json',
+    checkedAt: '2026-04-29T12:00:00.000Z',
+    issues: [],
+    lastSuccessfulBackupAt: '2026-04-10T12:00:00Z',
+    verificationChecks: [],
     warnings: [],
+    ...overrides,
+  }
+}
+
+function legacyIssueFixture(): ScheduleIssue {
+  return {
+    code: 'legacy-launch-agent',
+    consequenceKey: 'schedule.issueLegacyAgentConsequence',
+    detailKey: 'schedule.issueLegacyAgentDetail',
+    dismissible: false,
+    evidence: ['dev.codex.browser-history-backup.backup'],
+    repairAction: 'repair-legacy',
+    severity: 'warning',
+    titleKey: 'schedule.issueLegacyAgentTitle',
+  }
+}
+
+function errorIssueFixture(): ScheduleIssue {
+  return {
+    code: 'macos-launch-agent-not-loaded',
+    consequenceKey: 'schedule.issueLaunchAgentNotLoadedConsequence',
+    detailKey: 'schedule.issueLaunchAgentNotLoadedDetail',
+    dismissible: false,
+    evidence: ['launchctl print failed'],
+    repairAction: 'reinstall',
+    severity: 'error',
+    titleKey: 'schedule.issueLaunchAgentNotLoadedTitle',
   }
 }
 

@@ -107,6 +107,7 @@ fn schedule_plan() -> SchedulePlan {
             contents: "timer".to_string(),
         }],
         manual_steps: vec!["review".to_string()],
+        manual_step_details: Vec::new(),
         apply_commands: Vec::new(),
         rollback_commands: Vec::new(),
         apply_supported: false,
@@ -349,6 +350,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "schedule_status", json!({ "platform": "linux" }));
     dispatch_for_coverage(&state, "apply_schedule", json!({ "plan": schedule_plan() }));
     dispatch_for_coverage(&state, "remove_schedule", json!({ "plan": schedule_plan() }));
+    dispatch_for_coverage(&state, "repair_schedule", json!({ "plan": schedule_plan() }));
     dispatch_for_coverage(&state, "doctor_report", json!({}));
     dispatch_for_coverage(&state, "repair_health", json!({}));
     dispatch_for_coverage(&state, "clear_derived_intelligence", json!({}));

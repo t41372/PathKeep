@@ -46,7 +46,7 @@ describe('App shell', () => {
     {
       entry: '/schedule',
       pageTestId: 'schedule-page',
-      sentinel: scheduleT('configurationTitle'),
+      sentinel: scheduleT('pageTitle'),
       prepare: () => seedInteractiveSchedule(),
     },
     {

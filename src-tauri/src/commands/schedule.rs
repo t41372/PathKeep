@@ -34,6 +34,15 @@ pub(crate) fn remove_schedule(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Repairs known scheduler conflicts after explicit user confirmation.
+pub(crate) fn repair_schedule(
+    plan: vault_core::SchedulePlan,
+) -> Result<vault_core::ApplyResult, String> {
+    worker_bridge::repair_schedule_impl(plan)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads install/due-state information for the selected scheduler platform.
 pub(crate) fn schedule_status(
     platform: Option<String>,

@@ -33,5 +33,6 @@ pub use keyring::{
 pub use launcher::{open_external_url, open_path_in_file_manager};
 /// Preview/apply/remove schedule adapters backed by the native scheduler.
 pub use scheduler::{
-    ScheduleParameters, apply_schedule, preview_schedule, remove_schedule, schedule_status,
+    ScheduleParameters, apply_schedule, preview_schedule, remove_schedule, repair_schedule,
+    schedule_status,
 };

@@ -132,6 +132,7 @@ fn run_app() -> Result<()> {
             preview_schedule,
             apply_schedule,
             remove_schedule,
+            repair_schedule,
             schedule_status,
             doctor_report,
             repair_health,

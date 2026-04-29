@@ -30,4 +30,6 @@ export const scheduleClient = {
     call<ApplyResult>('apply_schedule', { plan }),
   removeInstall: (plan: SchedulePlan) =>
     call<ApplyResult>('remove_schedule', { plan }),
+  repairInstall: (plan: SchedulePlan) =>
+    call<ApplyResult>('repair_schedule', { plan }),
 }

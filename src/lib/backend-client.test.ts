@@ -366,6 +366,11 @@ describe('backend client', () => {
         command: 'remove_schedule',
         args: { plan: schedulePlan },
       },
+      {
+        run: () => backend.repairSchedule(schedulePlan),
+        command: 'repair_schedule',
+        args: { plan: schedulePlan },
+      },
       { run: () => backend.doctor(), command: 'doctor_report' },
       { run: () => backend.repairHealth(), command: 'repair_health' },
       { run: () => backend.keyringStatus(), command: 'keyring_status' },

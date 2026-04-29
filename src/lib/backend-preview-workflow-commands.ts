@@ -381,6 +381,13 @@ export function handlePreviewWorkflowCommand<T>(
         files: [],
         message: 'Remove is not available in browser preview mode.',
       } as T
+    case 'repair_schedule':
+      return {
+        applied: false,
+        platform: 'macos',
+        files: [],
+        message: 'Repair is not available in browser preview mode.',
+      } as T
     default:
       return PREVIEW_COMMAND_UNHANDLED
   }

@@ -65,7 +65,10 @@ pub use self::{
         retry_intelligence_job_now, run_ai_queue_jobs, run_core_intelligence_now,
         search_ai_history, test_ai_provider_connection_report, upsert_search_engine_rule,
     },
-    schedule::{apply_schedule_plan, preview_schedule_plan, remove_schedule_plan, schedule_status},
+    schedule::{
+        apply_schedule_plan, preview_schedule_plan, remove_schedule_plan, repair_schedule_plan,
+        schedule_status,
+    },
     security::{
         clear_ai_provider_api_key, clear_database_key_from_keyring, clear_s3_credentials,
         configure_app_lock_passcode, keyring_report, load_app_lock_status, lock_app_ui_session,

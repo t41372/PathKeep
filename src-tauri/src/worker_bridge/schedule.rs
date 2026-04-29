@@ -20,6 +20,12 @@ pub(crate) fn remove_schedule_impl(plan: SchedulePlan) -> Result<vault_core::App
     worker_result(vault_worker::remove_schedule_plan(&plan))
 }
 
+/// Repairs known scheduler conflicts after explicit user confirmation.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn repair_schedule_impl(plan: SchedulePlan) -> Result<vault_core::ApplyResult, String> {
+    worker_result(vault_worker::repair_schedule_plan(&plan))
+}
+
 /// Loads status for the selected native scheduler implementation.
 pub(crate) fn schedule_status_impl(
     platform: Option<String>,

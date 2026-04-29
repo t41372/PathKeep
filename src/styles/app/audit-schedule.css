@@ -1,11 +1,11 @@
 /**
  * @file audit-schedule.css
- * @description Audit history chain views and schedule PME surfaces for trust-critical review workflows.
+ * @description Audit history chain views and schedule state-machine surfaces for trust-critical review workflows.
  * @module trust-workflows
  *
  * ## Responsibilities
  * - Style audit chain inspection and manifest detail grids.
- * - Own schedule PME tabs, config rows, and code block presentation.
+ * - Own schedule state panels, manual steps, config rows, and code block presentation.
  *
  * ## Not responsible for
  * - Archive security state and settings sections.
@@ -222,4 +222,298 @@
   display: flex;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+.schedule-page {
+  gap: var(--space-4);
+}
+
+.schedule-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.schedule-header h2 {
+  margin: var(--space-1) 0;
+}
+
+.schedule-state-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.schedule-status-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.schedule-status-band h3,
+.schedule-status-band p {
+  margin: 0;
+}
+
+.schedule-status-band h3 {
+  margin-top: var(--space-1);
+}
+
+.schedule-status-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  min-width: 220px;
+  text-align: right;
+}
+
+.schedule-state-not_installed {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+}
+
+.schedule-state-installed_ok {
+  border-color: color-mix(in srgb, var(--success) 44%, var(--border));
+}
+
+.schedule-state-installed_warn {
+  border-color: color-mix(in srgb, var(--warning) 56%, var(--border));
+}
+
+.schedule-state-installed_error {
+  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+}
+
+.schedule-progress,
+.schedule-result {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.schedule-progress strong,
+.schedule-result strong {
+  color: var(--text);
+}
+
+.schedule-result.success {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+}
+
+.schedule-result.error {
+  border-color: color-mix(in srgb, var(--danger) 56%, var(--border));
+}
+
+.schedule-state-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.schedule-config-stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.schedule-action-panel {
+  align-self: start;
+}
+
+.schedule-profile-summary {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--bg-elevated);
+}
+
+.schedule-profile-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.schedule-profile-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.schedule-profile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.schedule-profile-pill .browser-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.schedule-summary-grid {
+  display: grid;
+  gap: 0;
+}
+
+.schedule-issue-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.schedule-issue {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.schedule-issue p {
+  margin: var(--space-1) 0 0;
+}
+
+.schedule-issue.warning {
+  border-color: color-mix(in srgb, var(--warning) 54%, var(--border));
+}
+
+.schedule-issue.error {
+  border-color: color-mix(in srgb, var(--danger) 56%, var(--border));
+}
+
+.schedule-evidence-list {
+  display: grid;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+
+.schedule-manual-mode,
+.schedule-install-details {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.schedule-manual-mode > summary,
+.schedule-install-details > summary {
+  cursor: pointer;
+  padding: var(--space-3);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.schedule-manual-steps {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.schedule-manual-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.schedule-manual-step-body {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.schedule-manual-step-body p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.schedule-directory-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.schedule-manual-step-body details {
+  border: 1px solid var(--bg-elevated);
+  padding: var(--space-2);
+}
+
+.schedule-manual-step-body details summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.schedule-install-details {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.schedule-install-details[open] {
+  padding-bottom: var(--space-3);
+}
+
+.schedule-install-details > .schedule-verification-list,
+.schedule-install-details > .code-panel {
+  margin-inline: var(--space-3);
+}
+
+.schedule-verification-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.schedule-check {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.36fr) minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.schedule-check.pass {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+}
+
+.schedule-check.warn {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border));
+}
+
+.schedule-check.fail {
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--border));
+}
+
+@media (max-width: 980px) {
+  .schedule-status-band,
+  .schedule-state-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-status-meta {
+    align-items: flex-start;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .schedule-profile-heading,
+  .schedule-issue {
+    grid-template-columns: 1fr;
+  }
 }

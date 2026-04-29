@@ -77,21 +77,23 @@ test('keeps schedule and security review surfaces inspectable in browser preview
   await page
     .getByRole('link', { name: 'Scheduled Backup Settings', exact: true })
     .click()
-  await expect(page.getByTestId('schedule-page')).toBeVisible()
+  const schedulePage = page.getByTestId('schedule-page')
+  await expect(schedulePage).toBeVisible()
+  await expect(schedulePage.getByText('CURRENT STATE')).toBeVisible()
+  await expect(schedulePage.getByText('Backup trigger')).toBeVisible()
+  await expect(schedulePage.getByText('Profiles')).toBeVisible()
+  await expect(schedulePage.getByText('RECOVERY ACTIONS')).toBeVisible()
+  await schedulePage.getByText('Manual Install', { exact: true }).click()
   await expect(
-    page.getByTestId('schedule-page').getByText('Desired backup trigger'),
+    schedulePage.getByRole('button', { name: 'I Completed These Steps' }),
+  ).toBeVisible()
+  await expect(schedulePage.getByText('Follow the platform step')).toBeVisible()
+  await expect(
+    schedulePage.getByRole('button', { name: 'Run This Step Automatically' }),
   ).toBeVisible()
   await expect(
-    page.getByText(
-      'Browser preview mode keeps schedule verification read-only. Use the desktop app for the real platform status.',
-    ),
+    schedulePage.getByRole('button', { name: 'Verify This Step' }),
   ).toBeVisible()
-  await page
-    .getByTestId('schedule-page')
-    .locator('.pme-tabs')
-    .last()
-    .getByRole('button', { name: 'Execute', exact: true })
-    .click()
   await expect(
     page.getByText(
       'launchctl bootstrap gui/501 com.yi-ting.pathkeep.backup.plist',

@@ -258,6 +258,8 @@ export const backend = {
     call<ApplyResult>('apply_schedule', { plan }),
   removeSchedule: (plan: SchedulePlan) =>
     call<ApplyResult>('remove_schedule', { plan }),
+  repairSchedule: (plan: SchedulePlan) =>
+    call<ApplyResult>('repair_schedule', { plan }),
   doctor: () => call<HealthReport>('doctor_report'),
   repairHealth: () => call<HealthRepairReport>('repair_health'),
   keyringStatus: () => call<KeyringStatusReport>('keyring_status'),
