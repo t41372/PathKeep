@@ -78,8 +78,9 @@
 - Maintenance 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
 - Assistant 的 empty / disabled state 要保留 seeded prompts、settings / queue 修復入口，以及 shared profile scope honesty；不能只剩「AI 尚未啟用」這種靜態段落。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
-- Schedule 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
+- Scheduled Backup Settings 除了 Preview / Manual / Execute tabs 外，還要把 Verify 做成正式 surface：顯示 install state、detected files、warnings、latest audit artifact，並提供 PME quick-jump，而不是把驗證訊息藏在單一 badge。
 - Schedule 的 cadence copy 必須拆清楚：`dueAfterHours` 是下一次備份到期 / trigger cadence，`checkIntervalHours` 是 PathKeep 檢查已安裝 schedule 是否健康的 verification cadence；兩者不能都只寫成「每 N 小時」。
+- Scheduled Backup Settings 的主頁必須直接提供 interval selection、current config/status view、install/update CTA、remove CTA 與 legacy/error attention state；PME tabs 是詳細審查層，不可再作為唯一可操作入口。
 - Onboarding 與 Dashboard 的 browser profile surface 現在也屬於 trust-critical review surface：除了 `history found / missing` 之外，還要顯示 browser-retention honesty，明講 browser-managed local history 可能在下一次 backup 前消失，而 PathKeep 只有在成功 backup 後才開始提供 append-only 保存。
 - Onboarding、Settings 與 Import 的 browser profile 選擇第一層只顯示 browser / profile / history file label；完整 source path、raw profile id、或 UUID-like identifier 只能放在明確的 detail / support / review row，不能當成主要 profile 名稱壓給普通使用者。
 
@@ -95,16 +96,16 @@
 
 ### M1 導航與 deep-link 規則
 
-- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Schedule / Integrations）、`SYSTEM`（Security / Settings / Maintenance）；Onboarding 是 utility route，不常駐 sidebar。
+- Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Integrations）、`SYSTEM`（Scheduled Backup Settings / Security / Settings / Maintenance）；Onboarding 是 utility route，不常駐 sidebar。
 - 全局 topbar 不再提供 history search box；搜尋入口留在 `History Explorer` 內部，仍使用 `/explorer?q=...` deep-link 讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`、`pageSize`。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。
 - Onboarding shell header 必須有明確的 `Exit setup` 動作；離開後保留目前已選的 storage / profile / security 決策，避免把使用者困在 setup route。
-- Schedule / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings、Maintenance、Integrations 也要能透過 callout / quick action 直接跳回 canonical 修復頁，而不是把排障資訊藏在單一路由裡。
+- Scheduled Backup Settings / Security 在 M1 起就是 review surface；M2 之後 Import、Audit、Dashboard、Settings、Maintenance、Integrations 也要能透過 callout / quick action 直接跳回 canonical 修復頁，而不是把排障資訊藏在單一路由裡。
 - Sidebar 以視窗高度而不是頁面內容高度佈局；footer 的 archive 狀態、background-work strip 與 theme toggle 在不捲動主內容區的情況下也要可見。
-- Settings 擁有 day-one 語言切換與持久偏好；Maintenance 擁有平台 troubleshooting、updates、cleanup、derived rebuild / clear 與 support diagnostics；Schedule 擁有 platform-specific Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
+- Settings 擁有 day-one 語言切換與持久偏好；Maintenance 擁有平台 troubleshooting、updates、cleanup、derived rebuild / clear 與 support diagnostics；Scheduled Backup Settings 擁有 platform-specific status、interval edit、install / update / remove、Preview / Manual / Execute / Verify story；Import 擁有 recent batch review、revert / restore 與 doctor repair 入口。
 - 共享 profile scope 存在於 shell chrome，而不是散落在各頁各自記憶；Explorer 若未指定 page-specific `profileId`，必須明講自己目前沿用 shared scope。
 - Explorer 的 profile / browser filter option、active chip、recent search label 都必須使用 display label（例如 `Chrome · Default`、`Safari`），不得外露 `chrome:Default`、`browserKind=chrome` 這類 internal token。
 

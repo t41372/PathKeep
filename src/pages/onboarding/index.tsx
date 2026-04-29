@@ -39,7 +39,7 @@ import {
   isBrowserProfileReadable,
   macosFullDiskAccessSettingsUrl,
 } from '../../lib/platform-guidance'
-import type { AppConfig, SchedulePlan } from '../../lib/types'
+import type { AppConfig, SchedulePlan, ScheduleStatus } from '../../lib/types'
 import { BrowserDetectionStep } from './browser-detection-step'
 import { ReadyStep } from './ready-step'
 import { ScheduleStep } from './schedule-step'
@@ -77,9 +77,15 @@ export function OnboardingPage() {
   })
   const [localError, setLocalError] = useState<string | null>(null)
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan | null>(null)
+  const [scheduleStatus, setScheduleStatus] = useState<ScheduleStatus | null>(
+    null,
+  )
   const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false)
   const [schedulePreviewError, setSchedulePreviewError] = useState<
     string | null
+  >(null)
+  const [scheduleSetupMode, setScheduleSetupMode] = useState<
+    'install' | 'skip' | null
   >(null)
 
   useEffect(() => {
@@ -93,13 +99,18 @@ export function OnboardingPage() {
       setSchedulePreviewLoading(true)
       setSchedulePreviewError(null)
       try {
-        const plan = await backend.previewSchedule()
+        const [plan, status] = await Promise.all([
+          backend.previewSchedule(),
+          backend.scheduleStatus(),
+        ])
         if (!cancelled) {
           setSchedulePlan(plan)
+          setScheduleStatus(status)
         }
       } catch (nextError) {
         if (!cancelled) {
           setSchedulePlan(null)
+          setScheduleStatus(null)
           setSchedulePreviewError(
             nextError instanceof Error
               ? nextError.message
@@ -239,6 +250,18 @@ export function OnboardingPage() {
     setStep(4)
   }
 
+  function handleScheduleInstallIntent() {
+    setLocalError(null)
+    setScheduleSetupMode('install')
+    setStep(5)
+  }
+
+  function handleScheduleSkip() {
+    setLocalError(null)
+    setScheduleSetupMode('skip')
+    setStep(5)
+  }
+
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -268,6 +291,15 @@ export function OnboardingPage() {
         )
         if (encrypted && securityDraft.rememberKey) {
           await backend.keyringStoreDatabaseKey(securityDraft.masterPassword)
+        }
+      }
+      if (scheduleSetupMode === 'install') {
+        try {
+          const planToApply = schedulePlan ?? (await backend.previewSchedule())
+          await backend.applySchedule(planToApply)
+        } catch {
+          setLocalError(t('errorScheduleInstallFailed'))
+          return
         }
       }
       await runBackup()
@@ -375,15 +407,19 @@ export function OnboardingPage() {
 
       {step === 4 ? (
         <ScheduleStep
+          busyAction={busyAction}
           dueAfterHours={currentConfig.dueAfterHours}
           schedulePlan={schedulePlan}
           schedulePreviewError={schedulePreviewError}
           schedulePreviewLoading={schedulePreviewLoading}
+          scheduleStatus={scheduleStatus}
           onBack={() => setStep(3)}
-          onContinue={() => setStep(5)}
+          onInstallSchedule={handleScheduleInstallIntent}
           onSelectDueAfterHours={(hours) => {
+            setScheduleSetupMode(null)
             void updateConfig((config) => ({ ...config, dueAfterHours: hours }))
           }}
+          onSkipSchedule={handleScheduleSkip}
         />
       ) : null}
 
@@ -394,6 +430,7 @@ export function OnboardingPage() {
           busyAction={busyAction}
           dueAfterHours={currentConfig.dueAfterHours}
           localError={localError}
+          scheduleSetupMode={scheduleSetupMode}
           selectedAccessIssueCount={selectedAccessIssueCount}
           selectedCount={selectedCount}
           onBack={() => setStep(4)}

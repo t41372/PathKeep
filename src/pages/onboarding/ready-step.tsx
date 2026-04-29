@@ -15,6 +15,7 @@ export interface ReadyStepProps {
   onBack: () => void
   onFinish: () => void
   onOpenFullDiskAccessSettings: () => void
+  scheduleSetupMode: 'install' | 'skip' | null
   selectedAccessIssueCount: number
   selectedCount: number
 }
@@ -28,6 +29,7 @@ export function ReadyStep({
   onBack,
   onFinish,
   onOpenFullDiskAccessSettings,
+  scheduleSetupMode,
   selectedAccessIssueCount,
   selectedCount,
 }: ReadyStepProps) {
@@ -73,15 +75,33 @@ export function ReadyStep({
             <div className="config-row">
               <span className="config-label">{t('configSchedule')}</span>
               <span className="config-value">
-                {t('configScheduleValue').replace(
-                  '{hours}',
-                  String(dueAfterHours),
-                )}
+                {scheduleSetupMode === 'skip'
+                  ? t('configScheduleSkippedValue')
+                  : scheduleSetupMode === 'install'
+                    ? t('configScheduleInstallValue').replace(
+                        '{hours}',
+                        String(dueAfterHours),
+                      )
+                    : t('configScheduleValue').replace(
+                        '{hours}',
+                        String(dueAfterHours),
+                      )}
               </span>
             </div>
           </div>
         </div>
       </div>
+
+      {scheduleSetupMode === 'skip' ? (
+        <div className="ob-info-box">
+          <span className="info-icon">i</span>
+          <span className="info-text">
+            <strong>{t('scheduleSkippedTitle')}</strong>
+            <br />
+            {t('scheduleSkippedBody')}
+          </span>
+        </div>
+      ) : null}
 
       <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
         <div className="panel-header">

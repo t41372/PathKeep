@@ -24,7 +24,7 @@ async function completePreviewOnboarding(page: Page) {
     .getByPlaceholder(/Enter the same password again/i)
     .fill('vault-passphrase')
   await page.getByRole('button', { name: /Continue/ }).click()
-  await page.getByRole('button', { name: /Continue/ }).click()
+  await page.getByRole('button', { name: 'Skip for now' }).click()
   await page.getByRole('button', { name: 'Create Archive & Back Up →' }).click()
 
   await expect(page.getByText('RECENT RUNS')).toBeVisible()
@@ -74,10 +74,12 @@ test('keeps schedule and security review surfaces inspectable in browser preview
 }) => {
   await completePreviewOnboarding(page)
 
-  await page.getByRole('link', { name: 'Schedule', exact: true }).click()
+  await page
+    .getByRole('link', { name: 'Scheduled Backup Settings', exact: true })
+    .click()
   await expect(page.getByTestId('schedule-page')).toBeVisible()
   await expect(
-    page.getByTestId('schedule-page').getByText('BACKUP SCHEDULE'),
+    page.getByTestId('schedule-page').getByText('Desired backup trigger'),
   ).toBeVisible()
   await expect(
     page.getByText(

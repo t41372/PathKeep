@@ -156,7 +156,7 @@ const appShellScreens: AppScreen[] = [
     subtitleKey: 'navigation.scheduleSubtitle',
     icon: '⏀',
     href: '/schedule',
-    section: 'OPERATIONS',
+    section: 'SYSTEM',
   },
   {
     id: 'security',

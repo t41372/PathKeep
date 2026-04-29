@@ -33,6 +33,7 @@
   3. 解析並寫入 archive 數據庫。
   4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
+- Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path 只前進並提示 `System -> Scheduled Backup Settings`，不得呼叫 `apply_schedule`、`remove_schedule` 或其他 scheduler mutation。
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
@@ -91,6 +92,8 @@
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。
   - 用戶能選擇手動複製並安裝，或讓 app 代為安裝。
+  - Schedule 主頁必須把 interval selection、current config/status、install/update CTA、remove CTA 與 legacy/error attention state 放在第一層；PME tabs 保留作詳細 preview / manual / execute / verify 審查。
+  - 如果使用者在已安裝狀態修改備份間隔，UI 必須顯示 explicit update/install action；native apply 可沿用目前 overwrite 行為。
   - 如果原生排程已安裝，Schedule 頁也必須提供明確的移除 / 解除安裝 CTA，而不是要求使用者自己回到系統資料夾手動刪檔。
   - 安裝結果記入審計日誌。
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。

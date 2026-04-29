@@ -414,3 +414,20 @@ button.stepper-step:disabled {
   margin-top: var(--space-6);
   gap: var(--space-3);
 }
+
+.ob-actions .wizard-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+@media (max-width: 640px) {
+  .ob-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ob-actions .wizard-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

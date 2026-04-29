@@ -273,7 +273,7 @@ describe('App shell', () => {
     )
     await user.click(
       await screen.findByRole('button', {
-        name: zhTwOnboarding('continueButton'),
+        name: zhTwOnboarding('skipScheduleButton'),
       }),
     )
     await user.click(
@@ -397,7 +397,7 @@ describe('App shell', () => {
     )
     await user.click(
       await screen.findByRole('button', {
-        name: onboardingT('continueButton'),
+        name: onboardingT('skipScheduleButton'),
       }),
     )
     await user.click(

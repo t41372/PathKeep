@@ -168,15 +168,17 @@ vi.mock('./schedule-step', () => ({
     schedulePreviewError,
     schedulePreviewLoading,
     onBack,
-    onContinue,
+    onInstallSchedule,
     onSelectDueAfterHours,
+    onSkipSchedule,
   }: {
     schedulePlan: SchedulePlan | null
     schedulePreviewError: string | null
     schedulePreviewLoading: boolean
     onBack: () => void
-    onContinue: () => void
+    onInstallSchedule: () => void
     onSelectDueAfterHours: (hours: number) => void
+    onSkipSchedule: () => void
   }) => (
     <section>
       <p>{schedulePreviewLoading ? 'schedule-loading' : 'schedule-idle'}</p>
@@ -185,8 +187,11 @@ vi.mock('./schedule-step', () => ({
       <button type="button" onClick={onBack}>
         schedule-back
       </button>
-      <button type="button" onClick={onContinue}>
-        schedule-continue
+      <button type="button" onClick={onInstallSchedule}>
+        schedule-install
+      </button>
+      <button type="button" onClick={onSkipSchedule}>
+        schedule-skip
       </button>
       <button type="button" onClick={() => onSelectDueAfterHours(12)}>
         select-12-hours
@@ -229,6 +234,15 @@ describe('OnboardingPage', () => {
     vi.spyOn(backend, 'previewSchedule').mockResolvedValue(
       schedulePlanFixture(),
     )
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(
+      scheduleStatusFixture(),
+    )
+    vi.spyOn(backend, 'applySchedule').mockResolvedValue({
+      applied: true,
+      files: [],
+      message: 'installed',
+      platform: 'macos',
+    })
     vi.spyOn(backend, 'openExternalUrl').mockResolvedValue('opened')
     vi.spyOn(backend, 'keyringStoreDatabaseKey').mockResolvedValue(
       keyringStatusFixture(),
@@ -333,7 +347,7 @@ describe('OnboardingPage', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Schedule' }))
     expect(
-      screen.getByRole('button', { name: 'schedule-continue' }),
+      screen.getByRole('button', { name: 'schedule-install' }),
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Storage ✓' }))
@@ -354,13 +368,13 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'storage-continue' }))
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'schedule-continue' }))
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
 
     await user.click(screen.getByRole('button', { name: 'ready-back' }))
     expect(
-      screen.getByRole('button', { name: 'schedule-continue' }),
+      screen.getByRole('button', { name: 'schedule-install' }),
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'schedule-continue' }))
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({
@@ -415,7 +429,7 @@ describe('OnboardingPage', () => {
     rerender(pageElement())
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'schedule-continue' }))
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({ archiveMode: 'Encrypted' }),
@@ -502,6 +516,9 @@ describe('OnboardingPage', () => {
     vi.spyOn(backend, 'keyringStoreDatabaseKey').mockResolvedValue(
       keyringStatusFixture(),
     )
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(
+      scheduleStatusFixture(),
+    )
     const failedPreview = deferred<SchedulePlan>()
     vi.spyOn(backend, 'previewSchedule').mockReturnValueOnce(
       failedPreview.promise,
@@ -539,6 +556,7 @@ describe('OnboardingPage', () => {
       'secret',
     )
     expect(backend.keyringStoreDatabaseKey).toHaveBeenCalledWith('secret')
+    expect(backend.applySchedule).toHaveBeenCalledWith(schedulePlanFixture())
     expect(runBackup).toHaveBeenCalledTimes(1)
 
     successRender.unmount()
@@ -550,6 +568,15 @@ describe('OnboardingPage', () => {
     vi.spyOn(backend, 'keyringStoreDatabaseKey').mockResolvedValue(
       keyringStatusFixture(),
     )
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(
+      scheduleStatusFixture(),
+    )
+    vi.spyOn(backend, 'applySchedule').mockResolvedValue({
+      applied: true,
+      files: [],
+      message: 'installed',
+      platform: 'macos',
+    })
     shellData.current = shellDataFixture({
       initializeArchive: vi.fn().mockRejectedValue(new Error('disk exploded')),
       runBackup: vi.fn(),
@@ -563,6 +590,79 @@ describe('OnboardingPage', () => {
         'Something went wrong during setup. You can try again.',
       ),
     ).toBeInTheDocument()
+  })
+
+  test('skips schedule setup without applying a native schedule', async () => {
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+    })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-skip' }))
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(backend.applySchedule).not.toHaveBeenCalled()
+    expect(initializeArchive).toHaveBeenCalledTimes(1)
+    expect(runBackup).toHaveBeenCalledTimes(1)
+  })
+
+  test('blocks finish when schedule install fails during setup', async () => {
+    const user = userEvent.setup()
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(backend, 'applySchedule').mockRejectedValueOnce(
+      new Error('launchd denied'),
+    )
+    shellData.current = shellDataFixture({
+      runBackup,
+    })
+    renderPage()
+
+    await advanceToReady(user)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(
+      await screen.findByText(
+        "Couldn't install the schedule. Skip this step, then install it later from System → Scheduled Backup Settings.",
+      ),
+    ).toBeInTheDocument()
+    expect(runBackup).not.toHaveBeenCalled()
+  })
+
+  test('refreshes the schedule plan at finish if setup proceeds before preview resolves', async () => {
+    const user = userEvent.setup()
+    const pendingPreview = deferred<SchedulePlan>()
+    vi.spyOn(backend, 'previewSchedule')
+      .mockReturnValueOnce(pendingPreview.promise)
+      .mockResolvedValueOnce(schedulePlanFixture())
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(backend.previewSchedule).toHaveBeenCalledTimes(2)
+    expect(backend.applySchedule).toHaveBeenCalledWith(schedulePlanFixture())
+
+    pendingPreview.resolve(schedulePlanFixture())
+    await pendingPreview.promise
   })
 
   test('maps Safari permission failures from finish into the actionable recovery copy', async () => {
@@ -606,7 +706,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'storage-continue' }))
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'schedule-continue' }))
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).not.toHaveBeenCalled()
@@ -623,7 +723,7 @@ async function advanceToReady(user: ReturnType<typeof userEvent.setup>) {
   )
   await user.click(screen.getByRole('button', { name: 'security-continue' }))
   await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
-  await user.click(screen.getByRole('button', { name: 'schedule-continue' }))
+  await user.click(screen.getByRole('button', { name: 'schedule-install' }))
 }
 
 function renderPage() {
@@ -703,6 +803,22 @@ function schedulePlanFixture(): SchedulePlan {
     manualSteps: [],
     platform: 'macos',
     rollbackCommands: [['launchctl', 'bootout']],
+  }
+}
+
+function scheduleStatusFixture() {
+  return {
+    applySupported: true,
+    auditPath: null,
+    checkIntervalHours: 6,
+    detectedFiles: [],
+    dueAfterHours: 72,
+    installState: 'not-installed',
+    label: 'PathKeep backup',
+    lastSuccessfulBackupAt: null,
+    manualSteps: [],
+    platform: 'macos',
+    warnings: [],
   }
 }
 

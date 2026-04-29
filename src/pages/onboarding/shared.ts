@@ -20,7 +20,7 @@
  * - helpers 都是固定成本字串/字面值轉換，沒有資料查詢或重計算。
  */
 
-const dueAfterHours = [6, 12, 24, 72] as const
+import { scheduledBackupIntervalOptions } from '../../lib/schedule-options'
 
 /**
  * Names the stable onboarding step translation keys used by the stepper.
@@ -37,7 +37,7 @@ export const onboardingStepKeys = [
 /**
  * Exposes the allowed onboarding backup interval options.
  */
-export const dueAfterOptions = [...dueAfterHours]
+export const dueAfterOptions = [...scheduledBackupIntervalOptions]
 
 /**
  * Captures the local security draft used during encrypted onboarding.

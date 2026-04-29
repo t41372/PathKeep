@@ -22,8 +22,8 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { SchedulePage } from './index'
 
-const { backendMock, refreshAppDataMock, useShellDataMock } = vi.hoisted(
-  () => ({
+const { backendMock, refreshAppDataMock, saveConfigMock, useShellDataMock } =
+  vi.hoisted(() => ({
     backendMock: {
       applySchedule: vi.fn(),
       openPathInFileManager: vi.fn(),
@@ -32,9 +32,9 @@ const { backendMock, refreshAppDataMock, useShellDataMock } = vi.hoisted(
       scheduleStatus: vi.fn(),
     },
     refreshAppDataMock: vi.fn(),
+    saveConfigMock: vi.fn(),
     useShellDataMock: vi.fn(),
-  }),
-)
+  }))
 
 vi.mock('../../app/shell-data-context', () => ({
   useShellData: useShellDataMock,
@@ -88,15 +88,23 @@ describe('SchedulePage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     refreshAppDataMock.mockResolvedValue(undefined)
+    saveConfigMock.mockImplementation((config) =>
+      Promise.resolve({
+        config,
+      }),
+    )
     useShellDataMock.mockReturnValue({
       refreshAppData: refreshAppDataMock,
       refreshKey: 1,
+      saveConfig: saveConfigMock,
       snapshot: {
         archiveStatus: {
           lastSuccessfulBackupAt: '2026-04-25T12:00:00.000Z',
         },
         config: {
+          dueAfterHours: 12,
           initialized: true,
+          scheduleCheckIntervalHours: 24,
           selectedProfileIds: ['chrome:Default'],
         },
       },
@@ -121,6 +129,7 @@ describe('SchedulePage', () => {
     useShellDataMock.mockReturnValue({
       refreshAppData: refreshAppDataMock,
       refreshKey: 1,
+      saveConfig: saveConfigMock,
       snapshot: null,
     })
     backendMock.scheduleStatus.mockResolvedValueOnce(
@@ -136,6 +145,32 @@ describe('SchedulePage', () => {
     expect(screen.getAllByText('common.notAvailable').length).toBeGreaterThan(0)
     expect(screen.getByText('snapshot-missing')).toBeVisible()
     expect(screen.getByText('no-audit')).toBeVisible()
+  })
+
+  test('surfaces an initialize-first error if apply tries to persist without config', async () => {
+    const user = userEvent.setup()
+    useShellDataMock.mockReturnValue({
+      refreshAppData: refreshAppDataMock,
+      refreshKey: 1,
+      saveConfig: saveConfigMock,
+      snapshot: null,
+    })
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getAllByRole('button', {
+        name: 'schedule.intervalChipLabel',
+      })[2],
+    )
+    await user.click(screen.getByRole('button', { name: 'apply' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'schedule.initializeArchiveFirst',
+    )
+    expect(saveConfigMock).not.toHaveBeenCalled()
+    expect(backendMock.applySchedule).not.toHaveBeenCalled()
   })
 
   test.each([
@@ -186,6 +221,117 @@ describe('SchedulePage', () => {
 
     await user.click(screen.getByRole('button', { name: 'remove' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('remove failed')
+  })
+
+  test('saves interval changes before applying the refreshed schedule plan', async () => {
+    const user = userEvent.setup()
+    const refreshedPlan = {
+      ...planFixture(),
+      label: 'PathKeep Backup refreshed',
+    }
+    backendMock.previewSchedule
+      .mockResolvedValueOnce(planFixture())
+      .mockResolvedValueOnce(refreshedPlan)
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getAllByRole('button', {
+        name: 'schedule.intervalChipLabel',
+      })[2],
+    )
+    await user.click(
+      screen.getByRole('button', {
+        name: 'schedule.saveAndUpdateSchedule',
+      }),
+    )
+
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dueAfterHours: 24 }),
+    )
+    expect(backendMock.applySchedule).toHaveBeenCalledWith(refreshedPlan)
+  })
+
+  test('uses install wording when interval changes before any schedule is installed', async () => {
+    const user = userEvent.setup()
+    backendMock.scheduleStatus.mockResolvedValueOnce(
+      statusFixture({ installState: 'not-installed' }),
+    )
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getAllByRole('button', {
+        name: 'schedule.intervalChipLabel',
+      })[2],
+    )
+
+    expect(
+      screen.getByRole('button', {
+        name: 'schedule.saveAndInstallSchedule',
+      }),
+    ).toBeVisible()
+  })
+
+  test('saves interval changes without applying the native schedule', async () => {
+    const user = userEvent.setup()
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getAllByRole('button', {
+        name: 'schedule.intervalChipLabel',
+      })[2],
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'schedule.saveInterval' }),
+    )
+
+    expect(saveConfigMock).toHaveBeenCalledWith(
+      expect.objectContaining({ dueAfterHours: 24 }),
+    )
+    expect(backendMock.applySchedule).not.toHaveBeenCalled()
+  })
+
+  test('surfaces save interval failures from the main configuration panel', async () => {
+    const user = userEvent.setup()
+    saveConfigMock.mockRejectedValueOnce(new Error('save failed'))
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getAllByRole('button', {
+        name: 'schedule.intervalChipLabel',
+      })[2],
+    )
+    await user.click(
+      screen.getByRole('button', { name: 'schedule.saveInterval' }),
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('save failed')
+
+    saveConfigMock.mockRejectedValueOnce('save fallback')
+    await user.click(
+      screen.getByRole('button', { name: 'schedule.saveInterval' }),
+    )
+    expect(await screen.findByText('common.unavailable')).toBeInTheDocument()
+  })
+
+  test('removes the installed schedule from the main configuration panel', async () => {
+    const user = userEvent.setup()
+
+    render(<SchedulePage />)
+
+    await screen.findByTestId('schedule-page')
+    await user.click(
+      screen.getByRole('button', { name: 'schedule.removeInstalledSchedule' }),
+    )
+
+    expect(backendMock.removeSchedule).toHaveBeenCalledTimes(1)
+    expect(refreshAppDataMock).toHaveBeenCalledTimes(1)
   })
 
   test('ignores late loader completion after unmount', async () => {

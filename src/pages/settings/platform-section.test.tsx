@@ -127,7 +127,7 @@ describe('PlatformSection', () => {
       '/security',
     )
     expect(
-      screen.getAllByRole('link', { name: 'Schedule' })[0],
+      screen.getAllByRole('link', { name: 'Scheduled Backup Settings' })[0],
     ).toHaveAttribute('href', '/schedule')
   })
 

@@ -22,6 +22,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
+import type { SchedulePlan, ScheduleStatus } from '../../lib/types'
 import { ScheduleStep } from './schedule-step'
 
 describe('ScheduleStep', () => {
@@ -32,13 +33,16 @@ describe('ScheduleStep', () => {
     render(
       <I18nProvider>
         <ScheduleStep
+          busyAction={null}
           dueAfterHours={24}
           onBack={vi.fn()}
-          onContinue={vi.fn()}
+          onInstallSchedule={vi.fn()}
           onSelectDueAfterHours={onSelectDueAfterHours}
+          onSkipSchedule={vi.fn()}
           schedulePlan={null}
           schedulePreviewError={null}
           schedulePreviewLoading={false}
+          scheduleStatus={null}
         />
       </I18nProvider>,
     )
@@ -56,13 +60,16 @@ describe('ScheduleStep', () => {
     const { rerender } = render(
       <I18nProvider>
         <ScheduleStep
+          busyAction={null}
           dueAfterHours={24}
           onBack={vi.fn()}
-          onContinue={vi.fn()}
+          onInstallSchedule={vi.fn()}
           onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
           schedulePlan={null}
           schedulePreviewError={null}
           schedulePreviewLoading
+          scheduleStatus={null}
         />
       </I18nProvider>,
     )
@@ -72,17 +79,126 @@ describe('ScheduleStep', () => {
     rerender(
       <I18nProvider>
         <ScheduleStep
+          busyAction={null}
           dueAfterHours={24}
           onBack={vi.fn()}
-          onContinue={vi.fn()}
+          onInstallSchedule={vi.fn()}
           onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
           schedulePlan={null}
           schedulePreviewError="preview failed"
           schedulePreviewLoading={false}
+          scheduleStatus={null}
         />
       </I18nProvider>,
     )
 
     expect(screen.getByRole('alert')).toHaveTextContent('preview failed')
   })
+
+  test('labels schedule states that need attention', () => {
+    const { rerender } = render(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={schedulePlanFixture()}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={scheduleStatusFixture('legacy-install-detected')}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText('Needs attention')).toBeVisible()
+
+    rerender(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={schedulePlanFixture()}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={scheduleStatusFixture('installed')}
+        />
+      </I18nProvider>,
+    )
+    expect(screen.getByText('Installed')).toBeVisible()
+
+    rerender(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={schedulePlanFixture()}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={scheduleStatusFixture('not-installed')}
+        />
+      </I18nProvider>,
+    )
+    expect(screen.getByText('Not installed')).toBeVisible()
+
+    rerender(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={vi.fn()}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={schedulePlanFixture()}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={null}
+        />
+      </I18nProvider>,
+    )
+    expect(screen.queryByText('Install state')).not.toBeInTheDocument()
+  })
 })
+
+function schedulePlanFixture(): SchedulePlan {
+  return {
+    applyCommands: [],
+    applySupported: true,
+    executablePath: '/Applications/PathKeep.app',
+    generatedFiles: [],
+    label: 'PathKeep backup',
+    manualSteps: [],
+    platform: 'macos',
+    rollbackCommands: [],
+  }
+}
+
+function scheduleStatusFixture(
+  installState: ScheduleStatus['installState'],
+): ScheduleStatus {
+  return {
+    applySupported: true,
+    auditPath: null,
+    checkIntervalHours: 6,
+    detectedFiles: [],
+    dueAfterHours: 24,
+    installState,
+    label: 'PathKeep backup',
+    lastSuccessfulBackupAt: null,
+    manualSteps: [],
+    platform: 'macos',
+    warnings: [],
+  }
+}

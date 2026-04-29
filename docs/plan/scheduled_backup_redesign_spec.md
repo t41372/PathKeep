@@ -135,6 +135,14 @@ Ready summary:
 - Do not alter backup worker execution.
 - Prefer shared component extraction only if both Schedule page and Onboarding need the same interval/action UI. The shared owner should accept loaded `SchedulePlan` / `ScheduleStatus` and callbacks rather than fetch data itself.
 
+## Phase 3 Implementation Notes
+
+- Keep `/schedule` as the route while moving the sidebar entry to `SYSTEM` and renaming it to `Scheduled Backup Settings` / `定时备份设置` / `定時備份設定`.
+- Use one shared interval selector for Schedule and Onboarding so the interval options and chip grammar cannot drift.
+- Schedule page saves `dueAfterHours` through the existing config path, then refreshes `preview_schedule` before install/update when the draft interval changed.
+- Onboarding records an install-or-skip intent on the schedule step. Install is deferred until archive initialization and optional keyring setup have completed; skip only continues and shows the `System -> Scheduled Backup Settings` recovery location.
+- Browser-preview and native unsupported platforms keep the same read-only/manual-review boundaries from `SchedulePlan.applySupported`; no Ticket A code changes scheduler detection or native scheduling behavior.
+
 ## Phase 2 Design Brief
 
 Use image generation to create mockups in PathKeep's existing desktop-app style:

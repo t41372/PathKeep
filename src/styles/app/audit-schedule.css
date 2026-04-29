@@ -114,6 +114,49 @@
   gap: var(--space-4);
   max-width: 800px;
 }
+
+.schedule-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: var(--space-4);
+}
+
+.schedule-layout-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.schedule-interval-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.schedule-action-row {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.schedule-inline-warning {
+  margin-top: 0;
+}
+
+.schedule-onboarding-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .schedule-overview-grid,
+  .schedule-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .schedule-config {
   display: flex;
   flex-direction: column;

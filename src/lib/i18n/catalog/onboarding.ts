@@ -41,6 +41,8 @@ export const onboardingNamespaceCatalog = {
       'PathKeep is preparing your setup options. This should only take a moment.',
     schedulePreviewFallbackError:
       "Couldn't preview the schedule. You can set this up later in Settings.",
+    errorScheduleInstallFailed:
+      "Couldn't install the schedule. Skip this step, then install it later from System → Scheduled Backup Settings.",
     errorSelectProfile: 'Pick at least one browser profile to back up.',
     errorNeedPassword: 'Enter a master password to use encrypted mode.',
     errorPasswordMismatch: "Passwords don't match. Try again.",
@@ -140,6 +142,16 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours}h',
     previewingSchedule: 'Generating schedule preview…',
     schedulePreview: 'Preview',
+    scheduleStatus: 'Install state',
+    scheduleInstalledBadge: 'Installed',
+    scheduleNotInstalledBadge: 'Not installed',
+    scheduleManualReviewBadge: 'Manual setup',
+    scheduleAttentionBadge: 'Needs attention',
+    scheduleSkipHintTitle: 'You can skip this now.',
+    scheduleSkipHintBody:
+      'Find it later in the sidebar under System → Scheduled Backup Settings.',
+    skipScheduleButton: 'Skip for now',
+    installScheduleButton: 'Install during setup',
     platform: {
       macosLabel: 'macOS',
       windowsLabel: 'Windows',
@@ -176,6 +188,11 @@ export const onboardingNamespaceCatalog = {
     configEncryption: 'Encryption',
     configSchedule: 'Schedule',
     configScheduleValue: 'Every {hours} hours',
+    configScheduleInstallValue: 'Install every {hours} hours during setup',
+    configScheduleSkippedValue: 'Skipped for now',
+    scheduleSkippedTitle: 'Scheduled backup skipped',
+    scheduleSkippedBody:
+      'After setup, open System → Scheduled Backup Settings to install or update the background task.',
     initSteps: 'WHAT HAPPENS NEXT',
     whatHappensNext: 'When you click the button below',
     initStep1Action: 'Create the archive',
@@ -201,6 +218,8 @@ export const onboardingNamespaceCatalog = {
     emptyDescription: 'PathKeep 正在准备设置选项，稍等一下就好。',
     schedulePreviewFallbackError:
       '暂时无法预览定时备份，你可以稍后在设置中配置。',
+    errorScheduleInstallFailed:
+      '无法安装定时备份。可以先跳过，之后在“系统 → 定时备份设置”中安装。',
     errorSelectProfile: '请至少选择一个浏览器来备份。',
     errorNeedPassword: '选择加密模式需要设置密码。',
     errorPasswordMismatch: '两次输入的密码不一致，请重试。',
@@ -296,6 +315,15 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours} 小时',
     previewingSchedule: '生成定时备份预览…',
     schedulePreview: '预览',
+    scheduleStatus: '安装状态',
+    scheduleInstalledBadge: '已安装',
+    scheduleNotInstalledBadge: '未安装',
+    scheduleManualReviewBadge: '手动安装',
+    scheduleAttentionBadge: '需要处理',
+    scheduleSkipHintTitle: '现在可以先跳过。',
+    scheduleSkipHintBody: '之后可在左侧栏“系统 → 定时备份设置”中找到。',
+    skipScheduleButton: '暂时跳过',
+    installScheduleButton: '设置过程中安装',
     platform: {
       macosLabel: 'macOS',
       windowsLabel: 'Windows',
@@ -332,6 +360,11 @@ export const onboardingNamespaceCatalog = {
     configEncryption: '加密',
     configSchedule: '定时备份',
     configScheduleValue: '每 {hours} 小时',
+    configScheduleInstallValue: '设置过程中安装，每 {hours} 小时检查',
+    configScheduleSkippedValue: '暂时跳过',
+    scheduleSkippedTitle: '已跳过定时备份',
+    scheduleSkippedBody:
+      '完成设置后，打开“系统 → 定时备份设置”即可安装或更新后台任务。',
     initSteps: '接下来会发生什么',
     whatHappensNext: '点击下方按钮后',
     initStep1Action: '创建存档',
@@ -357,6 +390,8 @@ export const onboardingNamespaceCatalog = {
     emptyDescription: 'PathKeep 正在準備設定選項，稍等一下就好。',
     schedulePreviewFallbackError:
       '暫時無法預覽定時備份，你可以稍後在設定中調整。',
+    errorScheduleInstallFailed:
+      '無法安裝定時備份。可以先略過，之後在「系統 → 定時備份設定」中安裝。',
     errorSelectProfile: '請至少選擇一個瀏覽器來備份。',
     errorNeedPassword: '選擇加密模式需要設定密碼。',
     errorPasswordMismatch: '兩次輸入的密碼不一致，請重試。',
@@ -452,6 +487,15 @@ export const onboardingNamespaceCatalog = {
     intervalChipLabel: '{hours} 小時',
     previewingSchedule: '產生定時備份預覽…',
     schedulePreview: '預覽',
+    scheduleStatus: '安裝狀態',
+    scheduleInstalledBadge: '已安裝',
+    scheduleNotInstalledBadge: '未安裝',
+    scheduleManualReviewBadge: '手動安裝',
+    scheduleAttentionBadge: '需要處理',
+    scheduleSkipHintTitle: '現在可以先略過。',
+    scheduleSkipHintBody: '之後可在左側欄「系統 → 定時備份設定」中找到。',
+    skipScheduleButton: '暫時略過',
+    installScheduleButton: '設定過程中安裝',
     platform: {
       macosLabel: 'macOS',
       windowsLabel: 'Windows',
@@ -488,6 +532,11 @@ export const onboardingNamespaceCatalog = {
     configEncryption: '加密',
     configSchedule: '定時備份',
     configScheduleValue: '每 {hours} 小時',
+    configScheduleInstallValue: '設定過程中安裝，每 {hours} 小時檢查',
+    configScheduleSkippedValue: '暫時略過',
+    scheduleSkippedTitle: '已略過定時備份',
+    scheduleSkippedBody:
+      '完成設定後，開啟「系統 → 定時備份設定」即可安裝或更新背景任務。',
     initSteps: '接下來會發生什麼',
     whatHappensNext: '點擊下方按鈕後',
     initStep1Action: '建立封存',

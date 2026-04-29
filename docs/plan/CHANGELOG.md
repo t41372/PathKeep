@@ -1064,3 +1064,20 @@
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/backend-hotspot-decomposition.md`](backend-hotspot-decomposition.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 維護性 follow-up：`src-tauri/crates/vault-platform/src/scheduler.rs` 因最小 legacy detection bug fix 升到 `1411` 行，已在 [`BACKLOG.md`](BACKLOG.md) 將 `WORK-SCHED-MAINT-A` 升成 high-priority maintainability review；在該 review 完成前不得再往該檔新增業務邏輯。
   - 驗收結果：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform scheduler -- --test-threads=1` 通過；`bun run check` 通過（base checks、100% JS/Rust coverage、build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。
+
+- [x] **WORK-SCHED-REDESIGN-B** — Scheduled Backup Settings UI And Onboarding Integration
+  - 讀先：
+    `docs/plan/scheduled_backup_redesign_spec.md`
+    `docs/plan/scheduled_backup_audit.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+    `docs/features/archive.md`
+    `docs/architecture/desktop-command-surface.md`
+    `TESTING.md`
+  - 目標：依已確認的 Phase 2 版面方向重建 Scheduled Backup Settings 與 Onboarding schedule step；保留 PathKeep 原本美術風格、配色、panel/chip/button 語彙。
+  - 契約：本 work block 只改 Ticket A 範圍；不得修改 scheduler detection/native scheduling/backup execution；路由維持 `/schedule`；Onboarding skip 只前進並提示設定位置，不 apply/remove schedule。
+  - 2026-04-29 closeout：已依確認後的 Phase 2 版面方向完成 Schedule page 與 Onboarding schedule step，但保留 PathKeep 既有 dark/orange visual language。`/schedule` route 保持不變；左側欄項目移至 `SYSTEM`，三語改為 `Scheduled Backup Settings` / `定时备份设置` / `定時備份設定`。
+  - UI truth：Schedule page 現在直接顯示平台、安裝狀態、legacy/error attention、目標間隔、目前設定、安裝/更新/移除 controls 與原 PME preview/manual/execute/verify panel；interval 改動會先顯示 explicit save/update action。Onboarding 新增 schedule install-or-skip step；skip 只進入 Ready 並提示 `System → Scheduled Backup Settings`，install path 只記錄 intent，真正 apply 仍在 finish 後使用既有 `apply_schedule` command。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/scheduled_backup_redesign_spec.md`](scheduled_backup_redesign_spec.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted Vitest / browser-preview e2e slices、`bun run check`、`bunx tauri build --debug --bundles app --no-sign`、fresh debug `.app` Computer Use truth pass。current-host truth pass 驗到 `legacy-install-detected` attention state 與 schedule controls；為避免改動使用者 LaunchAgents，未在真機點擊 install/remove/final finish，native apply/remove 行為由既有 Rust/platform tests 與 desktop bridge truth gate 覆蓋。
