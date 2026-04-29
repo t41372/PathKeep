@@ -24,7 +24,7 @@
 
 ## 實作註記（2026-04-06 / WORK-M1-A, 2026-04-06 audit follow-up）
 
-- macOS scheduler 的 preview / manual / apply 流程已落地；Windows / Linux 也已有 preview / manual artifact，Linux timer contract 明確使用 `OnCalendar=` + `Persistent=true`。
+- macOS scheduler 的 preview / manual / apply 流程已落地；Windows / Linux 也已有 preview / manual artifact，Linux timer contract 明確使用 `OnCalendar=` + `Persistent=true`，並用 worker `--due-only` 補齊分鐘級自訂間隔在 Linux calendar 表達上的限制。
 - Schedule execute surface 現在同時覆蓋 install / update、explicit remove 與 explicit repair：macOS remove 只處理 current canonical LaunchAgent，legacy cleanup 走使用者明確點擊的 `repair_schedule`；browser preview mode 則保持 manual-first read-only 說明。
 - schedule status read model 已補上 typed `issues`、`verificationChecks`、`manualStepDetails`、`checkedAt` 與 action `stepResults`：macOS 會檢查 LaunchAgent 是否已安裝、內容是否 mismatch、是否 loaded、是否殘留 legacy plist；Windows 走 Task Scheduler XML query；Linux 目前明確回報 `manual-review`，不假裝自動檢測已完成。
 - 2026-04-28 release blocker update：Windows 已從 manual-review 升級成正式 app apply / status / remove；`preview_schedule` 產生 Task Scheduler XML，`apply_schedule` 寫出 generated XML 並呼叫 `schtasks /Create /TN <label> /XML <file> /F`，`schedule_status` 用 `schtasks /Query /TN <label> /XML` 判斷 installed / not-installed / mismatch / permission-warning，`remove_schedule` 用 `schtasks /Delete /TN <label> /F`。Linux 仍維持 manual-review。

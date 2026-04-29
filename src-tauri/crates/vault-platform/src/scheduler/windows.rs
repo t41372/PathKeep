@@ -33,7 +33,7 @@ use vault_core::{
     },
 };
 
-use super::{ScheduleParameters, audit, ensure_parent_dir};
+use super::{ScheduleParameters, audit, ensure_parent_dir, interval_minutes_from_hours};
 #[cfg(any(test, coverage))]
 use super::{TEST_SCHTASKS_MODE_ENV, TEST_SCHTASKS_QUERY_XML_ENV};
 
@@ -43,6 +43,7 @@ pub(super) fn windows_schedule_plan(
     worker_args: &[String],
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
+    let repetition_interval = windows_repetition_interval(params.check_interval_hours);
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -51,7 +52,7 @@ pub(super) fn windows_schedule_plan(
     <TimeTrigger>
       <Enabled>true</Enabled>
       <Repetition>
-        <Interval>PT{}H</Interval>
+        <Interval>{}</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <StartBoundary>2026-01-01T09:00:00</StartBoundary>
@@ -75,7 +76,7 @@ pub(super) fn windows_schedule_plan(
     </Exec>
   </Actions>
 </Task>"#,
-        params.check_interval_hours,
+        repetition_interval,
         xml_escape(&executable_path.display().to_string()),
         xml_escape(&worker_args[1..].join(" "))
     );
@@ -147,6 +148,17 @@ pub(super) fn windows_schedule_plan(
         ]],
         apply_supported: true,
     })
+}
+
+fn windows_repetition_interval(hours: f64) -> String {
+    let minutes = interval_minutes_from_hours(hours);
+    let whole_hours = minutes / 60;
+    let remaining_minutes = minutes % 60;
+    match (whole_hours, remaining_minutes) {
+        (0, minutes) => format!("PT{minutes}M"),
+        (hours, 0) => format!("PT{hours}H"),
+        (hours, minutes) => format!("PT{hours}H{minutes}M"),
+    }
 }
 
 pub(super) fn apply_windows_schedule(

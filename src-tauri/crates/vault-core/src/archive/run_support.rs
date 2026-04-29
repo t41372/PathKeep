@@ -373,8 +373,18 @@ pub(super) fn backup_due_skip_reason_at(
     now: DateTime<Utc>,
 ) -> Option<String> {
     let elapsed = now - last_backup_at;
-    (elapsed < Duration::hours(config.due_after_hours as i64))
-        .then(|| format!("last successful backup is only {} hours old", elapsed.num_hours()))
+    let due_after_minutes = due_after_minutes(config.due_after_hours);
+    (elapsed < Duration::minutes(due_after_minutes as i64))
+        .then(|| format!("last successful backup is only {} minutes old", elapsed.num_minutes()))
+}
+
+fn due_after_minutes(due_after_hours: f64) -> u64 {
+    let minutes = (due_after_hours * 60.0).round();
+    if minutes.is_finite() && minutes >= 1.0 && minutes <= u64::MAX as f64 {
+        minutes as u64
+    } else {
+        1
+    }
 }
 
 /// Loads the finish time of the most recent successful backup run.

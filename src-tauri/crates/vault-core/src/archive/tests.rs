@@ -1177,7 +1177,7 @@ fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
 
     let skipped = run_backup(&paths, &initialized, None, true).expect("due-only backup skip");
     assert!(skipped.due_skipped);
-    assert!(skipped.reason.as_deref().is_some_and(|reason| reason.contains("hours old")));
+    assert!(skipped.reason.as_deref().is_some_and(|reason| reason.contains("minutes old")));
 }
 
 #[test]
@@ -2493,7 +2493,7 @@ fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
 fn run_support_failed_runs_and_due_windows_stay_truthful() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
-    let config = AppConfig { initialized: true, due_after_hours: 72, ..AppConfig::default() };
+    let config = AppConfig { initialized: true, due_after_hours: 72.0, ..AppConfig::default() };
     ensure_archive_initialized(&paths, &config, None).expect("init archive");
     let connection = Connection::open(&paths.archive_database_path).expect("open archive");
     let started_at = now_rfc3339();
@@ -2555,8 +2555,24 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
     let old = now - chrono::Duration::hours(96);
     let recent_reason = super::run_support::backup_due_skip_reason_at(recent, &config, now)
         .expect("recent backup should skip");
-    assert!(recent_reason.contains("2 hours old"));
+    assert!(recent_reason.contains("120 minutes old"));
     assert!(super::run_support::backup_due_skip_reason_at(old, &config, now).is_none());
+
+    let minute_config =
+        AppConfig { initialized: true, due_after_hours: 1.5, ..AppConfig::default() };
+    let recent_minute_backup = now - chrono::Duration::minutes(89);
+    let minute_reason =
+        super::run_support::backup_due_skip_reason_at(recent_minute_backup, &minute_config, now)
+            .expect("backup younger than 90 minutes should skip");
+    assert!(minute_reason.contains("89 minutes old"));
+
+    let invalid_config =
+        AppConfig { initialized: true, due_after_hours: 0.0, ..AppConfig::default() };
+    let sub_minute_backup = now - chrono::Duration::seconds(30);
+    assert!(
+        super::run_support::backup_due_skip_reason_at(sub_minute_backup, &invalid_config, now)
+            .is_some()
+    );
 
     connection
         .execute(
@@ -2569,7 +2585,7 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
     let due_reason = super::run_support::backup_due_skip_reason(&connection, &config)
         .expect("due skip query")
         .expect("recent success should skip");
-    assert!(due_reason.contains("hours old"));
+    assert!(due_reason.contains("minutes old"));
 }
 
 #[test]

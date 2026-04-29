@@ -36,6 +36,16 @@ describe('ReadyStep', () => {
     expect(screen.getByText('Skipped for now')).toBeVisible()
     expect(screen.getByText('Scheduled backup skipped')).toBeVisible()
     expect(screen.getByText(/System → Scheduled Backup Settings/)).toBeVisible()
+
+    rerender(
+      readyStepElement({ dueAfterHours: 1.5, scheduleSetupMode: 'install' }),
+    )
+    expect(
+      screen.getByText('Install every 90 minutes during setup'),
+    ).toBeVisible()
+
+    rerender(readyStepElement({ dueAfterHours: 1.5, scheduleSetupMode: null }))
+    expect(screen.getByText('Every 90 minutes')).toBeVisible()
   })
 })
 

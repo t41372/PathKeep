@@ -39,7 +39,7 @@ Current implementation:
 
 - Generates a LaunchAgent plist with label from `vault-platform::test_support::schedule_label()`, defaulting to `com.yi-ting.pathkeep.backup`.
 - Uses `RunAtLoad = true`.
-- Uses `StartInterval = schedule_check_interval_hours * 3600`, not `due_after_hours`.
+- Uses `StartInterval = min(due_after_hours, schedule_check_interval_hours) * 3600`, rounded to whole minutes, so custom minute-level backup cadences can wake often enough while preserving the worker's `--due-only` guard.
 - Program arguments run the desktop executable with `--worker backup --due-only`.
 - Applies by writing the plist to `~/Library/LaunchAgents/<label>.plist`, then running `launchctl bootout gui/<uid> <label>` followed by `launchctl bootstrap gui/<uid> <plist_path>`.
 - Removes by running `launchctl bootout gui/<uid> <label>` and deleting the canonical plist.
@@ -91,7 +91,7 @@ Medium-priority issue:
 Current implementation:
 
 - Generates a systemd user service and timer.
-- Timer uses `OnCalendar=<computed cadence>` and `Persistent=true`.
+- Timer uses `OnCalendar=<computed cadence>` and `Persistent=true`. For minute-level intervals that systemd calendar cannot express exactly, PathKeep chooses the nearest safe divisor wake cadence and lets the worker's `--due-only` guard enforce the configured backup interval.
 - UI exposes manual steps only.
 - `apply_supported = false`.
 - Status returns `manual-review` with a warning that automatic detection is only implemented on macOS/Windows.

@@ -97,7 +97,7 @@ Every async action must show inline progress with the current step count and a l
 
 `NOT_INSTALLED`:
 
-- Configuration block is editable before install: `6h`, `12h`, `24h`, `72h`.
+- Configuration block is editable before install: preset shortcuts `6h`, `12h`, `24h`, `72h` plus a custom whole-minute input with a minimum of 1 minute.
 - Browser profile list is read-only and links to `/settings#settings-profiles` with explicit copy: `Settings > Browser Profiles`.
 - Primary action is automatic install.
 - Manual install expands into structured steps with command/file content and verification controls.
@@ -138,14 +138,14 @@ Manual mode is state-local and first-class for install, remove, repair, and veri
 
 The current state-machine redesign is route-owned. Onboarding keeps the existing schedule intent behavior from the previous closeout:
 
-- The schedule setup step may collect the interval and install/skip intent.
+- The schedule setup step may collect the interval and install/skip intent. The same preset-plus-custom interval control is shared with `/schedule`.
 - Native install still waits until archive initialization and optional keyring setup have completed.
 - Skip never calls `apply_schedule`, `remove_schedule`, or `repair_schedule`; it only tells the user they can return to `System -> Scheduled Backup Settings`.
 
 ## Validation Requirements
 
 - Rust scheduler tests must cover not installed, installed loaded, installed but not loaded, loaded without plist, mismatch, permission/read failure, legacy detection, and legacy repair.
-- Vitest must cover `ScheduleUiState` mapping, workflow detection/action recovery, route rendering for all five states, manual mode controls, read-only profile link, and i18n parity.
+- Vitest must cover `ScheduleUiState` mapping, workflow detection/action recovery, route rendering for all five states, custom interval persistence, manual mode controls, read-only profile link, and i18n parity.
 - `bun run check` remains the per-commit gate.
 - After code changes, relaunch the debug desktop app and validate `/schedule` with Computer Use so stale WebView state cannot be mistaken for current source.
 
@@ -156,3 +156,4 @@ The current state-machine redesign is route-owned. Onboarding keeps the existing
 - The truth pass deliberately did not click repair, reinstall, or remove controls, because those actions would mutate the user's real LaunchAgents without explicit confirmation. Native behavior remains covered by Rust/platform tests and the desktop bridge truth gate.
 - `bunx tauri build --debug` produced the debug `.app` bundle needed for the truth pass, then failed during DMG bundling. That bundling failure was not used as a release gate for this work block.
 - Follow-up Computer Use validation with explicit LaunchAgent mutation permission found one host-real edge case: both canonical and legacy jobs could remain loaded after their plist files were gone. The backend now reports canonical loaded-without-plist as `INSTALLED_ERROR`, and macOS remove/repair uses the `gui/$UID/<label>` service target so loaded jobs without plist files can be unloaded. The retest exercised reinstall, legacy repair, verify, details, interval update, remove, manual install fallback, and final reinstall; the host ended in `INSTALLED_OK` with `StartInterval=21600` and no known legacy service loaded.
+- Custom interval follow-up: `/schedule` and Onboarding now keep `6h / 12h / 24h / 72h` as presets while allowing any positive whole-minute custom value. Non-preset values show in the custom field, persist to `dueAfterHours` as fractional hours when needed, regenerate preview/apply artifacts, and survive native reinstall/update validation.

@@ -102,8 +102,8 @@ pub struct ScheduleLastAction {
 pub struct ScheduleStatus {
     pub platform: String,
     pub label: String,
-    pub due_after_hours: u64,
-    pub check_interval_hours: u64,
+    pub due_after_hours: f64,
+    pub check_interval_hours: f64,
     pub apply_supported: bool,
     pub install_state: String,
     pub detected_files: Vec<String>,

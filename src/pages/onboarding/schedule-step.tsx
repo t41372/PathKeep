@@ -57,6 +57,9 @@ export function ScheduleStep({
         </div>
         <div className="panel-body">
           <BackupIntervalSelector
+            customInvalidMessage={t('intervalCustomInvalid')}
+            customLabel={t('intervalCustomLabel')}
+            customUnitLabel={t('intervalCustomUnit')}
             disabled={Boolean(busyAction)}
             formatLabel={(hours) =>
               t('intervalChipLabel').replace('{hours}', String(hours))

@@ -12,6 +12,22 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-SCHED-CUSTOM-INTERVAL-A** — Scheduled Backup Minute-Level Custom Interval
+  - 讀先：
+    `docs/plan/scheduled_backup_redesign_spec.md`
+    `docs/plan/scheduled_backup_audit.md`
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
+    `TESTING.md`
+  - 目標：依使用者 follow-up，把自動備份觸發間隔從固定 `6h / 12h / 24h / 72h` 擴成保留 presets 但支援使用者輸入自訂整數分鐘。
+  - 契約：UI 顯示與輸入單位為分鐘；presets 仍保留 6 / 12 / 24 / 72 小時；設定仍透過既有 `dueAfterHours` schema persisted，但允許 fractional hours 代表 minute-level intervals；不改 backup worker 的備份執行語義，不做 silent legacy cleanup；Linux 仍維持 `OnCalendar + Persistent`，不得切成 `OnUnitActiveSec`。
+  - 2026-04-29 closeout：Schedule 與 Onboarding 共用的 interval selector 已改成分鐘輸入，三語 i18n / aria / invalid state copy 已同步。Rust schedule/config/read model 從整數小時改為 `f64` 小時，worker 的 native schedule wake interval 會取 `min(due interval, health-check interval)`，避免 90 分鐘這類短於 6 小時的自訂值等不到下一次 wake。
+  - 平台語義：macOS LaunchAgent 使用整數秒 `StartInterval`；Windows Task Scheduler XML 使用 ISO 8601 minute duration（例如 `PT90M` / `PT1H30M`）；Linux 仍使用 calendar timer，不能精確表示的分鐘間隔會選擇不晚於 due window 的安全 wake cadence，再由 `--due-only` guard 保證實際備份到期判斷。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/scheduled_backup_audit.md`](scheduled_backup_audit.md)、[`docs/plan/scheduled_backup_redesign_spec.md`](scheduled_backup_redesign_spec.md)、[`docs/plan/program/repo-baseline.md`](program/repo-baseline.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted interval / Schedule / Onboarding / worker / platform tests 與 `bun run check` 全通過（100% JS/Rust coverage、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。fresh debug `.app` Computer Use truth pass 使用 repo bundle `src-tauri/target/debug/bundle/macos/PathKeep.app`，實測 90 分鐘更新後 config `dueAfterHours = 1.5`、plist `StartInterval = 5400`、`launchctl` run interval `5400 seconds`；再用 UI 還原 6 小時並確認 config `6.0`、plist `21600`、`launchctl` run interval `21600 seconds`。同輪也驗證非法 `0` 分鐘 inline error、`驗證安裝`、`重新偵測` timestamp 與 `查看安裝細節`。
+  - 驗收備註：未在真機點擊 `移除已安裝排程`，因它會刪除本機 LaunchAgent plist，屬於破壞性本機刪除；remove 行為由 Rust/platform tests 與 desktop bridge truth gate 覆蓋。
+
 - [x] **WORK-SCHED-STATE-A** — Scheduled Backup Settings State-Machine Redesign
   - 讀先：
     `docs/plan/scheduled_backup_redesign_spec.md`

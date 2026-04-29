@@ -86,8 +86,8 @@
   - macOS：LaunchAgent（`RunAtLoad=true` + 固定週期檢查）
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
-- 預設邏輯：短週期（如每 1 小時）喚醒檢查，但只有超過設定的備份間隔才真正執行備份。真正「該不該跑」的判斷由 worker 內部決定（檢查上次 run 時間），timer 只負責喚醒。
-- **預設備份間隔為每 12 小時**。用戶可以在設定中自定義間隔（從最短 1 小時到最長數天）。
+- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次成功備份時間判斷真正「該不該跑」。
+- **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。
@@ -107,9 +107,9 @@
 
 ### 平台注意事項
 
-- **macOS**：`LaunchAgent` + `StartInterval` 即可，語義直接。
-- **Windows**：`Task Scheduler` + `StartWhenAvailable=true`，能正確補跑錯過的任務。
-- **Linux**：必須使用 `OnCalendar=` 搭配 `Persistent=true`，而**不是** `OnUnitActiveSec=`。原因：systemd 的 `Persistent=` 只對 `OnCalendar=` 有效，monotonic timer 無法保證補跑。
+- **macOS**：`LaunchAgent` + `StartInterval` 使用秒級整數，可以承載分鐘級自訂間隔。
+- **Windows**：`Task Scheduler` + `StartWhenAvailable=true`，XML repetition interval 使用 ISO 8601 duration（例如 `PT90M` 或 `PT1H30M`），能承載分鐘級自訂間隔並補跑錯過的任務。
+- **Linux**：必須使用 `OnCalendar=` 搭配 `Persistent=true`，而**不是** `OnUnitActiveSec=`。原因：systemd 的 `Persistent=` 只對 `OnCalendar=` 有效，monotonic timer 無法保證補跑；對於 90 分鐘這類 calendar 不能精準表達的間隔，timer 使用較小分鐘步長喚醒，worker 再用 `--due-only` 按用戶設定判斷是否執行。
 
 ---
 

@@ -61,6 +61,7 @@ vi.mock('../../lib/i18n', () => ({
     t: (key: string, vars?: Record<string, string | number>) => {
       if (!vars) return key
       if ('hours' in vars) return `${key}:${vars.hours}`
+      if ('minutes' in vars) return `${key}:${vars.minutes}`
       if ('time' in vars) return `${key}:${vars.time}`
       if ('path' in vars) return `${key}:${vars.path}`
       if ('current' in vars && 'total' in vars) {
@@ -225,6 +226,37 @@ describe('SchedulePage', () => {
     await waitFor(() => {
       expect(backendMock.scheduleStatus).toHaveBeenCalledTimes(4)
     })
+  })
+
+  test('renders minute-level custom intervals without rounding back to hour presets', async () => {
+    useShellDataMock.mockReturnValue({
+      refreshAppData: refreshAppDataMock,
+      refreshKey: 1,
+      saveConfig: saveConfigMock,
+      snapshot: snapshotFixture({
+        config: {
+          dueAfterHours: 1.5,
+          initialized: true,
+          scheduleCheckIntervalHours: 6,
+          selectedProfileIds: ['chrome:Default'],
+        },
+      }),
+    })
+    backendMock.scheduleStatus.mockResolvedValueOnce(
+      statusFixture({
+        dueAfterHours: 1.5,
+      }),
+    )
+
+    renderSchedule()
+
+    expect(
+      await screen.findByText('schedule.stateInstalledOkTitle'),
+    ).toBeVisible()
+    expect(screen.getByText('schedule.intervalValueMinutes:90')).toBeVisible()
+    expect(screen.getByLabelText('schedule.intervalCustomLabel')).toHaveValue(
+      90,
+    )
   })
 
   test('renders installed-ok empty scope and relative generated file paths', async () => {
@@ -625,16 +657,16 @@ describe('SchedulePage', () => {
     renderSchedule()
 
     await screen.findByText('schedule.stateNotInstalledTitle')
-    await user.click(
-      screen.getByRole('button', { name: 'schedule.intervalChipLabel:24' }),
-    )
+    const customInput = screen.getByLabelText('schedule.intervalCustomLabel')
+    await user.clear(customInput)
+    await user.type(customInput, '90')
     await user.click(
       screen.getByRole('button', { name: 'schedule.autoInstall' }),
     )
 
     await waitFor(() => {
       expect(saveConfigMock).toHaveBeenCalledWith(
-        expect.objectContaining({ dueAfterHours: 24 }),
+        expect.objectContaining({ dueAfterHours: 1.5 }),
       )
       expect(backendMock.applySchedule).toHaveBeenCalledWith(refreshedPlan)
     })

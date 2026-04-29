@@ -23,8 +23,8 @@ use vault_core::{
 #[serde(rename_all = "camelCase")]
 /// Runtime parameters that shape the generated backup schedule plan.
 pub struct ScheduleParameters {
-    pub due_after_hours: u64,
-    pub check_interval_hours: u64,
+    pub due_after_hours: f64,
+    pub check_interval_hours: f64,
 }
 
 #[cfg(any(test, coverage))]
@@ -150,6 +150,30 @@ pub(super) fn ensure_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+pub(super) fn interval_minutes_from_hours(hours: f64) -> u64 {
+    let minutes = (hours * 60.0).round();
+    if minutes.is_finite() && minutes >= 1.0 && minutes <= u64::MAX as f64 {
+        minutes as u64
+    } else {
+        1
+    }
+}
+
+pub(super) fn interval_seconds_from_hours(hours: f64) -> u64 {
+    interval_minutes_from_hours(hours) * 60
+}
+
+pub(super) fn format_interval_label(minutes: u64) -> String {
+    if minutes % 60 == 0 {
+        let hours = minutes / 60;
+        if hours == 1 { "1 hour".to_string() } else { format!("{hours} hours") }
+    } else if minutes == 1 {
+        "1 minute".to_string()
+    } else {
+        format!("{minutes} minutes")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,7 +198,7 @@ mod tests {
 
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
 
         let mac =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("mac");
@@ -197,15 +221,96 @@ mod tests {
         assert!(windows.generated_files[0].contents.contains("<Task"));
         assert!(windows.generated_files[0].contents.contains("encoding=\"UTF-8\""));
         assert!(linux.generated_files[1].contents.contains("Persistent=true"));
-        assert!(linux.generated_files[1].contents.contains("OnCalendar="));
+        assert!(linux.generated_files[1].contents.contains("OnCalendar=*-*-* 00/6:00:00"));
         assert!(!linux.generated_files[1].contents.contains("OnUnitActiveSec"));
+    }
+
+    #[test]
+    fn preview_schedule_supports_minute_level_intervals() {
+        let _guard = env_lock().lock().expect("env lock");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 1.5, check_interval_hours: 1.5 };
+
+        let mac =
+            preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("mac");
+        let windows = preview_schedule(Some("windows"), Path::new("C:/chb.exe"), &paths, &params)
+            .expect("windows");
+        let linux = preview_schedule(Some("linux"), Path::new("/usr/bin/chb"), &paths, &params)
+            .expect("linux");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert!(mac.generated_files[0].contents.contains("<integer>5400</integer>"));
+        assert!(mac.generated_files[0].purpose.contains("90 minutes"));
+        assert!(windows.generated_files[0].contents.contains("<Interval>PT1H30M</Interval>"));
+        assert!(linux.generated_files[1].contents.contains("OnCalendar=*-*-* *:00/30:00"));
+        assert!(linux.generated_files[1].purpose.contains("wakes every 30 minutes"));
+    }
+
+    #[test]
+    fn preview_schedule_covers_sub_hour_and_calendar_fallback_intervals() {
+        let _guard = env_lock().lock().expect("env lock");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let half_hour = ScheduleParameters { due_after_hours: 0.5, check_interval_hours: 0.5 };
+        let one_hour = ScheduleParameters { due_after_hours: 1.0, check_interval_hours: 1.0 };
+        let seven_minutes =
+            ScheduleParameters { due_after_hours: 7.0 / 60.0, check_interval_hours: 7.0 / 60.0 };
+
+        let mac = preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &half_hour)
+            .expect("mac");
+        let windows =
+            preview_schedule(Some("windows"), Path::new("C:/chb.exe"), &paths, &half_hour)
+                .expect("windows");
+        let linux_half_hour =
+            preview_schedule(Some("linux"), Path::new("/usr/bin/chb"), &paths, &half_hour)
+                .expect("linux half hour");
+        let linux_one_hour =
+            preview_schedule(Some("linux"), Path::new("/usr/bin/chb"), &paths, &one_hour)
+                .expect("linux one hour");
+        let linux_seven_minutes =
+            preview_schedule(Some("linux"), Path::new("/usr/bin/chb"), &paths, &seven_minutes)
+                .expect("linux seven minutes");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+
+        assert!(mac.generated_files[0].contents.contains("<integer>1800</integer>"));
+        assert!(windows.generated_files[0].contents.contains("<Interval>PT30M</Interval>"));
+        assert!(
+            linux_half_hour.generated_files[1].contents.contains("OnCalendar=*-*-* *:00/30:00")
+        );
+        assert!(linux_one_hour.generated_files[1].contents.contains("OnCalendar=*-*-* *:00:00"));
+        assert!(
+            linux_seven_minutes.generated_files[1].contents.contains("OnCalendar=*-*-* *:*:00")
+        );
+        assert!(linux_seven_minutes.generated_files[1].purpose.contains("wakes every 1 minute"));
+    }
+
+    #[test]
+    fn interval_helpers_clamp_invalid_values_and_format_units() {
+        assert_eq!(interval_minutes_from_hours(f64::NAN), 1);
+        assert_eq!(interval_seconds_from_hours(0.5), 1800);
+        assert_eq!(format_interval_label(1), "1 minute");
+        assert_eq!(format_interval_label(60), "1 hour");
+        assert_eq!(format_interval_label(90), "90 minutes");
     }
 
     #[test]
     fn preview_schedule_uses_current_platform_when_unspecified() {
         let dir = tempdir().expect("tempdir");
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let preview = preview_schedule(None, Path::new("/tmp/bhb"), &paths, &params)
             .expect("default preview");
         assert_eq!(preview.platform, current_platform_name());
@@ -227,7 +332,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
@@ -263,7 +368,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
@@ -300,7 +405,7 @@ mod tests {
         let _ = fs::remove_dir_all(&fallback_launch_agents);
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let status =
             schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
 
@@ -333,7 +438,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
         fs::write(
             launch_agents_dir.join("com.yi-ting.pathkeep.tests.plist"),
@@ -364,7 +469,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
         let legacy_path = launch_agents_dir.join("dev.codex.pathkeep.backup.plist");
         fs::write(&legacy_path, "<plist>legacy</plist>").expect("write legacy plist");
@@ -396,7 +501,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         fs::create_dir_all(&launch_agents_dir).expect("create launch agents dir");
@@ -440,7 +545,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let result = repair_schedule(&plan, &paths).expect("repair without legacy entries");
@@ -480,7 +585,7 @@ mod tests {
         let _ = fs::remove_dir_all(&fallback_launch_agents);
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
 
@@ -576,7 +681,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan = preview_schedule(
             Some("windows"),
             Path::new("C:/PathKeep/pathkeep.exe"),
@@ -627,7 +732,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan = preview_schedule(
             Some("windows"),
             Path::new("C:/PathKeep/pathkeep.exe"),
@@ -665,7 +770,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         unsafe {
             std::env::set_var(TEST_SCHTASKS_MODE_ENV, "missing");
         }
@@ -723,7 +828,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let result = apply_schedule(&plan, &paths).expect("apply macos plan");
@@ -755,7 +860,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let result = apply_schedule(&plan, &paths).expect("apply failing macos plan");
@@ -785,7 +890,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let applied = apply_schedule(&plan, &paths).expect("apply macos plan");
@@ -817,7 +922,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let result = remove_schedule(&plan, &paths).expect("remove without installed file");
@@ -844,7 +949,7 @@ mod tests {
         }
 
         let paths = sample_paths(dir.path());
-        let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
         let status =
             schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("status");
 

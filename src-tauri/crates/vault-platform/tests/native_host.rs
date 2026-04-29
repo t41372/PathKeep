@@ -219,7 +219,7 @@ fn macos_scheduler_apply_bootstrap_status_and_cleanup_work() {
     }
 
     let paths = sample_paths(dir.path());
-    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
     let plan =
         preview_schedule(Some("macos"), Path::new("/usr/bin/true"), &paths, &params).expect("plan");
 
@@ -284,7 +284,7 @@ fn linux_scheduler_artifacts_validate_with_systemd_analyze() {
     }
 
     let paths = sample_paths(dir.path());
-    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
     let plan =
         preview_schedule(Some("linux"), Path::new("/usr/bin/true"), &paths, &params).expect("plan");
     let service_path = dir.path().join(format!("{label}.service"));
@@ -318,7 +318,7 @@ fn windows_scheduler_xml_validates_with_schtasks() {
     }
 
     let paths = sample_paths(dir.path());
-    let params = ScheduleParameters { due_after_hours: 72, check_interval_hours: 6 };
+    let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
     let plan = preview_schedule(
         Some("windows"),
         Path::new("C:\\Windows\\System32\\cmd.exe"),

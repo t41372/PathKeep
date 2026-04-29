@@ -55,7 +55,7 @@
 - [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在已退回 canonical archive bootstrap；search / intelligence plane 不再靠 archive-side compatibility views 或 runtime backfill 存活。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 與 [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 已在後續 work blocks 裡大幅瘦身；它們仍是重要邊界，但不再是 repo 目前最大的 mega-file hotspot。
-- [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`。
+- [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`，並透過較小 calendar 步長 + worker `--due-only` 支援分鐘級自訂備份間隔。
 - Dashboard / Audit / Explorer 的第一批 read models 已存在於 [`src-tauri/crates/vault-core/src/models.rs`](../../../src-tauri/crates/vault-core/src/models.rs) 與 [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs)，包含 `DashboardSnapshot`、`AuditRunDetail`、`StorageSummary` 與擴充後的 `HistoryQuery`。
 
 ### 判斷

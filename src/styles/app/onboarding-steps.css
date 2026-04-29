@@ -243,8 +243,14 @@
 }
 
 /* ═══ STEP 4: SCHEDULE ═══ */
+.backup-interval-selector {
+  display: grid;
+  gap: var(--space-3);
+}
+
 .interval-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -269,6 +275,57 @@
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+.interval-custom-control {
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, max-content) minmax(5rem, 8rem)
+    max-content;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.interval-custom-label,
+.interval-custom-unit {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.interval-custom-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.interval-custom-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.interval-custom-input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.interval-custom-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .interval-custom-control {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
 }
 
 .manual-steps {

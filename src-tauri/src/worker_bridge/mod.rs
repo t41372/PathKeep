@@ -59,7 +59,7 @@ mod tests {
             initialized: true,
             archive_mode: ArchiveMode::Plaintext,
             git_enabled: false,
-            due_after_hours: 72,
+            due_after_hours: 72.0,
             checkpoint_days: 1,
             selected_profile_ids: vec!["chrome:Default".to_string()],
             ..AppConfig::default()

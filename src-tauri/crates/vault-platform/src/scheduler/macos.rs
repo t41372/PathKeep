@@ -38,7 +38,10 @@ use vault_core::{
     },
 };
 
-use super::{LEGACY_MACOS_SCHEDULE_LABELS, ScheduleParameters, audit};
+use super::{
+    LEGACY_MACOS_SCHEDULE_LABELS, ScheduleParameters, audit, format_interval_label,
+    interval_minutes_from_hours, interval_seconds_from_hours,
+};
 use crate::test_support::launch_agents_dir_override;
 #[cfg(any(test, coverage))]
 use crate::test_support::launchctl_stub_success;
@@ -53,6 +56,8 @@ pub(super) fn macos_schedule_plan(
     log_dir: &Path,
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
+    let check_interval_minutes = interval_minutes_from_hours(params.check_interval_hours);
+    let check_interval_label = format_interval_label(check_interval_minutes);
     let plist = plist::Value::Dictionary(plist::Dictionary::from_iter([
         ("Label".to_string(), plist::Value::String(label.to_string())),
         (
@@ -62,7 +67,7 @@ pub(super) fn macos_schedule_plan(
         ("RunAtLoad".to_string(), plist::Value::Boolean(true)),
         (
             "StartInterval".to_string(),
-            plist::Value::Integer((params.check_interval_hours * 3600).into()),
+            plist::Value::Integer(interval_seconds_from_hours(params.check_interval_hours).into()),
         ),
         (
             "StandardOutPath".to_string(),
@@ -84,8 +89,7 @@ pub(super) fn macos_schedule_plan(
             relative_path: format!("launchd/{label}.plist"),
             absolute_path: None,
             purpose: format!(
-                "Run worker mode every {} hours and immediately after login or boot.",
-                params.check_interval_hours
+                "Run worker mode every {check_interval_label} and immediately after login or boot."
             ),
             contents: contents.clone(),
         }],

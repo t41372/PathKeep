@@ -32,6 +32,7 @@ import { backend } from '../../lib/backend-client'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
+import { backupIntervalHoursToMinutes } from '../../lib/schedule-options'
 import type {
   BrowserProfile,
   ScheduleIssue,
@@ -372,11 +373,12 @@ function NotInstalledState({
           <div>
             <div className="summary-label">{t('schedule.desiredInterval')}</div>
             <p className="dashboard-next-action">
-              {t('schedule.selectedIntervalValue', {
-                hours: draftDueAfterHours,
-              })}
+              {formatSelectedScheduleInterval(t, draftDueAfterHours)}
             </p>
             <BackupIntervalSelector
+              customInvalidMessage={t('schedule.intervalCustomInvalid')}
+              customLabel={t('schedule.intervalCustomLabel')}
+              customUnitLabel={t('schedule.intervalCustomUnit')}
               disabled={operationActive}
               formatLabel={(hours) =>
                 t('schedule.intervalChipLabel', { hours })
@@ -505,6 +507,9 @@ function InstalledOkState({
           <div>
             <div className="summary-label">{t('schedule.desiredInterval')}</div>
             <BackupIntervalSelector
+              customInvalidMessage={t('schedule.intervalCustomInvalid')}
+              customLabel={t('schedule.intervalCustomLabel')}
+              customUnitLabel={t('schedule.intervalCustomUnit')}
               disabled={operationActive}
               formatLabel={(hours) =>
                 t('schedule.intervalChipLabel', { hours })
@@ -858,7 +863,7 @@ function ScheduleSummary({
   const rows = [
     [
       t('schedule.interval'),
-      t('schedule.intervalValue', { hours: status.dueAfterHours }),
+      formatScheduleSummaryInterval(t, status.dueAfterHours),
     ],
     [t('schedule.mechanism'), plan.platform],
     [
@@ -1132,6 +1137,28 @@ function checkedAtStatusText(
   return t('schedule.detectCompleteAt', {
     time: lastCheckedAt.toLocaleTimeString(),
   })
+}
+
+function formatSelectedScheduleInterval(
+  t: Translator,
+  dueAfterHours: number,
+): string {
+  const minutes = backupIntervalHoursToMinutes(dueAfterHours)
+  if (minutes % 60 === 0) {
+    return t('schedule.selectedIntervalValue', { hours: minutes / 60 })
+  }
+  return t('schedule.selectedIntervalValueMinutes', { minutes })
+}
+
+function formatScheduleSummaryInterval(
+  t: Translator,
+  dueAfterHours: number,
+): string {
+  const minutes = backupIntervalHoursToMinutes(dueAfterHours)
+  if (minutes % 60 === 0) {
+    return t('schedule.intervalValue', { hours: minutes / 60 })
+  }
+  return t('schedule.intervalValueMinutes', { minutes })
 }
 
 function lastBackupLabel({

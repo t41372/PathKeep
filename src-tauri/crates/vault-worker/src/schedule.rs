@@ -29,7 +29,7 @@ pub fn preview_schedule_plan(
         &paths,
         &ScheduleParameters {
             due_after_hours: config.due_after_hours,
-            check_interval_hours: config.schedule_check_interval_hours,
+            check_interval_hours: native_schedule_interval_hours(&config),
         },
     )
 }
@@ -69,11 +69,37 @@ pub fn schedule_status(
         &paths,
         &ScheduleParameters {
             due_after_hours: config.due_after_hours,
-            check_interval_hours: config.schedule_check_interval_hours,
+            check_interval_hours: native_schedule_interval_hours(&config),
         },
     )?;
     status.last_successful_backup_at =
         vault_core::archive_status(&paths, &config, session_database_key)?
             .last_successful_backup_at;
     Ok(status)
+}
+
+fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
+    let configured_check_interval = config.schedule_check_interval_hours as f64;
+    if config.due_after_hours.is_finite() && config.due_after_hours > 0.0 {
+        config.due_after_hours.min(configured_check_interval)
+    } else {
+        configured_check_interval
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_schedule_interval_hours;
+    use vault_core::AppConfig;
+
+    #[test]
+    fn native_schedule_interval_tracks_custom_due_interval_without_exceeding_health_check() {
+        let custom_minutes = AppConfig { due_after_hours: 1.5, ..AppConfig::default() };
+        let longer_due = AppConfig { due_after_hours: 72.0, ..AppConfig::default() };
+        let invalid_due = AppConfig { due_after_hours: 0.0, ..AppConfig::default() };
+
+        assert_eq!(native_schedule_interval_hours(&custom_minutes), 1.5);
+        assert_eq!(native_schedule_interval_hours(&longer_due), 6.0);
+        assert_eq!(native_schedule_interval_hours(&invalid_due), 6.0);
+    }
 }

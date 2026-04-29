@@ -80,6 +80,7 @@
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Scheduled Backup Settings 是 state-driven system settings route，而不是常駐 PME tabs。第一層只渲染 `CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 當前狀態需要的內容；Preview / Manual / Execute / Verify 資訊保留在該狀態的 details / manual path 裡。
 - Schedule 的 cadence copy 必須拆清楚：`dueAfterHours` 是下一次備份到期 / trigger cadence，`checkIntervalHours` 是 PathKeep 檢查已安裝 schedule 是否健康的 verification cadence；兩者不能都只寫成「每 N 小時」。
+- Schedule / Onboarding 的 `dueAfterHours` control 必須保留 `6h / 12h / 24h / 72h` 快捷預設，同時提供自訂整數分鐘輸入；非預設值不能被 UI 強制折回 chip 選項。
 - Scheduled Backup Settings 的主頁必須直接提供 interval selection、read-only browser profile summary、current config/status view、install/update CTA、repair CTA、remove CTA、re-detect timestamp、inline operation progress/result，以及 legacy/error attention state。Legacy warning 必須整合進 `INSTALLED_WARN`，不得再用獨立黃色 banner 浮出。
 - Onboarding 與 Dashboard 的 browser profile surface 現在也屬於 trust-critical review surface：除了 `history found / missing` 之外，還要顯示 browser-retention honesty，明講 browser-managed local history 可能在下一次 backup 前消失，而 PathKeep 只有在成功 backup 後才開始提供 append-only 保存。
 - Onboarding、Settings 與 Import 的 browser profile 選擇第一層只顯示 browser / profile / history file label；完整 source path、raw profile id、或 UUID-like identifier 只能放在明確的 detail / support / review row，不能當成主要 profile 名稱壓給普通使用者。

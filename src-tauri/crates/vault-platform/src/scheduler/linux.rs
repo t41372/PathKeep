@@ -19,7 +19,7 @@ use anyhow::Result;
 use std::path::Path;
 use vault_core::models::{GeneratedFile, ScheduleManualStep, SchedulePlan};
 
-use super::ScheduleParameters;
+use super::{ScheduleParameters, format_interval_label, interval_minutes_from_hours};
 
 pub(super) fn linux_schedule_plan(
     label: &str,
@@ -27,14 +27,16 @@ pub(super) fn linux_schedule_plan(
     worker_args: &[String],
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
+    let check_interval_minutes = interval_minutes_from_hours(params.check_interval_hours);
+    let (on_calendar, wake_interval_minutes) = linux_on_calendar(check_interval_minutes);
+    let wake_interval_label = format_interval_label(wake_interval_minutes);
     let service = format!(
         "[Unit]\nDescription=PathKeep backup worker\n\n[Service]\nType=oneshot\nExecStart={} {}\n",
         executable_path.display(),
         worker_args[1..].join(" ")
     );
     let timer = format!(
-        "[Unit]\nDescription=PathKeep periodic backup\n\n[Timer]\nOnCalendar={}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n",
-        linux_on_calendar(params.check_interval_hours)
+        "[Unit]\nDescription=PathKeep periodic backup\n\n[Timer]\nOnCalendar={on_calendar}\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n"
     );
     Ok(SchedulePlan {
         platform: "linux".to_string(),
@@ -51,8 +53,7 @@ pub(super) fn linux_schedule_plan(
                 relative_path: format!("systemd/{label}.timer"),
                 absolute_path: None,
                 purpose: format!(
-                    "Persistent user timer that wakes every {} hours.",
-                    params.check_interval_hours
+                    "Persistent user timer that wakes every {wake_interval_label}; the worker skips until the configured backup interval is due."
                 ),
                 contents: timer.clone(),
             },
@@ -121,6 +122,30 @@ pub(super) fn linux_schedule_plan(
     })
 }
 
-fn linux_on_calendar(hours: u64) -> String {
-    if hours <= 1 { "*-*-* *:00:00".to_string() } else { format!("*-*-* 00/{hours}:00:00") }
+fn linux_on_calendar(minutes: u64) -> (String, u64) {
+    if minutes % 60 == 0 {
+        let hours = minutes / 60;
+        if hours == 1 {
+            return ("*-*-* *:00:00".to_string(), 60);
+        }
+        if hours <= 24 && 24 % hours == 0 {
+            return (format!("*-*-* 00/{hours}:00:00"), minutes);
+        }
+    }
+
+    let minute_step = gcd(minutes, 60).max(1);
+    if minute_step == 1 {
+        ("*-*-* *:*:00".to_string(), 1)
+    } else {
+        (format!("*-*-* *:00/{minute_step}:00"), minute_step)
+    }
+}
+
+fn gcd(mut left: u64, mut right: u64) -> u64 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
 }

@@ -5,6 +5,7 @@
  */
 
 import { useI18n } from '../../lib/i18n'
+import { backupIntervalHoursToMinutes } from '../../lib/schedule-options'
 
 export interface ReadyStepProps {
   appRoot: string
@@ -35,6 +36,11 @@ export function ReadyStep({
 }: ReadyStepProps) {
   const { t, ns } = useI18n('onboarding')
   const commonT = ns('common')
+  const scheduleValue = formatOnboardingScheduleValue({
+    dueAfterHours,
+    installing: scheduleSetupMode === 'install',
+    t,
+  })
 
   return (
     <div className="ob-panel-container">
@@ -77,15 +83,7 @@ export function ReadyStep({
               <span className="config-value">
                 {scheduleSetupMode === 'skip'
                   ? t('configScheduleSkippedValue')
-                  : scheduleSetupMode === 'install'
-                    ? t('configScheduleInstallValue').replace(
-                        '{hours}',
-                        String(dueAfterHours),
-                      )
-                    : t('configScheduleValue').replace(
-                        '{hours}',
-                        String(dueAfterHours),
-                      )}
+                  : scheduleValue}
               </span>
             </div>
           </div>
@@ -182,4 +180,26 @@ export function ReadyStep({
       </div>
     </div>
   )
+}
+
+function formatOnboardingScheduleValue({
+  dueAfterHours,
+  installing,
+  t,
+}: {
+  dueAfterHours: number
+  installing: boolean
+  t: (key: string) => string
+}): string {
+  const minutes = backupIntervalHoursToMinutes(dueAfterHours)
+  if (minutes % 60 === 0) {
+    return t(
+      installing ? 'configScheduleInstallValue' : 'configScheduleValue',
+    ).replace('{hours}', String(minutes / 60))
+  }
+  return t(
+    installing
+      ? 'configScheduleInstallValueMinutes'
+      : 'configScheduleValueMinutes',
+  ).replace('{minutes}', String(minutes))
 }

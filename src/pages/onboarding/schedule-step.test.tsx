@@ -56,6 +56,34 @@ describe('ScheduleStep', () => {
     expect(onSelectDueAfterHours).toHaveBeenCalledWith(12)
   })
 
+  test('forwards custom interval input changes', async () => {
+    const user = userEvent.setup()
+    const onSelectDueAfterHours = vi.fn()
+
+    render(
+      <I18nProvider>
+        <ScheduleStep
+          busyAction={null}
+          dueAfterHours={24}
+          onBack={vi.fn()}
+          onInstallSchedule={vi.fn()}
+          onSelectDueAfterHours={onSelectDueAfterHours}
+          onSkipSchedule={vi.fn()}
+          schedulePlan={null}
+          schedulePreviewError={null}
+          schedulePreviewLoading={false}
+          scheduleStatus={null}
+        />
+      </I18nProvider>,
+    )
+
+    const customInput = screen.getByLabelText('Custom interval')
+    await user.clear(customInput)
+    await user.type(customInput, '90')
+
+    expect(onSelectDueAfterHours).toHaveBeenLastCalledWith(1.5)
+  })
+
   test('renders schedule preview loading and error states', () => {
     const { rerender } = render(
       <I18nProvider>
