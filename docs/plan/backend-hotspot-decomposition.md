@@ -10,16 +10,16 @@
 
 ## Current hotspot snapshot
 
-| File                                                                  | Current line count | Primary risk                                                                                                     |
-| --------------------------------------------------------------------- | -----------------: | ---------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split                                           |
-| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                            |                764 | Dev-only command mirror dispatch table; bounded below current file cap                                           |
-| `src-tauri/src/dev_ipc_bridge.rs`                                     |                 94 | Thin listener / state handoff after focused bridge-owner split                                                   |
-| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`      |                991 | Trusted local host builder near the 1000-line review threshold                                                   |
-| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`         |                966 | Chromium parser still owns streaming, collection, and legacy batch API                                           |
-| `src-tauri/crates/vault-platform/src/scheduler.rs`                    |               1261 | Platform schedule preview/apply/status helpers crossed the review threshold after Windows Task Scheduler support |
-| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs` |                601 | Largest Core Intelligence regression owner; below new-file hard limit                                            |
-| `src-tauri/crates/vault-core/src/remote/tests.rs`                     |                567 | Largest remote-backup owner after split; below current file-size limits                                          |
+| File                                                                  | Current line count | Primary risk                                                                                                                                                        |
+| --------------------------------------------------------------------- | -----------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/crates/vault-core/src/intelligence/mod.rs`                 |                418 | Thin façade plus core records/cursors/constants after test-suite split                                                                                              |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                            |                764 | Dev-only command mirror dispatch table; bounded below current file cap                                                                                              |
+| `src-tauri/src/dev_ipc_bridge.rs`                                     |                 94 | Thin listener / state handoff after focused bridge-owner split                                                                                                      |
+| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`      |                991 | Trusted local host builder near the 1000-line review threshold                                                                                                      |
+| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`         |                966 | Chromium parser still owns streaming, collection, and legacy batch API                                                                                              |
+| `src-tauri/crates/vault-platform/src/scheduler.rs`                    |               1411 | Platform schedule preview/apply/status helpers now exceed the 1400-line hard limit after Windows Task Scheduler support plus the minimal macOS legacy detection fix |
+| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs` |                601 | Largest Core Intelligence regression owner; below new-file hard limit                                                                                               |
+| `src-tauri/crates/vault-core/src/remote/tests.rs`                     |                567 | Largest remote-backup owner after split; below current file-size limits                                                                                             |
 
 ## Sequencing
 
@@ -103,7 +103,7 @@
 - 2026-04-23 dev bridge router/config slice landed: router, CORS, health, HTTP error envelopes, and env parsing now live in `dev_ipc_bridge/{router,config}.rs`, dropping the parent bridge module to `851` lines while preserving the same listener startup, localhost-only boundary, and command dispatch behavior.
 - 2026-04-23 command façade rustdoc slice landed: `src-tauri/src/commands/intelligence/{ai,core,runtime}.rs` and `src-tauri/src/worker_bridge/intelligence/{ai,core,runtime}.rs` now have file-level boundary comments and declaration-level rustdoc for the previously bare Core Intelligence read/runtime façade functions. This is documentation-only and preserves command names, payload shapes, and worker export surface.
 - 2026-04-24 dev bridge dispatch slice landed: command dispatch and desktop-layer adapters now live in `dev_ipc_bridge/dispatch.rs`, with focused regression coverage in `dispatch/tests.rs`. The parent bridge module is down to `94` lines and owns only feature-gated listener startup plus state handoff; command strings, camelCase payloads, worker export surface, updater/file-manager adapters, and the localhost-only feature/env gate are unchanged.
-- `WORK-BE-E` is complete. Remaining backend follow-up candidates are now the lower-priority support owners (`host_artifacts.rs`, `browser-history-parser::chromium`) plus `vault-platform::scheduler`, which crossed the 1200-line review threshold after the 2026-04-28 Windows Task Scheduler release blocker. `WORK-SCHED-MAINT-A` tracks the required maintainability review after release blocker VM acceptance.
+- `WORK-BE-E` is complete. Remaining backend follow-up candidates are now the lower-priority support owners (`host_artifacts.rs`, `browser-history-parser::chromium`) plus `vault-platform::scheduler`, which crossed the 1200-line review threshold after the 2026-04-28 Windows Task Scheduler release blocker and reached `1411` lines after the 2026-04-29 macOS legacy detection bug fix. `WORK-SCHED-MAINT-A` now tracks the required high-priority maintainability review after scheduled-backup design confirmation and release blocker VM acceptance.
 
 ## Non-negotiable invariants
 

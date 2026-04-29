@@ -97,6 +97,7 @@
 - Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、warnings、latest audit artifact 與最近一次 apply / remove 結果，並保留 Preview / Manual / Execute / Verify 的快速切換，避免 verify 只剩一段模糊狀態字串。
 - App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
+- 2026-04-29 scheduled-backup audit truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 `legacy-install-detected`，讓 UI 引導使用者 review / manual cleanup；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `not-installed`。
 
 ### 平台注意事項
 

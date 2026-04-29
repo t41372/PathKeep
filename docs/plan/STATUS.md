@@ -12,6 +12,23 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-SCHED-REDESIGN-A** — Scheduled Backup Detection Audit And Design Gate
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ux-principles.md`
+    `docs/design/design-tokens.md`
+    `docs/architecture/desktop-command-surface.md`
+    `docs/plan/m1-solid-archive/schedule-security-and-storage.md`
+    `TESTING.md`
+  - 目標：先完成 scheduled backup detection audit 與 UI redesign spec，修復高優先級的 macOS legacy scheduler detection drift，然後產出 Schedule / Onboarding 設計稿並停在設計確認點。
+  - 契約：Ticket B 的偵測修復不得改 UI / Onboarding；Ticket A 的 Phase 1/2 不得改 backup execution；Phase 3 UI 重建必須等設計稿確認後另行開始；保持 `com.yi-ting.pathkeep` clean-break namespace，不自動 migrate 或 remove legacy LaunchAgent。
+  - 2026-04-29 closeout：已記錄 current-host scheduler truth：`dev.codex.browser-history-backup.backup` legacy LaunchAgent 存在且 loaded，`dev.codex.pathkeep.backup.plist` 存在但未 loaded，canonical `com.yi-ting.pathkeep.backup` 不存在。Ticket B Phase 1 審計落地為 [`scheduled_backup_audit.md`](scheduled_backup_audit.md)，Ticket A Phase 1 spec / Phase 2 design brief 落地為 [`scheduled_backup_redesign_spec.md`](scheduled_backup_redesign_spec.md)。高優先級修復只改 scheduler detection：macOS status 現在會把 known legacy LaunchAgent 顯示為 `legacy-install-detected`，不自動 migrate/remove。Phase 2 已用 browser-preview 擷取目前 Schedule / Onboarding schedule step 參考畫面，並停在 imagegen 設計稿確認點；Phase 3 UI / Onboarding 實作未開始。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`docs/plan/m1-solid-archive/schedule-security-and-storage.md`](m1-solid-archive/schedule-security-and-storage.md)、[`docs/plan/backend-hotspot-decomposition.md`](backend-hotspot-decomposition.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 維護性 follow-up：`src-tauri/crates/vault-platform/src/scheduler.rs` 因最小 legacy detection bug fix 升到 `1411` 行，已在 [`BACKLOG.md`](BACKLOG.md) 將 `WORK-SCHED-MAINT-A` 升成 high-priority maintainability review；在該 review 完成前不得再往該檔新增業務邏輯。
+  - 驗收：`docs/plan/scheduled_backup_audit.md`、`docs/plan/scheduled_backup_redesign_spec.md`、macOS legacy LaunchAgent high-priority fix、targeted scheduler / frontend tests、`bun run check`，以及 imagegen 設計稿輸出。
+  - 驗收結果：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform scheduler -- --test-threads=1` 通過；`bun run check` 通過（base checks、100% JS/Rust coverage、build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。
+
 - [x] **WORK-RELEASE-011-A** — Judge Review Demo Trust Polish
   - 讀先：
     `docs/plan/STATUS.md`
