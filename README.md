@@ -99,8 +99,8 @@ On top of that archive, PathKeep gives you powerful recall (full-text search, re
 Download the latest release from [GitHub Releases](https://github.com/t41372/PathKeep/releases).
 
 - **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Safari Browser Direct import requires granting Full Disk Access to PathKeep before scanning Safari history.
-- **Windows:** install the release package. Scheduled backups use Windows Task Scheduler and remain preview-quality until more machines are validated.
-- **Linux:** install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.
+- **Windows:** Support is on the way. Build from source if you want to try it out right now. ~~install the release package. Scheduled backups use Windows Task Scheduler and remain preview-quality until more machines are validated.~~
+- **Linux:** Support is on the way. Build from source if you want to try it out right now. ~~install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.~~
 
 ## Uninstall
 
