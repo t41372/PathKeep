@@ -18,11 +18,12 @@
 //! - XML comparison normalizes whitespace only; status checks do not parse large
 //!   files or enumerate all scheduler tasks.
 
+use crate::test_support::TEST_WINDOWS_USER_ID_ENV;
 use anyhow::{Context, Result};
 #[cfg(not(any(test, coverage)))]
 use std::process::{Command, Output};
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 use vault_core::{
@@ -44,6 +45,8 @@ pub(super) fn windows_schedule_plan(
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
     let repetition_interval = windows_repetition_interval(params.check_interval_hours);
+    let user_id = current_windows_task_user_id()?;
+    let escaped_user_id = xml_escape(&user_id);
     // `schtasks /Create /XML` reports "unable to switch the encoding" when its
     // Task Scheduler import path receives an XML declaration whose encoding no
     // longer matches the already-decoded string. The task XML is ASCII-safe, so
@@ -51,7 +54,9 @@ pub(super) fn windows_schedule_plan(
     let xml = format!(
         r#"<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
-    <LogonTrigger />
+    <LogonTrigger>
+      <UserId>{}</UserId>
+    </LogonTrigger>
     <TimeTrigger>
       <Enabled>true</Enabled>
       <Repetition>
@@ -63,6 +68,7 @@ pub(super) fn windows_schedule_plan(
   </Triggers>
   <Principals>
     <Principal id="Author">
+      <UserId>{}</UserId>
       <RunLevel>LeastPrivilege</RunLevel>
       <LogonType>InteractiveToken</LogonType>
     </Principal>
@@ -79,7 +85,9 @@ pub(super) fn windows_schedule_plan(
     </Exec>
   </Actions>
 </Task>"#,
+        escaped_user_id,
         repetition_interval,
+        escaped_user_id,
         xml_escape(&executable_path.display().to_string()),
         xml_escape(&worker_args[1..].join(" "))
     );
@@ -164,6 +172,65 @@ fn windows_repetition_interval(hours: f64) -> String {
     }
 }
 
+fn current_windows_task_user_id() -> Result<String> {
+    if let Some(user_id) = configured_windows_task_user_id() {
+        return Ok(user_id);
+    }
+
+    #[cfg(any(test, coverage))]
+    {
+        Ok("PATHKEEP_TEST\\CurrentUser".to_string())
+    }
+
+    #[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+    {
+        if let Some(user_id) = whoami_windows_user_id()? {
+            return Ok(user_id);
+        }
+        if let Some(user_id) = windows_user_id_from_env() {
+            return Ok(user_id);
+        }
+        anyhow::bail!("resolving current Windows user for Task Scheduler");
+    }
+
+    #[cfg(all(not(any(test, coverage)), not(target_os = "windows")))]
+    {
+        Ok("PathKeep\\CurrentUser".to_string())
+    }
+}
+
+fn configured_windows_task_user_id() -> Option<String> {
+    env::var(TEST_WINDOWS_USER_ID_ENV).ok().and_then(non_empty_trimmed)
+}
+
+#[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+fn whoami_windows_user_id() -> Result<Option<String>> {
+    let output =
+        Command::new("whoami").output().context("resolving current Windows user with whoami")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(non_empty_trimmed(String::from_utf8_lossy(&output.stdout).to_string()))
+}
+
+#[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+fn windows_user_id_from_env() -> Option<String> {
+    let username = env::var("USERNAME").ok().and_then(non_empty_trimmed)?;
+    if username.contains('\\') || username.contains('@') {
+        return Some(username);
+    }
+    env::var("USERDOMAIN")
+        .ok()
+        .and_then(non_empty_trimmed)
+        .map(|domain| format!("{domain}\\{username}"))
+        .or(Some(username))
+}
+
+fn non_empty_trimmed(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 pub(super) fn apply_windows_schedule(
     plan: &SchedulePlan,
     paths: &ProjectPaths,
@@ -194,6 +261,8 @@ pub(super) fn apply_windows_schedule(
         audit_path: Some(audit_path.display().to_string()),
         message: if outcome.success {
             "Task Scheduler task registered.".to_string()
+        } else if windows_schtasks_access_denied(&outcome) {
+            "schedule.windowsAccessDeniedInstallMessage".to_string()
         } else {
             format!(
                 "Task Scheduler XML was written, but schtasks /Create did not report success: {}",
@@ -206,6 +275,8 @@ pub(super) fn apply_windows_schedule(
             label_key: "schedule.verifyWindowsRegister".to_string(),
             detail_key: if outcome.success {
                 "schedule.verifyWindowsRegisterOk"
+            } else if windows_schtasks_access_denied(&outcome) {
+                "schedule.verifyWindowsRegisterAccessDenied"
             } else {
                 "schedule.verifyWindowsRegisterFailed"
             }
@@ -321,15 +392,26 @@ pub(super) fn windows_schedule_status(
     }
 
     status.install_state = "permission-warning".to_string();
+    let access_denied = windows_schtasks_access_denied(&outcome);
     status.warnings.push(format!(
         "PathKeep could not inspect the Windows Task Scheduler task `{}`: {}",
         plan.label, outcome.status_description
     ));
     status.issues.push(ScheduleIssue {
-        code: "windows-task-inspection-failed".to_string(),
+        code: if access_denied {
+            "windows-task-access-denied"
+        } else {
+            "windows-task-inspection-failed"
+        }
+        .to_string(),
         severity: "error".to_string(),
         title_key: "schedule.issueInspectionFailedTitle".to_string(),
-        detail_key: "schedule.issueWindowsInspectionFailedDetail".to_string(),
+        detail_key: if access_denied {
+            "schedule.issueWindowsAccessDeniedDetail"
+        } else {
+            "schedule.issueWindowsInspectionFailedDetail"
+        }
+        .to_string(),
         consequence_key: "schedule.issueInspectionFailedConsequence".to_string(),
         evidence: vec![outcome.status_description],
         repair_action: Some("manual-remove".to_string()),
@@ -407,6 +489,12 @@ fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
                 stdout: String::new(),
                 stderr: "Access is denied.".to_string(),
             },
+            "fail" => SchtasksOutcome {
+                success: false,
+                status_description: "stub schtasks query: failed".to_string(),
+                stdout: String::new(),
+                stderr: "schtasks failed".to_string(),
+            },
             "mismatch" => SchtasksOutcome {
                 success: true,
                 status_description: "stub schtasks query: mismatch".to_string(),
@@ -428,6 +516,15 @@ fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
             status_description: format!("stub schtasks {}: task not found", args.join(" ")),
             stdout: String::new(),
             stderr: "ERROR: The system cannot find the file specified.".to_string(),
+        });
+    }
+
+    if mode == "denied" {
+        return Ok(SchtasksOutcome {
+            success: false,
+            status_description: format!("stub schtasks {}: access denied", args.join(" ")),
+            stdout: String::new(),
+            stderr: "ERROR: Access is denied.".to_string(),
         });
     }
 
@@ -462,6 +559,11 @@ struct SchtasksOutcome {
 fn windows_schtasks_not_found(outcome: &SchtasksOutcome) -> bool {
     let text = format!("{} {}", outcome.status_description, outcome.stderr).to_ascii_lowercase();
     text.contains("cannot find") || text.contains("not found") || text.contains("does not exist")
+}
+
+fn windows_schtasks_access_denied(outcome: &SchtasksOutcome) -> bool {
+    let text = format!("{} {}", outcome.status_description, outcome.stderr).to_ascii_lowercase();
+    text.contains("access is denied") || text.contains("access denied")
 }
 
 pub(super) fn xml_escape(value: &str) -> String {

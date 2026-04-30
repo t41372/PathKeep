@@ -16,6 +16,8 @@ pub const TEST_KEYRING_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_KEYRING_DIR";
 pub const TEST_KEYRING_SERVICE_ENV: &str = "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE";
 /// Env var override for the test schedule label.
 pub const TEST_SCHEDULE_LABEL_ENV: &str = "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL";
+/// Env var override for the Windows Task Scheduler user id used in tests.
+pub const TEST_WINDOWS_USER_ID_ENV: &str = "PATHKEEP_PLATFORM_TEST_WINDOWS_USER_ID";
 /// Env var override for the test LaunchAgents directory.
 pub const TEST_LAUNCH_AGENTS_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR";
 /// Env var override for stubbed launchctl success/failure in tests.

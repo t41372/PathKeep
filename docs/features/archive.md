@@ -109,7 +109,7 @@
 ### 平台注意事項
 
 - **macOS**：`LaunchAgent` + `StartInterval` 使用秒級整數，可以承載分鐘級自訂間隔。
-- **Windows**：`Task Scheduler` + `StartWhenAvailable=true`，XML repetition interval 使用 ISO 8601 duration（例如 `PT90M` 或 `PT1H30M`），能承載分鐘級自訂間隔並補跑錯過的任務。PathKeep 寫入給 `schtasks /Create /XML` 的 Task Scheduler XML 不包含 XML declaration，避免 Windows import path 因 encoding declaration 報 `unable to switch the encoding`。
+- **Windows**：`Task Scheduler` + `StartWhenAvailable=true`，XML repetition interval 使用 ISO 8601 duration（例如 `PT90M` 或 `PT1H30M`），能承載分鐘級自訂間隔並補跑錯過的任務。PathKeep 寫入給 `schtasks /Create /XML` 的 Task Scheduler XML 不包含 XML declaration，避免 Windows import path 因 encoding declaration 報 `unable to switch the encoding`；`LogonTrigger` 與 `Principal` 都綁定目前 Windows 使用者，避免非管理員安裝時變成 all-users logon trigger。
 - **Linux**：必須使用 `OnCalendar=` 搭配 `Persistent=true`，而**不是** `OnUnitActiveSec=`。原因：systemd 的 `Persistent=` 只對 `OnCalendar=` 有效，monotonic timer 無法保證補跑；對於 90 分鐘這類 calendar 不能精準表達的間隔，timer 使用較小分鐘步長喚醒，worker 再用 `--due-only` 按用戶設定判斷是否執行。
 
 ---

@@ -158,6 +158,8 @@ export const scheduleNamespaceCatalog = {
     noVerificationChecks: 'No verification checks were returned.',
     operationSucceeded: 'Completed',
     operationFailed: 'Action failed',
+    windowsAccessDeniedInstallMessage:
+      'Task Scheduler denied registration for the current Windows user. Remove any existing task created by another account or run the manual command from an elevated terminal.',
     progressStep: 'Step {current}/{total}',
     progressSaving: 'Saving interval before installing…',
     progressRefreshingPlan: 'Refreshing the native schedule plan…',
@@ -204,6 +206,8 @@ export const scheduleNamespaceCatalog = {
       'The LaunchAgent file exists, but PathKeep could not read it.',
     issueWindowsInspectionFailedDetail:
       'Task Scheduler did not return the installed task state.',
+    issueWindowsAccessDeniedDetail:
+      'Task Scheduler denied access to the PathKeep task. This usually means an existing task is owned by another account or elevated context.',
     issueInspectionFailedConsequence:
       'PathKeep cannot prove the background backup will run until this is fixed.',
     issueLaunchAgentNotLoadedTitle:
@@ -279,6 +283,8 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsRegister: 'Task registration',
     verifyWindowsRegisterOk: 'schtasks registered the task.',
     verifyWindowsRegisterFailed: 'schtasks did not register the task.',
+    verifyWindowsRegisterAccessDenied:
+      'Task Scheduler denied registration for this Windows user.',
     verifyWindowsRemove: 'Task removal',
     verifyWindowsRemoveOk: 'Task Scheduler no longer has the PathKeep task.',
     verifyWindowsRemoveFailed: 'schtasks did not remove the task.',
@@ -405,6 +411,8 @@ export const scheduleNamespaceCatalog = {
     noVerificationChecks: '没有返回验证项目。',
     operationSucceeded: '已完成',
     operationFailed: '操作失败',
+    windowsAccessDeniedInstallMessage:
+      'Task Scheduler 拒绝为当前 Windows 用户注册任务。请移除其他账号创建的同名任务，或在提升权限的终端中执行手动命令。',
     progressStep: '步骤 {current}/{total}',
     progressSaving: '正在保存间隔…',
     progressRefreshingPlan: '正在刷新系统定时任务计划…',
@@ -443,6 +451,8 @@ export const scheduleNamespaceCatalog = {
       'LaunchAgent 文件存在，但 PathKeep 无法读取。',
     issueWindowsInspectionFailedDetail:
       'Task Scheduler 没有返回已安装任务状态。',
+    issueWindowsAccessDeniedDetail:
+      'Task Scheduler 拒绝访问 PathKeep 任务。通常是因为同名任务由其他账号或提升权限环境创建。',
     issueInspectionFailedConsequence:
       '修复前，PathKeep 无法证明后台备份会正常运行。',
     issueLaunchAgentNotLoadedTitle: 'LaunchAgent 文件已安装但未载入',
@@ -501,6 +511,8 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsRegister: '任务注册',
     verifyWindowsRegisterOk: 'schtasks 已注册任务。',
     verifyWindowsRegisterFailed: 'schtasks 未注册任务。',
+    verifyWindowsRegisterAccessDenied:
+      'Task Scheduler 拒绝为当前 Windows 用户注册任务。',
     verifyWindowsRemove: '任务移除',
     verifyWindowsRemoveOk: 'Task Scheduler 中已没有 PathKeep 任务。',
     verifyWindowsRemoveFailed: 'schtasks 未移除任务。',
@@ -626,6 +638,8 @@ export const scheduleNamespaceCatalog = {
     noVerificationChecks: '沒有回傳驗證項目。',
     operationSucceeded: '已完成',
     operationFailed: '操作失敗',
+    windowsAccessDeniedInstallMessage:
+      'Task Scheduler 拒絕為目前 Windows 使用者註冊任務。請移除其他帳號建立的同名任務，或在提升權限的終端機中執行手動命令。',
     progressStep: '步驟 {current}/{total}',
     progressSaving: '正在儲存間隔…',
     progressRefreshingPlan: '正在刷新系統排程計畫…',
@@ -663,6 +677,8 @@ export const scheduleNamespaceCatalog = {
       'LaunchAgent 檔案存在，但 PathKeep 無法讀取。',
     issueWindowsInspectionFailedDetail:
       'Task Scheduler 沒有回傳已安裝任務狀態。',
+    issueWindowsAccessDeniedDetail:
+      'Task Scheduler 拒絕存取 PathKeep 任務。通常是因為同名任務由其他帳號或提升權限環境建立。',
     issueInspectionFailedConsequence:
       '修復前，PathKeep 無法證明背景備份會正常執行。',
     issueLaunchAgentNotLoadedTitle: 'LaunchAgent 檔案已安裝但未載入',
@@ -722,6 +738,8 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsRegister: '任務註冊',
     verifyWindowsRegisterOk: 'schtasks 已註冊任務。',
     verifyWindowsRegisterFailed: 'schtasks 未註冊任務。',
+    verifyWindowsRegisterAccessDenied:
+      'Task Scheduler 拒絕為目前 Windows 使用者註冊任務。',
     verifyWindowsRemove: '任務移除',
     verifyWindowsRemoveOk: 'Task Scheduler 中已沒有 PathKeep 任務。',
     verifyWindowsRemoveFailed: 'schtasks 未移除任務。',

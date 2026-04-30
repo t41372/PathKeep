@@ -178,8 +178,8 @@ pub(super) fn format_interval_label(minutes: u64) -> String {
 mod tests {
     use super::*;
     use crate::test_support::{
-        TEST_LAUNCH_AGENTS_DIR_ENV, TEST_LAUNCHCTL_SUCCESS_ENV, TEST_SCHEDULE_LABEL_ENV, env_lock,
-        restore_env_var,
+        TEST_LAUNCH_AGENTS_DIR_ENV, TEST_LAUNCHCTL_SUCCESS_ENV, TEST_SCHEDULE_LABEL_ENV,
+        TEST_WINDOWS_USER_ID_ENV, env_lock, restore_env_var,
     };
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -296,6 +296,41 @@ mod tests {
             linux_seven_minutes.generated_files[1].contents.contains("OnCalendar=*-*-* *:*:00")
         );
         assert!(linux_seven_minutes.generated_files[1].purpose.contains("wakes every 1 minute"));
+    }
+
+    #[test]
+    fn windows_schedule_xml_scopes_logon_trigger_and_principal_to_current_user() {
+        let _guard = env_lock().lock().expect("env lock");
+        let original_schedule_label = std::env::var_os(TEST_SCHEDULE_LABEL_ENV);
+        let original_windows_user_id = std::env::var_os(TEST_WINDOWS_USER_ID_ENV);
+        unsafe {
+            std::env::set_var(TEST_SCHEDULE_LABEL_ENV, "com.yi-ting.pathkeep.tests");
+            std::env::set_var(TEST_WINDOWS_USER_ID_ENV, "PATHKEEPTEST\\backup-user");
+        }
+
+        let dir = tempdir().expect("tempdir");
+        let paths = sample_paths(dir.path());
+        let params = ScheduleParameters { due_after_hours: 72.0, check_interval_hours: 6.0 };
+        let windows = preview_schedule(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("windows");
+
+        restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
+        restore_env_var(TEST_WINDOWS_USER_ID_ENV, original_windows_user_id.as_deref());
+
+        let xml = &windows.generated_files[0].contents;
+        assert!(xml.contains("<LogonTrigger>\n      <UserId>PATHKEEPTEST\\backup-user</UserId>"));
+        assert!(xml.contains(
+            "<Principal id=\"Author\">\n      <UserId>PATHKEEPTEST\\backup-user</UserId>"
+        ));
+        assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
+        assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
+        assert!(!xml.contains("<LogonTrigger />"));
+        assert!(!xml.contains("encoding="));
     }
 
     #[test]
@@ -751,6 +786,10 @@ mod tests {
         let failed_apply = apply_schedule(&plan, &paths).expect("failed apply result");
         let failed_remove = remove_schedule(&plan, &paths).expect("failed remove result");
         unsafe {
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "denied");
+        }
+        let denied_apply = apply_schedule(&plan, &paths).expect("denied apply result");
+        unsafe {
             std::env::set_var(TEST_SCHTASKS_MODE_ENV, "missing");
         }
         let missing_remove = remove_schedule(&plan, &paths).expect("missing remove result");
@@ -762,6 +801,12 @@ mod tests {
         assert!(failed_apply.message.contains("schtasks /Create did not report success"));
         assert!(!failed_remove.applied);
         assert!(failed_remove.message.contains("schtasks /Delete did not report success"));
+        assert!(!denied_apply.applied);
+        assert_eq!(denied_apply.message, "schedule.windowsAccessDeniedInstallMessage");
+        assert_eq!(
+            denied_apply.step_results[0].detail_key,
+            "schedule.verifyWindowsRegisterAccessDenied"
+        );
         assert!(!missing_remove.applied);
         assert!(missing_remove.message.contains("No installed PathKeep Task Scheduler task"));
     }
@@ -808,6 +853,16 @@ mod tests {
             &params,
         )
         .expect("denied status");
+        unsafe {
+            std::env::set_var(TEST_SCHTASKS_MODE_ENV, "fail");
+        }
+        let failed = schedule_status(
+            Some("windows"),
+            Path::new("C:/PathKeep/pathkeep.exe"),
+            &paths,
+            &params,
+        )
+        .expect("failed status");
 
         restore_env_var(TEST_SCHEDULE_LABEL_ENV, original_schedule_label.as_deref());
         restore_env_var(TEST_SCHTASKS_MODE_ENV, original_schtasks_mode.as_deref());
@@ -817,6 +872,11 @@ mod tests {
         assert!(mismatch.warnings.iter().any(|warning| warning.contains("no longer matches")));
         assert_eq!(denied.install_state, "permission-warning");
         assert!(denied.warnings.iter().any(|warning| warning.contains("could not inspect")));
+        assert_eq!(denied.issues[0].code, "windows-task-access-denied");
+        assert_eq!(denied.issues[0].detail_key, "schedule.issueWindowsAccessDeniedDetail");
+        assert_eq!(failed.install_state, "permission-warning");
+        assert_eq!(failed.issues[0].code, "windows-task-inspection-failed");
+        assert_eq!(failed.issues[0].detail_key, "schedule.issueWindowsInspectionFailedDetail");
     }
 
     #[test]
