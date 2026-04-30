@@ -36,6 +36,17 @@ describe('Glyph', () => {
       screen.getByLabelText('back icon').querySelector('svg'),
     ).not.toBeNull()
   })
+
+  test('renders the settings glyph as a cog, not a sunburst', () => {
+    const { container } = render(<Glyph icon="settings" />)
+    const pathData = Array.from(container.querySelectorAll('path')).map(
+      (path) => path.getAttribute('d'),
+    )
+    const cogBody = pathData.find((path) => path?.startsWith('M12.2 2h-.4'))
+
+    expect(cogBody).toContain('a2 2 0 0 0 2 2h.4')
+    expect(pathData).not.toContain('M12 3.5v2.2')
+  })
 })
 
 describe('shared shell UI primitives', () => {
