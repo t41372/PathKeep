@@ -32,6 +32,7 @@
   2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
   3. 解析並寫入 archive 數據庫。
   4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
+- Staging / raw-source checkpoint 的實際檔案或目錄名稱不得直接使用 raw `profile_id`；`firefox:default-release`、`chrome:Default` 這類 ID 必須在檔案系統邊界轉成可逆的 Windows-safe path segment，archive metadata / UI / selected profile contract 則繼續保留原始 ID。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
 - Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path 只前進並提示 `System -> Scheduled Backup Settings`，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。

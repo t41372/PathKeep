@@ -64,7 +64,7 @@ pub(crate) fn create_snapshot_artifact(
 ) -> Result<SnapshotArtifact> {
     let checkpoint_dir = paths
         .raw_snapshots_dir
-        .join(&snapshot.profile.profile_id)
+        .join(filesystem_safe_path_segment(&snapshot.profile.profile_id))
         .join(now_rfc3339().replace(':', "-"));
     fs::create_dir_all(&checkpoint_dir)?;
 
@@ -260,7 +260,7 @@ pub(crate) fn serialize_payload<T: Serialize>(value: &T) -> Result<SerializedPay
 /// This is a fallback for older snapshot rows whose profile scope was not
 /// recorded explicitly.
 fn checkpoint_profile_id_from_path(snapshot_path: &Path) -> Option<String> {
-    snapshot_path.parent()?.file_name()?.to_str().map(str::to_string)
+    snapshot_path.parent()?.file_name()?.to_str().map(identifier_from_filesystem_segment)
 }
 
 /// Rehydrates minimal browser-profile metadata for a saved checkpoint.
@@ -530,6 +530,22 @@ mod tests {
             load_checkpoint_profile_snapshot(&connection, &missing_history, &broken_snapshot)
                 .expect_err("missing history should fail");
         assert!(format!("{error:#}").contains("saved browser source checkpoint"));
+
+        let encoded_checkpoint = root.path().join("firefox%3Adefault-release").join("2026");
+        let encoded_snapshot = SnapshotRecord {
+            run_id: 2,
+            profile_scope: vec![
+                "firefox:default-release".to_string(),
+                "chrome:Default".to_string(),
+            ],
+            file_path: encoded_checkpoint.display().to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            reason: Some("test".to_string()),
+        };
+        assert_eq!(
+            checkpoint_profile_id_for_snapshot(&encoded_checkpoint, &encoded_snapshot).as_deref(),
+            Some("firefox:default-release")
+        );
     }
 
     #[test]

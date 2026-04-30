@@ -37,8 +37,13 @@ pub fn stage_profile_snapshot(
     paths: &ProjectPaths,
     profile: &BrowserProfile,
 ) -> Result<ProfileSnapshot> {
+    let temp_prefix = format!(
+        "{}-{}",
+        filesystem_safe_path_segment(&profile.profile_id),
+        now_rfc3339().replace(':', "-")
+    );
     let temp_dir = tempfile::Builder::new()
-        .prefix(&format!("{}-{}", profile.profile_id, now_rfc3339().replace(':', "-")))
+        .prefix(&temp_prefix)
         .tempdir_in(&paths.staging_dir)
         .with_context(|| format!("creating temp dir in {}", paths.staging_dir.display()))?;
     let source_dir = PathBuf::from(&profile.profile_path);

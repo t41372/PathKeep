@@ -250,6 +250,9 @@ fn stage_profile_snapshot_copies_database_and_sidecars() {
     };
 
     let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot");
+    let temp_name =
+        snapshot.temp_dir.path().file_name().and_then(|name| name.to_str()).expect("temp dir name");
+    assert!(temp_name.starts_with("firefox%3AProfile%201-"));
     assert!(snapshot.history_path.exists());
     assert!(snapshot.temp_dir.path().join("places.sqlite-journal").exists());
     assert!(snapshot.favicons_path.is_none());

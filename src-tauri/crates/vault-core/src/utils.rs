@@ -16,6 +16,11 @@ use std::{
 };
 
 const CHROME_UNIX_EPOCH_OFFSET_MICROS: i64 = 11_644_473_600_000_000;
+const WINDOWS_RESERVED_FILE_NAMES: [&str; 25] = [
+    "CON", "PRN", "AUX", "NUL", "CLOCK$", "CONIN$", "CONOUT$", "COM1", "COM2", "COM3", "COM4",
+    "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7",
+    "LPT8", "LPT9",
+];
 
 /// Returns the current UTC timestamp in RFC3339 form.
 pub fn now_rfc3339() -> String {
@@ -45,6 +50,64 @@ pub fn file_sha256_hex(path: &Path) -> Result<String> {
     }
 
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// Encodes an app identifier as one reversible filesystem path segment.
+///
+/// Profile IDs contain product grammar such as `firefox:default-release`.
+/// Keeping that exact string in SQLite and UI state is useful, but using it as
+/// a directory or temp-file prefix breaks on Windows. This helper preserves
+/// alphanumerics and `._-`, percent-encodes every other UTF-8 byte, and guards
+/// the few Windows-reserved basenames so archive paths stay portable.
+pub fn filesystem_safe_path_segment(identifier: &str) -> String {
+    let mut encoded = String::new();
+    for byte in identifier.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+
+    if encoded.is_empty() {
+        return "id-empty".to_string();
+    }
+
+    while encoded.ends_with('.') {
+        encoded.truncate(encoded.len() - 1);
+        encoded.push_str("%2E");
+    }
+    if is_windows_reserved_name(&encoded) {
+        let first = encoded.as_bytes()[0];
+        return format!("%{first:02X}{}", &encoded[1..]);
+    }
+    encoded
+}
+
+/// Decodes a path segment produced by `filesystem_safe_path_segment`.
+///
+/// Older macOS/Linux checkpoint directories may still contain raw profile IDs.
+/// Invalid percent escapes are therefore left as literal text instead of making
+/// snapshot restore fail on old artifacts.
+pub fn identifier_from_filesystem_segment(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_nibble(bytes[index + 1]), hex_nibble(bytes[index + 2]))
+            {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(decoded).unwrap_or_else(|_| segment.to_string())
 }
 
 /// Converts a Chromium microsecond timestamp into RFC3339.
@@ -128,6 +191,20 @@ fn base64_blob(bytes: &[u8]) -> String {
     output
 }
 
+fn is_windows_reserved_name(segment: &str) -> bool {
+    let basename = segment.split('.').next().unwrap_or(segment).to_ascii_uppercase();
+    WINDOWS_RESERVED_FILE_NAMES.contains(&basename.as_str())
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// Identifies common favicon payload formats without needing a full image decoder.
 fn sniff_image_mime_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
@@ -197,6 +274,30 @@ mod tests {
             file_sha256_hex(&file).expect("hash file"),
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
+    }
+
+    #[test]
+    fn path_segment_encoding_is_windows_safe_and_reversible() {
+        let encoded = filesystem_safe_path_segment("firefox:96xe8h3r.default-release");
+        assert_eq!(encoded, "firefox%3A96xe8h3r.default-release");
+        assert!(!encoded.chars().any(|character| matches!(
+            character,
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+        )));
+        assert_eq!(
+            identifier_from_filesystem_segment(&encoded),
+            "firefox:96xe8h3r.default-release"
+        );
+        assert_eq!(identifier_from_filesystem_segment("chrome:Default"), "chrome:Default");
+        let reserved = filesystem_safe_path_segment("CON");
+        assert_eq!(reserved, "%43ON");
+        assert_eq!(identifier_from_filesystem_segment(&reserved), "CON");
+        assert_eq!(
+            identifier_from_filesystem_segment(&filesystem_safe_path_segment("profile.")),
+            "profile."
+        );
+        assert_eq!(filesystem_safe_path_segment(""), "id-empty");
+        assert_eq!(identifier_from_filesystem_segment("%3a%zz"), ":%zz");
     }
 
     #[test]

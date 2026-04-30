@@ -97,8 +97,8 @@ use crate::{
         SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
     },
     utils::{
-        file_sha256_hex, image_data_to_data_url, now_rfc3339, sha256_hex,
-        unix_micros_to_chrome_time, url_domain,
+        file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
+        image_data_to_data_url, now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain,
     },
 };
 use anyhow::{Context, Result};

@@ -18,7 +18,7 @@ use crate::{
     browser_retention::retention_boundary_for_browser,
     config::ProjectPaths,
     models::BrowserProfile,
-    utils::{file_sha256_hex, now_rfc3339},
+    utils::{file_sha256_hex, filesystem_safe_path_segment, now_rfc3339},
 };
 use anyhow::{Context, Result};
 use serde_json::Value;
