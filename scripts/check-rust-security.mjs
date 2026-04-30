@@ -92,22 +92,9 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2025-0141',
     'bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration.',
   ],
-  [
-    'RUSTSEC-2026-0097',
-    "rand 0.7/0.8/0.9 is currently only present through transitive Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
-  ],
-  [
-    'RUSTSEC-2026-0105',
-    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a maintained replacement in that stack yet.',
-  ],
 ])
 
-const allowedNonAdvisoryWarnings = new Map([
-  [
-    'yanked:core2@0.4.0',
-    'core2 0.4.0 is only pulled transitively through libsodium-sys-stable/libflate in the Stronghold build dependency chain; PathKeep does not depend on it directly and upstream has not published a maintained replacement in that stack yet.',
-  ],
-])
+const allowedNonAdvisoryWarnings = new Map([])
 
 function fail(message, details = []) {
   console.error(message)

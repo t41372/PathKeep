@@ -68,7 +68,7 @@
     "test:e2e:desktop-bridge:truth": "node scripts/run-playwright.mjs --config playwright.desktop-bridge.config.ts"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.4.3",
     "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-stronghold": "^2.3.1",
@@ -83,7 +83,7 @@
     "@stryker-mutator/core": "^9.6.0",
     "@stryker-mutator/typescript-checker": "^9.6.0",
     "@stryker-mutator/vitest-runner": "^9.6.0",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "^2.11.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
