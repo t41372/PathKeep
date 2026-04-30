@@ -36,7 +36,7 @@ export const settingsCoreAndPlatformNamespace = {
       'Select which browsers to include in your archive. History will only be backed up from checked profiles.',
     aiProvider: 'AI PROVIDER',
     aiProviderBody:
-      'Add AI providers if you want smart search or the assistant. Leave this off and the app still works normally.',
+      'Assistant and smart search are coming in v0.2. v0.1 uses keyword search and Core Intelligence without any AI provider.',
     optional: 'OPTIONAL',
     groupCore: 'CORE',
     groupDataUpdates: 'DATA & UPDATES',
@@ -180,7 +180,7 @@ export const settingsCoreAndPlatformNamespace = {
     browserProfilesBody: '选择要备份的浏览器。只有勾选的浏览器会被纳入存档。',
     aiProvider: 'AI 服务',
     aiProviderBody:
-      '如果你想用智能搜索或助手，就在这里添加 AI 服务。不开启也不会影响应用正常使用。',
+      'AI 助手和智能搜索会在 v0.2 开放。v0.1 不需要 AI 服务，仍可使用关键词搜索和确定性智能分析。',
     optional: '可选',
     groupCore: '核心',
     groupDataUpdates: '数据与更新',
@@ -321,7 +321,7 @@ export const settingsCoreAndPlatformNamespace = {
     browserProfilesBody: '選擇要備份的瀏覽器。只有勾選的瀏覽器會被納入封存。',
     aiProvider: 'AI 服務',
     aiProviderBody:
-      '如果你想用智慧搜尋或助手，就在這裡加入 AI 服務。不開啟也不會影響應用正常使用。',
+      'AI 助手和智慧搜尋會在 v0.2 開放。v0.1 不需要 AI 服務，仍可使用關鍵字搜尋和確定性智慧分析。',
     optional: '可選',
     groupCore: '核心',
     groupDataUpdates: '資料與更新',

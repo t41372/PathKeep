@@ -101,10 +101,9 @@ describe('ShellDataProvider', () => {
     vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
       getDefaultBuildInfo(),
     )
-    vi.spyOn(backend, 'loadDashboardSnapshot')
-      .mockResolvedValueOnce(dashboard)
-      .mockResolvedValueOnce(dashboard)
-      .mockRejectedValueOnce('dashboard offline')
+    const loadDashboardSnapshotSpy = vi
+      .spyOn(backend, 'loadDashboardSnapshot')
+      .mockResolvedValue(dashboard)
 
     const view = render(
       <I18nContext.Provider value={createI18nValue('en')}>
@@ -119,6 +118,14 @@ describe('ShellDataProvider', () => {
         dashboard.generatedAt,
       ),
     )
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-loading')).toHaveTextContent(
+        'false',
+      ),
+    )
+    const callsBeforeLocaleSwitch = loadDashboardSnapshotSpy.mock.calls.length
+    loadDashboardSnapshotSpy.mockRejectedValueOnce('dashboard offline')
+
     view.rerender(
       <I18nContext.Provider value={createI18nValue('zh-TW')}>
         <ShellDataProvider>
@@ -131,6 +138,9 @@ describe('ShellDataProvider', () => {
       expect(screen.getByTestId('error')).toHaveTextContent(
         translator('shell.loadingLatestArchiveState'),
       ),
+    )
+    expect(loadDashboardSnapshotSpy.mock.calls.length).toBeGreaterThan(
+      callsBeforeLocaleSwitch,
     )
   })
 

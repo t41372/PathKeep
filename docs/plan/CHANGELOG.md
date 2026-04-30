@@ -1142,3 +1142,17 @@
   - 2026-04-30 closeout：`vault_core::utils` 新增 reversible filesystem segment encode/decode；backup staging tempdir prefix 與 raw-source checkpoint 目錄改用 encoded segment；snapshot restore fallback 會把新 encoded checkpoint 目錄 decode 回原始 profile id，舊 macOS/Linux raw-name checkpoint 仍可讀。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted `vault-core` tests 通過：`path_segment_encoding_is_windows_safe_and_reversible`、`stage_profile_snapshot_copies_database_and_sidecars`、`checkpoint_profile_reconstruction_covers_missing_source_rows_and_artifact_edges`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core chrome -- --test-threads=1`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core backup_ -- --test-threads=1`。Windows 實機重跑仍需使用者用新 build 驗證。
+
+- [x] **WORK-RELEASE-012-A** — Release Truth And Demo Gate Recovery
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+    `docs/features/intelligence.md`
+    `docs/design/screens-and-nav.md`
+    `TESTING.md`
+    `README.md`
+  - 目標：逐項落實最新 AI 評委報告中仍真實存在的 release-truth 問題：重新跑權威 checker、修復當前 `bun run check` 紅燈、確認 installed app / repo HEAD / source docs 的 truth 一致，並把 v0.1.0 的 AI / semantic deferred 訊息收乾淨。
+  - 契約：不恢復 v0.1.0 optional AI / semantic / hybrid runtime；不新增 Tauri command、IPC payload、browser support scope、backend ingest 行為或 release packaging policy；不得降低 coverage threshold、不得把 active runtime 檔案用 broad exclude 踢出 `coverage:js`；所有 user-visible copy 維持 `en` / `zh-CN` / `zh-TW` parity。
+  - 2026-04-30 closeout：v0.1.0 optional AI / semantic scope 的 copy 已收斂成 `Coming in v0.2`：Assistant、Core Intelligence semantic status、Settings AI provider、Integrations MCP / skill artifacts 與 Dashboard AI controls 不再引導使用者到 Settings 開啟 AI。Explorer `All time` 狀態的 START / END 欄位改成空值與 `All time` placeholder，避免 native date input 在 WKWebView 顯示出假日期。README 現在把 v0.1 scope 壓成 Archive + keyword recall + deterministic Core Intelligence，並補上 installation / uninstall truth。
+  - 同步回寫 [`README.md`](../../README.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted Explorer / AI-provider Vitest slices、`bun run check:i18n`、`bun run coverage:js` 與 `bun run check` 全通過（100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。`bun run check` 中的 Vite build 仍保留既有 `shared` chunk 約 `508.84 kB` 警告。fresh debug `.app` Computer Use truth pass 使用 repo bundle `src-tauri/target/debug/bundle/macos/PathKeep.app`，確認 Dashboard 真資料、Explorer keyword `github` 搜尋、Semantic / Hybrid disabled state、Assistant v0.2 deferred state、Import landing、Schedule status、Settings AI deferred copy 與 Integrations v0.2 copy。

@@ -312,7 +312,10 @@ export function ExplorerQueryFiltersPanel({
               <span className="mono-kicker">{explorerT('filterStart')}</span>
               <input
                 aria-label={explorerT('filterStart')}
-                type="date"
+                inputMode="numeric"
+                pattern="\d{4}-\d{2}-\d{2}"
+                placeholder={explorerT('allRecordedTime')}
+                type="text"
                 value={searchParams.get('start') ?? ''}
                 onChange={(event) =>
                   updateParam('start', event.target.value || null)
@@ -326,7 +329,10 @@ export function ExplorerQueryFiltersPanel({
               <span className="mono-kicker">{explorerT('filterEnd')}</span>
               <input
                 aria-label={explorerT('filterEnd')}
-                type="date"
+                inputMode="numeric"
+                pattern="\d{4}-\d{2}-\d{2}"
+                placeholder={explorerT('allRecordedTime')}
+                type="text"
                 value={searchParams.get('end') ?? ''}
                 onChange={(event) =>
                   updateParam('end', event.target.value || null)

@@ -100,6 +100,7 @@
 - Sidebar 依固定分區導航：`CORE`（Dashboard / Explorer / Intelligence / Assistant）、`OPERATIONS`（Import / Audit / Jobs / Integrations）、`SYSTEM`（Scheduled Backup Settings / Security / Settings / Maintenance）；Onboarding 是 utility route，不常駐 sidebar。
 - 全局 topbar 不再提供 history search box；搜尋入口留在 `History Explorer` 內部，仍使用 `/explorer?q=...` deep-link 讓搜尋結果可以被複製、重整和重新打開。
 - Explorer 的 day-one filter deep-link 使用 query string：`q`、`profileId`、`browserKind`、`domain`、`start`、`end`、`sort`、`regex`、`page`、`pageSize`。
+- Explorer 的日期篩選欄位在 `start` / `end` 為空時必須顯示空值 / `All time` placeholder；不得讓 native date control 把空的 all-time state 顯示成今天或任何假日期。
 - Audit Ledger 的 run detail deep-link 使用 `/audit?run=<id>`；Dashboard recent runs 直接跳進這個 URL。
 - Import recent batch review 允許 `/import?batch=<id>` deep-link；Audit / Dashboard 可以直接把使用者帶回指定 batch 的 review surface。
 - Dashboard zero-state、Security、Topbar 都可以回到 Onboarding，確保 first-backup flow 永遠有明確入口。

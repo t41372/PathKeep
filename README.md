@@ -88,7 +88,7 @@ The question is no longer whether you can extract meaning from decades of histor
 
 PathKeep runs quietly on your machine and **incrementally backs up browsing history from all your browsers** — automatically, on a schedule, without manual effort. It never reads live browser databases directly; instead, it stages safe copies, deduplicates, and appends to a local archive that you fully own and control.
 
-On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and optional AI-powered intelligence (semantic search, natural-language Q&A, insight cards) — all running locally, all off by default, all under your control.
+On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the AI assistant, MCP, and other AI-backed surfaces are v0.2 roadmap items, not v0.1.0 promises.
 
 > Use Chrome with Google Sync enabled? PathKeep supports **Google Takeout import**, letting you recover extended history (often ~18 months, depending on your Google account settings) instead of just the local ~3 months.
 
@@ -96,7 +96,17 @@ On top of that archive, PathKeep gives you powerful recall (full-text search, re
 
 ## Installation
 
+Download the latest release from [GitHub Releases](https://github.com/t41372/PathKeep/releases).
+
+- **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Safari Browser Direct import requires granting Full Disk Access to PathKeep before scanning Safari history.
+- **Windows:** install the release package. Scheduled backups use Windows Task Scheduler and remain preview-quality until more machines are validated.
+- **Linux:** install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.
+
 ## Uninstall
+
+- Remove any installed schedule from **System -> Scheduled Backup Settings**.
+- Quit PathKeep, then delete the app or uninstall it with your OS package manager.
+- Optional local data removal: delete the PathKeep app-data directory only if you also want to remove the archive, config, audit artifacts, and derived indexes. On macOS that directory is `~/Library/Application Support/com.yi-ting.pathkeep`.
 
 ---
 
@@ -107,7 +117,7 @@ PathKeep is organized around three functional pillars, built in order of priorit
 ```
 ┌─────────────────────────────────────────────────────┐
 │               INTELLIGENCE                          │
-│   Core insights · Semantic search · AI assistant   │
+│   Core insights now · AI surfaces on v0.2 roadmap  │
 ├─────────────────────────────────────────────────────┤
 │               RECALL                                │
 │   Full-text search · Timeline · Filters · Export   │
@@ -148,7 +158,7 @@ Understanding your browsing patterns, built on top of a solid archive. **AI feat
 - **Semantic search** — deferred to the v0.2 roadmap; v0.1.0 ships keyword and regex recall only
 - **AI assistant** — deferred to the v0.2 roadmap until provider, retrieval, evidence, and lock-state flows are truth-tested
 - **MCP server** — deferred to the v0.2 roadmap; v0.1.0 does not expose browsing history to external AI tools
-- **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries
+- **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries from deterministic local models
 - **Remote backup** — Preview → Manual → Execute flow for S3-compatible remote bundles, with checksum and restore-readiness verification
 
 ---

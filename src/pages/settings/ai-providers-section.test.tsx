@@ -76,7 +76,9 @@ describe('AiProvidersSection', () => {
       persistedProviderIds: new Set(['llm-1', 'embed-1']),
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enable AI features' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'AI features coming in v0.2' }),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'CHAT PROVIDERS' }))
 
     expect(
@@ -87,7 +89,7 @@ describe('AiProvidersSection', () => {
       screen.getAllByTitle('This feature is coming in a future update.'),
     ).toHaveLength(4)
     expect(
-      screen.getByRole('button', { name: 'Enable AI features' }),
+      screen.getByRole('button', { name: 'AI features coming in v0.2' }),
     ).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'CHAT PROVIDERS' }),

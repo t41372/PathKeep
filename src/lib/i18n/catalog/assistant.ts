@@ -37,7 +37,7 @@ export const assistantNamespaceCatalog = {
     lockedEyebrow: 'LOCKED',
     disabledTitle: 'Assistant is turned off',
     disabledBody:
-      'Your archive still works without AI. Turn on AI features in Settings when you want to ask questions about your history.',
+      'Assistant and smart search are coming in v0.2. Keyword search and Core Intelligence are available now.',
     deferredTitle: 'Assistant is coming in v0.2',
     deferredBody:
       'This part of PathKeep is not ready yet. v0.1 ships the local archive, keyword search, and Core Intelligence first.',
@@ -111,7 +111,7 @@ export const assistantNamespaceCatalog = {
     lockedEyebrow: '已锁定',
     disabledTitle: 'AI 助手已关闭',
     disabledBody:
-      '不开启 AI 也能正常使用备份和搜索功能。如果需要 AI 助手，请到设置中开启。',
+      'AI 助手和智能搜索会在 v0.2 开放。现在可以使用关键词搜索和确定性智能分析。',
     deferredTitle: 'AI 助手将在 v0.2 中开放',
     deferredBody:
       '这个功能还没准备好。v0.1 会先把本地存档、关键词搜索和确定性智能分析做好。',
@@ -184,7 +184,7 @@ export const assistantNamespaceCatalog = {
     lockedEyebrow: '已鎖定',
     disabledTitle: 'AI 助手已關閉',
     disabledBody:
-      '不開啟 AI 也能正常使用備份和搜尋功能。如果需要 AI 助手，請到設定中開啟。',
+      'AI 助手和智慧搜尋會在 v0.2 開放。現在可以使用關鍵字搜尋和確定性智慧分析。',
     deferredTitle: 'AI 助手會在 v0.2 開放',
     deferredBody:
       '這個功能還沒準備好。v0.1 會先把本機封存、關鍵字搜尋和確定性智慧分析做好。',

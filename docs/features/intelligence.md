@@ -6,7 +6,7 @@
 >
 > **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在只應描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
-> **2026-04-10 packaging note:** default desktop install 仍內建 optional AI / assistant / MCP / semantic runtime；`optional` 指 capability 預設關閉、需明確設定 / provider 才會啟用，不代表第一次使用時另裝 helper 或外掛 binary。相關 shipping boundary 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
+> **2026-04-10 packaging note, superseded for v0.1.0:** earlier plans kept optional AI / assistant / MCP / semantic runtime inside the default desktop install but disabled by default. The 2026-04-29 v0.1.0 amendment below supersedes that release boundary: those surfaces stay visible only as disabled roadmap entry points until v0.2 readiness is proven.
 >
 > **2026-04-29 v0.1.0 release amendment:** real app testing 證明 AI Assistant、embedding、semantic / hybrid search、MCP / skill artifacts、vector sidecar、以及 readable webpage body fetch 目前不可用。v0.1.0 只 shipping local archive、keyword search、Jobs / Audit / Settings / Schedule、以及 deterministic Core Intelligence。AI / readable-content surfaces 必須顯示 `Coming in v0.2` / 後續版本開放，不得宣稱現在可用。相關 amendment 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
 >

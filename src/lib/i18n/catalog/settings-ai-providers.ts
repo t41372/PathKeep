@@ -23,7 +23,7 @@
  */
 export const settingsAiProvidersNamespace = {
   en: {
-    aiMasterToggle: 'Enable AI features',
+    aiMasterToggle: 'AI features coming in v0.2',
     aiDeferredBadge: 'Coming in v0.2',
     aiDeferredTitle: 'Optional AI is not available in v0.1',
     aiDeferredBody:
@@ -147,7 +147,7 @@ export const settingsAiProvidersNamespace = {
       'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
   },
   'zh-CN': {
-    aiMasterToggle: '启用 AI 功能',
+    aiMasterToggle: 'AI 功能将在 v0.2 开放',
     aiDeferredBadge: 'v0.2 开放',
     aiDeferredTitle: 'v0.1 暂不开放可选 AI',
     aiDeferredBody:
@@ -267,7 +267,7 @@ export const settingsAiProvidersNamespace = {
       '教外部助手如何通过 MCP 查询 PathKeep 的 Codex skill 起始模板。',
   },
   'zh-TW': {
-    aiMasterToggle: '啟用 AI 功能',
+    aiMasterToggle: 'AI 功能會在 v0.2 開放',
     aiDeferredBadge: 'v0.2 開放',
     aiDeferredTitle: 'v0.1 暫不開放可選 AI',
     aiDeferredBody:

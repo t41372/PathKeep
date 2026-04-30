@@ -86,6 +86,16 @@ describe('ExplorerQueryFiltersPanel', () => {
     expect(
       screen.getByRole('option', { name: 'Chrome · Default' }),
     ).toHaveValue('chrome:Default')
+    expect(screen.getByLabelText(explorerT('filterStart'))).toHaveAttribute(
+      'placeholder',
+      explorerT('allRecordedTime'),
+    )
+    expect(screen.getByLabelText(explorerT('filterStart'))).toHaveValue('')
+    expect(screen.getByLabelText(explorerT('filterEnd'))).toHaveAttribute(
+      'placeholder',
+      explorerT('allRecordedTime'),
+    )
+    expect(screen.getByLabelText(explorerT('filterEnd'))).toHaveValue('')
     expect(screen.queryByText('chrome:Default')).not.toBeInTheDocument()
     await user.click(
       screen.getByRole('button', {
@@ -312,6 +322,12 @@ describe('ExplorerQueryFiltersPanel', () => {
 
     expect(screen.getByText(explorerT('regexValid'))).toBeVisible()
     expect(screen.getByText('Fallback label')).toBeVisible()
+    expect(screen.getByLabelText(explorerT('filterStart'))).toHaveValue(
+      '2026-04-01',
+    )
+    expect(screen.getByLabelText(explorerT('filterEnd'))).toHaveValue(
+      '2026-04-30',
+    )
 
     fireEvent.change(screen.getByLabelText(explorerT('filterDomain')), {
       target: { value: '' },
