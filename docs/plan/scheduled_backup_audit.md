@@ -65,7 +65,7 @@ Medium-priority issues:
 
 Current implementation:
 
-- Generates Task Scheduler XML with a `LogonTrigger`, a repeating `TimeTrigger`, `StartWhenAvailable = true`, `MultipleInstancesPolicy = IgnoreNew`, `InteractiveToken`, and least-privilege run level.
+- Generates Task Scheduler XML with a `LogonTrigger`, a repeating `TimeTrigger`, `StartWhenAvailable = true`, `MultipleInstancesPolicy = IgnoreNew`, `InteractiveToken`, and least-privilege run level. The generated XML intentionally omits the XML declaration so `schtasks /Create /XML` does not reject the file with `unable to switch the encoding`.
 - Applies by writing the generated XML to the schedule directory and running `schtasks /Create /TN <label> /XML <file> /F`.
 - Status runs `schtasks /Query /TN <label> /XML`.
 - Status compares normalized XML text with the generated XML to decide `installed` versus `mismatch`.
@@ -76,11 +76,12 @@ Correctness assessment for Windows 11 24H2:
 - `schtasks` is an appropriate v1 implementation surface and can create, query, and delete local scheduled tasks.
 - `/Query /XML /TN <task>` is a valid way to inspect task XML and verify recurrence.
 - `StartWhenAvailable = true` matches the missed-run recovery requirement.
+- XML declaration handling is part of the Windows compatibility contract: PathKeep writes declaration-free UTF-8 XML and strips an optional declaration from queried XML before comparison.
 - Exact normalized XML comparison may still report `mismatch` if Windows canonicalizes or injects fields into the returned XML. Existing tests stub this path, but release validation still needs a real Windows VM.
 
 High-priority issue:
 
-- None confirmed from source inspection.
+- `SCHED-WIN-002` fixed 2026-04-30: Windows `schtasks /Create /XML` rejected the generated file with `ERROR: The task XML is malformed. (1,40)::ERROR: unable to switch the encoding` when the XML declaration carried an explicit encoding. The generated XML now omits the declaration and status normalization tolerates queried XML with a declaration.
 
 Medium-priority issue:
 

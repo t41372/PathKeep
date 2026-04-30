@@ -218,8 +218,9 @@ mod tests {
         assert!(mac.apply_supported);
         assert!(windows.apply_supported);
         assert!(!linux.apply_supported);
-        assert!(windows.generated_files[0].contents.contains("<Task"));
-        assert!(windows.generated_files[0].contents.contains("encoding=\"UTF-8\""));
+        assert!(windows.generated_files[0].contents.starts_with("<Task"));
+        assert!(!windows.generated_files[0].contents.contains("<?xml"));
+        assert!(!windows.generated_files[0].contents.contains("encoding="));
         assert!(linux.generated_files[1].contents.contains("Persistent=true"));
         assert!(linux.generated_files[1].contents.contains("OnCalendar=*-*-* 00/6:00:00"));
         assert!(!linux.generated_files[1].contents.contains("OnUnitActiveSec"));
@@ -690,7 +691,13 @@ mod tests {
         )
         .expect("windows plan");
         unsafe {
-            std::env::set_var(TEST_SCHTASKS_QUERY_XML_ENV, &plan.generated_files[0].contents);
+            std::env::set_var(
+                TEST_SCHTASKS_QUERY_XML_ENV,
+                format!(
+                    "{}\n{}",
+                    r#"<?xml version="1.0" encoding="UTF-16"?>"#, plan.generated_files[0].contents
+                ),
+            );
         }
 
         let applied = apply_schedule(&plan, &paths).expect("apply windows schedule");

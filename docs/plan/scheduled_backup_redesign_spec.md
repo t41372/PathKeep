@@ -66,7 +66,7 @@ Native scheduler ownership:
 
 - `vault-platform::scheduler` is a facade.
 - `scheduler/macos.rs` owns launchd plist generation, install/remove, loaded checks, legacy detection, and legacy repair.
-- `scheduler/windows.rs` owns Task Scheduler XML generation and `schtasks` apply/status/remove.
+- `scheduler/windows.rs` owns declaration-free Task Scheduler XML generation and `schtasks` apply/status/remove. Status normalization tolerates `schtasks /Query /XML` returning an XML declaration even though generated install XML omits one.
 - `scheduler/linux.rs` owns manual-review systemd timer artifacts.
 - `scheduler/audit.rs` owns schedule audit artifact writing and latest-audit lookup.
 

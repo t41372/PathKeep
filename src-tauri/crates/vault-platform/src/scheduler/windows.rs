@@ -44,9 +44,12 @@ pub(super) fn windows_schedule_plan(
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
     let repetition_interval = windows_repetition_interval(params.check_interval_hours);
+    // `schtasks /Create /XML` reports "unable to switch the encoding" when its
+    // Task Scheduler import path receives an XML declaration whose encoding no
+    // longer matches the already-decoded string. The task XML is ASCII-safe, so
+    // omit the declaration and let the file bytes speak for themselves.
     let xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+        r#"<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger />
     <TimeTrigger>
@@ -466,7 +469,15 @@ pub(super) fn xml_escape(value: &str) -> String {
 }
 
 fn normalize_scheduler_xml(value: &str) -> String {
-    value.split_whitespace().collect::<String>()
+    strip_xml_declaration(value).split_whitespace().collect::<String>()
+}
+
+fn strip_xml_declaration(value: &str) -> &str {
+    let trimmed = value.trim_start_matches('\u{feff}').trim_start();
+    if !trimmed.starts_with("<?xml") {
+        return trimmed;
+    }
+    trimmed.find("?>").map_or(trimmed, |end| &trimmed[end + 2..])
 }
 
 fn verification_check(
