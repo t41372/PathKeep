@@ -78,6 +78,16 @@ jobs:
           test "$package_version" = "$tauri_version"
           test "$package_version" = "$RESOLVED_VERSION"
 
+      - name: Verify updater signing secret
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is required because src-tauri/tauri.conf.json has bundle.createUpdaterArtifacts=true." >&2
+            echo "Add the minisign private key as a repository Actions secret before dispatching the release workflow." >&2
+            exit 1
+          fi
+
   build-release:
     name: Build ${{ matrix.label }}
     needs: prepare-release
@@ -111,14 +121,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
             pkg-config \
+            libdbus-1-dev \
+            libfuse2 \
             libglib2.0-dev \
             libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
             librsvg2-dev \
             patchelf \
-            rpm
+            rpm \
+            wget
 
       - uses: actions/setup-node@v4
         with:
@@ -128,15 +146,12 @@ jobs:
 
       - name: Install Rust toolchain
         if: matrix.rust_targets == ''
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.94.1
+        uses: dtolnay/rust-toolchain@1.94.1
 
       - name: Install Rust toolchain with target
         if: matrix.rust_targets != ''
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.94.1
         with:
-          toolchain: 1.94.1
           targets: ${{ matrix.rust_targets }}
 
       - uses: arduino/setup-protoc@v3

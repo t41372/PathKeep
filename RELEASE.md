@@ -112,10 +112,17 @@ Workflow behavior:
 - `APPLE_PASSWORD`
 - `APPLE_TEAM_ID`
 
-### Optional Updater Signing
+### Required Updater Signing
 
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+The current Tauri config has `bundle.createUpdaterArtifacts=true`, so the `Release` workflow fails fast when `TAURI_SIGNING_PRIVATE_KEY` is not configured. Set the private key as a repository Actions secret before dispatching the workflow:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY --repo t41372/PathKeep
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo t41372/PathKeep
+```
 
 ### Windows Signing
 
