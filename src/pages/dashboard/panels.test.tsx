@@ -20,7 +20,7 @@
 
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
 import type {
   BackupRunOverview,
@@ -156,6 +156,46 @@ describe('Dashboard panels', () => {
     expect(screen.getByText('settings.disabled')).toBeVisible()
     expect(screen.getByText('dashboard.embeddingFallback')).toBeVisible()
     expect(screen.getByText('—')).toBeVisible()
+  })
+
+  test('renders dashboard AI quick links when optional AI is release-enabled', async () => {
+    vi.resetModules()
+    vi.doMock('../../lib/release-capabilities', () => ({
+      deferredFeatureReleaseLabel: 'v0.2',
+      optionalAiFeaturesAvailable: true,
+      readableContentFetchAvailable: false,
+    }))
+
+    try {
+      const { DashboardIntelligencePanel: EnabledDashboardIntelligencePanel } =
+        await import('./panels')
+
+      render(
+        <MemoryRouter>
+          <EnabledDashboardIntelligencePanel
+            aiMeta={{ description: 'Provider ready', label: 'ready' } as never}
+            backgroundQueueCount={3}
+            embeddingProviderId="nomic"
+            language="en"
+            llmProviderId="llama"
+            t={t}
+          />
+        </MemoryRouter>,
+      )
+
+      expect(screen.getByText('ready')).toBeVisible()
+      expect(screen.getByText('Provider ready')).toBeVisible()
+      expect(screen.getByText('3')).toBeVisible()
+      expect(
+        screen.getByRole('link', { name: 'dashboard.semanticSearchAction' }),
+      ).toHaveAttribute('href', '/explorer?mode=hybrid')
+      expect(
+        screen.getByRole('link', { name: 'dashboard.openAssistantAction' }),
+      ).toHaveAttribute('href', '/assistant')
+    } finally {
+      vi.doUnmock('../../lib/release-capabilities')
+      vi.resetModules()
+    }
   })
 
   test('renders On This Day loading and fallback states', () => {

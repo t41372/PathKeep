@@ -1125,7 +1125,12 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         },
     )
     .expect("assistant answer");
-    assert!(answer.answer.contains("stub answer"));
+    assert_eq!(answer.state, "insufficient-evidence");
+    assert!(
+        answer.answer.contains("I couldn't find enough matching history evidence"),
+        "{}",
+        answer.answer
+    );
 
     let tool_result = mcp_search_result(
         None,

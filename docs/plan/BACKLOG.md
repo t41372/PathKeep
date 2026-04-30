@@ -47,6 +47,28 @@
   - 執行順序：先確認 `bun run check` 綠；再跑 `bun run mutation:js:full` 並從 top survivor/timeouts files 補測；Rust 先修 cargo-mutants copy-sandbox fixture contract，再用 shards 跑 `bun run mutation:rust:full` 或等價 `cargo mutants --shard n/m`，合併 survivor 清單後逐項處理。
   - 驗收：`bun run check`、`bun run mutation:js:full`、`bun run mutation:rust:full`、更新 `docs/plan/program/quality-matrix.md` / `TESTING.md` / `CHANGELOG.md` 的耗時、survivor closeout 與任何 narrow equivalent evidence。
 
+- [!] **WORK-AI-V02-A** — Optional AI Runtime Re-Enablement [!blocked: v0.2 scope decision, real provider acceptance, release-size evidence]
+  - 讀先：
+    `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
+    `docs/architecture/tech-stack.md`
+    `docs/features/intelligence.md`
+    `docs/architecture/data-model.md`
+    `docs/plan/program/research-and-decisions.md`
+  - 目標：重新評估並實作 v0.2 optional AI：Assistant、provider probes、embedding/index jobs、semantic / hybrid search、MCP / skill artifacts、以及 vector sidecar storage。
+  - 契約：不得直接恢復 v0.1.0 移除的 LanceDB dependency；必須先補 runtime truth、provider / App Lock / queue acceptance、packaging / release-size / supply-chain evidence、以及 vector-store sidecar trade-off。UI 必須在可用前保持 `Coming in v0.2` disabled state。
+  - 驗收：real desktop provider smoke、semantic search + assistant evidence trace、queue cancel/replay、MCP / skill manual review、release-size audit、`bun run check`，以及 updated ADR / tech-stack / feature docs。
+
+- [!] **WORK-READABLE-CONTENT-V02-A** — Readable Webpage Body Fetch Roadmap [!blocked: privacy model, network policy, failure UX, real-site acceptance]
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/features/intelligence.md`
+    `docs/architecture/data-model.md`
+    `docs/design/screens-and-nav.md`
+    `docs/plan/program/research-and-decisions.md`
+  - 目標：把 `readable-content-refetch` 從 v0.1.0 disabled roadmap surface 做成真正可用的 network-backed derived runtime。
+  - 契約：不得在 backup/import critical path 內同步 refetch；不得宣稱可抓取登入頁、PDF、JSON、redirect boundary 或 rate-limited 內容；必須有 explicit privacy/network boundary、queue retry/cancel、failure taxonomy、人話 UI、storage accounting、clear/rebuild 行為，以及 real-site acceptance evidence。
+  - 驗收：Settings / Jobs / Maintenance disabled-to-enabled flow、network boundary copy、real HTML/PDF/redirect/rate-limit fixtures、blob storage cleanup、`bun run check`，以及 archive/intelligence/data-model docs 回寫。
+
 ---
 
 ## 依賴關係圖

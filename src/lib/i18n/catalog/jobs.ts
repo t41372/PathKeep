@@ -30,7 +30,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: 'BACKGROUND WORK',
     readyTitle: 'Background work is idle',
     readyBody:
-      'No work is waiting. New analysis refreshes, page-text fetches, assistant tasks, and embedding tasks will appear here.',
+      'No work is waiting. Local analysis refreshes and archive write tasks will appear here.',
     pausedTitle: 'Background work is paused',
     pausedBody: 'Queued work is saved and will stay here until you resume it.',
     runningTitle: 'Background work is running',
@@ -56,12 +56,12 @@ export const jobsNamespaceCatalog = {
     loadingPage: 'Loading background work',
     pageUnavailableTitle: 'Background work is unavailable',
     overviewTitle: 'Queue overview',
-    overviewHeadline: 'Refresh local analysis first, then collect page text',
+    overviewHeadline: 'Refresh local analysis first',
     overviewBody:
-      'Local rebuilds update cards and evidence first. Slower network fetches keep running in the background.',
+      'Local rebuilds update cards and evidence without waiting on future AI or webpage-body fetch features.',
     queueSummaryTitle: 'Assistant and embedding queue',
     queueSummaryBody:
-      'Optional assistant and embedding work appears here when those features are on; existing queued items stay reviewable.',
+      'Optional assistant and embedding work is deferred from v0.1. Existing queued items stay reviewable if they are present.',
     runtimeSummaryTitle: 'Local analysis',
     runtimeSummaryBody:
       'Analysis refreshes and content work keep a recoverable record of what ran, failed, or still waits.',
@@ -69,7 +69,7 @@ export const jobsNamespaceCatalog = {
     recoveryBody:
       'Queued work is saved in the archive. If the app closes unexpectedly, unfinished items stay here so you can review or retry them after reopening PathKeep.',
     noRecoveryNotes: 'No recovery notes right now.',
-    pluginsTitle: 'Content workers',
+    pluginsTitle: 'Local workers',
     modulesTitle: 'Analysis modules',
     recentAiJobs: 'Recent assistant jobs',
     recentRuntimeJobs: 'Recent derived-data jobs',
@@ -89,7 +89,7 @@ export const jobsNamespaceCatalog = {
     startedAt: 'Started',
     finishedAt: 'Finished',
     noErrorDetails: 'No details yet.',
-    savedReadableContent: 'Readable pages saved',
+    savedReadableContent: 'Stored content rows',
     storedRecordsLabel: 'Stored rows',
     focusNow: 'Current',
     focusNowBacklog:
@@ -98,7 +98,10 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: 'Review',
     needsReviewIdle: 'No failed work needs review.',
     needsReviewBacklog: '{count} failed job(s) still need review or retry.',
-    contentFetchTitle: 'Page text',
+    contentFetchTitle: 'Readable content',
+    contentFetchDeferredBadge: 'Coming in v0.2',
+    contentFetchDeferredBody:
+      'Webpage body fetching is not available in v0.1. This area stays visible for the roadmap, but PathKeep is not revisiting pages or saving readable copies yet.',
     contentFetchBacklogBody:
       'PathKeep saved {stored} readable pages. {queued} page-text fetches are waiting so local analysis does not wait on every site.',
     contentFetchRunningBody:
@@ -106,7 +109,7 @@ export const jobsNamespaceCatalog = {
     contentFetchReadyBody:
       'PathKeep already saved {stored} readable pages and the fetch queue is currently clear.',
     contentFetchFallbackBody:
-      'Page text fetches add deeper local evidence for summaries and deterministic insights.',
+      'Readable content fetching will add deeper local evidence in a future release.',
     titleNormalizationBody:
       'Title cleanup runs on this device so search, summaries, and cards use steadier labels.',
     moduleAttentionBody: '{count} analysis module(s) need refresh or review.',
@@ -128,15 +131,14 @@ export const jobsNamespaceCatalog = {
     errorRateLimited:
       'The upstream site temporarily refused the fetch. Retry it later.',
     deterministicRuntimeSummary:
-      'PathKeep is refreshing local analysis first, then it will continue slower page-text fetches.',
+      'PathKeep is refreshing local analysis first. Webpage body fetching is deferred from v0.1.',
     contentFetchQueuedSummaryHost:
-      'This page-text fetch is waiting in the queue and will revisit {host} later.',
-    contentFetchQueuedSummary:
-      'This page-text fetch is waiting in the queue and will revisit the source page later.',
+      'Readable-content work for {host} is deferred from v0.1.',
+    contentFetchQueuedSummary: 'Readable-content work is deferred from v0.1.',
     contentFetchRunningSummaryHost:
-      'PathKeep is revisiting {host} now to capture readable page text.',
+      'PathKeep is not revisiting {host} for readable content in v0.1.',
     contentFetchRunningSummary:
-      'PathKeep is capturing readable page text for this record right now.',
+      'PathKeep is not capturing readable page text in v0.1.',
     sidebarTitle: 'Background work',
     sidebarNeedsSetup: 'Background work appears after setup.',
     sidebarLocked: 'Unlock the archive first',
@@ -195,7 +197,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: '后台工作',
     readyTitle: '后台工作已空闲',
     readyBody:
-      '当前没有等待的任务。新的分析刷新、网页正文抓取、助手任务和嵌入任务会显示在这里。',
+      '当前没有等待的任务。新的本地分析刷新和存档写入任务会显示在这里。',
     pausedTitle: '后台工作已暂停',
     pausedBody: '排队任务已经保存，恢复后会继续处理。',
     runningTitle: '后台工作正在运行',
@@ -219,11 +221,12 @@ export const jobsNamespaceCatalog = {
     loadingPage: '正在加载后台工作',
     pageUnavailableTitle: '后台工作暂时不可用',
     overviewTitle: '队列总览',
-    overviewHeadline: '先刷新本地分析，再补抓网页正文',
-    overviewBody: '本地重建会先更新卡片和证据；较慢的网络抓取会在后台继续。',
+    overviewHeadline: '先刷新本地分析',
+    overviewBody:
+      '本地重建会更新卡片和证据，不会等待后续版本才开放的 AI 或网页正文抓取。',
     queueSummaryTitle: '助手与嵌入队列',
     queueSummaryBody:
-      '开启对应功能后，助手与嵌入任务会显示在这里；已有排队项仍可检查。',
+      '助手与嵌入任务已从 v0.1 延后；如果存在旧的排队项，仍可在这里检查。',
     runtimeSummaryTitle: '本地分析',
     runtimeSummaryBody:
       '分析刷新和内容任务会保留可恢复记录，方便查看哪些已完成、失败或仍在等待。',
@@ -231,7 +234,7 @@ export const jobsNamespaceCatalog = {
     recoveryBody:
       '排队任务会保存在存档里。如果应用意外关闭，未完成的任务仍会留在这里，重新打开 PathKeep 后可以继续查看或重试。',
     noRecoveryNotes: '当前没有恢复备注。',
-    pluginsTitle: '内容任务',
+    pluginsTitle: '本地任务',
     modulesTitle: '分析模块',
     recentAiJobs: '最近的助手任务',
     recentRuntimeJobs: '最近的衍生数据任务',
@@ -251,7 +254,7 @@ export const jobsNamespaceCatalog = {
     startedAt: '开始时间',
     finishedAt: '结束时间',
     noErrorDetails: '还没有详细信息。',
-    savedReadableContent: '已保存正文',
+    savedReadableContent: '已保存内容行',
     storedRecordsLabel: '已保存行数',
     focusNow: '当前',
     focusNowBacklog: '后台有任务在运行。刷新后可查看最新项目。',
@@ -259,7 +262,10 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: '需处理',
     needsReviewIdle: '当前没有失败任务需要处理。',
     needsReviewBacklog: '还有 {count} 个失败任务等待你查看或重试。',
-    contentFetchTitle: '网页正文',
+    contentFetchTitle: '网页可读内容',
+    contentFetchDeferredBadge: 'v0.2 开放',
+    contentFetchDeferredBody:
+      '网页正文抓取不属于 v0.1 范围。这里先保留路线图入口，但 PathKeep 现在不会重新访问网页，也不会保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 条可读网页内容；还有 {queued} 条网页正文抓取在队列中，本地分析不用等每个网站都返回。',
     contentFetchRunningBody:
@@ -267,7 +273,7 @@ export const jobsNamespaceCatalog = {
     contentFetchReadyBody:
       '已保存 {stored} 条可读网页内容。当前没有待处理的网页正文抓取。',
     contentFetchFallbackBody:
-      '网页内容抓取会在后台为摘要和洞察补充更多可引用的本机证据。',
+      '网页正文抓取会在后续版本为本地证据补充更多可引用内容。',
     titleNormalizationBody:
       '标题规范化会在本机运行，帮助搜索、摘要和卡片使用更稳定的标签。',
     moduleAttentionBody: '{count} 个分析模块需要刷新或检查。',
@@ -287,14 +293,12 @@ export const jobsNamespaceCatalog = {
       '这个页面跳进了登录或跳转边界，PathKeep 目前拿不到稳定的正文。',
     errorRateLimited: '上游网站暂时拒绝了抓取请求，稍后可以再试一次。',
     deterministicRuntimeSummary:
-      'PathKeep 会先刷新本地分析，再继续处理较慢的网页正文抓取。',
-    contentFetchQueuedSummaryHost:
-      '这条网页正文抓取还在排队，轮到时会重新访问 {host}。',
-    contentFetchQueuedSummary:
-      '这条网页正文抓取还在排队，轮到时会重新访问原页面。',
+      'PathKeep 会先刷新本地分析。网页正文抓取已从 v0.1 延后。',
+    contentFetchQueuedSummaryHost: '{host} 的网页正文任务已从 v0.1 延后。',
+    contentFetchQueuedSummary: '网页正文任务已从 v0.1 延后。',
     contentFetchRunningSummaryHost:
-      'PathKeep 正在重新访问 {host}，为这条记录补抓可读正文。',
-    contentFetchRunningSummary: 'PathKeep 正在为这条记录补抓可读正文。',
+      'PathKeep v0.1 不会重新访问 {host} 抓取网页正文。',
+    contentFetchRunningSummary: 'PathKeep v0.1 不会抓取网页正文。',
     sidebarTitle: '后台工作',
     sidebarNeedsSetup: '完成设置后才会显示后台工作。',
     sidebarLocked: '先解锁存档',
@@ -352,7 +356,7 @@ export const jobsNamespaceCatalog = {
     statusEyebrow: '背景工作',
     readyTitle: '背景工作目前空閒',
     readyBody:
-      '目前沒有等待的任務。新的分析重新整理、網頁正文擷取、助手任務與嵌入任務會顯示在這裡。',
+      '目前沒有等待的任務。新的本機分析重新整理和封存寫入工作會顯示在這裡。',
     pausedTitle: '背景工作已暫停',
     pausedBody: '排隊任務已經保存，恢復後就會繼續處理。',
     runningTitle: '背景工作正在執行',
@@ -376,11 +380,12 @@ export const jobsNamespaceCatalog = {
     loadingPage: '正在載入背景工作',
     pageUnavailableTitle: '背景工作暫時無法使用',
     overviewTitle: '佇列總覽',
-    overviewHeadline: '先重新整理本機分析，再補抓網頁正文',
-    overviewBody: '本機重建會先更新卡片和證據；較慢的網路擷取會在背景繼續。',
+    overviewHeadline: '先重新整理本機分析',
+    overviewBody:
+      '本機重建會更新卡片和證據，不會等待後續版本才開放的 AI 或網頁正文擷取。',
     queueSummaryTitle: '助手與嵌入佇列',
     queueSummaryBody:
-      '開啟對應功能後，助手與嵌入任務會顯示在這裡；既有排隊項仍可檢查。',
+      '助手與嵌入工作已從 v0.1 延後；如果存在舊的排隊項，仍可在這裡檢查。',
     runtimeSummaryTitle: '本機分析',
     runtimeSummaryBody:
       '分析重新整理和內容任務會保留可恢復紀錄，方便查看哪些已完成、失敗或仍在等待。',
@@ -388,7 +393,7 @@ export const jobsNamespaceCatalog = {
     recoveryBody:
       '排隊任務會保存在封存裡。如果應用意外關閉，未完成的任務仍會留在這裡，重新開啟 PathKeep 後可以繼續查看或重試。',
     noRecoveryNotes: '目前沒有恢復備註。',
-    pluginsTitle: '內容任務',
+    pluginsTitle: '本機任務',
     modulesTitle: '分析模組',
     recentAiJobs: '最近的助手任務',
     recentRuntimeJobs: '最近的衍生資料任務',
@@ -408,7 +413,7 @@ export const jobsNamespaceCatalog = {
     startedAt: '開始時間',
     finishedAt: '結束時間',
     noErrorDetails: '目前還沒有詳細資訊。',
-    savedReadableContent: '已保存正文',
+    savedReadableContent: '已保存內容列',
     storedRecordsLabel: '已保存列數',
     focusNow: '目前',
     focusNowBacklog: '背景有任務正在執行。重新整理後可查看最新項目。',
@@ -416,7 +421,10 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: '待處理',
     needsReviewIdle: '目前沒有失敗任務需要處理。',
     needsReviewBacklog: '還有 {count} 個失敗任務等你查看或重試。',
-    contentFetchTitle: '網頁正文',
+    contentFetchTitle: '網頁可讀內容',
+    contentFetchDeferredBadge: 'v0.2 開放',
+    contentFetchDeferredBody:
+      '網頁正文擷取不屬於 v0.1 範圍。這裡先保留路線圖入口，但 PathKeep 現在不會重新造訪網頁，也不會保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 筆可讀網頁內容；還有 {queued} 筆網頁正文擷取在佇列中，本機分析不用等每個網站都回應。',
     contentFetchRunningBody:
@@ -424,7 +432,7 @@ export const jobsNamespaceCatalog = {
     contentFetchReadyBody:
       '已保存 {stored} 筆可讀網頁內容。現在沒有待處理的網頁正文抓取。',
     contentFetchFallbackBody:
-      '網頁內容抓取會在背景替摘要與洞察補上更多可引用的本機證據。',
+      '網頁正文擷取會在後續版本替本機證據補上更多可引用內容。',
     titleNormalizationBody:
       '標題正規化會在本機執行，幫助搜尋、摘要與卡片使用更穩定的標籤。',
     moduleAttentionBody: '{count} 個分析模組需要重新整理或檢查。',
@@ -444,14 +452,12 @@ export const jobsNamespaceCatalog = {
       '這個頁面跳進了登入或重新導向邊界，PathKeep 目前拿不到穩定的正文。',
     errorRateLimited: '上游網站暫時拒絕了抓取請求，稍後可以再試一次。',
     deterministicRuntimeSummary:
-      'PathKeep 會先重新整理本機分析，再繼續處理較慢的網頁正文擷取。',
-    contentFetchQueuedSummaryHost:
-      '這筆網頁正文抓取還在排隊，輪到時會重新造訪 {host}。',
-    contentFetchQueuedSummary:
-      '這筆網頁正文抓取還在排隊，輪到時會重新造訪原頁面。',
+      'PathKeep 會先重新整理本機分析。網頁正文擷取已從 v0.1 延後。',
+    contentFetchQueuedSummaryHost: '{host} 的網頁正文工作已從 v0.1 延後。',
+    contentFetchQueuedSummary: '網頁正文工作已從 v0.1 延後。',
     contentFetchRunningSummaryHost:
-      'PathKeep 正在重新造訪 {host}，為這筆紀錄補抓可讀正文。',
-    contentFetchRunningSummary: 'PathKeep 正在為這筆紀錄補抓可讀正文。',
+      'PathKeep v0.1 不會重新造訪 {host} 擷取網頁正文。',
+    contentFetchRunningSummary: 'PathKeep v0.1 不會擷取網頁正文。',
     sidebarTitle: '背景工作',
     sidebarNeedsSetup: '完成設定後才會顯示背景工作。',
     sidebarLocked: '先解鎖封存',

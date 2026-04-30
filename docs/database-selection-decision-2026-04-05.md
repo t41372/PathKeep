@@ -5,6 +5,11 @@
 > Scope: Next-generation architecture
 > Canonical requirements source: `docs/vision-and-requirements.md`
 
+> v0.1.0 release amendment (2026-04-29): Vector / semantic retrieval remains a
+> future replaceable sidecar concept, but the default v0.1.0 build does not
+> include LanceDB / vector runtime, and the UI must present semantic search,
+> embedding, assistant, MCP, and readable webpage body fetch as deferred.
+
 ## 1. Executive Summary
 
 採用 `SQLite-first layered architecture`，不是一個 "all-in-one" database。
@@ -16,7 +21,8 @@
 - Intelligence runtime projection database: **SQLite**
 - Encryption: **SQLCipher**
 - Full-text recall: **SQLite FTS5**
-- Vector / semantic retrieval sidecar: **LanceDB**
+- Vector / semantic retrieval sidecar: **future replaceable sidecar** (LanceDB
+  was the earlier accepted candidate; v0.1.0 does not ship it)
 - AI / Embedding framework: **rig.rs**
 - Heavy analytics sidecar: **不在 day one 引入**；只有在後續 benchmark 證明必要時才加入 DuckDB
 
@@ -99,11 +105,14 @@ FTS5 is the correct search layer for lexical recall.
 - Only index text needed for recall (title, URL, search terms, labels, selected enrichment text).
 - Do not duplicate all enrichment text blindly into FTS.
 
-### 3.4 Vector / Semantic Search: LanceDB Sidecar
+### 3.4 Vector / Semantic Search: Future Replaceable Sidecar
 
-LanceDB is the chosen vector sidecar, driven by rig.rs for embedding generation.
+LanceDB was the accepted candidate sidecar, driven by rig.rs for embedding
+generation. The 2026-04-29 v0.1.0 release amendment removes the direct LanceDB
+runtime from the default build until AI / semantic search has new runtime truth,
+packaging, release-size, and supply-chain evidence.
 
-Why LanceDB:
+Why LanceDB was accepted as the earlier candidate:
 
 - It is local and embedded, which fits the desktop product shape.
 - It supports vector indexing (IVF-PQ), quantization, and hybrid retrieval.

@@ -47,6 +47,11 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: 'Smart search is limited right now',
     semanticRecallNeedsAttentionBody:
       'Check the provider, queue, and index status below before trying the same query again.',
+    optionalAiDeferredTitle: 'Smart search is coming in v0.2',
+    optionalAiDeferredBody:
+      'Semantic and hybrid search need embeddings and a vector index, so they are disabled in v0.1. Keyword search below still works against your local archive.',
+    optionalAiDeferredTooltip:
+      'Semantic and hybrid search are coming in a future update.',
     semanticStatusEyebrow: 'SEMANTIC STATUS',
     semanticRecallTitle: 'SEMANTIC RECALL',
     noSemanticEyebrow: 'SMART SEARCH',
@@ -191,6 +196,10 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智能搜索暂时不可用',
     semanticRecallNeedsAttentionBody:
       '请先检查下方的 provider、队列和索引状态，再重试相同查询。',
+    optionalAiDeferredTitle: '智能搜索将在 v0.2 中开放',
+    optionalAiDeferredBody:
+      '语义搜索和混合搜索需要 embedding 与向量索引，所以 v0.1 暂时禁用。下方关键词搜索仍会读取你的本地存档。',
+    optionalAiDeferredTooltip: '语义搜索和混合搜索会在后续版本开放。',
     semanticStatusEyebrow: '智能搜索状态',
     semanticRecallTitle: '智能搜索召回',
     noSemanticEyebrow: '智能搜索',
@@ -332,6 +341,10 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智慧搜尋暫時無法使用',
     semanticRecallNeedsAttentionBody:
       '請先檢查下方的 provider、佇列與索引狀態，再重試相同查詢。',
+    optionalAiDeferredTitle: '智慧搜尋會在 v0.2 開放',
+    optionalAiDeferredBody:
+      '語義搜尋和混合搜尋需要 embedding 與向量索引，所以 v0.1 暫時停用。下方關鍵字搜尋仍會讀取你的本機封存。',
+    optionalAiDeferredTooltip: '語義搜尋和混合搜尋會在後續版本開放。',
     semanticStatusEyebrow: '智慧搜尋狀態',
     semanticRecallTitle: '智慧搜尋召回',
     noSemanticEyebrow: '智慧搜尋',

@@ -57,7 +57,7 @@ describe('App shell', () => {
     {
       entry: '/assistant',
       pageTestId: null,
-      sentinel: assistantT('disabledTitle'),
+      sentinel: assistantT('deferredTitle'),
     },
     {
       entry: '/intelligence',

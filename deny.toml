@@ -22,8 +22,7 @@ ignore = [
   { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
   { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
   { id = "RUSTSEC-2025-0141", reason = "bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration." },
-  { id = "RUSTSEC-2026-0002", reason = "lru 0.12.x is transitively pinned by LanceDB/tantivy; PathKeep only reaches tantivy's StoreReader cache methods (get/put/len/peek_lru), not the affected IterMut API." },
-  { id = "RUSTSEC-2026-0097", reason = "rand 0.7/0.8/0.9 is only pulled transitively by LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep does not call rand::rng() directly, and the reported unsoundness requires a custom logger path outside our owned code surface." },
+  { id = "RUSTSEC-2026-0097", reason = "rand 0.7/0.8/0.9 is only pulled transitively by Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep does not call rand::rng() directly, and the reported unsoundness requires a custom logger path outside our owned code surface." },
 ]
 unmaintained = "workspace"
 unsound = "workspace"

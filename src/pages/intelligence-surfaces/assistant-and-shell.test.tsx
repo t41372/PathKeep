@@ -46,6 +46,12 @@ import {
   wrapSection,
 } from './test-helpers'
 
+vi.mock('../../lib/release-capabilities', () => ({
+  deferredFeatureReleaseLabel: 'v0.2',
+  optionalAiFeaturesAvailable: true,
+  readableContentFetchAvailable: false,
+}))
+
 describe('intelligence surfaces', () => {
   beforeEach(() => {
     resetIntelligenceSurfaceHarness()

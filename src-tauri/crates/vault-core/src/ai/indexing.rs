@@ -14,7 +14,7 @@
 //! ## Dependencies
 //! - `super::control` for cooperative cancellation checkpoints
 //! - `super::provider` for embedding retries and provider validation
-//! - `crate::ai_sidecar` for LanceDB sidecar synchronization
+//! - `crate::ai_sidecar` for optional vector sidecar synchronization
 //!
 //! ## Performance notes
 //! - candidate collection diffs content hashes before embedding, which avoids re-embedding
@@ -43,7 +43,7 @@ pub(super) struct IndexedVisit {
 /// Builds or refreshes the semantic sidecar for one embedding provider.
 ///
 /// This is the main entrypoint for semantic indexing. It keeps all durable side effects
-/// together: run-ledger bookkeeping, SQLite compatibility rows, LanceDB sidecar sync, and
+/// together: run-ledger bookkeeping, SQLite compatibility rows, optional sidecar sync, and
 /// stale-row cleanup.
 pub async fn build_ai_index(
     paths: &ProjectPaths,
@@ -130,7 +130,7 @@ pub async fn build_ai_index_with_control(
                 removed_items: removed_items + sidecar_removed,
                 last_indexed_at: now_rfc3339(),
                 notes: vec![
-                    "Cleared the semantic index compatibility rows and the LanceDB sidecar."
+                    "Cleared the semantic index compatibility rows and optional vector sidecar."
                         .to_string(),
                 ],
             });
@@ -167,156 +167,9 @@ pub async fn build_ai_index_with_control(
             });
         }
 
-        let timestamp = now_rfc3339();
-        let mut indexed_items = 0usize;
-        let mut updated_items = 0usize;
-        let mut skipped_items = 0usize;
-        let mut sidecar_rows = Vec::with_capacity(candidates.len());
-        let mut partial_failure_notes = Vec::new();
-        let existing_history_ids = load_existing_embedding_hashes(
-            &connection,
-            provider,
-            &candidates.iter().map(|visit| visit.history_id).collect::<Vec<_>>(),
-        )?
-        .into_keys()
-        .collect::<HashSet<_>>();
-
-        for batch in candidates.chunks(EMBEDDING_BATCH_SIZE) {
-            checkpoint_ai_run(
-                run_control,
-                "Index build was cancelled before the next embedding batch started.",
-            )?;
-            let texts = batch.iter().map(|visit| visit.content.clone()).collect::<Vec<_>>();
-            match await_with_ai_cancellation(
-                run_control,
-                "Index build was cancelled while waiting for embedding batch results.",
-                embed_batch_with_retry(provider, &texts),
-            )
-            .await
-            {
-                Ok(vectors) if vectors.len() == batch.len() => {
-                    for (visit, vector) in batch.iter().zip(vectors.into_iter()) {
-                        let had_prior_index = existing_history_ids.contains(&visit.history_id);
-                        upsert_embedding(&connection, provider, visit, &timestamp)?;
-                        sidecar_rows.push(SidecarEmbeddingRow {
-                            history_id: visit.history_id,
-                            profile_id: visit.profile_id.clone(),
-                            url: visit.url.clone(),
-                            title: visit.title.clone(),
-                            domain: visit.domain.clone(),
-                            visited_at: visit.visited_at.clone(),
-                            provider_id: provider.config.id.clone(),
-                            model: provider.config.default_model.clone(),
-                            content_hash: visit.content_hash.clone(),
-                            indexed_at: timestamp.clone(),
-                            vector,
-                        });
-                        if had_prior_index {
-                            updated_items += 1;
-                        } else {
-                            indexed_items += 1;
-                        }
-                    }
-                }
-                Ok(_) | Err(_) => {
-                    for visit in batch {
-                        checkpoint_ai_run(
-                            run_control,
-                            "Index build was cancelled before an individual retry embedding call.",
-                        )?;
-                        let had_prior_index = existing_history_ids.contains(&visit.history_id);
-                        match await_with_ai_cancellation(
-                            run_control,
-                            "Index build was cancelled while retrying an individual embedding call.",
-                            embed_single_with_retry(provider, &visit.content),
-                        )
-                        .await
-                        {
-                            Ok(vector) => {
-                                upsert_embedding(&connection, provider, visit, &timestamp)?;
-                                sidecar_rows.push(SidecarEmbeddingRow {
-                                    history_id: visit.history_id,
-                                    profile_id: visit.profile_id.clone(),
-                                    url: visit.url.clone(),
-                                    title: visit.title.clone(),
-                                    domain: visit.domain.clone(),
-                                    visited_at: visit.visited_at.clone(),
-                                    provider_id: provider.config.id.clone(),
-                                    model: provider.config.default_model.clone(),
-                                    content_hash: visit.content_hash.clone(),
-                                    indexed_at: timestamp.clone(),
-                                    vector,
-                                });
-                                if had_prior_index {
-                                    updated_items += 1;
-                                } else {
-                                    indexed_items += 1;
-                                }
-                            }
-                            Err(error) => {
-                                skipped_items += 1;
-                                partial_failure_notes.push(format!(
-                                    "Skipped history row {} after batch and per-row embedding retries: {}",
-                                    visit.history_id, error
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let sidecar_synced = await_with_ai_cancellation(
-            run_control,
-            "Index build was cancelled while syncing the semantic sidecar.",
-            ai_sidecar::sync_provider_embeddings(
-                paths,
-                &provider.config.id,
-                &provider.config.default_model,
-                &sidecar_rows,
-                request.full_rebuild,
-                false,
-                &stale_history_ids,
-            ),
+        anyhow::bail!(
+            "AI Assistant, semantic search, embeddings, and vector indexing are coming in a future PathKeep release. PathKeep v0.1.0 ships the local archive and Core Intelligence first."
         )
-        .await?;
-
-        Ok(AiIndexReport {
-            job_id: None,
-            run_id: Some(run_id),
-            provider_id: provider.config.id.clone(),
-            model: provider.config.default_model.clone(),
-            indexed_items,
-            updated_items,
-            skipped_items,
-            removed_items: removed_items + sidecar_removed,
-            last_indexed_at: timestamp,
-            notes: {
-                let mut notes = vec![
-                    format!(
-                        "Indexed {} history rows with {}.",
-                        candidates.len(),
-                        provider.config.name
-                    ),
-                    format!(
-                        "Processed {} embedding batch(es) with a batch size of {}.",
-                        candidates.len().div_ceil(EMBEDDING_BATCH_SIZE),
-                        EMBEDDING_BATCH_SIZE
-                    ),
-                    format!(
-                        "Synced {} row(s) into the LanceDB semantic sidecar. PathKeep keeps the SQLite mirror only for metadata/debug compatibility, not for full-table semantic fallback scans.",
-                        sidecar_synced
-                    ),
-                ];
-                if skipped_items > 0 {
-                    notes.push(format!(
-                        "Skipped {} row(s) after retrying failed embedding batches individually.",
-                        skipped_items
-                    ));
-                    notes.extend(partial_failure_notes);
-                }
-                notes
-            },
-        })
     }
     .await;
 
@@ -491,7 +344,7 @@ pub(super) fn cleanup_stale_embeddings(
     Ok(removed)
 }
 
-/// Collects stale history ids so the LanceDB sidecar can drop rows that no longer exist.
+/// Collects stale history ids so the optional semantic sidecar can drop rows that no longer exist.
 pub(super) fn collect_stale_history_ids(
     connection: &Connection,
     provider: &AiProviderRuntime,
@@ -540,6 +393,7 @@ pub(super) fn clear_provider_embeddings(
 }
 
 /// Upserts one SQLite compatibility row after a semantic embedding was produced.
+#[cfg(test)]
 pub(super) fn upsert_embedding(
     connection: &Connection,
     provider: &AiProviderRuntime,

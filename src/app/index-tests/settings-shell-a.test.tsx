@@ -232,18 +232,16 @@ describe('App shell', () => {
       throw new Error('Expected readable content plugin card to be present')
     }
 
-    await user.click(
+    expect(
+      within(readableContentCard).getAllByText(
+        settingsT('readableContentDeferredBadge'),
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(
       within(readableContentCard).getByRole('button', {
-        name: settingsT('disablePlugin'),
+        name: settingsT('enablePlugin'),
       }),
-    )
-    await waitFor(() => {
-      expect(
-        within(maintenancePage).getByRole('button', {
-          name: settingsT('enablePlugin'),
-        }),
-      ).toBeVisible()
-    })
+    ).toBeDisabled()
 
     await user.click(
       within(maintenancePage).getByRole('button', {
@@ -299,7 +297,7 @@ describe('App shell', () => {
     }
   })
 
-  test('keeps AI provider field edits local until save is confirmed', async () => {
+  test('keeps AI provider settings disabled for the v0.1 release', async () => {
     await seedArchiveRun()
     await seedAiProviders()
     const user = userEvent.setup()
@@ -318,32 +316,22 @@ describe('App shell', () => {
         .find((node): node is HTMLElement => node instanceof HTMLElement) ??
         null,
     )
-    const providerNameInput =
-      within(settingsPage).getByDisplayValue('Local LLM')
-
-    await user.clear(providerNameInput)
-    await user.type(providerNameInput, 'Local LLM Draft')
-
-    expect(saveConfigSpy).not.toHaveBeenCalled()
-    expect(
-      within(aiPanel).getByText(settingsT('aiUnsavedChanges')),
-    ).toBeVisible()
-
-    await user.click(
-      within(aiPanel).getByRole('button', {
-        name: settingsT('aiSaveConfig'),
-      }),
-    )
-
-    await waitFor(() => {
-      expect(saveConfigSpy).toHaveBeenCalledTimes(1)
+    const enableAiButton = within(aiPanel).getByRole('button', {
+      name: settingsT('aiMasterToggle'),
     })
+    expect(enableAiButton).toBeDisabled()
+    expect(
+      within(aiPanel).getByText(settingsT('aiDeferredTitle')),
+    ).toBeVisible()
+    expect(within(aiPanel).queryByDisplayValue('Local LLM')).toBeNull()
+
+    await user.click(enableAiButton)
+    expect(saveConfigSpy).not.toHaveBeenCalled()
   })
 
-  test('shows AI integration preview artifacts and consent boundaries in integrations', async () => {
+  test('shows AI integration roadmap placeholders in integrations', async () => {
     await seedArchiveRun()
     await seedAiProviders()
-    const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/integrations'],
     })
@@ -358,40 +346,19 @@ describe('App shell', () => {
     )
 
     expect(
-      await within(aiPanel).findByText(settingsT('aiIntegrationReview')),
+      await within(aiPanel).findByText(settingsT('aiIntegrationDeferredTitle')),
     ).toBeVisible()
     expect(
-      within(aiPanel).getByText(settingsT('aiCapabilityNotes')),
+      within(aiPanel).getByText(settingsT('aiIntegrationDeferredBody')),
     ).toBeVisible()
     expect(
       within(aiPanel).getByText(settingsT('aiGeneratedFiles')),
     ).toBeVisible()
     expect(
-      within(aiPanel).getByRole('button', {
-        name: 'integrations/pathkeep-mcp.json',
-      }),
+      within(aiPanel).getByText(settingsT('aiIntegrationDeferredFilesBody')),
     ).toBeVisible()
-    const mcpSummary = expectHtmlElement(
-      within(aiPanel)
-        .getAllByText(settingsT('aiIntegrationGeneratedFileMcpPurpose'))
-        .find((node) => node.tagName.toLowerCase() === 'summary') ?? null,
-    )
-    await user.click(mcpSummary)
-    expect(within(aiPanel).getByText(/"mcpServers"/)).toBeVisible()
-
-    await user.click(
-      within(aiPanel).getByRole('button', {
-        name: 'integrations/codex-pathkeep-skill/SKILL.md',
-      }),
-    )
-    const skillSummary = expectHtmlElement(
-      within(aiPanel)
-        .getAllByText(settingsT('aiIntegrationGeneratedFileSkillPurpose'))
-        .find((node) => node.tagName.toLowerCase() === 'summary') ?? null,
-    )
-    await user.click(skillSummary)
-
-    expect(within(aiPanel).getByText(/# PathKeep Search/)).toBeInTheDocument()
+    expect(within(aiPanel).queryByText(/"mcpServers"/)).toBeNull()
+    expect(within(aiPanel).queryByText(/# PathKeep Search/)).toBeNull()
   })
 })
 

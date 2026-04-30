@@ -101,6 +101,12 @@ describe('ExplorerQueryFiltersPanel', () => {
     await user.click(
       screen.getByRole('button', { name: explorerT('modeSemantic') }),
     )
+    expect(
+      screen.getByRole('button', { name: explorerT('modeSemantic') }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: explorerT('modeHybrid') }),
+    ).toBeDisabled()
     await user.click(
       screen.getByRole('button', { name: intelligenceT('viewModeSession') }),
     )
@@ -135,7 +141,7 @@ describe('ExplorerQueryFiltersPanel', () => {
 
     expect(updateParam).toHaveBeenCalledWith('domain', null)
     expect(clearAllFilters).toHaveBeenCalledTimes(1)
-    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).not.toHaveBeenCalledWith('mode', 'semantic')
     expect(setView).toHaveBeenCalledWith('session')
     expect(setQueryInput).toHaveBeenLastCalledWith('sql')
     expect(updateParam).toHaveBeenCalledWith('regex', '1')
@@ -201,6 +207,62 @@ describe('ExplorerQueryFiltersPanel', () => {
 
     expect(updateParam).toHaveBeenCalledWith('regex', null)
     expect(updateParam).toHaveBeenCalledWith('mode', null)
+  })
+
+  test('wires semantic and hybrid mode buttons when optional AI is release-enabled', async () => {
+    const user = userEvent.setup()
+    const updateParam = vi.fn()
+    vi.resetModules()
+    vi.doMock('../../lib/release-capabilities', () => ({
+      deferredFeatureReleaseLabel: 'v0.2',
+      optionalAiFeaturesAvailable: true,
+      readableContentFetchAvailable: false,
+    }))
+
+    try {
+      const { ExplorerQueryFiltersPanel: EnabledExplorerQueryFiltersPanel } =
+        await import('./query-filters-panel')
+
+      render(
+        <EnabledExplorerQueryFiltersPanel
+          activeFilters={[]}
+          activeScopeLabel={null}
+          browserKinds={[]}
+          buildRecentSearchLabel={() => ''}
+          clearAllFilters={vi.fn()}
+          explicitProfileId={null}
+          explorerT={explorerT}
+          intelligenceT={intelligenceT}
+          mode="keyword"
+          profileId={null}
+          queryInput=""
+          recentSearches={[]}
+          regexMode={false}
+          regexValid={true}
+          searchParams={new URLSearchParams()}
+          selectedProfileIds={[]}
+          setQueryInput={vi.fn()}
+          setSearchParams={vi.fn()}
+          setView={vi.fn()}
+          updateParam={updateParam}
+          view="time"
+          visibleRecordCount={null}
+        />,
+      )
+
+      await user.click(
+        screen.getByRole('button', { name: explorerT('modeSemantic') }),
+      )
+      await user.click(
+        screen.getByRole('button', { name: explorerT('modeHybrid') }),
+      )
+
+      expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+      expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
+    } finally {
+      vi.doUnmock('../../lib/release-capabilities')
+      vi.resetModules()
+    }
   })
 
   test('clears optional filters and falls back to recent-search labels', async () => {

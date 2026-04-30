@@ -28,6 +28,7 @@ import {
   aiStatusMeta,
   selectedAiProvider,
 } from '../../lib/intelligence-ai-presentation'
+import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import { historyFaviconLookupKey } from './helpers'
 import {
   profileIdLabel,
@@ -187,6 +188,7 @@ export function ExplorerPage() {
     historyBlockedByInvalidRegex,
     labels,
     mode,
+    optionalAiAvailable: optionalAiFeaturesAvailable,
     view,
     persistRecentSearch,
     refreshAppData,
@@ -213,6 +215,7 @@ export function ExplorerPage() {
       : null
   const semanticLoading =
     archiveReady &&
+    optionalAiFeaturesAvailable &&
     mode !== 'keyword' &&
     Boolean(semanticQuery.query) &&
     semanticState.requestKey !== semanticRequestKey
@@ -370,7 +373,16 @@ export function ExplorerPage() {
         visibleRecordCount={visibleTimeResults?.total ?? null}
       />
 
-      {aiMeta && mode !== 'keyword' && (
+      {mode !== 'keyword' && !optionalAiFeaturesAvailable ? (
+        <StatusCallout
+          tone="info"
+          eyebrow={explorerT('semanticStatusEyebrow')}
+          title={explorerT('optionalAiDeferredTitle')}
+          body={explorerT('optionalAiDeferredBody')}
+        />
+      ) : null}
+
+      {aiMeta && mode !== 'keyword' && optionalAiFeaturesAvailable && (
         <ExplorerRuntimePanel
           aiMeta={aiMeta}
           embeddingProvider={embeddingProvider}
@@ -427,7 +439,7 @@ export function ExplorerPage() {
         />
       )}
 
-      {mode !== 'keyword' && (
+      {mode !== 'keyword' && optionalAiFeaturesAvailable && (
         <ExplorerSemanticPanel
           explorerT={explorerT}
           intelligenceT={intelligenceT}

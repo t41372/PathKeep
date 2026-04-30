@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 
 /// Built-in enrichment plugin ID for title normalization.
 pub const TITLE_NORMALIZATION_PLUGIN_ID: &str = "title-normalization";
-/// Built-in enrichment plugin ID for readable-content refetch.
+/// Built-in enrichment plugin ID reserved for future readable-content refetch.
 pub const READABLE_CONTENT_PLUGIN_ID: &str = "readable-content-refetch";
 /// Current version string for the title-normalization plugin.
 pub const TITLE_NORMALIZATION_PLUGIN_VERSION: &str = "m5-v1";
-/// Current version string for the readable-content plugin.
+/// Current version string for the deferred readable-content plugin.
 pub const READABLE_CONTENT_PLUGIN_VERSION: &str = "m4-v1";
 /// Built-in deterministic module ID for visit-derived facts.
 pub const VISIT_DERIVED_FACTS_MODULE_ID: &str = "visit-derived-facts";
@@ -63,7 +63,7 @@ pub fn default_enrichment_plugin_preferences() -> Vec<EnrichmentPluginPreference
         },
         EnrichmentPluginPreference {
             plugin_id: READABLE_CONTENT_PLUGIN_ID.to_string(),
-            enabled: true,
+            enabled: false,
         },
     ]
 }
@@ -95,7 +95,7 @@ pub fn default_enrichment_plugin_states() -> Vec<EnrichmentPluginState> {
         },
         EnrichmentPluginState {
             id: READABLE_CONTENT_PLUGIN_ID.to_string(),
-            enabled: true,
+            enabled: false,
             version: READABLE_CONTENT_PLUGIN_VERSION.to_string(),
         },
     ]

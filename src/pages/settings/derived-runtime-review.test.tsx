@@ -19,7 +19,7 @@
  * - Uses a single runtime fixture so card rendering remains cheap.
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
@@ -146,7 +146,7 @@ describe('DerivedRuntimeReview', () => {
       screen.getByText(settingsT('deterministicModuleDisabled')),
     ).toBeVisible()
     expect(
-      screen.getByRole('button', { name: settingsT('enablePlugin') }),
+      screen.getAllByRole('button', { name: settingsT('enablePlugin') })[0],
     ).toBeDisabled()
     expect(screen.getByText('custom-module')).toBeVisible()
     expect(
@@ -213,6 +213,134 @@ describe('DerivedRuntimeReview', () => {
 
     expect(screen.getByText('not-a-module-date')).toBeVisible()
     expect(screen.getByText('not-a-plugin-date')).toBeVisible()
+  })
+
+  test('wires readable-content controls when webpage body fetch is release-enabled', async () => {
+    const user = userEvent.setup()
+    const onEnrichmentPluginToggle = vi.fn()
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DerivedRuntimeReview
+            action={null}
+            clearReport={null}
+            dashboardRecentRun={null}
+            intelligenceRuntime={{
+              ...runtimeFixture(),
+              plugins: [
+                {
+                  pluginId: 'readable-content-refetch',
+                  sourceKind: 'network',
+                  enabled: true,
+                  storedRecords: 3,
+                  queuedJobs: 0,
+                  runningJobs: 0,
+                  failedJobs: 0,
+                  lastCompletedAt: null,
+                  lastError: null,
+                },
+              ],
+            }}
+            intelligenceRuntimeError={null}
+            readableContentAvailable
+            rebuildQueueReport={null}
+            snapshot={snapshotFixture({
+              enrichmentPlugins: [
+                {
+                  id: 'readable-content-refetch',
+                  enabled: true,
+                  version: 'ci-v1',
+                },
+              ],
+            })}
+            onCancelRuntimeJob={vi.fn()}
+            onDeterministicModuleToggle={vi.fn()}
+            onEnrichmentPluginToggle={onEnrichmentPluginToggle}
+            onRetryRuntimeJob={vi.fn()}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+
+    const readableContentRow = screen
+      .getByText('Readable content fetcher')
+      .closest('.result-row')
+    expect(readableContentRow).toBeInstanceOf(HTMLElement)
+    if (!(readableContentRow instanceof HTMLElement)) {
+      throw new Error('expected readable content row')
+    }
+    expect(
+      within(readableContentRow).getByText(settingsT('enabled')),
+    ).toBeVisible()
+
+    await user.click(
+      within(readableContentRow).getByRole('button', { name: 'Disable' }),
+    )
+
+    expect(onEnrichmentPluginToggle).toHaveBeenCalledWith(
+      'readable-content-refetch',
+    )
+
+    rerender(
+      <MemoryRouter>
+        <I18nProvider>
+          <DerivedRuntimeReview
+            action={null}
+            clearReport={null}
+            dashboardRecentRun={null}
+            intelligenceRuntime={{
+              ...runtimeFixture(),
+              plugins: [
+                {
+                  pluginId: 'readable-content-refetch',
+                  sourceKind: 'network',
+                  enabled: false,
+                  storedRecords: 0,
+                  queuedJobs: 0,
+                  runningJobs: 0,
+                  failedJobs: 0,
+                  lastCompletedAt: null,
+                  lastError: null,
+                },
+              ],
+            }}
+            intelligenceRuntimeError={null}
+            readableContentAvailable
+            rebuildQueueReport={null}
+            snapshot={snapshotFixture({
+              enrichmentPlugins: [
+                {
+                  id: 'readable-content-refetch',
+                  enabled: false,
+                  version: 'ci-v1',
+                },
+              ],
+            })}
+            onCancelRuntimeJob={vi.fn()}
+            onDeterministicModuleToggle={vi.fn()}
+            onEnrichmentPluginToggle={onEnrichmentPluginToggle}
+            onRetryRuntimeJob={vi.fn()}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+
+    const disabledReadableContentRow = screen
+      .getByText('Readable content fetcher')
+      .closest('.result-row')
+    expect(disabledReadableContentRow).toBeInstanceOf(HTMLElement)
+    if (!(disabledReadableContentRow instanceof HTMLElement)) {
+      throw new Error('expected disabled readable content row')
+    }
+    expect(
+      within(disabledReadableContentRow).getByText(settingsT('disabled')),
+    ).toBeVisible()
+    expect(
+      within(disabledReadableContentRow).getByRole('button', {
+        name: settingsT('enablePlugin'),
+      }),
+    ).toBeVisible()
   })
 })
 

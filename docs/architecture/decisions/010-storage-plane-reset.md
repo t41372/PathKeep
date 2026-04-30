@@ -4,6 +4,10 @@
 
 Accepted
 
+Amended for v0.1.0 release scope (2026-04-29): the storage-plane boundary
+still treats semantic vectors and readable-content blobs as rebuildable sidecar
+state, but v0.1.0 does not ship LanceDB/vector runtime or webpage body fetch.
+
 ## Context
 
 PathKeep 目前的實作已經脫離最早的 legacy archive schema，但 repo 內仍保留一個 transitional 狀態：
@@ -36,15 +40,15 @@ PathKeep 改採 **4-layer storage plane**，並以 hard reset 方式直接切換
    - 只保存 rebuildable intelligence runtime / read model
    - 包含 enrichment queue、assistant trace、deterministic features / groups / threads / cards / snapshot payload
 4. `sidecars/`
-   - `semantic-index/` 使用 LanceDB 保存 vectors 與 ANN index
-   - `intelligence-blobs/` 保存 content-addressed、可回收的正文 blob
+   - `semantic-index/` 保留給 future vector sidecar；v0.1.0 不寫入 LanceDB vectors / ANN index
+   - `intelligence-blobs/` 保留給 future content-addressed 正文 blob；v0.1.0 不 fetch / 保存網頁正文
 
 同時採用以下硬邊界：
 
 - 不再為 pre-reset archive DB 設計 migration、upgrade path 或 compatibility docs。
 - 不再保留 `profiles` / `visit_events` compatibility views、legacy triggers、或 runtime `ensure_*_column` ad-hoc patching。
 - 不再把 per-row raw JSON payload 視為 hot archive contract；raw capture 改為 checkpoint-first，保存 source checkpoint、schema fingerprint、manifest 與 canonical facts。
-- 不再把 SQLite `ai_embeddings` 當作向量 payload mirror；semantic metadata 與 vectors 分離，ANN retrieval 只走 LanceDB。
+- 不再把 SQLite `ai_embeddings` 當作向量 payload mirror；semantic metadata 與 future vector payload 分離。v0.1.0 不 shipping ANN retrieval。
 
 ## Consequences
 
@@ -59,4 +63,4 @@ PathKeep 改採 **4-layer storage plane**，並以 hard reset 方式直接切換
 - `archive/history-vault.sqlite`、`derived/history-search.sqlite`、`derived/history-intelligence.sqlite` 與 `sidecars/{semantic-index,intelligence-blobs}` 已全部落地成 repo 目前的正式 storage plane。
 - canonical archive 已移除 `raw_row_versions` hot-path persistence；來源證據改由 checkpoint / snapshot / manifest trace 承接。
 - intelligence plane 不再靠 temp compatibility views 或 runtime `ensure_*_column` patching 存活；讀路徑直接使用 attached `archive.*` 表。
-- SQLite 只保留 compact semantic metadata / rebuild accounting；向量 payload 僅存在 LanceDB sidecar，可讀正文則進 `sidecars/intelligence-blobs/`。
+- SQLite 只保留 compact semantic metadata / rebuild accounting；v0.1.0 不寫入 LanceDB vector sidecar，也不 fetch / 保存可讀正文。`sidecars/{semantic-index,intelligence-blobs}` 是後續版本重新開放時的可重建 derived-state 邊界。

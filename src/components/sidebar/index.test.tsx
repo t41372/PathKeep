@@ -101,7 +101,7 @@ describe('Sidebar', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('Optional')).toBeVisible()
+    expect(screen.getByText('v0.2')).toBeVisible()
   })
 
   test('keeps the root link inactive when another route is selected', () => {

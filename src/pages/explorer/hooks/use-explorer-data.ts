@@ -66,6 +66,7 @@ interface UseExplorerDataOptions {
     visitFailed: string
   }
   mode: ExplorerMode
+  optionalAiAvailable: boolean
   view: ExplorerViewMode
   persistRecentSearch: (params: RecentSearchEntry['params']) => void
   refreshAppData: () => Promise<void>
@@ -102,6 +103,7 @@ export function useExplorerData({
   historyBlockedByInvalidRegex,
   labels,
   mode,
+  optionalAiAvailable,
   view,
   persistRecentSearch,
   refreshAppData,
@@ -422,7 +424,12 @@ export function useExplorerData({
 
   useEffect(() => {
     const request = semanticRequestRef.current
-    if (!archiveReady || mode === 'keyword' || !request.semanticQuery.query) {
+    if (
+      !archiveReady ||
+      !optionalAiAvailable ||
+      mode === 'keyword' ||
+      !request.semanticQuery.query
+    ) {
       setSemanticState({
         requestKey: semanticRequestKey,
         results: null,
@@ -467,7 +474,13 @@ export function useExplorerData({
     return () => {
       cancelled = true
     }
-  }, [archiveReady, mode, semanticQuery.query, semanticRequestKey])
+  }, [
+    archiveReady,
+    mode,
+    optionalAiAvailable,
+    semanticQuery.query,
+    semanticRequestKey,
+  ])
 
   /**
    * Refreshes queue status.

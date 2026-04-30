@@ -41,6 +41,7 @@ import {
   enrichmentPluginDescription,
   enrichmentPluginLabel,
 } from '../../lib/intelligence-runtime'
+import { readableContentFetchAvailable } from '../../lib/release-capabilities'
 import type {
   AppSnapshot,
   ClearDerivedIntelligenceReport,
@@ -135,6 +136,7 @@ export interface DerivedRuntimeReviewProps {
   dashboardRecentRun: DashboardSnapshot['recentRuns'][number] | null
   intelligenceRuntime: IntelligenceRuntimeSnapshot | null
   intelligenceRuntimeError: string | null
+  readableContentAvailable?: boolean
   rebuildQueueReport: CoreIntelligenceQueueReport | null
   snapshot: AppSnapshot
   onCancelRuntimeJob: (jobId: number) => Promise<void>
@@ -152,6 +154,7 @@ export function DerivedRuntimeReview({
   dashboardRecentRun,
   intelligenceRuntime,
   intelligenceRuntimeError,
+  readableContentAvailable = readableContentFetchAvailable,
   rebuildQueueReport,
   snapshot,
   onDeterministicModuleToggle,
@@ -336,6 +339,9 @@ export function DerivedRuntimeReview({
       ))}
 
       {reviewableEnrichmentPlugins.map((plugin) => {
+        const readableContentDeferred =
+          plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID &&
+          !readableContentAvailable
         const sourceKind =
           plugin.runtime?.sourceKind ??
           (plugin.state.id === READABLE_CONTENT_REFETCH_PLUGIN_ID
@@ -344,19 +350,26 @@ export function DerivedRuntimeReview({
 
         return (
           <ReviewRuntimeBoundaryCard
-            active
+            active={!readableContentDeferred}
             actions={
               <button
                 className="btn-secondary"
                 type="button"
-                disabled={Boolean(action)}
+                disabled={Boolean(action) || readableContentDeferred}
+                title={
+                  readableContentDeferred
+                    ? settingsNs('readableContentDeferredTooltip')
+                    : undefined
+                }
                 onClick={() => {
                   void onEnrichmentPluginToggle(plugin.state.id)
                 }}
               >
-                {plugin.state.enabled
-                  ? t('settings.disablePlugin')
-                  : t('settings.enablePlugin')}
+                {readableContentDeferred
+                  ? t('settings.enablePlugin')
+                  : plugin.state.enabled
+                    ? t('settings.disablePlugin')
+                    : t('settings.enablePlugin')}
               </button>
             }
             description={enrichmentPluginDescription(
@@ -365,16 +378,20 @@ export function DerivedRuntimeReview({
             )}
             headerMeta={
               <span className="mono">
-                {plugin.state.enabled
-                  ? t('settings.enabled')
-                  : t('settings.disabled')}
+                {readableContentDeferred
+                  ? settingsNs('readableContentDeferredBadge')
+                  : plugin.state.enabled
+                    ? t('settings.enabled')
+                    : t('settings.disabled')}
               </span>
             }
             key={plugin.state.id}
             metrics={[
               {
                 label: settingsNs('pluginBoundary'),
-                value: enrichmentPluginBoundaryLabel(sourceKind, settingsNs),
+                value: readableContentDeferred
+                  ? settingsNs('readableContentDeferredBadge')
+                  : enrichmentPluginBoundaryLabel(sourceKind, settingsNs),
                 valueClassName: 'mono',
               },
               {

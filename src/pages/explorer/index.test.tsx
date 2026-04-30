@@ -197,6 +197,20 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('trail-panel')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument()
   })
+
+  test('shows the deferred semantic callout when optional AI is unavailable', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'semantic',
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByText('explorer.optionalAiDeferredTitle')).toBeVisible()
+    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-panel')).not.toBeInTheDocument()
+  })
 })
 
 function renderExplorer() {

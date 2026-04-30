@@ -62,7 +62,7 @@ mod tests {
         assert_eq!(merged[0].plugin_id, TITLE_NORMALIZATION_PLUGIN_ID);
         assert!(!merged[0].enabled);
         assert_eq!(merged[1].plugin_id, READABLE_CONTENT_PLUGIN_ID);
-        assert!(merged[1].enabled);
+        assert!(!merged[1].enabled);
     }
 
     #[test]

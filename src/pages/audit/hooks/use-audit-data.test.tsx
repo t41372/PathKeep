@@ -302,6 +302,54 @@ describe('useAuditData', () => {
     await waitFor(() => expect(result.current.detailCache).toEqual({}))
   })
 
+  test('ignores related-batch failures after the matching import batch changes', async () => {
+    const batch = batchFixture(10)
+    const staleRelatedBatch = deferred<ImportBatchDetail>()
+    vi.spyOn(backend, 'loadAuditRunDetail').mockResolvedValue(
+      detailFixture(runFixture(1, 'import')),
+    )
+    vi.spyOn(backend, 'previewImportBatch').mockReturnValue(
+      staleRelatedBatch.promise,
+    )
+
+    const { result, rerender } = renderHook(
+      (props: Parameters<typeof useAuditData>[0]) => useAuditData(props),
+      {
+        initialProps: {
+          labels,
+          recentImportBatches: [batch],
+          recentRuns: [runFixture(1, 'import')],
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          refreshKey: 1,
+          runId: 1,
+          selectRun: vi.fn(),
+        },
+      },
+    )
+
+    await waitFor(() =>
+      expect(backend.previewImportBatch).toHaveBeenCalledWith(10),
+    )
+
+    rerender({
+      labels,
+      recentImportBatches: [],
+      recentRuns: [runFixture(1, 'import')],
+      refreshAppData: vi.fn().mockResolvedValue(undefined),
+      refreshKey: 2,
+      runId: 1,
+      selectRun: vi.fn(),
+    })
+    await waitFor(() => expect(result.current.relatedImportBatch).toBeNull())
+
+    await act(async () => {
+      staleRelatedBatch.reject(new Error('stale batch failure'))
+      await staleRelatedBatch.promise.catch(() => undefined)
+    })
+
+    expect(result.current.relatedBatchError).toBeNull()
+  })
+
   test('surfaces run-detail and related-batch fallback errors', async () => {
     vi.spyOn(backend, 'loadAuditRunDetail').mockRejectedValueOnce('offline')
     const detailFailureImportBatches: ImportBatchOverview[] = []

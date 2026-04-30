@@ -71,12 +71,15 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationPlugin: 'Title normalization',
     titleNormalizationDescription:
       'Cleans up page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into clearer evidence labels.',
-    readableContentRefetch: 'Page content fetcher',
+    readableContentRefetch: 'Readable content fetcher',
     readableContentRefetchBody:
-      'Reads page text from pages you visited so summaries and insights have better local evidence. Turn it off to stop new reads; clear it to remove old text.',
-    readableContentPlugin: 'Page content fetcher',
+      'Not available in v0.1. This future worker will revisit pages only after the feature is reliable enough to ship.',
+    readableContentPlugin: 'Readable content fetcher',
     readableContentDescription:
-      'Reads page text from visited pages so summaries and deterministic insights can cite more complete local evidence.',
+      'This future worker will fetch readable webpage bodies. It is disabled in v0.1 so PathKeep does not pretend it can save page text today.',
+    readableContentDeferredBadge: 'Coming in v0.2',
+    readableContentDeferredTooltip:
+      'Webpage body fetching is coming in a future update.',
     visitDerivedFactsModule: 'Visit-derived facts',
     visitDerivedFactsModuleDescription:
       'Normalizes visit-level evidence, site dictionary fields, and search metadata before downstream rebuild stages run.',
@@ -157,8 +160,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: 'Last error',
     networkAccess: 'Network',
     localOnly: 'Local only',
-    readableContentRefetchImpact:
-      'Stores page text locally so it can be rebuilt any time.',
+    readableContentRefetchImpact: 'No webpage body text is fetched in v0.1.',
     disablePlugin: 'Disable',
     enablePlugin: 'Enable',
     runtimeRecentJobs: 'Recent runtime jobs',
@@ -256,12 +258,14 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationPlugin: '标题规范化',
     titleNormalizationDescription:
       '在本地整理网页标题，让重复标签页、跳转页和多余尾码变成更清楚的证据标签。',
-    readableContentRefetch: '页面内容抓取',
+    readableContentRefetch: '网页可读内容抓取',
     readableContentRefetchBody:
-      '读取你访问过的网页正文，让摘要和洞察有更完整的本地证据。关闭后不会再读取新内容；清除会移除旧内容。',
-    readableContentPlugin: '页面内容抓取',
+      'v0.1 暂不开放。这个未来任务会在足够可靠后，再重新访问页面并提取正文。',
+    readableContentPlugin: '网页可读内容抓取',
     readableContentDescription:
-      '读取已访问页面的文字，让摘要和确定性洞察可以引用更完整的本地证据。',
+      '这个未来任务会抓取网页正文。v0.1 中它保持禁用，PathKeep 不会假装现在已经能保存网页正文。',
+    readableContentDeferredBadge: 'v0.2 开放',
+    readableContentDeferredTooltip: '网页正文抓取会在后续版本开放。',
     visitDerivedFactsModule: '访问派生事实',
     visitDerivedFactsModuleDescription:
       '先把 visit 级别的证据、站点词典字段和搜索元数据标准化，再交给后续重建阶段使用。',
@@ -337,7 +341,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近错误',
     networkAccess: '网络',
     localOnly: '仅本地',
-    readableContentRefetchImpact: '在本地保存网页文本，可随时重新生成。',
+    readableContentRefetchImpact: 'v0.1 不会抓取网页正文。',
     disablePlugin: '关闭',
     enablePlugin: '开启',
     runtimeRecentJobs: '最近运行任务',
@@ -432,12 +436,14 @@ export const settingsDerivedAndRuntimeNamespace = {
     titleNormalizationPlugin: '標題正規化',
     titleNormalizationDescription:
       '在本機整理網頁標題，讓重複分頁、跳轉頁和多餘尾碼變成更清楚的證據標籤。',
-    readableContentRefetch: '網頁內容擷取',
+    readableContentRefetch: '網頁可讀內容擷取',
     readableContentRefetchBody:
-      '讀取你造訪過的網頁文字，讓摘要和洞察有更完整的本機證據。關閉後不會再讀取新內容；清除會移除舊內容。',
-    readableContentPlugin: '網頁內容擷取',
+      'v0.1 暫不開放。這個未來工作會在足夠可靠後，再重新造訪頁面並提取正文。',
+    readableContentPlugin: '網頁可讀內容擷取',
     readableContentDescription:
-      '讀取已造訪頁面的文字，讓摘要和確定性洞察可以引用更完整的本機證據。',
+      '這個未來工作會擷取網頁正文。v0.1 中它保持停用，PathKeep 不會假裝現在已經能保存網頁正文。',
+    readableContentDeferredBadge: 'v0.2 開放',
+    readableContentDeferredTooltip: '網頁正文擷取會在後續版本開放。',
     visitDerivedFactsModule: '造訪衍生事實',
     visitDerivedFactsModuleDescription:
       '先把 visit 層級的證據、站點詞典欄位與搜尋中繼資料標準化，再交給後續重建階段使用。',
@@ -513,7 +519,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近錯誤',
     networkAccess: '網路',
     localOnly: '僅限本機',
-    readableContentRefetchImpact: '在本機儲存網頁文字，可隨時重新產生。',
+    readableContentRefetchImpact: 'v0.1 不會擷取網頁正文。',
     disablePlugin: '關閉',
     enablePlugin: '開啟',
     runtimeRecentJobs: '最近執行工作',

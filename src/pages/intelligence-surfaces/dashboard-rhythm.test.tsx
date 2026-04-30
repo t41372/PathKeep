@@ -87,8 +87,8 @@ describe('intelligence surfaces', () => {
       await screen.findByText(dashboardT('intelligenceTitle')),
     ).toBeVisible()
     expect(
-      screen.getByRole('link', { name: dashboardT('semanticSearchAction') }),
-    ).toBeVisible()
+      screen.getByRole('button', { name: dashboardT('semanticSearchAction') }),
+    ).toBeDisabled()
     expect(
       screen.getAllByRole('link', { name: dashboardT('reviewInsightsAction') }),
     ).toHaveLength(2)

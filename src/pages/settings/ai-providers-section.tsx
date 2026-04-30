@@ -21,26 +21,43 @@
  * - provider editor 只編輯已載入的 draft；generated files 與 integration preview 來自既有 backend preview，不在 section 內額外 fan-out。
  */
 
-import type { ComponentProps } from 'react'
-import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
-import { AiProviderEditorList } from '../../components/ai-provider-editor'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { Glyph } from '../../components/ui'
-import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
   AiIndexStatus,
   AiIntegrationPreview,
   AiProviderConfig,
+  AiRequestFormat,
   AiSettings,
 } from '../../lib/types'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
-type AiProviderTranslations = ComponentProps<
-  typeof AiProviderEditorList
->['translations']
+type AiProviderTranslations = {
+  providerName: string
+  providerId: string
+  requestFormat: string
+  baseUrl: string
+  baseUrlPlaceholder: string
+  defaultModel: string
+  modelCatalog: string
+  modelCatalogHint: string
+  enabled: string
+  temperature: string
+  maxTokens: string
+  dimensions: string
+  notes: string
+  apiKey: string
+  apiKeyPlaceholder: string
+  keySaved: string
+  keyNotSaved: string
+  saveKey: string
+  clearKey: string
+  remove: string
+  requestFormatLabels: Record<AiRequestFormat, string>
+}
 
 /**
  * Defines the route-owned AI settings state consumed by this section.
@@ -94,30 +111,10 @@ export function AiProvidersSection({
   navItem,
   state,
 }: AiProvidersSectionProps) {
-  const { language, t } = useI18n()
-  const {
-    aiApiKeys,
-    aiStatus,
-    configDirty,
-    currentSettings,
-    indexMeta,
-    noProviders,
-    persistedProviderIds,
-    providerTranslations,
-    saving,
-    onAddProvider,
-    onApiKeyChange,
-    onClearAiApiKey,
-    onRemoveProvider,
-    onResetAiConfig,
-    onSaveAiApiKey,
-    onSaveAiConfig,
-    onSelectProvider,
-    onToggleAi,
-    onUpdateProvider,
-  } = state
+  const { t } = useI18n()
+  const { currentSettings } = state
 
-  if (!currentSettings || !indexMeta || !aiStatus) {
+  if (!currentSettings) {
     return null
   }
 
@@ -128,225 +125,33 @@ export function AiProvidersSection({
           <Glyph icon={navItem.icon} filled />
           <span>{navItem.label}</span>
         </span>
-        <span className="panel-badge">{t('settings.optional')}</span>
+        <span className="panel-badge">{t('settings.aiDeferredBadge')}</span>
       </div>
       <div className="panel-body">
-        <p className="dashboard-next-action">{t('settings.aiProviderBody')}</p>
-        {noProviders ? (
-          <StatusCallout
-            tone="info"
-            title={t('settings.aiGettingStartedTitle')}
-            body={t('settings.aiGettingStartedBody')}
-          />
-        ) : null}
-        <StatusCallout
-          tone={configDirty ? 'warning' : 'info'}
-          title={
-            configDirty
-              ? t('settings.aiUnsavedChanges')
-              : t('settings.aiDraftSaved')
-          }
-          body={t('settings.aiDraftBoundaryBody')}
-          actions={
-            <div className="settings-action-row">
-              <button
-                className="btn-primary"
-                type="button"
-                disabled={saving || !configDirty}
-                onClick={() => {
-                  void onSaveAiConfig()
-                }}
-              >
-                {saving
-                  ? t('settings.aiSavingConfig')
-                  : t('settings.aiSaveConfig')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={saving || !configDirty}
-                onClick={onResetAiConfig}
-              >
-                {t('settings.aiResetDraft')}
-              </button>
-            </div>
-          }
-        />
-
-        <label className="checkbox-row">
-          <input
-            aria-label={t('settings.aiMasterToggle')}
-            checked={currentSettings.enabled}
-            type="checkbox"
-            disabled={saving}
-            onChange={() => {
-              onToggleAi()
-            }}
-          />
-          <span>{t('settings.aiMasterToggle')}</span>
-        </label>
-
-        <AiProviderEditorList
-          addLabel={t('settings.aiAddLlmProvider')}
-          apiKeys={aiApiKeys}
-          disabled={saving}
-          onAdd={() => onAddProvider('llm')}
-          onApiKeyChange={onApiKeyChange}
-          onClearKey={(providerId) => {
-            void onClearAiApiKey(providerId)
-          }}
-          onClearKeyDisabled={(providerId) =>
-            saving || !persistedProviderIds.has(providerId)
-          }
-          onRemove={(providerId) => onRemoveProvider('llm', providerId)}
-          onSaveKey={(providerId) => {
-            void onSaveAiApiKey(providerId)
-          }}
-          onSaveKeyDisabled={(providerId) =>
-            saving ||
-            !persistedProviderIds.has(providerId) ||
-            !aiApiKeys[providerId]?.trim()
-          }
-          onSelect={(providerId) => onSelectProvider('llm', providerId)}
-          onUpdate={(providerId, patch) =>
-            onUpdateProvider('llm', providerId, patch)
-          }
-          providers={currentSettings.llmProviders}
-          purpose="llm"
-          selectedProviderId={currentSettings.llmProviderId ?? null}
-          title={t('settings.aiLlmProviders')}
-          translations={providerTranslations}
-        />
-
-        <AiProviderEditorList
-          addLabel={t('settings.aiAddEmbeddingProvider')}
-          apiKeys={aiApiKeys}
-          disabled={saving}
-          onAdd={() => onAddProvider('embedding')}
-          onApiKeyChange={onApiKeyChange}
-          onClearKey={(providerId) => {
-            void onClearAiApiKey(providerId)
-          }}
-          onClearKeyDisabled={(providerId) =>
-            saving || !persistedProviderIds.has(providerId)
-          }
-          onRemove={(providerId) => onRemoveProvider('embedding', providerId)}
-          onSaveKey={(providerId) => {
-            void onSaveAiApiKey(providerId)
-          }}
-          onSaveKeyDisabled={(providerId) =>
-            saving ||
-            !persistedProviderIds.has(providerId) ||
-            !aiApiKeys[providerId]?.trim()
-          }
-          onSelect={(providerId) => onSelectProvider('embedding', providerId)}
-          onUpdate={(providerId, patch) =>
-            onUpdateProvider('embedding', providerId, patch)
-          }
-          providers={currentSettings.embeddingProviders}
-          purpose="embedding"
-          selectedProviderId={currentSettings.embeddingProviderId ?? null}
-          title={t('settings.aiEmbeddingProviders')}
-          translations={providerTranslations}
-        />
-
-        <div className="config-row" style={{ marginTop: 'var(--space-4)' }}>
-          <span className="config-label">
-            {t('settings.aiActiveLlmProvider')}
-          </span>
-          <span className="config-value mono">
-            {currentSettings.llmProviders.find(
-              (provider) => provider.id === currentSettings.llmProviderId,
-            )?.name ?? t('settings.aiNoneSelected')}
-          </span>
-        </div>
-        <div className="config-row">
-          <span className="config-label">
-            {t('settings.aiActiveEmbeddingProvider')}
-          </span>
-          <span className="config-value mono">
-            {currentSettings.embeddingProviders.find(
-              (provider) => provider.id === currentSettings.embeddingProviderId,
-            )?.name ?? t('settings.aiNoneSelected')}
-          </span>
-        </div>
-
-        <div className="ai-health-indicator">
-          <span className={`ai-health-dot ai-health-dot--${indexMeta.tone}`} />
-          <StatusCallout
-            tone={
-              indexMeta.tone === 'success'
-                ? 'success'
-                : indexMeta.tone === 'warning'
-                  ? 'warning'
-                  : indexMeta.tone === 'blocked'
-                    ? 'blocked'
-                    : 'info'
-            }
-            title={t('settings.aiIndexHealthTitle', {
-              status: indexMeta.label,
-            })}
-            body={indexMeta.description}
-          />
-        </div>
-
-        <div className="settings-field-grid">
-          <div className="config-row">
-            <span className="config-label">{t('settings.aiIndexedRows')}</span>
-            <span className="config-value mono">
-              {aiStatus.indexedItems.toLocaleString(language)}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.aiSemanticSidecar')}
-            </span>
-            <span className="config-value mono">
-              {formatBytes(aiStatus.semanticSidecarBytes, language)}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.aiSemanticMetadata')}
-            </span>
-            <span className="config-value mono">
-              {formatBytes(aiStatus.semanticMetadataBytes, language)}
-            </span>
-          </div>
-          <div className="config-row">
-            <span className="config-label">
-              {t('settings.aiEstimatedTokens')}
-            </span>
-            <span className="config-value mono">
-              {aiStatus.estimatedEmbeddingTokens.toLocaleString(language)}
-            </span>
-          </div>
-        </div>
-
-        {aiStatus.warning ? (
-          <div className="result-row">
-            <div className="result-row__header">
-              <strong>{t('settings.aiIndexWarning')}</strong>
-            </div>
-            <p>
-              {aiStatus.warning ===
-              'Select an embedding provider in Settings before enabling semantic retrieval.'
-                ? t('settings.aiIndexWarningEmbeddingMissing')
-                : aiStatus.warning}
-            </p>
-          </div>
-        ) : null}
-
         <StatusCallout
           tone="info"
-          title={t('settings.aiArtifactsMovedTitle')}
-          body={t('settings.aiArtifactsMovedBody')}
-          actions={
-            <Link className="btn-secondary" to="/integrations">
-              {t('navigation.integrationsLabel')}
-            </Link>
-          }
+          title={t('settings.aiDeferredTitle')}
+          body={t('settings.aiDeferredBody')}
         />
+
+        <div className="settings-field-grid" aria-disabled="true">
+          {[
+            t('settings.aiMasterToggle'),
+            t('settings.aiLlmProviders'),
+            t('settings.aiEmbeddingProviders'),
+            t('settings.aiIntegrationArtifactsTitle'),
+          ].map((label) => (
+            <button
+              className="btn-secondary"
+              disabled
+              key={label}
+              title={t('settings.aiDeferredTooltip')}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )

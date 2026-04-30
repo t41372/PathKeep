@@ -35,7 +35,7 @@ describe('intelligence runtime helpers', () => {
       'Title normalization',
     )
     expect(enrichmentPluginLabel('readable-content-refetch', t)).toBe(
-      'Page content fetcher',
+      'Readable content fetcher',
     )
     expect(enrichmentPluginLabel('deterministic-rebuild', t)).toBe(
       'Deterministic rebuild',
@@ -45,7 +45,7 @@ describe('intelligence runtime helpers', () => {
     )
     expect(
       enrichmentPluginDescription('readable-content-refetch', t),
-    ).toContain('Reads page text from visited pages')
+    ).toContain('disabled in v0.1')
   })
 
   test('falls back for unknown plugin ids and source kinds', () => {

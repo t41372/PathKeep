@@ -269,11 +269,11 @@
 - Transition / referrer 信息
 - Favicon
 
-**第二層：背景 refetch**
+**第二層：背景 refetch（v0.1.0 deferred）**
 
-- 訪問 URL 抓取頁面內容，提取 readable text、meta description、OG tags
-- 提取頁面語言
-- Best-effort，失敗不阻塞
+- v0.1.0 不抓取網頁正文，也不重新訪問使用者歷史 URL。
+- 後續版本若重新啟用，才可抓取 readable text、meta description、OG tags 與頁面語言。
+- Best-effort / failure surface / rate-limit policy 都屬 v0.2+ roadmap，不是 v0.1.0 promise。
 
 **第三層：基於 URL 的專屬 enrichment 插件**
 
@@ -304,11 +304,10 @@
 
 ### M4-A / v1 已落地邊界
 
-- 目前已交付的內建 plugin 只有 `readable-content-refetch`，預設啟用、版本為 `m4-v1`，設定存在 `AppConfig.enrichment.plugins[*]`，使用者可在 Settings 明確 enable / disable。
-- `readable-content-refetch` 目前掛在 insights rebuild flow，而不是獨立的 canonical ingest pipeline；它只能寫入 derived enrichment / insight tables，不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
+- 2026-04-29 v0.1.0 release amendment：`readable-content-refetch` 未達可發佈標準，預設 disabled，UI 僅保留 roadmap / `Coming in v0.2` 狀態；PathKeep v0.1.0 不抓取或保存網頁正文。
+- `readable-content-refetch` 的 future contract 是掛在 insights rebuild flow，而不是獨立的 canonical ingest pipeline；它只能寫入 derived enrichment / insight tables，不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
 - manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
-- v1 的 freshness window 是 7 天；refetch client 採 10 秒 timeout、最多 5 次 redirect，`fetch-error`、`decode-error`、`unsupported-content`、`empty` 都視為 non-blocking derived failure，會留在 run notes / rebuild report，而不會讓核心 archive run 失敗。
-- `readable-content-refetch` v1 目前也包含一小組 built-in site adapters，先正式支援影片站 metadata parse（`youtube.com` / `youtu.be` / `vimeo.com`）。這些 adapter 只會回寫 derived enrichment metadata（如影片標題、頻道 / 作者、時長、描述、發布時間），不會改寫 canonical archive facts，也不代表 day-one 已有完整的多 plugin sandbox / queue family。
+- future readable-content freshness window、refetch client timeout、redirect policy、failure taxonomy、以及 site adapters 都需要重新驗證後才能進 v0.2+；v0.1.0 不宣稱它們已可用。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。
 

@@ -6,6 +6,7 @@
 //! module from remaining the canonical owner of readable-text evidence after
 //! the hard cutover.
 
+#[allow(dead_code)]
 #[path = "enrichment_site_adapters.rs"]
 mod site_adapters;
 
@@ -20,8 +21,7 @@ use crate::{
     models::{READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID},
     utils::{now_rfc3339, url_domain},
 };
-use anyhow::{Context, Result};
-use reqwest::blocking::Client;
+use anyhow::Result;
 use rusqlite::{Connection, Row, params};
 use scraper::{Html, Selector};
 use serde_json::{Value, json};
@@ -54,7 +54,9 @@ CREATE INDEX IF NOT EXISTS idx_visit_content_enrichments_status
 "#;
 
 const SQLITE_BATCH_SIZE: usize = 400;
+#[allow(dead_code)]
 const ENRICH_TEXT_LIMIT: usize = 12_000;
+#[allow(dead_code)]
 const SNIPPET_LIMIT: usize = 3;
 const ENRICHMENT_PIPELINE_VERSION: &str = "insights-v2";
 
@@ -100,10 +102,14 @@ pub fn execute_enrichment_job_by_id(
         TITLE_NORMALIZATION_PLUGIN_ID => {
             title_normalization_enrichment(&job.payload.url, job.payload.title.as_deref())
         }
-        READABLE_CONTENT_PLUGIN_ID => {
-            let client = build_refetch_client()?;
-            refetch_visit_content(&client, &job.payload.url)
-        }
+        READABLE_CONTENT_PLUGIN_ID => EnrichmentResult {
+            status: "deferred".to_string(),
+            final_url: Some(job.payload.url.clone()),
+            extraction: json!({
+                "reason": "Readable content fetching is deferred from PathKeep v0.1.0."
+            }),
+            ..EnrichmentResult::default()
+        },
         _ => {
             fail_unknown_enrichment_plugin(connection, job.id, &job.plugin_id)?;
             return Ok(true);
@@ -398,56 +404,7 @@ fn normalized_title_from_url(url: &str) -> Option<String> {
     if candidate.is_empty() { None } else { Some(candidate) }
 }
 
-fn build_refetch_client() -> Result<Client> {
-    Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .connect_timeout(std::time::Duration::from_secs(3))
-        .timeout(std::time::Duration::from_secs(4))
-        .user_agent("PathKeep Enrichment/0.1")
-        .build()
-        .context("building content refetch client")
-}
-
-fn refetch_visit_content(client: &Client, url: &str) -> EnrichmentResult {
-    let response = match client.get(url).send() {
-        Ok(response) => response,
-        Err(error) => {
-            return EnrichmentResult {
-                status: "fetch-error".to_string(),
-                extraction: json!({ "error": error.to_string() }),
-                ..EnrichmentResult::default()
-            };
-        }
-    };
-    let final_url = Some(response.url().to_string());
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_string();
-    let text = match response.text() {
-        Ok(text) => text,
-        Err(error) => {
-            return EnrichmentResult {
-                status: "decode-error".to_string(),
-                final_url,
-                extraction: json!({ "error": error.to_string(), "contentType": content_type }),
-                ..EnrichmentResult::default()
-            };
-        }
-    };
-    if !content_type.is_empty() && !content_type.contains("html") {
-        return EnrichmentResult {
-            status: "unsupported-content".to_string(),
-            final_url,
-            extraction: json!({ "contentType": content_type }),
-            ..EnrichmentResult::default()
-        };
-    }
-    build_enrichment_result_from_html(url, final_url, content_type, &text)
-}
-
+#[allow(dead_code)]
 fn build_enrichment_result_from_html(
     url: &str,
     final_url: Option<String>,
@@ -511,6 +468,7 @@ fn build_enrichment_result_from_html(
     generic_result
 }
 
+#[allow(dead_code)]
 fn merge_site_adapter_result(
     generic_result: EnrichmentResult,
     content_type: &str,
@@ -593,6 +551,7 @@ fn normalize_whitespace(input: &str) -> String {
     output.trim().to_string()
 }
 
+#[allow(dead_code)]
 fn truncate_text(input: &str, limit: usize) -> String {
     if input.chars().count() <= limit {
         return input.to_string();
@@ -604,13 +563,12 @@ fn truncate_text(input: &str, limit: usize) -> String {
 mod tests {
     use super::{
         EnrichmentResult, SiteAdapterResult, StoredEnrichment, build_embedding_content_from_parts,
-        build_enrichment_result_from_html, build_refetch_client, enrichment_failure_message,
+        build_enrichment_result_from_html, enrichment_failure_message,
         enrichment_is_terminal_failure, ensure_visit_content_enrichment_schema,
         execute_enrichment_job_by_id, fail_unknown_enrichment_plugin,
         finish_claimed_enrichment_job, finish_if_enrichment_cancelled,
         load_best_enrichment_map_by_history_ids, merge_site_adapter_result,
-        preferred_embedding_content, refetch_visit_content, store_enrichment,
-        title_normalization_enrichment,
+        preferred_embedding_content, store_enrichment, title_normalization_enrichment,
     };
     use crate::{
         config::{ensure_paths, project_paths_with_root},
@@ -892,61 +850,6 @@ mod tests {
         .expect("preferred content");
         assert!(content.contains("Readable title: Readable Docs"));
         assert!(content.contains("Readable text:\nLong readable body"));
-    }
-
-    #[test]
-    fn refetch_visit_content_covers_http_success_and_failure_states() {
-        let client = build_refetch_client().expect("client");
-        let mut server = mockito::Server::new();
-        let article = server
-            .mock("GET", "/article")
-            .with_status(200)
-            .with_header("content-type", "text/html; charset=utf-8")
-            .with_body(
-                "<html lang='en'><head><title> PathKeep Article </title></head>\
-                 <body><main><h1>Heading</h1><p>First paragraph.</p>\
-                 <p>Second paragraph.</p><p>Third paragraph.</p><p>Fourth paragraph.</p>\
-                 </main></body></html>",
-            )
-            .create();
-        let article_result = refetch_visit_content(&client, &format!("{}/article", server.url()));
-        article.assert();
-        assert_eq!(article_result.status, "success");
-        assert_eq!(article_result.language.as_deref(), Some("en"));
-        assert_eq!(article_result.readable_title.as_deref(), Some("PathKeep Article"));
-        assert_eq!(article_result.snippets.len(), 3);
-        assert!(
-            article_result
-                .readable_text
-                .as_deref()
-                .is_some_and(|text| text.contains("Second paragraph."))
-        );
-
-        let plain = server
-            .mock("GET", "/plain")
-            .with_status(200)
-            .with_header("content-type", "text/plain")
-            .with_body("not html")
-            .create();
-        let plain_result = refetch_visit_content(&client, &format!("{}/plain", server.url()));
-        plain.assert();
-        assert_eq!(plain_result.status, "unsupported-content");
-        assert!(enrichment_is_terminal_failure(&plain_result));
-
-        let compressed = server
-            .mock("GET", "/bad-gzip")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_header("content-encoding", "gzip")
-            .with_body("this is not gzip")
-            .create();
-        let compressed_result =
-            refetch_visit_content(&client, &format!("{}/bad-gzip", server.url()));
-        compressed.assert();
-        assert_eq!(compressed_result.status, "decode-error");
-
-        let fetch_result = refetch_visit_content(&client, "not a url");
-        assert_eq!(fetch_result.status, "fetch-error");
     }
 
     #[test]
@@ -1235,7 +1138,7 @@ mod tests {
         let terminal_failure_id = enqueue(104, READABLE_CONTENT_PLUGIN_ID, None);
         assert!(
             execute_enrichment_job_by_id(&paths, &connection, terminal_failure_id)
-                .expect("terminal enrichment failure handled")
+                .expect("deferred readable-content job handled")
         );
         let terminal_state: String = connection
             .query_row(
@@ -1243,8 +1146,8 @@ mod tests {
                 [terminal_failure_id],
                 |row: &Row<'_>| row.get(0),
             )
-            .expect("terminal state");
-        assert_eq!(terminal_state, "failed");
+            .expect("deferred readable-content state");
+        assert_eq!(terminal_state, "succeeded");
 
         let terminal_cancelled_id = enqueue(105, READABLE_CONTENT_PLUGIN_ID, None);
         connection
@@ -1277,10 +1180,67 @@ mod tests {
             .expect("terminal cancelled state");
         assert_eq!(terminal_cancelled_state, "cancelled");
 
+        let terminal_failure_cancelled_id = enqueue(107, READABLE_CONTENT_PLUGIN_ID, None);
+        connection
+            .execute(
+                "UPDATE intelligence_jobs SET state = 'running', attempt = 1 WHERE id = ?1",
+                [terminal_failure_cancelled_id],
+            )
+            .expect("mark terminal failure job running");
+        connection
+            .execute(
+                &format!(
+                    "CREATE TRIGGER enrichment_terminal_failure_cancel
+                     AFTER INSERT ON visit_content_enrichments
+                     WHEN NEW.history_id = 107
+                     BEGIN
+                       UPDATE intelligence_jobs SET stop_requested = 1
+                       WHERE id = {terminal_failure_cancelled_id};
+                     END"
+                ),
+                [],
+            )
+            .expect("create terminal failure cancel trigger");
+        let terminal_failure_job = ClaimedEnrichmentJob {
+            id: terminal_failure_cancelled_id,
+            plugin_id: READABLE_CONTENT_PLUGIN_ID.to_string(),
+            attempt: 1,
+            payload: EnrichmentJobPayload {
+                history_id: 107,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/fail".to_string(),
+                title: None,
+            },
+        };
+        assert!(
+            finish_claimed_enrichment_job(
+                &paths,
+                &connection,
+                &terminal_failure_job,
+                &EnrichmentResult {
+                    status: "fetch-error".to_string(),
+                    extraction: serde_json::json!({ "error": "offline" }),
+                    ..EnrichmentResult::default()
+                },
+            )
+            .expect("terminal failure cancelled job handled")
+        );
+        connection
+            .execute("DROP TRIGGER enrichment_terminal_failure_cancel", [])
+            .expect("drop terminal failure cancel trigger");
+        let terminal_failure_cancelled_state: String = connection
+            .query_row(
+                "SELECT state FROM intelligence_jobs WHERE id = ?1",
+                [terminal_failure_cancelled_id],
+                |row: &Row<'_>| row.get(0),
+            )
+            .expect("terminal failure cancelled state");
+        assert_eq!(terminal_failure_cancelled_state, "cancelled");
+
         let post_plugin_stopped_id = {
             let now = now_rfc3339();
             let payload = EnrichmentJobPayload {
-                history_id: 106,
+                history_id: 108,
                 profile_id: "chrome:Default".to_string(),
                 url: "https://example.com/post-plugin-stopped".to_string(),
                 title: Some("Post plugin stopped".to_string()),
@@ -1288,10 +1248,10 @@ mod tests {
             connection
                 .execute(
                     "INSERT INTO intelligence_jobs
-                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
-                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
-                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
-                      'title-normalization:106', ?3, '{}', ?4, ?4, ?4)",
+	                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+	                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+	                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
+	                      'title-normalization:108', ?3, '{}', ?4, ?4, ?4)",
                     params![
                         ENRICHMENT_JOB_TYPE,
                         TITLE_NORMALIZATION_PLUGIN_ID,
@@ -1331,7 +1291,7 @@ mod tests {
         let stopped_running_id = {
             let now = now_rfc3339();
             let payload = serde_json::to_string(&EnrichmentJobPayload {
-                history_id: 108,
+                history_id: 109,
                 profile_id: "chrome:Default".to_string(),
                 url: "https://example.com/stopped".to_string(),
                 title: Some("Stopped".to_string()),
@@ -1340,10 +1300,10 @@ mod tests {
             connection
                 .execute(
                     "INSERT INTO intelligence_jobs
-                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
-                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
-                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
-                      'title-normalization:108', ?3, '{}', ?4, ?4, ?4)",
+	                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+	                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+	                     VALUES (?1, ?2, 41, 'running', 10, 1, 1,
+	                      'title-normalization:109', ?3, '{}', ?4, ?4, ?4)",
                     params![ENRICHMENT_JOB_TYPE, TITLE_NORMALIZATION_PLUGIN_ID, payload, now],
                 )
                 .expect("insert stopped running job");
@@ -1358,7 +1318,7 @@ mod tests {
         let unknown_stopped_id = {
             let now = now_rfc3339();
             let payload = serde_json::to_string(&EnrichmentJobPayload {
-                history_id: 109,
+                history_id: 110,
                 profile_id: "chrome:Default".to_string(),
                 url: "https://example.com/unknown-stopped".to_string(),
                 title: Some("Unknown stopped".to_string()),
@@ -1367,10 +1327,10 @@ mod tests {
             connection
                 .execute(
                     "INSERT INTO intelligence_jobs
-                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
-                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
-                     VALUES (?1, 'unknown-enrichment-plugin', 41, 'running', 10, 1, 1,
-                      'unknown-enrichment-plugin:109', ?2, '{}', ?3, ?3, ?3)",
+	                     (job_type, plugin_id, run_id, state, priority, attempt, stop_requested,
+	                      dedupe_key, payload_json, artifact_json, created_at, scheduled_at, updated_at)
+	                     VALUES (?1, 'unknown-enrichment-plugin', 41, 'running', 10, 1, 1,
+	                      'unknown-enrichment-plugin:110', ?2, '{}', ?3, ?3, ?3)",
                     params![ENRICHMENT_JOB_TYPE, payload, now],
                 )
                 .expect("insert stopped unknown plugin job");

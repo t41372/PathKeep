@@ -142,12 +142,12 @@ Finding what you've seen before, across years of history.
 
 ### Intelligence
 
-Understanding your browsing patterns, built on top of a solid archive. **All AI features are off by default** — PathKeep works fully without any AI provider.
+Understanding your browsing patterns, built on top of a solid archive. **AI features are deferred for v0.1.0** — PathKeep works from local archive facts without any AI provider.
 
 - **Deterministic insights** — browsing rhythm calendar heatmap, search activity, domain deep-dive, sessions, search trails, query families, refind pages, activity mix, and periodic summaries — all computed from archive facts, no AI required
-- **Semantic search** — embedding-based vector similarity via LanceDB sidecar and rig.rs, with honest fallback to keyword recall when unavailable
-- **AI assistant** — ask questions about your browsing history in natural language; agentic RAG retrieval with evidence citations
-- **MCP server** — expose your history to external AI tools (Cursor, Copilot, Gemini CLI, etc.) via a localhost-only Model Context Protocol server
+- **Semantic search** — deferred to the v0.2 roadmap; v0.1.0 ships keyword and regex recall only
+- **AI assistant** — deferred to the v0.2 roadmap until provider, retrieval, evidence, and lock-state flows are truth-tested
+- **MCP server** — deferred to the v0.2 roadmap; v0.1.0 does not expose browsing history to external AI tools
 - **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries
 - **Remote backup** — Preview → Manual → Execute flow for S3-compatible remote bundles, with checksum and restore-readiness verification
 
@@ -178,17 +178,17 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 
 ## Tech Stack
 
-| Layer             | Choice                                                          | Why                                         |
-| ----------------- | --------------------------------------------------------------- | ------------------------------------------- |
-| Desktop framework | Tauri 2                                                         | Cross-platform, Rust core, lightweight      |
-| Core logic        | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform      |
-| Browser parsing   | `browser-history-parser` (standalone Rust crate)                | Reusable, community-publishable parser      |
-| Frontend          | React 19 + TypeScript + Vite                                    | Modern, type-safe                           |
-| Toolchain         | Bun                                                             | Package management and scripts              |
-| Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first             |
-| Full-text search  | SQLite FTS5                                                     | Core recall, no external service            |
-| Vector / semantic | LanceDB sidecar + rig.rs                                        | Embedded, Rust-native, disk-based ANN index |
-| AI inference      | Local (Ollama / LM Studio) or cloud API                         | Optional, user-configured                   |
+| Layer             | Choice                                                          | Why                                              |
+| ----------------- | --------------------------------------------------------------- | ------------------------------------------------ |
+| Desktop framework | Tauri 2                                                         | Cross-platform, Rust core, lightweight           |
+| Core logic        | Rust workspace (`vault-core`, `vault-worker`, `vault-platform`) | High performance, safe, cross-platform           |
+| Browser parsing   | `browser-history-parser` (standalone Rust crate)                | Reusable, community-publishable parser           |
+| Frontend          | React 19 + TypeScript + Vite                                    | Modern, type-safe                                |
+| Toolchain         | Bun                                                             | Package management and scripts                   |
+| Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first                  |
+| Full-text search  | SQLite FTS5                                                     | Core recall, no external service                 |
+| Vector / semantic | Deferred for v0.1.0                                             | Future replaceable sidecar, not in default build |
+| AI inference      | Deferred for v0.1.0                                             | Future user-configured providers                 |
 
 ---
 

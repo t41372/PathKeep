@@ -23,6 +23,7 @@
  */
 
 import type { EnrichmentPluginState, EnrichmentSettings } from './types'
+import { readableContentFetchAvailable } from './release-capabilities'
 
 export const TITLE_NORMALIZATION_PLUGIN_ID = 'title-normalization'
 export const READABLE_CONTENT_REFETCH_PLUGIN_ID = 'readable-content-refetch'
@@ -61,7 +62,7 @@ export const enrichmentPluginRegistry: EnrichmentPluginDefinition[] = [
   {
     id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
     version: READABLE_CONTENT_REFETCH_VERSION,
-    defaultEnabled: true,
+    defaultEnabled: readableContentFetchAvailable,
     queue: 'intelligence-runtime',
     derivedTables: ['visit_content_enrichments'],
     freshnessDays: 7,

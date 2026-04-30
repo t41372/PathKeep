@@ -32,6 +32,7 @@ import type { ResolvedLanguage } from '../../lib/i18n'
 import type { BrowserProfile, DashboardSnapshot } from '../../lib/types'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
+import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import { runStatusKey, runTypeKey } from '../../lib/trust-review'
 import type { DashboardStatItem, DashboardStorageSegment } from './helpers'
 
@@ -333,10 +334,18 @@ export function DashboardIntelligencePanel({
     <div className="panel">
       <div className="panel-header">
         <span className="panel-title">{t('dashboard.intelligenceTitle')}</span>
-        <span className="panel-action">{aiMeta.label}</span>
+        <span className="panel-action">
+          {optionalAiFeaturesAvailable
+            ? aiMeta.label
+            : t('dashboard.optionalAiComingBadge')}
+        </span>
       </div>
       <div className="panel-body intelligence-stack">
-        <p className="dashboard-next-action">{aiMeta.description}</p>
+        <p className="dashboard-next-action">
+          {optionalAiFeaturesAvailable
+            ? aiMeta.description
+            : t('dashboard.optionalAiDeferredBody')}
+        </p>
         <div className="summary-stats">
           <div className="summary-stat">
             <span className="dim">{t('dashboard.llmLabel')}</span>
@@ -360,12 +369,35 @@ export function DashboardIntelligencePanel({
           </div>
         </div>
         <div className="quick-actions-grid">
-          <Link className="btn-secondary" to="/explorer?mode=hybrid">
-            {t('dashboard.semanticSearchAction')}
-          </Link>
-          <Link className="btn-secondary" to="/assistant">
-            {t('dashboard.openAssistantAction')}
-          </Link>
+          {optionalAiFeaturesAvailable ? (
+            <>
+              <Link className="btn-secondary" to="/explorer?mode=hybrid">
+                {t('dashboard.semanticSearchAction')}
+              </Link>
+              <Link className="btn-secondary" to="/assistant">
+                {t('dashboard.openAssistantAction')}
+              </Link>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn-secondary"
+                disabled
+                title={t('dashboard.optionalAiDeferredTooltip')}
+                type="button"
+              >
+                {t('dashboard.semanticSearchAction')}
+              </button>
+              <button
+                className="btn-secondary"
+                disabled
+                title={t('dashboard.optionalAiDeferredTooltip')}
+                type="button"
+              >
+                {t('dashboard.openAssistantAction')}
+              </button>
+            </>
+          )}
           <Link className="btn-secondary" to="/intelligence">
             {t('dashboard.reviewInsightsAction')}
           </Link>

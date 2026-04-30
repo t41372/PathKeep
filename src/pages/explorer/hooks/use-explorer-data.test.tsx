@@ -931,6 +931,7 @@ function createOptions(
       visitFailed: 'Visit failed',
     },
     mode: 'keyword',
+    optionalAiAvailable: true,
     view: 'time',
     persistRecentSearch: vi.fn(),
     refreshAppData: vi.fn().mockResolvedValue(undefined),

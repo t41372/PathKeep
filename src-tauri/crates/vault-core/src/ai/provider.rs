@@ -379,6 +379,7 @@ pub(super) async fn run_llm_agent(
 /// Batch retries amortize transient provider errors without exploding total request
 /// volume. Rate-limit responses deliberately skip retries so PathKeep does not make
 /// the provider situation worse.
+#[cfg(test)]
 pub(super) async fn embed_batch_with_retry(
     provider: &AiProviderRuntime,
     texts: &[String],
@@ -394,6 +395,7 @@ pub(super) async fn embed_batch_with_retry(
 }
 
 /// Retries one single-text embedding request when the batch path fell back to per-row mode.
+#[cfg(test)]
 pub(super) async fn embed_single_with_retry(
     provider: &AiProviderRuntime,
     text: &str,
@@ -408,6 +410,7 @@ pub(super) async fn embed_single_with_retry(
     }
 }
 
+#[cfg(test)]
 pub(super) fn should_retry_embedding_error(error: &anyhow::Error, attempts: &mut usize) -> bool {
     if *attempts >= EMBEDDING_RETRY_ATTEMPTS {
         return false;
@@ -417,58 +420,14 @@ pub(super) fn should_retry_embedding_error(error: &anyhow::Error, attempts: &mut
 }
 
 /// Detects whether an embedding failure should bypass retries and surface immediately.
+#[cfg(test)]
 pub(super) fn embedding_error_is_rate_limited(error: &anyhow::Error) -> bool {
     let message = error.to_string().to_lowercase();
     message.contains("rate limit") || message.contains("quota") || message.contains("429")
 }
 
-/// Executes one batched embedding request against the configured provider.
-#[cfg(not(any(test, coverage)))]
-pub(super) async fn embed_text_batch(
-    provider: &AiProviderRuntime,
-    texts: &[String],
-) -> Result<Vec<Vec<f32>>> {
-    match provider.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(provider.api_key.clone());
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
-            }
-            let client = builder.build()?;
-            let model = client.embedding_model_with_ndims(
-                provider.config.default_model.clone(),
-                provider.config.dimensions.unwrap_or(1536) as usize,
-            );
-            let embeddings = model.embed_texts(texts.to_vec()).await?;
-            Ok(embeddings
-                .into_iter()
-                .map(|embedding| embedding.vec.into_iter().map(|value| value as f32).collect())
-                .collect())
-        }
-        AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(provider.api_key.clone());
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
-            }
-            let client = builder.build()?;
-            let model = client.embedding_model_with_ndims(
-                provider.config.default_model.clone(),
-                provider.config.dimensions.unwrap_or(768) as usize,
-            );
-            let embeddings = model.embed_texts(texts.to_vec()).await?;
-            Ok(embeddings
-                .into_iter()
-                .map(|embedding| embedding.vec.into_iter().map(|value| value as f32).collect())
-                .collect())
-        }
-        AiRequestFormat::Anthropic => {
-            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
-        }
-    }
-}
-
 /// Returns deterministic embedding vectors for tests and coverage builds.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 pub(super) async fn embed_text_batch(
     provider: &AiProviderRuntime,
     texts: &[String],

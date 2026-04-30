@@ -352,9 +352,9 @@ describe('intelligence surfaces', () => {
     expect(screen.getByText(jobsT('runtimeSummaryTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('runtimeHealthTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('pluginsTitle'))).toBeVisible()
-    expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
-      0,
-    )
+    expect(
+      screen.getAllByText('Readable content fetcher').length,
+    ).toBeGreaterThan(0)
     expect(screen.getByText('Sessions')).toBeVisible()
     expect(
       screen.getByText('New imports were added after the last rebuild.'),
@@ -539,7 +539,7 @@ describe('intelligence surfaces', () => {
 
     expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
     expect(
-      screen.getAllByText(jobsT('contentFetchReadyBody', { stored: 4 })).length,
+      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
     ).toBeGreaterThan(0)
     expect(screen.queryByText('jobs.contentFetchHealthyBody')).toBeNull()
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
@@ -599,8 +599,7 @@ describe('intelligence surfaces', () => {
 
     await screen.findByText('runtime degraded but usable')
     expect(
-      screen.getAllByText(jobsT('contentFetchRunningBody', { stored: 9 }))
-        .length,
+      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
     ).toBeGreaterThan(0)
     expect(screen.getByText('runtime degraded but usable')).toBeVisible()
     runtimeOnly.unmount()
@@ -646,7 +645,7 @@ describe('intelligence surfaces', () => {
 
     await screen.findByText(jobsT('recentAiJobs'))
     expect(
-      screen.getAllByText(jobsT('contentFetchFallbackBody')).length,
+      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
     ).toBeGreaterThan(0)
     expect(
       screen.getAllByText(jobsT('sidebarIdleDetail')).length,

@@ -27,6 +27,7 @@ import {
   assistantResponseMeta,
   selectedAiProvider,
 } from '../../lib/intelligence-ai-presentation'
+import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import {
   profileIdLabel,
   useProfileScope,
@@ -375,38 +376,64 @@ export function AssistantPage() {
     )
   }
 
-  if (!snapshot.config.ai.enabled || !snapshot.config.ai.assistantEnabled) {
+  if (
+    !optionalAiFeaturesAvailable ||
+    !snapshot.config.ai.enabled ||
+    !snapshot.config.ai.assistantEnabled
+  ) {
     return (
       <section className="page-shell assistant-page">
         <StatusCallout
           tone="info"
           eyebrow={assistantT('statusEyebrow')}
-          title={assistantT('disabledTitle')}
-          body={assistantT('disabledBody')}
+          title={
+            optionalAiFeaturesAvailable
+              ? assistantT('disabledTitle')
+              : assistantT('deferredTitle')
+          }
+          body={
+            optionalAiFeaturesAvailable
+              ? assistantT('disabledBody')
+              : assistantT('deferredBody')
+          }
           actions={
-            <Link className="btn-secondary" to="/settings">
-              {assistantT('openSettings')}
-            </Link>
+            optionalAiFeaturesAvailable ? (
+              <Link className="btn-secondary" to="/settings">
+                {assistantT('openSettings')}
+              </Link>
+            ) : undefined
           }
         />
         <div className="panel">
           <div className="panel-header">
-            <span className="panel-title">{assistantT('emptyEyebrow')}</span>
-            <span className="panel-action">{assistantT('emptyTitle')}</span>
+            <span className="panel-title">
+              {optionalAiFeaturesAvailable
+                ? assistantT('emptyEyebrow')
+                : assistantT('deferredPanelEyebrow')}
+            </span>
+            <span className="panel-action">
+              {optionalAiFeaturesAvailable
+                ? assistantT('emptyTitle')
+                : assistantT('deferredBadge')}
+            </span>
           </div>
           <div className="panel-body intelligence-stack">
             <p className="dashboard-next-action">
-              {assistantT('emptyDescription')}
+              {optionalAiFeaturesAvailable
+                ? assistantT('emptyDescription')
+                : assistantT('deferredPanelBody')}
             </p>
-            <div className="intelligence-job-list">
-              {suggestedQuestions.map((question) => (
-                <div key={question} className="result-row">
-                  <div className="result-row__header">
-                    <strong>{question}</strong>
+            {optionalAiFeaturesAvailable ? (
+              <div className="intelligence-job-list">
+                {suggestedQuestions.map((question) => (
+                  <div key={question} className="result-row">
+                    <div className="result-row__header">
+                      <strong>{question}</strong>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

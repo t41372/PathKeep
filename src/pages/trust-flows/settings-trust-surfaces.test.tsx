@@ -149,14 +149,13 @@ describe('Settings trust surfaces', () => {
     })
 
     expect(
-      await screen.findByText(settingsT('aiIntegrationReview')),
+      await screen.findByText(settingsT('aiIntegrationDeferredTitle')),
     ).toBeVisible()
     expect(
-      screen.getByText(settingsT('aiIntegrationManualEnable')),
+      screen.getByText(settingsT('aiIntegrationDeferredBody')),
     ).toBeVisible()
     expect(
-      screen.getAllByText(settingsT('aiIntegrationGeneratedFileMcpPurpose'))
-        .length,
+      screen.getAllByText(settingsT('aiIntegrationDeferredFilesBody')).length,
     ).toBeGreaterThan(0)
     expect(
       screen.queryByText(

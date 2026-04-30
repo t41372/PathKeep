@@ -36,7 +36,7 @@ describe('enrichment helpers', () => {
         },
         {
           id: READABLE_CONTENT_REFETCH_PLUGIN_ID,
-          enabled: true,
+          enabled: false,
           version: READABLE_CONTENT_REFETCH_VERSION,
         },
       ],

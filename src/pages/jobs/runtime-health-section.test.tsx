@@ -19,7 +19,7 @@
  */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 import { JobsRuntimeHealthSection } from './runtime-health-section'
 
@@ -35,7 +35,7 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchFallbackBody')).toBeVisible()
+    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
     expect(screen.getByText('moduleHealthyBody')).toBeVisible()
     expect(screen.getAllByText(/Apr 25, 2026/).length).toBeGreaterThan(0)
     expect(screen.getAllByText('notAvailable').length).toBeGreaterThan(0)
@@ -87,7 +87,7 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getAllByText('errorRateLimited').length).toBeGreaterThan(0)
+    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
     expect(screen.getByText('moduleAttentionBody:{"count":1}')).toBeVisible()
     expect(
       screen.getByText('Rebuild semantic sidecars before export.'),
@@ -97,7 +97,7 @@ describe('JobsRuntimeHealthSection', () => {
     expect(screen.getByText('sessions are stale')).toBeVisible()
   })
 
-  test('renders content runtime running and ready body branches', () => {
+  test('keeps content runtime branches deferred while webpage body fetch is unavailable', () => {
     const queuedView = render(
       <JobsRuntimeHealthSection
         commonT={translate}
@@ -123,9 +123,7 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(
-      screen.getByText('contentFetchBacklogBody:{"queued":5,"stored":12}'),
-    ).toBeVisible()
+    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
     queuedView.unmount()
 
     const runningView = render(
@@ -153,9 +151,7 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(
-      screen.getByText('contentFetchRunningBody:{"stored":12}'),
-    ).toBeVisible()
+    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
     runningView.unmount()
 
     render(
@@ -183,7 +179,70 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchReadyBody:{"stored":8}')).toBeVisible()
+    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+  })
+
+  test('renders live content runtime branches when webpage body fetch is release-enabled', async () => {
+    vi.resetModules()
+    vi.doMock('../../lib/release-capabilities', () => ({
+      deferredFeatureReleaseLabel: 'v0.2',
+      optionalAiFeaturesAvailable: false,
+      readableContentFetchAvailable: true,
+    }))
+
+    try {
+      const { JobsRuntimeHealthSection: EnabledJobsRuntimeHealthSection } =
+        await import('./runtime-health-section')
+      const renderWithContentPlugin = (
+        plugin: IntelligenceRuntimeSnapshot['plugins'][number] | null,
+      ) =>
+        render(
+          <EnabledJobsRuntimeHealthSection
+            commonT={translate}
+            jobsT={translate}
+            language="en"
+            runtime={{
+              ...runtimeFixture(),
+              plugins: plugin ? [plugin] : [],
+            }}
+            settingsT={translate}
+          />,
+        )
+
+      const fallbackView = renderWithContentPlugin(null)
+      expect(screen.getByText('contentFetchFallbackBody')).toBeVisible()
+      fallbackView.unmount()
+
+      const errorView = renderWithContentPlugin(
+        contentPluginFixture({ lastError: 'HTTP 500' }),
+      )
+      expect(screen.getAllByText('HTTP 500').length).toBeGreaterThan(0)
+      errorView.unmount()
+
+      const queuedView = renderWithContentPlugin(
+        contentPluginFixture({ queuedJobs: 5, storedRecords: 12 }),
+      )
+      expect(
+        screen.getByText('contentFetchBacklogBody:{"queued":5,"stored":12}'),
+      ).toBeVisible()
+      queuedView.unmount()
+
+      const runningView = renderWithContentPlugin(
+        contentPluginFixture({ runningJobs: 2, storedRecords: 12 }),
+      )
+      expect(
+        screen.getByText('contentFetchRunningBody:{"stored":12}'),
+      ).toBeVisible()
+      runningView.unmount()
+
+      renderWithContentPlugin(contentPluginFixture({ storedRecords: 8 }))
+      expect(
+        screen.getByText('contentFetchReadyBody:{"stored":8}'),
+      ).toBeVisible()
+    } finally {
+      vi.doUnmock('../../lib/release-capabilities')
+      vi.resetModules()
+    }
   })
 })
 
@@ -260,5 +319,22 @@ function runtimeFixture(): IntelligenceRuntimeSnapshot {
     ],
     recentJobs: [],
     notes: [],
+  }
+}
+
+function contentPluginFixture(
+  overrides: Partial<IntelligenceRuntimeSnapshot['plugins'][number]> = {},
+): IntelligenceRuntimeSnapshot['plugins'][number] {
+  return {
+    pluginId: 'readable-content-refetch',
+    sourceKind: 'network',
+    enabled: true,
+    storedRecords: 0,
+    queuedJobs: 0,
+    runningJobs: 0,
+    failedJobs: 0,
+    lastCompletedAt: null,
+    lastError: null,
+    ...overrides,
   }
 }

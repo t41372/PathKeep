@@ -2,11 +2,13 @@
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
-> 所有 AI 功能預設關閉，可以在設定中開啟。
+> 所有 AI 功能已從 v0.1.0 發佈範圍延後；UI 保留入口但必須 disabled。
 >
 > **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在只應描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
 > **2026-04-10 packaging note:** default desktop install 仍內建 optional AI / assistant / MCP / semantic runtime；`optional` 指 capability 預設關閉、需明確設定 / provider 才會啟用，不代表第一次使用時另裝 helper 或外掛 binary。相關 shipping boundary 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
+>
+> **2026-04-29 v0.1.0 release amendment:** real app testing 證明 AI Assistant、embedding、semantic / hybrid search、MCP / skill artifacts、vector sidecar、以及 readable webpage body fetch 目前不可用。v0.1.0 只 shipping local archive、keyword search、Jobs / Audit / Settings / Schedule、以及 deterministic Core Intelligence。AI / readable-content surfaces 必須顯示 `Coming in v0.2` / 後續版本開放，不得宣稱現在可用。相關 amendment 見 [ADR-009](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)。
 >
 > **2026-04-13 current-state note:** 如果你現在要重新盤點 repo 裡 intelligence 的真實 shipped surface、前後端實作狀態、以及哪些設計文檔已經混入 legacy 描述，請先讀 [intelligence-current-state.md](intelligence-current-state.md)。它是目前給設計師與產品盤點用的白話總表。
 
@@ -18,13 +20,14 @@
 
 ### 需求要點
 
-- 基於 embedding 的向量相似度搜尋，使用 rig.rs 驅動 embedding pipeline，LanceDB 作為向量存儲和 ANN 索引。
+- v0.1.0 不提供 semantic / hybrid search；此 section 只作 v0.2+ roadmap contract。
+- 基於 embedding 的向量相似度搜尋需要 future embedding pipeline 與 replaceable vector sidecar；v0.1.0 default build 不連結 LanceDB。
 - Embedding 增量計算、本地索引、避免重算。
 - 搜尋不只找頁面，還要支持找 session、task 和 topic level 的語義匹配。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - v1 semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
 - semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 必須先查 LanceDB sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑做全庫向量掃描。semantic metadata / queue / assistant trace 固定落在 `derived/history-intelligence.sqlite`；SQLite 不再承擔向量 payload mirror。
+- runtime contract：v0.1.0 的 semantic retrieval 必須 disabled。後續版本若重新啟用，必須先查 replaceable vector sidecar；若 sidecar 缺失、過期或失敗，PathKeep 只能誠實退回 lexical recall，不得在請求路徑做全庫向量掃描。semantic metadata / queue / assistant trace 固定落在 `derived/history-intelligence.sqlite`；SQLite 不再承擔向量 payload mirror。
 
 ---
 
@@ -47,6 +50,7 @@
 - queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
+- v0.1.0 amendment：Assistant route 必須顯示 disabled / `Coming in v0.2` state；不得提供 seeded prompt、provider probe、send box、queue drain、或 settings 修復入口來暗示功能已可用。
 
 ---
 
@@ -214,9 +218,9 @@
 - long-running derived-data job 不能只顯示抽象的 `running`。deterministic rebuild 至少要持續更新 phase、heartbeat 與 coarse progress（例如目前在哪個 phase、已處理幾筆 / 總筆數），讓 Jobs 頁和 shell footer 都能分辨「仍在前進」與「疑似卡死」。
 - Jobs 頁的 primary UX contract 不是把所有 queue / plugin / module 平鋪出來，而是先讓使用者分清楚 `running now`、`queued / deferred`、`needs review` 三件事。特別是 `readable-content-refetch` 的大量 queued work 必須先明講這是為了讓 deterministic rebuild 先完成，而不是用 layout 讓人誤以為「所有網頁內容抓取都失敗」。
 - `readable-content-refetch` 的 failure surface 必須先回到人話：像 `PDF / JSON / sign-in redirect / rate-limit` 這類常見邊界，要比 raw `unsupported-content` 或抽象 status 更先被使用者看到。raw status / runtime trace 仍可保留在 support 層，但不應當是主 review copy。
-- M5-A 起正式 shipping 的 built-in enrichment plugin 有兩個：`title-normalization`（local-only，版本 `m5-v1`）與 `readable-content-refetch`（network-backed，版本 `m4-v1`）。兩者都屬 derived-state runtime，不可改寫 canonical archive facts。
+- M5-A 起 built-in enrichment registry 有兩個 entry：`title-normalization`（local-only，版本 `m5-v1`）與 future-facing `readable-content-refetch`（network-backed，版本 `m4-v1`）。v0.1.0 只 shipping `title-normalization` as enabled；`readable-content-refetch` 保留 roadmap / runtime review 位置，但必須 disabled，不得抓取或保存網頁正文。
 - `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
-- `readable-content-refetch` 預設啟用、freshness window 7 天，也承載第一批 built-in site adapters：影片頁面（YouTube / Vimeo）可優先提取 title、channel / author、duration、publish date 與 description，避免把 noisy page chrome 誤當成主要 evidence。
+- `readable-content-refetch` v0.1.0 預設 disabled。freshness window、site adapters、正文 blob storage、以及 failure/retry UX 都屬 v0.2+ roadmap；UI 只能描述為 future feature。
 - built-in enrichment runtime 目前仍是 first-party only：Maintenance / Jobs / Intelligence 可以 review 內建 runtime state，retry / cancel 的 canonical runtime queue surface 是 Jobs；third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
@@ -316,8 +320,8 @@
 
 ### 任務類型
 
-- **Embedding 計算**：對新的或未處理的歷史紀錄生成 embedding vector（存入 LanceDB sidecar）。
-- **Enrichment refetch**：背景抓取頁面內容做內容增強。
+- **Embedding 計算**：v0.1.0 disabled；v0.2+ 才能重新生成 embedding vector 與 sidecar index。
+- **Readable-content refetch**：v0.1.0 disabled；v0.2+ 才能背景抓取頁面內容做內容增強。
 - **Insight 計算**：計算各洞察模塊的結果。
 - **LLM 摘要生成**：生成 topic 命名、對比式摘要、定期總結等。
 
@@ -336,10 +340,10 @@
 
 - 計算任務系統完全獨立於核心備份流程 — 備份不等待 AI 計算完成。
 - 計算結果存入獨立的 intelligence projection / sidecar — 即使清空所有計算結果，重跑一遍就能恢復。
-- 沒有配置 AI provider 的用戶完全看不到這個系統。
+- v0.1.0 使用者會看到 disabled / roadmap state；不得看到可操作的 AI provider、semantic index、assistant、MCP、或 readable-content fetch controls。
 - semantic index 必須支援三種明確操作：incremental catch-up、full rebuild、clear-only；這三者都要留下 run / queue trace，且不能影響 canonical archive facts。
 - v1 invalidation contract 先以 honest stale detection + manual rebuild 落地：import / rollback / visibility change / approved enrichment freshness 改變時，UI 必須把 index state 標成 stale。是否自動 re-enqueue rebuild 屬後續 work，不可假裝 day-one 已完成。
 - queue payload 必須凍結 enqueue 當下的 provider / model 選擇，避免使用者之後改設定時，同一個 queued job 漂移成不同的執行語義。
 - M5-A 起的 queue/runtime surface 現在必須在 archive 解鎖且 queue 未暫停時自動背景執行：AI index job、retry/replay 後的 AI queue，以及 deterministic / enrichment runtime job 都不能再卡住前台 UI。Maintenance / Intelligence 只保留摘要或 rebuild / clear 入口，而 dedicated Jobs 頁則作為 always-on log / retry / cancel / progress / recovery surface。
 - deterministic rebuild 屬於 baseline intelligence，可選 enrichment 只是在後面補更多證據。兩者同時排隊時，deterministic rebuild 必須先跑，避免使用者看到 queue 很忙，但無 AI 的 Insights 仍然完全不可用。
-- automatic post-backup/import deterministic refresh 仍不得重新把 network enrichment 塞回 inline backup critical path；backup 只負責 enqueue 與啟動 background rebuild，後續 readable-content 類工作必須留在 queue 裡獨立處理。
+- automatic post-backup/import deterministic refresh 仍不得重新把 network enrichment 塞回 inline backup critical path；v0.1.0 也不得 enqueue readable-content refetch。後續版本若啟用，readable-content 類工作必須留在 queue 裡獨立處理。

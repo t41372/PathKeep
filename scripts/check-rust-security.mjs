@@ -93,12 +93,8 @@ const allowedAdvisories = new Map([
     'bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration.',
   ],
   [
-    'RUSTSEC-2026-0002',
-    "lru 0.12.x is transitively pinned by LanceDB's tantivy stack; PathKeep only reaches tantivy's StoreReader cache methods (get/put/len/peek_lru), not the affected IterMut API.",
-  ],
-  [
     'RUSTSEC-2026-0097',
-    "rand 0.7/0.8/0.9 is currently only present through transitive LanceDB/DataFusion, Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
+    "rand 0.7/0.8/0.9 is currently only present through transitive Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep's workspace code does not call `rand::rng()` directly, and the reported unsoundness requires a custom logger path that is outside our owned code surface.",
   ],
   [
     'RUSTSEC-2026-0105',

@@ -13,7 +13,7 @@ use crate::{
     },
     utils::now_rfc3339,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use getrandom::fill as fill_random;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -233,7 +233,7 @@ fn normalize_hint(value: Option<String>) -> Option<String> {
 
 fn random_salt_hex() -> Result<String> {
     let mut bytes = [0u8; 16];
-    fill_random(&mut bytes).context("generating app lock salt")?;
+    fill_random(&mut bytes).map_err(|error| anyhow!("generating app lock salt: {error}"))?;
     Ok(hex::encode(bytes))
 }
 

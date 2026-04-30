@@ -19,7 +19,7 @@ mod search;
 use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
-    ai_sidecar::{self, SidecarEmbeddingRow},
+    ai_sidecar::{self},
     archive::{list_history, open_archive_connection, open_intelligence_connection},
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
@@ -50,7 +50,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     future::Future,
     sync::Arc,
     time::{Duration, Instant},
@@ -79,11 +79,13 @@ use self::ledger::{
     record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
 };
 use self::provider::{
-    classify_provider_error, embed_batch_with_retry, embed_query, embed_single_with_retry,
-    embedding_provider_readiness, run_llm_agent, validate_provider,
+    classify_provider_error, embedding_provider_readiness, run_llm_agent, validate_provider,
 };
 #[cfg(test)]
-use self::provider::{embedding_error_is_rate_limited, provider_connection_report_from_probe};
+use self::provider::{
+    embed_batch_with_retry, embed_query, embed_single_with_retry, embedding_error_is_rate_limited,
+    provider_connection_report_from_probe,
+};
 use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
@@ -190,11 +192,12 @@ const AI_SCHEMA_SQL: &str = r#"
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)";
+#[cfg(test)]
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
-const EMBEDDING_BATCH_SIZE: usize = 32;
+#[cfg(test)]
 const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;
 

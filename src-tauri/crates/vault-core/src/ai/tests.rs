@@ -3,6 +3,7 @@ use super::indexing::{clear_provider_embeddings, collect_stale_history_ids, upse
 use super::provider::should_retry_embedding_error;
 use super::*;
 use crate::{
+    ai_sidecar::SidecarEmbeddingRow,
     archive::ensure_archive_initialized,
     config::project_paths_with_root,
     models::{AiSettings, ArchiveMode},
@@ -261,41 +262,6 @@ fn seed_embedding_with_vector(
             ],
         )
         .expect("insert embedding with vector");
-}
-
-fn sync_sidecar_vectors(
-    paths: &ProjectPaths,
-    provider: &AiProviderRuntime,
-    rows: &[(i64, Vec<f32>)],
-) {
-    let runtime = Runtime::new().expect("runtime");
-    let sidecar_rows = rows
-        .iter()
-        .map(|(history_id, vector)| SidecarEmbeddingRow {
-            history_id: *history_id,
-            profile_id: "chrome:Default".to_string(),
-            url: "https://example.com".to_string(),
-            title: Some("Example".to_string()),
-            domain: "example.com".to_string(),
-            visited_at: "2026-04-04T00:00:00Z".to_string(),
-            provider_id: provider.config.id.clone(),
-            model: provider.config.default_model.clone(),
-            content_hash: format!("hash-{history_id}"),
-            indexed_at: now_rfc3339(),
-            vector: vector.clone(),
-        })
-        .collect::<Vec<_>>();
-    runtime
-        .block_on(ai_sidecar::sync_provider_embeddings(
-            paths,
-            &provider.config.id,
-            &provider.config.default_model,
-            &sidecar_rows,
-            true,
-            false,
-            &[],
-        ))
-        .expect("sync sidecar vectors");
 }
 
 fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
@@ -1293,61 +1259,22 @@ fn build_ai_index_with_control_stops_at_batch_boundaries() {
 
 #[cfg(coverage)]
 #[test]
-fn build_ai_index_falls_back_to_per_row_embeddings_and_records_skips() {
+fn build_ai_index_reports_deferred_sidecar_under_coverage_cfg() {
     let runtime = Runtime::new().expect("runtime");
-
     let (paths, config, connection) = prepared_archive();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     drop(connection);
-    let fallback_report = runtime
-        .block_on(build_ai_index(
-            &paths,
-            &config,
-            None,
-            &embedding_provider_with_id("embed-batch-short"),
-            &AiIndexRequest::default(),
-        ))
-        .expect("fallback build");
-    assert_eq!(fallback_report.indexed_items, 1);
-    assert_eq!(fallback_report.skipped_items, 0);
-    assert!(fallback_report.notes.iter().any(|note| note.contains("Synced 1 row")));
-    let connection =
-        open_intelligence_connection(&paths, &config, None).expect("reopen intelligence");
-    connection
-        .execute("UPDATE archive.urls SET title = 'Docs updated' WHERE id = 1", [])
-        .expect("change indexed content");
-    drop(connection);
-    let updated_report = runtime
-        .block_on(build_ai_index(
-            &paths,
-            &config,
-            None,
-            &embedding_provider_with_id("embed-batch-short"),
-            &AiIndexRequest::default(),
-        ))
-        .expect("updated build");
-    assert_eq!(updated_report.updated_items, 1);
 
-    let (paths, config, connection) = prepared_archive();
-    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
-    drop(connection);
-    let skipped_report = runtime
+    let error = runtime
         .block_on(build_ai_index(
             &paths,
             &config,
             None,
-            &embedding_provider_with_id("embed-batch-error-single-error"),
+            &embedding_provider_with_id("embed-batch-short"),
             &AiIndexRequest::default(),
         ))
-        .expect("skipped build");
-    assert_eq!(skipped_report.indexed_items, 0);
-    assert_eq!(skipped_report.skipped_items, 1);
-    assert!(
-        skipped_report
-            .notes
-            .iter()
-            .any(|note| note.contains("Skipped 1 row(s) after retrying failed embedding batches"))
-    );
+        .expect_err("vector sidecar sync is deferred in v0.1");
+    assert!(error.to_string().contains("coming in a future PathKeep release"));
 }
 
 #[test]
@@ -1396,6 +1323,29 @@ fn answer_history_question_with_control_can_cancel_before_model_response() {
         ))
         .expect_err("assistant should observe cancellation");
     assert!(error.to_string().contains("cancelled"));
+}
+
+#[test]
+fn answer_history_question_completes_with_lexical_citations_when_evidence_exists() {
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+
+    let response = runtime
+        .block_on(answer_history_question(
+            &paths,
+            &config,
+            None,
+            &llm_provider(),
+            None,
+            &AiAssistantRequest { question: "docs".to_string(), profile_id: None, domain: None },
+        ))
+        .expect("assistant response");
+
+    assert_eq!(response.state, "completed");
+    assert_eq!(response.citations.len(), 1);
+    assert_eq!(response.citations[0].history_id, 1);
+    assert!(response.answer.contains("stub answer"));
 }
 
 #[test]
@@ -1512,11 +1462,11 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
     assert!(
         response.notes.iter().any(|note| note.contains("No indexed semantic matches were found"))
     );
-    assert!(response.notes.iter().any(|note| note.contains("sidecar is missing or empty")));
+    assert!(response.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
 }
 
 #[test]
-fn build_index_search_and_assistant_cover_semantic_and_persistence_flows() {
+fn build_index_reports_deferred_vector_sidecar_release_boundary() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
@@ -1525,76 +1475,14 @@ fn build_index_search_and_assistant_cover_semantic_and_persistence_flows() {
     seed_embedding(&connection, 1, &embedding, "stale-hash");
     drop(connection);
 
-    let report = runtime
+    let error = runtime
         .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
-        .expect("build index");
-    assert_eq!(report.indexed_items, 1);
-    assert_eq!(report.updated_items, 1);
-    assert!(report.notes[0].contains("Indexed 2 history rows"));
-
-    let rebuilt = runtime
-        .block_on(build_ai_index(
-            &paths,
-            &config,
-            None,
-            &embedding,
-            &AiIndexRequest {
-                provider_id: None,
-                full_rebuild: true,
-                clear_only: false,
-                limit: Some(1),
-            },
-        ))
-        .expect("full rebuild");
-    assert_eq!(rebuilt.indexed_items, 1);
-
-    let search = runtime
-        .block_on(search_history_internal(
-            &paths,
-            &config,
-            None,
-            Some(&embedding),
-            &AiSearchRequest {
-                query: "docs".to_string(),
-                profile_id: None,
-                domain: None,
-                limit: Some(5),
-                cursor: None,
-            },
-        ))
-        .expect("semantic search");
-    assert_eq!(search.provider_id, "embed");
-    assert!(search.items.iter().any(|item| item.match_reason.contains("Semantic")));
-
-    let assistant = runtime
-        .block_on(answer_history_question(
-            &paths,
-            &config,
-            None,
-            &llm_provider(),
-            Some(&embedding),
-            &AiAssistantRequest {
-                question: "Summarize my docs reading".to_string(),
-                profile_id: None,
-                domain: None,
-            },
-        ))
-        .expect("assistant answer");
-    assert!(assistant.answer.contains("Summarize my docs reading"));
-    assert_eq!(assistant.provider_id, "llm");
-    assert_eq!(assistant.embedding_provider_id, "embed");
-    assert!(!assistant.citations.is_empty());
-
-    let connection =
-        open_intelligence_connection(&paths, &config, None).expect("open intelligence");
-    let runs: i64 = connection
-        .query_row("SELECT COUNT(*) FROM ai_assistant_runs", [], |row: &Row<'_>| row.get(0))
-        .expect("assistant run count");
-    assert_eq!(runs, 1);
+        .expect_err("vector sidecar sync is deferred from v0.1");
+    assert!(error.to_string().contains("coming in a future PathKeep release"));
 }
 
 #[test]
-fn semantic_matches_returns_sidecar_results_when_available() {
+fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
@@ -1619,40 +1507,32 @@ fn semantic_matches_returns_sidecar_results_when_available() {
             },
         ))
         .expect("semantic matches without sidecar");
-    assert!(missing_sidecar.items.is_empty());
-    assert!(
-        missing_sidecar
-            .notes
-            .iter()
-            .any(|note| note.contains("semantic sidecar is missing or empty"))
-    );
+    assert!(missing_sidecar.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
 
-    connection
-        .execute("UPDATE archive.visits SET reverted_at = ?1 WHERE id = 2", [now_rfc3339()])
-        .expect("hide semantic row");
-    sync_sidecar_vectors(
-        &paths,
-        &embedding,
-        &[(1, query_vector.clone()), (2, query_vector.clone())],
-    );
-
-    let matches = runtime
-        .block_on(semantic_matches(
+    let sidecar_error = runtime
+        .block_on(ai_sidecar::sync_provider_embeddings(
             &paths,
-            &config,
-            None,
-            &embedding,
-            &AiSearchRequest {
-                query: "docs".to_string(),
-                profile_id: None,
-                domain: None,
-                limit: Some(5),
-                cursor: None,
-            },
+            &embedding.config.id,
+            &embedding.config.default_model,
+            &[SidecarEmbeddingRow {
+                history_id: 1,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://example.com/docs".to_string(),
+                title: Some("Docs".to_string()),
+                domain: "example.com".to_string(),
+                visited_at: "2026-04-04T00:00:00Z".to_string(),
+                provider_id: embedding.config.id.clone(),
+                model: embedding.config.default_model.clone(),
+                content_hash: "hash-1".to_string(),
+                indexed_at: now_rfc3339(),
+                vector: query_vector.clone(),
+            }],
+            true,
+            false,
+            &[],
         ))
-        .expect("semantic matches");
-    assert_eq!(matches.items.len(), 1);
-    assert_eq!(matches.items[0].history_id, 1);
+        .expect_err("semantic sidecar writes are deferred");
+    assert!(sidecar_error.to_string().contains("coming in a future PathKeep release"));
 
     let stale_watermark = semantic_index_staleness_reason(
         &connection,
@@ -1736,10 +1616,10 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
         stale_without_sidecar
             .notes
             .iter()
-            .any(|note| note.contains("semantic sidecar is missing or empty"))
+            .any(|note| note.contains("semantic sidecar is disabled"))
     );
 
-    runtime
+    let deferred_write = runtime
         .block_on(ai_sidecar::sync_provider_embeddings(
             &paths,
             &embedding.config.id,
@@ -1761,36 +1641,18 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
             false,
             &[],
         ))
-        .expect("sync incompatible sidecar vector");
-    let sidecar_error = runtime
-        .block_on(semantic_matches(
-            &paths,
-            &config,
-            None,
-            &embedding,
-            &AiSearchRequest {
-                query: "docs".to_string(),
-                profile_id: None,
-                domain: None,
-                limit: Some(5),
-                cursor: None,
-            },
-        ))
-        .expect("semantic matches with sidecar error");
-    assert!(
-        sidecar_error.notes.iter().any(|note| note.contains("semantic sidecar could not answer"))
-    );
+        .expect_err("semantic sidecar writes are deferred");
+    assert!(deferred_write.to_string().contains("coming in a future PathKeep release"));
 }
 
 #[test]
-fn search_history_internal_blends_semantic_and_lexical_scores() {
+fn search_history_internal_uses_lexical_results_when_sidecar_is_deferred() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
     seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
-    sync_sidecar_vectors(&paths, &embedding, &[(1, query_vector.clone())]);
 
     let search = runtime
         .block_on(search_history_internal(
@@ -1806,12 +1668,12 @@ fn search_history_internal_blends_semantic_and_lexical_scores() {
                 cursor: None,
             },
         ))
-        .expect("semantic + lexical search");
+        .expect("lexical fallback search");
 
     assert_eq!(search.items.len(), 1);
     assert_eq!(search.items[0].history_id, 1);
-    assert_eq!(search.items[0].match_reason, "Semantic + lexical match");
-    assert!((search.items[0].score - 1.08).abs() < 1e-6);
+    assert_eq!(search.items[0].match_reason, "Lexical match");
+    assert!(search.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
 }
 
 #[test]

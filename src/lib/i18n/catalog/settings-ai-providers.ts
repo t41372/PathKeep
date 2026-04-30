@@ -24,6 +24,11 @@
 export const settingsAiProvidersNamespace = {
   en: {
     aiMasterToggle: 'Enable AI features',
+    aiDeferredBadge: 'Coming in v0.2',
+    aiDeferredTitle: 'Optional AI is not available in v0.1',
+    aiDeferredBody:
+      'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are still taking shape. v0.1 ships the local archive and Core Intelligence first.',
+    aiDeferredTooltip: 'This feature is coming in a future update.',
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
     aiAddLlmProvider: 'Add chat provider',
@@ -71,13 +76,20 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: 'INDEX HEALTH · {status}',
     aiIndexedRows: 'Indexed rows',
-    aiSemanticSidecar: 'LanceDB sidecar',
+    aiSemanticSidecar: 'Semantic sidecar',
     aiSemanticMetadata: 'SQLite metadata',
     aiEstimatedTokens: 'Estimated tokens',
     aiIndexWarning: 'Current index warning',
     aiIndexWarningEmbeddingMissing:
       'Select an embedding provider in Settings before enabling semantic retrieval.',
     aiIntegrationUnavailable: 'Integration preview unavailable',
+    aiIntegrationDeferredTitle: 'AI integrations are coming later',
+    aiIntegrationDeferredBody:
+      'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.1 does not generate or install them.',
+    aiIntegrationDeferredMcpBody:
+      'PathKeep v0.1 does not expose an MCP search surface.',
+    aiIntegrationDeferredFilesBody:
+      'Generated assistant skill files will return after the AI runtime is reliable enough to ship.',
     aiIntegrationArtifactsTitle: 'AI integration artifacts',
     aiIntegrationArtifactsSummaryTitle:
       'Review generated files before using them externally',
@@ -136,6 +148,11 @@ export const settingsAiProvidersNamespace = {
   },
   'zh-CN': {
     aiMasterToggle: '启用 AI 功能',
+    aiDeferredBadge: 'v0.2 开放',
+    aiDeferredTitle: 'v0.1 暂不开放可选 AI',
+    aiDeferredBody:
+      '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物都还在打磨中。v0.1 会先交付本地存档和确定性智能分析。',
+    aiDeferredTooltip: '这个功能会在后续版本开放。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '添加对话模型',
@@ -182,13 +199,19 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: '索引状态 · {status}',
     aiIndexedRows: '已索引记录',
-    aiSemanticSidecar: 'LanceDB 侧车',
+    aiSemanticSidecar: '语义侧车',
     aiSemanticMetadata: 'SQLite 元数据',
     aiEstimatedTokens: '预估 tokens',
     aiIndexWarning: '当前索引警告',
     aiIndexWarningEmbeddingMissing:
       '请先在设置里选择向量模型，再启用语义检索。',
     aiIntegrationUnavailable: '集成预览不可用',
+    aiIntegrationDeferredTitle: 'AI 集成稍后开放',
+    aiIntegrationDeferredBody:
+      'MCP 命令和 skill 文件依赖同一套助手与 embedding runtime。这里先保留路线图入口，但 v0.1 不会生成或安装这些产物。',
+    aiIntegrationDeferredMcpBody: 'PathKeep v0.1 不提供 MCP 搜索接口。',
+    aiIntegrationDeferredFilesBody:
+      '等 AI runtime 足够可靠后，助手 skill 文件生成会在后续版本回来。',
     aiIntegrationArtifactsTitle: 'AI 集成产物',
     aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
     aiIntegrationArtifactsSummaryBody:
@@ -245,6 +268,11 @@ export const settingsAiProvidersNamespace = {
   },
   'zh-TW': {
     aiMasterToggle: '啟用 AI 功能',
+    aiDeferredBadge: 'v0.2 開放',
+    aiDeferredTitle: 'v0.1 暫不開放可選 AI',
+    aiDeferredBody:
+      '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物都還在打磨中。v0.1 會先交付本機封存和確定性智慧分析。',
+    aiDeferredTooltip: '這個功能會在後續版本開放。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '新增對話模型',
@@ -291,13 +319,19 @@ export const settingsAiProvidersNamespace = {
     aiRequestFormatLmStudio: 'LM Studio',
     aiIndexHealthTitle: '索引狀態 · {status}',
     aiIndexedRows: '已索引記錄',
-    aiSemanticSidecar: 'LanceDB 側車',
+    aiSemanticSidecar: '語意側車',
     aiSemanticMetadata: 'SQLite 中繼資料',
     aiEstimatedTokens: '預估 tokens',
     aiIndexWarning: '目前索引警告',
     aiIndexWarningEmbeddingMissing:
       '請先在設定裡選擇向量模型，再啟用語義檢索。',
     aiIntegrationUnavailable: '整合預覽無法使用',
+    aiIntegrationDeferredTitle: 'AI 整合稍後開放',
+    aiIntegrationDeferredBody:
+      'MCP 指令和 skill 檔案依賴同一套助手與 embedding runtime。這裡先保留路線圖入口，但 v0.1 不會產生或安裝這些產物。',
+    aiIntegrationDeferredMcpBody: 'PathKeep v0.1 不提供 MCP 搜尋介面。',
+    aiIntegrationDeferredFilesBody:
+      '等 AI runtime 足夠可靠後，助手 skill 檔案產生會在後續版本回來。',
     aiIntegrationArtifactsTitle: 'AI 整合產物',
     aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',
     aiIntegrationArtifactsSummaryBody:

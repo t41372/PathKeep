@@ -12,7 +12,6 @@
  * - Keep assertions on review visibility and handler calls rather than decorative panel structure.
  */
 
-import userEvent from '@testing-library/user-event'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
@@ -91,8 +90,7 @@ describe('AiIntegrationReviewSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  test('shows generated files, warnings, and forwards copy/open actions', async () => {
-    const user = userEvent.setup()
+  test('shows deferred MCP and skill artifact placeholders', () => {
     const onCopyIntegrationValue = vi.fn().mockResolvedValue(undefined)
     const onOpenPath = vi.fn()
     renderSection(
@@ -119,33 +117,29 @@ describe('AiIntegrationReviewSection', () => {
       }),
     )
 
+    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
     expect(
-      screen.getByText('Manual localhost bridge preview only.'),
+      screen.getByText(
+        'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.1 does not generate or install them.',
+      ),
     ).toBeVisible()
-    expect(
-      screen.getByText('Keep the local server disabled when unused.'),
-    ).toBeVisible()
-    await user.click(screen.getAllByText('MCP JSON').at(-1)!)
-    await user.click(screen.getAllByRole('button', { name: 'Copy' })[0])
-    await user.click(screen.getByRole('button', { name: 'Open path' }))
+    expect(screen.getByText('MCP command')).toBeVisible()
+    expect(screen.getByText('Generated files')).toBeVisible()
+    expect(screen.getAllByText('Coming in v0.2')).toHaveLength(3)
 
-    expect(onCopyIntegrationValue).toHaveBeenCalledWith(
-      'contents:integrations/pathkeep-mcp.json',
-      '{"command":"pathkeep"}',
-    )
-    expect(onOpenPath).toHaveBeenCalledWith(
-      '/tmp/pathkeep/integrations/pathkeep-mcp.json',
-    )
+    expect(onCopyIntegrationValue).not.toHaveBeenCalled()
+    expect(onOpenPath).not.toHaveBeenCalled()
   })
 
-  test('renders unavailable and empty generated-file review states', () => {
+  test('ignores preview errors and generated files while AI integrations are deferred', () => {
     const { rerender } = renderSection(
       baseState({
         integrationError: 'local preview is unavailable',
       }),
     )
 
-    expect(screen.getByText('local preview is unavailable')).toBeVisible()
+    expect(screen.queryByText('local preview is unavailable')).toBeNull()
+    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
 
     rerender(
       <I18nProvider>
@@ -168,9 +162,7 @@ describe('AiIntegrationReviewSection', () => {
       </I18nProvider>,
     )
 
-    expect(
-      screen.getByText('Manual localhost bridge preview only.'),
-    ).toBeVisible()
+    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
     expect(screen.queryByText('Open path')).toBeNull()
   })
 })

@@ -21,7 +21,6 @@
  * - Preview payloads are loaded by the route state hook; this component only renders bounded review panels.
  */
 
-import { GeneratedArtifactViewer, ReviewSection } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
@@ -41,14 +40,7 @@ export function AiIntegrationReviewSection({
   state,
 }: AiIntegrationReviewSectionProps) {
   const { t } = useI18n()
-  const {
-    copyFeedback,
-    currentSettings,
-    integrationError,
-    integrationPreview,
-    onCopyIntegrationValue,
-    onOpenPath,
-  } = state
+  const { currentSettings } = state
 
   if (!currentSettings) {
     return null
@@ -61,84 +53,34 @@ export function AiIntegrationReviewSection({
           <Glyph icon="smart_toy" filled />
           <span>{t('settings.aiIntegrationArtifactsTitle')}</span>
         </span>
-        <span className="panel-badge">{t('settings.externalReviewBadge')}</span>
+        <span className="panel-badge">{t('settings.aiDeferredBadge')}</span>
       </div>
       <div className="panel-body settings-remote-grid">
         <StatusCallout
           tone="info"
-          title={t('settings.aiIntegrationArtifactsSummaryTitle')}
-          body={t('settings.aiIntegrationArtifactsSummaryBody')}
+          title={t('settings.aiIntegrationDeferredTitle')}
+          body={t('settings.aiIntegrationDeferredBody')}
         />
 
         <div className="settings-result-list">
-          {integrationError ? (
-            <StatusCallout
-              tone="warning"
-              title={t('settings.aiIntegrationUnavailable')}
-              body={integrationError}
-            />
-          ) : integrationPreview ? (
-            <>
-              <StatusCallout
-                tone={
-                  integrationPreview.warnings.length > 0 ? 'warning' : 'info'
-                }
-                title={t('settings.aiIntegrationReview')}
-                body={integrationPreview.consentSummary}
-              />
-              <ReviewSection title={t('settings.aiMcpCommand')}>
-                <div className="code-panel">
-                  <pre>{integrationPreview.mcpCommand}</pre>
-                </div>
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiCapabilityNotes')}>
-                {integrationPreview.capabilityNotes.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiScopeBoundary')}>
-                {integrationPreview.scopeBoundary.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiAuditTrace')}>
-                {integrationPreview.auditTrace.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiGeneratedFiles')}>
-                {integrationPreview.generatedFiles.length > 0 ? (
-                  <GeneratedArtifactViewer
-                    copyFeedback={copyFeedback}
-                    copyLabel={t('common.copyAction')}
-                    copyPathLabel={t('common.copyAction')}
-                    errorMessage={t('audit.copyFailed')}
-                    files={integrationPreview.generatedFiles}
-                    onCopy={(key, value) => {
-                      void onCopyIntegrationValue(key, value)
-                    }}
-                    onOpenPath={onOpenPath}
-                    openPathLabel={t('common.openPath')}
-                    successMessage={t('common.copiedNotice')}
-                  />
-                ) : null}
-              </ReviewSection>
-              <ReviewSection title={t('settings.aiManualSteps')}>
-                {integrationPreview.manualSteps.map((step) => (
-                  <p key={step}>{step}</p>
-                ))}
-                {integrationPreview.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </ReviewSection>
-            </>
-          ) : (
-            <StatusCallout
-              tone="info"
-              title={t('settings.aiIntegrationLoadingTitle')}
-              body={t('settings.aiIntegrationLoadingBody')}
-            />
-          )}
+          <div className="result-row" aria-disabled="true">
+            <div className="result-row__header">
+              <strong>{t('settings.aiMcpCommand')}</strong>
+              <span className="mono-support">
+                {t('settings.aiDeferredBadge')}
+              </span>
+            </div>
+            <p>{t('settings.aiIntegrationDeferredMcpBody')}</p>
+          </div>
+          <div className="result-row" aria-disabled="true">
+            <div className="result-row__header">
+              <strong>{t('settings.aiGeneratedFiles')}</strong>
+              <span className="mono-support">
+                {t('settings.aiDeferredBadge')}
+              </span>
+            </div>
+            <p>{t('settings.aiIntegrationDeferredFilesBody')}</p>
+          </div>
         </div>
       </div>
     </div>

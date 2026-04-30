@@ -63,7 +63,7 @@ describe('AiProvidersSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  test('wires provider editor controls back to route-owned handlers', () => {
+  test('renders deferred controls without invoking route-owned AI handlers', () => {
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
@@ -76,61 +76,34 @@ describe('AiProvidersSection', () => {
       persistedProviderIds: new Set(['llm-1', 'embed-1']),
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
-    fireEvent.click(screen.getByLabelText('Enable AI features'))
-    fireEvent.click(screen.getByRole('button', { name: 'Add chat provider' }))
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Add embedding provider' }),
-    )
-    fireEvent.click(screen.getByLabelText('Local LLM'))
-    fireEvent.change(screen.getByDisplayValue('Local LLM'), {
-      target: { value: 'Renamed LLM' },
-    })
-    fireEvent.click(screen.getByLabelText('Local Embeddings'))
-    fireEvent.change(screen.getByDisplayValue('Local Embeddings'), {
-      target: { value: 'Renamed Embeddings' },
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1])
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save key' })[0])
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save key' })[1])
-    fireEvent.click(screen.getAllByRole('button', { name: 'Clear key' })[0])
-    fireEvent.click(screen.getAllByRole('button', { name: 'Clear key' })[1])
+    fireEvent.click(screen.getByRole('button', { name: 'Enable AI features' }))
+    fireEvent.click(screen.getByRole('button', { name: 'CHAT PROVIDERS' }))
 
-    expect(handlers.onSaveAiConfig).toHaveBeenCalledTimes(1)
-    expect(handlers.onResetAiConfig).toHaveBeenCalledTimes(1)
-    expect(handlers.onToggleAi).toHaveBeenCalledTimes(1)
-    expect(handlers.onAddProvider).toHaveBeenNthCalledWith(1, 'llm')
-    expect(handlers.onAddProvider).toHaveBeenNthCalledWith(2, 'embedding')
-    expect(handlers.onSelectProvider).toHaveBeenCalledWith('llm', 'llm-1')
-    expect(handlers.onUpdateProvider).toHaveBeenCalledWith('llm', 'llm-1', {
-      name: 'Renamed LLM',
-    })
-    expect(handlers.onUpdateProvider).toHaveBeenCalledWith(
-      'embedding',
-      'embed-1',
-      {
-        name: 'Renamed Embeddings',
-      },
-    )
-    expect(handlers.onRemoveProvider).toHaveBeenCalledWith('llm', 'llm-1')
-    expect(handlers.onRemoveProvider).toHaveBeenCalledWith(
-      'embedding',
-      'embed-1',
-    )
-    expect(handlers.onSaveAiApiKey).toHaveBeenCalledWith('llm-1')
-    expect(handlers.onSaveAiApiKey).toHaveBeenCalledWith('embed-1')
-    expect(handlers.onClearAiApiKey).toHaveBeenCalledWith('llm-1')
-    expect(handlers.onClearAiApiKey).toHaveBeenCalledWith('embed-1')
-    expect(handlers.onSelectProvider).toHaveBeenCalledWith(
-      'embedding',
-      'embed-1',
-    )
-    expect(screen.getAllByText('None')).toHaveLength(2)
+    expect(
+      screen.getByText('Optional AI is not available in v0.1'),
+    ).toBeVisible()
+    expect(screen.getByText('Coming in v0.2')).toBeVisible()
+    expect(
+      screen.getAllByTitle('This feature is coming in a future update.'),
+    ).toHaveLength(4)
+    expect(
+      screen.getByRole('button', { name: 'Enable AI features' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'CHAT PROVIDERS' }),
+    ).toBeDisabled()
+    expect(handlers.onSaveAiConfig).not.toHaveBeenCalled()
+    expect(handlers.onResetAiConfig).not.toHaveBeenCalled()
+    expect(handlers.onToggleAi).not.toHaveBeenCalled()
+    expect(handlers.onAddProvider).not.toHaveBeenCalled()
+    expect(handlers.onSelectProvider).not.toHaveBeenCalled()
+    expect(handlers.onUpdateProvider).not.toHaveBeenCalled()
+    expect(handlers.onRemoveProvider).not.toHaveBeenCalled()
+    expect(handlers.onSaveAiApiKey).not.toHaveBeenCalled()
+    expect(handlers.onClearAiApiKey).not.toHaveBeenCalled()
   })
 
-  test('shows the getting-started callout when no providers exist', () => {
+  test('keeps the deferred state when no providers exist', () => {
     renderSection({
       currentSettings: settingsFixture({
         embeddingProviders: [],
@@ -142,14 +115,18 @@ describe('AiProvidersSection', () => {
     })
 
     expect(
-      screen.getByText('No AI providers configured yet'),
-    ).toBeInTheDocument()
-    expect(screen.getAllByText('CHAT PROVIDERS')).toHaveLength(2)
-    expect(screen.getAllByText('EMBEDDING PROVIDERS')).toHaveLength(2)
-    expect(screen.getAllByText('None')).toHaveLength(2)
+      screen.getByText('Optional AI is not available in v0.1'),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'CHAT PROVIDERS' }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'EMBEDDING PROVIDERS' }),
+    ).toBeDisabled()
+    expect(screen.queryByText('No AI providers configured yet')).toBeNull()
   })
 
-  test('renders active provider names, index health tones, and warning variants', () => {
+  test('does not expose stale index health or provider names while deferred', () => {
     const first = renderSection({
       aiStatus: aiStatusFixture({
         warning:
@@ -162,16 +139,16 @@ describe('AiProvidersSection', () => {
       },
     })
 
-    expect(screen.getAllByText('Local LLM').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Local Embeddings').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Local LLM')).toBeNull()
+    expect(screen.queryByText('Local Embeddings')).toBeNull()
     expect(
-      first.container.querySelector('.status-callout--warning'),
+      first.container.querySelector('.status-callout--info'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(
+      screen.queryByText(
         'Select an embedding provider in Settings before enabling semantic retrieval.',
       ),
-    ).toBeVisible()
+    ).toBeNull()
     first.unmount()
 
     const blocked = renderSection({
@@ -184,9 +161,9 @@ describe('AiProvidersSection', () => {
     })
 
     expect(
-      blocked.container.querySelector('.status-callout--blocked'),
+      blocked.container.querySelector('.status-callout--info'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Indexer is paused by policy.')).toBeVisible()
+    expect(screen.queryByText('Indexer is paused by policy.')).toBeNull()
     blocked.unmount()
 
     const info = renderSection({

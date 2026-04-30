@@ -26,6 +26,8 @@ use super::*;
 /// One semantic search hit ready to merge with lexical recall.
 ///
 /// The merge stage only needs a compact score-bearing shape, not the full sidecar row.
+#[cfg(test)]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(super) struct StoredEmbedding {
     pub history_id: i64,
@@ -43,7 +45,6 @@ pub(super) struct StoredEmbedding {
 /// attached here prevents that honesty metadata from getting lost during score merging.
 #[derive(Debug, Default)]
 pub(super) struct SemanticMatchReport {
-    pub items: Vec<StoredEmbedding>,
     pub notes: Vec<String>,
 }
 
@@ -428,29 +429,9 @@ pub(super) async fn search_history_internal(
         model = provider.config.default_model.clone();
         let semantic = semantic_matches(paths, config, key, provider, request).await?;
         notes.extend(semantic.notes.clone());
-        if semantic.items.is_empty() {
-            notes.push(
-                "No indexed semantic matches were found; showing lexical results only.".to_string(),
-            );
-        }
-        for (index, item) in semantic.items.into_iter().take(limit).enumerate() {
-            let entry = merged.entry(item.history_id).or_insert_with(|| AiSearchEntry {
-                history_id: item.history_id,
-                profile_id: item.profile_id.clone(),
-                url: item.url.clone(),
-                title: item.title.clone(),
-                domain: item.domain.clone(),
-                visited_at: item.visited_at.clone(),
-                score: item.score,
-                match_reason: "Semantic match".to_string(),
-            });
-            entry.score = entry.score.max(item.score + lexical_boost(index, limit));
-            entry.match_reason = if entry.match_reason.contains("Lexical") {
-                "Semantic + lexical match".to_string()
-            } else {
-                "Semantic match".to_string()
-            };
-        }
+        notes.push(
+            "No indexed semantic matches were found; showing lexical results only.".to_string(),
+        );
     } else {
         notes.push(
             "No embedding provider is selected, so results use lexical retrieval only.".to_string(),
@@ -480,7 +461,7 @@ pub(super) async fn semantic_matches(
     config: &AppConfig,
     key: Option<&str>,
     provider: &AiProviderRuntime,
-    request: &AiSearchRequest,
+    _request: &AiSearchRequest,
 ) -> Result<SemanticMatchReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
@@ -497,59 +478,20 @@ pub(super) async fn semantic_matches(
         notes.push(reason);
     }
 
-    let query_vector = embed_query(provider, request.query.trim()).await?;
-    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
-    match ai_sidecar::search_provider_embeddings(
-        paths,
-        &provider.config.id,
-        &provider.config.default_model,
-        &query_vector,
-        request.profile_id.as_deref(),
-        request.domain.as_deref(),
-        limit,
-    )
-    .await
-    {
-        Ok(Some(rows)) if !rows.is_empty() => {
-            let mut visible_rows = Vec::new();
-            for row in rows {
-                if !history_row_is_visible(&connection, row.history_id)? {
-                    continue;
-                }
-                visible_rows.push(StoredEmbedding {
-                    history_id: row.history_id,
-                    profile_id: row.profile_id,
-                    url: row.url,
-                    title: row.title,
-                    domain: row.domain,
-                    visited_at: row.visited_at,
-                    score: row.score,
-                });
-            }
-            visible_rows.sort_by(sort_stored_embeddings_desc);
-            return Ok(SemanticMatchReport { items: visible_rows, notes });
-        }
-        Ok(Some(_)) | Ok(None) => {
-            let sqlite_embedding_count = provider_embedding_count(
-                &connection,
-                &provider.config.id,
-                &provider.config.default_model,
-            )?;
-            if sqlite_embedding_count > 0 {
-                notes.push(
-                    "The LanceDB semantic sidecar is missing or empty, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
-                        .to_string(),
-                );
-            }
-        }
-        Err(error) => {
-            notes.push(format!(
-                "The LanceDB semantic sidecar could not answer this search ({}). PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata.",
-                error
-            ));
-        }
+    let sqlite_embedding_count =
+        provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)?;
+    if sqlite_embedding_count > 0 {
+        notes.push(
+            "The optional semantic sidecar is disabled in PathKeep v0.1.0, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
+                .to_string(),
+        );
+    } else {
+        notes.push(
+            "Semantic search is coming in a future PathKeep release; showing lexical results only."
+                .to_string(),
+        );
     }
-    Ok(SemanticMatchReport { items: Vec::new(), notes })
+    Ok(SemanticMatchReport { notes })
 }
 
 /// Persists one assistant run trace after the final answer is known.
@@ -609,6 +551,7 @@ pub(super) fn lexical_history_results(
 }
 
 /// Orders semantic matches from strongest to weakest score.
+#[cfg(test)]
 pub(super) fn sort_stored_embeddings_desc(
     left: &StoredEmbedding,
     right: &StoredEmbedding,
@@ -640,6 +583,7 @@ pub(super) fn lexical_score(index: usize, limit: usize) -> f32 {
 }
 
 /// Computes the bounded lexical boost added to semantic hits during result merging.
+#[cfg(test)]
 pub(super) fn lexical_boost(index: usize, limit: usize) -> f32 {
     ((limit.saturating_sub(index)) as f32 / limit.max(1) as f32) * 0.08
 }
@@ -664,23 +608,6 @@ pub(super) fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
     } else {
         dot / (left_norm.sqrt() * right_norm.sqrt())
     }
-}
-
-/// Checks whether a semantic result still points at a visible canonical visit row.
-pub(super) fn history_row_is_visible(connection: &Connection, history_id: i64) -> Result<bool> {
-    connection
-        .query_row(
-            "SELECT 1
-             FROM archive.visits
-             WHERE id = ?1
-               AND reverted_at IS NULL
-             LIMIT 1",
-            [history_id],
-            |row: &Row<'_>| row.get::<_, i64>(0),
-        )
-        .optional()
-        .map(|value| value.is_some())
-        .context("checking semantic visibility against archive.visits")
 }
 
 /// Checks whether a SQLite table exists in the current intelligence connection.

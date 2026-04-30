@@ -12,6 +12,20 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-RELEASE-AI-DEFER-A** — Defer Optional AI And Readable Content From v0.1.0
+  - 讀先：
+    `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
+    `docs/architecture/tech-stack.md`
+    `docs/features/intelligence.md`
+    `docs/features/archive.md`
+    `docs/architecture/data-model.md`
+    `docs/design/screens-and-nav.md`
+  - 目標：依使用者 0.1.0 release 指令，將實測不可用的 AI Assistant、embedding、semantic / hybrid search、vector sidecar、MCP / skill artifacts，以及網頁正文抓取先推到後續版本；UI 保留入口但禁用，不再假裝 v0.1.0 可用。
+  - 契約：deterministic Core Intelligence、keyword Explorer、archive/import/backup/Audit/Jobs/Schedule/Settings 仍保持可用；`rig-core` 與 future-facing AI schema 暫留；直接 `lancedb` / `lance` / `datafusion` build dependency 從 v0.1.0 移除；readable-content fetch 不得 enqueue 或抓取網頁正文。
+  - 2026-04-29 closeout：Assistant route 顯示 `Coming in v0.2` disabled state；Explorer Semantic / Hybrid mode 可見但 disabled，deep-link 也只顯示延期說明；Settings AI provider、Integrations MCP/skill artifacts、Dashboard AI quick actions、Jobs readable-content card、Settings derived readable-content plugin 都改成 disabled / future-release 文案。`readable-content-refetch` default config 與 runtime enabled check 也改為 disabled，既有 readable-content job 不再發出 network refetch。
+  - 同步回寫 [`docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`](../architecture/decisions/009-default-desktop-optional-intelligence-shipping.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：Cargo dependency graph verification confirmed no `lancedb` / `lance` / `arrow-array` / `arrow-schema` / `datafusion` / `tantivy` packages in the v0.1.0 build graph；`bun run check` 通過（base checks、100% JS/Rust coverage、build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。fresh debug `.app` Computer Use truth pass 使用 repo bundle `src-tauri/target/debug/bundle/macos/PathKeep.app`，確認 Dashboard AI quick actions disabled、Assistant route 顯示 v0.2 延期狀態、Settings AI 服務 controls disabled；Explorer semantic / hybrid disabled 由 browser-preview e2e 覆蓋。
+
 - [x] **WORK-SCHED-CUSTOM-INTERVAL-A** — Scheduled Backup Minute-Level Custom Interval
   - 讀先：
     `docs/plan/scheduled_backup_redesign_spec.md`

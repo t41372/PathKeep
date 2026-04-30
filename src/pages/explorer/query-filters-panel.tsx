@@ -24,6 +24,7 @@
 
 import { browserLabel } from './helpers'
 import { profileIdLabel } from '../../lib/profile-scope-context'
+import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import type {
   ExplorerMode,
   ExplorerViewMode,
@@ -149,24 +150,35 @@ export function ExplorerQueryFiltersPanel({
             className="segmented-row"
             style={{ marginBottom: 'var(--space-4)' }}
           >
-            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => (
-              <button
-                key={option}
-                className={`chip-button ${
-                  mode === option ? 'chip-button--active' : ''
-                }`}
-                type="button"
-                onClick={() =>
-                  updateParam('mode', option === 'keyword' ? null : option)
-                }
-              >
-                {option === 'keyword'
-                  ? explorerT('modeKeyword')
-                  : option === 'semantic'
-                    ? explorerT('modeSemantic')
-                    : explorerT('modeHybrid')}
-              </button>
-            ))}
+            {(['keyword', 'semantic', 'hybrid'] as const).map((option) => {
+              const disabled =
+                option !== 'keyword' && !optionalAiFeaturesAvailable
+
+              return (
+                <button
+                  key={option}
+                  className={`chip-button ${
+                    mode === option ? 'chip-button--active' : ''
+                  }`}
+                  disabled={disabled}
+                  title={
+                    disabled
+                      ? explorerT('optionalAiDeferredTooltip')
+                      : undefined
+                  }
+                  type="button"
+                  onClick={() =>
+                    updateParam('mode', option === 'keyword' ? null : option)
+                  }
+                >
+                  {option === 'keyword'
+                    ? explorerT('modeKeyword')
+                    : option === 'semantic'
+                      ? explorerT('modeSemantic')
+                      : explorerT('modeHybrid')}
+                </button>
+              )
+            })}
           </div>
           <div
             className="segmented-row"

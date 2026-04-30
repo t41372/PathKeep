@@ -36,6 +36,7 @@ import {
   enrichmentPluginDescription,
   enrichmentPluginLabel,
 } from '../../lib/intelligence-runtime'
+import { readableContentFetchAvailable } from '../../lib/release-capabilities'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 
@@ -96,22 +97,24 @@ export function JobsRuntimeHealthSection({
     },
     null,
   )
-  const contentQueueMessage = contentPlugin?.lastError
-    ? summarizePluginError(contentPlugin, jobsT)
-    : contentPlugin
-      ? contentPlugin.queuedJobs > 0
-        ? jobsT('contentFetchBacklogBody', {
-            queued: contentPlugin.queuedJobs,
-            stored: contentPlugin.storedRecords,
-          })
-        : contentPlugin.runningJobs > 0
-          ? jobsT('contentFetchRunningBody', {
+  const contentQueueMessage = !readableContentFetchAvailable
+    ? jobsT('contentFetchDeferredBody')
+    : contentPlugin?.lastError
+      ? summarizePluginError(contentPlugin, jobsT)
+      : contentPlugin
+        ? contentPlugin.queuedJobs > 0
+          ? jobsT('contentFetchBacklogBody', {
+              queued: contentPlugin.queuedJobs,
               stored: contentPlugin.storedRecords,
             })
-          : jobsT('contentFetchReadyBody', {
-              stored: contentPlugin.storedRecords,
-            })
-      : jobsT('contentFetchFallbackBody')
+          : contentPlugin.runningJobs > 0
+            ? jobsT('contentFetchRunningBody', {
+                stored: contentPlugin.storedRecords,
+              })
+            : jobsT('contentFetchReadyBody', {
+                stored: contentPlugin.storedRecords,
+              })
+        : jobsT('contentFetchFallbackBody')
 
   return (
     <>
@@ -120,7 +123,9 @@ export function JobsRuntimeHealthSection({
           <div className="panel-header">
             <span className="panel-title">{jobsT('contentFetchTitle')}</span>
             <span className="panel-action">
-              {enrichmentPluginBoundaryLabel('network', settingsT)}
+              {readableContentFetchAvailable
+                ? enrichmentPluginBoundaryLabel('network', settingsT)
+                : jobsT('contentFetchDeferredBadge')}
             </span>
           </div>
           <div className="panel-body jobs-panel-stack">
@@ -143,7 +148,7 @@ export function JobsRuntimeHealthSection({
                 {(contentPlugin?.storedRecords ?? 0).toLocaleString(language)}
               </span>
             </div>
-            {contentPlugin?.lastError ? (
+            {readableContentFetchAvailable && contentPlugin?.lastError ? (
               <p className="mono-support">
                 {summarizePluginError(contentPlugin, jobsT)}
               </p>

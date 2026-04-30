@@ -120,7 +120,7 @@ PathKeep 是一個**本地優先、開源、可信賴的瀏覽器歷史紀錄長
 
 ### 架構與數據
 
-- [技術棧與平台](architecture/tech-stack.md) — 技術選型、數據庫分層、AI 框架（rig.rs + LanceDB）
+- [技術棧與平台](architecture/tech-stack.md) — 技術選型、數據庫分層、v0.1.0 deferred AI / vector boundary
 - [數據模型與長期設計](architecture/data-model.md) — 統一時間格式、Schema 演化、長期容量原則
 - [數據庫選型決策](database-selection-decision-2026-04-05.md) — SQLite-first layered architecture 的完整論證
 

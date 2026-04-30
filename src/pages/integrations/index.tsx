@@ -53,7 +53,7 @@ export function IntegrationsPage() {
     buildInfo,
     clearAppLockPasscode,
     dashboard,
-    enableAiIntegrationPreview: true,
+    enableAiIntegrationPreview: false,
     enableDerivedRuntime: false,
     enableRetentionPreview: false,
     lockAppSession,

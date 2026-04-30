@@ -38,6 +38,13 @@ export const assistantNamespaceCatalog = {
     disabledTitle: 'Assistant is turned off',
     disabledBody:
       'Your archive still works without AI. Turn on AI features in Settings when you want to ask questions about your history.',
+    deferredTitle: 'Assistant is coming in v0.2',
+    deferredBody:
+      'This part of PathKeep is not ready yet. v0.1 ships the local archive, keyword search, and Core Intelligence first.',
+    deferredPanelEyebrow: 'IN PROGRESS',
+    deferredBadge: 'Coming in v0.2',
+    deferredPanelBody:
+      'The path is still extending. Assistant answers, embeddings, and vector search will open in a future release after they are reliable enough to trust.',
     statusEyebrow: 'STATUS',
     testProvider: 'Test connection',
     refreshQueue: 'Refresh',
@@ -105,6 +112,13 @@ export const assistantNamespaceCatalog = {
     disabledTitle: 'AI 助手已关闭',
     disabledBody:
       '不开启 AI 也能正常使用备份和搜索功能。如果需要 AI 助手，请到设置中开启。',
+    deferredTitle: 'AI 助手将在 v0.2 中开放',
+    deferredBody:
+      '这个功能还没准备好。v0.1 会先把本地存档、关键词搜索和确定性智能分析做好。',
+    deferredPanelEyebrow: '建设中',
+    deferredBadge: 'v0.2 开放',
+    deferredPanelBody:
+      '这条路还在延伸。助手回答、embedding 和向量搜索会在足够可靠之后，于后续版本开放。',
     statusEyebrow: '助手状态',
     testProvider: '测试连接',
     refreshQueue: '刷新队列',
@@ -171,6 +185,13 @@ export const assistantNamespaceCatalog = {
     disabledTitle: 'AI 助手已關閉',
     disabledBody:
       '不開啟 AI 也能正常使用備份和搜尋功能。如果需要 AI 助手，請到設定中開啟。',
+    deferredTitle: 'AI 助手會在 v0.2 開放',
+    deferredBody:
+      '這個功能還沒準備好。v0.1 會先把本機封存、關鍵字搜尋和確定性智慧分析做好。',
+    deferredPanelEyebrow: '建設中',
+    deferredBadge: 'v0.2 開放',
+    deferredPanelBody:
+      '這條路還在延伸。助手回答、embedding 和向量搜尋會在足夠可靠之後，於後續版本開放。',
     statusEyebrow: '助手狀態',
     testProvider: '測試連線',
     refreshQueue: '重新整理佇列',

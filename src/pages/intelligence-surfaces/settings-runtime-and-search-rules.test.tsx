@@ -166,9 +166,10 @@ describe('intelligence surfaces settings runtime and search rules', () => {
     expect(screen.getByText('Title normalization')).toBeVisible()
     expect(screen.getByText('Search trails')).toBeVisible()
     expect(screen.getByText('Refind pages')).toBeVisible()
-    expect(screen.getAllByText('Page content fetcher').length).toBeGreaterThan(
-      0,
-    )
+    expect(
+      screen.getAllByText('Readable content fetcher').length,
+    ).toBeGreaterThan(0)
+    expect(screen.getAllByText('Coming in v0.2').length).toBeGreaterThan(0)
     expect(
       screen.getAllByText('1 queued / 0 running / 1 failed').length,
     ).toBeGreaterThan(0)

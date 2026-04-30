@@ -336,6 +336,9 @@ pub(crate) fn deterministic_module_enabled(config: &AppConfig, module_id: &str) 
 
 /// Returns whether one enrichment plugin is enabled in the current config.
 pub(crate) fn enrichment_plugin_enabled(config: &AppConfig, plugin_id: &str) -> bool {
+    if plugin_id == READABLE_CONTENT_PLUGIN_ID {
+        return false;
+    }
     if !config.ai.enrichment_enabled {
         return false;
     }
