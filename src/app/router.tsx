@@ -26,6 +26,7 @@ import { RouteHydrateFallback } from './route-hydrate-fallback'
 import { RequireLockScreen, RequireUnlockedShell } from './route-guards'
 import { AppShell } from './shell'
 import { ShellRouteErrorBoundary } from './shell-route-error-boundary'
+import type { GlyphIconName } from '../components/ui'
 
 /**
  * Defines the type-level contract for app route id.
@@ -64,7 +65,7 @@ export interface AppScreen {
   titleKey: string
   labelKey: string
   subtitleKey: string
-  icon: string
+  icon: GlyphIconName
   href: string
   badgeKey?: string
   section?: NavigationSection
@@ -90,7 +91,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.dashboardLabel',
     titleKey: 'navigation.dashboardTitle',
     subtitleKey: 'navigation.dashboardSubtitle',
-    icon: '⌂',
+    icon: 'bar_chart',
     href: '/',
     section: 'CORE',
   },
@@ -99,7 +100,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.explorerLabel',
     titleKey: 'navigation.explorerTitle',
     subtitleKey: 'navigation.explorerSubtitle',
-    icon: '◎',
+    icon: 'search',
     href: '/explorer',
     section: 'CORE',
   },
@@ -108,7 +109,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.intelligenceLabel',
     titleKey: 'navigation.intelligenceTitle',
     subtitleKey: 'navigation.intelligenceSubtitle',
-    icon: '◈',
+    icon: 'memory',
     href: '/intelligence',
     section: 'CORE',
   },
@@ -117,7 +118,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.assistantLabel',
     titleKey: 'navigation.assistantTitle',
     subtitleKey: 'navigation.assistantSubtitle',
-    icon: '▷',
+    icon: 'smart_toy',
     href: '/assistant',
     badgeKey: 'navigation.assistantBadge',
     section: 'CORE',
@@ -127,7 +128,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.importLabel',
     titleKey: 'navigation.importTitle',
     subtitleKey: 'navigation.importSubtitle',
-    icon: '↓',
+    icon: 'download',
     href: '/import',
     section: 'OPERATIONS',
   },
@@ -136,7 +137,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.auditLabel',
     titleKey: 'navigation.auditTitle',
     subtitleKey: 'navigation.auditSubtitle',
-    icon: '⊞',
+    icon: 'history',
     href: '/audit',
     section: 'OPERATIONS',
   },
@@ -145,7 +146,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.jobsLabel',
     titleKey: 'navigation.jobsTitle',
     subtitleKey: 'navigation.jobsSubtitle',
-    icon: '≡',
+    icon: 'database',
     href: '/jobs',
     section: 'OPERATIONS',
   },
@@ -154,7 +155,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.scheduleLabel',
     titleKey: 'navigation.scheduleTitle',
     subtitleKey: 'navigation.scheduleSubtitle',
-    icon: '⏀',
+    icon: 'sync',
     href: '/schedule',
     section: 'SYSTEM',
   },
@@ -163,7 +164,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.securityLabel',
     titleKey: 'navigation.securityTitle',
     subtitleKey: 'navigation.securitySubtitle',
-    icon: '⊘',
+    icon: 'shield',
     href: '/security',
     section: 'SYSTEM',
   },
@@ -172,7 +173,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.settingsLabel',
     titleKey: 'navigation.settingsTitle',
     subtitleKey: 'navigation.settingsSubtitle',
-    icon: '⚙',
+    icon: 'settings',
     href: '/settings',
     section: 'SYSTEM',
   },
@@ -181,7 +182,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.integrationsLabel',
     titleKey: 'navigation.integrationsTitle',
     subtitleKey: 'navigation.integrationsSubtitle',
-    icon: '⧉',
+    icon: 'cloud_upload',
     href: '/integrations',
     section: 'OPERATIONS',
   },
@@ -190,7 +191,7 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.maintenanceLabel',
     titleKey: 'navigation.maintenanceTitle',
     subtitleKey: 'navigation.maintenanceSubtitle',
-    icon: '◇',
+    icon: 'build',
     href: '/maintenance',
     section: 'SYSTEM',
   },
@@ -206,7 +207,7 @@ export const onboardingScreen: AppScreen = {
   labelKey: 'navigation.onboardingLabel',
   titleKey: 'navigation.onboardingTitle',
   subtitleKey: 'navigation.onboardingSubtitle',
-  icon: '◌',
+  icon: 'check',
   href: '/onboarding',
 }
 

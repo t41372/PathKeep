@@ -17,6 +17,7 @@ import clsx from 'clsx'
 import { Link, useLocation } from 'react-router-dom'
 import type { AppScreen } from '../../app/router'
 import { useI18n } from '../../lib/i18n'
+import { Glyph } from '../ui'
 
 /**
  * Describes the props accepted by `SidebarNavItem`.
@@ -52,7 +53,7 @@ export function SidebarNavItem({ screen, collapsed }: SidebarNavItemProps) {
       to={screen.href}
     >
       <span aria-hidden className="nav-icon">
-        {screen.icon}
+        <Glyph icon={screen.icon} />
       </span>
       <span
         aria-hidden={collapsed}

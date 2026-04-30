@@ -47,7 +47,7 @@ describe('Sidebar', () => {
       { initialEntries: ['/'] },
     )
 
-    render(
+    const { container } = render(
       <I18nProvider>
         <ProfileScopeProvider>
           <ShellDataProvider>
@@ -65,6 +65,7 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveClass(
       'nav-item--active',
     )
+    expect(container.querySelector('.nav-icon .glyph')).not.toBeNull()
     expect(await screen.findByText('Archive not initialized')).toBeVisible()
     expect(await screen.findByText('Encrypted archive')).toBeVisible()
     expect(screen.getByText('0 B')).toBeVisible()
