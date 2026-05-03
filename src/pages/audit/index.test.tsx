@@ -235,6 +235,113 @@ describe('AuditPage route owner', () => {
     )
   })
 
+  test('triages warning and blocked runs from the health summary without dropping other active filters', async () => {
+    const user = userEvent.setup()
+    const runs = [
+      runFixture(21, {
+        profileScope: ['chrome:Default'],
+      }),
+      runFixture(20, {
+        profileScope: ['chrome:Default'],
+      }),
+      runFixture(19, {
+        profileScope: ['safari:Personal'],
+      }),
+    ]
+    const details = {
+      21: detailFixture(runs[0], {
+        errorMessage: 'manifest write failed',
+      }),
+      20: detailFixture(runs[1], {
+        warnings: ['schedule drift'],
+      }),
+      19: detailFixture(runs[2], {
+        warnings: ['safari warning outside active profile'],
+      }),
+    }
+
+    shellDataMock.mockReturnValue(
+      shellFixture({
+        snapshot: snapshotFixture({
+          recentRuns: runs,
+        }),
+      }),
+    )
+    auditDataMock.mockReturnValue(
+      auditDataFixture({
+        detail: details[21],
+        detailCache: details,
+        detailSeverity: 'blocked',
+      }),
+    )
+
+    renderPage('/audit')
+
+    await user.selectOptions(screen.getByLabelText('audit.filterProfile'), [
+      'chrome:Default',
+    ])
+    expect(
+      screen.getByText('audit.ledgerHealthIssues:{"warning":1,"blocked":1}'),
+    ).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'audit.triageShowBlocked:{"count":1}',
+      }),
+    )
+    expect(screen.getByRole('button', { name: /#21/ })).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: /#20/ }),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'audit.triageShowWarning:{"count":1}',
+      }),
+    )
+    expect(screen.getByRole('button', { name: /#20/ })).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: /#21/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('does not render warning triage when all visible repair runs are blocked', () => {
+    const runs = [runFixture(30)]
+    const details = {
+      30: detailFixture(runs[0], {
+        errorMessage: 'manifest write failed',
+      }),
+    }
+
+    shellDataMock.mockReturnValue(
+      shellFixture({
+        snapshot: snapshotFixture({
+          recentRuns: runs,
+        }),
+      }),
+    )
+    auditDataMock.mockReturnValue(
+      auditDataFixture({
+        detail: details[30],
+        detailCache: details,
+        detailSeverity: 'blocked',
+      }),
+    )
+
+    renderPage('/audit')
+
+    expect(
+      screen.getByRole('button', {
+        name: 'audit.triageShowBlocked:{"count":1}',
+      }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('button', {
+        name: /audit\.triageShowWarning/,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
   test('covers mixed-source fallbacks, missing details, and detail gate states', async () => {
     const user = userEvent.setup()
     const runs = [

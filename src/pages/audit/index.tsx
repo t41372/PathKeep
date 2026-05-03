@@ -202,6 +202,51 @@ export function AuditPage() {
       }),
     [detailCache, filters, indexedRuns],
   )
+  const healthScopeRuns = useMemo(
+    () =>
+      indexedRuns.filter((run) => {
+        const runType = run.runType ?? 'backup'
+        const nextDetail = detailCache[run.id]
+        if (filters.runType !== 'all' && runType !== filters.runType) {
+          return false
+        }
+        const profileScope = nextDetail?.profileScope ?? run.profileScope ?? []
+        const sourceKinds = sourceKindFromProfileScope(profileScope)
+        if (
+          filters.sourceKind !== 'all' &&
+          !sourceKinds.includes(filters.sourceKind)
+        ) {
+          return false
+        }
+        if (filters.profileId !== 'all') {
+          const matchesProfile =
+            profileScope.length === 0
+              ? filters.profileId === 'archive-wide'
+              : profileScope.includes(filters.profileId)
+          if (!matchesProfile) {
+            return false
+          }
+        }
+        if (
+          filters.artifactType !== 'all' &&
+          (!nextDetail ||
+            !nextDetail.artifacts.some(
+              (artifact) => artifact.kind === filters.artifactType,
+            ))
+        ) {
+          return false
+        }
+        return true
+      }),
+    [
+      detailCache,
+      filters.artifactType,
+      filters.profileId,
+      filters.runType,
+      filters.sourceKind,
+      indexedRuns,
+    ],
+  )
   const selectedRunIndex = filteredRuns.findIndex((run) => run.id === runId)
   const previousVisibleRun =
     selectedRunIndex >= 0 ? (filteredRuns[selectedRunIndex + 1] ?? null) : null
@@ -231,6 +276,63 @@ export function AuditPage() {
   const filtersLoading =
     indexedRuns.length > 0 &&
     Object.keys(detailCache).length < indexedRuns.length
+  const severityCounts = useMemo(() => {
+    const counts = { clear: 0, warning: 0, blocked: 0, unknown: 0 }
+    for (const run of healthScopeRuns) {
+      const indexedDetail = detailCache[run.id]
+      if (!indexedDetail) {
+        counts.unknown += 1
+        continue
+      }
+      const severity = auditSeverity(indexedDetail)
+      counts[severity] += 1
+    }
+    return counts
+  }, [detailCache, healthScopeRuns])
+  const ledgerNeedsRepair = severityCounts.warning + severityCounts.blocked > 0
+  const ledgerSeverityHydrating =
+    !ledgerNeedsRepair && severityCounts.unknown > 0
+  const applySeverity = useCallback(
+    (severity: AuditFilterState['severity']) => {
+      setFilters((current) => ({ ...current, severity }))
+    },
+    [],
+  )
+  const auditHealthActions = ledgerNeedsRepair ? (
+    <div className="audit-triage-actions">
+      {severityCounts.blocked > 0 ? (
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => applySeverity('blocked')}
+        >
+          {t('audit.triageShowBlocked', {
+            count: severityCounts.blocked,
+          })}
+        </button>
+      ) : null}
+      {severityCounts.warning > 0 ? (
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => applySeverity('warning')}
+        >
+          {t('audit.triageShowWarning', {
+            count: severityCounts.warning,
+          })}
+        </button>
+      ) : null}
+      <Link className="btn-secondary" to="/import">
+        {t('audit.repairImports')}
+      </Link>
+      <Link className="btn-secondary" to="/schedule">
+        {t('audit.repairSchedule')}
+      </Link>
+      <Link className="btn-secondary" to="/security">
+        {t('audit.repairSecurity')}
+      </Link>
+    </div>
+  ) : null
 
   /**
    * Explains how source label works.
@@ -329,22 +431,35 @@ export function AuditPage() {
   return (
     <section className="page-shell audit-page" data-testid="audit-page">
       <StatusCallout
-        tone="info"
-        title={t('audit.repairRoutesTitle')}
-        body={t('audit.repairRoutesBody')}
-        actions={
-          <>
-            <Link className="btn-secondary" to="/import">
-              {t('audit.repairImports')}
-            </Link>
-            <Link className="btn-secondary" to="/schedule">
-              {t('audit.repairSchedule')}
-            </Link>
-            <Link className="btn-secondary" to="/security">
-              {t('audit.repairSecurity')}
-            </Link>
-          </>
+        tone={
+          severityCounts.blocked > 0
+            ? 'danger'
+            : severityCounts.warning > 0
+              ? 'warning'
+              : ledgerSeverityHydrating
+                ? 'info'
+                : 'success'
         }
+        title={
+          ledgerNeedsRepair
+            ? t('audit.ledgerHealthIssues', {
+                warning: severityCounts.warning,
+                blocked: severityCounts.blocked,
+              })
+            : ledgerSeverityHydrating
+              ? t('audit.ledgerHealthLoading', {
+                  count: severityCounts.unknown,
+                })
+              : t('audit.ledgerHealthClear', { count: healthScopeRuns.length })
+        }
+        body={
+          ledgerNeedsRepair
+            ? t('audit.ledgerHealthIssuesBody')
+            : ledgerSeverityHydrating
+              ? t('audit.ledgerHealthLoadingBody')
+              : t('audit.ledgerHealthClearBody')
+        }
+        actions={auditHealthActions}
       />
 
       <div className="panel">
@@ -485,7 +600,11 @@ export function AuditPage() {
                 const indexedDetail = detailCache[run.id]
                 const severity = indexedDetail
                   ? auditSeverity(indexedDetail)
-                  : 'clear'
+                  : null
+                const severityClass = severity ?? 'pending'
+                const severityLabel = severity
+                  ? t(auditSeverityKey(severity))
+                  : t('audit.severityPending')
                 const triggerLabel = t(
                   runTriggerKey(
                     run.trigger ?? indexedDetail?.trigger ?? 'manual',
@@ -500,20 +619,26 @@ export function AuditPage() {
                       </div>
                     )}
                     <button
-                      aria-label={`#${run.id} · ${t(runTypeKey(run.runType ?? 'backup'))} · ${t(runTriggerKey(run.trigger ?? indexedDetail?.trigger ?? 'manual'))} · ${t(runStatusKey(run.status))} · ${t(auditSeverityKey(severity))}`}
+                      aria-label={`#${run.id} · ${t(runTypeKey(run.runType ?? 'backup'))} · ${t(runTriggerKey(run.trigger ?? indexedDetail?.trigger ?? 'manual'))} · ${t(runStatusKey(run.status))} · ${severityLabel}`}
                       aria-pressed={run.id === runId}
-                      className={`chain-block ${run.id === runId ? '' : 'older'}`}
+                      className={`chain-block chain-block--${severityClass} ${run.id === runId ? '' : 'older'}`}
                       type="button"
                       onClick={() => selectRun(run.id)}
                     >
-                      <div className="chain-hash mono">#{run.id}</div>
+                      <div className="chain-hash mono">
+                        <span
+                          aria-hidden="true"
+                          className={`chain-severity-dot chain-severity-dot--${severityClass}`}
+                        />
+                        #{run.id}
+                      </div>
                       <div className="chain-meta dim">
                         <div>
                           {t(runTypeKey(run.runType ?? 'backup'))} ·{' '}
                           {triggerLabel}
                         </div>
                         <div>
-                          {t(auditSeverityKey(severity))} ·{' '}
+                          {severityLabel} ·{' '}
                           {t('dashboard.profilesLabel', {
                             count: run.profilesProcessed,
                           })}

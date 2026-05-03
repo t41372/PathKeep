@@ -147,6 +147,18 @@ export const auditNamespaceCatalog = {
     repairImports: 'Check imports',
     repairSchedule: 'Check schedule',
     repairSecurity: 'Check security',
+    ledgerHealthClear: 'Recent runs clear: {count}',
+    ledgerHealthLoading: 'Severity pending: {count}',
+    ledgerHealthLoadingBody:
+      'Run details are still loading. Health status will refresh once severities resolve.',
+    severityPending: 'Loading severity',
+    ledgerHealthClearBody:
+      'No warnings or blocked runs in the visible history. You can browse the timeline below for details.',
+    ledgerHealthIssues: 'Needs attention: {warning} · Blocked: {blocked}',
+    ledgerHealthIssuesBody:
+      'Open a flagged run to review what changed, or jump straight to the troubleshooting page that owns the fix.',
+    triageShowWarning: 'Show {count} needing attention',
+    triageShowBlocked: 'Show {count} blocked',
   },
   'zh-CN': {
     loadingLedger: '加载审计日志…',
@@ -267,6 +279,17 @@ export const auditNamespaceCatalog = {
     repairImports: '检查导入',
     repairSchedule: '检查定时备份',
     repairSecurity: '检查安全设置',
+    ledgerHealthClear: '最近 {count} 次运行都正常',
+    ledgerHealthLoading: '正在检查 {count} 次运行的严重程度…',
+    ledgerHealthLoadingBody: '运行详情仍在加载，严重程度解析后将自动刷新。',
+    severityPending: '正在加载严重程度',
+    ledgerHealthClearBody:
+      '可见历史中没有警告或阻塞记录。可以在下方时间线查看详情。',
+    ledgerHealthIssues: '{warning} 条需关注 · {blocked} 条已阻塞',
+    ledgerHealthIssuesBody:
+      '打开被标记的运行查看变更，或直接跳到对应的排查页面修复。',
+    triageShowWarning: '只看 {count} 条需关注',
+    triageShowBlocked: '只看 {count} 条阻塞',
   },
   'zh-TW': {
     loadingLedger: '載入稽核日誌…',
@@ -387,5 +410,16 @@ export const auditNamespaceCatalog = {
     repairImports: '檢查匯入',
     repairSchedule: '檢查定時備份',
     repairSecurity: '檢查安全設定',
+    ledgerHealthClear: '最近 {count} 次執行都正常',
+    ledgerHealthLoading: '正在檢查 {count} 次執行的嚴重程度…',
+    ledgerHealthLoadingBody: '執行詳情仍在載入，嚴重程度解析後會自動重新整理。',
+    severityPending: '正在載入嚴重程度',
+    ledgerHealthClearBody:
+      '可見紀錄中沒有警告或阻擋。你可以在下方時間線查看詳情。',
+    ledgerHealthIssues: '{warning} 筆需注意 · {blocked} 筆已阻擋',
+    ledgerHealthIssuesBody:
+      '開啟被標記的執行查看變更，或直接跳到對應的排查頁面修正。',
+    triageShowWarning: '只看 {count} 筆需注意',
+    triageShowBlocked: '只看 {count} 筆已阻擋',
   },
 } as const
