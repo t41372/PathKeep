@@ -978,7 +978,7 @@ describe('intelligence surfaces', () => {
       screen.queryByText(intelligenceT('externalOutputsReviewBody')),
     ).not.toBeInTheDocument()
     expect(
-      screen.getAllByText(intelligenceT('category_community')).length,
+      (await screen.findAllByText(intelligenceT('category_community'))).length,
     ).toBeGreaterThan(0)
     expect(screen.getByText(intelligenceT('activityMixHelp'))).toBeVisible()
     expect(
