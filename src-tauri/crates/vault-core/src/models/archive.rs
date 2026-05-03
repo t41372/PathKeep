@@ -264,7 +264,7 @@ impl Default for HistoryQuery {
             domain: None,
             start_time_ms: None,
             end_time_ms: None,
-            sort: Some("newest".to_string()),
+            sort: None,
             limit: Some(150),
             page: None,
             cursor: None,

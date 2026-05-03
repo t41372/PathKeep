@@ -1156,3 +1156,18 @@
   - 2026-04-30 closeout：v0.1.0 optional AI / semantic scope 的 copy 已收斂成 `Coming in v0.2`：Assistant、Core Intelligence semantic status、Settings AI provider、Integrations MCP / skill artifacts 與 Dashboard AI controls 不再引導使用者到 Settings 開啟 AI。Explorer `All time` 狀態的 START / END 欄位改成空值與 `All time` placeholder，避免 native date input 在 WKWebView 顯示出假日期。README 現在把 v0.1 scope 壓成 Archive + keyword recall + deterministic Core Intelligence，並補上 installation / uninstall truth。
   - 同步回寫 [`README.md`](../../README.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted Explorer / AI-provider Vitest slices、`bun run check:i18n`、`bun run coverage:js` 與 `bun run check` 全通過（100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。`bun run check` 中的 Vite build 仍保留既有 `shared` chunk 約 `508.84 kB` 警告。fresh debug `.app` Computer Use truth pass 使用 repo bundle `src-tauri/target/debug/bundle/macos/PathKeep.app`，確認 Dashboard 真資料、Explorer keyword `github` 搜尋、Semantic / Hybrid disabled state、Assistant v0.2 deferred state、Import landing、Schedule status、Settings AI deferred copy 與 Integrations v0.2 copy。
+
+- [x] **WORK-M14-A** — Lexical Recall V2 Primary Path
+  - 讀先：
+    `docs/features/recall.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/tech-stack.md`
+    `docs/architecture/lexical-recall-v2.md`
+    `docs/plan/m14-lexical-recall-v2/README.md`
+    `TESTING.md`
+  - 目標：不上 embedding，把 Explorer keyword recall 從 unicode61 prefix-only FTS 升級成 normalization + pure-Rust OpenCC 繁簡統一 + SQLCipher-backed FTS5 trigram / CJK grams + relevance ranking 的 lexical recall v2。
+  - 契約：不引入 SQLite loadable extension、`spellfix1`、Jieba、embedding、semantic/hybrid runtime 或 vector sidecar；不改 search derived DB 的 plaintext SQLCipher attach policy；regex mode 保持 manual post-filter；import finalization 仍只刷新 touched import batch 的 search projection，不把 full rebuild 拉回主線。
+  - 2026-05-03 closeout：`history-search.sqlite` derived projection 升到 schema version 2，保留 raw URL/title/search terms，同步新增 normalized fields、compact text、CJK gram text、`history_search_terms` unicode61 prefix FTS 與 `history_search_trigram` FTS。Keyword query 現在共用 repo-owned analyzer，走 NFKC/full-width folding、pure-Rust OpenCC `TW2SP -> T2S` + `T2S` variants、lowercase、compact punctuation/space-insensitive text、CJK 2/3-grams，再以 FTS candidate union + BM25 relevance 排序；regex mode 仍走 manual post-filter。
+  - OpenCC asset truth：原評估的 `opencc-rs` / `opencc-sys` 因 native CMake/bindgen toolchain 讓 per-commit gate 依賴 host PATH，已改採 pure-Rust `ferrous-opencc`，避免 runtime temp assets、loadable extension 或 C++ toolchain requirement。
+  - 同步回寫 [`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `vault-core` search / lexical recall / archive tests、Rust fmt+clippy、Explorer / preview Vitest slices、`bun run coverage:js` 與 `bun run check` 通過。`WORK-M14-B` 已留在 BACKLOG，blocked on candidate-volume benchmark / dedicated fuzzy-recall window。

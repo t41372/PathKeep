@@ -225,7 +225,8 @@ export function filterMockHistory(
   const browserKind = query?.browserKind ?? null
   const startTimeMs = query?.startTimeMs ?? null
   const endTimeMs = query?.endTimeMs ?? null
-  const sort = query?.sort ?? 'newest'
+  const sort =
+    query?.sort ?? (rawQuery && !query?.regexMode ? 'relevance' : 'newest')
   const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
   const requestedPage = Math.max(1, Math.floor(query?.page ?? 1))
   const cursor = parseMockHistoryCursor(query?.cursor)
@@ -249,11 +250,16 @@ export function filterMockHistory(
     .filter((item) => !domain || item.domain.toLowerCase().includes(domain))
     .filter((item) => !startTimeMs || item.visitTime >= startTimeMs)
     .filter((item) => !endTimeMs || item.visitTime <= endTimeMs)
-    .sort((left, right) =>
-      sort === 'oldest'
-        ? left.visitTime - right.visitTime
-        : right.visitTime - left.visitTime,
-    )
+    .sort((left, right) => {
+      if (sort === 'oldest') return left.visitTime - right.visitTime
+      if (sort === 'relevance' && q) {
+        const scoreDelta =
+          mockHistoryRelevanceScore(left, q) -
+          mockHistoryRelevanceScore(right, q)
+        if (scoreDelta !== 0) return scoreDelta
+      }
+      return right.visitTime - left.visitTime
+    })
 
   const pageCount = Math.max(1, Math.ceil(filteredItems.length / limit))
   const cursorStartIndex = (() => {
@@ -263,6 +269,20 @@ export function filterMockHistory(
         return (
           item.visitTime > cursor.visitTime ||
           (item.visitTime === cursor.visitTime && item.id > cursor.id)
+        )
+      }
+      if (
+        sort === 'relevance' &&
+        q &&
+        'score' in cursor &&
+        typeof cursor.score === 'number'
+      ) {
+        const itemScore = mockHistoryRelevanceScore(item, q)
+        return (
+          itemScore > cursor.score ||
+          (itemScore === cursor.score &&
+            (item.visitTime < cursor.visitTime ||
+              (item.visitTime === cursor.visitTime && item.id < cursor.id)))
         )
       }
       return (
@@ -295,9 +315,26 @@ export function filterMockHistory(
     hasNext,
     nextCursor:
       hasNext && items.length > 0
-        ? encodeMockHistoryCursor(items[items.length - 1])
+        ? sort === 'relevance' && q
+          ? encodeMockRelevanceHistoryCursor(
+              items[items.length - 1],
+              mockHistoryRelevanceScore(items[items.length - 1], q),
+            )
+          : encodeMockHistoryCursor(items[items.length - 1])
         : null,
   }
+}
+
+function mockHistoryRelevanceScore(
+  item: HistoryQueryResponse['items'][number],
+  query: string,
+) {
+  const title = item.title?.toLowerCase() ?? ''
+  const url = item.url.toLowerCase()
+  if (title.startsWith(query)) return 0
+  if (title.includes(query)) return 1
+  if (url.includes(query)) return 2
+  return 3
 }
 
 /**
@@ -343,6 +380,24 @@ export function loadMockHistoryFavicons(
  */
 export function parseMockHistoryCursor(cursor?: string | null) {
   if (!cursor) return null
+  if (cursor.startsWith('r|')) {
+    const [, score, visitTime, id] = cursor.split('|')
+    const parsedScore = Number(score)
+    const parsedVisitTime = Number(visitTime)
+    const parsedId = Number(id)
+    if (
+      !Number.isFinite(parsedScore) ||
+      !Number.isFinite(parsedVisitTime) ||
+      !Number.isFinite(parsedId)
+    ) {
+      return null
+    }
+    return {
+      score: parsedScore,
+      visitTime: parsedVisitTime,
+      id: parsedId,
+    }
+  }
   const [visitTime, id] = cursor.split('|')
   const parsedVisitTime = Number(visitTime)
   const parsedId = Number(id)
@@ -365,6 +420,13 @@ export function encodeMockHistoryCursor(
   item: HistoryQueryResponse['items'][number],
 ) {
   return `${item.visitTime}|${item.id}`
+}
+
+export function encodeMockRelevanceHistoryCursor(
+  item: HistoryQueryResponse['items'][number],
+  score: number,
+) {
+  return `r|${score}|${item.visitTime}|${item.id}`
 }
 
 /**

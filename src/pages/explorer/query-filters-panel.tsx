@@ -410,9 +410,16 @@ export function ExplorerQueryFiltersPanel({
               <span className="mono-kicker">{explorerT('filterSort')}</span>
               <select
                 aria-label={explorerT('filterSort')}
-                value={searchParams.get('sort') ?? 'newest'}
+                value={
+                  searchParams.get('sort') ??
+                  (searchParams.get('q')?.trim() &&
+                  searchParams.get('regex') !== '1'
+                    ? 'relevance'
+                    : 'newest')
+                }
                 onChange={(event) => updateParam('sort', event.target.value)}
               >
+                <option value="relevance">{explorerT('sortRelevance')}</option>
                 <option value="newest">{explorerT('sortNewest')}</option>
                 <option value="oldest">{explorerT('sortOldest')}</option>
               </select>

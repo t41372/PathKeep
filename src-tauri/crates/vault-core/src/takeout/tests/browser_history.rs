@@ -336,7 +336,7 @@ fn import_browser_history_accepts_chromium_history_database() {
         .expect("search document count");
     let chrome_matches: i64 = search
         .query_row(
-            "SELECT COUNT(*) FROM history_search WHERE history_search MATCH ?1",
+            "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
             ["chrome"],
             |row| row.get(0),
         )
@@ -456,7 +456,7 @@ fn import_browser_history_accepts_firefox_places_database_and_review_contract() 
     let search = Connection::open(&paths.search_database_path).expect("open search projection");
     let firefox_matches: i64 = search
         .query_row(
-            "SELECT COUNT(*) FROM history_search WHERE history_search MATCH ?1",
+            "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
             ["firefox"],
             |row| row.get(0),
         )

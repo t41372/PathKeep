@@ -12,8 +12,129 @@
 //! a slower manual path instead of pretending to be the default fast query
 //! engine.
 
+use super::search_lexical::{LexicalQuery, analyze_query};
 use super::*;
 use std::collections::{HashMap, HashSet};
+
+const LIST_HISTORY_LEXICAL_SQL: &str = r#"
+WITH search_matches AS (
+  SELECT
+    rowid AS url_id,
+    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0) AS score
+  FROM search.history_search_terms
+  WHERE :termsFtsQuery IS NOT NULL
+    AND history_search_terms MATCH :termsFtsQuery
+  UNION ALL
+  SELECT
+    rowid AS url_id,
+    bm25(history_search_trigram, 1.0) + 0.35 AS score
+  FROM search.history_search_trigram
+  WHERE :trigramFtsQuery IS NOT NULL
+    AND history_search_trigram MATCH :trigramFtsQuery
+),
+ranked_urls AS (
+  SELECT url_id, MIN(score) AS score
+  FROM search_matches
+  GROUP BY url_id
+)
+SELECT
+  visits.id,
+  source_profiles.profile_key,
+  urls.url,
+  urls.title,
+  visits.visit_time_ms,
+  visits.visit_duration_ms,
+  visits.transition_type,
+  visits.source_visit_id,
+  visits.app_id,
+  ranked_urls.score
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+JOIN ranked_urls
+  ON ranked_urls.url_id = urls.id
+WHERE visits.reverted_at IS NULL
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+  AND (
+    :cursorVisitTime IS NULL
+    OR (
+      :sort = 'oldest'
+      AND (
+        visits.visit_time_ms > :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id > :cursorId)
+      )
+    )
+    OR (
+      :sort = 'newest'
+      AND (
+        visits.visit_time_ms < :cursorVisitTime
+        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
+      )
+    )
+    OR (
+      :sort = 'relevance'
+      AND (
+        ranked_urls.score > :cursorScore
+        OR (
+          ranked_urls.score = :cursorScore
+          AND (
+            visits.visit_time_ms < :cursorVisitTime
+            OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
+          )
+        )
+      )
+    )
+  )
+ORDER BY
+  CASE WHEN :sort = 'oldest' THEN visits.visit_time_ms END ASC,
+  CASE WHEN :sort = 'oldest' THEN visits.id END ASC,
+  CASE WHEN :sort = 'newest' THEN visits.visit_time_ms END DESC,
+  CASE WHEN :sort = 'newest' THEN visits.id END DESC,
+  CASE WHEN :sort = 'relevance' THEN ranked_urls.score END ASC,
+  CASE WHEN :sort = 'relevance' THEN visits.visit_time_ms END DESC,
+  CASE WHEN :sort = 'relevance' THEN visits.id END DESC
+LIMIT :pageLimit
+OFFSET :pageOffset
+"#;
+
+const COUNT_HISTORY_LEXICAL_SQL: &str = r#"
+WITH search_matches AS (
+  SELECT rowid AS url_id
+  FROM search.history_search_terms
+  WHERE :termsFtsQuery IS NOT NULL
+    AND history_search_terms MATCH :termsFtsQuery
+  UNION
+  SELECT rowid AS url_id
+  FROM search.history_search_trigram
+  WHERE :trigramFtsQuery IS NOT NULL
+    AND history_search_trigram MATCH :trigramFtsQuery
+),
+ranked_urls AS (
+  SELECT url_id
+  FROM search_matches
+  GROUP BY url_id
+)
+SELECT COUNT(*)
+FROM visits
+JOIN urls
+  ON urls.id = visits.url_id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+JOIN ranked_urls
+  ON ranked_urls.url_id = urls.id
+WHERE visits.reverted_at IS NULL
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+"#;
 
 pub(super) const LOAD_FAVICON_PROFILE_SQL: &str = r#"
 SELECT id
@@ -138,7 +259,7 @@ pub fn list_history(
     let start_time_ms = query.start_time_ms;
     let end_time_ms = query.end_time_ms;
     let q = query.q.clone().filter(|value| !value.trim().is_empty());
-    let fts_query = q.as_deref().and_then(build_fts_query);
+    let lexical_query = q.as_deref().map(analyze_query).transpose()?.flatten();
     let regex = if query.regex_mode.unwrap_or(false) {
         q.as_ref()
             .map(|value| {
@@ -156,9 +277,8 @@ pub fn list_history(
         .clone()
         .filter(|value| !value.trim().is_empty())
         .map(|value| format!("%{value}%"));
-    let sort = query.sort.clone().unwrap_or_else(|| "newest".to_string());
+    let sort = normalize_history_sort(query.sort.as_deref(), q.is_some(), lexical_query.is_some());
     let cursor = parse_history_cursor(query.cursor.as_deref());
-    let (cursor_visit_time, cursor_id) = cursor.unwrap_or((0, 0));
 
     if let Some(regex) = regex {
         return list_history_with_regex(
@@ -176,12 +296,12 @@ pub fn list_history(
         );
     }
 
-    if q.is_some() && fts_query.is_none() {
+    if q.is_some() && lexical_query.is_none() {
         return Ok(HistoryQueryResponse::default());
     }
 
-    if let Some(fts_query) = fts_query {
-        return list_history_with_fts(
+    if let Some(lexical_query) = lexical_query {
+        return list_history_with_lexical_search(
             &connection,
             limit,
             limit_usize,
@@ -193,11 +313,12 @@ pub fn list_history(
             end_time_ms,
             sort,
             cursor,
-            cursor_visit_time,
-            cursor_id,
-            fts_query,
+            lexical_query,
         );
     }
+
+    let (cursor_visit_time, cursor_id) =
+        cursor.and_then(HistoryCursor::chronological).unwrap_or((0, 0));
 
     list_history_with_sql(
         &connection,
@@ -426,16 +547,68 @@ pub fn export_history(
     Ok(ExportResult { format, path: target_path.display().to_string(), count: results.items.len() })
 }
 
+#[derive(Clone, Copy)]
+enum HistoryCursor {
+    Chronological { visit_time: i64, id: i64 },
+    Relevance { score: f64, visit_time: i64, id: i64 },
+}
+
+impl HistoryCursor {
+    fn chronological(self) -> Option<(i64, i64)> {
+        match self {
+            HistoryCursor::Chronological { visit_time, id }
+            | HistoryCursor::Relevance { visit_time, id, .. } => Some((visit_time, id)),
+        }
+    }
+
+    fn relevance(self) -> Option<(f64, i64, i64)> {
+        match self {
+            HistoryCursor::Relevance { score, visit_time, id } => Some((score, visit_time, id)),
+            HistoryCursor::Chronological { .. } => None,
+        }
+    }
+}
+
+/// Normalizes the public sort string into the backend ordering contract.
+fn normalize_history_sort(
+    requested_sort: Option<&str>,
+    has_query: bool,
+    has_lexical_query: bool,
+) -> String {
+    match requested_sort {
+        Some("oldest") => "oldest".to_string(),
+        Some("newest") => "newest".to_string(),
+        Some("relevance") if has_lexical_query => "relevance".to_string(),
+        None if has_query && has_lexical_query => "relevance".to_string(),
+        _ => "newest".to_string(),
+    }
+}
+
 /// Parses the opaque cursor used by cursor-based history pagination.
-fn parse_history_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
+fn parse_history_cursor(cursor: Option<&str>) -> Option<HistoryCursor> {
     let raw = cursor?;
+    if let Some(rest) = raw.strip_prefix("r|") {
+        let mut parts = rest.split('|');
+        return Some(HistoryCursor::Relevance {
+            score: parts.next()?.parse().ok()?,
+            visit_time: parts.next()?.parse().ok()?,
+            id: parts.next()?.parse().ok()?,
+        });
+    }
     let (visit_time, id) = raw.split_once('|')?;
-    Some((visit_time.parse().ok()?, id.parse().ok()?))
+    Some(HistoryCursor::Chronological {
+        visit_time: visit_time.parse().ok()?,
+        id: id.parse().ok()?,
+    })
 }
 
 /// Encodes one history row back into the opaque cursor form.
 fn encode_history_cursor(entry: &HistoryEntry) -> String {
     format!("{}|{}", entry.visit_time, entry.id)
+}
+
+fn encode_relevance_history_cursor(entry: &HistoryEntry, score: f64) -> String {
+    format!("r|{score}|{}|{}", entry.visit_time, entry.id)
 }
 
 /// Computes the number of pages for a result set, never returning zero.
@@ -469,14 +642,42 @@ fn build_history_response(
     }
 }
 
-/// Converts a raw keyword string into the FTS prefix query grammar used by Explorer.
-fn build_fts_query(raw: &str) -> Option<String> {
-    let tokens = raw
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
-        .collect::<Vec<_>>();
-    if tokens.is_empty() { None } else { Some(tokens.join(" AND ")) }
+fn build_lexical_history_response(
+    total: usize,
+    page_size: usize,
+    page: usize,
+    start_index: usize,
+    scored_items: Vec<(HistoryEntry, f64)>,
+    sort: &str,
+) -> HistoryQueryResponse {
+    let normalized_page_size = page_size.max(1);
+    let normalized_page_count = page_count(total, normalized_page_size);
+    let normalized_page = page.clamp(1, normalized_page_count);
+    let has_previous = start_index > 0;
+    let has_next = start_index + scored_items.len() < total;
+    let next_cursor = has_next
+        .then(|| {
+            scored_items.last().map(|(entry, score)| {
+                if sort == "relevance" {
+                    encode_relevance_history_cursor(entry, *score)
+                } else {
+                    encode_history_cursor(entry)
+                }
+            })
+        })
+        .flatten();
+    let items = scored_items.into_iter().map(|(entry, _)| entry).collect();
+
+    HistoryQueryResponse {
+        total,
+        page: normalized_page,
+        page_size: normalized_page_size,
+        page_count: normalized_page_count,
+        has_previous,
+        has_next,
+        next_cursor,
+        items,
+    }
 }
 
 /// Runs regex recall as a manual post-filter over the canonical SQL query.
@@ -491,7 +692,7 @@ fn list_history_with_regex(
     start_time_ms: Option<i64>,
     end_time_ms: Option<i64>,
     sort: String,
-    cursor: Option<(i64, i64)>,
+    cursor: Option<HistoryCursor>,
     regex: regex::Regex,
 ) -> Result<HistoryQueryResponse> {
     let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
@@ -524,7 +725,9 @@ fn list_history_with_regex(
     let page = requested_page.unwrap_or(1).min(normalized_page_count);
     let start_index = if requested_page.is_some() {
         page.saturating_sub(1) * limit_usize
-    } else if let Some((cursor_visit_time, cursor_id)) = cursor {
+    } else if let Some((cursor_visit_time, cursor_id)) =
+        cursor.and_then(HistoryCursor::chronological)
+    {
         filtered_items
             .iter()
             .position(|entry| {
@@ -545,9 +748,9 @@ fn list_history_with_regex(
     Ok(build_history_response(total, limit_usize, page, start_index, items))
 }
 
-/// Runs FTS-backed keyword recall.
+/// Runs normalized FTS-backed keyword recall.
 #[allow(clippy::too_many_arguments)]
-fn list_history_with_fts(
+fn list_history_with_lexical_search(
     connection: &Connection,
     limit: u32,
     limit_usize: usize,
@@ -558,16 +761,15 @@ fn list_history_with_fts(
     start_time_ms: Option<i64>,
     end_time_ms: Option<i64>,
     sort: String,
-    cursor: Option<(i64, i64)>,
-    cursor_visit_time: i64,
-    cursor_id: i64,
-    fts_query: String,
+    cursor: Option<HistoryCursor>,
+    lexical_query: LexicalQuery,
 ) -> Result<HistoryQueryResponse> {
     let total: usize = connection
         .query_row(
-            COUNT_HISTORY_FTS_SQL,
+            COUNT_HISTORY_LEXICAL_SQL,
             named_params! {
-                ":ftsQuery": fts_query.clone(),
+                ":termsFtsQuery": lexical_query.terms_query.clone(),
+                ":trigramFtsQuery": lexical_query.trigram_query.clone(),
                 ":profileId": profile_id.clone(),
                 ":browserKind": browser_kind.clone(),
                 ":domainPattern": domain_pattern.clone(),
@@ -579,30 +781,42 @@ fn list_history_with_fts(
         .try_into()
         .expect("history count fits in usize");
 
-    let mut statement = connection.prepare(LIST_HISTORY_FTS_SQL)?;
+    let mut statement = connection.prepare(LIST_HISTORY_LEXICAL_SQL)?;
     let normalized_page_count = page_count(total, limit_usize);
     let page = requested_page.unwrap_or(1).min(normalized_page_count);
     let start_index = page.saturating_sub(1) * limit_usize;
     let page_limit = if requested_page.is_some() { i64::from(limit) } else { i64::from(limit) + 1 };
     let page_offset =
         if requested_page.is_some() { i64::try_from(start_index).unwrap_or(i64::MAX) } else { 0 };
+    let chronological_cursor =
+        (sort != "relevance").then(|| cursor.and_then(HistoryCursor::chronological)).flatten();
+    let relevance_cursor =
+        (sort == "relevance").then(|| cursor.and_then(HistoryCursor::relevance)).flatten();
+    let cursor_visit_time = chronological_cursor
+        .map(|(visit_time, _)| visit_time)
+        .or_else(|| relevance_cursor.map(|(_, visit_time, _)| visit_time));
+    let cursor_id =
+        chronological_cursor.map(|(_, id)| id).or_else(|| relevance_cursor.map(|(_, _, id)| id));
+    let cursor_score = relevance_cursor.map(|(score, _, _)| score);
     let rows = statement.query_map(
         named_params! {
-            ":ftsQuery": fts_query,
+            ":termsFtsQuery": lexical_query.terms_query,
+            ":trigramFtsQuery": lexical_query.trigram_query,
             ":profileId": profile_id,
             ":browserKind": browser_kind,
             ":domainPattern": domain_pattern,
             ":startTimeMs": start_time_ms,
             ":endTimeMs": end_time_ms,
             ":sort": sort,
-            ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_visit_time) },
-            ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor.map(|_| cursor_id) },
+            ":cursorVisitTime": if requested_page.is_some() { Option::<i64>::None } else { cursor_visit_time },
+            ":cursorId": if requested_page.is_some() { Option::<i64>::None } else { cursor_id },
+            ":cursorScore": if requested_page.is_some() { Option::<f64>::None } else { cursor_score },
             ":pageLimit": page_limit,
             ":pageOffset": page_offset,
         },
-        history_entry_from_row,
+        history_entry_with_score_from_row,
     )?;
-    let items = if requested_page.is_some() {
+    let scored_items = if requested_page.is_some() {
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     } else {
         let mut window_items = rows.collect::<rusqlite::Result<Vec<_>>>()?;
@@ -612,18 +826,19 @@ fn list_history_with_fts(
         window_items
     };
 
-    Ok(build_history_response(
+    Ok(build_lexical_history_response(
         total,
         limit_usize,
         page,
         if requested_page.is_some() {
             start_index
-        } else if cursor.is_some() {
+        } else if chronological_cursor.is_some() || relevance_cursor.is_some() {
             limit_usize
         } else {
             0
         },
-        items,
+        scored_items,
+        &sort,
     ))
 }
 
@@ -640,7 +855,7 @@ fn list_history_with_sql(
     start_time_ms: Option<i64>,
     end_time_ms: Option<i64>,
     sort: String,
-    cursor: Option<(i64, i64)>,
+    cursor: Option<HistoryCursor>,
     cursor_visit_time: i64,
     cursor_id: i64,
     q: Option<String>,
@@ -732,6 +947,10 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
         source_visit_id,
         app_id: row.get(8)?,
     })
+}
+
+fn history_entry_with_score_from_row(row: &Row<'_>) -> rusqlite::Result<(HistoryEntry, f64)> {
+    Ok((history_entry_from_row(row)?, row.get(9)?))
 }
 
 /// Renders one export artifact in the requested output format.

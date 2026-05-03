@@ -277,7 +277,7 @@ export interface HistoryQuery {
   domain?: string | null
   startTimeMs?: number | null
   endTimeMs?: number | null
-  sort?: 'newest' | 'oldest' | null
+  sort?: 'relevance' | 'newest' | 'oldest' | null
   limit?: number | null
   page?: number | null
   cursor?: string | null

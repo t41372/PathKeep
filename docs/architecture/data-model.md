@@ -106,7 +106,8 @@
   - 這是 archive contract，不是 derived-state；remote/local bundle 必須和 canonical archive 一起打包
 - `derived/history-search.sqlite`
   - 只保存 lexical recall projection 與 bounded rollups
-  - 包含 FTS5、Explorer keyword recall projection、Dashboard / deterministic baseline 的統計 projection
+  - 包含 versioned FTS5 Explorer keyword recall projection、Dashboard / deterministic baseline 的統計 projection
+  - M14 keyword projection 包含 raw / normalized URL、title、search term、compact text、CJK grams、unicode61 prefix table 與 trigram table
 - `derived/history-intelligence.sqlite`
   - 只保存 queue、assistant trace、enrichment metadata、deterministic read model 與 runtime state
 - `sidecars/semantic-index/`
@@ -124,7 +125,7 @@
 ### FTS projection 範圍
 
 - lexical recall 不再與 canonical archive 共住同一個 SQLite。FTS 只存在 `derived/history-search.sqlite`，作為 canonical URL-document 的 projection。
-- FTS 只索引 **URL、title、search term**，以及後續明確挑選的 bounded enrichment projection 欄位。
+- FTS 只索引 **URL、title、search term** 與由這些欄位 deterministic 派生出的 normalized / compact / CJK gram 欄位，以及後續明確挑選的 bounded enrichment projection 欄位。
 - 一筆 canonical `urls.id` 對應一份 URL-document search projection，Explorer keyword recall 透過 `MATCH` 命中 projection 後再 join 回可見 `visits`，避免 rollback hidden rows 洩漏回主查詢。
 - Takeout / Browser Direct import 成功後只刷新該 import batch 影響到的 URL-document projection；不得在導入主路徑同步 delete-all / rebuild 全部 search projection。rollback / restore 仍可用 full rebuild 作為顯式維護動作。
 - 完整 refetch 文本、readable content、AI 生成摘要不直接塞進 FTS 主索引。

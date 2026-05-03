@@ -40,6 +40,43 @@ const availableNow: OptionalAiAvailability = {
 }
 
 describe('ExplorerQueryFiltersPanel', () => {
+  test('shows relevance as the implicit keyword sort', () => {
+    render(
+      <ExplorerQueryFiltersPanel
+        activeFilters={[]}
+        activeScopeLabel="Default"
+        browserKinds={['chrome']}
+        buildRecentSearchLabel={(params) => params.q ?? ''}
+        clearAllFilters={vi.fn()}
+        explicitProfileId={null}
+        explorerT={explorerT}
+        intelligenceT={intelligenceT}
+        mode="keyword"
+        optionalAiAvailability={blockedByRelease}
+        profileId="chrome:Default"
+        queryInput="github"
+        recentSearches={[]}
+        regexMode={false}
+        regexValid={true}
+        searchParams={new URLSearchParams('q=github')}
+        selectedProfileIds={['chrome:Default']}
+        setQueryInput={vi.fn()}
+        setSearchParams={vi.fn()}
+        setView={vi.fn()}
+        updateParam={vi.fn()}
+        view="time"
+        visibleRecordCount={1}
+      />,
+    )
+
+    expect(screen.getByLabelText(explorerT('filterSort'))).toHaveValue(
+      'relevance',
+    )
+    expect(
+      screen.getByRole('option', { name: explorerT('sortRelevance') }),
+    ).toBeVisible()
+  })
+
   test('wires active filter chips, mode/view controls, filters, and recent searches', async () => {
     const user = userEvent.setup()
     const clearAllFilters = vi.fn()

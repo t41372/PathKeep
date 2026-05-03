@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M13 — Broad Reuse Audit Across Support / Trust / Workflow Surfaces**
+**當前 Milestone：M14 — Lexical Recall V2**
 
 ---
 
@@ -11,6 +11,22 @@
 > 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
+
+- [x] **WORK-M14-A** — Lexical Recall V2 Primary Path
+  - 讀先：
+    `docs/features/recall.md`
+    `docs/architecture/data-model.md`
+    `docs/architecture/tech-stack.md`
+    `docs/architecture/lexical-recall-v2.md`
+    `docs/plan/m14-lexical-recall-v2/README.md`
+    `TESTING.md`
+  - 目標：不上 embedding，把 Explorer keyword recall 從 unicode61 prefix-only FTS 升級成 normalization + pure-Rust OpenCC 繁簡統一 + SQLCipher-backed FTS5 trigram / CJK grams + relevance ranking 的 lexical recall v2。
+  - 契約：不引入 SQLite loadable extension、`spellfix1`、Jieba、embedding、semantic/hybrid runtime 或 vector sidecar；不改 search derived DB 的 plaintext SQLCipher attach policy；regex mode 保持 manual post-filter；import finalization 仍只刷新 touched import batch 的 search projection，不把 full rebuild 拉回主線。
+  - 驗收：OpenCC asset/build-risk evaluation、bundled SQLCipher FTS capability test、shared analyzer unit tests、search integration regressions、Explorer relevance sort/i18n/preview tests、`bun run check`。
+  - 2026-05-03 closeout：`history-search.sqlite` derived projection 升到 schema version 2，保留 raw URL/title/search terms，同步新增 normalized fields、compact text、CJK gram text、`history_search_terms` unicode61 prefix FTS 與 `history_search_trigram` FTS。Keyword query 現在共用 repo-owned analyzer，走 NFKC/full-width folding、pure-Rust OpenCC `TW2SP -> T2S` + `T2S` variants、lowercase、compact punctuation/space-insensitive text、CJK 2/3-grams，再以 FTS candidate union + BM25 relevance 排序；regex mode 仍走 manual post-filter。
+  - OpenCC asset truth：原評估的 `opencc-rs` / `opencc-sys` 因 native CMake/bindgen toolchain 讓 per-commit gate 依賴 host PATH，已改採 pure-Rust `ferrous-opencc`，避免 runtime temp assets、loadable extension 或 C++ toolchain requirement。
+  - 同步回寫 [`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/data-model.md`](../architecture/data-model.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `vault-core` search / lexical recall / archive tests、Rust fmt+clippy、Explorer / preview Vitest slices、`bun run coverage:js` 與 `bun run check` 通過。`WORK-M14-B` 已留在 BACKLOG，blocked on candidate-volume benchmark / dedicated fuzzy-recall window。
 
 - [x] **WORK-RELEASE-012-A** — Release Truth And Demo Gate Recovery
   - 讀先：

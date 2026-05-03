@@ -33,6 +33,7 @@ getrandom = "0.3.4"
 hex = "0.4.3"
 keyring-core = "0.7.2"
 libc = "0.2.177"
+ferrous-opencc = { version = "0.4.0", default-features = false, features = ["t2s-conversion"] }
 plist = "1.8.0"
 regex = "1.12.2"
 rig-core = "0.34.0"
@@ -44,6 +45,7 @@ sha2 = "0.10.9"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
+unicode-normalization = "0.1.25"
 walkdir = "2.5.0"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 

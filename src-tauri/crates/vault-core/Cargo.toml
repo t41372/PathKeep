@@ -13,6 +13,7 @@ getrandom.workspace = true
 hex.workspace = true
 iana-time-zone = "0.1.64"
 libc.workspace = true
+ferrous-opencc.workspace = true
 plist.workspace = true
 publicsuffix = "2.3.0"
 regex.workspace = true
@@ -26,6 +27,7 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+unicode-normalization.workspace = true
 walkdir.workspace = true
 zip.workspace = true
 

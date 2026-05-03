@@ -144,6 +144,7 @@ export const explorerNamespaceCatalog = {
     filterStart: 'START',
     filterEnd: 'END',
     filterSort: 'SORT',
+    sortRelevance: 'Relevance',
     sortNewest: 'Newest first',
     sortOldest: 'Oldest first',
     recentFiltersEmpty:
@@ -310,6 +311,7 @@ export const explorerNamespaceCatalog = {
     filterStart: '开始日期',
     filterEnd: '结束日期',
     filterSort: '排序',
+    sortRelevance: '相关性优先',
     sortNewest: '最新优先',
     sortOldest: '最早优先',
     recentFiltersEmpty: '第一次成功查询后，这里会显示最近使用过的筛选条件。',
@@ -475,6 +477,7 @@ export const explorerNamespaceCatalog = {
     filterStart: '開始日期',
     filterEnd: '結束日期',
     filterSort: '排序',
+    sortRelevance: '相關性優先',
     sortNewest: '最新優先',
     sortOldest: '最早優先',
     recentFiltersEmpty: '第一次成功查詢後，這裡會顯示最近使用過的篩選條件。',

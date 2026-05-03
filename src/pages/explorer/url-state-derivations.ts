@@ -30,6 +30,7 @@ import {
 } from './helpers'
 import type {
   ExplorerMode,
+  ExplorerSortMode,
   ExplorerViewMode,
   RecentSearchEntry,
   Translator,
@@ -60,7 +61,7 @@ export interface ExplorerUrlParamState {
   rawQuery: string
   regexMode: boolean
   semanticCursor: string | null
-  sort: 'newest' | 'oldest'
+  sort: ExplorerSortMode
   start: string | null
   view: ExplorerViewMode
 }
@@ -89,8 +90,15 @@ export function deriveExplorerUrlParamState(
   const domain = searchParams.get('domain')
   const start = searchParams.get('start')
   const end = searchParams.get('end')
+  const explicitSort = searchParams.get('sort')
   const sort =
-    (searchParams.get('sort') as 'newest' | 'oldest' | null) ?? 'newest'
+    explicitSort === 'relevance' ||
+    explicitSort === 'newest' ||
+    explicitSort === 'oldest'
+      ? explicitSort
+      : rawQuery.trim() && !regexMode && mode === 'keyword'
+        ? 'relevance'
+        : 'newest'
   const rawPage = searchParams.get('page')
   const parsedPage = rawPage ? Number.parseInt(rawPage, 10) : Number.NaN
   const explicitPage =
@@ -128,7 +136,7 @@ export function buildExplorerHistoryQuery(args: {
   pageSize: number
   profileId: string | null
   regexMode: boolean
-  sort: 'newest' | 'oldest'
+  sort: ExplorerSortMode
   start: string | null
 }) {
   return {
@@ -179,7 +187,7 @@ export function buildExplorerHistoryQuerySignature(args: {
   profileId: string | null
   rawQuery: string
   regexMode: boolean
-  sort: 'newest' | 'oldest'
+  sort: ExplorerSortMode
   start: string | null
   view: ExplorerViewMode
 }) {

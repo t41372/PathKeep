@@ -30,6 +30,7 @@ export type ExplorerMode = 'keyword' | 'semantic' | 'hybrid'
  * Enumerates the supported explorer grouping modes.
  */
 export type ExplorerViewMode = 'time' | 'session' | 'trail'
+export type ExplorerSortMode = 'relevance' | 'newest' | 'oldest'
 
 /**
  * Defines the type-level contract for translator.
@@ -80,7 +81,7 @@ export interface RecentSearchEntry {
     start?: string | null
     end?: string | null
     regex?: '1' | null
-    sort?: 'newest' | 'oldest'
+    sort?: ExplorerSortMode
   }
 }
 

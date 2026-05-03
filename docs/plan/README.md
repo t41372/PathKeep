@@ -107,6 +107,8 @@
 > **2026-04-23 backend support-file closeout note**：`WORK-BE-C` 最後一刀已把 `src-tauri/crates/vault-core/src/intelligence/mod.rs` 內嵌 regression suite 下沉到 `intelligence/tests/{schema_overview,stage_rebuild,structural_incremental,batch_equivalence,fixtures}.rs`。parent module 現在降到 `418` 行，只保留 module map、public façade、core records、batch cursors 與 constants；`WORK-BE-C` 的後端 support-file decomposition 範圍已完成，下一個未完成 current-focus block 回到 `WORK-M13-B`。
 >
 > **2026-04-23 M13 closeout note**：`WORK-M13-B` 已完成。M13-B 先後收 shell runtime polling owner、Security workflow owner、Dashboard fallback owner、Browsing Rhythm state owner，以及 Import workflow follow-through；legacy `PathRow` 經 repo search 確認已退場，path/copy/open grammar 由 `ReviewPathActionRow` 承接。`STATUS.md` / `BACKLOG.md` 目前沒有可提升的未阻塞 work block。
+>
+> **2026-05-03 M14 closeout note**：`WORK-M14-A` 已完成。Explorer keyword recall 現在走 deterministic lexical recall v2：shared NFKC / pure-Rust OpenCC analyzer、SQLCipher-backed FTS5 unicode61 prefix + trigram projection、CJK 2/3-gram support fields、compact punctuation/space-insensitive recall、BM25 relevance default sort、以及 opaque relevance cursor。`opencc-rs` / `opencc-sys` 的 native CMake toolchain 風險已在設計文檔記錄並改採 `ferrous-opencc`；`WORK-M14-B` 只作 blocked follow-up，不把 fuzzy edit distance 塞進第一刀。
 
 > **2026-04-23 backend progress-audit note**：live tree scan 確認 `WORK-BE-A/B/C` 已把後端主 giant-file 戰役大幅收口，但不能宣稱整個 backend 已完成。這輪 `WORK-BE-D` 先把 `vault-core/src/ai_queue.rs` 的內嵌 regression suite 下沉到 `ai_queue/tests.rs`，讓 runtime module 從 `1019` 行降到 `768` 行；下一個 active block 已切到 `WORK-BE-E`，處理 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 與 command / worker-bridge intelligence façade rustdoc gaps。
 >
@@ -116,29 +118,32 @@
 
 ## 先看哪裡
 
-| 如果你關心                                        | 先看這份                                                                           |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| 整體節奏、里程碑順序、依賴關係                    | [program/README.md](program/README.md)                                             |
-| 現在這個 repo 和新 vision 的距離                  | [program/repo-baseline.md](program/repo-baseline.md)                               |
-| 哪些技術決策還沒落地、哪些研究要先做              | [program/research-and-decisions.md](program/research-and-decisions.md)             |
-| 現行 quality gate、blocking path、deep checks     | [program/quality-matrix.md](program/quality-matrix.md)                             |
-| 某份需求/設計文檔應該對應哪份實作計劃             | [program/traceability-map.md](program/traceability-map.md)                         |
-| Core Intelligence hard-reset 的真實進度與剩餘工作 | [core-intelligence-progress.md](core-intelligence-progress.md)                     |
-| Core Intelligence frontend/backend 續作 handoff   | [core-intelligence-handoff.md](core-intelligence-handoff.md)                       |
-| M0 重構基礎                                       | [m0-foundation/README.md](m0-foundation/README.md)                                 |
-| M1 Solid Archive                                  | [m1-solid-archive/README.md](m1-solid-archive/README.md)                           |
-| M2 Recall & Trust                                 | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                     |
-| M3 Intelligence                                   | [m3-intelligence/README.md](m3-intelligence/README.md)                             |
-| M4 Full Intelligence & Polish                     | [m4-full-polish/README.md](m4-full-polish/README.md)                               |
-| M5 Deterministic Intelligence                     | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md) |
-| M5 Runtime & Extensions                           | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)         |
-| M6 Shared Insight Surfaces                        | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)       |
-| M7 Reuse Audit                                    | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                               |
-| M8 Aggregate Entity Identity                      | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)   |
-| M9 Cross-App Reuse / Shared Composition           | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                       |
-| M10 Workbench Reuse / Transport Hygiene           | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                     |
-| M11 App-Wide Reuse / Shared Review Grammar        | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                       |
-| 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                     |
+| 如果你關心                                        | 先看這份                                                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 整體節奏、里程碑順序、依賴關係                    | [program/README.md](program/README.md)                                                         |
+| 現在這個 repo 和新 vision 的距離                  | [program/repo-baseline.md](program/repo-baseline.md)                                           |
+| 哪些技術決策還沒落地、哪些研究要先做              | [program/research-and-decisions.md](program/research-and-decisions.md)                         |
+| 現行 quality gate、blocking path、deep checks     | [program/quality-matrix.md](program/quality-matrix.md)                                         |
+| 某份需求/設計文檔應該對應哪份實作計劃             | [program/traceability-map.md](program/traceability-map.md)                                     |
+| Core Intelligence hard-reset 的真實進度與剩餘工作 | [core-intelligence-progress.md](core-intelligence-progress.md)                                 |
+| Core Intelligence frontend/backend 續作 handoff   | [core-intelligence-handoff.md](core-intelligence-handoff.md)                                   |
+| M0 重構基礎                                       | [m0-foundation/README.md](m0-foundation/README.md)                                             |
+| M1 Solid Archive                                  | [m1-solid-archive/README.md](m1-solid-archive/README.md)                                       |
+| M2 Recall & Trust                                 | [m2-recall-and-trust/README.md](m2-recall-and-trust/README.md)                                 |
+| M3 Intelligence                                   | [m3-intelligence/README.md](m3-intelligence/README.md)                                         |
+| M4 Full Intelligence & Polish                     | [m4-full-polish/README.md](m4-full-polish/README.md)                                           |
+| M5 Deterministic Intelligence                     | [m5-deterministic-intelligence/README.md](m5-deterministic-intelligence/README.md)             |
+| M5 Runtime & Extensions                           | [m5-runtime-and-extensions/README.md](m5-runtime-and-extensions/README.md)                     |
+| M6 Shared Insight Surfaces                        | [m6-shared-insight-surfaces/README.md](m6-shared-insight-surfaces/README.md)                   |
+| M7 Reuse Audit                                    | [m7-reuse-audit/README.md](m7-reuse-audit/README.md)                                           |
+| M8 Aggregate Entity Identity                      | [m8-aggregate-entity-identity/README.md](m8-aggregate-entity-identity/README.md)               |
+| M9 Cross-App Reuse / Shared Composition           | [m9-cross-app-reuse/README.md](m9-cross-app-reuse/README.md)                                   |
+| M10 Workbench Reuse / Transport Hygiene           | [m10-workbench-reuse/README.md](m10-workbench-reuse/README.md)                                 |
+| M11 App-Wide Reuse / Shared Review Grammar        | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
+| M12 Shared Support Actions / Diagnostics          | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
+| M13 Broad Reuse Audit                             | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
+| M14 Lexical Recall V2                             | [m14-lexical-recall-v2/README.md](m14-lexical-recall-v2/README.md)                             |
+| 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                                 |
 
 ---
 
@@ -237,6 +242,7 @@ M10 Workbench Reuse And Transport Hygiene
 M11 App-Wide Reuse And Shared Review Grammar
 M12 Shared Support Actions And Diagnostics Decomposition
 M13 Broad Reuse Audit Across Support / Trust / Workflow Surfaces
+M14 Lexical Recall V2
 BE  Backend Hotspot Decomposition And Rustdoc Hardening
 ```
 
@@ -267,6 +273,7 @@ BE  Backend Hotspot Decomposition And Rustdoc Hardening
 | `M11`  | 從全 app 角度盤點 reusable review / PME / diagnostics grammar 與剩餘 mixed helper / transport drift   | `[x]` | [m11-app-wide-reuse/README.md](m11-app-wide-reuse/README.md)                                   |
 | `M12`  | 收斂 shared support actions / diagnostics rows，並盤點 Settings 與 transport parity 的下一輪拆分      | `[x]` | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
 | `M13`  | 以 support / trust / workflow surface 為主題，延續 broad reuse audit 與 shared composition extraction | `[x]` | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
+| `M14`  | 不上 embedding，升級 keyword recall 的 normalization、CJK 召回、substring 召回與 relevance ranking    | `[x]` | [m14-lexical-recall-v2/README.md](m14-lexical-recall-v2/README.md)                             |
 
 ---
 
@@ -296,5 +303,6 @@ docs/vision-and-requirements.md   WHY + WHAT
        ├── m10-workbench-reuse/
        ├── m11-app-wide-reuse/
        ├── m12-support-actions-and-diagnostics/
-       └── m13-broad-reuse-audit/
+       ├── m13-broad-reuse-audit/
+       └── m14-lexical-recall-v2/
 ```

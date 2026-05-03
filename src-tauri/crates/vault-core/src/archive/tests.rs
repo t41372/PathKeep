@@ -171,6 +171,242 @@ fn seed_missing_chrome_history_fixture(root: &Path) -> PathBuf {
     chrome_root
 }
 
+fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
+    let connection = open_archive_connection(paths, config, None).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO source_profiles (
+               id,
+               browser_kind,
+               browser_version,
+               profile_name,
+               profile_path,
+               discovered_at,
+               enabled,
+               profile_key,
+               user_name,
+               updated_at,
+               browser_product
+             )
+             VALUES (1, 'chrome', '146.0.0.0', 'Default', '/tmp/profile', '2026-05-01T00:00:00+00:00', 1, 'chrome:Default', NULL, '2026-05-01T00:00:00+00:00', 'Google Chrome')",
+            [],
+        )
+        .expect("insert source profile");
+
+    let rows = [
+        (
+            1,
+            "https://example.test/preferences",
+            "瀏覽器設定中心",
+            1_000,
+            "2026-05-01T00:00:01+00:00",
+        ),
+        (
+            2,
+            "https://example.test/simplified",
+            "浏览器设定说明",
+            2_000,
+            "2026-05-01T00:00:02+00:00",
+        ),
+        (
+            3,
+            "https://example.test/github-actions",
+            "GitHub Actions manual",
+            3_000,
+            "2026-05-01T00:00:03+00:00",
+        ),
+        (4, "https://github.com/releases", "Release notes", 4_000, "2026-05-01T00:00:04+00:00"),
+        (
+            5,
+            "https://example.test/git-hub-guide",
+            "Git Hub spacing guide",
+            5_000,
+            "2026-05-01T00:00:05+00:00",
+        ),
+    ];
+
+    for (id, url, title, visit_time, iso) in rows {
+        connection
+            .execute(
+                "INSERT INTO urls (
+                   id,
+                   url,
+                   title,
+                   visit_count,
+                   typed_count,
+                   first_visit_ms,
+                   first_visit_iso,
+                   last_visit_ms,
+                   last_visit_iso,
+                   source_profile_id,
+                   created_by_run_id,
+                   source_url_id,
+                   hidden,
+                   recorded_at
+                 )
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 0, ?1, 0, ?5)",
+                params![id, url, title, visit_time, iso],
+            )
+            .expect("insert url");
+        connection
+            .execute(
+                "INSERT INTO visits (
+                   id,
+                   url_id,
+                   source_visit_id,
+                   visit_time_ms,
+                   visit_time_iso,
+                   transition_type,
+                   visit_duration_ms,
+                   source_profile_id,
+                   created_by_run_id,
+                   app_id,
+                   from_visit,
+                   is_known_to_sync,
+                   recorded_at
+                 )
+                 VALUES (?1, ?1, ?1, ?2, ?3, 805306368, 1000, 1, 0, NULL, NULL, 1, ?3)",
+                params![id, visit_time, iso],
+            )
+            .expect("insert visit");
+    }
+
+    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
+}
+
+#[test]
+fn lexical_recall_matches_chinese_variants_and_compact_substrings() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    let simplified_query = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("设定".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("simplified query");
+    assert_eq!(simplified_query.total, 2);
+    assert!(
+        simplified_query.items.iter().any(|entry| entry.title.as_deref() == Some("瀏覽器設定中心"))
+    );
+
+    let traditional_query = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("設定".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("traditional query");
+    assert_eq!(traditional_query.total, 2);
+
+    let cjk_substring = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("器设".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("cjk substring query");
+    assert_eq!(cjk_substring.total, 2);
+
+    let compact_latin = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("compact latin query");
+    assert!(
+        compact_latin
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("Git Hub spacing guide")),
+        "compact trigram recall should match Git Hub when the query is github"
+    );
+}
+
+#[test]
+fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    let relevance = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(1), ..HistoryQuery::default() },
+    )
+    .expect("relevance query");
+    assert_eq!(relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
+    assert!(relevance.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
+
+    let explicit_relevance = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("github".to_string()),
+            sort: Some("relevance".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("explicit relevance query");
+    assert_eq!(explicit_relevance.items[0].title.as_deref(), Some("GitHub Actions manual"));
+
+    let second_relevance_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("github".to_string()),
+            limit: Some(1),
+            cursor: relevance.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("second relevance page");
+    assert_eq!(second_relevance_page.items.len(), 1);
+    assert!(second_relevance_page.has_previous);
+
+    let legacy_cursor_relevance_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("github".to_string()),
+            sort: Some("relevance".to_string()),
+            limit: Some(1),
+            cursor: Some("4000|4".to_string()),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("legacy chronological cursor with relevance query");
+    assert_eq!(
+        legacy_cursor_relevance_page.items[0].title.as_deref(),
+        Some("GitHub Actions manual")
+    );
+
+    let newest = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("github".to_string()),
+            sort: Some("newest".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("newest query");
+    assert_eq!(newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
+    assert!(newest.next_cursor.as_deref().is_some_and(|cursor| !cursor.starts_with("r|")));
+}
+
 fn seed_firefox_fixture(root: &Path) -> PathBuf {
     let firefox_root = root.join("firefox");
     let profiles_dir = firefox_root.join("Profiles");
@@ -1000,9 +1236,9 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
              FROM visits
              JOIN urls ON urls.id = visits.url_id
              JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             JOIN search.history_search AS history_search ON history_search.rowid = urls.id
+             JOIN search.history_search_terms ON history_search_terms.rowid = urls.id
              WHERE visits.reverted_at IS NULL
-               AND history_search MATCH ?1",
+               AND history_search_terms MATCH ?1",
         )
         .expect("prepare query plan");
     let plan = statement

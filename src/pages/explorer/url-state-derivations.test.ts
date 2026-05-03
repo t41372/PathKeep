@@ -73,6 +73,19 @@ describe('explorer url-state derivations', () => {
     })
   })
 
+  test('defaults keyword searches to relevance when sort is not explicit', () => {
+    expect(
+      deriveExplorerUrlParamState(new URLSearchParams('q=github'), null).sort,
+    ).toBe('relevance')
+    expect(deriveExplorerUrlParamState(new URLSearchParams(), null).sort).toBe(
+      'newest',
+    )
+    expect(
+      deriveExplorerUrlParamState(new URLSearchParams('q=github&regex=1'), null)
+        .sort,
+    ).toBe('newest')
+  })
+
   test('builds canonical history and semantic query payloads plus stable signatures', () => {
     expect(
       buildExplorerHistoryQuery({

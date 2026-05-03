@@ -158,6 +158,13 @@ describe('backend preview search helpers', () => {
         row({ exactRepeatCount: 1, searchedAtMs: 200 }),
       ),
     ).toBeGreaterThan(0)
+    expect(
+      compareMockSearchQueryRows(
+        undefined,
+        row({ searchedAtMs: 100 }),
+        row({ searchedAtMs: 200 }),
+      ),
+    ).toBeGreaterThan(0)
   })
 
   test('filters history with regex, cursor, page, domain, time, and sort boundaries', () => {
@@ -226,6 +233,84 @@ describe('backend preview search helpers', () => {
       page: 2,
       pageCount: 2,
     })
+  })
+
+  test('orders keyword preview history by relevance and paginates relevance cursors', () => {
+    const state = createMockState()
+    state.history.items = [
+      historyItem(
+        1,
+        'chrome:Default',
+        1000,
+        'https://older.example/github',
+        'Older docs',
+      ),
+      historyItem(
+        2,
+        'chrome:Default',
+        2000,
+        'https://middle.example/docs',
+        'Advanced GitHub workflows',
+      ),
+      historyItem(
+        3,
+        'chrome:Default',
+        3000,
+        'https://new.example/docs',
+        'github handbook',
+      ),
+      historyItem(
+        4,
+        'chrome:Default',
+        4000,
+        'https://late.example/github',
+        'Later docs',
+      ),
+      historyItem(
+        5,
+        'chrome:Default',
+        5000,
+        'https://null-title.example/github',
+        'Placeholder',
+        {
+          title: null,
+        },
+      ),
+    ]
+
+    const firstPage = filterMockHistory(state, {
+      limit: 2,
+      q: 'github',
+    })
+
+    expect(firstPage.items.map((item) => item.id)).toEqual([3, 2])
+    expect(firstPage.nextCursor).toBe('r|1|2000|2')
+    expect(parseMockHistoryCursor(firstPage.nextCursor)).toEqual({
+      id: 2,
+      score: 1,
+      visitTime: 2000,
+    })
+
+    expect(
+      filterMockHistory(state, {
+        cursor: firstPage.nextCursor,
+        limit: 3,
+        q: 'github',
+      }).items.map((item) => item.id),
+    ).toEqual([5, 4, 1])
+
+    expect(
+      filterMockHistory(state, {
+        limit: 1,
+        q: '[A-Z]+',
+        regexMode: true,
+        sort: 'relevance',
+      }).items.map((item) => item.id),
+    ).toEqual([5])
+
+    expect(parseMockHistoryCursor('r|bad|2000|2')).toBeNull()
+    expect(parseMockHistoryCursor('r|1|bad|2')).toBeNull()
+    expect(parseMockHistoryCursor('r|1|2000|bad')).toBeNull()
   })
 
   test('deduplicates favicon lookups and paginates lexical AI search previews', () => {

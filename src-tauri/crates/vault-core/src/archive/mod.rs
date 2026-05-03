@@ -33,6 +33,7 @@ mod maintenance;
 mod read_models;
 mod run_support;
 mod schema;
+mod search_lexical;
 mod search_projection;
 mod source_evidence;
 mod source_evidence_builder;
@@ -174,75 +175,6 @@ WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:query IS NULL OR urls.url LIKE '%' || :query || '%' OR IFNULL(urls.title, '') LIKE '%' || :query || '%')
-  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
-  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
-  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
-"#;
-
-const LIST_HISTORY_FTS_SQL: &str = r#"
-SELECT
-  visits.id,
-  source_profiles.profile_key,
-  urls.url,
-  urls.title,
-  visits.visit_time_ms,
-  visits.visit_duration_ms,
-  visits.transition_type,
-  visits.source_visit_id,
-  visits.app_id
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
-JOIN source_profiles
-  ON source_profiles.id = visits.source_profile_id
-JOIN search.history_search AS history_search
-  ON history_search.rowid = urls.id
-WHERE visits.reverted_at IS NULL
-  AND history_search MATCH :ftsQuery
-  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
-  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
-  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
-  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
-  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
-  AND (
-    :cursorVisitTime IS NULL
-    OR (
-      :sort = 'oldest'
-      AND (
-        visits.visit_time_ms > :cursorVisitTime
-        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id > :cursorId)
-      )
-    )
-    OR (
-      :sort != 'oldest'
-      AND (
-        visits.visit_time_ms < :cursorVisitTime
-        OR (visits.visit_time_ms = :cursorVisitTime AND visits.id < :cursorId)
-      )
-    )
-  )
-ORDER BY
-  CASE WHEN :sort = 'oldest' THEN visits.visit_time_ms END ASC,
-  CASE WHEN :sort = 'oldest' THEN visits.id END ASC,
-  CASE WHEN :sort != 'oldest' THEN visits.visit_time_ms END DESC,
-  CASE WHEN :sort != 'oldest' THEN visits.id END DESC
-LIMIT :pageLimit
-OFFSET :pageOffset
-"#;
-
-const COUNT_HISTORY_FTS_SQL: &str = r#"
-SELECT COUNT(*)
-FROM visits
-JOIN urls
-  ON urls.id = visits.url_id
-JOIN source_profiles
-  ON source_profiles.id = visits.source_profile_id
-JOIN search.history_search AS history_search
-  ON history_search.rowid = urls.id
-WHERE visits.reverted_at IS NULL
-  AND history_search MATCH :ftsQuery
-  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
-  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
