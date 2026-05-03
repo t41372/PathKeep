@@ -340,6 +340,9 @@ export function JobsPage() {
     null
   const reviewRuntimeJob =
     runtime?.recentJobs.find((job) => job.state === 'failed') ?? null
+  const visibleFailedJobsCount =
+    (aiQueue?.recentJobs.filter((job) => job.state === 'failed').length ?? 0) +
+    (runtime?.recentJobs.filter((job) => job.state === 'failed').length ?? 0)
   const contentQueueMessage = contentPlugin
     ? contentPlugin.queuedJobs > 0
       ? jobsT('contentFetchBacklogBody', {
@@ -368,6 +371,16 @@ export function JobsPage() {
     snapshot.config.ai.jobQueuePaused ||
     queueCounts.queued > 0 ||
     queueCounts.running > 0
+  const heroHeadline =
+    queueCounts.failed > 0
+      ? jobsT('overviewHeadlineFailures', { count: queueCounts.failed })
+      : snapshot.config.ai.jobQueuePaused && queueCounts.queued > 0
+        ? jobsT('overviewHeadlinePaused', { count: queueCounts.queued })
+        : queueCounts.running > 0
+          ? jobsT('overviewHeadlineRunning', { count: queueCounts.running })
+          : queueCounts.queued > 0
+            ? jobsT('overviewHeadlineQueued', { count: queueCounts.queued })
+            : jobsT('overviewHeadlineIdle')
   return (
     <section className="page-shell jobs-page" data-testid="jobs-page">
       <div className="jobs-grid">
@@ -386,6 +399,33 @@ export function JobsPage() {
               >
                 {jobsT('refresh')}
               </button>
+              {visibleFailedJobsCount > 0 ? (
+                <a
+                  className="btn-secondary"
+                  href="#jobs-recent-activity"
+                  onClick={(event) => {
+                    const target = document.getElementById(
+                      'jobs-recent-activity',
+                    )
+                    if (!target) return
+                    event.preventDefault()
+                    const reduceMotion =
+                      typeof window.matchMedia === 'function' &&
+                      window.matchMedia('(prefers-reduced-motion: reduce)')
+                        .matches
+                    target.scrollIntoView({
+                      behavior: reduceMotion ? 'auto' : 'smooth',
+                      block: 'start',
+                    })
+                    if (!target.hasAttribute('tabindex')) {
+                      target.setAttribute('tabindex', '-1')
+                    }
+                    target.focus({ preventScroll: true })
+                  }}
+                >
+                  {jobsT('jumpToFailures', { count: visibleFailedJobsCount })}
+                </a>
+              ) : null}
               {showQueueToggle ? (
                 <button
                   className="btn-secondary"
@@ -436,24 +476,35 @@ export function JobsPage() {
             <div className="panel-body">
               <div className="jobs-state-board">
                 <div className="jobs-hero-copy">
-                  <h2>{jobsT('overviewHeadline')}</h2>
+                  <h2>{heroHeadline}</h2>
                   <p>{jobsT('overviewBody')}</p>
                   <p className="mono-support">{contentQueueMessage}</p>
                 </div>
                 <div className="jobs-hero-stats">
-                  <div className="jobs-hero-stat">
+                  <div
+                    className={`jobs-hero-stat ${queueCounts.running > 0 ? 'jobs-hero-stat--active' : ''}`}
+                  >
                     <span className="dim">{jobsT('runningCount')}</span>
                     <strong className="mono">
                       {queueCounts.running.toLocaleString(language)}
                     </strong>
                   </div>
-                  <div className="jobs-hero-stat">
+                  <div
+                    className={`jobs-hero-stat ${
+                      snapshot.config.ai.jobQueuePaused &&
+                      queueCounts.queued > 0
+                        ? 'jobs-hero-stat--warning'
+                        : ''
+                    }`}
+                  >
                     <span className="dim">{jobsT('queuedCount')}</span>
                     <strong className="mono">
                       {queueCounts.queued.toLocaleString(language)}
                     </strong>
                   </div>
-                  <div className="jobs-hero-stat">
+                  <div
+                    className={`jobs-hero-stat ${queueCounts.failed > 0 ? 'jobs-hero-stat--danger' : ''}`}
+                  >
                     <span className="dim">{jobsT('failedCount')}</span>
                     <strong className="mono">
                       {queueCounts.failed.toLocaleString(language)}
@@ -622,7 +673,7 @@ export function JobsPage() {
           )}
         </div>
 
-        <div className="jobs-section-heading">
+        <div className="jobs-section-heading" id="jobs-recent-activity">
           <span className="panel-title">{jobsT('recentActivityTitle')}</span>
           <p>{jobsT('recentActivityBody')}</p>
         </div>

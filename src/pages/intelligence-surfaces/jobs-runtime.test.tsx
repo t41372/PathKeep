@@ -365,6 +365,72 @@ describe('intelligence surfaces', () => {
     ).toBeGreaterThan(0)
     expect(screen.getByText('47%')).toBeVisible()
 
+    const recentActivityHeading = document.getElementById(
+      'jobs-recent-activity',
+    )
+    expect(recentActivityHeading).toBeInstanceOf(HTMLElement)
+    if (!(recentActivityHeading instanceof HTMLElement)) {
+      throw new Error('expected recent activity heading')
+    }
+    const scrollIntoView = vi.fn()
+    const focusRecentActivity = vi
+      .spyOn(recentActivityHeading, 'focus')
+      .mockImplementation(() => undefined)
+    Object.defineProperty(recentActivityHeading, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: undefined,
+    })
+    await user.click(
+      screen.getByRole('link', {
+        name: jobsT('jumpToFailures', { count: 2 }),
+      }),
+    )
+    expect(scrollIntoView).toHaveBeenLastCalledWith({
+      behavior: 'smooth',
+      block: 'start',
+    })
+    expect(recentActivityHeading).toHaveAttribute('tabindex', '-1')
+    expect(focusRecentActivity).toHaveBeenCalledWith({ preventScroll: true })
+
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: true }),
+    })
+    await user.click(
+      screen.getByRole('link', {
+        name: jobsT('jumpToFailures', { count: 2 }),
+      }),
+    )
+    expect(scrollIntoView).toHaveBeenLastCalledWith({
+      behavior: 'auto',
+      block: 'start',
+    })
+
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: false }),
+    })
+    await user.click(
+      screen.getByRole('link', {
+        name: jobsT('jumpToFailures', { count: 2 }),
+      }),
+    )
+    expect(scrollIntoView).toHaveBeenLastCalledWith({
+      behavior: 'smooth',
+      block: 'start',
+    })
+
+    vi.spyOn(document, 'getElementById').mockReturnValueOnce(null)
+    await user.click(
+      screen.getByRole('link', {
+        name: jobsT('jumpToFailures', { count: 2 }),
+      }),
+    )
+
     await user.click(screen.getByRole('button', { name: jobsT('pauseQueue') }))
     await waitFor(() =>
       expect(shellValue.saveConfig).toHaveBeenCalledWith(
