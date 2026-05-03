@@ -20,6 +20,22 @@ on:
         description: Optional explicit release tag like v0.1.0
         required: false
         type: string
+      platforms:
+        description: Platform matrix to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux-windows
+          - linux
+          - windows
+          - macos
+      unsigned_preview:
+        description: Build unsigned preview bundles without updater artifacts
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -35,6 +51,8 @@ jobs:
     outputs:
       resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
       resolved_version: ${{ steps.resolve.outputs.resolved_version }}
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
+      unsigned_preview: ${{ steps.matrix.outputs.unsigned_preview }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +80,66 @@ jobs:
           echo "resolved_tag=$resolved_tag" >> "$GITHUB_OUTPUT"
           echo "resolved_version=${resolved_tag#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve build matrix
+        id: matrix
+        env:
+          INPUT_PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
+          UNSIGNED_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.unsigned_preview || false }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          platform_sets = {
+              "all": {"macos", "windows", "linux"},
+              "linux-windows": {"linux", "windows"},
+              "linux": {"linux"},
+              "windows": {"windows"},
+              "macos": {"macos"},
+          }
+          selected = os.environ.get("INPUT_PLATFORMS") or "all"
+          if selected not in platform_sets:
+              raise SystemExit(f"Unsupported platforms input: {selected}")
+
+          targets = [
+              {
+                  "label": "macOS Apple Silicon",
+                  "platform": "macos",
+                  "os": "macos-latest",
+                  "rust_targets": "aarch64-apple-darwin",
+                  "args": "--target aarch64-apple-darwin",
+              },
+              {
+                  "label": "macOS Intel",
+                  "platform": "macos",
+                  "os": "macos-latest",
+                  "rust_targets": "x86_64-apple-darwin",
+                  "args": "--target x86_64-apple-darwin",
+              },
+              {
+                  "label": "Windows",
+                  "platform": "windows",
+                  "os": "windows-latest",
+                  "rust_targets": "",
+                  "args": "",
+              },
+              {
+                  "label": "Linux",
+                  "platform": "linux",
+                  "os": "ubuntu-22.04",
+                  "rust_targets": "",
+                  "args": "",
+              },
+          ]
+          include = [target for target in targets if target["platform"] in platform_sets[selected]]
+          unsigned_preview = (os.environ.get("UNSIGNED_PREVIEW") or "false").lower() == "true"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              matrix = json.dumps({"include": include}, separators=(",", ":"))
+              print(f"build_matrix={matrix}", file=output)
+              print(f"unsigned_preview={'true' if unsigned_preview else 'false'}", file=output)
+          PY
+
       - name: Verify version alignment
         env:
           RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved_version }}
@@ -79,6 +157,7 @@ jobs:
           test "$package_version" = "$RESOLVED_VERSION"
 
       - name: Verify updater signing secret
+        if: ${{ steps.matrix.outputs.unsigned_preview != 'true' }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
@@ -94,24 +173,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: macOS Apple Silicon
-            os: macos-latest
-            rust_targets: aarch64-apple-darwin
-            args: --target aarch64-apple-darwin
-          - label: macOS Intel
-            os: macos-latest
-            rust_targets: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin
-          - label: Windows
-            os: windows-latest
-            rust_targets: ''
-            args: ''
-          - label: Linux
-            os: ubuntu-22.04
-            rust_targets: ''
-            args: ''
+      matrix: ${{ fromJson(needs.prepare-release.outputs.build_matrix) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -165,8 +227,22 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Write unsigned preview Tauri override
+        if: ${{ needs.prepare-release.outputs.unsigned_preview == 'true' }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          pathlib.Path("src-tauri/ci.unsigned.conf.json").write_text(
+              json.dumps({"bundle": {"createUpdaterArtifacts": False}}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -190,8 +266,10 @@ jobs:
           releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || github.event_name != 'workflow_dispatch' && contains(github.ref_name, '-') }}
           generateReleaseNotes: true
-          releaseAssetNamePattern: '[name]_[version]_[platform]_[arch][setup][ext]'
-          args: ${{ matrix.args }}
+          assetNamePattern: '[name]_[version]_[platform]_[arch][setup][ext]'
+          args: >-
+            ${{ matrix.args }}
+            ${{ needs.prepare-release.outputs.unsigned_preview == 'true' && '--no-sign --config src-tauri/ci.unsigned.conf.json' || '' }}
 
   release-manifest:
     name: Publish checksum manifest
@@ -214,12 +292,13 @@ jobs:
           printf '%s' "$RESOLVED_TAG" > dist/release/.resolved-tag
 
       - name: Verify updater manifest exists
+        if: ${{ needs.prepare-release.outputs.unsigned_preview != 'true' }}
         run: test -f dist/release/latest.json
 
       - name: Generate SHA256SUMS.txt
         run: |
           cd dist/release
-          find . -type f ! -name 'SHA256SUMS.txt' ! -name '.resolved-tag' -print0 \
+          find . -type f ! -name 'SHA256SUMS.txt' ! -name '.resolved-tag' ! -name 'RELEASE-MANIFEST.json' -print0 \
             | sort -z \
             | xargs -0 shasum -a 256 > SHA256SUMS.txt
 
