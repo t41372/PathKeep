@@ -3,27 +3,29 @@
 //! ## Responsibilities
 //! - Normalize indexed document fields and user keyword queries through the
 //!   same deterministic pipeline.
-//! - Own Unicode NFKC plus lowercase normalization, compact text, and CJK gram
-//!   generation.
+//! - Own Unicode NFKC, OpenCC-compatible Traditional-to-Simplified folding,
+//!   lowercase normalization, compact text, and CJK gram generation.
 //! - Build FTS-safe term, CJK gram, and compact trigram query fragments.
 //!
 //! ## Not responsible for
 //! - Ranking or pagination policy.
 //! - Regex mode, which intentionally bypasses this analyzer.
 //! - Semantic, embedding, fuzzy, pinyin, or alias expansion.
-//! - Traditional/simplified Chinese conversion until the official OpenCC
-//!   toolchain path is implemented and verified.
 //!
 //! ## Dependencies
 //! - ICU4X `icu_normalizer`, already present in the workspace dependency graph,
 //!   for Unicode NFKC compatibility folding.
+//! - Repo-owned OpenCC-compatible converter over official OpenCC dictionary
+//!   assets for Traditional/Simplified Chinese search normalization.
 //! - Standard library Unicode lowercase and character classification.
 //!
 //! ## Performance notes
-//! - The NFKC normalizer uses compiled ICU4X data already linked into the binary
-//!   by the existing URL/IDNA stack; it does not load runtime assets or external
-//!   dictionaries during projection rebuilds.
+//! - ICU4X NFKC uses compiled data already linked into the binary by the
+//!   existing URL/IDNA stack.
+//! - OpenCC dictionary assets are parsed once per process and reused across
+//!   projection rows, avoiding per-row converter initialization.
 
+use super::search_opencc::simplified_script_variants;
 use icu_normalizer::ComposingNormalizerBorrowed;
 use std::collections::BTreeSet;
 /// Derived document fields stored in the rebuildable search projection.
@@ -54,15 +56,14 @@ pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> Le
     let normalized_url = normalize_text(url);
     let normalized_title = normalize_text(title);
     let normalized_search_terms = normalize_text(search_terms);
-    let compact_variants = [
-        normalized_url.canonical.as_str(),
-        normalized_title.canonical.as_str(),
-        normalized_search_terms.canonical.as_str(),
-    ]
-    .into_iter()
-    .map(compact_text)
-    .filter(|value| !value.is_empty())
-    .collect::<Vec<_>>();
+    let compact_variants = normalized_url
+        .variants
+        .iter()
+        .chain(normalized_title.variants.iter())
+        .chain(normalized_search_terms.variants.iter())
+        .map(|value| compact_text(value))
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
     let compact_text = compact_variants
         .iter()
         .filter(|value| !value.is_empty())
@@ -72,9 +73,9 @@ pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> Le
     let cjk_grams = cjk_grams_for_fields(compact_variants.iter().map(String::as_str));
 
     LexicalDocument {
-        normalized_url: normalized_url.canonical,
-        normalized_title: normalized_title.canonical,
-        normalized_search_terms: normalized_search_terms.canonical,
+        normalized_url: normalized_url.index_text(),
+        normalized_title: normalized_title.index_text(),
+        normalized_search_terms: normalized_search_terms.index_text(),
         compact_text,
         cjk_grams,
     }
@@ -83,9 +84,20 @@ pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> Le
 /// Parses one user keyword query into FTS-safe recall fragments.
 pub(super) fn analyze_query(raw: &str) -> Option<LexicalQuery> {
     let normalized = normalize_text(raw);
-    let terms_query = terms_query_for_normalized_text(&normalized.canonical);
-    let compact = compact_text(&normalized.canonical);
-    let trigram_query = (compact.chars().count() >= 3).then(|| quote_fts_term(&compact));
+    let terms_query = normalized
+        .variants
+        .iter()
+        .filter_map(|variant| terms_query_for_normalized_text(variant))
+        .collect::<Vec<_>>();
+    let terms_query = combine_fts_or(terms_query);
+    let trigram_query = normalized
+        .variants
+        .iter()
+        .map(|variant| compact_text(variant))
+        .filter(|compact| compact.chars().count() >= 3)
+        .map(|compact| quote_fts_term(&compact))
+        .collect::<Vec<_>>();
+    let trigram_query = combine_fts_or(trigram_query);
     let query = LexicalQuery { terms_query, trigram_query };
 
     (!query.is_empty()).then_some(query)
@@ -105,14 +117,43 @@ fn terms_query_for_normalized_text(normalized: &str) -> Option<String> {
     (!terms_query.is_empty()).then_some(terms_query)
 }
 
+fn combine_fts_or(fragments: Vec<String>) -> Option<String> {
+    let mut unique = Vec::new();
+    for fragment in fragments {
+        if !unique.iter().any(|existing| existing == &fragment) {
+            unique.push(fragment);
+        }
+    }
+    match unique.as_slice() {
+        [] => None,
+        [single] => Some(single.clone()),
+        _ => Some(format!("({})", unique.join(" OR "))),
+    }
+}
+
 struct NormalizedText {
-    canonical: String,
+    variants: Vec<String>,
+}
+
+impl NormalizedText {
+    fn index_text(&self) -> String {
+        self.variants.join(" ")
+    }
 }
 
 fn normalize_text(raw: &str) -> NormalizedText {
     let without_nuls = raw.replace('\0', "");
-    let canonical = ComposingNormalizerBorrowed::new_nfkc().normalize(&without_nuls).to_lowercase();
-    NormalizedText { canonical }
+    let nfkc = ComposingNormalizerBorrowed::new_nfkc().normalize(&without_nuls).to_string();
+    let variants = simplified_script_variants(&nfkc)
+        .into_iter()
+        .map(|variant| variant.to_lowercase())
+        .fold(Vec::<String>::new(), |mut unique, variant| {
+            if !unique.iter().any(|existing| existing == &variant) {
+                unique.push(variant);
+            }
+            unique
+        });
+    NormalizedText { variants }
 }
 
 fn latin_prefix_terms(normalized: &str) -> Vec<String> {
@@ -182,11 +223,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn does_not_fold_traditional_and_simplified_without_approved_dependency() {
+    fn folds_traditional_and_simplified_to_shared_query() {
         let traditional = analyze_query("設定").expect("traditional query");
         let simplified = analyze_query("设定").expect("simplified query");
 
-        assert_eq!(traditional.terms_query.as_deref(), Some("\"設定\""));
+        assert_eq!(traditional.terms_query.as_deref(), Some("(\"设定\" OR \"设置\")"));
         assert_eq!(simplified.terms_query.as_deref(), Some("\"设定\""));
     }
 
@@ -221,8 +262,10 @@ mod tests {
     fn document_analysis_indexes_cjk_substrings() {
         let document = analyze_document("https://example.test", "我的瀏覽器設定頁", "");
 
-        assert!(document.cjk_grams.contains("設定"));
-        assert!(document.compact_text.contains("我的瀏覽器設定頁"));
+        assert!(document.cjk_grams.contains("设定"));
+        assert!(document.cjk_grams.contains("设置"));
+        assert!(document.compact_text.contains("我的浏览器设定页"));
+        assert!(document.compact_text.contains("我的浏览器设置页"));
     }
 
     #[test]

@@ -275,7 +275,7 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
 }
 
 #[test]
-fn lexical_recall_matches_cjk_and_compact_substrings_without_script_folding() {
+fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     let config = AppConfig::default();
@@ -288,9 +288,13 @@ fn lexical_recall_matches_cjk_and_compact_substrings_without_script_folding() {
         HistoryQuery { q: Some("设定".to_string()), limit: Some(10), ..HistoryQuery::default() },
     )
     .expect("simplified query");
-    assert_eq!(simplified_query.total, 1);
+    assert_eq!(simplified_query.total, 2);
     assert!(
         simplified_query.items.iter().any(|entry| entry.title.as_deref() == Some("浏览器设定说明"))
+    );
+    assert!(
+        simplified_query.items.iter().any(|entry| entry.title.as_deref() == Some("瀏覽器設定中心")),
+        "simplified query should recall the traditional indexed title"
     );
 
     let traditional_query = list_history(
@@ -300,12 +304,19 @@ fn lexical_recall_matches_cjk_and_compact_substrings_without_script_folding() {
         HistoryQuery { q: Some("設定".to_string()), limit: Some(10), ..HistoryQuery::default() },
     )
     .expect("traditional query");
-    assert_eq!(traditional_query.total, 1);
+    assert_eq!(traditional_query.total, 2);
     assert!(
         traditional_query
             .items
             .iter()
             .any(|entry| entry.title.as_deref() == Some("瀏覽器設定中心"))
+    );
+    assert!(
+        traditional_query
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("浏览器设定说明")),
+        "traditional query should recall the simplified indexed title"
     );
 
     let cjk_substring = list_history(
@@ -315,7 +326,7 @@ fn lexical_recall_matches_cjk_and_compact_substrings_without_script_folding() {
         HistoryQuery { q: Some("器设".to_string()), limit: Some(10), ..HistoryQuery::default() },
     )
     .expect("cjk substring query");
-    assert_eq!(cjk_substring.total, 1);
+    assert_eq!(cjk_substring.total, 2);
 
     let compact_latin = list_history(
         &paths,

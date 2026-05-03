@@ -51,12 +51,15 @@ follow-up normalization shipped.
 
 Approved boundary after the M14 remediation:
 
-| Area                  | Decision                                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| NFKC / full-width     | Shipped through ICU4X `icu_normalizer`, maintained by the Unicode Consortium and already present in the dependency graph |
-| OpenCC script folding | Allowed only through the official OpenCC C/C++ project or repo-owned audited code; low-trust Rust bindings remain banned |
-| OpenCC build tooling  | Must prove local and CI availability for CMake/C++/header integration before product code depends on it                  |
-| Fuzzy typo tolerance  | `strsim` is approved for bounded Rust-side rerank because it is maintained under the RapidFuzz project                   |
+| Area                  | Decision                                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| NFKC / full-width     | Shipped through ICU4X `icu_normalizer`, maintained by the Unicode Consortium and already present in the dependency graph            |
+| OpenCC script folding | Shipped through official OpenCC 1.3.0 dictionary assets plus repo-owned Rust conversion code; low-trust Rust bindings remain banned |
+| OpenCC C++ tooling    | Still allowed, but must prove local and CI availability for CMake/C++/header/link/packaging before product code depends on it       |
+| Fuzzy typo tolerance  | `strsim` is approved for bounded Rust-side rerank because it is maintained under the RapidFuzz project                              |
+
+The detailed provenance, local toolchain probe, and C++ rollback contract live
+in [opencc-script-folding.md](opencc-script-folding.md).
 
 ## Analyzer Contract
 
@@ -65,14 +68,18 @@ The same analyzer is used for both projection writes and keyword query parsing.
 Pipeline:
 
 1. Unicode NFKC compatibility folding through ICU4X.
-2. Unicode lowercase folding with the Rust standard library.
-3. Term tokenization for unicode61 FTS prefix recall.
-4. Compact text generation by removing punctuation and whitespace, so
+2. OpenCC-derived `t2s` and `tw2sp` script variants from official dictionary
+   assets.
+3. Unicode lowercase folding with the Rust standard library.
+4. Term tokenization for unicode61 FTS prefix recall.
+5. Compact text generation by removing punctuation and whitespace, so
    `git hub`, `git-hub`, and `github` can share a substring path.
-5. CJK 2-gram and 3-gram generation from compact CJK runs.
+6. CJK 2-gram and 3-gram generation from compact CJK runs.
 
 The analyzer is deterministic. It does not infer semantics, classify intent, or
-call an external tokenizer.
+call an external tokenizer. When OpenCC configs differ, indexed documents keep
+both variants and queries OR their variants. This is why `設定`, `设定`, and
+`设置` can meet without adding embedding or fuzzy search.
 
 ## Projection Schema
 

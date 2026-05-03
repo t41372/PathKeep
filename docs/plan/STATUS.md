@@ -37,11 +37,11 @@
     `docs/plan/m14-lexical-recall-v2/README.md`
   - 目標：修正 M14-A remediation 後過度收窄的 normalization truth：Unicode Consortium / ICU4X 滿足 dependency trust gate，應直接恢復 NFKC / full-width folding；OpenCC 只允許官方 C/C++ toolchain 或 repo-owned audited implementation；fuzzy recall 的 `strsim` 因 RapidFuzz maintainer provenance 可作為 bounded rerank 候選。
   - 契約：不重新引入 rejected `ferrous-opencc`；不使用低信任 Rust OpenCC binding；不把 OpenCC 接進產品碼直到本地與 CI 的 CMake / C++ / header / link / packaging requirements 有 proof；`strsim` 只能用在 FTS/trigram bounded candidate set 之後，禁止 SQL full-scan edit distance。
-  - 2026-05-03 closeout：`vault-core` analyzer 改為 ICU4X `icu_normalizer` NFKC → lowercase → compact / CJK gram pipeline，恢復 full-width / half-width compatibility recall；`icu_normalizer` 是 Unicode Consortium / ICU4X 維護，且已經由既有 URL/IDNA stack 進入 lockfile，本次只把它收成 direct `vault-core` dependency，並關閉不需要的 `utf16_iter` / `write16` feature。繁簡中文 folding 仍未 shipping，下一步由 `WORK-M14-D` 走官方 OpenCC toolchain proof。
+  - 2026-05-03 closeout：`vault-core` analyzer 改為 ICU4X `icu_normalizer` NFKC → lowercase → compact / CJK gram pipeline，恢復 full-width / half-width compatibility recall；`icu_normalizer` 是 Unicode Consortium / ICU4X 維護，且已經由既有 URL/IDNA stack 進入 lockfile，本次只把它收成 direct `vault-core` dependency，並關閉不需要的 `utf16_iter` / `write16` feature。當時繁簡中文 folding 尚未 shipping，後續由 `WORK-M14-D` 收口。
   - 同步回寫 [`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_lexical -- --test-threads=1` 與 `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core lexical_recall -- --test-threads=1` 通過；`bun run check` 通過。
 
-- [ ] **WORK-M14-D** — Official OpenCC Toolchain And Script Folding
+- [x] **WORK-M14-D** — Official OpenCC Toolchain And Script Folding
   - 讀先：
     `AGENTS.md`
     `docs/architecture/lexical-recall-v2.md`
@@ -52,6 +52,9 @@
   - 目標：用官方 OpenCC C/C++ project / official assets 恢復繁簡中文 folding，但先把本地與 CI 的 CMake / C++ / header / link / packaging requirements 做成可驗證 contract。
   - 契約：不得使用 rejected `ferrous-opencc` 或低信任 Rust binding；不得依賴使用者本機 Homebrew dylib 才能跑；必須在產品碼接入前證明 CI toolchain、static/dynamic link 策略、release packaging、license/provenance、rollback path；如果官方 OpenCC path 讓 per-commit checker 脆弱，必須停在 ADR / toolchain fix，不得硬塞功能。
   - 驗收：OpenCC toolchain / CI proof doc、local build probe、dependency/license/provenance record、analyzer tests for `設定/设定` only after product code is connected、`bun run check`。
+  - 2026-05-03 closeout：未使用 OpenCC native C++ library，也未重新引入任何低信任 Rust binding。產品碼改走 official OpenCC `ver.1.3.0` Apache-2.0 dictionary assets + repo-owned Rust converter：`t2s` 與 `tw2sp` 變體都進 index/query，解決 `設定` / `设定` / `设置` 互相召回。本機 probe 記錄 `cmake` / `pkg-config` 不在 `PATH`、Python/clang++ 可用，因此 native C++ link path 仍只保留為 future path，必須先證明 CI packages、link strategy、release packaging 與 rollback。
+  - 同步回寫 [`docs/architecture/opencc-script-folding.md`](../architecture/opencc-script-folding.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_opencc -- --test-threads=1`、`search_lexical`、`lexical_recall` 通過；`bun run check` 通過。
 
 - [ ] **WORK-M14-B** — Bounded Fuzzy Recall And Query Expansion
   - 讀先：

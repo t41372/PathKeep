@@ -66,9 +66,10 @@ interim `ferrous-opencc` dependency was then removed because it did not meet the
 repo dependency trust gate. The approved follow-up restored NFKC and
 full-width/half-width folding through ICU4X `icu_normalizer`, which is
 maintained by the Unicode Consortium and was already present in the dependency
-graph. Traditional/simplified conversion still requires the official OpenCC
-toolchain path or repo-owned audited code; low-trust Rust bindings remain out of
-scope.
+graph. M14-D then restored Traditional/Simplified folding with official OpenCC
+1.3.0 dictionary assets plus repo-owned Rust conversion code. Low-trust Rust
+bindings remain out of scope; native OpenCC C++ linking remains a future path
+only after the CMake/C++/CI/package contract is proven.
 
 Validation:
 
@@ -95,12 +96,17 @@ smaller.
 
 ## WORK-M14-D — Official OpenCC Toolchain And Script Folding
 
-- Status: approved follow-up, not yet implemented
-- Entry condition: prove local and CI build-tool availability before linking
-  product code to OpenCC.
+- Status: completed 2026-05-03
+- Decision record: `docs/architecture/opencc-script-folding.md`
 
-This follow-up may use the official OpenCC C/C++ project and official OpenCC
-assets. It must not use the rejected low-trust Rust binding path. The first
-slice must document and verify CMake, C++ compiler, header/FFI, static/dynamic
-linking, release packaging, CI setup, and rollback strategy before
-traditional/simplified folding is added to the analyzer.
+This follow-up shipped the official-asset path, not the C++ library path:
+
+- Vendored the minimal Apache-2.0 OpenCC `ver.1.3.0` dictionary subset needed
+  for `t2s` and `tw2sp` recall variants.
+- Added a repo-owned Rust converter that parses those assets once per process,
+  applies longest-match dictionary order, and emits both variants when OpenCC's
+  direct Traditional/Simplified and Taiwan idiom configs differ.
+- Documented that the native C++ path is still blocked from product code on this
+  host because `cmake` and `pkg-config` are not on `PATH`; future C++ linking
+  must first prove CI packages, static/dynamic link strategy, release packaging,
+  and rollback.

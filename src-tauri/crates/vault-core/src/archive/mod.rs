@@ -34,6 +34,7 @@ mod read_models;
 mod run_support;
 mod schema;
 mod search_lexical;
+mod search_opencc;
 mod search_projection;
 mod source_evidence;
 mod source_evidence_builder;
