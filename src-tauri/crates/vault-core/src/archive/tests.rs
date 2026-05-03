@@ -331,6 +331,25 @@ fn lexical_recall_matches_cjk_and_compact_substrings_without_script_folding() {
             .any(|entry| entry.title.as_deref() == Some("Git Hub spacing guide")),
         "compact trigram recall should match Git Hub when the query is github"
     );
+
+    let full_width_latin = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("ＧｉｔＨｕｂ".to_string()),
+            limit: Some(10),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("full-width latin query");
+    assert!(
+        full_width_latin
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual")),
+        "NFKC recall should fold full-width GitHub into the indexed latin form"
+    );
 }
 
 #[test]

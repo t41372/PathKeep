@@ -33,29 +33,7 @@
 > 2026-04-28 release blocker follow-up note：`WORK-RELEASE-010-A` 的 Windows scheduler support 讓 `src-tauri/crates/vault-platform/src/scheduler.rs` 升到 `1261` 行，超過 1200 行維護性 review threshold。依 `AGENTS.md` 規則，已新增 blocked follow-up `WORK-SCHED-MAINT-A`，等 release blocker 實機驗收後用專門窗口審查是否拆分；不要在 0.1.0 blocker closeout 中順手重構 scheduler。
 > 2026-04-29 scheduled-backup audit follow-up：`WORK-SCHED-REDESIGN-A` 只允許修高優先級 macOS legacy detection bug，修後 `scheduler.rs` 已到 `1411` 行並超過 1400 行硬限制。本次改動是既有巨檔內的最小 bug fix；`WORK-SCHED-MAINT-A` 升級為 high-priority maintainability review，必須在 scheduled-backup design gate / release acceptance 後專門處理，後續不得再往該檔新增業務邏輯。
 > 2026-04-29 scheduled-backup state-machine closeout note：使用者直接插單的 `WORK-SCHED-STATE-A` 已把 scheduler maintainability follow-up 和 `/schedule` state-machine redesign 合併收口。`vault-platform::scheduler` 現在是 721 行 facade，平台 owner 分別在 `scheduler/{macos,windows,linux,audit}.rs`；原 blocked `WORK-SCHED-MAINT-A` 已完成並從 BACKLOG 移除。BACKLOG 目前仍只有 blocked 的 `WORK-QA-GATE-B`。
-> 2026-05-03 M14 follow-up note：`WORK-M14-A` 已完成 deterministic lexical recall v2 primary path；未經批准的 OpenCC / Unicode normalization 依賴已移除。fuzzy typo tolerance / alias expansion 不能直接接進 SQL 或第一刀，必須先做候選量 benchmark 與 dedicated design window；繁簡中文與全形/半形 folding 必須先通過 dependency trust gate 或寫成 repo-owned audited implementation。
-
-- [!] **WORK-M14-C** — Approved Chinese Normalization Supply-Chain Review [!blocked: explicit user approval for dependency research / audit window]
-  - 讀先：
-    `AGENTS.md`
-    `docs/architecture/lexical-recall-v2.md`
-    `docs/features/recall.md`
-    `docs/architecture/tech-stack.md`
-    `docs/plan/m14-lexical-recall-v2/README.md`
-  - 目標：恢復繁簡中文與全形/半形 folding 的前置研究，但只允許官方 OpenCC、可信大型組織維護的 Unicode normalization path、或 repo-owned implementation。
-  - 契約：不得直接引入低信任度 crate / npm package / build-time tool；不得繞過 `AGENTS.md` dependency trust gate；若需要新增依賴，必須先輸出供應鏈風險評估、維護者/審查/下載面/星標/發布流程 evidence、替代方案與回滾策略，並等待用戶明確批准。
-  - 驗收：dependency audit report、approved implementation choice、analyzer regression tests for `設定/设定` and full-width Latin if approved、docs update、`bun run check`。
-
-- [!] **WORK-M14-B** — Bounded Fuzzy Recall And Query Expansion [!blocked: dedicated candidate-volume benchmark and fuzzy-recall design window]
-  - 讀先：
-    `docs/architecture/lexical-recall-v2.md`
-    `docs/features/recall.md`
-    `docs/architecture/data-model.md`
-    `docs/plan/m14-lexical-recall-v2/README.md`
-    `TESTING.md`
-  - 目標：在 M14-A 的 FTS/trigram top-N 候選之後，加入 bounded Rust-side rerank / expansion，而不是把 Levenshtein 變成 SQL full scan。
-  - 契約：只能在 FTS/trigram 已產生 bounded candidate set 後使用 edit-distance rerank；不得啟用 SQLite loadable extension、`spellfix1`、Jieba、embedding、semantic/hybrid runtime 或 vector sidecar；alias dictionary 必須小型、可審查、可測試；ranking explanation 若加入，必須保持 deterministic 且不推斷語義。
-  - 驗收：候選量 benchmark artifact、Latin typo tolerance tests、alias dictionary tests、ranking regression tests、Explorer copy/i18n updates if exposed、`bun run check`。
+> 2026-05-03 M14 follow-up note：`WORK-M14-A` 已完成 deterministic lexical recall v2 primary path；未經批准的 OpenCC / Unicode normalization 依賴已移除。後續使用者確認 Unicode Consortium / ICU4X 符合 dependency trust gate、官方 OpenCC 可走但必須先證明 CMake/C++/CI toolchain、`strsim` 因 RapidFuzz maintainer provenance 可批准。`WORK-M14-C` 已提升到 STATUS 並完成 NFKC / full-width folding；下一個 active block 是 `WORK-M14-D`，再後面是 `WORK-M14-B`。
 
 - [!] **WORK-QA-GATE-B** — Full Mutation Deep Sweep And Survivor Closeout [!blocked: schedule a dedicated multi-hour mutation hardening window]
   - 讀先：

@@ -46,21 +46,17 @@ Relying on a host-specific `CMAKE=/opt/homebrew/...` override would make
 `bun run check` fragile.
 
 An interim pure-Rust OpenCC crate was rejected after supply-chain review because
-it does not meet the repo's dependency trust gate. The shipped M14 code now has
-no OpenCC dependency and no new Unicode normalization dependency. Traditional /
-simplified Chinese conversion and full-width / half-width folding are therefore
-not claimed by `WORK-M14-A`; they require a future design window that either
-uses an approved official OpenCC path or receives explicit user approval after a
-package audit.
+it does not meet the repo's dependency trust gate. It was removed before any
+follow-up normalization shipped.
 
-Current M14-A lexical normalization is deliberately narrower:
+Approved boundary after the M14 remediation:
 
-| Item             | Decision                                                                  |
-| ---------------- | ------------------------------------------------------------------------- |
-| New dependencies | None beyond the already committed core stack after remediation            |
-| Native build     | No CMake, C++, libclang, bindgen, or loadable extension path              |
-| OpenCC behavior  | Not shipped until an approved official/supply-chain-audited path exists   |
-| NFKC behavior    | Not shipped until an approved dependency or in-repo implementation exists |
+| Area                  | Decision                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| NFKC / full-width     | Shipped through ICU4X `icu_normalizer`, maintained by the Unicode Consortium and already present in the dependency graph |
+| OpenCC script folding | Allowed only through the official OpenCC C/C++ project or repo-owned audited code; low-trust Rust bindings remain banned |
+| OpenCC build tooling  | Must prove local and CI availability for CMake/C++/header integration before product code depends on it                  |
+| Fuzzy typo tolerance  | `strsim` is approved for bounded Rust-side rerank because it is maintained under the RapidFuzz project                   |
 
 ## Analyzer Contract
 
@@ -68,11 +64,12 @@ The same analyzer is used for both projection writes and keyword query parsing.
 
 Pipeline:
 
-1. Unicode lowercase folding with the Rust standard library.
-2. Term tokenization for unicode61 FTS prefix recall.
-3. Compact text generation by removing punctuation and whitespace, so
+1. Unicode NFKC compatibility folding through ICU4X.
+2. Unicode lowercase folding with the Rust standard library.
+3. Term tokenization for unicode61 FTS prefix recall.
+4. Compact text generation by removing punctuation and whitespace, so
    `git hub`, `git-hub`, and `github` can share a substring path.
-4. CJK 2-gram and 3-gram generation from compact CJK runs.
+5. CJK 2-gram and 3-gram generation from compact CJK runs.
 
 The analyzer is deterministic. It does not infer semantics, classify intent, or
 call an external tokenizer.

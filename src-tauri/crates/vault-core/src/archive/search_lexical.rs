@@ -3,7 +3,7 @@
 //! ## Responsibilities
 //! - Normalize indexed document fields and user keyword queries through the
 //!   same deterministic pipeline.
-//! - Own dependency-free lowercase normalization, compact text, and CJK gram
+//! - Own Unicode NFKC plus lowercase normalization, compact text, and CJK gram
 //!   generation.
 //! - Build FTS-safe term, CJK gram, and compact trigram query fragments.
 //!
@@ -11,16 +11,20 @@
 //! - Ranking or pagination policy.
 //! - Regex mode, which intentionally bypasses this analyzer.
 //! - Semantic, embedding, fuzzy, pinyin, or alias expansion.
-//! - Traditional/simplified Chinese conversion until an approved OpenCC supply
-//!   chain exists.
+//! - Traditional/simplified Chinese conversion until the official OpenCC
+//!   toolchain path is implemented and verified.
 //!
 //! ## Dependencies
-//! - Standard library Unicode lowercase and character classification only.
+//! - ICU4X `icu_normalizer`, already present in the workspace dependency graph,
+//!   for Unicode NFKC compatibility folding.
+//! - Standard library Unicode lowercase and character classification.
 //!
 //! ## Performance notes
-//! - The analyzer is pure string processing and does not initialize external
+//! - The NFKC normalizer uses compiled ICU4X data already linked into the binary
+//!   by the existing URL/IDNA stack; it does not load runtime assets or external
 //!   dictionaries during projection rebuilds.
 
+use icu_normalizer::ComposingNormalizerBorrowed;
 use std::collections::BTreeSet;
 /// Derived document fields stored in the rebuildable search projection.
 pub(super) struct LexicalDocument {
@@ -106,7 +110,8 @@ struct NormalizedText {
 }
 
 fn normalize_text(raw: &str) -> NormalizedText {
-    let canonical = raw.replace('\0', "").to_lowercase();
+    let without_nuls = raw.replace('\0', "");
+    let canonical = ComposingNormalizerBorrowed::new_nfkc().normalize(&without_nuls).to_lowercase();
     NormalizedText { canonical }
 }
 
@@ -195,14 +200,13 @@ mod tests {
     }
 
     #[test]
-    fn lowercases_latin_without_full_width_folding() {
+    fn folds_full_width_latin_and_lowercase() {
         let query = analyze_query("GitHUb").expect("query");
         let full_width = analyze_query("ＧｉｔＨｕｂ").expect("full-width query");
 
         assert_eq!(query.terms_query.as_deref(), Some("\"github\"*"));
         assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
-        assert_eq!(full_width.terms_query.as_deref(), Some("\"ｇｉｔｈｕｂ\"*"));
-        assert_eq!(full_width.trigram_query.as_deref(), Some("\"ｇｉｔｈｕｂ\""));
+        assert_eq!(full_width, query);
     }
 
     #[test]

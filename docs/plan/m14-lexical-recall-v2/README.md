@@ -25,7 +25,7 @@ The primary path is:
 
 ### Deliverables
 
-- Add a shared dependency-free lexical analyzer used by both search projection writes and
+- Add a shared lexical analyzer used by both search projection writes and
   keyword query parsing.
 - Rebuild the derived `history-search.sqlite` schema with normalized fields,
   compact text, CJK grams, `history_search_terms`, and `history_search_trigram`.
@@ -48,8 +48,7 @@ The primary path is:
 
 M14-A shipped the primary deterministic recall path:
 
-- `vault-core` owns a shared dependency-free lexical analyzer for index and
-  query paths.
+- `vault-core` owns a shared lexical analyzer for index and query paths.
 - The search projection is schema-versioned and now writes raw fields,
   normalized fields, compact text, CJK grams, `history_search_terms`, and
   `history_search_trigram`.
@@ -61,12 +60,15 @@ M14-A shipped the primary deterministic recall path:
   browser-preview fixture behavior aligned to the backend contract.
 
 Supply-chain remediation note: the original `opencc-rs` candidate was rejected
-for this milestone because its native OpenCC / marisa build depends on CMake and
-bindgen being available in the checker environment. The interim `ferrous-opencc`
-dependency was then removed because it did not meet the repo dependency trust
-gate. M14-A no longer ships OpenCC or NFKC folding; traditional/simplified
-conversion and full-width/half-width folding require a future approved
-dependency or in-repo implementation.
+for the first M14 implementation because its native OpenCC / marisa build
+depends on CMake and bindgen being available in the checker environment. The
+interim `ferrous-opencc` dependency was then removed because it did not meet the
+repo dependency trust gate. The approved follow-up restored NFKC and
+full-width/half-width folding through ICU4X `icu_normalizer`, which is
+maintained by the Unicode Consortium and was already present in the dependency
+graph. Traditional/simplified conversion still requires the official OpenCC
+toolchain path or repo-owned audited code; low-trust Rust bindings remain out of
+scope.
 
 Validation:
 
@@ -80,10 +82,25 @@ Validation:
 
 ## WORK-M14-B — Bounded Fuzzy Recall And Query Expansion
 
-- Status: blocked follow-up
-- Blocker: run a dedicated candidate-volume benchmark and fuzzy-recall design
-  window.
+- Status: approved follow-up
+- Entry condition: run a dedicated candidate-volume benchmark before changing
+  ranking behavior.
 
 This follow-up may add Rust-side typo tolerance and a small alias dictionary
 only after FTS/trigram has produced a bounded candidate set. SQL full-scan edit
-distance and SQLite extension loading remain forbidden.
+distance and SQLite extension loading remain forbidden. `strsim` is approved for
+this bounded rerank path because it is maintained under the RapidFuzz project;
+repo-owned edit-distance code remains acceptable if it keeps the implementation
+smaller.
+
+## WORK-M14-D — Official OpenCC Toolchain And Script Folding
+
+- Status: approved follow-up, not yet implemented
+- Entry condition: prove local and CI build-tool availability before linking
+  product code to OpenCC.
+
+This follow-up may use the official OpenCC C/C++ project and official OpenCC
+assets. It must not use the rejected low-trust Rust binding path. The first
+slice must document and verify CMake, C++ compiler, header/FFI, static/dynamic
+linking, release packaging, CI setup, and rollback strategy before
+traditional/simplified folding is added to the analyzer.
