@@ -80,6 +80,7 @@ bun run mutation:rust:quality
 - Focused helpers do not replace `bun run check`.
 - The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
 - Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
+- GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and frontend updater coverage. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.
 - Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).
 - User-facing support diagnostics and redaction rules live in [SUPPORT.md](./SUPPORT.md).

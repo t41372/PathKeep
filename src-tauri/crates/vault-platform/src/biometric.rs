@@ -17,7 +17,7 @@ pub fn authenticate_app_lock_biometric() -> Result<(), String> {
 }
 
 /// Translates platform Touch ID errors into user-facing App Lock messages.
-#[cfg_attr(coverage, allow(dead_code))]
+#[cfg(any(test, all(target_os = "macos", not(coverage))))]
 fn map_touch_id_error(code: Option<isize>, description: Option<String>) -> String {
     match code {
         Some(-1) => "Touch ID could not verify your identity. Try again or use the app lock passcode."

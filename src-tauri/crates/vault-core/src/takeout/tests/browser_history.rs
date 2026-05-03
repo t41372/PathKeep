@@ -235,10 +235,9 @@ fn write_firefox_history_db(dir: &Path) -> PathBuf {
 }
 
 #[test]
-fn inspect_browser_history_previews_reference_safari_database() {
+fn inspect_browser_history_previews_safari_database() {
     let dir = tempdir().expect("tempdir");
-    let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../reference/browserexport/tests/databases/safari.sqlite");
+    let fixture_path = write_safari_history_db(dir.path());
     let inspection = inspect_browser_history(
         &sample_paths(dir.path()),
         &browser_history_request(&fixture_path, true, "safari", "safari:reference"),
@@ -247,11 +246,11 @@ fn inspect_browser_history_previews_reference_safari_database() {
 
     assert_eq!(inspection.source_path, fixture_path.display().to_string());
     assert!(inspection.dry_run);
-    assert_eq!(inspection.candidate_items, 3);
-    assert_eq!(inspection.preview_entries.len(), 3);
+    assert_eq!(inspection.candidate_items, 2);
+    assert_eq!(inspection.preview_entries.len(), 2);
     assert_eq!(inspection.recognized_files.len(), 1);
     assert_eq!(inspection.recognized_files[0].kind, "safari-history-db");
-    assert_eq!(inspection.recognized_files[0].records, 3);
+    assert_eq!(inspection.recognized_files[0].records, 2);
     assert!(inspection.preview_range_start.is_some());
     assert!(inspection.notes.iter().any(|note| note.contains("Safari baseline ingest")));
 }

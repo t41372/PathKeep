@@ -304,11 +304,7 @@ fn build_intelligence_secondary_overview_with_connection(
                 &search_effectiveness_request,
             )
         },
-        |data| {
-            data.engine_stats.is_empty()
-                && data.top_resolving_sources.is_empty()
-                && data.hardest_topics.is_empty()
-        },
+        search_effectiveness_is_empty,
     )?;
     timings.push(timing);
     let (friction_signals, timing) = build_overview_timed_section_result(
@@ -425,4 +421,33 @@ fn build_overview_timed_section_result<R>(
         CoreIntelligenceSectionResult { data, meta },
         CoreIntelligenceSectionTiming { section_id: section_id.to_string(), duration_ms },
     ))
+}
+
+fn search_effectiveness_is_empty(data: &crate::models::SearchEffectiveness) -> bool {
+    data.engine_stats.is_empty()
+        && data.top_resolving_sources.is_empty()
+        && data.hardest_topics.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{HardTopic, SearchEffectiveness};
+
+    #[test]
+    fn search_effectiveness_empty_state_requires_all_signal_groups_to_be_empty() {
+        assert!(search_effectiveness_is_empty(&SearchEffectiveness::default()));
+
+        let search_effectiveness = SearchEffectiveness {
+            hardest_topics: vec![HardTopic {
+                family_id: "family".to_string(),
+                query_family: "rust coverage".to_string(),
+                reformulation_count: 2,
+                re_search_lag_days: 1.0,
+            }],
+            ..SearchEffectiveness::default()
+        };
+
+        assert!(!search_effectiveness_is_empty(&search_effectiveness));
+    }
 }

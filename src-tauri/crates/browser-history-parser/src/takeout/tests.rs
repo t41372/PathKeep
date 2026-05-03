@@ -122,6 +122,38 @@ fn inspect_history_reports_supported_takeout_payloads() {
 }
 
 #[test]
+fn collected_urls_merge_counts_and_keep_the_newest_title() {
+    let mut existing = ParsedUrl {
+        source_url_id: 7,
+        url: "https://example.com".to_string(),
+        title: Some("Old title".to_string()),
+        visit_count: 2,
+        typed_count: 1,
+        last_visit_ms: 100,
+        last_visit_iso: "1970-01-01T00:00:00Z".to_string(),
+        hidden: false,
+    };
+    let newer = ParsedUrl {
+        source_url_id: 7,
+        url: "https://example.com".to_string(),
+        title: Some("Fresh title".to_string()),
+        visit_count: 3,
+        typed_count: 2,
+        last_visit_ms: 200,
+        last_visit_iso: "1970-01-01T00:00:01Z".to_string(),
+        hidden: false,
+    };
+
+    merge_collected_url(&mut existing, &newer);
+
+    assert_eq!(existing.visit_count, 5);
+    assert_eq!(existing.typed_count, 3);
+    assert_eq!(existing.last_visit_ms, 200);
+    assert_eq!(existing.last_visit_iso, "1970-01-01T00:00:01Z");
+    assert_eq!(existing.title.as_deref(), Some("Fresh title"));
+}
+
+#[test]
 fn classify_payload_path_handles_localized_history_and_review_only_paths() {
     let english = classify_payload_path("Chrome/History.json");
     assert_eq!(english.recognized_kind, Some(KIND_BROWSER_JSON));

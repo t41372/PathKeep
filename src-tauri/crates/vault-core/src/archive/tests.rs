@@ -12,6 +12,8 @@ use rusqlite::Connection;
 use std::collections::BTreeMap;
 use tempfile::tempdir;
 
+const TEST_CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
+
 fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
 }
@@ -1712,9 +1714,15 @@ fn doctor_repair_noops_on_healthy_archive() {
 
 #[test]
 fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state() {
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
+    let original_chrome = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    let chrome_root = seed_chrome_fixture(dir.path());
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
     ensure_archive_initialized(&paths, &config, None).expect("init archive");
 
     let takeout_source = seed_takeout_fixture(dir.path());
@@ -1778,6 +1786,7 @@ fn doctor_repair_restores_missing_import_artifacts_visibility_and_derived_state(
 
     let repaired_report = doctor(&paths, &config, None).expect("doctor after repair");
     assert!(repaired_report.checks.iter().all(|check| check.ok));
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_chrome.as_deref());
 }
 
 #[test]

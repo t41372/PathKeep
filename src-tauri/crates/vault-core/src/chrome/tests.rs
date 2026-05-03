@@ -201,7 +201,7 @@ fn firefox_root_candidate_helpers_cover_override_default_and_missing_roots() {
     unsafe {
         std::env::remove_var(FIREFOX_PROFILES_OVERRIDE_ENV);
         std::env::set_var("HOME", dir.path());
-        std::env::remove_var(SAFARI_ROOT_OVERRIDE_ENV);
+        std::env::set_var(SAFARI_ROOT_OVERRIDE_ENV, dir.path().join("missing-safari"));
     }
     let default_candidates =
         firefox_root_candidates(firefox_definition).expect("default candidates");
@@ -323,6 +323,7 @@ fn fallback_chromium_profiles_collects_directory_profiles_with_favicons() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn atlas_discovery_uses_chromium_parser_family_and_host_profile_root() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -362,6 +363,7 @@ fn atlas_discovery_uses_chromium_parser_family_and_host_profile_root() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
 fn comet_discovery_uses_chromium_parser_family_and_app_support_profile_root() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");

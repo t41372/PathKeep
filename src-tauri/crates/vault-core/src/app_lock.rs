@@ -706,6 +706,11 @@ mod tests {
                 .expect("linux note")
                 .contains("Linux currently uses passcode-only")
         );
+        assert!(
+            biometric_note_for_platform(AppLockBiometricState::Unsupported, false)
+                .expect("generic unsupported note")
+                .contains("future platform integration")
+        );
 
         let unavailable_unlock = unlock_app_session_with_biometric(
             &paths,

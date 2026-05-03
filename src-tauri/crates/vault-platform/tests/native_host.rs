@@ -6,17 +6,18 @@ use std::{
 };
 use tempfile::tempdir;
 use vault_core::{AppLockBiometricState, ProjectPaths, S3CredentialInput};
-use vault_platform::test_support::{
-    TEST_KEYRING_SERVICE_ENV, TEST_LAUNCH_AGENTS_DIR_ENV, TEST_SCHEDULE_LABEL_ENV,
-};
+#[cfg(target_os = "macos")]
+use vault_platform::test_support::TEST_LAUNCH_AGENTS_DIR_ENV;
+use vault_platform::test_support::{TEST_KEYRING_SERVICE_ENV, TEST_SCHEDULE_LABEL_ENV};
 use vault_platform::{
-    ScheduleParameters, app_lock_biometric_state, apply_schedule, discover_browser_profiles,
+    ScheduleParameters, app_lock_biometric_state, discover_browser_profiles,
     keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
     keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
     keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
     keyring_status, open_external_url, open_path_in_file_manager, preview_schedule,
-    remove_schedule, schedule_status,
 };
+#[cfg(target_os = "macos")]
+use vault_platform::{apply_schedule, remove_schedule, schedule_status};
 
 fn unique_suffix() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time").as_nanos();
@@ -62,6 +63,7 @@ fn host_denied(error: &str) -> bool {
         || normalized.contains("permission denied")
         || normalized.contains("bootstrap failed: 5")
         || normalized.contains("input/output error")
+        || normalized.contains("secret service: no result found")
 }
 
 #[test]

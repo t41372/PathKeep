@@ -82,7 +82,6 @@ pub(super) fn chromium_root_candidates(
         return Ok(vec![PathBuf::from(path)]);
     }
 
-    let home = user_home_dir()?;
     let relative_paths = current_chromium_relative_paths(definition.key);
 
     #[cfg(target_os = "windows")]
@@ -98,6 +97,7 @@ pub(super) fn chromium_root_candidates(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let home = user_home_dir()?;
         Ok(relative_paths.into_iter().map(|relative| home.join(relative)).collect())
     }
 }
@@ -193,7 +193,6 @@ pub(super) fn firefox_root_candidates(
         return Ok(vec![PathBuf::from(path)]);
     }
 
-    let home = user_home_dir()?;
     let relative_paths = current_firefox_relative_paths(definition.key);
 
     #[cfg(target_os = "windows")]
@@ -209,6 +208,7 @@ pub(super) fn firefox_root_candidates(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let home = user_home_dir()?;
         Ok(relative_paths.into_iter().map(|relative| home.join(relative)).collect())
     }
 }

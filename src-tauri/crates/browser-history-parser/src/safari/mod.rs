@@ -908,9 +908,56 @@ mod tests {
     }
 
     #[test]
-    fn parse_history_reads_reference_safari_database_shape() {
-        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../reference/browserexport/tests/databases/safari.sqlite");
+    fn stream_history_flushes_residual_optional_native_table_chunks() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        write_current_schema_fixture(&history_path);
+        let mut sink = NonRetainingEvidenceSink::default();
+
+        let streamed = stream_history(&history_path, 0, 0, 4, &mut sink).expect("stream safari");
+
+        assert!(sink.source_evidence_chunks >= 3);
+        assert!(sink.native_entities >= 5);
+        assert!(streamed.native_entities.is_empty());
+    }
+
+    #[test]
+    fn parse_history_reads_current_safari_database_shape_with_multiple_items() {
+        let directory = tempdir().expect("tempdir");
+        let fixture_path = directory.path().join("History.db");
+        write_current_schema_fixture(&fixture_path);
+        let connection = Connection::open(&fixture_path).expect("open current safari fixture");
+        connection
+            .execute(
+                "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
+                params![6_i64, "https://example.com/safari-reference"],
+            )
+            .expect("insert second history item");
+        connection
+            .execute(
+                "INSERT INTO history_visits (
+                   id, history_item, title, visit_time, load_successful,
+                   http_non_get, synthesized, redirect_source, redirect_destination,
+                   origin, generation, attributes, score
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    11_i64,
+                    6_i64,
+                    "Safari Reference",
+                    765_838_802.0_f64,
+                    1_i64,
+                    0_i64,
+                    0_i64,
+                    Option::<i64>::None,
+                    Option::<i64>::None,
+                    2_i64,
+                    5_i64,
+                    16_i64,
+                    0.5_f64,
+                ],
+            )
+            .expect("insert third safari visit");
 
         let parsed = parse_history(&fixture_path, 0, 0).expect("parse reference safari fixture");
 

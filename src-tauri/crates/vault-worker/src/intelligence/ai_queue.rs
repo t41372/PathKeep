@@ -118,23 +118,13 @@ pub(crate) fn complete_claimed_index_job(
                 "Indexed {} new / {} updated row(s).",
                 report.indexed_items, report.updated_items
             );
-            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                true
-            } else {
-                !ai_queue::mark_ai_job_succeeded(
-                    connection,
-                    claimed.id,
-                    report.run_id,
-                    Some(summary.as_str()),
-                )?
-            };
-            if cancelled {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Index build cancelled from the UI."),
-                )?;
-            }
+            mark_successful_ai_job_or_cancelled(
+                connection,
+                claimed.id,
+                report.run_id,
+                Some(summary.as_str()),
+                Some("Index build cancelled from the UI."),
+            )?;
             Ok(report)
         }
         Err(error) => {
@@ -197,23 +187,13 @@ pub(crate) fn complete_claimed_assistant_job(
         Ok(mut response) => {
             response.job_id = Some(claimed.id);
             let summary = format!("Answered with {} citation(s).", response.citations.len());
-            let cancelled = if ai_queue::ai_job_stop_requested(connection, claimed.id)? {
-                true
-            } else {
-                !ai_queue::mark_ai_job_succeeded(
-                    connection,
-                    claimed.id,
-                    response.run_id,
-                    Some(summary.as_str()),
-                )?
-            };
-            if cancelled {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    connection,
-                    claimed.id,
-                    Some("Assistant run cancelled from the UI."),
-                )?;
-            }
+            mark_successful_ai_job_or_cancelled(
+                connection,
+                claimed.id,
+                response.run_id,
+                Some(summary.as_str()),
+                Some("Assistant run cancelled from the UI."),
+            )?;
             Ok(response)
         }
         Err(error) => {
@@ -236,6 +216,24 @@ pub(crate) fn complete_claimed_assistant_job(
             Err(error)
         }
     }
+}
+
+fn mark_successful_ai_job_or_cancelled(
+    connection: &rusqlite::Connection,
+    job_id: i64,
+    run_id: Option<i64>,
+    success_summary: Option<&str>,
+    cancellation_summary: Option<&str>,
+) -> Result<bool> {
+    let cancelled = if ai_queue::ai_job_stop_requested(connection, job_id)? {
+        true
+    } else {
+        !ai_queue::mark_ai_job_succeeded(connection, job_id, run_id, success_summary)?
+    };
+    if cancelled {
+        let _ = ai_queue::mark_running_ai_job_cancelled(connection, job_id, cancellation_summary)?;
+    }
+    Ok(cancelled)
 }
 
 /// Claims one assistant job by id and executes it immediately.
@@ -632,5 +630,64 @@ pub fn test_ai_provider_connection_report(
         Err(error) => {
             Ok(vault_core::provider_connection_failure_report(&provider_config, &error.to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn claimed_index_job(connection: &Connection) -> i64 {
+        ai_queue::ensure_ai_queue_schema(connection).expect("queue schema");
+        let queued = ai_queue::enqueue_index_job(connection, &AiIndexRequest::default(), false)
+            .expect("enqueue index job");
+        ai_queue::claim_ai_job_by_id(connection, queued.id, 300)
+            .expect("claim index job")
+            .expect("claimed index job");
+        queued.id
+    }
+
+    fn job_state(connection: &Connection, job_id: i64) -> String {
+        connection
+            .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
+            .expect("job state")
+    }
+
+    #[test]
+    fn mark_successful_ai_job_or_cancelled_honors_stop_requests() {
+        let connection = Connection::open_in_memory().expect("memory connection");
+        let job_id = claimed_index_job(&connection);
+        ai_queue::cancel_ai_job(&connection, job_id).expect("request cancellation");
+
+        let cancelled = mark_successful_ai_job_or_cancelled(
+            &connection,
+            job_id,
+            Some(42),
+            Some("success summary"),
+            Some("cancelled summary"),
+        )
+        .expect("mark cancelled");
+
+        assert!(cancelled);
+        assert_eq!(job_state(&connection, job_id), "cancelled");
+    }
+
+    #[test]
+    fn mark_successful_ai_job_or_cancelled_marks_uncancelled_jobs_succeeded() {
+        let connection = Connection::open_in_memory().expect("memory connection");
+        let job_id = claimed_index_job(&connection);
+
+        let cancelled = mark_successful_ai_job_or_cancelled(
+            &connection,
+            job_id,
+            Some(42),
+            Some("success summary"),
+            Some("cancelled summary"),
+        )
+        .expect("mark succeeded");
+
+        assert!(!cancelled);
+        assert_eq!(job_state(&connection, job_id), "succeeded");
     }
 }

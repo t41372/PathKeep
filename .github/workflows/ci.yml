@@ -43,7 +43,11 @@ jobs:
         with:
           components: clippy,rustfmt,llvm-tools-preview
       - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny,cargo-llvm-cov
