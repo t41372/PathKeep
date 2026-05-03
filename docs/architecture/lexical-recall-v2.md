@@ -36,7 +36,7 @@ The derived search DB remains plaintext rebuildable derived state in this
 milestone. Archive connections still attach it with `ATTACH ... AS search KEY
 ''`. M14 records that boundary but does not change the key policy.
 
-## OpenCC Asset Evaluation
+## OpenCC Supply Chain Boundary
 
 M14 initially evaluated `opencc-rs 0.5.1` backed by
 `opencc-sys 0.4.1+1.3.0`. That binding ships embedded OpenCC `.ocd2` assets,
@@ -45,22 +45,22 @@ compile probe failed because `cmake` was not on the per-commit gate `PATH`.
 Relying on a host-specific `CMAKE=/opt/homebrew/...` override would make
 `bun run check` fragile.
 
-The shipped dependency is therefore `ferrous-opencc 0.4.0`: a pure-Rust OpenCC
-implementation that compiles OpenCC text dictionaries into embedded lookup
-tables at Rust build time. It keeps the OpenCC ruleset boundary without adding
-a CMake/native C++ toolchain requirement to the desktop checker.
+An interim pure-Rust OpenCC crate was rejected after supply-chain review because
+it does not meet the repo's dependency trust gate. The shipped M14 code now has
+no OpenCC dependency and no new Unicode normalization dependency. Traditional /
+simplified Chinese conversion and full-width / half-width folding are therefore
+not claimed by `WORK-M14-A`; they require a future design window that either
+uses an approved official OpenCC path or receives explicit user approval after a
+package audit.
 
-| Item                   | Decision                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| License                | `Apache-2.0`, compatible with the GPLv3 desktop app                                                                            |
-| Rust floor             | No declared floor; current local toolchain is `1.94.1`                                                                         |
-| Runtime assets         | OpenCC JSON configs and text dictionaries are embedded/compiled by the Rust build script                                       |
-| Asset size             | `ferrous-opencc` source package is about 3.2 MB; selected OpenCC dictionaries are about 1.1 MB before build-script compilation |
-| Native build           | No CMake, C++, libclang, or loadable runtime asset requirement                                                                 |
-| Runtime initialization | `OpenCC::from_config` loads embedded tables; no temp asset directory is written at query/index time                            |
+Current M14-A lexical normalization is deliberately narrower:
 
-The implementation still keeps OpenCC converters as process-level singletons so
-projection rebuilds do not repeatedly rebuild dictionary chains.
+| Item             | Decision                                                                  |
+| ---------------- | ------------------------------------------------------------------------- |
+| New dependencies | None beyond the already committed core stack after remediation            |
+| Native build     | No CMake, C++, libclang, bindgen, or loadable extension path              |
+| OpenCC behavior  | Not shipped until an approved official/supply-chain-audited path exists   |
+| NFKC behavior    | Not shipped until an approved dependency or in-repo implementation exists |
 
 ## Analyzer Contract
 
@@ -68,17 +68,11 @@ The same analyzer is used for both projection writes and keyword query parsing.
 
 Pipeline:
 
-1. Unicode NFKC normalization for full-width/half-width and compatibility
-   folding.
-2. OpenCC conversion using both `TW2SP -> T2S` and plain `T2S`. The first path
-   catches Taiwan phrase conversions such as `設定 -> 设置`; the second keeps
-   standard character conversion such as `設定 -> 设定`. Query clauses OR these
-   variants, while documents index both in compact/CJK support fields.
-3. Lowercase folding.
-4. Term tokenization for unicode61 FTS prefix recall.
-5. Compact text generation by removing punctuation and whitespace, so
+1. Unicode lowercase folding with the Rust standard library.
+2. Term tokenization for unicode61 FTS prefix recall.
+3. Compact text generation by removing punctuation and whitespace, so
    `git hub`, `git-hub`, and `github` can share a substring path.
-6. CJK 2-gram and 3-gram generation from compact CJK runs.
+4. CJK 2-gram and 3-gram generation from compact CJK runs.
 
 The analyzer is deterministic. It does not infer semantics, classify intent, or
 call an external tokenizer.

@@ -12,9 +12,9 @@ embedding, semantic search, network providers, or SQLite loadable extensions.
 The primary path is:
 
 - shared query/index normalization
-- OpenCC traditional/simplified Chinese folding
 - FTS5 unicode61 terms with prefix indexes
 - SQLCipher-backed FTS5 trigram recall for compact substring matching
+- CJK gram recall for unspaced Chinese substring queries
 - explicit relevance ranking when a keyword query is active
 
 ## WORK-M14-A — Lexical Recall V2 Primary Path
@@ -25,8 +25,7 @@ The primary path is:
 
 ### Deliverables
 
-- Add `ferrous-opencc` and `unicode-normalization` to `vault-core`.
-- Add a shared lexical analyzer used by both search projection writes and
+- Add a shared dependency-free lexical analyzer used by both search projection writes and
   keyword query parsing.
 - Rebuild the derived `history-search.sqlite` schema with normalized fields,
   compact text, CJK grams, `history_search_terms`, and `history_search_trigram`.
@@ -49,7 +48,8 @@ The primary path is:
 
 M14-A shipped the primary deterministic recall path:
 
-- `vault-core` owns a shared lexical analyzer for index and query paths.
+- `vault-core` owns a shared dependency-free lexical analyzer for index and
+  query paths.
 - The search projection is schema-versioned and now writes raw fields,
   normalized fields, compact text, CJK grams, `history_search_terms`, and
   `history_search_trigram`.
@@ -60,10 +60,13 @@ M14-A shipped the primary deterministic recall path:
 - Explorer exposes `Relevance` sort with `en` / `zh-CN` / `zh-TW` parity and
   browser-preview fixture behavior aligned to the backend contract.
 
-Implementation note: the original `opencc-rs` candidate was rejected for this
-milestone because its native OpenCC / marisa build depends on CMake and bindgen
-being available in the checker environment. The shipped dependency is
-`ferrous-opencc`, which keeps OpenCC dictionary behavior in a pure-Rust build.
+Supply-chain remediation note: the original `opencc-rs` candidate was rejected
+for this milestone because its native OpenCC / marisa build depends on CMake and
+bindgen being available in the checker environment. The interim `ferrous-opencc`
+dependency was then removed because it did not meet the repo dependency trust
+gate. M14-A no longer ships OpenCC or NFKC folding; traditional/simplified
+conversion and full-width/half-width folding require a future approved
+dependency or in-repo implementation.
 
 Validation:
 

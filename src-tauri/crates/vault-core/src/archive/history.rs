@@ -259,7 +259,7 @@ pub fn list_history(
     let start_time_ms = query.start_time_ms;
     let end_time_ms = query.end_time_ms;
     let q = query.q.clone().filter(|value| !value.trim().is_empty());
-    let lexical_query = q.as_deref().map(analyze_query).transpose()?.flatten();
+    let lexical_query = q.as_deref().and_then(analyze_query);
     let regex = if query.regex_mode.unwrap_or(false) {
         q.as_ref()
             .map(|value| {

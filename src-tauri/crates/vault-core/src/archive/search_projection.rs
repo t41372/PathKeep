@@ -203,7 +203,7 @@ fn rebuild_search_projection_from_archive(
         let url = row.get::<_, String>(1)?;
         let title = row.get::<_, String>(2)?;
         let search_terms = row.get::<_, String>(3)?;
-        let lexical = analyze_document(&url, &title, &search_terms)?;
+        let lexical = analyze_document(&url, &title, &search_terms);
         insert.execute(params![
             row.get::<_, i64>(0)?,
             url,
@@ -234,7 +234,7 @@ fn refresh_search_document(
     title: &str,
     search_terms: &str,
 ) -> Result<()> {
-    let lexical = analyze_document(url, title, search_terms)?;
+    let lexical = analyze_document(url, title, search_terms);
 
     if let Some(old_document) = transaction
         .query_row(

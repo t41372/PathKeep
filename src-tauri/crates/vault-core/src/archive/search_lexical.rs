@@ -3,34 +3,25 @@
 //! ## Responsibilities
 //! - Normalize indexed document fields and user keyword queries through the
 //!   same deterministic pipeline.
-//! - Own OpenCC traditional/simplified Chinese folding for local recall.
+//! - Own dependency-free lowercase normalization, compact text, and CJK gram
+//!   generation.
 //! - Build FTS-safe term, CJK gram, and compact trigram query fragments.
 //!
 //! ## Not responsible for
 //! - Ranking or pagination policy.
 //! - Regex mode, which intentionally bypasses this analyzer.
 //! - Semantic, embedding, fuzzy, pinyin, or alias expansion.
+//! - Traditional/simplified Chinese conversion until an approved OpenCC supply
+//!   chain exists.
 //!
 //! ## Dependencies
-//! - `ferrous-opencc` for pure-Rust OpenCC conversion assets.
-//! - `unicode-normalization` for NFKC folding before OpenCC conversion.
+//! - Standard library Unicode lowercase and character classification only.
 //!
 //! ## Performance notes
-//! - OpenCC rules are initialized once per process and reused across projection
-//!   rebuild rows so imports never pay converter setup cost per URL document.
+//! - The analyzer is pure string processing and does not initialize external
+//!   dictionaries during projection rebuilds.
 
-use anyhow::{Context, Result, anyhow};
-use ferrous_opencc::{OpenCC, config::BuiltinConfig};
-use std::{collections::BTreeSet, sync::OnceLock};
-use unicode_normalization::UnicodeNormalization;
-
-static OPENCC: OnceLock<Result<ChineseConverters, String>> = OnceLock::new();
-
-struct ChineseConverters {
-    tw2sp: OpenCC,
-    t2s: OpenCC,
-}
-
+use std::collections::BTreeSet;
 /// Derived document fields stored in the rebuildable search projection.
 pub(super) struct LexicalDocument {
     pub normalized_url: String,
@@ -55,23 +46,19 @@ impl LexicalQuery {
 }
 
 /// Builds all normalized projection fields for one canonical URL document.
-pub(super) fn analyze_document(
-    url: &str,
-    title: &str,
-    search_terms: &str,
-) -> Result<LexicalDocument> {
-    let normalized_url = normalize_text(url).context("normalizing search URL")?;
-    let normalized_title = normalize_text(title).context("normalizing search title")?;
-    let normalized_search_terms =
-        normalize_text(search_terms).context("normalizing search terms")?;
-    let compact_variants = normalized_url
-        .variants
-        .iter()
-        .chain(normalized_title.variants.iter())
-        .chain(normalized_search_terms.variants.iter())
-        .map(|value| compact_text(value))
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
+pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> LexicalDocument {
+    let normalized_url = normalize_text(url);
+    let normalized_title = normalize_text(title);
+    let normalized_search_terms = normalize_text(search_terms);
+    let compact_variants = [
+        normalized_url.canonical.as_str(),
+        normalized_title.canonical.as_str(),
+        normalized_search_terms.canonical.as_str(),
+    ]
+    .into_iter()
+    .map(compact_text)
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>();
     let compact_text = compact_variants
         .iter()
         .filter(|value| !value.is_empty())
@@ -80,35 +67,24 @@ pub(super) fn analyze_document(
         .join(" ");
     let cjk_grams = cjk_grams_for_fields(compact_variants.iter().map(String::as_str));
 
-    Ok(LexicalDocument {
+    LexicalDocument {
         normalized_url: normalized_url.canonical,
         normalized_title: normalized_title.canonical,
         normalized_search_terms: normalized_search_terms.canonical,
         compact_text,
         cjk_grams,
-    })
+    }
 }
 
 /// Parses one user keyword query into FTS-safe recall fragments.
-pub(super) fn analyze_query(raw: &str) -> Result<Option<LexicalQuery>> {
-    let normalized = normalize_text(raw).context("normalizing search query")?;
-    let term_clauses = normalized
-        .variants
-        .iter()
-        .filter_map(|variant| terms_query_for_normalized_text(variant))
-        .collect::<Vec<_>>();
-    let terms_query = join_variant_clauses(term_clauses);
-    let trigram_clauses = normalized
-        .variants
-        .iter()
-        .map(|variant| compact_text(variant))
-        .filter(|compact| compact.chars().count() >= 3)
-        .map(|compact| quote_fts_term(&compact))
-        .collect::<Vec<_>>();
-    let trigram_query = join_variant_clauses(trigram_clauses);
+pub(super) fn analyze_query(raw: &str) -> Option<LexicalQuery> {
+    let normalized = normalize_text(raw);
+    let terms_query = terms_query_for_normalized_text(&normalized.canonical);
+    let compact = compact_text(&normalized.canonical);
+    let trigram_query = (compact.chars().count() >= 3).then(|| quote_fts_term(&compact));
     let query = LexicalQuery { terms_query, trigram_query };
 
-    Ok((!query.is_empty()).then_some(query))
+    (!query.is_empty()).then_some(query)
 }
 
 fn terms_query_for_normalized_text(normalized: &str) -> Option<String> {
@@ -125,58 +101,13 @@ fn terms_query_for_normalized_text(normalized: &str) -> Option<String> {
     (!terms_query.is_empty()).then_some(terms_query)
 }
 
-fn join_variant_clauses(clauses: Vec<String>) -> Option<String> {
-    let clauses = clauses.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    match clauses.as_slice() {
-        [] => None,
-        [only] => Some(only.clone()),
-        _ => Some(
-            clauses
-                .into_iter()
-                .map(|clause| format!("({clause})"))
-                .collect::<Vec<_>>()
-                .join(" OR "),
-        ),
-    }
-}
-
 struct NormalizedText {
     canonical: String,
-    variants: Vec<String>,
 }
 
-fn normalize_text(raw: &str) -> Result<NormalizedText> {
-    let nfkc = raw.replace('\0', "").nfkc().collect::<String>();
-    let converters = opencc()?;
-    let canonical = converters.convert_tw_phrase_to_simplified(&nfkc).to_lowercase();
-    let standard = converters.convert_traditional_to_simplified(&nfkc).to_lowercase();
-    let mut variants = vec![canonical.clone()];
-    if standard != canonical {
-        variants.push(standard);
-    }
-    Ok(NormalizedText { canonical, variants })
-}
-
-fn opencc() -> Result<&'static ChineseConverters> {
-    OPENCC
-        .get_or_init(|| {
-            let tw2sp =
-                OpenCC::from_config(BuiltinConfig::Tw2sp).map_err(|error| error.to_string())?;
-            let t2s = OpenCC::from_config(BuiltinConfig::T2s).map_err(|error| error.to_string())?;
-            Ok(ChineseConverters { tw2sp, t2s })
-        })
-        .as_ref()
-        .map_err(|error| anyhow!("initializing OpenCC converter failed: {error}"))
-}
-
-impl ChineseConverters {
-    fn convert_tw_phrase_to_simplified(&self, input: &str) -> String {
-        self.t2s.convert(&self.tw2sp.convert(input))
-    }
-
-    fn convert_traditional_to_simplified(&self, input: &str) -> String {
-        self.t2s.convert(input)
-    }
+fn normalize_text(raw: &str) -> NormalizedText {
+    let canonical = raw.replace('\0', "").to_lowercase();
+    NormalizedText { canonical }
 }
 
 fn latin_prefix_terms(normalized: &str) -> Vec<String> {
@@ -246,38 +177,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expands_traditional_queries_across_opencc_phrase_variants() {
-        let traditional = analyze_query("設定").expect("traditional query").expect("query");
-        let simplified = analyze_query("设定").expect("simplified query").expect("query");
+    fn does_not_fold_traditional_and_simplified_without_approved_dependency() {
+        let traditional = analyze_query("設定").expect("traditional query");
+        let simplified = analyze_query("设定").expect("simplified query");
 
-        assert!(
-            traditional.terms_query.as_deref().is_some_and(|query| {
-                query.contains("\"设置\"") && query.contains("\"设定\"")
-            })
-        );
+        assert_eq!(traditional.terms_query.as_deref(), Some("\"設定\""));
         assert_eq!(simplified.terms_query.as_deref(), Some("\"设定\""));
     }
 
     #[test]
     fn ignores_chinese_spacing_and_punctuation_for_grams() {
-        let spaced = analyze_query("設 定").expect("spaced query").expect("query");
-        let punctuated = analyze_query("设-定").expect("punctuated query").expect("query");
+        let spaced = analyze_query("设 定").expect("spaced query");
+        let punctuated = analyze_query("设-定").expect("punctuated query");
 
         assert_eq!(spaced, punctuated);
         assert_eq!(spaced.terms_query.as_deref(), Some("\"设定\""));
     }
 
     #[test]
-    fn folds_full_width_latin_and_lowercase() {
-        let query = analyze_query("ＧｉｔＨｕｂ").expect("query").expect("query");
+    fn lowercases_latin_without_full_width_folding() {
+        let query = analyze_query("GitHUb").expect("query");
+        let full_width = analyze_query("ＧｉｔＨｕｂ").expect("full-width query");
 
         assert_eq!(query.terms_query.as_deref(), Some("\"github\"*"));
         assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
+        assert_eq!(full_width.terms_query.as_deref(), Some("\"ｇｉｔｈｕｂ\"*"));
+        assert_eq!(full_width.trigram_query.as_deref(), Some("\"ｇｉｔｈｕｂ\""));
     }
 
     #[test]
     fn compact_query_ignores_latin_spaces() {
-        let query = analyze_query("git hub").expect("query").expect("query");
+        let query = analyze_query("git hub").expect("query");
 
         assert_eq!(query.terms_query.as_deref(), Some("\"git\"* AND \"hub\"*"));
         assert_eq!(query.trigram_query.as_deref(), Some("\"github\""));
@@ -285,11 +215,10 @@ mod tests {
 
     #[test]
     fn document_analysis_indexes_cjk_substrings() {
-        let document =
-            analyze_document("https://example.test", "我的瀏覽器設定頁", "").expect("document");
+        let document = analyze_document("https://example.test", "我的瀏覽器設定頁", "");
 
-        assert!(document.cjk_grams.contains("设置"));
-        assert!(document.compact_text.contains("我的浏览器设置页"));
+        assert!(document.cjk_grams.contains("設定"));
+        assert!(document.compact_text.contains("我的瀏覽器設定頁"));
     }
 
     #[test]
@@ -305,7 +234,7 @@ mod tests {
 
     #[test]
     fn punctuation_only_query_has_no_recall_path() {
-        let query = analyze_query("!!!").expect("query");
+        let query = analyze_query("!!!");
 
         assert!(query.is_none());
     }
