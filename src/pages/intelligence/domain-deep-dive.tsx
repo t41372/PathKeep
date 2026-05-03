@@ -214,8 +214,15 @@ export function DomainDeepDivePage({
 
   if (loading) {
     return (
-      <div className="intelligence-page domain-deep-dive">
+      <div
+        className="intelligence-page domain-deep-dive"
+        aria-busy="true"
+        aria-live="polite"
+      >
         <div className="intelligence-skeleton intelligence-skeleton--card" />
+        <p className="domain-deep-dive__loading-label dim">
+          {t('domainDeepDiveLoadingLabel', { domain })}
+        </p>
       </div>
     )
   }
@@ -237,6 +244,10 @@ export function DomainDeepDivePage({
     detail.arrivalBreakdown.link +
     detail.arrivalBreakdown.typed +
     detail.arrivalBreakdown.other
+  const visitTrendMax = detail.visitTrend.reduce(
+    (max, point) => Math.max(max, point.visitCount),
+    1,
+  )
 
   return (
     <div className="intelligence-page domain-deep-dive">
@@ -356,22 +367,28 @@ export function DomainDeepDivePage({
               ))}
           </div>
           <div className="domain-deep-dive__arrival-legend">
-            <span>
-              🔍 {t('domainDeepDiveArrival_search')}{' '}
-              {Math.round(
-                (detail.arrivalBreakdown.search / arrivalTotal) * 100,
-              )}
-              %
-            </span>
-            <span>
-              🔗 {t('domainDeepDiveArrival_link')}{' '}
-              {Math.round((detail.arrivalBreakdown.link / arrivalTotal) * 100)}%
-            </span>
-            <span>
-              ⌨️ {t('domainDeepDiveArrival_typed')}{' '}
-              {Math.round((detail.arrivalBreakdown.typed / arrivalTotal) * 100)}
-              %
-            </span>
+            {[
+              { key: 'search', value: detail.arrivalBreakdown.search },
+              { key: 'link', value: detail.arrivalBreakdown.link },
+              { key: 'typed', value: detail.arrivalBreakdown.typed },
+              { key: 'other', value: detail.arrivalBreakdown.other },
+            ]
+              .filter((entry) => entry.value > 0)
+              .map((entry) => (
+                <span
+                  key={entry.key}
+                  className="domain-deep-dive__arrival-legend-item"
+                >
+                  <span
+                    className={`domain-deep-dive__arrival-swatch domain-deep-dive__arrival-swatch--${entry.key}`}
+                    aria-hidden="true"
+                  />
+                  <span>{t(`domainDeepDiveArrival_${entry.key}`)}</span>
+                  <span className="dim mono">
+                    {Math.round((entry.value / arrivalTotal) * 100)}%
+                  </span>
+                </span>
+              ))}
           </div>
         </div>
       ) : null}
@@ -382,28 +399,40 @@ export function DomainDeepDivePage({
             <h3 className="domain-deep-dive__section-title">
               {t('domainDeepDiveTopPages')}
             </h3>
-            {detail.topPages.slice(0, 10).map((page) => (
-              <div
-                key={page.path}
-                className={`domain-deep-dive__page-row${
-                  focusedComparePaths.has(page.path)
-                    ? ' domain-deep-dive__page-row--focused'
-                    : ''
-                }`}
-              >
-                <span className="domain-deep-dive__page-path">
-                  {formatDomainPagePath(page.path)}
-                </span>
-                {focusedComparePaths.has(page.path) ? (
-                  <span className="compare-set__landing-badge">
-                    {t('compareSetFocusBadge')}
+            {detail.topPages.slice(0, 10).map((page) => {
+              const sharePercent =
+                detail.totalVisits > 0
+                  ? Math.round((page.visitCount / detail.totalVisits) * 100)
+                  : 0
+              return (
+                <div
+                  key={page.path}
+                  className={`domain-deep-dive__page-row${
+                    focusedComparePaths.has(page.path)
+                      ? ' domain-deep-dive__page-row--focused'
+                      : ''
+                  }`}
+                >
+                  <span className="domain-deep-dive__page-path">
+                    {formatDomainPagePath(page.path)}
                   </span>
-                ) : null}
-                <span className="domain-deep-dive__page-count">
-                  {formatNumber(page.visitCount)}
-                </span>
-              </div>
-            ))}
+                  {focusedComparePaths.has(page.path) ? (
+                    <span className="compare-set__landing-badge">
+                      {t('compareSetFocusBadge')}
+                    </span>
+                  ) : null}
+                  <span className="domain-deep-dive__page-count">
+                    {formatNumber(page.visitCount)}
+                    {sharePercent >= 1 ? (
+                      <span className="domain-deep-dive__page-share dim mono">
+                        {' '}
+                        · {sharePercent}%
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         ) : null}
 
@@ -483,34 +512,28 @@ export function DomainDeepDivePage({
               {t('domainDeepDiveTrend')}
             </h3>
             <div className="discovery-trend__chart" style={{ height: 80 }}>
-              {detail.visitTrend.map((point: DomainTrendPoint) => {
-                const max = Math.max(
-                  ...detail.visitTrend.map(
-                    (trendPoint: DomainTrendPoint) => trendPoint.visitCount,
-                  ),
-                  1,
-                )
-                return (
-                  <Link
-                    key={point.dateKey}
-                    className="discovery-trend__bar-group"
-                    to={dayHref(point.dateKey)}
-                    title={`${point.dateKey}: ${point.visitCount}`}
-                  >
-                    <div className="discovery-trend__domain-bar-container">
-                      <span
-                        className="discovery-trend__domain-bar"
-                        style={{
-                          height: `${Math.round((point.visitCount / max) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="discovery-trend__date-label">
-                      {point.dateKey.slice(5)}
-                    </span>
-                  </Link>
-                )
-              })}
+              {detail.visitTrend.map((point: DomainTrendPoint) => (
+                <Link
+                  key={point.dateKey}
+                  className="discovery-trend__bar-group"
+                  to={dayHref(point.dateKey)}
+                  title={`${point.dateKey}: ${point.visitCount}`}
+                >
+                  <div className="discovery-trend__domain-bar-container">
+                    <span
+                      className="discovery-trend__domain-bar"
+                      style={{
+                        height: `${Math.round(
+                          (point.visitCount / visitTrendMax) * 100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="discovery-trend__date-label">
+                    {point.dateKey.slice(5)}
+                  </span>
+                </Link>
+              ))}
             </div>
           </div>
         ) : null}
@@ -538,5 +561,5 @@ function parsePathFlowStepCount(flowId: string | null) {
   if (!flowId) return null
   const parts = flowId.split(':')
   const candidate = Number(parts.at(-2))
-  return Number.isFinite(candidate) ? candidate : null
+  return Number.isInteger(candidate) && candidate > 0 ? candidate : null
 }

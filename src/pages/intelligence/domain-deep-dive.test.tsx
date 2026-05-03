@@ -298,6 +298,7 @@ describe('DomainDeepDive route and page', () => {
             other: 0,
           },
           displayName: null,
+          totalVisits: 0,
           topExits: [
             {
               domain: 'fallback-exit.test',
