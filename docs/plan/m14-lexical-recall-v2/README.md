@@ -83,16 +83,32 @@ Validation:
 
 ## WORK-M14-B — Bounded Fuzzy Recall And Query Expansion
 
-- Status: approved follow-up
+- Status: completed 2026-05-03
 - Entry condition: run a dedicated candidate-volume benchmark before changing
   ranking behavior.
 
-This follow-up may add Rust-side typo tolerance and a small alias dictionary
-only after FTS/trigram has produced a bounded candidate set. SQL full-scan edit
-distance and SQLite extension loading remain forbidden. `strsim` is approved for
-this bounded rerank path because it is maintained under the RapidFuzz project;
-repo-owned edit-distance code remains acceptable if it keeps the implementation
-smaller.
+This follow-up shipped Rust-side typo tolerance and a small alias dictionary
+without adding a new dependency:
+
+- `gh`, `yt`, and `pr` expand to `github`, `youtube`, and `pull request` before
+  FTS query construction.
+- Latin typo tolerance runs only when the normal FTS/trigram query returns zero
+  results.
+- Fuzzy candidates come from an FTS5 trigram OR query capped at 200 URL
+  documents and 400 visible visits before repo-owned bounded edit-distance
+  scoring runs in Rust.
+- Explicit newest / oldest sort still overrides relevance. Regex mode remains
+  unchanged.
+
+`strsim` remains approved for a future bounded rerank path, but M14-B did not
+need it. SQL full-scan edit distance, SQLite extension loading, `spellfix1`,
+Jieba, embedding, semantic search, and vector sidecars remain forbidden.
+
+Validation:
+
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_projection::tests::fuzzy_trigram_candidate_probe_is_limited_before_rust_rerank -- --test-threads=1`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_lexical -- --test-threads=1`
+- `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core lexical_recall -- --test-threads=1`
 
 ## WORK-M14-D — Official OpenCC Toolchain And Script Folding
 

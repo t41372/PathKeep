@@ -56,7 +56,7 @@ Approved boundary after the M14 remediation:
 | NFKC / full-width     | Shipped through ICU4X `icu_normalizer`, maintained by the Unicode Consortium and already present in the dependency graph            |
 | OpenCC script folding | Shipped through official OpenCC 1.3.0 dictionary assets plus repo-owned Rust conversion code; low-trust Rust bindings remain banned |
 | OpenCC C++ tooling    | Still allowed, but must prove local and CI availability for CMake/C++/header/link/packaging before product code depends on it       |
-| Fuzzy typo tolerance  | `strsim` is approved for bounded Rust-side rerank because it is maintained under the RapidFuzz project                              |
+| Fuzzy typo tolerance  | Shipped with repo-owned bounded edit distance over FTS/trigram top-N candidates; `strsim` remains approved but is not needed yet    |
 
 The detailed provenance, local toolchain probe, and C++ rollback contract live
 in [opencc-script-folding.md](opencc-script-folding.md).
@@ -108,6 +108,16 @@ Keyword mode builds a candidate union from:
 - CJK gram matches
 - compact trigram matches when the compact query has at least three codepoints
 
+M14-B adds two deterministic query-expansion layers:
+
+- Small short-alias expansion before FTS: `gh -> github`, `yt -> youtube`,
+  and `pr -> pull request`.
+- Latin typo fallback only when the normal FTS/trigram candidate count is zero.
+  The fallback asks the trigram table for an OR-of-trigrams candidate window,
+  caps that window at 200 URL documents and 400 visible visits, and then applies
+  repo-owned bounded edit distance in Rust. It does not run edit distance in SQL
+  and it does not scan canonical rows outside the FTS candidate window.
+
 Regex mode remains a manual post-filter over visible canonical rows and does not
 use the analyzer.
 
@@ -121,6 +131,11 @@ Relevance uses FTS5 BM25 with title weighted above URL, and URL/search terms
 above compact/CJK support fields. Lower BM25 scores rank first; ties fall back
 to newest visit time and then visit id.
 
+Fuzzy fallback relevance uses Rust-side edit-distance scores with the same field
+intent: title beats URL, URL beats search terms, and compact substring support is
+lowest. Because the fallback is deliberately bounded, its `total` reflects the
+accepted candidate window, not a global approximate count.
+
 Cursor behavior:
 
 - New relevance cursors are opaque `r|score|visitTime|id` strings.
@@ -128,6 +143,6 @@ Cursor behavior:
 
 ## Follow-up Boundary
 
-Levenshtein, Jaro-Winkler, alias expansion, pinyin, and match explanations are
-explicitly out of `WORK-M14-A`. `WORK-M14-B` may add Rust-side fuzzy reranking
-only after FTS/trigram has produced a bounded candidate set.
+Pinyin and match explanations remain out of M14. Any future expansion must keep
+the same rule: FTS/trigram first, bounded Rust-side work second, and no SQLite
+loadable extension or SQL full-scan edit distance.

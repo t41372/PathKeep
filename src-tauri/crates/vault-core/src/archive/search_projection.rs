@@ -520,6 +520,55 @@ mod tests {
     }
 
     #[test]
+    fn fuzzy_trigram_candidate_probe_is_limited_before_rust_rerank() {
+        let connection = Connection::open_in_memory().expect("open memory db");
+        connection
+            .execute(
+                "CREATE VIRTUAL TABLE fuzzy_probe
+                 USING fts5(compact_text, tokenize='trigram')",
+                [],
+            )
+            .expect("fuzzy fts table");
+        for index in 0..500 {
+            connection
+                .execute(
+                    "INSERT INTO fuzzy_probe(compact_text)
+                     VALUES (?1)",
+                    params![format!("githubcandidate{index}")],
+                )
+                .expect("insert fuzzy probe row");
+        }
+
+        let query = "(\"git\" OR \"ith\" OR \"thu\" OR \"hub\")";
+        let unbounded_hits: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM fuzzy_probe
+                 WHERE fuzzy_probe MATCH ?1",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("unbounded fuzzy hits");
+        let bounded_hits: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM (
+                   SELECT rowid
+                   FROM fuzzy_probe
+                   WHERE fuzzy_probe MATCH ?1
+                   ORDER BY bm25(fuzzy_probe, 1.0) ASC
+                   LIMIT 200
+                 )",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("bounded fuzzy hits");
+
+        assert_eq!(unbounded_hits, 500);
+        assert_eq!(bounded_hits, 200);
+    }
+
+    #[test]
     fn encrypted_archive_attaches_plaintext_search_projection() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());

@@ -56,7 +56,7 @@
   - 同步回寫 [`docs/architecture/opencc-script-folding.md`](../architecture/opencc-script-folding.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_opencc -- --test-threads=1`、`search_lexical`、`lexical_recall` 通過；`bun run check` 通過。
 
-- [ ] **WORK-M14-B** — Bounded Fuzzy Recall And Query Expansion
+- [x] **WORK-M14-B** — Bounded Fuzzy Recall And Query Expansion
   - 讀先：
     `docs/architecture/lexical-recall-v2.md`
     `docs/features/recall.md`
@@ -66,6 +66,9 @@
   - 目標：在 M14-A/C 的 FTS/trigram top-N 候選之後，加入 bounded Rust-side fuzzy search / typo tolerance / alias expansion，而不是把 Levenshtein 變成 SQL full scan。
   - 契約：只能在 FTS/trigram 已產生 bounded candidate set 後使用 edit-distance rerank；`strsim` 因 RapidFuzz maintainer provenance 已批准，但仍不得啟用 SQLite loadable extension、`spellfix1`、Jieba、embedding、semantic/hybrid runtime 或 vector sidecar；alias dictionary 必須小型、可審查、可測試；ranking explanation 若加入，必須保持 deterministic 且不推斷語義。
   - 驗收：候選量 benchmark artifact、Latin typo tolerance tests、alias dictionary tests、ranking regression tests、Explorer copy/i18n updates if exposed、`bun run check`。
+  - 2026-05-03 closeout：未新增 `strsim` 或任何新 third-party dependency；M14-B 用 repo-owned bounded edit distance 完成 Latin typo fallback。短別名 `gh` / `yt` / `pr` 在 query analyzer 內展開成 `github` / `youtube` / `pull request`。Fuzzy fallback 只在正常 FTS/trigram 結果為 0 時啟動，先用 trigram OR 查出最多 200 個 URL document / 400 個 visible visit，再在 Rust 內按 title > url > search terms > compact text 打分；SQL full-scan edit distance、SQLite extension、`spellfix1`、Jieba、embedding、semantic/vector runtime 仍未啟用。Regex mode 不受影響。
+  - 同步回寫 [`docs/plan/m14-lexical-recall-v2/fuzzy-candidate-benchmark.md`](m14-lexical-recall-v2/fuzzy-candidate-benchmark.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：candidate-volume probe `search_projection::tests::fuzzy_trigram_candidate_probe_is_limited_before_rust_rerank`、targeted `search_lexical` 與 `lexical_recall` tests 通過；`bun run check` 通過。
 
 - [x] **WORK-RELEASE-012-A** — Release Truth And Demo Gate Recovery
   - 讀先：

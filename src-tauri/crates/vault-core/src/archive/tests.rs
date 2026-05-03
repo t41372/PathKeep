@@ -223,6 +223,20 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
             5_000,
             "2026-05-01T00:00:05+00:00",
         ),
+        (
+            6,
+            "https://www.youtube.com/watch?v=recall",
+            "YouTube watch queue",
+            6_000,
+            "2026-05-01T00:00:06+00:00",
+        ),
+        (
+            7,
+            "https://example.test/reviews/pull-request",
+            "Pull Request review checklist",
+            7_000,
+            "2026-05-01T00:00:07+00:00",
+        ),
     ];
 
     for (id, url, title, visit_time, iso) in rows {
@@ -361,6 +375,155 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
             .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual")),
         "NFKC recall should fold full-width GitHub into the indexed latin form"
     );
+}
+
+#[test]
+fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    let github_alias = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("gh".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("github alias query");
+    assert!(
+        github_alias
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual")),
+        "gh should expand to github before FTS recall"
+    );
+
+    let youtube_alias = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("yt".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("youtube alias query");
+    assert!(
+        youtube_alias
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("YouTube watch queue")),
+        "yt should expand to youtube before FTS recall"
+    );
+
+    let pull_request_alias = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("pr".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("pull request alias query");
+    assert!(
+        pull_request_alias
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("Pull Request review checklist")),
+        "pr should expand to pull request before FTS recall"
+    );
+
+    let fuzzy_first_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("gihub".to_string()), limit: Some(1), ..HistoryQuery::default() },
+    )
+    .expect("fuzzy typo query");
+    assert_eq!(fuzzy_first_page.total, 3);
+    assert_eq!(fuzzy_first_page.items[0].title.as_deref(), Some("GitHub Actions manual"));
+    assert!(fuzzy_first_page.next_cursor.as_deref().is_some_and(|cursor| cursor.starts_with("r|")));
+
+    let fuzzy_second_page = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            limit: Some(1),
+            cursor: fuzzy_first_page.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy typo second page");
+    assert_eq!(fuzzy_second_page.items.len(), 1);
+    assert!(fuzzy_second_page.has_previous);
+    let fuzzy_second_page_by_number = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            limit: Some(1),
+            page: Some(2),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy typo explicit second page");
+    assert_eq!(fuzzy_second_page_by_number.items.len(), 1);
+    assert_eq!(fuzzy_second_page_by_number.page, 2);
+
+    let fuzzy_newest = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            sort: Some("newest".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy newest query");
+    assert_eq!(fuzzy_newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
+    let fuzzy_newest_second = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            sort: Some("newest".to_string()),
+            limit: Some(1),
+            cursor: fuzzy_newest.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy newest second page");
+    assert_eq!(fuzzy_newest_second.items[0].title.as_deref(), Some("Release notes"));
+
+    let fuzzy_oldest = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            sort: Some("oldest".to_string()),
+            limit: Some(1),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy oldest query");
+    assert_eq!(fuzzy_oldest.items[0].title.as_deref(), Some("GitHub Actions manual"));
+    let fuzzy_oldest_second = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("gihub".to_string()),
+            sort: Some("oldest".to_string()),
+            limit: Some(1),
+            cursor: fuzzy_oldest.next_cursor.clone(),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("fuzzy oldest second page");
+    assert_eq!(fuzzy_oldest_second.items[0].title.as_deref(), Some("Release notes"));
 }
 
 #[test]

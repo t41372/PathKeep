@@ -12,7 +12,7 @@
 //! a slower manual path instead of pretending to be the default fast query
 //! engine.
 
-use super::search_lexical::{LexicalQuery, analyze_query};
+use super::search_lexical::{FuzzyDocument, FuzzyQuery, LexicalQuery, analyze_query};
 use super::*;
 use std::collections::{HashMap, HashSet};
 
@@ -101,6 +101,56 @@ ORDER BY
   CASE WHEN :sort = 'relevance' THEN visits.id END DESC
 LIMIT :pageLimit
 OFFSET :pageOffset
+"#;
+
+const FUZZY_CANDIDATE_URL_LIMIT: i64 = 200;
+const FUZZY_CANDIDATE_VISIT_LIMIT: i64 = 400;
+
+const LIST_HISTORY_FUZZY_CANDIDATES_SQL: &str = r#"
+WITH fuzzy_url_candidates AS (
+  SELECT
+    rowid AS url_id,
+    bm25(history_search_trigram, 1.0) AS fts_score
+  FROM search.history_search_trigram
+  WHERE history_search_trigram MATCH :fuzzyFtsQuery
+  ORDER BY fts_score ASC
+  LIMIT :candidateUrlLimit
+)
+SELECT
+  visits.id,
+  source_profiles.profile_key,
+  urls.url,
+  urls.title,
+  visits.visit_time_ms,
+  visits.visit_duration_ms,
+  visits.transition_type,
+  visits.source_visit_id,
+  visits.app_id,
+  fuzzy_url_candidates.fts_score,
+  search_documents.normalized_url,
+  search_documents.normalized_title,
+  search_documents.normalized_search_terms,
+  search_documents.compact_text
+FROM fuzzy_url_candidates
+JOIN search.search_documents
+  ON search_documents.url_id = fuzzy_url_candidates.url_id
+JOIN urls
+  ON urls.id = fuzzy_url_candidates.url_id
+JOIN visits
+  ON visits.url_id = urls.id
+JOIN source_profiles
+  ON source_profiles.id = visits.source_profile_id
+WHERE visits.reverted_at IS NULL
+  AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
+  AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
+  AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
+  AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
+ORDER BY
+  fuzzy_url_candidates.fts_score ASC,
+  visits.visit_time_ms DESC,
+  visits.id DESC
+LIMIT :candidateVisitLimit
 "#;
 
 const COUNT_HISTORY_LEXICAL_SQL: &str = r#"
@@ -764,6 +814,7 @@ fn list_history_with_lexical_search(
     cursor: Option<HistoryCursor>,
     lexical_query: LexicalQuery,
 ) -> Result<HistoryQueryResponse> {
+    let fuzzy_query = lexical_query.fuzzy_query.clone();
     let total: usize = connection
         .query_row(
             COUNT_HISTORY_LEXICAL_SQL,
@@ -780,6 +831,24 @@ fn list_history_with_lexical_search(
         )?
         .try_into()
         .expect("history count fits in usize");
+
+    if total == 0
+        && let Some(fuzzy_query) = fuzzy_query
+    {
+        return list_history_with_fuzzy_fallback(
+            connection,
+            limit_usize,
+            requested_page,
+            profile_id,
+            browser_kind,
+            domain_pattern,
+            start_time_ms,
+            end_time_ms,
+            sort,
+            cursor,
+            fuzzy_query,
+        );
+    }
 
     let mut statement = connection.prepare(LIST_HISTORY_LEXICAL_SQL)?;
     let normalized_page_count = page_count(total, limit_usize);
@@ -840,6 +909,116 @@ fn list_history_with_lexical_search(
         scored_items,
         &sort,
     ))
+}
+
+/// Runs Latin typo tolerance over a bounded trigram candidate set.
+#[allow(clippy::too_many_arguments)]
+fn list_history_with_fuzzy_fallback(
+    connection: &Connection,
+    limit_usize: usize,
+    requested_page: Option<usize>,
+    profile_id: Option<String>,
+    browser_kind: Option<String>,
+    domain_pattern: Option<String>,
+    start_time_ms: Option<i64>,
+    end_time_ms: Option<i64>,
+    sort: String,
+    cursor: Option<HistoryCursor>,
+    fuzzy_query: FuzzyQuery,
+) -> Result<HistoryQueryResponse> {
+    let mut statement = connection.prepare(LIST_HISTORY_FUZZY_CANDIDATES_SQL)?;
+    let rows = statement.query_map(
+        named_params! {
+            ":fuzzyFtsQuery": fuzzy_query.candidate_query,
+            ":candidateUrlLimit": FUZZY_CANDIDATE_URL_LIMIT,
+            ":candidateVisitLimit": FUZZY_CANDIDATE_VISIT_LIMIT,
+            ":profileId": profile_id,
+            ":browserKind": browser_kind,
+            ":domainPattern": domain_pattern,
+            ":startTimeMs": start_time_ms,
+            ":endTimeMs": end_time_ms,
+        },
+        fuzzy_candidate_from_row,
+    )?;
+    let mut scored_items = rows
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter_map(|candidate| {
+            let score = fuzzy_query.score_document(&candidate.document())?;
+            Some((candidate.entry, score))
+        })
+        .collect::<Vec<_>>();
+
+    sort_fuzzy_items(&mut scored_items, &sort);
+    let total = scored_items.len();
+    let normalized_page_count = page_count(total, limit_usize);
+    let page = requested_page.unwrap_or(1).min(normalized_page_count);
+    let start_index =
+        fuzzy_start_index(&scored_items, limit_usize, requested_page, page, &sort, cursor);
+    let page_items = scored_items.into_iter().skip(start_index).take(limit_usize).collect();
+
+    Ok(build_lexical_history_response(total, limit_usize, page, start_index, page_items, &sort))
+}
+
+fn sort_fuzzy_items(scored_items: &mut [(HistoryEntry, f64)], sort: &str) {
+    match sort {
+        "oldest" => scored_items.sort_by(|(left, _), (right, _)| {
+            left.visit_time.cmp(&right.visit_time).then_with(|| left.id.cmp(&right.id))
+        }),
+        "newest" => scored_items.sort_by(|(left, _), (right, _)| {
+            right.visit_time.cmp(&left.visit_time).then_with(|| right.id.cmp(&left.id))
+        }),
+        _ => scored_items.sort_by(|(left_entry, left_score), (right_entry, right_score)| {
+            left_score
+                .total_cmp(right_score)
+                .then_with(|| right_entry.visit_time.cmp(&left_entry.visit_time))
+                .then_with(|| right_entry.id.cmp(&left_entry.id))
+        }),
+    }
+}
+
+fn fuzzy_start_index(
+    scored_items: &[(HistoryEntry, f64)],
+    limit_usize: usize,
+    requested_page: Option<usize>,
+    page: usize,
+    sort: &str,
+    cursor: Option<HistoryCursor>,
+) -> usize {
+    if requested_page.is_some() {
+        return page.saturating_sub(1) * limit_usize;
+    }
+    match sort {
+        "oldest" => cursor
+            .and_then(HistoryCursor::chronological)
+            .and_then(|(cursor_visit_time, cursor_id)| {
+                scored_items.iter().position(|(entry, _)| {
+                    entry.visit_time > cursor_visit_time
+                        || (entry.visit_time == cursor_visit_time && entry.id > cursor_id)
+                })
+            })
+            .unwrap_or(0),
+        "newest" => cursor
+            .and_then(HistoryCursor::chronological)
+            .and_then(|(cursor_visit_time, cursor_id)| {
+                scored_items.iter().position(|(entry, _)| {
+                    entry.visit_time < cursor_visit_time
+                        || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)
+                })
+            })
+            .unwrap_or(0),
+        _ => cursor
+            .and_then(HistoryCursor::relevance)
+            .and_then(|(cursor_score, cursor_visit_time, cursor_id)| {
+                scored_items.iter().position(|(entry, score)| {
+                    *score > cursor_score
+                        || (*score == cursor_score
+                            && (entry.visit_time < cursor_visit_time
+                                || (entry.visit_time == cursor_visit_time && entry.id < cursor_id)))
+                })
+            })
+            .unwrap_or(0),
+    }
 }
 
 /// Runs the baseline SQL-filtered recall path.
@@ -951,6 +1130,35 @@ pub(super) fn history_entry_from_row(row: &Row<'_>) -> rusqlite::Result<HistoryE
 
 fn history_entry_with_score_from_row(row: &Row<'_>) -> rusqlite::Result<(HistoryEntry, f64)> {
     Ok((history_entry_from_row(row)?, row.get(9)?))
+}
+
+struct FuzzyCandidate {
+    entry: HistoryEntry,
+    normalized_url: String,
+    normalized_title: String,
+    normalized_search_terms: String,
+    compact_text: String,
+}
+
+impl FuzzyCandidate {
+    fn document(&self) -> FuzzyDocument<'_> {
+        FuzzyDocument {
+            normalized_url: &self.normalized_url,
+            normalized_title: &self.normalized_title,
+            normalized_search_terms: &self.normalized_search_terms,
+            compact_text: &self.compact_text,
+        }
+    }
+}
+
+fn fuzzy_candidate_from_row(row: &Row<'_>) -> rusqlite::Result<FuzzyCandidate> {
+    Ok(FuzzyCandidate {
+        entry: history_entry_from_row(row)?,
+        normalized_url: row.get(10)?,
+        normalized_title: row.get(11)?,
+        normalized_search_terms: row.get(12)?,
+        compact_text: row.get(13)?,
+    })
 }
 
 /// Renders one export artifact in the requested output format.
