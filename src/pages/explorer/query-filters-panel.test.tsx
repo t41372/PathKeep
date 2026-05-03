@@ -5,7 +5,8 @@
  *
  * ## Responsibilities
  * - Verify the render-only Explorer filter owner wires mode, view, filter, chip, and recent-search actions.
- * - Cover active-filter and recent-search branches without mounting the full Explorer route.
+ * - Cover active-filter, recent-search, and the multi-condition optional-AI gating branches without
+ *   mounting the full Explorer route.
  *
  * ## Not responsible for
  * - Re-testing URL debounce behavior or backend query loading.
@@ -22,10 +23,21 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 import { createNamespaceTranslator } from '../../lib/i18n'
+import type { OptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { ExplorerQueryFiltersPanel } from './query-filters-panel'
 
 const explorerT = createNamespaceTranslator('en', 'explorer')
 const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+
+const blockedByRelease: OptionalAiAvailability = {
+  available: false,
+  reason: 'release-deferred',
+}
+
+const availableNow: OptionalAiAvailability = {
+  available: true,
+  reason: null,
+}
 
 describe('ExplorerQueryFiltersPanel', () => {
   test('wires active filter chips, mode/view controls, filters, and recent searches', async () => {
@@ -55,6 +67,7 @@ describe('ExplorerQueryFiltersPanel', () => {
         explorerT={explorerT}
         intelligenceT={intelligenceT}
         mode="keyword"
+        optionalAiAvailability={blockedByRelease}
         profileId="chrome:Default"
         queryInput=""
         recentSearches={[
@@ -97,6 +110,12 @@ describe('ExplorerQueryFiltersPanel', () => {
     )
     expect(screen.getByLabelText(explorerT('filterEnd'))).toHaveValue('')
     expect(screen.queryByText('chrome:Default')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: explorerT('modeSemantic') }),
+    ).toHaveAttribute(
+      'title',
+      explorerT('optionalAiUnavailableReleaseDeferred'),
+    )
     await user.click(
       screen.getByRole('button', {
         name: explorerT('removeFilter', {
@@ -113,10 +132,10 @@ describe('ExplorerQueryFiltersPanel', () => {
     )
     expect(
       screen.getByRole('button', { name: explorerT('modeSemantic') }),
-    ).toBeDisabled()
+    ).toHaveAttribute('aria-disabled', 'true')
     expect(
       screen.getByRole('button', { name: explorerT('modeHybrid') }),
-    ).toBeDisabled()
+    ).toHaveAttribute('aria-disabled', 'true')
     await user.click(
       screen.getByRole('button', { name: intelligenceT('viewModeSession') }),
     )
@@ -168,7 +187,7 @@ describe('ExplorerQueryFiltersPanel', () => {
     expect(recentParams.has('mode')).toBe(false)
   })
 
-  test('renders regex validity and disabled grouped-view controls for semantic mode', async () => {
+  test('renders regex validity, disabled grouped-view controls, and the missing-provider tooltip for semantic mode', async () => {
     const user = userEvent.setup()
     const updateParam = vi.fn()
 
@@ -183,6 +202,10 @@ describe('ExplorerQueryFiltersPanel', () => {
         explorerT={explorerT}
         intelligenceT={intelligenceT}
         mode="semantic"
+        optionalAiAvailability={{
+          available: false,
+          reason: 'no-embedding-provider',
+        }}
         profileId="chrome:Default"
         queryInput="["
         recentSearches={[]}
@@ -207,6 +230,9 @@ describe('ExplorerQueryFiltersPanel', () => {
       screen.getByRole('button', { name: intelligenceT('viewModeSession') }),
     ).toBeDisabled()
     expect(screen.getByText(explorerT('recentFiltersEmpty'))).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: explorerT('modeHybrid') }),
+    ).toHaveAttribute('title', explorerT('optionalAiUnavailableNoProvider'))
 
     await user.click(
       screen.getByRole('button', { name: explorerT('toggleRegex') }),
@@ -219,60 +245,124 @@ describe('ExplorerQueryFiltersPanel', () => {
     expect(updateParam).toHaveBeenCalledWith('mode', null)
   })
 
-  test('wires semantic and hybrid mode buttons when optional AI is release-enabled', async () => {
+  test('wires semantic and hybrid mode buttons when optional AI is available', async () => {
     const user = userEvent.setup()
     const updateParam = vi.fn()
-    vi.resetModules()
-    vi.doMock('../../lib/release-capabilities', () => ({
-      deferredFeatureReleaseLabel: 'v0.2',
-      optionalAiFeaturesAvailable: true,
-      readableContentFetchAvailable: false,
-    }))
 
-    try {
-      const { ExplorerQueryFiltersPanel: EnabledExplorerQueryFiltersPanel } =
-        await import('./query-filters-panel')
+    render(
+      <ExplorerQueryFiltersPanel
+        activeFilters={[]}
+        activeScopeLabel={null}
+        browserKinds={[]}
+        buildRecentSearchLabel={() => ''}
+        clearAllFilters={vi.fn()}
+        explicitProfileId={null}
+        explorerT={explorerT}
+        intelligenceT={intelligenceT}
+        mode="keyword"
+        optionalAiAvailability={availableNow}
+        profileId={null}
+        queryInput=""
+        recentSearches={[]}
+        regexMode={false}
+        regexValid={true}
+        searchParams={new URLSearchParams()}
+        selectedProfileIds={[]}
+        setQueryInput={vi.fn()}
+        setSearchParams={vi.fn()}
+        setView={vi.fn()}
+        updateParam={updateParam}
+        view="time"
+        visibleRecordCount={null}
+      />,
+    )
 
-      render(
-        <EnabledExplorerQueryFiltersPanel
-          activeFilters={[]}
-          activeScopeLabel={null}
-          browserKinds={[]}
-          buildRecentSearchLabel={() => ''}
-          clearAllFilters={vi.fn()}
-          explicitProfileId={null}
-          explorerT={explorerT}
-          intelligenceT={intelligenceT}
-          mode="keyword"
-          profileId={null}
-          queryInput=""
-          recentSearches={[]}
-          regexMode={false}
-          regexValid={true}
-          searchParams={new URLSearchParams()}
-          selectedProfileIds={[]}
-          setQueryInput={vi.fn()}
-          setSearchParams={vi.fn()}
-          setView={vi.fn()}
-          updateParam={updateParam}
-          view="time"
-          visibleRecordCount={null}
-        />,
-      )
+    const semanticButton = screen.getByRole('button', {
+      name: explorerT('modeSemantic'),
+    })
+    expect(semanticButton).not.toBeDisabled()
+    expect(semanticButton).not.toHaveAttribute('title')
 
-      await user.click(
-        screen.getByRole('button', { name: explorerT('modeSemantic') }),
-      )
-      await user.click(
-        screen.getByRole('button', { name: explorerT('modeHybrid') }),
-      )
+    await user.click(semanticButton)
+    await user.click(
+      screen.getByRole('button', { name: explorerT('modeHybrid') }),
+    )
 
-      expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
-      expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
-    } finally {
-      vi.doUnmock('../../lib/release-capabilities')
-      vi.resetModules()
-    }
+    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
+  })
+
+  test('surfaces the embedding-provider-error reason on the disabled mode chips', () => {
+    render(
+      <ExplorerQueryFiltersPanel
+        activeFilters={[]}
+        activeScopeLabel={null}
+        browserKinds={[]}
+        buildRecentSearchLabel={() => ''}
+        clearAllFilters={vi.fn()}
+        explicitProfileId={null}
+        explorerT={explorerT}
+        intelligenceT={intelligenceT}
+        mode="keyword"
+        optionalAiAvailability={{
+          available: false,
+          reason: 'embedding-provider-error',
+        }}
+        profileId={null}
+        queryInput=""
+        recentSearches={[]}
+        regexMode={false}
+        regexValid={true}
+        searchParams={new URLSearchParams()}
+        selectedProfileIds={[]}
+        setQueryInput={vi.fn()}
+        setSearchParams={vi.fn()}
+        setView={vi.fn()}
+        updateParam={vi.fn()}
+        view="time"
+        visibleRecordCount={null}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: explorerT('modeSemantic') }),
+    ).toHaveAttribute('title', explorerT('optionalAiUnavailableProviderError'))
+  })
+
+  test('falls back to the release gate when no route-level optional-AI status is passed', () => {
+    render(
+      <ExplorerQueryFiltersPanel
+        activeFilters={[]}
+        activeScopeLabel={null}
+        browserKinds={[]}
+        buildRecentSearchLabel={() => ''}
+        clearAllFilters={vi.fn()}
+        explicitProfileId={null}
+        explorerT={explorerT}
+        intelligenceT={intelligenceT}
+        mode="keyword"
+        profileId={null}
+        queryInput=""
+        recentSearches={[]}
+        regexMode={false}
+        regexValid={true}
+        searchParams={new URLSearchParams()}
+        selectedProfileIds={[]}
+        setQueryInput={vi.fn()}
+        setSearchParams={vi.fn()}
+        setView={vi.fn()}
+        updateParam={vi.fn()}
+        view="time"
+        visibleRecordCount={null}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: explorerT('modeSemantic') }),
+    ).toHaveAttribute(
+      'title',
+      explorerT('optionalAiUnavailableReleaseDeferred'),
+    )
   })
 
   test('clears optional filters and falls back to recent-search labels', async () => {
@@ -291,6 +381,7 @@ describe('ExplorerQueryFiltersPanel', () => {
         explorerT={explorerT}
         intelligenceT={intelligenceT}
         mode="keyword"
+        optionalAiAvailability={blockedByRelease}
         profileId="chrome:Default"
         queryInput="sqlite"
         recentSearches={[

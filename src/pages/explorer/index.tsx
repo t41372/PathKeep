@@ -28,6 +28,7 @@ import {
   aiStatusMeta,
   selectedAiProvider,
 } from '../../lib/intelligence-ai-presentation'
+import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import { historyFaviconLookupKey } from './helpers'
 import {
@@ -131,6 +132,23 @@ export function ExplorerPage() {
   const embeddingProvider = snapshot
     ? selectedAiProvider(snapshot.config.ai, 'embedding')
     : null
+  const optionalAiAvailability = useMemo(
+    () =>
+      evaluateOptionalAiAvailability({
+        releaseEnabled: optionalAiFeaturesAvailable,
+        aiEnabled:
+          snapshot?.config.ai.enabled &&
+          snapshot.config.ai.semanticIndexEnabled,
+        embeddingProviderId: embeddingProvider?.id ?? null,
+        aiStatusState: snapshot?.aiStatus.state ?? null,
+      }),
+    [
+      embeddingProvider?.id,
+      snapshot?.aiStatus.state,
+      snapshot?.config.ai.enabled,
+      snapshot?.config.ai.semanticIndexEnabled,
+    ],
+  )
   const requestKey = useMemo(
     () => JSON.stringify({ currentQuery, refreshKey }),
     [currentQuery, refreshKey],
@@ -188,7 +206,7 @@ export function ExplorerPage() {
     historyBlockedByInvalidRegex,
     labels,
     mode,
-    optionalAiAvailable: optionalAiFeaturesAvailable,
+    optionalAiAvailable: optionalAiAvailability.available,
     view,
     persistRecentSearch,
     refreshAppData,
@@ -215,7 +233,7 @@ export function ExplorerPage() {
       : null
   const semanticLoading =
     archiveReady &&
-    optionalAiFeaturesAvailable &&
+    optionalAiAvailability.available &&
     mode !== 'keyword' &&
     Boolean(semanticQuery.query) &&
     semanticState.requestKey !== semanticRequestKey
@@ -274,6 +292,27 @@ export function ExplorerPage() {
     selectedGroupedVisitState?.key === groupedSelectionKey
       ? selectedGroupedVisitState.visit
       : null
+  const optionalAiReason = optionalAiAvailability.reason
+  const optionalAiFixableReason =
+    optionalAiReason === 'ai-disabled' ||
+    optionalAiReason === 'no-embedding-provider' ||
+    optionalAiReason === 'embedding-provider-error'
+  const optionalAiUnavailableTitle =
+    optionalAiReason === 'ai-disabled'
+      ? explorerT('optionalAiDisabledTitle')
+      : optionalAiReason === 'no-embedding-provider'
+        ? explorerT('optionalAiNoProviderTitle')
+        : optionalAiReason === 'embedding-provider-error'
+          ? explorerT('optionalAiProviderErrorTitle')
+          : explorerT('optionalAiDeferredTitle')
+  const optionalAiUnavailableBody =
+    optionalAiReason === 'ai-disabled'
+      ? explorerT('optionalAiDisabledBody')
+      : optionalAiReason === 'no-embedding-provider'
+        ? explorerT('optionalAiNoProviderBody')
+        : optionalAiReason === 'embedding-provider-error'
+          ? explorerT('optionalAiProviderErrorBody')
+          : explorerT('optionalAiDeferredBody')
 
   useEffect(() => {
     setHistoryPageInput(String(historyPage))
@@ -358,6 +397,7 @@ export function ExplorerPage() {
         explorerT={explorerT}
         intelligenceT={intelligenceT}
         mode={mode}
+        optionalAiAvailability={optionalAiAvailability}
         profileId={profileId}
         queryInput={queryInput}
         recentSearches={recentSearches}
@@ -373,16 +413,34 @@ export function ExplorerPage() {
         visibleRecordCount={visibleTimeResults?.total ?? null}
       />
 
-      {mode !== 'keyword' && !optionalAiFeaturesAvailable ? (
+      {optionalAiFixableReason ? (
         <StatusCallout
-          tone="info"
+          tone={
+            optionalAiReason === 'embedding-provider-error' ? 'blocked' : 'info'
+          }
           eyebrow={explorerT('semanticStatusEyebrow')}
-          title={explorerT('optionalAiDeferredTitle')}
-          body={explorerT('optionalAiDeferredBody')}
+          title={optionalAiUnavailableTitle}
+          body={optionalAiUnavailableBody}
+          actions={
+            <Link className="btn-secondary" to="/settings">
+              {explorerT('optionalAiOpenSettings')}
+            </Link>
+          }
         />
       ) : null}
 
-      {aiMeta && mode !== 'keyword' && optionalAiFeaturesAvailable && (
+      {mode !== 'keyword' &&
+      !optionalAiAvailability.available &&
+      !optionalAiFixableReason ? (
+        <StatusCallout
+          tone="info"
+          eyebrow={explorerT('semanticStatusEyebrow')}
+          title={optionalAiUnavailableTitle}
+          body={optionalAiUnavailableBody}
+        />
+      ) : null}
+
+      {aiMeta && mode !== 'keyword' && optionalAiAvailability.available && (
         <ExplorerRuntimePanel
           aiMeta={aiMeta}
           embeddingProvider={embeddingProvider}
@@ -439,7 +497,7 @@ export function ExplorerPage() {
         />
       )}
 
-      {mode !== 'keyword' && optionalAiFeaturesAvailable && (
+      {mode !== 'keyword' && optionalAiAvailability.available && (
         <ExplorerSemanticPanel
           explorerT={explorerT}
           intelligenceT={intelligenceT}

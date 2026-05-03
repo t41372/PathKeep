@@ -206,6 +206,19 @@
   background: var(--accent-glow);
 }
 
+.chip-button--muted,
+.chip-button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chip-button--muted:hover,
+.chip-button[aria-disabled='true']:hover {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: transparent;
+}
+
 .code-panel {
   display: grid;
   gap: var(--space-3);

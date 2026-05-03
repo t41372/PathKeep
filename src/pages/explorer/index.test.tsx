@@ -23,12 +23,18 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ExplorerPage } from './index'
 
 const {
+  aiStatusMetaMock,
+  optionalAiFeaturesAvailableState,
+  selectedAiProviderMock,
   useExplorerDataMock,
   useExplorerFaviconsMock,
   useExplorerUrlStateMock,
   useProfileScopeMock,
   useShellDataMock,
 } = vi.hoisted(() => ({
+  aiStatusMetaMock: vi.fn(),
+  optionalAiFeaturesAvailableState: { value: false },
+  selectedAiProviderMock: vi.fn(),
   useExplorerDataMock: vi.fn(),
   useExplorerFaviconsMock: vi.fn(),
   useExplorerUrlStateMock: vi.fn(),
@@ -49,8 +55,14 @@ vi.mock('../../lib/i18n', () => ({
 }))
 
 vi.mock('../../lib/intelligence-ai-presentation', () => ({
-  aiStatusMeta: () => ({ label: 'AI ready', tone: 'info' }),
-  selectedAiProvider: () => ({ id: 'provider-1', label: 'Local AI' }),
+  aiStatusMeta: aiStatusMetaMock,
+  selectedAiProvider: selectedAiProviderMock,
+}))
+
+vi.mock('../../lib/release-capabilities', () => ({
+  get optionalAiFeaturesAvailable() {
+    return optionalAiFeaturesAvailableState.value
+  },
 }))
 
 vi.mock('../../lib/backend-client', () => ({
@@ -117,6 +129,12 @@ vi.mock('./timeline-bar', () => ({
 describe('ExplorerPage route shell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    optionalAiFeaturesAvailableState.value = false
+    aiStatusMetaMock.mockReturnValue({ label: 'AI ready', tone: 'info' })
+    selectedAiProviderMock.mockReturnValue({
+      id: 'provider-1',
+      label: 'Local AI',
+    })
     useShellDataMock.mockReturnValue(defaultShellData())
     useProfileScopeMock.mockReturnValue({ activeProfileId: 'chrome:Default' })
     useExplorerFaviconsMock.mockReturnValue({ faviconCache: new Map() })
@@ -211,6 +229,53 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument()
     expect(screen.queryByTestId('semantic-panel')).not.toBeInTheDocument()
   })
+
+  test('shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+
+    const { rerender } = renderExplorer()
+
+    expect(screen.getByText('explorer.optionalAiNoProviderTitle')).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toHaveAttribute('href', '/settings')
+
+    selectedAiProviderMock.mockReturnValue({
+      id: 'provider-1',
+      label: 'Local AI',
+    })
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'failed' },
+        },
+      }),
+    )
+    rerender(<ExplorerWrapper />)
+    expect(
+      screen.getByText('explorer.optionalAiProviderErrorTitle'),
+    ).toBeVisible()
+
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          config: {
+            ...defaultShellData().snapshot.config,
+            ai: {
+              ...defaultShellData().snapshot.config.ai,
+              enabled: false,
+              semanticIndexEnabled: true,
+            },
+          },
+        },
+      }),
+    )
+    rerender(<ExplorerWrapper />)
+    expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+  })
 })
 
 function renderExplorer() {
@@ -225,8 +290,8 @@ function ExplorerWrapper() {
   )
 }
 
-function defaultShellData() {
-  return {
+function defaultShellData(overrides: Record<string, unknown> = {}) {
+  const shellData = {
     error: null,
     loading: false,
     refreshAppData: vi.fn(),
@@ -242,12 +307,20 @@ function defaultShellData() {
       aiStatus: { state: 'ready' },
       archiveStatus: { unlocked: true },
       config: {
-        ai: { providers: [] },
+        ai: {
+          enabled: true,
+          providers: [],
+          semanticIndexEnabled: true,
+        },
         explorerBackgroundPrefetchPages: 1,
         initialized: true,
         selectedProfileIds: ['chrome:Default'],
       },
     },
+  }
+  return {
+    ...shellData,
+    ...overrides,
   }
 }
 
