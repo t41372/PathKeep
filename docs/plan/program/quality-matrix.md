@@ -27,7 +27,7 @@
 - host-matched platform-native keyring / scheduler / launcher / discovery / biometric smoke
 - desktop updater / launcher command surface 與 debug desktop build smoke
 
-這些 sub-gate 的責任是保護 desktop entry、typed IPC contract 與 platform-specific host truth；它們不是替 shell / route / sidebar / trust-critical flows 做全站背書。GitHub `CI` workflow 現在會在 `main` push、PR 與 manual dispatch 時安裝 Linux desktop/native dependencies 後直接跑 `bun run check`，再把 `coverage/js/lcov.info` 與 `coverage/rust.lcov.info` 上傳到 Codecov；所以 hosted runner 也要承擔同一條 per-commit checker；manual `Platform Native` workflow 只保留作 host-sensitive parity / triage。
+這些 sub-gate 的責任是保護 desktop entry、typed IPC contract 與 platform-specific host truth；它們不是替 shell / route / sidebar / trust-critical flows 做全站背書。GitHub `CI` workflow 現在會在 `main` push、PR 與 manual dispatch 時安裝 Linux desktop/native dependencies 後直接跑 `bun run check`，再把 `coverage/js/lcov.info` 與用同一 Rust verifier 口徑產出的 `coverage/rust-codecov.lcov.info` 上傳到 Codecov；所以 hosted runner 也要承擔同一條 per-commit checker；manual `Platform Native` workflow 只保留作 host-sensitive parity / triage。
 
 ---
 

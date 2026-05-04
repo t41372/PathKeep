@@ -4,6 +4,7 @@ import path from 'node:path'
 const workspaceRoot = process.cwd()
 const lcovPath = process.argv[2] ?? path.join('coverage', 'rust.lcov.info')
 const coverageScope = process.argv[3] ?? 'quality'
+const filteredLcovOutput = readFilteredLcovOutput(process.argv.slice(4))
 const sourceLineCache = new Map()
 const testOnlyLineCache = new Map()
 
@@ -77,6 +78,10 @@ if (uncoveredLines.length > 0 || uncoveredFunctions.length > 0) {
   process.exit(1)
 }
 
+if (filteredLcovOutput) {
+  writeFilteredLcov(records, filteredLcovOutput)
+}
+
 const totalLineCount = records.reduce(
   (sum, record) => sum + semanticLineEntries(record).length,
   0,
@@ -84,6 +89,42 @@ const totalLineCount = records.reduce(
 console.log(
   `Rust coverage verified at 100% for ${totalLineCount} instrumented source lines and ${totalFunctionCount} source functions.`,
 )
+
+function readFilteredLcovOutput(args) {
+  const flagIndex = args.indexOf('--write-filtered-lcov')
+  if (flagIndex === -1) {
+    return null
+  }
+
+  const outputPath = args[flagIndex + 1]
+  if (!outputPath) {
+    console.error('--write-filtered-lcov requires an output path.')
+    process.exit(1)
+  }
+  return outputPath
+}
+
+function writeFilteredLcov(recordsToWrite, outputPath) {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+  const lines = []
+
+  for (const record of recordsToWrite) {
+    const entries = semanticLineEntries(record)
+    if (entries.length === 0) {
+      continue
+    }
+
+    lines.push(`SF:${record.file}`)
+    for (const [line, count] of entries) {
+      lines.push(`DA:${line},${count}`)
+    }
+    lines.push(`LH:${entries.filter(([, count]) => count > 0).length}`)
+    lines.push(`LF:${entries.length}`)
+    lines.push('end_of_record')
+  }
+
+  fs.writeFileSync(outputPath, `${lines.join('\n')}\n`, 'utf8')
+}
 
 function relative(file) {
   return normalizeRelativePath(path.relative(workspaceRoot, file) || file)

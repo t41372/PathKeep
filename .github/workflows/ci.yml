@@ -60,6 +60,8 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Strict checker gate
         run: bun run check
+      - name: Prepare Rust coverage for Codecov
+        run: node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full --write-filtered-lcov coverage/rust-codecov.lcov.info
       - name: Upload JavaScript coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -70,7 +72,7 @@ jobs:
       - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/rust.lcov.info
+          files: ./coverage/rust-codecov.lcov.info
           flags: rust
           name: pathkeep-rust
           fail_ci_if_error: true
