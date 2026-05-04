@@ -2,6 +2,15 @@ name: Native Dependencies
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/native-deps.yml'
+      - 'scripts/native-deps.mjs'
+      - 'vcpkg.json'
+      - 'vcpkg-configuration.json'
+      - 'docs/architecture/native-dependency-management.md'
   pull_request:
     paths:
       - '.github/workflows/native-deps.yml'

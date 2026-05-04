@@ -7,19 +7,13 @@
 **Stop losing your browsing history**
 
 <a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml">
-  <img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
-  <img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml">
-  <img alt="Mutation" src="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg" />
+  <img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" />
 </a>
 <a href="https://github.com/t41372/PathKeep/releases">
-  <img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag" />
+  <img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release&color=2ea44f" />
 </a>
 <a href="./LICENSE">
-  <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-1f6feb.svg" />
+  <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2ea44f.svg" />
 </a>
 
 </div>
