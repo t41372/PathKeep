@@ -9,11 +9,42 @@
 <a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml">
   <img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" />
 </a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/native-deps.yml">
+  <img alt="Native Dependencies" src="https://github.com/t41372/PathKeep/actions/workflows/native-deps.yml/badge.svg?branch=main" />
+</a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
+  <img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg?branch=main" />
+</a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml">
+  <img alt="Mutation" src="https://github.com/t41372/PathKeep/actions/workflows/mutation.yml/badge.svg?branch=main" />
+</a>
+<a href="https://app.codecov.io/github/t41372/PathKeep">
+  <img alt="Codecov" src="https://codecov.io/github/t41372/PathKeep/branch/main/graph/badge.svg" />
+</a>
+<br />
 <a href="https://github.com/t41372/PathKeep/releases">
-  <img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release&color=2ea44f" />
+  <img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release" />
+</a>
+<a href="https://www.rust-lang.org/">
+  <img alt="Rust 1.94.1" src="https://img.shields.io/badge/Rust-1.94.1-000000?logo=rust&logoColor=white" />
+</a>
+<a href="https://tauri.app/">
+  <img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" />
+</a>
+<a href="https://react.dev/">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=000000" />
+</a>
+<a href="https://bun.sh/">
+  <img alt="Bun 1.3.11" src="https://img.shields.io/badge/Bun-1.3.11-000000?logo=bun&logoColor=white" />
+</a>
+<a href="https://www.typescriptlang.org/">
+  <img alt="TypeScript 5.9" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" />
+</a>
+<a href="https://vite.dev/">
+  <img alt="Vite 8" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" />
 </a>
 <a href="./LICENSE">
-  <img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-2ea44f.svg" />
+  <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/t41372/PathKeep?label=license" />
 </a>
 
 </div>

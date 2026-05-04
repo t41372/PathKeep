@@ -30,13 +30,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-13 is intentionally Intel. The current vcpkg OpenCC port declares
-        # !(arm | uwp), so Apple Silicon remains blocked until an audited overlay
-        # port or upstream port support is proven.
+        # macOS still uses an Intel runner because the current vcpkg OpenCC port
+        # declares !(arm | uwp). Keep this on GitHub's current Intel label until
+        # an audited arm64-osx overlay or upstream port support is proven.
         include:
           - os: ubuntu-latest
             triplet: x64-linux
-          - os: macos-13
+          - os: macos-15-intel
             triplet: x64-osx
           - os: windows-latest
             triplet: x64-windows-static

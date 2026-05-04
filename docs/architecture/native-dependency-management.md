@@ -94,12 +94,15 @@ committed.
 runs on:
 
 - `ubuntu-latest` with `x64-linux`
-- `macos-13` Intel with `x64-osx`
+- `macos-15-intel` with `x64-osx`
 - `windows-latest` with `x64-windows-static`
 
 It intentionally does not run on Apple Silicon yet because the current vcpkg
-OpenCC port rejects arm targets. This is not a product release proof for native
-OpenCC; it is a regression guard for the project-scoped dependency manager.
+OpenCC port rejects arm targets. The macOS lane still needs an Intel runner for
+the `x64-osx` triplet, but it must use GitHub's current `macos-15-intel` label
+rather than the retired `macos-13` image. This is not a product release proof
+for native OpenCC; it is a regression guard for the project-scoped dependency
+manager.
 
 `bun run check` does not run vcpkg because the default product build currently
 does not link native OpenCC. If a future product slice starts linking native
