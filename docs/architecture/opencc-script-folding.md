@@ -85,12 +85,16 @@ Current M14-D product code does not need extra CI packages because it links no
 OpenCC native library and loads no runtime assets from the host.
 
 If a future slice switches from repo-owned Rust conversion to OpenCC C++ linking,
-the slice must first do all of the following:
+the slice must first go through the project-scoped native dependency manager
+defined in [native-dependency-management.md](native-dependency-management.md) and
+do all of the following:
 
-1. Add explicit Linux CI packages for `cmake`, `ninja-build`, `pkg-config`, and
-   `python3`.
-2. Add macOS and Windows CI probes that print `cmake --version`, compiler
-   version, and Python version before `bun run check`.
+1. Declare the native library path in `vcpkg.json` and pin the registry through
+   `vcpkg-configuration.json`; do not rely on Homebrew, apt, winget, or a global
+   `pkg-config`.
+2. Prove `scripts/native-deps.mjs install --feature=opencc` on Linux, Windows,
+   and macOS release targets, including Apple Silicon or an audited overlay port
+   if the stock vcpkg port still rejects arm targets.
 3. Choose static linking by default; if dynamic linking is chosen, document
    `.app`, `.deb` / AppImage, and Windows DLL packaging paths before code lands.
 4. Prove release builds do not depend on Homebrew, system OpenCC, or user

@@ -160,6 +160,7 @@ reference/
   - 維護者名聲極大、社會地位極高，且項目有嚴格代碼審查。
   - 項目由高知名度可信開源組織或科技巨頭維護。
     若官方方案不可用，且替代依賴無法明確滿足上述信任門檻，必須先輸出供應鏈風險評估與替代方案，等待用戶明確批准；不能為了實作便利引入低信任度依賴。
+- **C / C++ native 依賴管理紅線**：產品碼不得靠 Homebrew / apt / winget / 全局 `pkg-config` / 全局 dylib 來找到 native library。新的 C / C++ 產品依賴必須先進 `vcpkg.json`，由 `vcpkg-configuration.json` pin 住 registry baseline，並透過 `scripts/native-deps.mjs` 安裝到 repo-local `var/native-deps/vcpkg_installed`；若 vcpkg 方案不可行，必須先寫 ADR 說明替代方案、CI proof、release packaging、rollback path，不能直接在 `build.rs` 裡下載或編譯任意 C/C++ source。Tauri / OS SDK 所需平台 framework 仍可作為明確 host prerequisite，但不得把 OpenCC、marisa、SQLite extension、或其他產品 native library 混進全局前置條件。
 - **Commit**：`feat(ui): ...` / `fix(archive): ...` / `chore(deps): ...`，保持 commit 可 review；不要因為 work block 變大就做單一巨型 commit。只要手上的變更已經形成一個可驗證、可回顧的原子單位，就要直接提交，不要把多個無關修復或文檔更新長時間混在 working tree
 - **Tests**：JS/TS 用 Vitest，Rust 用 `cargo test`。現行 blocking / release gate 以 `docs/plan/program/quality-matrix.md` 為準：`bun run check` 必須跑 base checks、`coverage:js`、`coverage:rust`、`build`、`test:e2e`、`test:e2e:desktop-bridge:truth`、以及 desktop-contract JS mutation。`coverage:js` 覆蓋所有 active `src/**/*.{ts,tsx}` runtime source；只允許排除 tests、fixtures、assets、generated/type-only files、以及已證明不是 runtime surface 的 reference-only files。`coverage:rust` 覆蓋 full `src-tauri/**/src/*.rs` workspace source。全量 frontend Stryker 與 whole-workspace `cargo mutants` 保留為 `check:deep` / scheduled mutation workflow，不作 per-commit hard gate；surviving mutant 只能用補測、修產品碼、或 narrow equivalent/inapplicable exclusion + doc note 處理，不能用 broad exclusion 偽裝成通過。
 - **Focused helpers**：`check:base`、Rust quality slice、full mutation sweeps 等只作 triage/deep helpers；不能替代 signed-off `bun run check`。desktop contract mutation 是 `bun run check` 內的 lightweight mutation gate，保護 `src/main.tsx` 與 `src/lib/ipc/bridge.ts` 的入口/IPC contract。
@@ -208,6 +209,8 @@ bun run mutation:rust    # whole-workspace cargo-mutants sweep（manual/deep）
 bun run mutation:rust:full # mutation:rust 的明確別名 / deep entrypoint
 bun run mutation         # full JS + full Rust mutation sweep（manual/deep）
 bun run check:deep       # check + full JS/Rust mutation sweep
+bun run native-deps:doctor # 檢查 project-scoped vcpkg native dependency 設定
+bun run native-deps:install:opencc # 安裝 OpenCC native proof lane 到 var/native-deps
 bun run format           # Prettier 格式化
 ```
 

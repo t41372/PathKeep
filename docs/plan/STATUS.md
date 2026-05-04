@@ -70,6 +70,19 @@
   - 同步回寫 [`docs/plan/m14-lexical-recall-v2/fuzzy-candidate-benchmark.md`](m14-lexical-recall-v2/fuzzy-candidate-benchmark.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/features/recall.md`](../features/recall.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：candidate-volume probe `search_projection::tests::fuzzy_trigram_candidate_probe_is_limited_before_rust_rerank`、targeted `search_lexical` 與 `lexical_recall` tests 通過；`bun run check` 通過。
 
+- [x] **WORK-M14-E** — Project-Scoped Native Dependency Tooling
+  - 讀先：
+    `AGENTS.md`
+    `docs/architecture/opencc-script-folding.md`
+    `docs/architecture/lexical-recall-v2.md`
+    `docs/architecture/tech-stack.md`
+    `docs/plan/m14-lexical-recall-v2/README.md`
+  - 目標：把未來 OpenCC / marisa / 其他 C/C++ 產品依賴的長期管理方式落成 repo-local contract，避免開發機或 CI 需要全局安裝 Homebrew / apt / winget native library 才能編譯產品。
+  - 契約：產品碼仍不切到 native OpenCC；不得在 `build.rs` 裡下載或編譯任意 C/C++ source；vcpkg 只能作 project-scoped native dependency manager，不能繞過 supply-chain trust gate；Apple Silicon native OpenCC 仍 blocked until stock vcpkg port or audited overlay supports arm64 release targets。
+  - 2026-05-03 closeout：新增 root `vcpkg.json` / `vcpkg-configuration.json`，pin Microsoft vcpkg registry baseline `522253caf47268c1724f486a035e927a42a90092`，並把 OpenCC native proof lane 放進 optional `opencc` feature。新增 `scripts/native-deps.mjs`，所有輸出寫到 ignored `var/native-deps`；新增 `.github/workflows/native-deps.yml`，用 Linux / Windows / Intel macOS proof workflow 驗證 project-scoped OpenCC install。`AGENTS.md` 與 architecture docs 現在明確禁止產品 native library 依賴全局 Homebrew / apt / winget / `pkg-config` 路徑。
+  - 同步回寫 [`docs/architecture/native-dependency-management.md`](../architecture/native-dependency-management.md)、[`docs/architecture/opencc-script-folding.md`](../architecture/opencc-script-folding.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：`bun run native-deps:doctor`、`node --check scripts/native-deps.mjs`、`bun run format:check`、`bun run check` 通過。未執行 `native-deps:install:opencc`，因為它是 slow/native proof lane 且產品目前不 link OpenCC C++；CI workflow 會在相關檔案 PR 上跑 project-scoped install proof。
+
 - [x] **WORK-RELEASE-012-A** — Release Truth And Demo Gate Recovery
   - 讀先：
     `docs/plan/STATUS.md`

@@ -110,6 +110,35 @@ Validation:
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core search_lexical -- --test-threads=1`
 - `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core lexical_recall -- --test-threads=1`
 
+## WORK-M14-E — Project-Scoped Native Dependency Tooling
+
+- Status: completed 2026-05-03
+- Decision record: `docs/architecture/native-dependency-management.md`
+
+The long-term native dependency path is now vcpkg manifest mode:
+
+- Added root `vcpkg.json` with an optional `opencc` feature.
+- Added `vcpkg-configuration.json` pinned to Microsoft vcpkg registry commit
+  `522253caf47268c1724f486a035e927a42a90092`.
+- Added `scripts/native-deps.mjs` with project-local `doctor`, `bootstrap`,
+  `install`, and `env` commands.
+- Added `.github/workflows/native-deps.yml` to prove OpenCC installation through
+  project-scoped vcpkg on Linux, Windows, and Intel macOS.
+- Added `docs/architecture/native-dependency-management.md` and updated
+  `AGENTS.md` so future C / C++ product dependencies cannot rely on Homebrew,
+  apt, winget, global `pkg-config`, or developer-machine dylib paths.
+
+The product still does not link OpenCC C++. The current vcpkg OpenCC port is
+`opencc 1.1.9#1` and declares `!(arm | uwp)`, so it is not acceptable for
+PathKeep's Apple Silicon release path without an audited overlay or upstream
+port fix. M14-D's official dictionary assets + repo-owned Rust converter remain
+the shipped recall path.
+
+Validation:
+
+- `bun run native-deps:doctor`
+- `node --check scripts/native-deps.mjs`
+
 ## WORK-M14-D — Official OpenCC Toolchain And Script Folding
 
 - Status: completed 2026-05-03

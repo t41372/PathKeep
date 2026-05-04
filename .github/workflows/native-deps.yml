@@ -1,0 +1,50 @@
+name: Native Dependencies
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/native-deps.yml'
+      - 'scripts/native-deps.mjs'
+      - 'vcpkg.json'
+      - 'vcpkg-configuration.json'
+      - 'docs/architecture/native-dependency-management.md'
+
+concurrency:
+  group: native-deps-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vcpkg-opencc-proof:
+    name: vcpkg OpenCC proof (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-13 is intentionally Intel. The current vcpkg OpenCC port declares
+        # !(arm | uwp), so Apple Silicon remains blocked until an audited overlay
+        # port or upstream port support is proven.
+        os: [ubuntu-latest, macos-13, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            var/native-deps/vcpkg/downloads
+            var/native-deps/vcpkg/buildtrees
+            var/native-deps/vcpkg/packages
+            var/native-deps/vcpkg_installed
+          key: native-deps-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            native-deps-${{ runner.os }}-
+
+      - name: Native dependency doctor
+        run: node scripts/native-deps.mjs doctor
+
+      - name: Install OpenCC through project-scoped vcpkg
+        run: node scripts/native-deps.mjs install --feature=opencc

@@ -55,11 +55,13 @@ Approved boundary after the M14 remediation:
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | NFKC / full-width     | Shipped through ICU4X `icu_normalizer`, maintained by the Unicode Consortium and already present in the dependency graph            |
 | OpenCC script folding | Shipped through official OpenCC 1.3.0 dictionary assets plus repo-owned Rust conversion code; low-trust Rust bindings remain banned |
-| OpenCC C++ tooling    | Still allowed, but must prove local and CI availability for CMake/C++/header/link/packaging before product code depends on it       |
+| OpenCC C++ tooling    | Still allowed only through project-scoped vcpkg manifest proof; no Homebrew / apt / global `pkg-config` product dependency          |
 | Fuzzy typo tolerance  | Shipped with repo-owned bounded edit distance over FTS/trigram top-N candidates; `strsim` remains approved but is not needed yet    |
 
 The detailed provenance, local toolchain probe, and C++ rollback contract live
-in [opencc-script-folding.md](opencc-script-folding.md).
+in [opencc-script-folding.md](opencc-script-folding.md). The general C / C++
+dependency manager contract lives in
+[native-dependency-management.md](native-dependency-management.md).
 
 ## Analyzer Contract
 
