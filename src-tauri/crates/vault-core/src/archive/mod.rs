@@ -92,15 +92,14 @@ use crate::{
     git_audit,
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
-        BackupReport, BackupRunOverview, DashboardSnapshot, ExportFormat, ExportRequest,
-        ExportResult, HealthCheck, HealthRepairReport, HealthReport, HistoryEntry, HistoryFavicon,
-        HistoryFaviconLookupEntry, HistoryFaviconLookupResult, HistoryQuery, HistoryQueryResponse,
-        RetentionBucket, RetentionPreview, RetentionPruneRequest, RetentionPruneResult,
-        SnapshotRestorePreview, SnapshotRestoreRequest, StorageSummary,
+        BackupReport, BackupRunOverview, DashboardSnapshot, HealthCheck, HealthRepairReport,
+        HealthReport, HistoryEntry, HistoryQuery, HistoryQueryResponse, RetentionBucket,
+        RetentionPreview, RetentionPruneRequest, RetentionPruneResult, SnapshotRestorePreview,
+        SnapshotRestoreRequest, StorageSummary,
     },
     utils::{
         file_sha256_hex, filesystem_safe_path_segment, identifier_from_filesystem_segment,
-        image_data_to_data_url, now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain,
+        now_rfc3339, sha256_hex, unix_micros_to_chrome_time, url_domain,
     },
 };
 use anyhow::{Context, Result};

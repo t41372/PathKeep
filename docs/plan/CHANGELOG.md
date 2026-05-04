@@ -1236,3 +1236,15 @@
   - 2026-05-03 closeout：新增 [`docs/plan/history-read-surface-maintainability-review.md`](history-read-surface-maintainability-review.md)，確認 `history.rs` 目前同時承擔 public facade、baseline SQL recall、lexical/fuzzy recall、regex post-filter、pagination envelope、lazy favicon hydration、export rendering 與 row shaping。結論是 staged split 值得做，但不應一刀重寫；第一個 behavior-preserving code slice 只拆 pagination / favicon / export owners，lexical SQL 與 baseline SQL 後移。
   - 同步回寫 [`docs/architecture/module-boundary-map.md`](../architecture/module-boundary-map.md)、[`docs/plan/history-read-surface-maintainability-review.md`](history-read-surface-maintainability-review.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：review-only block，未改 Rust product code；`bunx prettier --check` 與 `git diff --check` 通過。`bun run check` 仍以同日 `WORK-M14-E` closeout 的 green run 作為此審查基線。
+
+- [x] **WORK-HISTORY-MAINT-B** — Archive History Read Surface Owner Extraction
+  - 讀先：
+    `docs/plan/history-read-surface-maintainability-review.md`
+    `src-tauri/crates/vault-core/src/archive/history.rs`
+    `docs/architecture/module-boundary-map.md`
+    `TESTING.md`
+  - 目標：依 `WORK-HISTORY-MAINT-A` 的審查結論，做第一個 behavior-preserving extraction：把 pagination helpers、lazy favicon hydration、export collection/rendering 拆到 `archive/history/` 子模組，讓 `history.rs` 回到 1200 行以下，並保留 public facade。
+  - 契約：不得改 ranking、SQL filtering、regex behavior、fuzzy candidate limits、cursor encoding、export format、favicon fallback precedence 或 public `list_history` / `export_history` / `load_history_favicons` API；不得在同一 slice 重寫 lexical SQL 或 baseline SQL。
+  - 2026-05-03 closeout：`archive/history.rs` 保留 public facade、mode dispatch、baseline/lexical/fuzzy/regex SQL 與 row shaping；pagination cursor/response helpers、lazy favicon hydration、export cursor-walk/rendering 已拆到 `archive/history/{pagination,favicons,export}.rs`。`history.rs` 從 `1229` 行降到 `729` 行，低於 1200 行 threshold；public API 與 SQL/ranking/cursor/export/favicon precedence contract 未改。
+  - 同步回寫 [`docs/plan/history-read-surface-maintainability-review.md`](history-read-surface-maintainability-review.md)、[`docs/architecture/module-boundary-map.md`](../architecture/module-boundary-map.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `cargo test --manifest-path src-tauri/Cargo.toml -p vault-core lexical_recall -- --test-threads=1`、`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core archive::tests -- --test-threads=1`、Schedule Vitest regression slices、`cargo fmt --manifest-path src-tauri/Cargo.toml --all --check`、`git diff --check` 與 `bun run check` 通過。`bun run check` 中仍有既有 Vite `shared` chunk 超過 500 kB warning。

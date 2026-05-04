@@ -19,7 +19,7 @@
  * - Uses tiny fixtures and never touches a real scheduler or archive.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -658,8 +658,9 @@ describe('SchedulePage', () => {
 
     await screen.findByText('schedule.stateNotInstalledTitle')
     const customInput = screen.getByLabelText('schedule.intervalCustomLabel')
-    await user.clear(customInput)
-    await user.type(customInput, '90')
+    await waitFor(() => expect(customInput).toHaveValue(720))
+    fireEvent.change(customInput, { target: { value: '90' } })
+    expect(customInput).toHaveValue(90)
     await user.click(
       screen.getByRole('button', { name: 'schedule.autoInstall' }),
     )

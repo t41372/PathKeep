@@ -44,6 +44,9 @@ describe('BackupIntervalSelector', () => {
     await user.type(customInput, '90')
 
     expect(onChange).toHaveBeenLastCalledWith(1.5)
+
+    await user.tab()
+    expect(customInput).toHaveValue(90)
   })
 
   test('rejects invalid custom intervals and restores the persisted value on blur', async () => {

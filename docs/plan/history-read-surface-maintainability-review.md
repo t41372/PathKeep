@@ -82,6 +82,26 @@ Do not do a one-shot rewrite. The high-risk boundary is lexical/fuzzy SQL plus
 cursor pagination. It should move only after lower-risk owners have already
 been extracted and targeted tests prove no behavior drift.
 
+## Implementation Status
+
+`WORK-HISTORY-MAINT-B` completed the first behavior-preserving extraction slice
+on 2026-05-03:
+
+- `archive/history/pagination.rs` now owns cursor parse/encode, sort
+  normalization, page counts, and response envelope builders.
+- `archive/history/favicons.rs` now owns lazy favicon lookup SQL and fallback
+  precedence.
+- `archive/history/export.rs` now owns export cursor walking and format
+  rendering.
+- `archive/history.rs` remains the public facade and still owns mode dispatch,
+  baseline SQL, lexical/fuzzy SQL, regex post-filtering, and row shaping until a
+  later dedicated slice.
+
+The extraction reduced `history.rs` from 1229 lines to 729 lines. The first
+slice did not change ranking, SQL filtering, regex behavior, fuzzy candidate
+limits, cursor encoding, export format, favicon fallback precedence, or public
+`list_history` / `export_history` / `load_history_favicons` APIs.
+
 ## Recommended Target Shape
 
 Use `history.rs` as the public facade for the first implementation slice. It can
@@ -116,8 +136,8 @@ First code slice:
 4. Re-export only the functions needed by `archive/mod.rs`.
 5. Run targeted archive history tests, then `bun run check`.
 
-Expected result: `history.rs` drops below the 1200-line threshold without
-touching lexical SQL or baseline SQL behavior.
+Result: `history.rs` dropped below the 1200-line threshold without touching
+lexical SQL or baseline SQL behavior.
 
 ### Later Slice - Lexical SQL Extraction
 

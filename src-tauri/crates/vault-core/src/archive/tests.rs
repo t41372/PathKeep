@@ -3,7 +3,8 @@ use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
     models::{
-        ArchiveMode, BrowserProfile, RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
+        ArchiveMode, BrowserProfile, ExportFormat, ExportRequest, HistoryFaviconLookupEntry,
+        RetentionPruneRequest, SnapshotRestoreRequest, TakeoutRequest,
     },
     utils::{restore_test_env_var, test_env_lock},
 };
