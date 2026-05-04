@@ -1224,3 +1224,15 @@
   - 2026-05-03 closeout：新增 root `vcpkg.json` / `vcpkg-configuration.json`，pin Microsoft vcpkg registry baseline `522253caf47268c1724f486a035e927a42a90092`，並把 OpenCC native proof lane 放進 optional `opencc` feature。新增 `scripts/native-deps.mjs`，所有輸出寫到 ignored `var/native-deps`；新增 `.github/workflows/native-deps.yml`，用 Linux / Windows / Intel macOS proof workflow 驗證 project-scoped OpenCC install。`AGENTS.md` 與 architecture docs 現在明確禁止產品 native library 依賴全局 Homebrew / apt / winget / `pkg-config` 路徑。
   - 同步回寫 [`docs/architecture/native-dependency-management.md`](../architecture/native-dependency-management.md)、[`docs/architecture/opencc-script-folding.md`](../architecture/opencc-script-folding.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/m14-lexical-recall-v2/README.md`](m14-lexical-recall-v2/README.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：`bun run native-deps:doctor`、`node --check scripts/native-deps.mjs`、`bun run format:check`、`bun run check` 通過。未執行 `native-deps:install:opencc`，因為它是 slow/native proof lane 且產品目前不 link OpenCC C++；CI workflow 會在相關檔案 PR 上跑 project-scoped install proof。
+
+- [x] **WORK-HISTORY-MAINT-A** — Archive History Read Surface Maintainability Review
+  - 讀先：
+    `src-tauri/crates/vault-core/src/archive/history.rs`
+    `docs/architecture/lexical-recall-v2.md`
+    `docs/architecture/module-boundary-map.md`
+    `TESTING.md`
+  - 目標：`WORK-M14-B` 後 `archive/history.rs` 到 `1229` 行，超過 1200 行 maintainability review threshold。專門審查 history read surface 是否要拆出 lexical SQL/fuzzy pagination/export/favicon hydration owners，而不是在 recall closeout 中順手重構。
+  - 契約：審查階段先輸出 architecture map、職責邊界、拆分候選與測試保護，不直接改業務碼；不得在同一輪順手改排序、pagination、regex 或 favicon 行為；如果結論是不拆，必須寫明為什麼不拆比拆更好。
+  - 2026-05-03 closeout：新增 [`docs/plan/history-read-surface-maintainability-review.md`](history-read-surface-maintainability-review.md)，確認 `history.rs` 目前同時承擔 public facade、baseline SQL recall、lexical/fuzzy recall、regex post-filter、pagination envelope、lazy favicon hydration、export rendering 與 row shaping。結論是 staged split 值得做，但不應一刀重寫；第一個 behavior-preserving code slice 只拆 pagination / favicon / export owners，lexical SQL 與 baseline SQL 後移。
+  - 同步回寫 [`docs/architecture/module-boundary-map.md`](../architecture/module-boundary-map.md)、[`docs/plan/history-read-surface-maintainability-review.md`](history-read-surface-maintainability-review.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：review-only block，未改 Rust product code；`bunx prettier --check` 與 `git diff --check` 通過。`bun run check` 仍以同日 `WORK-M14-E` closeout 的 green run 作為此審查基線。
