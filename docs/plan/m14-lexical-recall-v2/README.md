@@ -123,7 +123,7 @@ The long-term native dependency path is now vcpkg manifest mode:
 - Added `scripts/native-deps.mjs` with project-local `doctor`, `bootstrap`,
   `install`, and `env` commands.
 - Added `.github/workflows/native-deps.yml` to prove OpenCC installation through
-  project-scoped vcpkg on Linux, Windows, and Intel macOS.
+  project-scoped vcpkg on Linux, Intel macOS, and Windows static triplets.
 - Added `docs/architecture/native-dependency-management.md` and updated
   `AGENTS.md` so future C / C++ product dependencies cannot rely on Homebrew,
   apt, winget, global `pkg-config`, or developer-machine dylib paths.

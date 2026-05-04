@@ -49,6 +49,9 @@ The vcpkg path is available as a proof lane, not a product dependency:
 - OpenCC port provenance: downloads `BYVoid/OpenCC` tag `ver.${VERSION}` with a
   SHA-512 source archive check.
 - Current port support expression: `!(arm | uwp)`
+- Windows proof triplet: `x64-windows-static`, because OpenCC's `marisa-trie`
+  dependency rejects the default dynamic `x64-windows` triplet and only supports
+  Windows through static or MinGW triplets.
 
 That support expression means the stock vcpkg port is not yet acceptable for a
 PathKeep Apple Silicon release. A future native OpenCC slice must either:
@@ -90,9 +93,9 @@ committed.
 `.github/workflows/native-deps.yml` is a native dependency proof workflow. It
 runs on:
 
-- `ubuntu-latest`
-- `macos-13` Intel
-- `windows-latest`
+- `ubuntu-latest` with `x64-linux`
+- `macos-13` Intel with `x64-osx`
+- `windows-latest` with `x64-windows-static`
 
 It intentionally does not run on Apple Silicon yet because the current vcpkg
 OpenCC port rejects arm targets. This is not a product release proof for native
