@@ -32,9 +32,9 @@ on:
           - windows
           - macos
       unsigned_preview:
-        description: Build unsigned preview bundles without updater artifacts
+        description: Build unsigned bundles without updater artifacts; use this for the Windows release path.
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:

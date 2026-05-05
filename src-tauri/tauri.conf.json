@@ -32,13 +32,22 @@
       "icons/128x128.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
+      "wix": {
+        "upgradeCode": "818daeb2-ee49-5696-a1db-bee51050939c"
+      }
+    }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ4QzZGNjAxMUIxN0JEQ0YKUldUUHZSY2JBZmJHMklITVByeW5nSGJBWVduWHZHVCt2anBBODBNWTl6L0t5UlgrcEZxTGZ2S0gK",
       "endpoints": [
-        "https://github.com/t41372/BrowserHistoryBackup/releases/latest/download/latest.json"
+        "https://github.com/t41372/PathKeep/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

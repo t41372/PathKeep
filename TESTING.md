@@ -12,7 +12,7 @@ bun run check
 
 `bun run check` is the authoritative per-commit checker. It runs:
 
-- `bun run check:base`: formatting, linting, i18n checks, type checking, unit tests, desktop-contract checks, Rust checks, supply-chain audit, and host-matched platform checks.
+- `bun run check:base`: formatting, linting, i18n checks, type checking, unit tests, desktop-contract checks, Rust checks, supply-chain audit, host-matched platform checks, and release-config drift checks.
 - `bun run coverage:js`: 100% statement / branch / function / line coverage for active frontend runtime source under `src/**/*.{ts,tsx}`.
 - `bun run coverage:rust`: 100% line + function coverage for full `src-tauri/**/src/*.rs` workspace source.
 - `bun run build`: TypeScript compile + Vite browser bundle.
@@ -27,6 +27,7 @@ Use these for release rehearsal and focused triage:
 ```bash
 bun run verify
 bun run check:base
+bun run release:check
 bun run coverage:js
 bun run coverage:rust
 bun run mutation:js
@@ -45,6 +46,7 @@ bun run test:e2e:desktop-bridge
 What they mean:
 
 - `bun run check:base`: fast static/unit/native triage path; it is not a signed-off merge gate by itself.
+- `bun run release:check`: focused release config guard for updater URLs, unsigned Windows installer workflow, offline WebView2 bundling, and support-link drift.
 - `bun run mutation:js`: desktop-contract Stryker gate used by `bun run check`.
 - `bun run mutation:js:full`: active frontend runtime Stryker sweep for manual / scheduled deep checks.
 - `bun run mutation:rust`: whole-workspace cargo-mutants deep sweep. Surviving mutants are failures unless a narrow equivalent/inapplicable exclusion is documented with evidence.
@@ -70,6 +72,7 @@ bun run test:unit:desktop-contract
 bun run coverage:js:desktop-contract
 bun run check:js
 bun run check:rust
+bun run release:check
 bun run mutation:js:desktop-contract
 bun run mutation:js:full
 bun run mutation:rust:quality
@@ -80,6 +83,7 @@ bun run mutation:rust:quality
 - Focused helpers do not replace `bun run check`.
 - The desktop-contract slice only protects `src/main.tsx` and `src/lib/ipc/bridge.ts`.
 - Browser-preview e2e does not verify native scheduler install, keyring integration, signing, notarization, or filesystem side effects. Windows Task Scheduler apply/status/remove must still be accepted on a real Windows host or VM even though the Rust unit slice uses a stubbed `schtasks` runner.
+- `bun run release:check` proves the release config still permits unsigned Windows installers and bundles the WebView2 offline installer; it does not prove a specific Windows host can launch the installer.
 - GitHub-hosted Windows runners currently validate the desktop surface with `desktop:build:debug`, `vault-platform` native-host tests, and frontend updater coverage. The `pathkeep-desktop` Rust test binary for updater/file-manager facades is skipped on Windows CI because the hosted runner fails before the test harness starts with a loader-level `STATUS_ENTRYPOINT_NOT_FOUND`; macOS/Linux still run those Rust facade tests.
 - Chrome desktop-bridge smoke verifies the typed desktop command facade from a real browser, but it still does not magically grant every Tauri guest API to Chrome. Treat it as an agent/dev-loop surface, not the final WebView plugin truth.
 - Platform validation for macOS / Windows / Linux lives in [RELEASE.md](./RELEASE.md) and [docs/plan/m4-full-polish/release-readiness-runbook.md](./docs/plan/m4-full-polish/release-readiness-runbook.md).

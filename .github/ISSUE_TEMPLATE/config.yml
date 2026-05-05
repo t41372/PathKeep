@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Troubleshooting guide
-    url: https://github.com/t41372/BrowserHistoryBackup/blob/main/TROUBLESHOOTING.md
+    url: https://github.com/t41372/PathKeep/blob/main/TROUBLESHOOTING.md
     about: Start here for scheduler, permissions, keyring, remote backup, and derived-state troubleshooting.
   - name: Support guide
-    url: https://github.com/t41372/BrowserHistoryBackup/blob/main/SUPPORT.md
+    url: https://github.com/t41372/PathKeep/blob/main/SUPPORT.md
     about: Read the diagnostics and redaction checklist before filing a bug.

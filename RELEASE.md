@@ -7,7 +7,7 @@ This is the contributor-facing release runbook. The implementation-level source 
 | Platform | Channel | Policy                                                                                                                         |
 | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | macOS    | Primary | External releases should be signed and notarized before public distribution.                                                   |
-| Windows  | Preview | CI builds installers, but maintainers must explicitly own the code-signing path they want to use.                              |
+| Windows  | Preview | CI builds unsigned MSI / NSIS installers. Code signing is optional future hardening, not a release blocker.                    |
 | Linux    | Preview | CI builds packages when host tooling is present; checksums are part of the release contract, signatures are not yet universal. |
 
 ## Browser Support Promise
@@ -18,15 +18,15 @@ This is the contributor-facing release runbook. The implementation-level source 
 
 ## Artifact Matrix
 
-| Artifact                            | Produced By                   | Audience              | Notes                                                                                                           |
-| ----------------------------------- | ----------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Browser bundle                      | `bun run build`               | CI / local validation | Confirms the frontend bundle still builds.                                                                      |
-| Debug desktop binary                | `bun run desktop:build:debug` | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                             |
-| macOS `.app` / `.dmg`               | GitHub `Release` workflow     | Users                 | Signed / notarized only when Apple secrets are configured.                                                      |
-| Windows installers                  | GitHub `Release` workflow     | Users                 | MSI / NSIS outputs depend on the host bundle result; SmartScreen reputation depends on operator signing policy. |
-| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow     | Users                 | Requires Linux packaging dependencies on the runner.                                                            |
-| `SHA256SUMS.txt`                    | GitHub `Release` workflow     | Users / operators     | Attached to every release.                                                                                      |
-| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow     | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                    |
+| Artifact                            | Produced By                   | Audience              | Notes                                                                                                                        |
+| ----------------------------------- | ----------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Browser bundle                      | `bun run build`               | CI / local validation | Confirms the frontend bundle still builds.                                                                                   |
+| Debug desktop binary                | `bun run desktop:build:debug` | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                                          |
+| macOS `.app` / `.dmg`               | GitHub `Release` workflow     | Users                 | Signed / notarized only when Apple secrets are configured.                                                                   |
+| Windows installers                  | GitHub `Release` workflow     | Users                 | Unsigned MSI / NSIS outputs bundle the WebView2 offline installer; `Unknown Publisher` and SmartScreen prompts are expected. |
+| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow     | Users                 | Requires Linux packaging dependencies on the runner.                                                                         |
+| `SHA256SUMS.txt`                    | GitHub `Release` workflow     | Users / operators     | Attached to every release.                                                                                                   |
+| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow     | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                                 |
 
 ## Versioning Rules
 
@@ -83,6 +83,8 @@ Manual workflow inputs:
 - `draft`
 - `prerelease`
 - `release_tag` (optional explicit tag; defaults to `v<package.json version>`)
+- `platforms` (`all`, `linux-windows`, `linux`, `windows`, or `macos`)
+- `unsigned_preview` (default `true`; required for the unsigned Windows release path)
 
 Workflow behavior:
 
@@ -91,8 +93,9 @@ Workflow behavior:
 - generate the local size attribution bundle with `bun run release:size-audit`
 - resolves the tag and version up front
 - verifies version sync across the repo
-- builds release bundles on macOS, Windows, and Linux
-- builds updater artifacts and publishes `latest.json`
+- builds release bundles on the selected platform matrix
+- when `unsigned_preview=true`, builds unsigned bundles with `--no-sign`, disables updater artifacts, and skips `latest.json`
+- when `unsigned_preview=false`, builds updater artifacts and publishes `latest.json`
 - uploads assets to the GitHub Release
 - downloads the assets again
 - publishes `SHA256SUMS.txt`
@@ -117,7 +120,9 @@ Workflow behavior:
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
-The current Tauri config has `bundle.createUpdaterArtifacts=true`, so the `Release` workflow fails fast when `TAURI_SIGNING_PRIVATE_KEY` is not configured. Set the private key as a repository Actions secret before dispatching the workflow:
+The current Tauri config has `bundle.createUpdaterArtifacts=true`, so the `Release` workflow fails fast when `unsigned_preview=false` and `TAURI_SIGNING_PRIVATE_KEY` is not configured. Unsigned Windows installer builds use `unsigned_preview=true`; they do not need updater signing secrets and do not publish updater artifacts.
+
+Set the updater private key as a repository Actions secret only before dispatching an updater-enabled release:
 
 ```bash
 gh secret set TAURI_SIGNING_PRIVATE_KEY --repo t41372/PathKeep
@@ -126,13 +131,15 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo t41372/PathKeep
 
 ### Windows Signing
 
-PathKeep does not hardcode a single Windows signing provider in repo config. If you want signed Windows releases, choose and wire one operator-owned path before GA:
+PathKeep's Windows release path is unsigned. The installer is expected to show `Unknown Publisher`, and SmartScreen may require the user to choose **More info -> Run anyway** until the project has publisher reputation.
+
+The CI release config must keep Windows buildable without Windows code-signing secrets. If maintainers later want signed Windows releases, wire that as an optional hardening path without making unsigned Windows installers fail:
 
 - certificate thumbprint in Tauri config
 - custom `signCommand`
 - Azure Trusted Signing / Azure Key Vault
 
-Until that is configured, Windows stays an explicit preview channel.
+Do not gate Windows preview support on any of those providers.
 
 ## Platform Validation
 
@@ -146,6 +153,7 @@ Every release rehearsal should cover:
 - Safari baseline backup after Full Disk Access is granted
 - schedule preview / install / verify / remove
 - Windows Task Scheduler apply / status / mismatch or not-installed / remove on a real Windows host or VM
+- Windows unsigned installer download, `Unknown Publisher` / SmartScreen prompt path, first launch, and reinstall / upgrade over an existing install
 - encrypted archive unlock and re-open
 - remote backup preview / execute / verify
 - upgrade or reinstall over existing data
@@ -179,7 +187,7 @@ If a release is bad:
 - Safari access on macOS still depends on Full Disk Access outside the app.
 - Firefox support is a history-only baseline in this release; Firefox favicons, downloads, keyword-search sidecars, and richer `moz_*` evidence remain future work.
 - ChatGPT Atlas / Perplexity Comet support remains scoped to the validated macOS browser-history profile layouts; Windows / Linux locations are not public release promises.
-- Windows SmartScreen reputation depends on maintainer signing policy and reputation, not just a successful CI build.
+- Windows installers are unsigned in the preview channel. SmartScreen reputation is not proof that the binary failed to build.
 - Linux keyring behavior varies by desktop environment; encrypted mode remains supported, but unattended unlock can degrade.
 - App Lock remains a session-only boundary; only macOS currently ships a real Touch ID unlock path.
 

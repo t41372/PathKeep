@@ -29,8 +29,7 @@ import type {
 
 export type { PendingAppUpdate }
 
-export const RELEASES_PAGE_URL =
-  'https://github.com/t41372/BrowserHistoryBackup/releases'
+export const RELEASES_PAGE_URL = 'https://github.com/t41372/PathKeep/releases'
 
 /**
  * Explains how now iso works.

@@ -12,6 +12,21 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-RELEASE-WINDOWS-UNSIGNED-A** — Unsigned Windows Installer Release Path
+  - 讀先：
+    `README.md`
+    `RELEASE.md`
+    `TESTING.md`
+    `docs/plan/program/quality-matrix.md`
+    `.github/workflows/release.yml`
+    `src-tauri/tauri.conf.json`
+  - 目標：撤回 Windows release 必須先有 code signing 的錯誤 gate，讓 v0.2 Windows 可以透過 GitHub `Release` workflow 產出 unsigned MSI / NSIS installer。
+  - 契約：不引入 Windows code-signing provider、不要求 PFX / Azure Trusted Signing / certificate thumbprint、不把 Windows release support 綁到 signing secret；unsigned release 必須明確告知 `Unknown Publisher` / SmartScreen prompt；如果需要 updater artifacts，仍由 updater minisign key 另行控制，不和 Windows installer code signing 混在一起。
+  - 2026-05-04 closeout：Git history 已回到 `64a89c33` 乾淨基底後重做本修復；錯誤 signing-gate commit 不再作為本 work block 的基底。`Release` workflow manual dispatch 預設 `unsigned_preview=true`，Windows platform option 保留，unsigned path 透過 `--no-sign --config src-tauri/ci.unsigned.conf.json` 關閉 updater artifacts；`src-tauri/tauri.conf.json` 固定 Windows WebView2 `offlineInstaller` 並 pin WiX `upgradeCode`，避免 Windows host 缺 WebView2 runtime 時只能依賴網路 bootstrap。Updater fallback / manifest endpoint、browser-preview fallback URL 與 GitHub issue support links 全部改回 `t41372/PathKeep`。
+  - 新增 `bun run release:check` 並納入 `check:base`，保護 PathKeep release URLs、unsigned Windows workflow、WebView2 offline installer、WiX upgrade code、support links，並防止 Windows signing gate / Azure signing script 被加回來。
+  - 同步回寫 [`README.md`](../../README.md)、[`RELEASE.md`](../../RELEASE.md)、[`TESTING.md`](../../TESTING.md)、[`docs/plan/program/quality-matrix.md`](program/quality-matrix.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：`ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml")'`、`jq empty src-tauri/tauri.conf.json package.json`、`node --check scripts/verify-release-config.mjs`、`bun run release:check`、`git diff --check` 與 `bun run check` 通過。
+
 - [x] **WORK-M14-A** — Lexical Recall V2 Primary Path
   - 讀先：
     `docs/features/recall.md`

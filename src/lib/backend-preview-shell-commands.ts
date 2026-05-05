@@ -222,8 +222,7 @@ export function handlePreviewShellCommand<T>(
           publishedAt: null,
           error:
             'In-browser preview cannot check desktop update channels. Use a packaged desktop build instead.',
-          downloadUrl:
-            'https://github.com/t41372/BrowserHistoryBackup/releases',
+          downloadUrl: 'https://github.com/t41372/PathKeep/releases',
         },
         pendingUpdate: null,
       } as T

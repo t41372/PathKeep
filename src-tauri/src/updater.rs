@@ -23,8 +23,7 @@ use vault_core::{
 };
 
 /// Fallback releases page shown when updater metadata is unavailable.
-pub(crate) const RELEASES_PAGE_URL: &str =
-    "https://github.com/t41372/BrowserHistoryBackup/releases";
+pub(crate) const RELEASES_PAGE_URL: &str = "https://github.com/t41372/PathKeep/releases";
 /// Frontend event name used for updater progress snapshots.
 pub(crate) const UPDATER_PROGRESS_EVENT: &str = "pathkeep://updater-progress";
 #[cfg(any(test, not(coverage)))]

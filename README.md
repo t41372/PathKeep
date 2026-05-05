@@ -124,7 +124,7 @@ On top of that archive, PathKeep gives you powerful recall (full-text search, re
 Download the latest release from [GitHub Releases](https://github.com/t41372/PathKeep/releases).
 
 - **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Safari Browser Direct import requires granting Full Disk Access to PathKeep before scanning Safari history.
-- **Windows:** Support is on the way. Build from source if you want to try it out right now. ~~install the release package. Scheduled backups use Windows Task Scheduler and remain preview-quality until more machines are validated.~~
+- **Windows:** install the unsigned `.msi` or `-setup.exe` release package. Windows will show `Unknown Publisher`, and SmartScreen may require **More info -> Run anyway** until PathKeep has publisher reputation. Scheduled backups use Windows Task Scheduler. The installer bundles the WebView2 offline installer, but Windows Server Core / headless Server environments are not valid GUI acceptance hosts.
 - **Linux:** Support is on the way. Build from source if you want to try it out right now. ~~install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.~~
 
 ## Uninstall
@@ -206,7 +206,7 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 | Platform | Status  | Notes                                                                                        |
 | -------- | ------- | -------------------------------------------------------------------------------------------- |
 | macOS    | Primary | Signed / notarized builds; Touch ID session unlock; Safari support requires Full Disk Access |
-| Windows  | Preview | MSI / NSIS builds available; code signing is maintainer-operated                             |
+| Windows  | Preview | Unsigned MSI / NSIS installers; `Unknown Publisher` is expected; Task Scheduler supported    |
 | Linux    | Preview | AppImage / `.deb` / `.rpm` builds available; keyring behavior varies by desktop environment  |
 
 ---
