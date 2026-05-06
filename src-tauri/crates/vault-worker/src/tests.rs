@@ -7,7 +7,7 @@ use crate::intelligence::{
 };
 use rusqlite::Connection;
 use std::fs;
-#[cfg(coverage)]
+#[cfg(all(coverage, unix))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -292,7 +292,7 @@ fn takeout_fixture(root: &Path) -> String {
     source_dir.display().to_string()
 }
 
-#[cfg(coverage)]
+#[cfg(all(coverage, unix))]
 fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
     let script_path = bin_dir.join("curl");
     fs::create_dir_all(bin_dir).expect("create fake curl dir");
@@ -301,6 +301,34 @@ fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
     permissions.set_mode(0o755);
     fs::set_permissions(&script_path, permissions).expect("chmod");
     script_path
+}
+
+#[cfg(all(coverage, windows))]
+fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
+    let script_path = bin_dir.join("curl.cmd");
+    fs::create_dir_all(bin_dir).expect("create fake curl dir");
+    fs::write(&script_path, body).expect("write fake curl");
+    script_path
+}
+
+#[cfg(all(coverage, unix))]
+fn fake_curl_success_body() -> &'static str {
+    "#!/bin/sh\nexit 0\n"
+}
+
+#[cfg(all(coverage, windows))]
+fn fake_curl_success_body() -> &'static str {
+    "@echo off\r\nexit /b 0\r\n"
+}
+
+#[cfg(all(coverage, unix))]
+fn fake_curl_upload_failure_body() -> &'static str {
+    "#!/bin/sh\necho 'upload failed from worker' >&2\nexit 23\n"
+}
+
+#[cfg(all(coverage, windows))]
+fn fake_curl_upload_failure_body() -> &'static str {
+    "@echo off\r\necho upload failed from worker 1>&2\r\nexit /b 23\r\n"
 }
 
 #[test]
@@ -1049,7 +1077,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
     let bin_dir = dir.path().join("fake-bin");
-    let curl_path = install_fake_curl(&bin_dir, "#!/bin/sh\nexit 0\n");
+    let curl_path = install_fake_curl(&bin_dir, fake_curl_success_body());
 
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
@@ -1997,8 +2025,7 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     let chrome_root = chrome_user_data_fixture(dir.path());
     let keyring_root = dir.path().join("test-keyring");
     let bin_dir = dir.path().join("fake-bin");
-    let curl_path =
-        install_fake_curl(&bin_dir, "#!/bin/sh\necho 'upload failed from worker' >&2\nexit 23\n");
+    let curl_path = install_fake_curl(&bin_dir, fake_curl_upload_failure_body());
 
     unsafe {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());

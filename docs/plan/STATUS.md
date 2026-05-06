@@ -12,6 +12,21 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
+- [x] **WORK-WINDOWS-RUNTIME-HARDENING-A** — Windows Runtime Dependency And Shell Hardening
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/tech-stack.md`
+    `src-tauri/crates/vault-core/src/git_audit.rs`
+    `src-tauri/crates/vault-core/src/chrome/paths.rs`
+    `src-tauri/crates/vault-core/src/remote/transfer.rs`
+    `src-tauri/crates/vault-platform/src/scheduler/windows.rs`
+    `TESTING.md`
+  - 目標：深度審查 macOS-only 開發後 Windows 容易炸的 runtime surface，優先修復 browser import / backup 在 Windows 無 Git 時失敗、Unix-only test helpers、以及 Windows shell preview drift。
+  - 契約：不得把使用者電腦全局 Git 當成資料操作前置條件；audit artifacts 必須先落 ordinary files；optional Git history 失敗只能降級成 warning；不新增 Cargo / npm / Bun / Tauri dependency。
+  - 2026-05-06 closeout：`git_audit` 已拆成 durable audit directory 與 optional Git repo 兩層；browser backup、Takeout import/revert/restore、doctor repair、snapshot restore 與 retention prune 都會先寫 ordinary audit artifacts，Git missing / broken / policy failure 不再讓資料操作失敗。fresh install 仍預設 best-effort 啟用 optional Git history：有 Git 的機器保留本地 commit trail，沒有 Git 的機器只在 artifact 寫入後降級成 skipped warning。Windows remote backup preview 改用 `curl.exe` / `%ENV%` / Windows command escaping；Unix-only test helpers 已加 `cfg` guard 或 Windows `.cmd` fixture。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `vault-core` git-audit / remote / takeout / archive tests、`vault-worker` compile check、`git diff --check` 與 `bun run check` 通過（100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。macOS host 上嘗試 `x86_64-pc-windows-msvc` Rust no-run cross-check，但被本機缺 Windows C SDK / MSVC OpenSSL build toolchain 阻擋（`windows.h` / `assert.h` / `openssl-sys` VC target），仍需要真 Windows runner 做 release-grade compile proof。
+
 - [x] **WORK-RELEASE-WINDOWS-UNSIGNED-A** — Unsigned Windows Installer Release Path
   - 讀先：
     `README.md`

@@ -240,7 +240,9 @@
   - 工具版本
   - 失敗原因（如有）
 - Manifest 形成 hash chain（可審計的 append-only ledger）。
-- Git 只管理審計文字工件：manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
+- 審計文字工件必須先作為普通檔案寫入本地 audit 目錄；Git 只是在可用時提供 optional local history，管理 manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
+- fresh install 預設啟用 best-effort optional Git history；未來若提供 UI 開關，開關語義也只能控制 Git commit layer，不能控制 audit artifact 是否寫入。
+- 缺少 Git、Git repo 損壞或本機 policy 阻止 commit 時，不得讓已完成的 browser backup / import / doctor repair / retention prune 變成失敗；PathKeep 要保留 audit artifact，並在可回看的結果中暴露 optional Git history skipped warning。
 - 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。

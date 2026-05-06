@@ -21,7 +21,7 @@
 | 向量 / 語義檢索  | Deferred from v0.1.0                                           | Optional AI / vector search 未達發佈標準，先不進 default build                                                       |
 | AI 框架          | rig.rs                                                         | Rust 原生的 LLM + Embedding 框架                                                                                     |
 | AI 推理          | 本地推理（Ollama / LM Studio）或雲端 API                       | 可選、可配置                                                                                                         |
-| 審計             | Git（只管理 manifests 和審計工件）                             | 可追溯性                                                                                                             |
+| 審計             | 本地 audit artifacts + optional Git history                    | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                       |
 
 ## 數據庫分層架構
 

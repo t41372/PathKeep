@@ -41,10 +41,11 @@ use crate::{
     models::{AiSettings, AppConfig, ArchiveMode, RemoteBackupConfig, S3CredentialInput},
     utils::sha256_hex,
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     fs::{self, File},
     io::{Read, Write},
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -91,6 +92,7 @@ fn initialize_plaintext_archive(paths: &crate::config::ProjectPaths, config: &Ap
 }
 
 /// Installs an executable fake curl script for upload command tests.
+#[cfg(unix)]
 fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
     let script_path = bin_dir.join("curl");
     fs::create_dir_all(bin_dir).expect("create fake curl dir");
@@ -99,6 +101,67 @@ fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
     permissions.set_mode(0o755);
     fs::set_permissions(&script_path, permissions).expect("chmod");
     script_path
+}
+
+/// Installs an executable fake curl batch file for upload command tests.
+#[cfg(windows)]
+fn install_fake_curl(bin_dir: &Path, body: &str) -> PathBuf {
+    let script_path = bin_dir.join("curl.cmd");
+    fs::create_dir_all(bin_dir).expect("create fake curl dir");
+    fs::write(&script_path, body).expect("write fake curl");
+    script_path
+}
+
+/// Returns a fake curl body that records argv and succeeds.
+#[cfg(unix)]
+fn fake_curl_success_log_body(log_path: &Path) -> String {
+    format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n", log_path.display())
+}
+
+/// Returns a fake curl body that records argv and succeeds.
+#[cfg(windows)]
+fn fake_curl_success_log_body(log_path: &Path) -> String {
+    format!(
+        "@echo off\r\nbreak > \"{}\"\r\n:loop\r\nif \"%~1\"==\"\" exit /b 0\r\necho %~1>>\"{}\"\r\nshift\r\ngoto loop\r\n",
+        log_path.display(),
+        log_path.display()
+    )
+}
+
+/// Returns a fake curl body that fails with stderr.
+#[cfg(unix)]
+fn fake_curl_stderr_failure_body() -> &'static str {
+    "#!/bin/sh\necho 'upload failed' >&2\nexit 23\n"
+}
+
+/// Returns a fake curl body that fails with stderr.
+#[cfg(windows)]
+fn fake_curl_stderr_failure_body() -> &'static str {
+    "@echo off\r\necho upload failed 1>&2\r\nexit /b 23\r\n"
+}
+
+/// Returns a fake curl body that fails with stdout.
+#[cfg(unix)]
+fn fake_curl_stdout_failure_body() -> &'static str {
+    "#!/bin/sh\necho 'stdout only failure'\nexit 9\n"
+}
+
+/// Returns a fake curl body that fails with stdout.
+#[cfg(windows)]
+fn fake_curl_stdout_failure_body() -> &'static str {
+    "@echo off\r\necho stdout only failure\r\nexit /b 9\r\n"
+}
+
+/// Returns a fake curl body that fails by status alone.
+#[cfg(unix)]
+fn fake_curl_status_failure_body() -> &'static str {
+    "#!/bin/sh\nexit 18\n"
+}
+
+/// Returns a fake curl body that fails by status alone.
+#[cfg(windows)]
+fn fake_curl_status_failure_body() -> &'static str {
+    "@echo off\r\nexit /b 18\r\n"
 }
 
 /// Rewrites one bundle entry while preserving the rest of the zip payload.
@@ -337,10 +400,7 @@ fn run_remote_backup_uses_curl_and_updates_saved_config() {
     initialize_plaintext_archive(&paths, &config);
     let bin_dir = dir.path().join("fake-bin");
     let log_path = dir.path().join("curl.log");
-    let curl_path = install_fake_curl(
-        &bin_dir,
-        &format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n", log_path.display()),
-    );
+    let curl_path = install_fake_curl(&bin_dir, &fake_curl_success_log_body(&log_path));
     unsafe {
         std::env::set_var(TEST_CURL_BIN_ENV, &curl_path);
     }
@@ -377,7 +437,7 @@ fn remote_backup_failure_persists_last_error() {
     let config = sample_config();
     initialize_plaintext_archive(&paths, &config);
     let bin_dir = dir.path().join("fake-bin");
-    let curl_path = install_fake_curl(&bin_dir, "#!/bin/sh\necho 'upload failed' >&2\nexit 23\n");
+    let curl_path = install_fake_curl(&bin_dir, fake_curl_stderr_failure_body());
     unsafe {
         std::env::set_var(TEST_CURL_BIN_ENV, &curl_path);
     }
@@ -413,8 +473,7 @@ fn remote_backup_failure_uses_stdout_or_status_when_stderr_is_empty() {
     initialize_plaintext_archive(&paths, &config);
     let bin_dir = dir.path().join("fake-bin");
 
-    let curl_with_stdout =
-        install_fake_curl(&bin_dir, "#!/bin/sh\necho 'stdout only failure'\nexit 9\n");
+    let curl_with_stdout = install_fake_curl(&bin_dir, fake_curl_stdout_failure_body());
     unsafe {
         std::env::set_var(TEST_CURL_BIN_ENV, &curl_with_stdout);
     }
@@ -431,7 +490,7 @@ fn remote_backup_failure_uses_stdout_or_status_when_stderr_is_empty() {
     assert!(!stdout_result.uploaded);
     assert_eq!(stdout_result.message, "stdout only failure");
 
-    let curl_with_status = install_fake_curl(&bin_dir, "#!/bin/sh\nexit 18\n");
+    let curl_with_status = install_fake_curl(&bin_dir, fake_curl_status_failure_body());
     unsafe {
         std::env::set_var(TEST_CURL_BIN_ENV, &curl_with_status);
     }

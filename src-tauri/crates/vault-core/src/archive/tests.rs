@@ -711,6 +711,7 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     let paths = sample_paths(dir.path());
     let config = AppConfig {
         initialized: true,
+        git_enabled: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
@@ -1793,6 +1794,7 @@ fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
     let paths = sample_paths(dir.path());
     let config = AppConfig {
         initialized: true,
+        git_enabled: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
@@ -2285,7 +2287,7 @@ fn doctor_repair_restores_visibility_when_import_audits_are_intact() {
 }
 
 #[test]
-fn doctor_repair_commits_rebuilt_import_artifacts_when_git_is_enabled() {
+fn doctor_repair_records_rebuilt_import_artifacts_when_git_is_enabled() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());
     let import_config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
@@ -2310,15 +2312,18 @@ fn doctor_repair_commits_rebuilt_import_artifacts_when_git_is_enabled() {
         repair
             .notes
             .iter()
-            .any(|note| note.contains("Recorded repaired import artifacts in audit commit"))
+            .any(|note| note.contains("Recorded repaired import artifacts in audit commit")
+                || note.contains("optional Git history step was skipped"))
     );
     let connection = Connection::open(&paths.archive_database_path).expect("open archive");
-    let git_commit: String = connection
+    let git_commit: Option<String> = connection
         .query_row("SELECT git_commit FROM import_batches WHERE id = ?1", [batch.id], |row| {
             row.get(0)
         })
         .expect("git commit");
-    assert!(!git_commit.is_empty());
+    if let Some(git_commit) = git_commit {
+        assert!(!git_commit.is_empty());
+    }
 }
 
 #[test]
@@ -2458,6 +2463,7 @@ fn snapshot_restore_preview_and_run_record_the_saved_checkpoint() {
     let paths = sample_paths(dir.path());
     let config = AppConfig {
         initialized: true,
+        git_enabled: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
@@ -2525,6 +2531,7 @@ fn snapshot_restore_records_failed_run_when_replay_cannot_persist() {
     let paths = sample_paths(dir.path());
     let config = AppConfig {
         initialized: true,
+        git_enabled: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
@@ -2689,6 +2696,7 @@ fn retention_preview_and_prune_clear_local_artifacts_and_record_a_run() {
     let paths = sample_paths(dir.path());
     let config = AppConfig {
         initialized: true,
+        git_enabled: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };

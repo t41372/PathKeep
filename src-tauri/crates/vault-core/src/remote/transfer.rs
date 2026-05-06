@@ -229,6 +229,17 @@ pub(super) fn upload_url(config: &AppConfig, object_key: &str) -> Result<String>
 /// The command intentionally uses environment variables for credentials, so the
 /// preview DTO can be displayed or copied without embedding secrets.
 pub(super) fn preview_command(config: &AppConfig, bundle_path: &Path, upload_url: &str) -> String {
+    #[cfg(windows)]
+    {
+        return format!(
+            "curl.exe --fail --show-error --aws-sigv4 \"aws:amz:{}:s3\" --user \"%S3_ACCESS_KEY_ID%:%S3_SECRET_ACCESS_KEY%\" -T \"{}\" \"{}\"",
+            config.remote_backup.region,
+            windows_cmd_escape(bundle_path.display().to_string()),
+            windows_cmd_escape(upload_url.to_string()),
+        );
+    }
+
+    #[cfg(not(windows))]
     format!(
         "curl --fail --show-error --aws-sigv4 \"aws:amz:{}:s3\" --user \"$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY\" -T '{}' '{}'",
         config.remote_backup.region,
@@ -265,6 +276,12 @@ pub(super) fn inject_bucket(endpoint: &str, bucket: &str) -> Result<String> {
 /// Escapes single quotes for a shell string already wrapped in single quotes.
 pub(super) fn shell_escape(value: String) -> String {
     value.replace('\'', "'\"'\"'")
+}
+
+/// Escapes double quotes for the Windows `cmd.exe` command preview.
+#[cfg(windows)]
+fn windows_cmd_escape(value: String) -> String {
+    value.replace('"', "\\\"")
 }
 
 /// Returns the curl binary path, overridden by tests for hermetic upload checks.

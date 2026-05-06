@@ -287,7 +287,6 @@ pub(crate) fn write_manifest_artifact(
     manifest_hash: &str,
     manifest_json: &str,
 ) -> Result<PathBuf> {
-    git_audit::ensure_repo(&paths.audit_repo_path)?;
     let relative_path =
         format!("manifests/{}/run-{}-{}.json", &finished_at[0..10], run_id, &manifest_hash[..12]);
     git_audit::write_audit_file(&paths.audit_repo_path, &relative_path, manifest_json)

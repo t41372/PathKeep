@@ -186,14 +186,23 @@ pub fn run_snapshot_restore(
         &finished_at,
         &row_counts,
     )?;
-    finalize_successful_run(&connection, run_id, &finished_at, &summary, &[], &manifest_hash)?;
-
-    let git_commit = if config.git_enabled {
-        git_audit::ensure_repo(&paths.audit_repo_path)?;
-        git_audit::commit_all(&paths.audit_repo_path, &format!("snapshot restore run {run_id}"))?
+    let (git_commit, warnings) = if config.git_enabled {
+        let (git_commit, git_warning) = git_audit::commit_all_optional(
+            &paths.audit_repo_path,
+            &format!("snapshot restore run {run_id}"),
+        );
+        (git_commit, git_warning.into_iter().collect::<Vec<_>>())
     } else {
-        None
+        (None, Vec::new())
     };
+    finalize_successful_run(
+        &connection,
+        run_id,
+        &finished_at,
+        &summary,
+        &warnings,
+        &manifest_hash,
+    )?;
 
     Ok(BackupReport {
         due_skipped: false,
@@ -202,7 +211,7 @@ pub fn run_snapshot_restore(
         profiles: vec![profile_summary],
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
-        warnings: Vec::new(),
+        warnings,
         remote_backup: None,
     })
 }
@@ -314,6 +323,14 @@ pub fn run_retention_prune(
             "manifestHash": manifest_hash,
         }),
     )?;
+    let mut warnings = preview.warnings.clone();
+    if config.git_enabled {
+        let (_, git_warning) = git_audit::commit_all_optional(
+            &paths.audit_repo_path,
+            &format!("retention prune run {run_id}"),
+        );
+        warnings.extend(git_warning);
+    }
     connection.execute(
         "UPDATE runs
          SET finished_at = ?1,
@@ -325,18 +342,10 @@ pub fn run_retention_prune(
         params![
             finished_at,
             serde_json::to_string(&stats)?,
-            serde_json::to_string(&preview.warnings)?,
+            serde_json::to_string(&warnings)?,
             run_id,
         ],
     )?;
-
-    if config.git_enabled {
-        git_audit::ensure_repo(&paths.audit_repo_path)?;
-        let _ = git_audit::commit_all(
-            &paths.audit_repo_path,
-            &format!("retention prune run {run_id}"),
-        )?;
-    }
 
     let _ = manifest_path;
 
@@ -345,7 +354,7 @@ pub fn run_retention_prune(
         deleted_bytes,
         deleted_files,
         buckets: selected,
-        warnings: preview.warnings,
+        warnings,
     })
 }
 

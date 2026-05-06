@@ -428,13 +428,16 @@ fn write_batch_audit_detail(
     detail: &ImportBatchDetail,
     action: &str,
 ) -> Result<(String, Option<String>)> {
-    git_audit::ensure_repo(&paths.audit_repo_path)?;
     let file_name =
         format!("imports/{}/batch-{}-{}.json", &detail.batch.created_at[0..10], batch_id, action);
     let contents = serde_json::to_string_pretty(detail)?;
     let audit_path = git_audit::write_audit_file(&paths.audit_repo_path, &file_name, &contents)?;
     let git_commit = if config.git_enabled {
-        git_audit::commit_all(&paths.audit_repo_path, &format!("import batch {batch_id} {action}"))?
+        let (git_commit, _) = git_audit::commit_all_optional(
+            &paths.audit_repo_path,
+            &format!("import batch {batch_id} {action}"),
+        );
+        git_commit
     } else {
         None
     };

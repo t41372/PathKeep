@@ -220,7 +220,12 @@ pub fn repair_health_issues(
 
         let cleared_derived_rows = cleared_ai_embeddings + cleared_insight_rows;
         let git_commit = if config.git_enabled && repaired_import_audits > 0 {
-            git_audit::commit_all(&paths.audit_repo_path, "doctor repair import audit artifacts")?
+            let (git_commit, git_warning) = git_audit::commit_all_optional(
+                &paths.audit_repo_path,
+                "doctor repair import audit artifacts",
+            );
+            notes.extend(git_warning);
+            git_commit
         } else {
             None
         };

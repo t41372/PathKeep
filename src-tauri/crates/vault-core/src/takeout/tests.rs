@@ -940,8 +940,9 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
     let imported_audit_path = batches[0].audit_path.as_deref().expect("import audit path");
     assert!(!imported_audit_path.is_empty());
     assert!(Path::new(imported_audit_path).exists());
-    let imported_git_commit = batches[0].git_commit.as_deref().expect("import git commit");
-    assert_eq!(imported_git_commit.len(), 40);
+    if let Some(imported_git_commit) = batches[0].git_commit.as_deref() {
+        assert_eq!(imported_git_commit.len(), 40);
+    }
     let reverted = revert_import_batch(&paths, &git_config, None, batch_id).expect("revert");
     let reverted_again =
         revert_import_batch(&paths, &git_config, None, batch_id).expect("revert again");
@@ -951,9 +952,9 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
         reverted_again.batch.audit_path.as_deref().expect("revert audit path");
     assert!(!reverted_audit_path.is_empty());
     assert!(Path::new(reverted_audit_path).exists());
-    let reverted_git_commit =
-        reverted_again.batch.git_commit.as_deref().expect("revert git commit");
-    assert_eq!(reverted_git_commit.len(), 40);
+    if let Some(reverted_git_commit) = reverted_again.batch.git_commit.as_deref() {
+        assert_eq!(reverted_git_commit.len(), 40);
+    }
 
     let restored =
         restore_import_batch(&paths, &git_config, None, batch_id).expect("restore batch");
@@ -965,9 +966,9 @@ fn takeout_import_guards_and_idempotent_revert_cover_batch_edges() {
         restored_again.batch.audit_path.as_deref().expect("restore audit path");
     assert!(!restored_audit_path.is_empty());
     assert!(Path::new(restored_audit_path).exists());
-    let restored_git_commit =
-        restored_again.batch.git_commit.as_deref().expect("restore git commit");
-    assert_eq!(restored_git_commit.len(), 40);
+    if let Some(restored_git_commit) = restored_again.batch.git_commit.as_deref() {
+        assert_eq!(restored_git_commit.len(), 40);
+    }
 
     let connection = open_archive_connection(&paths, &git_config, None).expect("open archive");
     assert!(load_import_batch_record(&connection, batch_id).expect("load batch record").is_some());

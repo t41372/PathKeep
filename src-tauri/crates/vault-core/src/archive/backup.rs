@@ -348,6 +348,14 @@ where
         &finished_at,
         &row_counts,
     )?;
+    let git_commit = if config.git_enabled {
+        let (git_commit, git_warning) =
+            git_audit::commit_all_optional(&paths.audit_repo_path, &format!("backup run {run_id}"));
+        warnings.extend(git_warning);
+        git_commit
+    } else {
+        None
+    };
     finalize_successful_run(
         &connection,
         run_id,
@@ -362,13 +370,6 @@ where
             .err()
             .map(keyword_recall_rebuild_warning),
     );
-
-    let git_commit = if config.git_enabled {
-        git_audit::ensure_repo(&paths.audit_repo_path)?;
-        git_audit::commit_all(&paths.audit_repo_path, &format!("backup run {run_id}"))?
-    } else {
-        None
-    };
 
     Ok(BackupReport {
         due_skipped: false,
