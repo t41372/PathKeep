@@ -54,7 +54,7 @@ jobs:
       build_matrix: ${{ steps.matrix.outputs.build_matrix }}
       unsigned_preview: ${{ steps.matrix.outputs.unsigned_preview }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Resolve tag and version
         id: resolve
@@ -176,7 +176,7 @@ jobs:
       matrix: ${{ fromJson(needs.prepare-release.outputs.build_matrix) }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -200,7 +200,7 @@ jobs:
             rpm \
             wget
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
@@ -216,9 +216,9 @@ jobs:
         with:
           targets: ${{ matrix.rust_targets }}
 
-      - uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -278,7 +278,7 @@ jobs:
       - prepare-release
       - build-release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download release assets
         env:
@@ -318,7 +318,7 @@ jobs:
             --clobber
 
       - name: Upload checksum workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-manifests
           path: |

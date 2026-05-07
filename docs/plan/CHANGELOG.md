@@ -1278,3 +1278,20 @@
   - 2026-05-06 closeout：`git_audit` 已拆成 durable audit directory 與 optional Git repo 兩層；browser backup、Takeout import/revert/restore、doctor repair、snapshot restore 與 retention prune 都會先寫 ordinary audit artifacts，Git missing / broken / policy failure 不再讓資料操作失敗。fresh install 仍預設 best-effort 啟用 optional Git history：有 Git 的機器保留本地 commit trail，沒有 Git 的機器只在 artifact 寫入後降級成 skipped warning。Windows remote backup preview 改用 `curl.exe` / `%ENV%` / Windows command escaping；Unix-only test helpers 已加 `cfg` guard 或 Windows `.cmd` fixture。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`docs/architecture/tech-stack.md`](../architecture/tech-stack.md)、[`docs/plan/STATUS.md`](STATUS.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted `vault-core` git-audit / remote / takeout / archive tests、`vault-worker` compile check、`git diff --check` 與 `bun run check` 通過（100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract mutation）。macOS host 上嘗試 `x86_64-pc-windows-msvc` Rust no-run cross-check，但被本機缺 Windows C SDK / MSVC OpenSSL build toolchain 阻擋（`windows.h` / `assert.h` / `openssl-sys` VC target），仍需要真 Windows runner 做 release-grade compile proof。
+
+- [x] **WORK-RELEASE-WINDOWS-SMALL-A** — Windows Small Installer And Actions Runtime Refresh
+  - 讀先：
+    `RELEASE.md`
+    `docs/plan/program/quality-matrix.md`
+    `.github/workflows/release.yml`
+    `.github/workflows/ci.yml`
+    `.github/workflows/platform-native.yml`
+    `.github/workflows/mutation.yml`
+    `.github/workflows/native-deps.yml`
+    `src-tauri/tauri.conf.json`
+    `scripts/verify-release-config.mjs`
+  - 目標：修正 Windows unsigned preview installer 因 WebView2 offline installer 膨脹到約 200MB 的 release policy drift，並消除 GitHub Actions Node.js 20 runtime deprecation warning。
+  - 2026-05-07 closeout：Windows bundle WebView2 install mode 從 `offlineInstaller` 改為 `downloadBootstrapper`，讓常見 Windows 11 / current Windows 10 安裝包回到小體積；缺 WebView2 Runtime 的少數機器仍會在安裝時靜默下載 bootstrapper。Release docs 與 quality matrix 已同步更新，不再把 offline installer 當 preview release contract。
+  - Actions refresh：`actions/checkout` 升到 `v6`、`actions/setup-node` 升到 `v6`、`actions/upload-artifact` 升到 `v7`、`actions/cache` 升到 `v5`；`arduino/setup-protoc@v3` 已移除，改由既有 `taiki-e/install-action@v2` 安裝 `protoc`。`bun run release:check` 現在會阻擋這些舊 action refs 回流。
+  - 同步回寫 [`RELEASE.md`](../../RELEASE.md)、[`docs/plan/program/quality-matrix.md`](program/quality-matrix.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`src-tauri/tauri.conf.json`](../../src-tauri/tauri.conf.json)、[`scripts/verify-release-config.mjs`](../../scripts/verify-release-config.mjs) 與 `.github/workflows/*`。
+  - 驗收結果：`bun run release:check`、`bunx prettier --check`、`ruby -e 'require "yaml"; YAML.load_file(...)'` workflow syntax sweep、`jq empty src-tauri/tauri.conf.json package.json`、`node --check scripts/verify-release-config.mjs` 與 `git diff --check` 通過。

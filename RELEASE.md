@@ -18,15 +18,15 @@ This is the contributor-facing release runbook. The implementation-level source 
 
 ## Artifact Matrix
 
-| Artifact                            | Produced By                   | Audience              | Notes                                                                                                                        |
-| ----------------------------------- | ----------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Browser bundle                      | `bun run build`               | CI / local validation | Confirms the frontend bundle still builds.                                                                                   |
-| Debug desktop binary                | `bun run desktop:build:debug` | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                                          |
-| macOS `.app` / `.dmg`               | GitHub `Release` workflow     | Users                 | Signed / notarized only when Apple secrets are configured.                                                                   |
-| Windows installers                  | GitHub `Release` workflow     | Users                 | Unsigned MSI / NSIS outputs bundle the WebView2 offline installer; `Unknown Publisher` and SmartScreen prompts are expected. |
-| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow     | Users                 | Requires Linux packaging dependencies on the runner.                                                                         |
-| `SHA256SUMS.txt`                    | GitHub `Release` workflow     | Users / operators     | Attached to every release.                                                                                                   |
-| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow     | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                                 |
+| Artifact                            | Produced By                   | Audience              | Notes                                                                                                                                                                         |
+| ----------------------------------- | ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser bundle                      | `bun run build`               | CI / local validation | Confirms the frontend bundle still builds.                                                                                                                                    |
+| Debug desktop binary                | `bun run desktop:build:debug` | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                                                                                           |
+| macOS `.app` / `.dmg`               | GitHub `Release` workflow     | Users                 | Signed / notarized only when Apple secrets are configured.                                                                                                                    |
+| Windows installers                  | GitHub `Release` workflow     | Users                 | Unsigned MSI / NSIS outputs stay small and run the WebView2 download bootstrapper only when the runtime is missing; `Unknown Publisher` and SmartScreen prompts are expected. |
+| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow     | Users                 | Requires Linux packaging dependencies on the runner.                                                                                                                          |
+| `SHA256SUMS.txt`                    | GitHub `Release` workflow     | Users / operators     | Attached to every release.                                                                                                                                                    |
+| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow     | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                                                                                  |
 
 ## Versioning Rules
 
@@ -96,6 +96,7 @@ Workflow behavior:
 - builds release bundles on the selected platform matrix
 - when `unsigned_preview=true`, builds unsigned bundles with `--no-sign`, disables updater artifacts, and skips `latest.json`
 - when `unsigned_preview=false`, builds updater artifacts and publishes `latest.json`
+- Windows installers use Tauri's `downloadBootstrapper` WebView2 mode so the common Windows 11 / current Windows 10 path stays small while missing-runtime machines can still install with internet access
 - uploads assets to the GitHub Release
 - downloads the assets again
 - publishes `SHA256SUMS.txt`
@@ -153,7 +154,7 @@ Every release rehearsal should cover:
 - Safari baseline backup after Full Disk Access is granted
 - schedule preview / install / verify / remove
 - Windows Task Scheduler apply / status / mismatch or not-installed / remove on a real Windows host or VM
-- Windows unsigned installer download, `Unknown Publisher` / SmartScreen prompt path, first launch, and reinstall / upgrade over an existing install
+- Windows unsigned installer download, `Unknown Publisher` / SmartScreen prompt path, WebView2 already-present path, missing-WebView2 bootstrapper path, first launch, and reinstall / upgrade over an existing install
 - encrypted archive unlock and re-open
 - remote backup preview / execute / verify
 - upgrade or reinstall over existing data
@@ -188,6 +189,7 @@ If a release is bad:
 - Firefox support is a history-only baseline in this release; Firefox favicons, downloads, keyword-search sidecars, and richer `moz_*` evidence remain future work.
 - ChatGPT Atlas / Perplexity Comet support remains scoped to the validated macOS browser-history profile layouts; Windows / Linux locations are not public release promises.
 - Windows installers are unsigned in the preview channel. SmartScreen reputation is not proof that the binary failed to build.
+- Windows installers require internet access only on the minority of machines missing Microsoft Edge WebView2 Runtime.
 - Linux keyring behavior varies by desktop environment; encrypted mode remains supported, but unattended unlock can degrade.
 - App Lock remains a session-only boundary; only macOS currently ships a real Touch ID unlock path.
 
