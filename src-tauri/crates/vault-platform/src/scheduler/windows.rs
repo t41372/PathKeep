@@ -15,8 +15,9 @@
 //! - `std::process::Command` for production `schtasks.exe` calls.
 //!
 //! ## Performance notes
-//! - XML comparison normalizes whitespace only; status checks do not parse large
-//!   files or enumerate all scheduler tasks.
+//! - Status checks compare only the behavior-bearing Task Scheduler fields
+//!   because Windows canonicalizes imported XML and injects default nodes.
+//! - Status checks do not enumerate all scheduler tasks.
 
 use crate::test_support::TEST_WINDOWS_USER_ID_ENV;
 use anyhow::{Context, Result};
@@ -344,7 +345,7 @@ pub(super) fn windows_schedule_status(
 
     if outcome.success {
         status.detected_files.push(format!("Task Scheduler:{}", plan.label));
-        if normalize_scheduler_xml(&outcome.stdout) == normalize_scheduler_xml(expected_xml) {
+        if windows_task_matches_plan(&outcome.stdout, expected_xml) {
             status.install_state = "installed".to_string();
             status.verification_checks.push(verification_check(
                 "windows-task-xml",
@@ -570,6 +571,67 @@ pub(super) fn xml_escape(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
+fn windows_task_matches_plan(installed_xml: &str, expected_xml: &str) -> bool {
+    if normalize_scheduler_xml(installed_xml) == normalize_scheduler_xml(expected_xml) {
+        return true;
+    }
+
+    match (
+        WindowsTaskSemantics::from_xml(installed_xml),
+        WindowsTaskSemantics::from_xml(expected_xml),
+    ) {
+        (Some(installed), Some(expected)) => installed.matches_expected(&expected),
+        _ => false,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct WindowsTaskSemantics {
+    command: String,
+    arguments: String,
+    repetition_minutes: u64,
+    has_logon_trigger: bool,
+    logon_type: Option<String>,
+    run_level: Option<String>,
+    start_when_available: Option<bool>,
+}
+
+impl WindowsTaskSemantics {
+    fn from_xml(xml: &str) -> Option<Self> {
+        let task = strip_xml_declaration(xml);
+        let exec = xml_element(task, "Exec")?;
+        let time_trigger = xml_element(task, "TimeTrigger")?;
+        let principal = xml_element(task, "Principal")?;
+        let settings = xml_element(task, "Settings").unwrap_or_default();
+        let interval = xml_text(&time_trigger, "Interval")?;
+
+        Some(Self {
+            command: normalize_windows_command(&xml_text(&exec, "Command")?),
+            arguments: normalize_windows_arguments(&xml_text(&exec, "Arguments")?),
+            repetition_minutes: parse_windows_iso_minutes(&interval)?,
+            has_logon_trigger: xml_element(task, "LogonTrigger").is_some(),
+            logon_type: xml_text(&principal, "LogonType").map(|value| value.trim().to_string()),
+            run_level: xml_text(&principal, "RunLevel").map(|value| value.trim().to_string()),
+            start_when_available: xml_text(&settings, "StartWhenAvailable")
+                .and_then(|value| parse_windows_xml_bool(&value)),
+        })
+    }
+
+    fn matches_expected(&self, expected: &Self) -> bool {
+        self.command == expected.command
+            && self.arguments == expected.arguments
+            && self.repetition_minutes == expected.repetition_minutes
+            && self.has_logon_trigger == expected.has_logon_trigger
+            && optional_case_insensitive_match(&self.logon_type, &expected.logon_type)
+            && optional_case_insensitive_match_or_default(
+                &self.run_level,
+                &expected.run_level,
+                "LeastPrivilege",
+            )
+            && optional_bool_match(self.start_when_available, expected.start_when_available)
+    }
+}
+
 fn normalize_scheduler_xml(value: &str) -> String {
     strip_xml_declaration(value).split_whitespace().collect::<String>()
 }
@@ -580,6 +642,112 @@ fn strip_xml_declaration(value: &str) -> &str {
         return trimmed;
     }
     trimmed.find("?>").map_or(trimmed, |end| &trimmed[end + 2..])
+}
+
+fn xml_element(value: &str, tag: &str) -> Option<String> {
+    let close_tag = format!("</{tag}>");
+    let open_start = find_xml_open_tag(value, tag)?;
+    let open_end = value[open_start..].find('>')? + open_start;
+    let content_start = open_end + 1;
+    let close_start = value[content_start..].find(&close_tag)? + content_start;
+    Some(value[content_start..close_start].to_string())
+}
+
+fn find_xml_open_tag(value: &str, tag: &str) -> Option<usize> {
+    let open_prefix = format!("<{tag}");
+    let mut offset = 0;
+
+    while let Some(relative_start) = value[offset..].find(&open_prefix) {
+        let start = offset + relative_start;
+        let next = value[start + open_prefix.len()..].chars().next()?;
+        if matches!(next, '>' | '/' | ' ' | '\t' | '\r' | '\n') {
+            return Some(start);
+        }
+        offset = start + open_prefix.len();
+    }
+
+    None
+}
+
+fn xml_text(value: &str, tag: &str) -> Option<String> {
+    xml_element(value, tag).map(|text| xml_unescape(text.trim()))
+}
+
+fn xml_unescape(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+fn normalize_windows_command(value: &str) -> String {
+    value.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+fn normalize_windows_arguments(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn parse_windows_xml_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+fn optional_bool_match(actual: Option<bool>, expected: Option<bool>) -> bool {
+    match expected {
+        Some(expected) => actual == Some(expected),
+        None => true,
+    }
+}
+
+fn optional_case_insensitive_match(actual: &Option<String>, expected: &Option<String>) -> bool {
+    match expected {
+        Some(expected) => {
+            actual.as_deref().is_some_and(|actual| actual.eq_ignore_ascii_case(expected.trim()))
+        }
+        None => true,
+    }
+}
+
+fn optional_case_insensitive_match_or_default(
+    actual: &Option<String>,
+    expected: &Option<String>,
+    default: &str,
+) -> bool {
+    match expected {
+        Some(expected) if expected.trim().eq_ignore_ascii_case(default) => {
+            actual.as_deref().is_none_or(|actual| actual.eq_ignore_ascii_case(expected.trim()))
+        }
+        _ => optional_case_insensitive_match(actual, expected),
+    }
+}
+
+fn parse_windows_iso_minutes(value: &str) -> Option<u64> {
+    let duration = value.trim().strip_prefix("PT")?;
+    let mut total_minutes = 0_u64;
+    let mut digits = String::new();
+
+    for ch in duration.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+            continue;
+        }
+
+        let amount = digits.parse::<u64>().ok()?;
+        digits.clear();
+        match ch {
+            'H' => total_minutes = total_minutes.checked_add(amount.checked_mul(60)?)?,
+            'M' => total_minutes = total_minutes.checked_add(amount)?,
+            _ => return None,
+        }
+    }
+
+    (digits.is_empty() && total_minutes > 0).then_some(total_minutes)
 }
 
 fn verification_check(
@@ -595,5 +763,134 @@ fn verification_check(
         label_key: label_key.to_string(),
         detail_key: detail_key.to_string(),
         evidence,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXPECTED_TASK_XML: &str = r#"<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <UserId>PATHKEEPTEST\backup-user</UserId>
+    </LogonTrigger>
+    <TimeTrigger>
+      <Enabled>true</Enabled>
+      <Repetition>
+        <Interval>PT1H30M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2026-01-01T09:00:00</StartBoundary>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>PATHKEEPTEST\backup-user</UserId>
+      <RunLevel>LeastPrivilege</RunLevel>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:/Program Files/PathKeep/pathkeep-desktop.exe</Command>
+      <Arguments>--worker backup --due-only</Arguments>
+    </Exec>
+  </Actions>
+</Task>"#;
+
+    const CANONICAL_TASK_XML: &str = r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>com.yi-ting.pathkeep.backup</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-4216521022-1034979134-2183607003-1001</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Triggers>
+    <LogonTrigger>
+      <UserId>CORE-WINDOWS\backup-user</UserId>
+    </LogonTrigger>
+    <TimeTrigger>
+      <StartBoundary>2026-01-01T09:00:00</StartBoundary>
+      <Repetition>
+        <Interval>PT90M</Interval>
+      </Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Program Files\PathKeep\pathkeep-desktop.exe</Command>
+      <Arguments> --worker   backup   --due-only </Arguments>
+    </Exec>
+  </Actions>
+</Task>"#;
+
+    #[test]
+    fn windows_task_semantics_accept_task_scheduler_canonicalization() {
+        assert!(windows_task_matches_plan(CANONICAL_TASK_XML, EXPECTED_TASK_XML));
+        assert!(windows_task_matches_plan(
+            &format!("{}\n{}", r#"<?xml version="1.0" encoding="UTF-16"?>"#, EXPECTED_TASK_XML),
+            EXPECTED_TASK_XML
+        ));
+    }
+
+    #[test]
+    fn windows_task_semantics_reject_behavior_drift() {
+        assert!(!windows_task_matches_plan(
+            &CANONICAL_TASK_XML.replace("<Interval>PT90M</Interval>", "<Interval>PT2H</Interval>"),
+            EXPECTED_TASK_XML
+        ));
+        assert!(!windows_task_matches_plan(
+            &CANONICAL_TASK_XML.replace("--due-only", "--all"),
+            EXPECTED_TASK_XML
+        ));
+        assert!(!windows_task_matches_plan(
+            &CANONICAL_TASK_XML.replace("<LogonType>InteractiveToken</LogonType>", ""),
+            EXPECTED_TASK_XML
+        ));
+    }
+
+    #[test]
+    fn windows_iso_minutes_parser_accepts_task_scheduler_duration_forms() {
+        assert_eq!(parse_windows_iso_minutes("PT90M"), Some(90));
+        assert_eq!(parse_windows_iso_minutes("PT1H30M"), Some(90));
+        assert_eq!(parse_windows_iso_minutes("PT6H"), Some(360));
+        assert_eq!(parse_windows_iso_minutes("PT0M"), None);
+        assert_eq!(parse_windows_iso_minutes("P1D"), None);
+        assert_eq!(parse_windows_iso_minutes("PT1S"), None);
+    }
+
+    #[test]
+    fn windows_semantic_optional_helpers_cover_absent_and_invalid_values() {
+        assert_eq!(parse_windows_xml_bool("false"), Some(false));
+        assert_eq!(parse_windows_xml_bool("maybe"), None);
+        assert!(optional_bool_match(Some(false), None));
+        assert!(optional_case_insensitive_match(&Some("Anything".to_string()), &None));
+        assert!(optional_case_insensitive_match_or_default(
+            &Some("InteractiveToken".to_string()),
+            &Some("interactivetoken".to_string()),
+            "LeastPrivilege"
+        ));
     }
 }

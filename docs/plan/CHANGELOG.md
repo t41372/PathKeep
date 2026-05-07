@@ -1295,3 +1295,14 @@
   - Actions refresh：`actions/checkout` 升到 `v6`、`actions/setup-node` 升到 `v6`、`actions/upload-artifact` 升到 `v7`、`actions/cache` 升到 `v5`；`arduino/setup-protoc@v3` 已移除，改由既有 `taiki-e/install-action@v2` 安裝 `protoc`。`bun run release:check` 現在會阻擋這些舊 action refs 回流。
   - 同步回寫 [`RELEASE.md`](../../RELEASE.md)、[`docs/plan/program/quality-matrix.md`](program/quality-matrix.md)、[`docs/plan/STATUS.md`](STATUS.md)、[`src-tauri/tauri.conf.json`](../../src-tauri/tauri.conf.json)、[`scripts/verify-release-config.mjs`](../../scripts/verify-release-config.mjs) 與 `.github/workflows/*`。
   - 驗收結果：`bun run release:check`、`bunx prettier --check`、`ruby -e 'require "yaml"; YAML.load_file(...)'` workflow syntax sweep、`jq empty src-tauri/tauri.conf.json package.json`、`node --check scripts/verify-release-config.mjs` 與 `git diff --check` 通過。
+
+- [x] **WORK-WINDOWS-SCHED-CANONICAL-A** — Windows Scheduler Canonical XML Status Fix
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/tech-stack.md`
+    `src-tauri/crates/vault-platform/src/scheduler/windows.rs`
+    `TESTING.md`
+  - 目標：修復 Windows 版 Schedule 頁在 `schtasks /Query /XML` 成功後仍把已安裝任務判成 `windows-task-mismatch` 的問題。
+  - 2026-05-07 closeout：Windows Task Scheduler status verification 不再用整段 XML 去空白後相等比對，改成比對行為欄位：command、arguments、repetition interval、logon trigger、interactive token、least privilege 與 `StartWhenAvailable`。這避開 Task Scheduler 匯入後自動重排 XML、補 battery / idle / unified scheduling defaults，以及把 principal user canonicalize 成 SID 的 false warning，同時仍保留 command / arguments / interval / trigger drift 的 mismatch 偵測。
+  - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`src-tauri/crates/vault-platform/src/scheduler/windows.rs`](../../src-tauri/crates/vault-platform/src/scheduler/windows.rs)、[`src-tauri/crates/vault-platform/src/scheduler.rs`](../../src-tauri/crates/vault-platform/src/scheduler.rs) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted `vault-platform` scheduler tests 覆蓋 Task Scheduler canonical XML shape；`bun run check` 通過後提交。

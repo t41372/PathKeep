@@ -728,10 +728,7 @@ mod tests {
         unsafe {
             std::env::set_var(
                 TEST_SCHTASKS_QUERY_XML_ENV,
-                format!(
-                    "{}\n{}",
-                    r#"<?xml version="1.0" encoding="UTF-16"?>"#, plan.generated_files[0].contents
-                ),
+                canonical_windows_schtasks_query_xml(&plan.label),
             );
         }
 
@@ -760,6 +757,52 @@ mod tests {
         );
         assert!(removed.applied);
         assert!(Path::new(removed.audit_path.as_deref().expect("remove audit")).exists());
+    }
+
+    fn canonical_windows_schtasks_query_xml(label: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>{label}</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-4216521022-1034979134-2183607003-1001</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Triggers>
+    <LogonTrigger>
+      <UserId>PATHKEEPTEST\backup-user</UserId>
+    </LogonTrigger>
+    <TimeTrigger>
+      <StartBoundary>2026-01-01T09:00:00</StartBoundary>
+      <Repetition>
+        <Interval>PT6H</Interval>
+      </Repetition>
+    </TimeTrigger>
+  </Triggers>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\PathKeep\pathkeep.exe</Command>
+      <Arguments>--worker backup --due-only</Arguments>
+    </Exec>
+  </Actions>
+</Task>"#
+        )
     }
 
     #[test]
