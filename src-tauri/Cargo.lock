@@ -3655,7 +3655,7 @@ checksum = "c5a797f0e07bdf071d15742978fc3128ec6c22891c31a3a931513263904c982a"
 
 [[package]]
 name = "pathkeep-desktop"
-version = "0.1.0"
+version = "0.1.1-1805"
 dependencies = [
  "anyhow",
  "axum",

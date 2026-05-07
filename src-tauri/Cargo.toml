@@ -1,6 +1,6 @@
 [package]
 name = "pathkeep-desktop"
-version = "0.1.0"
+version = "0.1.1-1805"
 edition = "2024"
 description = "Audit-first desktop archive for browser history"
 license = "GPL-3.0-only"
