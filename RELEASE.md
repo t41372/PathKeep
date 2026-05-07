@@ -18,15 +18,16 @@ This is the contributor-facing release runbook. The implementation-level source 
 
 ## Artifact Matrix
 
-| Artifact                            | Produced By                   | Audience              | Notes                                                                                                                                                                         |
-| ----------------------------------- | ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser bundle                      | `bun run build`               | CI / local validation | Confirms the frontend bundle still builds.                                                                                                                                    |
-| Debug desktop binary                | `bun run desktop:build:debug` | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                                                                                           |
-| macOS `.app` / `.dmg`               | GitHub `Release` workflow     | Users                 | Signed / notarized only when Apple secrets are configured.                                                                                                                    |
-| Windows installers                  | GitHub `Release` workflow     | Users                 | Unsigned MSI / NSIS outputs stay small and run the WebView2 download bootstrapper only when the runtime is missing; `Unknown Publisher` and SmartScreen prompts are expected. |
-| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow     | Users                 | Requires Linux packaging dependencies on the runner.                                                                                                                          |
-| `SHA256SUMS.txt`                    | GitHub `Release` workflow     | Users / operators     | Attached to every release.                                                                                                                                                    |
-| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow     | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                                                                                  |
+| Artifact                            | Produced By                           | Audience              | Notes                                                                                                                                                                         |
+| ----------------------------------- | ------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser bundle                      | `bun run build`                       | CI / local validation | Confirms the frontend bundle still builds.                                                                                                                                    |
+| Debug desktop binary                | `bun run desktop:build:debug`         | Maintainers           | Used for pre-release smoke and packaging rehearsal.                                                                                                                           |
+| macOS `.app` / `.dmg`               | GitHub `Release` workflow             | Users                 | Signed / notarized only when Apple secrets are configured.                                                                                                                    |
+| Windows installers                  | GitHub `Release` workflow             | Users                 | Unsigned MSI / NSIS outputs stay small and run the WebView2 download bootstrapper only when the runtime is missing; `Unknown Publisher` and SmartScreen prompts are expected. |
+| Windows test binary / installers    | GitHub `Windows Test Binary` workflow | Maintainers / QA      | Manual workflow artifact only; builds unsigned Windows release binary plus MSI / NSIS installers without updating GitHub Release assets.                                      |
+| Linux `.AppImage` / `.deb` / `.rpm` | GitHub `Release` workflow             | Users                 | Requires Linux packaging dependencies on the runner.                                                                                                                          |
+| `SHA256SUMS.txt`                    | GitHub `Release` workflow             | Users / operators     | Attached to every release.                                                                                                                                                    |
+| `RELEASE-MANIFEST.json`             | GitHub `Release` workflow             | Operators / support   | Lists released files, sizes, and checksums for traceability.                                                                                                                  |
 
 ## Versioning Rules
 
@@ -141,6 +142,17 @@ The CI release config must keep Windows buildable without Windows code-signing s
 - Azure Trusted Signing / Azure Key Vault
 
 Do not gate Windows preview support on any of those providers.
+
+## Windows Test Binary Workflow
+
+For ad-hoc Windows QA without touching the public `v0.1.0` release assets, run the `Windows Test Binary` workflow manually from GitHub Actions. It builds on `windows-latest`, uses the same unsigned Tauri override as the release preview path, and uploads a 14-day workflow artifact containing:
+
+- `pathkeep-desktop.exe`
+- generated Windows installer bundles such as MSI / NSIS setup outputs
+- `SHA256SUMS.txt`
+- `WINDOWS-TEST-MANIFEST.json`
+
+This workflow is for test-machine handoff only. Promote a build through the `Release` workflow after versioning, release notes, and the full release checklist are complete.
 
 ## Platform Validation
 

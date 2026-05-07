@@ -1306,3 +1306,14 @@
   - 2026-05-07 closeout：Windows Task Scheduler status verification 不再用整段 XML 去空白後相等比對，改成比對行為欄位：command、arguments、repetition interval、logon trigger、interactive token、least privilege 與 `StartWhenAvailable`。這避開 Task Scheduler 匯入後自動重排 XML、補 battery / idle / unified scheduling defaults，以及把 principal user canonicalize 成 SID 的 false warning，同時仍保留 command / arguments / interval / trigger drift 的 mismatch 偵測。
   - 同步回寫 [`docs/features/archive.md`](../features/archive.md)、[`src-tauri/crates/vault-platform/src/scheduler/windows.rs`](../../src-tauri/crates/vault-platform/src/scheduler/windows.rs)、[`src-tauri/crates/vault-platform/src/scheduler.rs`](../../src-tauri/crates/vault-platform/src/scheduler.rs) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted `vault-platform` scheduler tests 覆蓋 Task Scheduler canonical XML shape；`bun run check` 通過後提交。
+
+- [x] **WORK-WINDOWS-TEST-BINARY-A** — Artifact-Only Windows Test Binary Action
+  - 讀先：
+    `RELEASE.md`
+    `TESTING.md`
+    `.github/workflows/release.yml`
+    `.github/workflows/platform-native.yml`
+  - 目標：給 Windows 測試機產出最新 unsigned Windows binary / installer，但不覆蓋既有 `v0.1.0` GitHub Release assets。
+  - 2026-05-07 closeout：新增 GitHub `Windows Test Binary` manual workflow，在 `windows-latest` 上跑 focused release config guard，使用與 release preview 相同的 unsigned Tauri override build，並把 `pathkeep-desktop.exe`、MSI / NSIS installer、`SHA256SUMS.txt`、`WINDOWS-TEST-MANIFEST.json` 作為 14 天 workflow artifact 上傳。
+  - 同步回寫 [`RELEASE.md`](../../RELEASE.md)、[`TESTING.md`](../../TESTING.md)、[`.github/workflows/windows-test-binary.yml`](../../.github/workflows/windows-test-binary.yml) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：workflow YAML syntax、`bun run release:check`、`bunx prettier --check`、`git diff --check` 通過後提交並 dispatch Action。

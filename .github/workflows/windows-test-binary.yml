@@ -1,0 +1,119 @@
+name: Windows Test Binary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-test-binary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-test-binary:
+    name: Build unsigned Windows test binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@1.94.1
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: protoc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify release config
+        run: bun run release:check
+
+      - name: Write unsigned Tauri override
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+
+          pathlib.Path("src-tauri/ci.unsigned.conf.json").write_text(
+              json.dumps({"bundle": {"createUpdaterArtifacts": False}}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build unsigned Windows app
+        run: bunx tauri build --no-sign --config src-tauri/ci.unsigned.conf.json
+
+      - name: Collect Windows artifacts
+        shell: bash
+        run: |
+          mkdir -p dist/windows-test
+
+          if [ -f src-tauri/target/release/pathkeep-desktop.exe ]; then
+            cp src-tauri/target/release/pathkeep-desktop.exe dist/windows-test/
+          fi
+
+          if [ -d src-tauri/target/release/bundle ]; then
+            find src-tauri/target/release/bundle -type f \
+              \( -name '*.msi' -o -name '*setup.exe' -o -name '*.exe' \) \
+              -exec cp '{}' dist/windows-test/ \;
+          fi
+
+          python - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+
+          root = pathlib.Path("dist/windows-test")
+          files = sorted(path for path in root.iterdir() if path.is_file())
+          if not files:
+              raise SystemExit("No Windows artifacts were collected.")
+
+          checksums = []
+          for path in files:
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              checksums.append(f"{digest}  {path.name}")
+
+          (root / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="utf-8")
+          (root / "WINDOWS-TEST-MANIFEST.json").write_text(
+              json.dumps(
+                  {
+                      "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      "commit": os.environ["GITHUB_SHA"],
+                      "ref": os.environ["GITHUB_REF_NAME"],
+                      "files": [
+                          {
+                              "name": path.name,
+                              "sizeBytes": path.stat().st_size,
+                              "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                          }
+                          for path in files
+                      ],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Windows test binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pathkeep-windows-test-${{ github.run_number }}-${{ github.sha }}
+          path: dist/windows-test/*
+          if-no-files-found: error
+          retention-days: 14
