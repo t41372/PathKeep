@@ -289,6 +289,62 @@ fn seed_lexical_archive(paths: &ProjectPaths, config: &AppConfig) {
     rebuild_search_projection(paths, config, None).expect("rebuild search projection");
 }
 
+fn insert_lexical_history_row(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    id: i64,
+    url: &str,
+    title: &str,
+    visit_time: i64,
+    iso: &str,
+) {
+    let connection = open_archive_connection(paths, config, None).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO urls (
+               id,
+               url,
+               title,
+               visit_count,
+               typed_count,
+               first_visit_ms,
+               first_visit_iso,
+               last_visit_ms,
+               last_visit_iso,
+               source_profile_id,
+               created_by_run_id,
+               source_url_id,
+               hidden,
+               recorded_at
+             )
+             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 0, ?1, 0, ?5)",
+            params![id, url, title, visit_time, iso],
+        )
+        .expect("insert url");
+    connection
+        .execute(
+            "INSERT INTO visits (
+               id,
+               url_id,
+               source_visit_id,
+               visit_time_ms,
+               visit_time_iso,
+               transition_type,
+               visit_duration_ms,
+               source_profile_id,
+               created_by_run_id,
+               app_id,
+               from_visit,
+               is_known_to_sync,
+               recorded_at
+             )
+             VALUES (?1, ?1, ?1, ?2, ?3, 805306368, 1000, 1, 0, NULL, NULL, 1, ?3)",
+            params![id, visit_time, iso],
+        )
+        .expect("insert visit");
+    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
+}
+
 #[test]
 fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
     let dir = tempdir().expect("tempdir");
@@ -605,6 +661,152 @@ fn lexical_recall_defaults_to_relevance_and_accepts_time_sort_override() {
     .expect("newest query");
     assert_eq!(newest.items[0].title.as_deref(), Some("Git Hub spacing guide"));
     assert!(newest.next_cursor.as_deref().is_some_and(|cursor| !cursor.starts_with("r|")));
+}
+
+#[test]
+fn history_keyword_query_supports_google_like_local_operators() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        8,
+        "https://github.com/pathkeep/pathkeep/issues",
+        "PathKeep issue tracker",
+        8_000,
+        "2026-05-01T00:00:08+00:00",
+    );
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        9,
+        "https://github.com/pathkeep/spec.pdf",
+        "PathKeep PDF spec",
+        9_000,
+        "2026-05-01T00:00:09+00:00",
+    );
+
+    let site_without_keyword = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("site:github.com -pathkeep".to_string()),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("site exclusion query");
+    assert_eq!(site_without_keyword.total, 1);
+    assert_eq!(site_without_keyword.items[0].title.as_deref(), Some("Release notes"));
+
+    let domain_without_keyword = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("-pathkeep".to_string()),
+            domain: Some("github.com".to_string()),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("domain exclusion query");
+    assert_eq!(domain_without_keyword.total, 1);
+    assert_eq!(domain_without_keyword.items[0].title.as_deref(), Some("Release notes"));
+
+    let exact_phrase = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("\"release notes\"".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("exact phrase query");
+    assert_eq!(exact_phrase.total, 1);
+    assert_eq!(exact_phrase.items[0].title.as_deref(), Some("Release notes"));
+
+    let intersected_date_filters = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("site:github.com after:1970-01-01 before:1970-01-01".to_string()),
+            start_time_ms: Some(3_500),
+            end_time_ms: Some(4_500),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("intersected date filters");
+    assert_eq!(intersected_date_filters.total, 1);
+    assert_eq!(intersected_date_filters.items[0].title.as_deref(), Some("Release notes"));
+
+    let ui_time_only_filters = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            start_time_ms: Some(3_500),
+            end_time_ms: Some(4_500),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("ui time-only filters");
+    assert_eq!(ui_time_only_filters.total, 1);
+    assert_eq!(ui_time_only_filters.items[0].title.as_deref(), Some("Release notes"));
+
+    let title_operator = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("intitle:manual".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("title operator query");
+    assert_eq!(title_operator.total, 1);
+    assert_eq!(title_operator.items[0].title.as_deref(), Some("GitHub Actions manual"));
+
+    let url_operator = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("inurl:pull-request".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("url operator query");
+    assert_eq!(url_operator.total, 1);
+    assert_eq!(url_operator.items[0].title.as_deref(), Some("Pull Request review checklist"));
+
+    let filetype_operator = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("site:github.com filetype:pdf".to_string()),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("filetype operator query");
+    assert_eq!(filetype_operator.total, 1);
+    assert_eq!(filetype_operator.items[0].title.as_deref(), Some("PathKeep PDF spec"));
+
+    let any_of_these_words = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("manual OR youtube".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("or query");
+    assert_eq!(any_of_these_words.total, 2);
+    assert!(
+        any_of_these_words
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
+    );
+    assert!(
+        any_of_these_words
+            .items
+            .iter()
+            .any(|entry| entry.title.as_deref() == Some("YouTube watch queue"))
+    );
 }
 
 fn seed_firefox_fixture(root: &Path) -> PathBuf {
@@ -1001,6 +1203,21 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
     assert!(
         format!("{invalid_regex:#}").contains("invalid regex pattern"),
         "unexpected error: {invalid_regex:#}"
+    );
+    let unsupported_regex = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("^((?!pathkeep).)*$".to_string()),
+            regex_mode: Some(true),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect_err("unsupported regex");
+    assert!(
+        format!("{unsupported_regex:#}").contains("invalid regex pattern"),
+        "Rust regex should reject look-around patterns before searching"
     );
 
     let first_page = list_history(

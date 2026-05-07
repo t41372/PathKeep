@@ -120,6 +120,26 @@ M14-B adds two deterministic query-expansion layers:
   repo-owned bounded edit distance in Rust. It does not run edit distance in SQL
   and it does not scan canonical rows outside the FTS candidate window.
 
+Explorer keyword input also accepts a local subset of Google-like advanced
+operators before lexical analysis:
+
+- `site:` maps to archived URL/site/domain filtering and can be combined with
+  the explicit Domain field.
+- Leading `-` excludes words or quoted phrases from URL/title/search-term
+  evidence, enabling queries such as `site:github.com -pathkeep` without regex
+  look-around.
+- Uppercase or lowercase `OR` splits rankable keyword segments into an FTS OR
+  query, matching Google's "any of these words" behavior for archived evidence.
+- Quoted phrases become exact URL/title/search-term constraints while still
+  using lexical FTS to produce candidates.
+- `intitle:`, `inurl:`, `filetype:`/`ext:`, `after:`, and `before:` become
+  SQL-side local-history constraints.
+
+These operators do not change the local-first boundary: they only evaluate
+archived URL/title/search-term/visit-time facts and the rebuildable search
+projection. Google web-index features that need page language, region, license,
+related pages, image metadata, or remote index knowledge remain out of scope.
+
 Regex mode remains a manual post-filter over visible canonical rows and does not
 use the analyzer.
 

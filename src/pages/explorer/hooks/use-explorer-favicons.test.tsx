@@ -4,7 +4,7 @@
  * @module pages/explorer/hooks
  */
 
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../../lib/backend-client'
 import type { HistoryEntry, HistoryQueryResponse } from '../../../lib/types'
@@ -93,6 +93,44 @@ describe('useExplorerFavicons', () => {
     )
 
     rerender({ cacheToken: 2 })
+
+    expect(result.current.faviconCache.size).toBe(0)
+  })
+
+  test('ignores favicon completions after the row window unmounts', async () => {
+    let resolveLoad: (
+      entries: Awaited<ReturnType<typeof backend.loadHistoryFavicons>>,
+    ) => void = () => {}
+    const loadPromise = new Promise<
+      Awaited<ReturnType<typeof backend.loadHistoryFavicons>>
+    >((resolve) => {
+      resolveLoad = resolve
+    })
+    vi.spyOn(backend, 'loadHistoryFavicons').mockReturnValue(loadPromise)
+
+    const { result, unmount } = renderHook(() =>
+      useExplorerFavicons({
+        cacheToken: 1,
+        loading: false,
+        results: historyResponse([
+          historyEntry(1, 'https://example.com/a', 1000),
+        ]),
+      }),
+    )
+
+    await waitFor(() => expect(backend.loadHistoryFavicons).toHaveBeenCalled())
+    unmount()
+    await act(async () => {
+      resolveLoad([
+        {
+          favicon: { dataUrl: 'data:image/png;base64,AAA=' },
+          profileId: 'chrome:Default',
+          url: 'https://example.com/a',
+          visitTime: 1000,
+        },
+      ])
+      await loadPromise
+    })
 
     expect(result.current.faviconCache.size).toBe(0)
   })

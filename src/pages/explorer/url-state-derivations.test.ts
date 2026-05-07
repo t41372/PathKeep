@@ -77,9 +77,30 @@ describe('explorer url-state derivations', () => {
     expect(
       deriveExplorerUrlParamState(new URLSearchParams('q=github'), null).sort,
     ).toBe('relevance')
+    expect(
+      deriveExplorerUrlParamState(
+        new URLSearchParams('q=%22release+notes%22'),
+        null,
+      ).sort,
+    ).toBe('relevance')
     expect(deriveExplorerUrlParamState(new URLSearchParams(), null).sort).toBe(
       'newest',
     )
+    expect(
+      deriveExplorerUrlParamState(
+        new URLSearchParams('q=site%3Agithub.com+-pathkeep'),
+        null,
+      ).sort,
+    ).toBe('newest')
+    expect(
+      deriveExplorerUrlParamState(new URLSearchParams('q=OR'), null).sort,
+    ).toBe('newest')
+    expect(
+      deriveExplorerUrlParamState(
+        new URLSearchParams('q=site%3A%22github.com%22'),
+        null,
+      ).sort,
+    ).toBe('newest')
     expect(
       deriveExplorerUrlParamState(new URLSearchParams('q=github&regex=1'), null)
         .sort,

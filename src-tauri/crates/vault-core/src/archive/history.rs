@@ -13,6 +13,7 @@
 //! engine.
 
 use super::search_lexical::{FuzzyDocument, FuzzyQuery, LexicalQuery, analyze_query};
+use super::search_query::{ParsedHistorySearchQuery, parse_history_search_query};
 use super::*;
 
 mod export;
@@ -75,6 +76,16 @@ WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_filetypes AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_filetypes AS advanced_filter WHERE LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_url_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_url_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_title_terms AS advanced_filter WHERE NOT (LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
   AND (
@@ -121,6 +132,18 @@ OFFSET :pageOffset
 
 const FUZZY_CANDIDATE_URL_LIMIT: i64 = 200;
 const FUZZY_CANDIDATE_VISIT_LIMIT: i64 = 400;
+const ADVANCED_FILTER_TABLES: &[&str] = &[
+    "history_exact_terms",
+    "history_excluded_terms",
+    "history_required_title_terms",
+    "history_excluded_title_terms",
+    "history_required_url_terms",
+    "history_excluded_url_terms",
+    "history_required_sites",
+    "history_excluded_sites",
+    "history_required_filetypes",
+    "history_excluded_filetypes",
+];
 
 const LIST_HISTORY_FUZZY_CANDIDATES_SQL: &str = r#"
 WITH fuzzy_url_candidates AS (
@@ -160,6 +183,16 @@ WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_filetypes AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_filetypes AS advanced_filter WHERE LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_url_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_url_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_title_terms AS advanced_filter WHERE NOT (LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 ORDER BY
@@ -198,6 +231,16 @@ WHERE visits.reverted_at IS NULL
   AND (:profileId IS NULL OR source_profiles.profile_key = :profileId)
   AND (:browserKind IS NULL OR source_profiles.browser_kind = :browserKind)
   AND (:domainPattern IS NULL OR urls.url LIKE :domainPattern)
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_sites AS advanced_filter WHERE LOWER(urls.url) NOT LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_sites AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_filetypes AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_filetypes AS advanced_filter WHERE LOWER(urls.url) LIKE '%.' || advanced_filter.value OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '?%' OR LOWER(urls.url) LIKE '%.' || advanced_filter.value || '#%')
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_url_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_url_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_url LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_title_terms AS advanced_filter WHERE NOT (LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 "#;
@@ -215,11 +258,19 @@ pub fn list_history(
     let requested_page = query.page.map(|page| usize::try_from(page.max(1)).unwrap_or(usize::MAX));
     let profile_id = query.profile_id.clone();
     let browser_kind = query.browser_kind.clone();
-    let start_time_ms = query.start_time_ms;
-    let end_time_ms = query.end_time_ms;
-    let q = query.q.clone().filter(|value| !value.trim().is_empty());
+    let raw_q = query.q.clone().filter(|value| !value.trim().is_empty());
+    let regex_mode = query.regex_mode.unwrap_or(false);
+    let parsed_query = if regex_mode {
+        ParsedHistorySearchQuery::default()
+    } else {
+        raw_q.as_deref().map(parse_history_search_query).unwrap_or_default()
+    };
+    prepare_advanced_search_filters(&connection, &parsed_query)?;
+    let start_time_ms = max_optional_i64(query.start_time_ms, parsed_query.after_ms);
+    let end_time_ms = min_optional_i64(query.end_time_ms, parsed_query.before_ms);
+    let q = if regex_mode { raw_q.clone() } else { parsed_query.keyword_text.clone() };
     let lexical_query = q.as_deref().and_then(analyze_query);
-    let regex = if query.regex_mode.unwrap_or(false) {
+    let regex = if regex_mode {
         q.as_ref()
             .map(|value| {
                 RegexBuilder::new(value)
@@ -295,6 +346,78 @@ pub fn list_history(
         cursor_id,
         q,
     )
+}
+
+fn max_optional_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn min_optional_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn prepare_advanced_search_filters(
+    connection: &Connection,
+    parsed_query: &ParsedHistorySearchQuery,
+) -> Result<()> {
+    for table in ADVANCED_FILTER_TABLES {
+        connection.execute(
+            &format!("CREATE TEMP TABLE IF NOT EXISTS {table} (value TEXT NOT NULL)"),
+            [],
+        )?;
+        connection.execute(&format!("DELETE FROM {table}"), [])?;
+    }
+    insert_filter_values(connection, "history_exact_terms", &parsed_query.exact_terms)?;
+    insert_filter_values(connection, "history_excluded_terms", &parsed_query.excluded_terms)?;
+    insert_filter_values(
+        connection,
+        "history_required_title_terms",
+        &parsed_query.required_title_terms,
+    )?;
+    insert_filter_values(
+        connection,
+        "history_excluded_title_terms",
+        &parsed_query.excluded_title_terms,
+    )?;
+    insert_filter_values(
+        connection,
+        "history_required_url_terms",
+        &parsed_query.required_url_terms,
+    )?;
+    insert_filter_values(
+        connection,
+        "history_excluded_url_terms",
+        &parsed_query.excluded_url_terms,
+    )?;
+    insert_filter_values(connection, "history_required_sites", &parsed_query.required_sites)?;
+    insert_filter_values(connection, "history_excluded_sites", &parsed_query.excluded_sites)?;
+    insert_filter_values(
+        connection,
+        "history_required_filetypes",
+        &parsed_query.required_filetypes,
+    )?;
+    insert_filter_values(
+        connection,
+        "history_excluded_filetypes",
+        &parsed_query.excluded_filetypes,
+    )?;
+    Ok(())
+}
+
+fn insert_filter_values(connection: &Connection, table: &str, values: &[String]) -> Result<()> {
+    let mut statement = connection.prepare(&format!("INSERT INTO {table} (value) VALUES (?1)"))?;
+    for value in values {
+        statement.execute(params![value])?;
+    }
+    Ok(())
 }
 
 /// Runs regex recall as a manual post-filter over the canonical SQL query.

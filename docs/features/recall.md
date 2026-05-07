@@ -40,9 +40,18 @@
 ### 搜尋與篩選
 
 - **全文搜尋**（基於 FTS5）：搜尋 URL、標題、搜尋關鍵詞。Keyword mode 預設以 relevance 排序，明確選擇 newest / oldest 時才回到時間排序；relevance 只來自本機 lexical FTS/BM25，不是 embedding 或 AI ranking。
+- **高級關鍵詞語法**：Keyword mode 支援本地歷史紀錄可誠實落地的 Google-like operators。這些語法只讀 PathKeep 已歸檔的 URL、title、search terms 與 visit time，不推斷網頁正文，也不依賴網路。
+  - `site:github.com`：限制 URL/site/domain；也可繼續使用獨立 Domain 篩選欄。
+  - `-pathkeep`、`-"release candidate"`：排除 URL、title、search terms / normalized compact projection 中包含指定詞或片語的結果。常見用法是 Domain 篩選 `github.com` + query `-pathkeep`。
+  - `"release notes"`：要求 URL、title 或 search terms 中出現 exact phrase，同時仍用 lexical FTS 建候選。
+  - `manual OR youtube`：任一側詞組命中即可返回，對應 Google Advanced Search 的「any of these words」。
+  - `intitle:manual` / `inurl:pull-request`：要求詞出現在 title 或 URL 欄位。
+  - `filetype:pdf` / `ext:pdf`：依 URL 副檔名篩選本地歷史結果。
+  - `after:2026-05-01` / `before:2026-05-07`：依 visit time 收窄；會與 UI date filters 取交集。
+  - 不支援 Google 的 language / region / usage rights / related / image-only operators，因為 v0.1 archive 不保存或不能本地證明這些 web-index 屬性。
 - **Regex 搜尋**：Explorer 提供顯式的正則模式，用於 URL / title 的手動進階檢索。
   - **切換按鈕**：搜尋列旁有 toggle button，讓用戶在 FTS5 keyword 模式和 regex 模式之間切換。切換時保留目前輸入的搜尋字串，但清楚更新 placeholder 提示（如 "Search keywords…" ↔ "Regex pattern…"）。
-  - **Client-side regex 驗證**：每次輸入變更時即時驗證 pattern 合法性。Invalid regex 直接在 UI 阻止查詢並顯示錯誤訊息（如 "Invalid regex: unterminated group"），同時保留目前可見的搜尋結果不被清空。
+  - **Client-side regex 驗證**：每次輸入變更時即時驗證 pattern 合法性。Regex dialect 以後端 Rust `regex` crate 為準；look-around / backreference 這類 JavaScript 可接受但 Rust 不支援的語法必須在 UI 先擋下。Invalid regex 直接在 UI 阻止查詢並顯示錯誤訊息（如 "Invalid regex: unterminated group"），同時保留目前可見的搜尋結果不被清空。
   - **URL 參數**：regex 模式透過 `?regex=1` query string 持久化，讓搜尋結果可分享、可書籤、可重新載入。與其他 Explorer filter 參數（`q`、`profileId`、`domain` 等）正交組合。
   - 這個模式必須清楚標示自己不是 day-one 快速路徑；UI 先驗證 pattern，再執行 scoped query。
 - **複合篩選**，可疊加使用：

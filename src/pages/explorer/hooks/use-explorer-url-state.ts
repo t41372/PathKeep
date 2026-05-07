@@ -50,6 +50,7 @@ import {
   resolveExplorerActiveDateShortcut,
   resolveExplorerGroupedDateRange,
 } from '../url-state-derivations'
+import { isRustRegexCompatible } from '../regex-validation'
 
 /**
  * Collects the inputs needed by `UseExplorerUrlState`.
@@ -113,13 +114,7 @@ export function useExplorerUrlState({
 
   const regexValid = useMemo(() => {
     if (!regexMode || !queryInput.trim()) return true
-
-    try {
-      new RegExp(queryInput)
-      return true
-    } catch {
-      return false
-    }
+    return isRustRegexCompatible(queryInput)
   }, [queryInput, regexMode])
 
   const formatRecentDate = useCallback(

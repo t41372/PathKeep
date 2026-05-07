@@ -1317,3 +1317,15 @@
   - 2026-05-07 closeout：新增 GitHub `Windows Test Binary` manual workflow，在 `windows-latest` 上跑 focused release config guard，使用與 release preview 相同的 unsigned Tauri override build，並把 `pathkeep-desktop.exe`、MSI / NSIS installer、`SHA256SUMS.txt`、`WINDOWS-TEST-MANIFEST.json` 作為 14 天 workflow artifact 上傳。
   - 同步回寫 [`RELEASE.md`](../../RELEASE.md)、[`TESTING.md`](../../TESTING.md)、[`.github/workflows/windows-test-binary.yml`](../../.github/workflows/windows-test-binary.yml) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：workflow YAML syntax、`bun run release:check`、`bunx prettier --check`、`git diff --check` 通過後提交並 dispatch Action。
+
+- [x] **WORK-EXPLORER-ADVANCED-SEARCH-A** — Local Advanced Keyword Operators And Regex Dialect Guard
+  - 讀先：
+    `docs/features/recall.md`
+    `docs/architecture/lexical-recall-v2.md`
+    `docs/architecture/data-model.md`
+    `src-tauri/crates/vault-core/src/archive/history.rs`
+    `src/pages/explorer/hooks/use-explorer-url-state.ts`
+  - 目標：修復 Explorer regex UI 會把 JavaScript-only look-around 誤判為可送後端的問題，並把「某個 domain 下不包含某個關鍵詞」落成 keyword mode 的正式語法，而不是要求使用者寫負向前瞻正則。
+  - 2026-05-07 closeout：Regex mode 明確以 Rust `regex` dialect 為準，前端會先擋下 look-around、named capture / backreference 等 Rust 不支援的 pattern。Keyword mode 新增本地 Google-like operators：`site:`、leading `-`、quoted exact phrase、`OR`、`intitle:`、`inurl:`、`filetype:` / `ext:`、`after:`、`before:`；這些只讀 URL/title/search terms/visit time 與 rebuildable search projection，不引入網路或網頁正文依賴。`site:github.com -pathkeep` 與 Domain 欄 `github.com` + query `-pathkeep` 都會走後端 SQL-side constraints。
+  - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
+  - 驗收結果：targeted Explorer / browser-preview Vitest、`vault-core` `search_lexical` / `search_query` / advanced-history tests 與 canonical backup history regression 通過；完整 `bun run check` 另行作為提交前 gate。

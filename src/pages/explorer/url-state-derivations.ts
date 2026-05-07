@@ -96,7 +96,7 @@ export function deriveExplorerUrlParamState(
     explicitSort === 'newest' ||
     explicitSort === 'oldest'
       ? explicitSort
-      : rawQuery.trim() && !regexMode && mode === 'keyword'
+      : hasRankableKeywordQuery(rawQuery) && !regexMode && mode === 'keyword'
         ? 'relevance'
         : 'newest'
   const rawPage = searchParams.get('page')
@@ -121,6 +121,49 @@ export function deriveExplorerUrlParamState(
     start,
     view,
   }
+}
+
+function hasRankableKeywordQuery(rawQuery: string) {
+  return tokenizeExplorerQuery(rawQuery).some((token) => {
+    const value = token.trim()
+    if (!value || value.toLowerCase() === 'or') return false
+    if (value.startsWith('-')) return false
+    const operatorSeparator = value.indexOf(':')
+    if (operatorSeparator <= 0) return true
+    const operator = value.slice(0, operatorSeparator).toLowerCase()
+    return ![
+      'site',
+      'intitle',
+      'title',
+      'inurl',
+      'url',
+      'filetype',
+      'ext',
+      'after',
+      'before',
+    ].includes(operator)
+  })
+}
+
+function tokenizeExplorerQuery(rawQuery: string) {
+  const tokens: string[] = []
+  rawQuery.replace(
+    /(-?[A-Za-z]+:)?"([^"\\]*(?:\\.[^"\\]*)*)"|(\S+)/g,
+    (
+      match,
+      operatorPrefix: string | undefined,
+      quoted: string | undefined,
+      bare: string | undefined,
+    ) => {
+      if (bare !== undefined) {
+        tokens.push(bare)
+      } else {
+        tokens.push(`${operatorPrefix ?? ''}${quoted as string}`)
+      }
+      return match
+    },
+  )
+  return tokens
 }
 
 /**

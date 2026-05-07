@@ -235,6 +235,146 @@ describe('backend preview search helpers', () => {
     })
   })
 
+  test('filters preview history with local advanced search operators', () => {
+    const state = createMockState()
+    state.history.items = [
+      historyItem(
+        1,
+        'chrome:Default',
+        Date.parse('2026-01-01T10:00:00Z'),
+        'https://github.com/pathkeep/pathkeep/issues',
+        'PathKeep issue tracker',
+      ),
+      historyItem(
+        2,
+        'chrome:Default',
+        Date.parse('2026-02-15T10:00:00Z'),
+        'https://github.com/releases',
+        'Release notes',
+      ),
+      historyItem(
+        3,
+        'chrome:Default',
+        Date.parse('2026-03-20T10:00:00Z'),
+        'https://github.com/pathkeep/spec.pdf',
+        'PathKeep PDF spec',
+      ),
+    ]
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com -pathkeep',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:"github.com"',
+      }).items.map((item) => item.id),
+    ).toEqual([3, 2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com -site:pathkeep',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: '"release notes"',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com filetype:pdf',
+      }).items.map((item) => item.id),
+    ).toEqual([3])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'intitle:release inurl:releases',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'intitle: inurl: filetype:.',
+      }).items.map((item) => item.id),
+    ).toEqual([3, 2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'issues OR releases',
+      }).items.map((item) => item.id),
+    ).toEqual([2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'issues OR OR releases',
+      }).items.map((item) => item.id),
+    ).toEqual([2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com after:2026/02/01 before:2026-03-01',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com before:2026',
+      }).items.map((item) => item.id),
+    ).toEqual([3, 2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:github.com after:not-a-date before:not-a-date',
+      }).items.map((item) => item.id),
+    ).toEqual([3, 2, 1])
+  })
+
+  test('keeps preview advanced operators stable at empty and nullable boundaries', () => {
+    const state = createMockState()
+    state.history.items = [
+      historyItem(
+        1,
+        'chrome:Default',
+        1000,
+        'https://github.com/null-title',
+        'Placeholder',
+        {
+          title: null,
+        },
+      ),
+      historyItem(
+        2,
+        'chrome:Default',
+        2000,
+        'https://github.com/releases',
+        'Release notes',
+      ),
+    ]
+
+    expect(
+      filterMockHistory(state, {
+        q: 'intitle:release',
+      }).items.map((item) => item.id),
+    ).toEqual([2])
+
+    expect(
+      filterMockHistory(state, {
+        q: '""',
+      }).items.map((item) => item.id),
+    ).toEqual([2, 1])
+
+    expect(
+      filterMockHistory(state, {
+        q: 'site:',
+      }).items.map((item) => item.id),
+    ).toEqual([2, 1])
+  })
+
   test('orders keyword preview history by relevance and paginates relevance cursors', () => {
     const state = createMockState()
     state.history.items = [

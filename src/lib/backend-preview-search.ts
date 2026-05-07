@@ -219,18 +219,30 @@ export function filterMockHistory(
   query: HistoryQuery | undefined,
 ): HistoryQueryResponse {
   const rawQuery = query?.q?.trim() ?? ''
-  const q = rawQuery.toLowerCase()
+  const advancedQuery = query?.regexMode
+    ? emptyMockAdvancedHistoryQuery()
+    : parseMockAdvancedHistoryQuery(rawQuery)
+  const q = (
+    query?.regexMode ? rawQuery : advancedQuery.keywordText
+  ).toLowerCase()
   const domain = query?.domain?.trim().toLowerCase() ?? ''
   const profileId = query?.profileId ?? null
   const browserKind = query?.browserKind ?? null
   const startTimeMs = query?.startTimeMs ?? null
   const endTimeMs = query?.endTimeMs ?? null
-  const sort =
-    query?.sort ?? (rawQuery && !query?.regexMode ? 'relevance' : 'newest')
+  const sort = query?.sort ?? (q && !query?.regexMode ? 'relevance' : 'newest')
   const limit = Math.max(1, Math.min(query?.limit ?? 150, 1000))
   const requestedPage = Math.max(1, Math.floor(query?.page ?? 1))
   const cursor = parseMockHistoryCursor(query?.cursor)
   const regex = query?.regexMode && rawQuery ? new RegExp(rawQuery, 'i') : null
+  const effectiveStartTimeMs = Math.max(
+    startTimeMs ?? Number.NEGATIVE_INFINITY,
+    advancedQuery.afterTimeMs ?? Number.NEGATIVE_INFINITY,
+  )
+  const effectiveEndTimeMs = Math.min(
+    endTimeMs ?? Number.POSITIVE_INFINITY,
+    advancedQuery.beforeTimeMs ?? Number.POSITIVE_INFINITY,
+  )
 
   const filteredItems = [...state.history.items]
     .filter((item) => !profileId || item.profileId === profileId)
@@ -244,12 +256,46 @@ export function filterMockHistory(
         !q ||
         (regex
           ? regex.test(item.url) || regex.test(item.title ?? '')
-          : item.url.toLowerCase().includes(q) ||
-            (item.title ?? '').toLowerCase().includes(q)),
+          : mockAdvancedKeywordMatches(item, q, advancedQuery.anyKeywordTexts)),
     )
     .filter((item) => !domain || item.domain.toLowerCase().includes(domain))
-    .filter((item) => !startTimeMs || item.visitTime >= startTimeMs)
-    .filter((item) => !endTimeMs || item.visitTime <= endTimeMs)
+    .filter((item) =>
+      advancedQuery.requiredSites.every((site) =>
+        item.url.toLowerCase().includes(site),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.excludedSites.every(
+        (site) => !item.url.toLowerCase().includes(site),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.excludedTerms.every(
+        (term) => !mockHistoryText(item).includes(term),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.exactTerms.every((term) =>
+        mockHistoryText(item).includes(term),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.requiredTitleTerms.every((term) =>
+        (item.title ?? '').toLowerCase().includes(term),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.requiredUrlTerms.every((term) =>
+        item.url.toLowerCase().includes(term),
+      ),
+    )
+    .filter((item) =>
+      advancedQuery.requiredFiletypes.every((extension) =>
+        mockHistoryUrlHasFiletype(item.url, extension),
+      ),
+    )
+    .filter((item) => item.visitTime >= effectiveStartTimeMs)
+    .filter((item) => item.visitTime <= effectiveEndTimeMs)
     .sort((left, right) => {
       if (sort === 'oldest') return left.visitTime - right.visitTime
       if (sort === 'relevance' && q) {
@@ -323,6 +369,176 @@ export function filterMockHistory(
           : encodeMockHistoryCursor(items[items.length - 1])
         : null,
   }
+}
+
+function mockHistoryText(item: HistoryQueryResponse['items'][number]) {
+  return `${item.url} ${item.title ?? ''}`.toLowerCase()
+}
+
+function mockHistoryUrlHasFiletype(url: string, extension: string) {
+  const lowerUrl = url.toLowerCase()
+  return (
+    lowerUrl.endsWith(`.${extension}`) ||
+    lowerUrl.includes(`.${extension}?`) ||
+    lowerUrl.includes(`.${extension}#`)
+  )
+}
+
+function emptyMockAdvancedHistoryQuery() {
+  return {
+    keywordText: '',
+    anyKeywordTexts: [] as string[],
+    exactTerms: [] as string[],
+    excludedTerms: [] as string[],
+    requiredTitleTerms: [] as string[],
+    requiredUrlTerms: [] as string[],
+    requiredSites: [] as string[],
+    excludedSites: [] as string[],
+    requiredFiletypes: [] as string[],
+    afterTimeMs: null as number | null,
+    beforeTimeMs: null as number | null,
+  }
+}
+
+function parseMockAdvancedHistoryQuery(rawQuery: string) {
+  const parsed = emptyMockAdvancedHistoryQuery()
+  const keywordTerms: string[] = []
+  for (const token of tokenizeMockQuery(rawQuery)) {
+    let value = token.value.trim()
+    if (!value) continue
+    const negated = value.startsWith('-') && value.length > 1
+    if (negated) value = value.slice(1).trim()
+    const separator = value.indexOf(':')
+    const operator =
+      separator > 0 && /^[a-zA-Z]+$/.test(value.slice(0, separator))
+        ? value.slice(0, separator).toLowerCase()
+        : null
+    const operand = operator ? value.slice(separator + 1).trim() : value
+    if (operator === 'site') {
+      const target = normalizeMockSite(operand)
+      if (target) {
+        ;(negated ? parsed.excludedSites : parsed.requiredSites).push(target)
+      }
+      continue
+    }
+    if (operator === 'intitle' || operator === 'title') {
+      const target = operand.toLowerCase()
+      if (target) parsed.requiredTitleTerms.push(target)
+      continue
+    }
+    if (operator === 'inurl' || operator === 'url') {
+      const target = operand.toLowerCase()
+      if (target) parsed.requiredUrlTerms.push(target)
+      continue
+    }
+    if (operator === 'filetype' || operator === 'ext') {
+      const target = operand.replace(/^\./, '').toLowerCase()
+      if (target) parsed.requiredFiletypes.push(target)
+      continue
+    }
+    if (operator === 'after') {
+      parsed.afterTimeMs = parseMockQueryDateStart(operand)
+      continue
+    }
+    if (operator === 'before') {
+      parsed.beforeTimeMs = parseMockQueryDateEnd(operand)
+      continue
+    }
+    if (negated) {
+      parsed.excludedTerms.push(value.toLowerCase())
+    } else {
+      keywordTerms.push(value)
+      if (token.quoted) parsed.exactTerms.push(value.toLowerCase())
+    }
+  }
+  parsed.anyKeywordTexts = keywordSegments(keywordTerms).map((segment) =>
+    segment.join(' ').toLowerCase(),
+  )
+  parsed.keywordText = keywordTerms.join(' ')
+  return parsed
+}
+
+function mockAdvancedKeywordMatches(
+  item: HistoryQueryResponse['items'][number],
+  queryText: string,
+  anyKeywordTexts: string[],
+) {
+  const text = mockHistoryText(item)
+  if (anyKeywordTexts.length > 1) {
+    return anyKeywordTexts.some((segment) => text.includes(segment))
+  }
+  return text.includes(queryText)
+}
+
+function keywordSegments(keywordTerms: string[]) {
+  return keywordTerms
+    .reduce<string[][]>(
+      (segments, term) => {
+        if (term.toLowerCase() === 'or') {
+          if (segments[segments.length - 1]?.length) segments.push([])
+          return segments
+        }
+        segments[segments.length - 1]?.push(term)
+        return segments
+      },
+      [[]],
+    )
+    .filter((segment) => segment.length > 0)
+}
+
+function tokenizeMockQuery(rawQuery: string) {
+  const tokens: Array<{ value: string; quoted: boolean }> = []
+  rawQuery.replace(
+    /(-?[A-Za-z]+:)?"([^"\\]*(?:\\.[^"\\]*)*)"|(\S+)/g,
+    (
+      match: string,
+      operatorPrefix: string | undefined,
+      quoted: string | undefined,
+      bare: string | undefined,
+    ) => {
+      if (bare) {
+        tokens.push({ value: bare, quoted: false })
+      } else {
+        tokens.push({
+          value: `${operatorPrefix ?? ''}${(quoted as string).replace(/\\"/g, '"')}`,
+          quoted: true,
+        })
+      }
+      return match
+    },
+  )
+  return tokens
+}
+
+function normalizeMockSite(value: string) {
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^\/+|\/+$/g, '')
+    .toLowerCase()
+}
+
+function parseMockQueryDateStart(value: string) {
+  const date = parseMockQueryDate(value)
+  return date ? date.getTime() : null
+}
+
+function parseMockQueryDateEnd(value: string) {
+  const date = parseMockQueryDate(value)
+  if (!date) return null
+  if (/^\d{4}$/.test(value.trim())) {
+    date.setMonth(11, 31)
+  }
+  date.setHours(23, 59, 59, 999)
+  return date.getTime()
+}
+
+function parseMockQueryDate(value: string) {
+  const normalized = value.trim().replaceAll('/', '-')
+  const date = /^\d{4}$/.test(normalized)
+    ? new Date(`${normalized}-01-01T00:00:00.000`)
+    : new Date(`${normalized}T00:00:00.000`)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 function mockHistoryRelevanceScore(

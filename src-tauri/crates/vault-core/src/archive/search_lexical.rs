@@ -143,6 +143,19 @@ pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> Le
 
 /// Parses one user keyword query into FTS-safe recall fragments.
 pub(super) fn analyze_query(raw: &str) -> Option<LexicalQuery> {
+    let or_segments = split_query_or(raw);
+    if or_segments.len() > 1 {
+        return combine_lexical_or(
+            or_segments
+                .into_iter()
+                .filter_map(|segment| analyze_query_without_or(&segment))
+                .collect(),
+        );
+    }
+    analyze_query_without_or(raw)
+}
+
+fn analyze_query_without_or(raw: &str) -> Option<LexicalQuery> {
     let normalized = normalize_text(raw);
     let variants = expand_query_aliases(normalized.variants);
     let terms_query = variants
@@ -161,6 +174,90 @@ pub(super) fn analyze_query(raw: &str) -> Option<LexicalQuery> {
     let query = LexicalQuery { terms_query, trigram_query, fuzzy_query };
 
     (!query.is_empty()).then_some(query)
+}
+
+fn split_query_or(raw: &str) -> Vec<String> {
+    raw.split_whitespace()
+        .fold(vec![String::new()], |mut segments, token| {
+            if token.eq_ignore_ascii_case("or") {
+                if segments.last().is_some_and(|segment| !segment.trim().is_empty()) {
+                    segments.push(String::new());
+                }
+                return segments;
+            }
+            if let Some(current) = segments.last_mut() {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(token);
+            }
+            segments
+        })
+        .into_iter()
+        .map(|segment| segment.trim().to_string())
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn combine_lexical_or(queries: Vec<LexicalQuery>) -> Option<LexicalQuery> {
+    if queries.is_empty() {
+        return None;
+    }
+    let terms_query =
+        combine_fts_or(queries.iter().filter_map(|query| query.terms_query.clone()).collect());
+    let trigram_query =
+        combine_fts_or(queries.iter().filter_map(|query| query.trigram_query.clone()).collect());
+    let fuzzy_query =
+        combine_fuzzy_or(queries.into_iter().filter_map(|query| query.fuzzy_query).collect());
+    let query = LexicalQuery { terms_query, trigram_query, fuzzy_query };
+    (!query.is_empty()).then_some(query)
+}
+
+fn combine_fuzzy_or(queries: Vec<FuzzyQuery>) -> Option<FuzzyQuery> {
+    let mut candidate_fragments = Vec::new();
+    let mut targets = Vec::new();
+    for query in queries {
+        push_unique(&mut candidate_fragments, query.candidate_query);
+        for target in query.targets {
+            push_unique(&mut targets, target);
+        }
+    }
+    let candidate_query = combine_fts_or(candidate_fragments)?;
+    Some(FuzzyQuery { candidate_query, targets })
+}
+
+/// Produces normalized text variants for SQL-side advanced query filters.
+///
+/// These filters intentionally reuse the keyword analyzer's NFKC/OpenCC/lowercase
+/// path so `-設定`, exact phrases, and field operators do not silently drift from
+/// the indexed keyword recall semantics.
+pub(super) fn normalized_filter_terms(raw: &str) -> Vec<String> {
+    normalize_text(raw).variants.into_iter().fold(Vec::<String>::new(), |mut unique, variant| {
+        let trimmed = variant.trim();
+        if !trimmed.is_empty() {
+            push_unique(&mut unique, trimmed.to_string());
+        }
+        unique
+    })
+}
+
+/// Produces normalized and compact variants for field-agnostic advanced filters.
+///
+/// Exact and exclusion filters can check the compact projection, unlike
+/// `intitle:` or `inurl:` where compact variants would make a single field
+/// predicate too strict.
+pub(super) fn normalized_compact_filter_terms(raw: &str) -> Vec<String> {
+    normalize_text(raw).variants.into_iter().fold(Vec::<String>::new(), |mut unique, variant| {
+        let trimmed = variant.trim();
+        if !trimmed.is_empty() {
+            push_unique(&mut unique, trimmed.to_string());
+        }
+        let compact = compact_text(trimmed);
+        if !compact.is_empty() {
+            push_unique(&mut unique, compact);
+        }
+        unique
+    })
 }
 
 fn terms_query_for_normalized_text(normalized: &str) -> Option<String> {
@@ -457,6 +554,14 @@ mod tests {
     }
 
     #[test]
+    fn supports_google_style_or_between_rankable_terms() {
+        let query = analyze_query("github OR gitlab").expect("query");
+
+        assert_eq!(query.terms_query.as_deref(), Some("(\"github\"* OR \"gitlab\"*)"));
+        assert_eq!(query.trigram_query.as_deref(), Some("(\"github\" OR \"gitlab\")"));
+    }
+
+    #[test]
     fn expands_short_aliases_into_canonical_query_forms() {
         let query = analyze_query("gh").expect("query");
 
@@ -547,5 +652,6 @@ mod tests {
         let query = analyze_query("!!!");
 
         assert!(query.is_none());
+        assert!(analyze_query("!!! OR ???").is_none());
     }
 }

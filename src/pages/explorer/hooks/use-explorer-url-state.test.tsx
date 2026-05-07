@@ -60,6 +60,20 @@ describe('useExplorerUrlState', () => {
     window.localStorage.clear()
   })
 
+  test('treats JavaScript-only lookaround regex as invalid before backend search', () => {
+    const { result } = renderExplorerUrlState(
+      '/explorer?q=%5E((%3F!pathkeep).)*%24&regex=1',
+    )
+
+    expect(result.current.regexValid).toBe(false)
+    expect(result.current.currentQuery).toEqual(
+      expect.objectContaining({
+        q: '^((?!pathkeep).)*$',
+        regexMode: true,
+      }),
+    )
+  })
+
   test('derives route params and updates history view pagination controls', async () => {
     const { result } = renderExplorerUrlState(
       '/explorer?q=%5B&regex=1&mode=keyword&view=session&profileId=chrome%3ADefault&browserKind=chrome&start=2026-04-01&end=2026-04-20&page=3&pageSize=100&cursor=c1&semanticCursor=s1',
