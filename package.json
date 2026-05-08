@@ -73,14 +73,20 @@
     "test:e2e:desktop-bridge:truth": "node scripts/run-playwright.mjs --config playwright.desktop-bridge.config.ts"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/newsreader": "^5.2.10",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.4.3",
     "@tauri-apps/plugin-log": "^2.8.0",
     "@tauri-apps/plugin-stronghold": "^2.3.1",
     "clsx": "^2.1.1",
+    "lucide-react": "^1.14.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.14.0"
+    "react-router-dom": "^7.14.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
