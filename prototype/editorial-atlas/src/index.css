@@ -1,0 +1,149 @@
+@import '@fontsource-variable/newsreader';
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Paper texture overlay - subtle noise for that printed feel */
+  html::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  /* Typography refinements for ink-bleed feel */
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+  }
+
+  body {
+    @apply font-sans text-ink bg-paper;
+    letter-spacing: -0.011em;
+  }
+
+  /* Serif headlines with proper tracking */
+  h1, h2, h3, .font-serif {
+    letter-spacing: -0.02em;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'onum' 1;
+  }
+
+  /* Monospace with tighter tracking */
+  .font-mono {
+    letter-spacing: -0.02em;
+    font-feature-settings: 'kern' 1, 'liga' 0, 'tnum' 1;
+  }
+
+  /* Selection color */
+  ::selection {
+    background-color: rgba(107, 31, 42, 0.15);
+    color: #1A1612;
+  }
+
+  /* Scrollbar styling - minimal, paper-like */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(26, 22, 18, 0.12);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(26, 22, 18, 0.2);
+  }
+}
+
+@layer components {
+  /* Card with subtle shadow and hairline border */
+  .card {
+    @apply bg-paper-card rounded border border-border shadow-card;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+
+  .card:hover {
+    @apply shadow-card-hover border-border-strong;
+  }
+
+  /* Timeline dot */
+  .timeline-dot {
+    @apply w-2 h-2 rounded-full bg-oxblood flex-shrink-0;
+  }
+
+  .timeline-dot-faint {
+    @apply w-2 h-2 rounded-full bg-ink-faint flex-shrink-0;
+  }
+
+  /* Tag pill */
+  .tag {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-sans text-ink-secondary bg-paper-card border border-border rounded;
+  }
+
+  /* Type badge */
+  .type-badge {
+    @apply inline-flex items-center px-2 py-0.5 text-2xs font-mono uppercase tracking-wider text-ink-tertiary border border-border rounded;
+  }
+
+  /* Note highlight */
+  .note-highlight {
+    @apply flex items-start gap-2 px-3 py-2 text-sm bg-oxblood-faint border-l-2 border-oxblood rounded-r;
+  }
+
+  /* Snippet quote */
+  .snippet-quote {
+    @apply pl-3 border-l-2 border-oxblood text-sm italic text-ink-secondary;
+  }
+
+  /* Button base */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-sans rounded transition-colors;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-secondary hover:text-ink hover:bg-paper-hover;
+  }
+
+  .btn-primary {
+    @apply btn bg-oxblood text-paper hover:bg-oxblood-light;
+  }
+
+  /* Input */
+  .input {
+    @apply w-full px-3 py-2 text-sm font-sans text-ink bg-paper border border-border rounded;
+    @apply placeholder:text-ink-tertiary;
+    @apply focus:outline-none focus:border-ink-faint focus:ring-1 focus:ring-ink-faint/30;
+  }
+}
+
+@layer utilities {
+  /* Text balance for titles */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Fade mask for overflow */
+  .fade-right {
+    mask-image: linear-gradient(to right, black 90%, transparent);
+  }
+
+  /* Photo vignette effect */
+  .vignette {
+    box-shadow: inset 0 0 30px rgba(26, 22, 18, 0.08);
+  }
+}
