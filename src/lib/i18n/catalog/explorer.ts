@@ -72,6 +72,18 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: 'SEARCH HISTORY',
     searchHeroPlaceholder: 'Type to search your history…',
     searchHeroLabel: 'Search mode',
+    advancedSearchHelpAria: 'Show advanced keyword syntax',
+    advancedSearchHelpTitle: 'Advanced keyword syntax',
+    advancedSearchHelpIntro:
+      'Use these in Keyword mode. They only read local URLs, titles, search terms, and visit time.',
+    advancedSearchHelpSiteExclude:
+      'Only github.com results, excluding anything that contains pathkeep.',
+    advancedSearchHelpExactPhrase: 'Require this exact phrase.',
+    advancedSearchHelpOr: 'Match either side of OR.',
+    advancedSearchHelpField: 'Limit terms to title or URL fields.',
+    advancedSearchHelpFileDate: 'Filter by URL extension and visit date.',
+    advancedSearchHelpRegexNote:
+      'Regex mode uses Rust regex; look-around and backreferences are not supported.',
     recentSearchesEyebrow: 'RECENT',
     semanticStatusEyebrow: 'SEMANTIC STATUS',
     semanticRecallTitle: 'SEMANTIC RECALL',
@@ -241,6 +253,18 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: '搜索历史',
     searchHeroPlaceholder: '输入关键词搜索你的历史记录…',
     searchHeroLabel: '搜索模式',
+    advancedSearchHelpAria: '显示高级关键词语法',
+    advancedSearchHelpTitle: '高级关键词语法',
+    advancedSearchHelpIntro:
+      '这些语法用于关键词模式，只读取本地保存的 URL、标题、搜索词和访问时间。',
+    advancedSearchHelpSiteExclude:
+      '只看 github.com，并排除包含 pathkeep 的结果。',
+    advancedSearchHelpExactPhrase: '要求出现完整短语。',
+    advancedSearchHelpOr: '匹配 OR 任意一侧。',
+    advancedSearchHelpField: '把关键词限制在标题或 URL 字段。',
+    advancedSearchHelpFileDate: '按 URL 后缀和访问日期筛选。',
+    advancedSearchHelpRegexNote:
+      '正则模式使用 Rust regex，不支持前后瞻和反向引用。',
     recentSearchesEyebrow: '最近搜索',
     semanticStatusEyebrow: '智能搜索状态',
     semanticRecallTitle: '智能搜索召回',
@@ -407,6 +431,18 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: '搜尋歷史',
     searchHeroPlaceholder: '輸入關鍵字搜尋你的歷史紀錄…',
     searchHeroLabel: '搜尋模式',
+    advancedSearchHelpAria: '顯示進階關鍵字語法',
+    advancedSearchHelpTitle: '進階關鍵字語法',
+    advancedSearchHelpIntro:
+      '這些語法用於關鍵字模式，只讀取本機保存的 URL、標題、搜尋詞和瀏覽時間。',
+    advancedSearchHelpSiteExclude:
+      '只看 github.com，並排除包含 pathkeep 的結果。',
+    advancedSearchHelpExactPhrase: '要求出現完整片語。',
+    advancedSearchHelpOr: '匹配 OR 任一側。',
+    advancedSearchHelpField: '把關鍵字限制在標題或 URL 欄位。',
+    advancedSearchHelpFileDate: '依 URL 副檔名和瀏覽日期篩選。',
+    advancedSearchHelpRegexNote:
+      '正則模式使用 Rust regex，不支援前後瞻和反向引用。',
     recentSearchesEyebrow: '最近搜尋',
     semanticStatusEyebrow: '智慧搜尋狀態',
     semanticRecallTitle: '智慧搜尋召回',

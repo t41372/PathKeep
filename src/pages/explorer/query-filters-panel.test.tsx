@@ -133,6 +133,16 @@ describe('ExplorerQueryFiltersPanel', () => {
     expect(
       screen.getByText(explorerT('visibleRecords', { count: 42 })),
     ).toBeVisible()
+    const advancedHelpTrigger = screen.getByRole('button', {
+      name: explorerT('advancedSearchHelpAria'),
+    })
+    expect(advancedHelpTrigger).toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'site:github.com -pathkeep',
+    )
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      explorerT('advancedSearchHelpRegexNote'),
+    )
     expect(
       screen.getByRole('option', { name: 'Chrome · Default' }),
     ).toHaveValue('chrome:Default')

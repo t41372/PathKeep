@@ -51,6 +51,12 @@ test('walks through onboarding, first backup, explorer, and audit in browser pre
       name: /SQLite inspection in browser developer tools/i,
     }),
   ).toBeVisible()
+  await expect(page.getByText('Advanced keyword syntax')).toBeHidden()
+  await page
+    .getByRole('button', { name: 'Show advanced keyword syntax' })
+    .hover()
+  await expect(page.getByText('site:github.com -pathkeep')).toBeVisible()
+  await expect(page.getByText('manual OR youtube')).toBeVisible()
 
   await page.getByRole('button', { name: 'jsonl' }).evaluate((element) => {
     ;(element as HTMLButtonElement).click()

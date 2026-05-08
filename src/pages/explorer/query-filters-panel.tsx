@@ -36,6 +36,7 @@ import {
   type OptionalAiAvailability,
 } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
+import { AdvancedSearchHelp } from './advanced-search-help'
 import type {
   ExplorerMode,
   ExplorerViewMode,
@@ -178,6 +179,7 @@ export function ExplorerQueryFiltersPanel({
               <span className="mono-kicker explorer-search-hero__kicker">
                 {explorerT('searchHeroEyebrow')}
                 {regexMode ? <span className="regex-badge">[.*]</span> : null}
+                <AdvancedSearchHelp explorerT={explorerT} />
               </span>
               <div className="regex-input-row explorer-search-hero__input-row">
                 <input

@@ -1329,3 +1329,16 @@
   - 2026-05-07 closeout：Regex mode 明確以 Rust `regex` dialect 為準，前端會先擋下 look-around、named capture / backreference 等 Rust 不支援的 pattern。Keyword mode 新增本地 Google-like operators：`site:`、leading `-`、quoted exact phrase、`OR`、`intitle:`、`inurl:`、`filetype:` / `ext:`、`after:`、`before:`；這些只讀 URL/title/search terms/visit time 與 rebuildable search projection，不引入網路或網頁正文依賴。`site:github.com -pathkeep` 與 Domain 欄 `github.com` + query `-pathkeep` 都會走後端 SQL-side constraints。
   - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`docs/architecture/lexical-recall-v2.md`](../architecture/lexical-recall-v2.md) 與 [`docs/plan/CHANGELOG.md`](CHANGELOG.md)。
   - 驗收結果：targeted Explorer / browser-preview Vitest、`vault-core` `search_lexical` / `search_query` / advanced-history tests 與 canonical backup history regression 通過；完整 `bun run check` 另行作為提交前 gate。
+
+- [x] **WORK-EXPLORER-ADVANCED-SEARCH-HELP-A** — Advanced Search Syntax Hover Help
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/design/ux-principles.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/design-tokens.md`
+    `docs/features/recall.md`
+  - 目標：讓使用者在 Explorer 搜尋欄直接看見 PathKeep 支援的 Google-like keyword operators，不需要先猜語法或閱讀文檔。
+  - 2026-05-07 closeout：Explorer 主搜尋標籤旁新增 hover / keyboard-focus 可開啟的語法速查浮窗，列出 `site:github.com -pathkeep`、exact phrase、`OR`、`intitle:` / `inurl:`、`filetype:` 與 `after:` / `before:` 範例，並明確提醒 Regex mode 使用 Rust regex、沒有 look-around / backreference。浮窗文案已同步 `en` / `zh-CN` / `zh-TW`。
+  - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`src/pages/explorer/advanced-search-help.tsx`](../../src/pages/explorer/advanced-search-help.tsx)、[`src/pages/explorer/query-filters-panel.tsx`](../../src/pages/explorer/query-filters-panel.tsx)、[`src/styles/app/explorer.css`](../../src/styles/app/explorer.css) 與 [`src/lib/i18n/catalog/explorer.ts`](../../src/lib/i18n/catalog/explorer.ts)。
+  - 驗收結果：targeted Explorer component tests、browser-preview E2E hover assertion 與完整 `bun run check` 作為提交前 gate。

@@ -643,6 +643,115 @@
   border-top: 1px dashed var(--border);
 }
 
+.advanced-search-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.advanced-search-help__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+
+.advanced-search-help__trigger:hover,
+.advanced-search-help__trigger:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+
+.advanced-search-help__panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  width: min(420px, 82vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-active);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition:
+    opacity var(--transition),
+    transform var(--transition),
+    visibility var(--transition);
+}
+
+.advanced-search-help:hover .advanced-search-help__panel,
+.advanced-search-help:focus-within .advanced-search-help__panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.advanced-search-help__title {
+  color: var(--text-bright);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.advanced-search-help__body,
+.advanced-search-help__note {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+.advanced-search-help__examples {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.advanced-search-help__example {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.advanced-search-help__example code {
+  color: var(--accent);
+  font-family: var(--font-code);
+  font-size: 11px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* ═══ SECONDARY CONTROLS (view-by + filter inputs) ═══ */
 .explorer-secondary-controls {
   display: flex;
