@@ -1,10 +1,10 @@
 # PathKeep — Editorial Atlas Prototype
 
 > Visual prototype for the v0.2 frontend redesign.
-> Status: **design only — not implementation**.
+> Status: **written design only — no implementation, no rendered UI screenshots**.
 > Source of design language: [`/DESIGN.md`](../../DESIGN.md).
 
-This directory captures the new visual direction for PathKeep. It is intended to be readable by someone who has never opened the codebase: every screen has a written description, a generated mockup, and an explanation of how it relates to the rest of the app.
+This directory captures the new visual direction for PathKeep. It is intended to be readable by someone who has never opened the codebase: every screen has a careful written description, a literal layout, and the exact content that should appear in the mockup. The mood is established by three photographic plates in `images/`. **Pixel-faithful UI mockups are deliberately not included** (see "On images" below).
 
 ## Why a redesign
 
@@ -22,46 +22,60 @@ If a screen does not feel like that, it is wrong.
 docs/prototype/
 ├── README.md              ← you are here
 ├── overview.md            ← design philosophy, screen map, how everything connects
-├── screens/               ← one markdown file per surface, each paired with an image
-│   ├── 01-timeline-light.md
-│   ├── 02-search-overlay.md
-│   ├── 03-dashboard.md
-│   ├── 04-intelligence.md
-│   ├── 05-onboarding.md
-│   ├── 06-sources.md
-│   ├── 07-settings.md
-│   └── 08-timeline-dark.md
-└── images/                ← rendered concept images, referenced from screen docs
-    └── *.jpg
+├── screens/               ← one markdown file per surface
+│   ├── 01-timeline-light.md   ← the hero screen
+│   ├── 02-search-overlay.md   ← ⌘K recall surface
+│   ├── 03-dashboard.md        ← Atlas of Your Reading
+│   ├── 04-intelligence.md     ← Ask your atlas (local AI)
+│   ├── 05-collections.md      ← curated stacks of pages
+│   ├── 06-sources.md          ← domain gazetteer
+│   ├── 07-settings.md         ← typeset-manual preferences
+│   └── 08-timeline-dark.md    ← the reading-room at night
+└── images/                ← three photographic mood plates
+    ├── mood-01-palette.jpg    ← desk flat-lay with the exact app palette
+    ├── mood-02-paper.jpg      ← cream archival paper macro
+    └── mood-03-night.jpg      ← warm-tungsten reading desk
 ```
 
 Each `screens/NN-*.md` follows the same structure:
 
 1. **Purpose** — what this screen exists to do.
-2. **Where it lives** — route, navigation entry, deep-link grammar.
-3. **Layout** — the literal anatomy of the screen, region by region.
-4. **Components used** — references to tokens / primitives in `DESIGN.md`.
-5. **Content shown in the mockup** — exact strings used so reviewers can compare.
-6. **States this image does and does not cover** — empty / loading / error variants are listed separately.
-7. **Image** — the rendered concept image.
+2. **Layout** — the literal anatomy of the screen, region by region.
+3. **Sample content** — the exact strings, times, and counts that should appear.
+4. **Typography & colour rules** — references to tokens defined in `DESIGN.md`.
+5. **Why this works** — the editorial thesis the screen embodies.
 
 ## Reading order
 
-For a first-pass review, read in this order:
-
 1. [`overview.md`](./overview.md) — design philosophy and screen relationships
 2. [`screens/01-timeline-light.md`](./screens/01-timeline-light.md) — the hero screen, this is the one to judge the language by
-3. [`screens/02-search-overlay.md`](./screens/02-search-overlay.md) — how recall and advanced filters work without a permanent search page
+3. [`screens/02-search-overlay.md`](./screens/02-search-overlay.md) — recall and advanced filters without a permanent search page
 4. [`screens/03-dashboard.md`](./screens/03-dashboard.md) — landing surface, ties archival status and intelligence together
-5. [`screens/04-intelligence.md`](./screens/04-intelligence.md) — analytical surface, contact-sheet metaphor at full fidelity
-6. [`screens/05-onboarding.md`](./screens/05-onboarding.md) — first impression for new users
-7. [`screens/06-sources.md`](./screens/06-sources.md) — browser / profile management with retention honesty
-8. [`screens/07-settings.md`](./screens/07-settings.md) — preferences as a colophon page
-9. [`screens/08-timeline-dark.md`](./screens/08-timeline-dark.md) — the darkroom variant, evaluated against the light hero
+5. [`screens/04-intelligence.md`](./screens/04-intelligence.md) — local-AI surface, "ask your atlas"
+6. [`screens/05-collections.md`](./screens/05-collections.md) — curated stacks as index cards
+7. [`screens/06-sources.md`](./screens/06-sources.md) — domain-level gazetteer
+8. [`screens/07-settings.md`](./screens/07-settings.md) — preferences as a typeset manual
+9. [`screens/08-timeline-dark.md`](./screens/08-timeline-dark.md) — the warm reading-room dark variant
+
+## On images
+
+This prototype intentionally **does not** ship rendered pixel-faithful UI mockups. We tried; current text-to-image models cannot reliably render dense, multi-column desktop UIs with legible typography — every attempt produced gibberish text, off-brand colour usage, or hallucinated chrome. Faking a mockup would have done more harm than good.
+
+Instead, the `images/` folder contains three **photographic mood plates** that the model *can* render faithfully:
+
+| Plate | Purpose |
+| --- | --- |
+| `mood-01-palette.jpg` | Overhead flat-lay of a private librarian's desk. Establishes the exact palette (cream, ink, taupe, claret, olive) and the tactile vocabulary (paper, wax seal, fountain pen, claret ink, brass paperclip, leather notebook). |
+| `mood-02-paper.jpg` | Macro of layered archival cream paper sheets with a single deep-claret pen stroke. The literal substrate of the app. |
+| `mood-03-night.jpg` | Warm-tungsten reading-desk scene with green banker's-lamp glass and a glowing claret ink drop. The brief for the dark variant. |
+
+These plates are meant to be pinned next to the spec while reading. They answer the question "what does this app *feel* like?" — the markdown answers "what does it *do*?".
+
+For the literal pixel-level reference of the proposed UI, see the original screenshot the user attached at the top of the conversation that introduced this prototype. That image is the closest thing we have to a true mockup, and the spec in this directory was written to be consistent with it.
 
 ## What this prototype does not yet cover
 
-These exist in the product, but their dedicated visual treatment is deferred to a follow-up pass:
+These exist in the product, but dedicated visual treatment is deferred to a follow-up pass:
 
 - Import / Audit / Jobs PME (Preview / Manual / Execute / Verify) flows
 - Maintenance derived-state / rebuild surfaces
@@ -69,6 +83,7 @@ These exist in the product, but their dedicated visual treatment is deferred to 
 - AI Assistant disabled / coming-in-v0.2 surface
 - Notification queue panel
 - Schedule install / repair states
+- Onboarding (a separate `screens/09-onboarding.md` may be added in a follow-up)
 
 The design language for these will follow the conventions established in the screens above. None of them should require new tokens or a new component vocabulary.
 
