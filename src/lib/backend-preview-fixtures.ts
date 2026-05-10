@@ -23,6 +23,12 @@
 
 import { defaultEnrichmentSettings } from './enrichment'
 import { defaultExplorerBackgroundPrefetchPages } from './explorer-preferences'
+import {
+  buildShowcaseHistory,
+  buildShowcaseRuntime,
+  buildShowcaseSnapshot,
+  isShowcasePreviewDataset,
+} from './backend-preview-showcase-fixtures'
 import type {
   AppBuildInfo,
   AppSnapshot,
@@ -40,7 +46,7 @@ export const mockBuildInfo: AppBuildInfo = {
 }
 
 /** Seeds the canonical browser-preview app snapshot so shell surfaces and tests start from one shared state shape. */
-export const mockSnapshot: AppSnapshot = {
+const baseMockSnapshot: AppSnapshot = {
   directories: {
     appRoot: '~/Library/Application Support/com.yi-ting.pathkeep',
     configPath:
@@ -317,8 +323,12 @@ export const mockSnapshot: AppSnapshot = {
   recentImportBatches: [],
 }
 
+export const mockSnapshot: AppSnapshot = isShowcasePreviewDataset()
+  ? buildShowcaseSnapshot(baseMockSnapshot)
+  : baseMockSnapshot
+
 /** Seeds the deterministic preview history rows reused by Explorer, dashboard, and intelligence fixtures. */
-export const mockHistory: HistoryQueryResponse = {
+const baseMockHistory: HistoryQueryResponse = {
   total: 2,
   page: 1,
   pageSize: 50,
@@ -364,8 +374,12 @@ export const mockHistory: HistoryQueryResponse = {
   nextCursor: null,
 }
 
+export const mockHistory: HistoryQueryResponse = isShowcasePreviewDataset()
+  ? buildShowcaseHistory()
+  : baseMockHistory
+
 /** Seeds the deterministic queue/runtime fixture shown by browser-preview intelligence and jobs surfaces. */
-export const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
+const baseMockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
   queue: {
     queued: 1,
     running: 0,
@@ -579,3 +593,8 @@ export const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot = {
   ],
   notes: ['Browser preview mode shows a deterministic queue/runtime fixture.'],
 }
+
+export const mockIntelligenceRuntime: IntelligenceRuntimeSnapshot =
+  isShowcasePreviewDataset()
+    ? buildShowcaseRuntime(baseMockIntelligenceRuntime)
+    : baseMockIntelligenceRuntime

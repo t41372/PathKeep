@@ -306,29 +306,35 @@ export function buildMockDashboardSnapshot(
     }
   }
 
+  const showcaseTotals = state.showcaseTotals
+
   return {
     generatedAt: new Date().toISOString(),
-    totalProfiles: state.snapshot.config.selectedProfileIds.filter(
-      (profileId) =>
-        profileId.startsWith('chrome:') || profileId.startsWith('arc:'),
-    ).length,
-    totalUrls: uniqueUrlCount(state.history.items),
-    totalVisits: state.history.items.length,
+    totalProfiles:
+      showcaseTotals?.modeledProfiles ??
+      state.snapshot.config.selectedProfileIds.filter(
+        (profileId) =>
+          profileId.startsWith('chrome:') || profileId.startsWith('arc:'),
+      ).length,
+    totalUrls:
+      showcaseTotals?.modeledTotalUrls ?? uniqueUrlCount(state.history.items),
+    totalVisits:
+      showcaseTotals?.modeledTotalVisits ?? state.history.items.length,
     totalDownloads: state.snapshot.recentRuns[0]?.newDownloads ?? 1,
     lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
     recentRuns: state.snapshot.recentRuns,
     storage: {
-      archiveDatabaseBytes: 146_800_640,
-      sourceEvidenceDatabaseBytes: 9_830_400,
-      searchDatabaseBytes: 18_432_000,
-      intelligenceDatabaseBytes: 24_576_000,
+      archiveDatabaseBytes: showcaseTotals ? 777_990_144 : 146_800_640,
+      sourceEvidenceDatabaseBytes: showcaseTotals ? 572_641_280 : 9_830_400,
+      searchDatabaseBytes: showcaseTotals ? 72_432_000 : 18_432_000,
+      intelligenceDatabaseBytes: showcaseTotals ? 94_576_000 : 24_576_000,
       manifestBytes: 384_000,
       snapshotBytes: 1_228_800,
       exportBytes: 96_000,
       stagingBytes: 0,
       quarantineBytes: 0,
-      semanticSidecarBytes: 41_943_040,
-      intelligenceBlobBytes: 12_582_912,
+      semanticSidecarBytes: 0,
+      intelligenceBlobBytes: showcaseTotals ? 18_582_912 : 12_582_912,
     },
     nextAction:
       state.snapshot.recentRuns.length === 0

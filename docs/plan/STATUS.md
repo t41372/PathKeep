@@ -39,3 +39,28 @@
   - 驗證結果：`bun run check` 與 `bun run verify` 通過，包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate、desktop-contract mutation gate、Rust supply-chain audit、release config guard 與 debug desktop build rehearsal。
 
 > `BACKLOG.md` 目前的前兩個 blocked blocks 是 v0.3.0 AI / readable-content scope；maintenance / deep mutation hardening 不屬於 v0.2.0 release blocker，除非使用者另外排 dedicated window。
+
+- [x] **WORK-PREVIEW-SHOWCASE-A** — Vercel Browser Preview Synthetic Dataset
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+    `docs/plan/CHANGELOG.md`
+    `docs/plan/program/quality-matrix.md`
+    `docs/features/archive.md`
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/ux-principles.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/design-tokens.md`
+    `src/lib/backend-preview-fixtures.ts`
+    `src/lib/backend-preview-state.ts`
+    `src/lib/backend-preview-shell-commands.ts`
+    `src/lib/backend-preview-intelligence-commands.ts`
+    `src/lib/backend-preview-search.ts`
+  - 目標：讓 Vercel 靜態 browser preview 預設使用 synthetic showcase data，讓訪客能看到有資料時的 Dashboard / Explorer / deterministic Intelligence 形態。
+  - 契約：不得把真實 archive、raw browser history、URL、title、profile name 或 secret 寫進 repo / bundle；本地真實資料只允許用 read-only aggregate shape 作參考。Tauri / desktop runtime 不得接入 showcase fixture；browser preview 必須繼續誠實標示 fixture boundary，不得冒充 desktop truth。
+  - 驗收：Vercel build path 可明確啟用 showcase dataset；local default browser-preview tests 不被迫改走 showcase；targeted preview tests、`bun run build` 與 `bun run check` 通過。
+  - 2026-05-10 closeout：新增 browser-preview showcase dataset，以 synthetic public-domain rows 和 modeled aggregate totals 呈現 dataful Dashboard / Explorer / deterministic Core Intelligence；Vercel 透過 `vercel.json` build command 明確使用 `PATHKEEP_BROWSER_PREVIEW_DATASET=showcase`，local default 仍是 setup fixture。
+  - 隔離邊界：showcase fixtures 只在 browser preview bundle 使用；Tauri / desktop `isTauri()` path 不讀取或接入 showcase data。本地真實 archive 只透過 read-only aggregate shape script 參考總量、活躍時段、來源族群與月份分佈，未寫入 raw URLs、titles、search terms、profile paths 或 secrets。
+  - 驗證結果：targeted preview / showcase tests、`PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build`、Playwright static preview smoke（Dashboard / Explorer / Intelligence）與完整 `bun run check` 通過；`bun run check` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate 與 desktop-contract mutation gate。

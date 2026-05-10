@@ -30,6 +30,16 @@ import {
 import type { MockBackendState } from './backend-preview-state'
 import { buildMockSearchQueries } from './backend-preview-search'
 import { clearDerivedIntelligenceFixture } from './backend-preview-support'
+import { isShowcasePreviewDataset } from './backend-preview-showcase-fixtures'
+import {
+  buildShowcaseBrowsingRhythm,
+  buildShowcaseDayInsights,
+  buildShowcaseDomainDeepDive,
+  buildShowcaseDomainTrend,
+  buildShowcasePrimaryOverview,
+  buildShowcaseSearchQueries,
+  buildShowcaseSecondaryOverview,
+} from './backend-preview-showcase-intelligence-fixtures'
 import type {
   IntelligenceLocalHostRequest,
   SearchEngineRule,
@@ -239,23 +249,76 @@ export function handlePreviewIntelligenceCommand<T>(
   args: Record<string, unknown> | undefined,
   state: MockBackendState,
 ): PreviewCommandResult<T> {
+  const showcaseMode = isShowcasePreviewDataset()
+
   switch (command) {
     case 'clear_derived_intelligence':
       return clearDerivedIntelligenceFixture(state) as T
     case 'get_on_this_day':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).onThisDay as T
+      }
       return [] as T
     case 'get_top_sites':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).topSites as T
+      }
+      return [] as T
     case 'get_refind_pages':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).refindPages as T
+      }
+      return [] as T
     case 'get_search_engine_ranking':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).searchEngineRanking as T
+      }
+      return [] as T
     case 'get_top_search_concepts':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).topSearchConcepts as T
+      }
+      return [] as T
     case 'get_stable_sources':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).stableSources as T
+      }
+      return [] as T
     case 'get_friction_signals':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).frictionSignals as T
+      }
+      return [] as T
     case 'get_reopened_investigations':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).reopenedInvestigations as T
+      }
+      return [] as T
     case 'get_habit_patterns':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).habitPatterns as T
+      }
+      return [] as T
     case 'get_interrupted_habits':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).interruptedHabits as T
+      }
+      return [] as T
     case 'get_path_flows':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).pathFlows as T
+      }
+      return [] as T
     case 'get_compare_sets':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).compareSets as T
+      }
+      return [] as T
     case 'get_observed_interactions':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).observedInteractions as T
+      }
+      return [] as T
     case 'get_hub_pages':
       return [] as T
     case 'list_search_engine_rules':
@@ -301,8 +364,14 @@ export function handlePreviewIntelligenceCommand<T>(
       return structuredClone(state.searchEngineRules) as T
     }
     case 'get_digest_summary':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).digestSummary as T
+      }
       return emptyDigestSummary() as T
     case 'get_day_insights':
+      if (showcaseMode) {
+        return buildShowcaseDayInsights(args) as T
+      }
       return {
         date: '',
         digestSummary: emptyDigestSummary(),
@@ -324,33 +393,72 @@ export function handlePreviewIntelligenceCommand<T>(
         },
       } as T
     case 'get_intelligence_primary_overview':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args) as T
+      }
       throw new Error(
         'PathKeep intelligence overview batching is unavailable in browser preview mode.',
       )
     case 'get_intelligence_secondary_overview':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args) as T
+      }
       throw new Error(
         'PathKeep intelligence overview batching is unavailable in browser preview mode.',
       )
     case 'get_activity_mix':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).activityMix as T
+      }
       return { categories: [], changeVsPrevious: [] } as T
     case 'get_activity_mix_trend':
       return { points: [] } as T
     case 'get_discovery_trend':
+      if (showcaseMode) {
+        const request = args?.request as
+          | { granularity?: string | null }
+          | undefined
+        return (
+          request?.granularity === 'day'
+            ? buildShowcasePrimaryOverview(args).discoveryTrendDay
+            : buildShowcaseSecondaryOverview(args).discoveryTrendWeek
+        ) as T
+      }
       return { points: [], availableYears: [] } as T
     case 'get_browsing_rhythm':
+      if (showcaseMode) {
+        return buildShowcaseBrowsingRhythm() as T
+      }
       return { cells: [], maxCount: 0 } as T
     case 'get_breadth_index':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).breadthIndex as T
+      }
       return { hhi: 0, breadthScore: 0, concentrationDomainCount: 0 } as T
     case 'get_multi_browser_diff':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).multiBrowserDiff as T
+      }
       return {
         profiles: [],
         exclusiveDomains: [],
         sharedDomains: [],
         categoryDistributions: [],
       } as T
+    case 'get_query_families':
+      if (showcaseMode) {
+        return buildShowcasePrimaryOverview(args).queryFamilies as T
+      }
+      return {
+        sessions: [],
+        trails: [],
+        families: [],
+        total: 0,
+        page: 0,
+        pageSize: 20,
+      } as T
     case 'get_sessions':
     case 'get_search_trails':
-    case 'get_query_families':
       return {
         sessions: [],
         trails: [],
@@ -360,6 +468,12 @@ export function handlePreviewIntelligenceCommand<T>(
         pageSize: 20,
       } as T
     case 'get_search_queries':
+      if (showcaseMode) {
+        return buildShowcaseSearchQueries(
+          (args?.request as Parameters<typeof buildShowcaseSearchQueries>[0]) ??
+            undefined,
+        ) as T
+      }
       return buildMockSearchQueries(
         (args?.request as Parameters<typeof buildMockSearchQueries>[0]) ??
           undefined,
@@ -381,14 +495,23 @@ export function handlePreviewIntelligenceCommand<T>(
         meta: degradedSectionMeta('query-family-detail'),
       } as T
     case 'get_search_effectiveness':
+      if (showcaseMode) {
+        return buildShowcaseSecondaryOverview(args).searchEffectiveness as T
+      }
       return {
         engineStats: [],
         topResolvingSources: [],
         hardestTopics: [],
       } as T
     case 'get_domain_trend':
+      if (showcaseMode) {
+        return buildShowcaseDomainTrend(args) as T
+      }
       return { registrableDomain: '', points: [] } as T
     case 'get_domain_deep_dive':
+      if (showcaseMode) {
+        return buildShowcaseDomainDeepDive(args) as T
+      }
       return {
         registrableDomain: '',
         displayName: null,

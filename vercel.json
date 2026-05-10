@@ -1,0 +1,5 @@
+{
+  "buildCommand": "PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build",
+  "outputDirectory": "dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

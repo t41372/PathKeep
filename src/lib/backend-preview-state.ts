@@ -31,6 +31,11 @@ import {
   mockIntelligenceRuntime,
   mockSnapshot,
 } from './backend-preview-fixtures'
+import {
+  isShowcasePreviewDataset,
+  showcaseTotals,
+  type PreviewShowcaseTotals,
+} from './backend-preview-showcase-fixtures'
 import type {
   AiQueueJob,
   AiQueueStatus,
@@ -72,6 +77,7 @@ export interface MockBackendState {
   lastRemoteBundlePath: string | null
   derivedStateCleared: boolean
   searchEngineRules: SearchEngineRule[]
+  showcaseTotals: PreviewShowcaseTotals | null
 }
 
 function buildMockSearchEngineRules(): SearchEngineRule[] {
@@ -399,6 +405,7 @@ export function syncMockIntelligenceRuntime(state: MockBackendState) {
  * same normalized config, lock metadata, and deterministic runtime digest.
  */
 export function createMockState(): MockBackendState {
+  const showcaseMode = isShowcasePreviewDataset()
   const state: MockBackendState = {
     snapshot: structuredClone(mockSnapshot),
     history: structuredClone(mockHistory),
@@ -411,47 +418,50 @@ export function createMockState(): MockBackendState {
     schedulePlanOverrides: {},
     scheduleStatusOverrides: {},
     intelligenceRuntime: structuredClone(mockIntelligenceRuntime),
-    queueJobs: [
-      {
-        id: 2,
-        jobType: 'index-build',
-        state: 'failed',
-        priority: 70,
-        attempt: 1,
-        maxAttempts: 3,
-        runId: null,
-        summary: 'Preview queue fixture needs a replay.',
-        queuedAt: new Date(Date.now() - 120_000).toISOString(),
-        availableAt: new Date(Date.now() - 60_000).toISOString(),
-        startedAt: new Date(Date.now() - 110_000).toISOString(),
-        finishedAt: new Date(Date.now() - 100_000).toISOString(),
-        heartbeatAt: new Date(Date.now() - 105_000).toISOString(),
-        errorCode: 'network-error',
-        errorMessage: 'Preview transport timed out.',
-      },
-      {
-        id: 1,
-        jobType: 'assistant',
-        state: 'queued',
-        priority: 100,
-        attempt: 0,
-        maxAttempts: 1,
-        runId: null,
-        summary: 'What did I read about LanceDB?',
-        queuedAt: new Date(Date.now() - 30_000).toISOString(),
-        availableAt: new Date(Date.now() - 30_000).toISOString(),
-        startedAt: null,
-        finishedAt: null,
-        heartbeatAt: null,
-        errorCode: null,
-        errorMessage: null,
-      },
-    ],
+    queueJobs: showcaseMode
+      ? []
+      : [
+          {
+            id: 2,
+            jobType: 'index-build',
+            state: 'failed',
+            priority: 70,
+            attempt: 1,
+            maxAttempts: 3,
+            runId: null,
+            summary: 'Preview queue fixture needs a replay.',
+            queuedAt: new Date(Date.now() - 120_000).toISOString(),
+            availableAt: new Date(Date.now() - 60_000).toISOString(),
+            startedAt: new Date(Date.now() - 110_000).toISOString(),
+            finishedAt: new Date(Date.now() - 100_000).toISOString(),
+            heartbeatAt: new Date(Date.now() - 105_000).toISOString(),
+            errorCode: 'network-error',
+            errorMessage: 'Preview transport timed out.',
+          },
+          {
+            id: 1,
+            jobType: 'assistant',
+            state: 'queued',
+            priority: 100,
+            attempt: 0,
+            maxAttempts: 1,
+            runId: null,
+            summary: 'What did I read about LanceDB?',
+            queuedAt: new Date(Date.now() - 30_000).toISOString(),
+            availableAt: new Date(Date.now() - 30_000).toISOString(),
+            startedAt: null,
+            finishedAt: null,
+            heartbeatAt: null,
+            errorCode: null,
+            errorMessage: null,
+          },
+        ],
     nextAiJobId: 3,
     nextImportBatchId: 1,
     lastRemoteBundlePath: null,
     derivedStateCleared: false,
     searchEngineRules: buildMockSearchEngineRules(),
+    showcaseTotals: showcaseMode ? showcaseTotals() : null,
   }
   state.snapshot.config = normalizeMockConfig(
     state.snapshot.config,

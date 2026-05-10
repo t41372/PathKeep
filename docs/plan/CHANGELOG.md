@@ -1363,3 +1363,27 @@
   - Release assets：真實 app 截圖與 release note 草稿產生於 `artifacts/release/v0.2.0/`，包含 Dashboard core intelligence、Explorer advanced keyword syntax、Intelligence overview、Jobs runtime truth、Assistant v0.3 roadmap disabled state。
   - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`RELEASE.md`](../../RELEASE.md)、[`.github/workflows/release.yml`](../../.github/workflows/release.yml) 與 release capability / i18n source files。
   - 驗收結果：targeted Jobs / Settings / Integrations / backend preview tests、targeted `vault-core` AI sidecar / semantic tests、`bun run coverage:js`、`bun run check` 與 `bun run verify` 通過；`bun run verify` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate、desktop-contract mutation gate、Rust supply-chain audit、release config guard 與 debug desktop build rehearsal。
+
+- [x] **WORK-PREVIEW-SHOWCASE-A** — Vercel Browser Preview Synthetic Dataset
+  - 讀先：
+    `docs/plan/STATUS.md`
+    `docs/plan/BACKLOG.md`
+    `docs/plan/CHANGELOG.md`
+    `docs/plan/program/quality-matrix.md`
+    `docs/features/archive.md`
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/design/ux-principles.md`
+    `docs/design/screens-and-nav.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/design/design-tokens.md`
+    `src/lib/backend-preview-fixtures.ts`
+    `src/lib/backend-preview-state.ts`
+    `src/lib/backend-preview-shell-commands.ts`
+    `src/lib/backend-preview-intelligence-commands.ts`
+    `src/lib/backend-preview-search.ts`
+  - 目標：讓 Vercel 靜態 browser preview 預設呈現 synthetic showcase data，讓訪客能看到有資料時 PathKeep 的 Dashboard / Explorer / deterministic Core Intelligence 形態。
+  - 2026-05-10 closeout：新增 browser-preview showcase fixtures，使用 synthetic public-domain sample rows 和 modeled aggregate totals 呈現 348k visits、172k unique URLs、4 profiles、search / intelligence insights 與 recent runs。Vercel build path 透過 `vercel.json` 明確執行 `PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build`；local browser-preview default 仍維持 setup fixture。
+  - Data boundary：新增 aggregate-only `bun run preview:showcase:shape` script，僅 read-only 讀取本機 archive 的總量、月份、活躍時段、來源族群與 search/run counts 作形狀參考；repo / bundle 不包含 raw browser history、URL、title、search term、profile path、username 或 secret。Tauri / desktop runtime path 不接入 showcase fixture。
+  - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`package.json`](../../package.json)、[`vite.config.ts`](../../vite.config.ts)、[`vercel.json`](../../vercel.json) 與 browser-preview fixture / test source。
+  - 驗收結果：targeted preview / showcase tests、`PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build`、Playwright static preview smoke（Dashboard / Explorer / Intelligence）與完整 `bun run check` 通過；`bun run check` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate 與 desktop-contract mutation gate。

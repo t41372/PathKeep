@@ -60,6 +60,14 @@
 - 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
 - 2026-04-24 backend follow-up：dev bridge implementation 已拆成 `config` / `router` / `payloads` / `dispatch` focused owners。這只是 desktop-layer ownership cleanup；現有 command strings、payload shape、worker bridge export surface、feature gate、env gate 與 localhost-only safety boundary 不變。
 
+## Browser Preview Showcase Dataset（2026-05-10）
+
+- browser-preview 現在有兩個 fixture dataset：`setup` 與 `showcase`。本地預設仍是 `setup`，保留 onboarding / first-backup smoke 的舊 contract；Vercel static deployment 透過 `PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build` 啟用 `showcase`。
+- `showcase` 只存在於 browser-preview runtime。`isTauri()` 為 true 的桌面 app 仍直接走 Tauri command façade，不讀 synthetic snapshot、history rows 或 Core Intelligence payload。
+- `showcase` 的 public bundle 只包含 synthetic domains、titles、profile labels 與 modeled aggregate totals；不得把真實 archive DB、raw browser history、URL、title、search term、profile path、username、keyring secret 或 config secret 寫入 repo / bundle。
+- 本地真實 archive 只可用 `bun run preview:showcase:shape [archive.sqlite]` 做 read-only aggregate shape 參考。該腳本只查 visit/url/profile counts、hour/month distribution、source family、run count 與 search-term aggregate count；不查 raw URL/title/search term/profile path。
+- browser-preview showcase 是 product-tour smoke，不是 desktop truth gate。任何 scheduler、keyring、filesystem、Tauri plugin、sticky layout 或 long-running worker acceptance 仍以 desktop runtime / browser-desktop-bridge / platform tests 為準。
+
 ## Implemented Command Map（2026-04-09 / `WORK-QC-C`）
 
 > 2026-04-19 M8 follow-up：aggregate entity identity / context reuse 也已正式成為 desktop contract 的一部分。command surface 現在新增 `get_compare_set_detail`，而 `get_path_flows` 也必須回傳 stable `flowId` + typed `steps`；前端 focus highlighting 只能吃 shared route grammar，不得再各自重組 page-local payload。

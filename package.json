@@ -68,6 +68,7 @@
     "perf:artifact:shell": "bun scripts/build-perf-artifact-bundle.mjs",
     "release:bump": "node scripts/bump-version.mjs",
     "release:size-audit": "node scripts/build-release-size-audit.mjs",
+    "preview:showcase:shape": "node scripts/preview-showcase-shape.mjs",
     "preview": "vite preview",
     "verify": "bun run check && bun run desktop:build:debug",
     "test:e2e:desktop-bridge:truth": "node scripts/run-playwright.mjs --config playwright.desktop-bridge.config.ts"

@@ -144,6 +144,13 @@ describe('handlePreviewIntelligenceCommand', () => {
       handlePreviewIntelligenceCommand('get_browsing_rhythm', undefined, state),
     ).toEqual({ cells: [], maxCount: 0 })
     expect(
+      handled(
+        handlePreviewIntelligenceCommand<{
+          refindPages: { value: number; trend: string }
+        }>('get_digest_summary', undefined, state),
+      ).refindPages,
+    ).toEqual({ value: 0, trend: 'flat' })
+    expect(
       handlePreviewIntelligenceCommand('get_domain_trend', undefined, state),
     ).toEqual({ registrableDomain: '', points: [] })
     expect(
