@@ -482,12 +482,12 @@ pub(super) async fn semantic_matches(
         provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)?;
     if sqlite_embedding_count > 0 {
         notes.push(
-            "The optional semantic sidecar is disabled in PathKeep v0.1.0, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
+            "The optional semantic sidecar is tracked for PathKeep v0.3.0, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
                 .to_string(),
         );
     } else {
         notes.push(
-            "Semantic search is coming in a future PathKeep release; showing lexical results only."
+            "Semantic search is tracked for PathKeep v0.3.0; showing lexical results only."
                 .to_string(),
         );
     }

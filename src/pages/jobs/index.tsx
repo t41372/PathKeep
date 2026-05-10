@@ -30,6 +30,7 @@ import {
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
 } from '../../lib/intelligence-presentation'
+import { readableContentFetchAvailable } from '../../lib/release-capabilities'
 import type { AppConfig, BackupRunOverview } from '../../lib/types'
 import type { ShellTask } from '../../app/shell-tasks'
 import { JobPanel, RuntimeJobPanel } from './job-panels'
@@ -343,20 +344,28 @@ export function JobsPage() {
   const visibleFailedJobsCount =
     (aiQueue?.recentJobs.filter((job) => job.state === 'failed').length ?? 0) +
     (runtime?.recentJobs.filter((job) => job.state === 'failed').length ?? 0)
-  const contentQueueMessage = contentPlugin
-    ? contentPlugin.queuedJobs > 0
-      ? jobsT('contentFetchBacklogBody', {
-          queued: contentPlugin.queuedJobs,
-          stored: contentPlugin.storedRecords,
-        })
-      : contentPlugin.runningJobs > 0
-        ? jobsT('contentFetchRunningBody', {
-            stored: contentPlugin.storedRecords,
-          })
-        : jobsT('contentFetchReadyBody', {
-            stored: contentPlugin.storedRecords,
-          })
-    : jobsT('contentFetchFallbackBody')
+  const visibleReadableContentRows = readableContentFetchAvailable
+    ? (contentPlugin?.storedRecords ?? 0)
+    : 0
+  let contentQueueMessage = jobsT('contentFetchDeferredBody')
+  if (readableContentFetchAvailable) {
+    if (!contentPlugin) {
+      contentQueueMessage = jobsT('contentFetchFallbackBody')
+    } else if (contentPlugin.queuedJobs > 0) {
+      contentQueueMessage = jobsT('contentFetchBacklogBody', {
+        queued: contentPlugin.queuedJobs,
+        stored: contentPlugin.storedRecords,
+      })
+    } else if (contentPlugin.runningJobs > 0) {
+      contentQueueMessage = jobsT('contentFetchRunningBody', {
+        stored: contentPlugin.storedRecords,
+      })
+    } else {
+      contentQueueMessage = jobsT('contentFetchReadyBody', {
+        stored: contentPlugin.storedRecords,
+      })
+    }
+  }
   const focusNowMessage = activeRuntimeJob
     ? summarizeRuntimeJob(activeRuntimeJob, jobsT)
     : queueCounts.running > 0
@@ -513,9 +522,7 @@ export function JobsPage() {
                   <div className="jobs-hero-stat">
                     <span className="dim">{jobsT('savedReadableContent')}</span>
                     <strong className="mono">
-                      {(contentPlugin?.storedRecords ?? 0).toLocaleString(
-                        language,
-                      )}
+                      {visibleReadableContentRows.toLocaleString(language)}
                     </strong>
                   </div>
                 </div>

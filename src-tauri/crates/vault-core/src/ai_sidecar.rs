@@ -1,12 +1,12 @@
 //! Deferred semantic-index sidecar boundary.
 //!
 //! ## Responsibilities
-//! - Preserve the semantic sidecar API shape while optional AI is disabled for v0.1.0.
+//! - Preserve the semantic sidecar API shape while optional AI is disabled in the default build.
 //! - Keep provider/model table-name derivation stable for future index rebuild compatibility.
 //! - Report local sidecar storage bytes without linking the heavy vector-store runtime.
 //!
 //! ## Not responsible for
-//! - Opening a vector database or syncing embedding payloads in v0.1.0.
+//! - Opening a vector database or syncing embedding payloads in the default build.
 //! - Running semantic nearest-neighbor search.
 //! - Deciding when optional AI returns to the default desktop build.
 //!
@@ -16,7 +16,7 @@
 //!
 //! ## Performance notes
 //! - This module is intentionally filesystem-only. It must not pull LanceDB,
-//!   Arrow, DataFusion, or other vector-store dependencies into the v0.1.0 build.
+//!   Arrow, DataFusion, or other vector-store dependencies into the default build.
 
 use crate::{config::ProjectPaths, utils::sha256_hex};
 use anyhow::{Result, bail};
@@ -25,13 +25,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const OPTIONAL_AI_DEFERRED_MESSAGE: &str = "AI Assistant, semantic search, embeddings, and vector indexing are coming in a future PathKeep release. PathKeep v0.1.0 ships the local archive and Core Intelligence first.";
+const OPTIONAL_AI_DEFERRED_MESSAGE: &str = "AI Assistant, semantic search, embeddings, and vector indexing are tracked for PathKeep v0.3.0. PathKeep v0.2.0 ships the local archive, Lexical Recall V2, and Core Intelligence first.";
 
 /// One embedding row that the future sidecar sync path will persist.
 ///
 /// The type remains part of the internal AI indexing contract so the rest of
 /// the workspace can compile unchanged while the heavy vector-store dependency
-/// is out of the v0.1.0 build.
+/// is out of the default build.
 #[derive(Debug, Clone)]
 pub struct SidecarEmbeddingRow {
     pub history_id: i64,
@@ -50,7 +50,7 @@ pub struct SidecarEmbeddingRow {
 /// One semantic-search result row returned by the future sidecar query path.
 ///
 /// Keeping this shape stable avoids a wider API churn when optional AI returns
-/// after the v0.1.0 release.
+/// after the current release.
 #[derive(Debug, Clone)]
 pub struct SidecarSearchRow {
     pub history_id: i64,
@@ -64,7 +64,7 @@ pub struct SidecarSearchRow {
 
 /// Synchronizes embeddings into the optional vector sidecar when that feature is available.
 ///
-/// In v0.1.0 this returns success only for no-op clear/empty sync requests so
+/// In the default build this returns success only for no-op clear/empty sync requests so
 /// cleanup and read-model code can remain harmless, while real embedding writes
 /// fail fast with the release deferral message.
 pub async fn sync_provider_embeddings(
@@ -85,7 +85,7 @@ pub async fn sync_provider_embeddings(
 
 /// Clears optional vector sidecar rows for one provider/model pair.
 ///
-/// There is no vector sidecar in the v0.1.0 build, so this is a harmless no-op
+/// There is no vector sidecar in the default build, so this is a harmless no-op
 /// that keeps derived-state cleanup and semantic-index clear requests bounded.
 pub async fn clear_provider_embeddings(
     _paths: &ProjectPaths,
@@ -97,7 +97,7 @@ pub async fn clear_provider_embeddings(
 
 /// Counts optional vector sidecar rows for one provider/model pair.
 ///
-/// Returning zero is the honest v0.1.0 state: compact SQLite metadata may still
+/// Returning zero is the honest default-build state: compact SQLite metadata may still
 /// exist from future-facing code paths, but no vector payload is linked here.
 pub async fn count_provider_embeddings(
     _paths: &ProjectPaths,
@@ -109,7 +109,7 @@ pub async fn count_provider_embeddings(
 
 /// Searches the optional vector sidecar for semantic matches.
 ///
-/// The v0.1.0 build has no vector search dependency, so callers receive `None`
+/// The default build has no vector search dependency, so callers receive `None`
 /// and can fall back without pretending semantic recall is available.
 pub async fn search_provider_embeddings(
     _paths: &ProjectPaths,
@@ -133,7 +133,7 @@ pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
 
 /// Returns the root directory reserved for optional vector sidecar tables.
 ///
-/// The path stays stable even while the v0.1.0 build does not create or open a
+/// The path stays stable even while the default build does not create or open a
 /// vector database there.
 pub fn sidecar_root(paths: &ProjectPaths) -> PathBuf {
     paths.semantic_index_dir.clone()
@@ -214,7 +214,7 @@ mod tests {
             sync_provider_embeddings(&paths, "provider", "model", &[row()], false, false, &[])
                 .await
                 .expect_err("embedding sync is deferred");
-        assert!(error.to_string().contains("coming in a future PathKeep release"));
+        assert!(error.to_string().contains("tracked for PathKeep v0.3.0"));
     }
 
     #[tokio::test]

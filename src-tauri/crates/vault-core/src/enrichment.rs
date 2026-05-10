@@ -106,7 +106,7 @@ pub fn execute_enrichment_job_by_id(
             status: "deferred".to_string(),
             final_url: Some(job.payload.url.clone()),
             extraction: json!({
-                "reason": "Readable content fetching is deferred from PathKeep v0.1.0."
+                "reason": "Readable content fetching is tracked for PathKeep v0.3.0 and remains disabled in PathKeep v0.2.0."
             }),
             ..EnrichmentResult::default()
         },

@@ -1342,3 +1342,24 @@
   - 2026-05-07 closeout：Explorer 主搜尋標籤旁新增 hover / keyboard-focus 可開啟的語法速查浮窗，列出 `site:github.com -pathkeep`、exact phrase、`OR`、`intitle:` / `inurl:`、`filetype:` 與 `after:` / `before:` 範例，並明確提醒 Regex mode 使用 Rust regex、沒有 look-around / backreference。浮窗文案已同步 `en` / `zh-CN` / `zh-TW`。
   - 同步回寫 [`docs/features/recall.md`](../features/recall.md)、[`src/pages/explorer/advanced-search-help.tsx`](../../src/pages/explorer/advanced-search-help.tsx)、[`src/pages/explorer/query-filters-panel.tsx`](../../src/pages/explorer/query-filters-panel.tsx)、[`src/styles/app/explorer.css`](../../src/styles/app/explorer.css) 與 [`src/lib/i18n/catalog/explorer.ts`](../../src/lib/i18n/catalog/explorer.ts)。
   - 驗收結果：targeted Explorer component tests、browser-preview E2E hover assertion 與完整 `bun run check` 作為提交前 gate。
+
+- [x] **WORK-RELEASE-020-A** — v0.2.0 Planning Repair, Security Refresh, And Publication
+  - 讀先：
+    `README.md`
+    `RELEASE.md`
+    `docs/plan/BACKLOG.md`
+    `docs/plan/CHANGELOG.md`
+    `docs/plan/program/quality-matrix.md`
+    `docs/features/intelligence.md`
+    `docs/features/intelligence-current-state.md`
+    `docs/features/archive.md`
+    `docs/architecture/tech-stack.md`
+    `docs/design/screens-and-nav.md`
+    `.github/workflows/release.yml`
+  - 目標：修復 v0.2.0 / v0.3.0 planning truth out-of-sync，先處理 Dependabot alerts，再把未完成 AI / readable-content blockers 從 v0.2.0 移到 v0.3.0，最後準備並發布 v0.2.0。
+  - 2026-05-09 closeout：Dependabot alerts #13 / #15 (`openssl`) 已透過 `openssl 0.10.79` / `openssl-sys 0.9.115` 修補；alert #14 (`tauri`) 已透過 `tauri 2.11.1` 系列修補。GitHub alert UI 可能仍需 dependency graph rescan 才會關閉。
+  - Planning repair：v0.2.0 scope 收斂到已完成的 local-first archive、Lexical Recall V2、advanced keyword syntax、deterministic Core Intelligence、Windows unsigned installer / scheduler preview、release/security hardening；AI Assistant、embedding、semantic / hybrid search、MCP / skill artifacts、vector sidecar、readable webpage body fetch 全部移到 `BACKLOG.md` 的 v0.3.0 blocker blocks。
+  - Release truth：版本 bump 到 `0.2.0`；preview fixtures、backend deferred messages、Jobs / Assistant / Settings / Integrations / Explorer copy 與三語 i18n 都不再假裝 optional AI / readable-content 已在 v0.2.0 可用。Jobs overview / runtime health 在 v0.2.0 disabled readable-content 狀態下不再顯示 stale stored readable rows。
+  - Release assets：真實 app 截圖與 release note 草稿產生於 `artifacts/release/v0.2.0/`，包含 Dashboard core intelligence、Explorer advanced keyword syntax、Intelligence overview、Jobs runtime truth、Assistant v0.3 roadmap disabled state。
+  - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/plan/BACKLOG.md`](BACKLOG.md)、[`docs/plan/README.md`](README.md)、[`docs/plan/program/research-and-decisions.md`](program/research-and-decisions.md)、[`docs/features/intelligence.md`](../features/intelligence.md)、[`docs/features/intelligence-current-state.md`](../features/intelligence-current-state.md)、[`docs/features/archive.md`](../features/archive.md)、[`docs/design/screens-and-nav.md`](../design/screens-and-nav.md)、[`RELEASE.md`](../../RELEASE.md)、[`.github/workflows/release.yml`](../../.github/workflows/release.yml) 與 release capability / i18n source files。
+  - 驗收結果：targeted Jobs / Settings / Integrations / backend preview tests、targeted `vault-core` AI sidecar / semantic tests、`bun run coverage:js`、`bun run check` 與 `bun run verify` 通過；`bun run verify` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate、desktop-contract mutation gate、Rust supply-chain audit、release config guard 與 debug desktop build rehearsal。

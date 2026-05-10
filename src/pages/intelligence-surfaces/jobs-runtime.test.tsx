@@ -349,6 +349,17 @@ describe('intelligence surfaces', () => {
 
     expect(await screen.findByText(jobsT('failedTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
+    expect(
+      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
+    ).toBeGreaterThan(0)
+    const storedReadableContentStat = screen
+      .getAllByText(jobsT('savedReadableContent'))[0]
+      .closest('.jobs-hero-stat')
+    expect(storedReadableContentStat).toBeInstanceOf(HTMLElement)
+    if (!(storedReadableContentStat instanceof HTMLElement)) {
+      throw new Error('expected stored readable content overview stat')
+    }
+    expect(within(storedReadableContentStat).getByText('0')).toBeVisible()
     expect(screen.getByText(jobsT('runtimeSummaryTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('runtimeHealthTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('pluginsTitle'))).toBeVisible()

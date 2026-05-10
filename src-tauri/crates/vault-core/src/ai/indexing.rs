@@ -168,7 +168,7 @@ pub async fn build_ai_index_with_control(
         }
 
         anyhow::bail!(
-            "AI Assistant, semantic search, embeddings, and vector indexing are coming in a future PathKeep release. PathKeep v0.1.0 ships the local archive and Core Intelligence first."
+            "AI Assistant, semantic search, embeddings, and vector indexing are tracked for PathKeep v0.3.0. PathKeep v0.2.0 ships the local archive, Lexical Recall V2, and Core Intelligence first."
         )
     }
     .await;

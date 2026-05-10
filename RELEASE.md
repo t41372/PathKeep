@@ -42,7 +42,7 @@ The GitHub `Release` workflow now fails fast if those versions drift or if the r
 To bump them together locally, run:
 
 ```bash
-bun run release:bump -- 0.1.0
+bun run release:bump -- 0.2.0
 ```
 
 The canonical desktop namespace is now `com.yi-ting.pathkeep`.
@@ -76,7 +76,7 @@ Then perform the platform and traceability review from:
 
 Entry points:
 
-1. Push a tag such as `v0.1.0`
+1. Push a tag such as `v0.2.0`
 2. Run the `Release` workflow manually from GitHub Actions
 
 Manual workflow inputs:
@@ -145,7 +145,7 @@ Do not gate Windows preview support on any of those providers.
 
 ## Windows Test Binary Workflow
 
-For ad-hoc Windows QA without touching the public `v0.1.0` release assets, run the `Windows Test Binary` workflow manually from GitHub Actions. It builds on `windows-latest`, uses the same unsigned Tauri override as the release preview path, and uploads a 14-day workflow artifact containing:
+For ad-hoc Windows QA without touching public release assets, run the `Windows Test Binary` workflow manually from GitHub Actions. It builds on `windows-latest`, uses the same unsigned Tauri override as the release preview path, and uploads a 14-day workflow artifact containing:
 
 - `pathkeep-desktop.exe`
 - generated Windows installer bundles such as MSI / NSIS setup outputs

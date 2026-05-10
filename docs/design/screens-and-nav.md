@@ -76,7 +76,7 @@
 - M5-B 起，Intelligence 也正式包含 `query groups`、`reference pages`、`source effectiveness`、`template summaries` 與 deterministic module registry status；這些都屬 shipping review surface，不是 debug-only affordance。
 - shared profile scope 是 production shell 的正式 viewer state：Topbar 可切換全域 viewing scope；Explorer 預設繼承、Assistant / Intelligence 直接沿用，Dashboard 則必須用 callout 清楚說明哪些區塊是 scoped、哪些 KPI 仍是 archive-wide。
 - Maintenance 的 derived-state panel 現在除了 enrichment runtime review，還要顯示 deterministic module registry：module enable / disable、dependency、derived tables、last built time、stale reason，以及 auto rebuild job / manual override 的 honesty copy。
-- Assistant 的 v0.2 disabled state 不顯示 seeded prompts、settings 修復入口或 queue 操作，因為問答 runtime 尚未開放；只保留 shared profile scope honesty 與 `Coming in v0.3` / future-update copy。後續重新開放時，empty / disabled state 才恢復 seeded prompts、settings / queue 修復入口。
+- v0.2.0 的 Assistant disabled state 不顯示 seeded prompts、settings 修復入口或 queue 操作，因為問答 runtime 尚未開放；只保留 shared profile scope honesty 與 `Coming in v0.3` / future-update copy。後續重新開放時，empty / disabled state 才恢復 seeded prompts、settings / queue 修復入口。
 - Audit run detail 應以 `Summary / Artifacts / Warnings` 分頁控制資訊密度，同時保留 open / copy path 動作在單次 review 內可達。
 - Scheduled Backup Settings 是 state-driven system settings route，而不是常駐 PME tabs。第一層只渲染 `CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 當前狀態需要的內容；Preview / Manual / Execute / Verify 資訊保留在該狀態的 details / manual path 裡。
 - Schedule 的 cadence copy 必須拆清楚：`dueAfterHours` 是下一次備份到期 / trigger cadence，`checkIntervalHours` 是 PathKeep 檢查已安裝 schedule 是否健康的 verification cadence；兩者不能都只寫成「每 N 小時」。

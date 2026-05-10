@@ -1273,8 +1273,8 @@ fn build_ai_index_reports_deferred_sidecar_under_coverage_cfg() {
             &embedding_provider_with_id("embed-batch-short"),
             &AiIndexRequest::default(),
         ))
-        .expect_err("vector sidecar sync is deferred in v0.1");
-    assert!(error.to_string().contains("coming in a future PathKeep release"));
+        .expect_err("vector sidecar sync is tracked for v0.3");
+    assert!(error.to_string().contains("tracked for PathKeep v0.3.0"));
 }
 
 #[test]
@@ -1462,7 +1462,7 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
     assert!(
         response.notes.iter().any(|note| note.contains("No indexed semantic matches were found"))
     );
-    assert!(response.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
+    assert!(response.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
 }
 
 #[test]
@@ -1477,8 +1477,8 @@ fn build_index_reports_deferred_vector_sidecar_release_boundary() {
 
     let error = runtime
         .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
-        .expect_err("vector sidecar sync is deferred from v0.1");
-    assert!(error.to_string().contains("coming in a future PathKeep release"));
+        .expect_err("vector sidecar sync is tracked for v0.3");
+    assert!(error.to_string().contains("tracked for PathKeep v0.3.0"));
 }
 
 #[test]
@@ -1507,7 +1507,7 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
             },
         ))
         .expect("semantic matches without sidecar");
-    assert!(missing_sidecar.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
+    assert!(missing_sidecar.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
 
     let sidecar_error = runtime
         .block_on(ai_sidecar::sync_provider_embeddings(
@@ -1532,7 +1532,7 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
             &[],
         ))
         .expect_err("semantic sidecar writes are deferred");
-    assert!(sidecar_error.to_string().contains("coming in a future PathKeep release"));
+    assert!(sidecar_error.to_string().contains("tracked for PathKeep v0.3.0"));
 
     let stale_watermark = semantic_index_staleness_reason(
         &connection,
@@ -1613,10 +1613,7 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
             .any(|note| note.contains("visibility or import watermark"))
     );
     assert!(
-        stale_without_sidecar
-            .notes
-            .iter()
-            .any(|note| note.contains("semantic sidecar is disabled"))
+        stale_without_sidecar.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0"))
     );
 
     let deferred_write = runtime
@@ -1642,7 +1639,7 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
             &[],
         ))
         .expect_err("semantic sidecar writes are deferred");
-    assert!(deferred_write.to_string().contains("coming in a future PathKeep release"));
+    assert!(deferred_write.to_string().contains("tracked for PathKeep v0.3.0"));
 }
 
 #[test]
@@ -1673,7 +1670,7 @@ fn search_history_internal_uses_lexical_results_when_sidecar_is_deferred() {
     assert_eq!(search.items.len(), 1);
     assert_eq!(search.items[0].history_id, 1);
     assert_eq!(search.items[0].match_reason, "Lexical match");
-    assert!(search.notes.iter().any(|note| note.contains("semantic sidecar is disabled")));
+    assert!(search.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
 }
 
 #[test]

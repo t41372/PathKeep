@@ -124,6 +124,8 @@ describe('JobsRuntimeHealthSection', () => {
     )
 
     expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+    expect(screen.getAllByText(/queuedCount:\s*0/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/savedReadableContent:\s*0/).length).toBe(1)
     queuedView.unmount()
 
     const runningView = render(

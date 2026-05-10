@@ -40,7 +40,7 @@ export const assistantNamespaceCatalog = {
       'Assistant and smart search are coming in v0.3. Keyword search and Core Intelligence are available now.',
     deferredTitle: 'Assistant is coming in v0.3',
     deferredBody:
-      'This part of PathKeep is not ready yet. v0.2 ships the local archive, keyword search, and Core Intelligence first.',
+      'This part of PathKeep is tracked for v0.3. v0.2.0 ships the local archive, keyword search, and Core Intelligence first.',
     deferredPanelEyebrow: 'IN PROGRESS',
     deferredBadge: 'Coming in v0.3',
     deferredPanelBody:
@@ -114,7 +114,7 @@ export const assistantNamespaceCatalog = {
       'AI 助手和智能搜索会在 v0.3 开放。现在可以使用关键词搜索和确定性智能分析。',
     deferredTitle: 'AI 助手将在 v0.3 中开放',
     deferredBody:
-      '这个功能还没准备好。v0.2 会先把本地存档、关键词搜索和确定性智能分析做好。',
+      '这个功能已排入 v0.3。v0.2.0 会先把本地存档、关键词搜索和确定性智能分析做好。',
     deferredPanelEyebrow: '建设中',
     deferredBadge: 'v0.3 开放',
     deferredPanelBody:
@@ -187,7 +187,7 @@ export const assistantNamespaceCatalog = {
       'AI 助手和智慧搜尋會在 v0.3 開放。現在可以使用關鍵字搜尋和確定性智慧分析。',
     deferredTitle: 'AI 助手會在 v0.3 開放',
     deferredBody:
-      '這個功能還沒準備好。v0.2 會先把本機封存、關鍵字搜尋和確定性智慧分析做好。',
+      '這個功能已排入 v0.3。v0.2.0 會先把本機封存、關鍵字搜尋和確定性智慧分析做好。',
     deferredPanelEyebrow: '建設中',
     deferredBadge: 'v0.3 開放',
     deferredPanelBody:

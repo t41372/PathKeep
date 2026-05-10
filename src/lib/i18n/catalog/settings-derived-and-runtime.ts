@@ -73,10 +73,10 @@ export const settingsDerivedAndRuntimeNamespace = {
       'Cleans up page titles locally so duplicate tabs, redirects, and noisy suffixes collapse into clearer evidence labels.',
     readableContentRefetch: 'Readable content fetcher',
     readableContentRefetchBody:
-      'Not available in v0.2. This future worker will revisit pages only after the feature is reliable enough to ship.',
+      'Tracked for v0.3 and not available in v0.2.0. This future worker will revisit pages only after the feature is reliable enough to ship.',
     readableContentPlugin: 'Readable content fetcher',
     readableContentDescription:
-      'This future worker will fetch readable webpage bodies. It is disabled in v0.2 so PathKeep does not pretend it can save page text today.',
+      'This future worker will fetch readable webpage bodies. It is disabled in v0.2.0 so PathKeep does not pretend it can save page text today.',
     readableContentDeferredBadge: 'Coming in v0.3',
     readableContentDeferredTooltip:
       'Webpage body fetching is coming in a future update.',
@@ -160,7 +160,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: 'Last error',
     networkAccess: 'Network',
     localOnly: 'Local only',
-    readableContentRefetchImpact: 'No webpage body text is fetched in v0.2.',
+    readableContentRefetchImpact: 'No webpage body text is fetched in v0.2.0.',
     disablePlugin: 'Disable',
     enablePlugin: 'Enable',
     runtimeRecentJobs: 'Recent runtime jobs',
@@ -260,10 +260,10 @@ export const settingsDerivedAndRuntimeNamespace = {
       '在本地整理网页标题，让重复标签页、跳转页和多余尾码变成更清楚的证据标签。',
     readableContentRefetch: '网页可读内容抓取',
     readableContentRefetchBody:
-      'v0.2 暂不开放。这个未来任务会在足够可靠后，再重新访问页面并提取正文。',
+      '已排入 v0.3，v0.2.0 暂不开放。这个未来任务会在足够可靠后，再重新访问页面并提取正文。',
     readableContentPlugin: '网页可读内容抓取',
     readableContentDescription:
-      '这个未来任务会抓取网页正文。v0.2 中它保持禁用，PathKeep 不会假装现在已经能保存网页正文。',
+      '这个未来任务会抓取网页正文。v0.2.0 中它保持禁用，PathKeep 不会假装现在已经能保存网页正文。',
     readableContentDeferredBadge: 'v0.3 开放',
     readableContentDeferredTooltip: '网页正文抓取会在后续版本开放。',
     visitDerivedFactsModule: '访问派生事实',
@@ -341,7 +341,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近错误',
     networkAccess: '网络',
     localOnly: '仅本地',
-    readableContentRefetchImpact: 'v0.2 不会抓取网页正文。',
+    readableContentRefetchImpact: 'v0.2.0 不会抓取网页正文。',
     disablePlugin: '关闭',
     enablePlugin: '开启',
     runtimeRecentJobs: '最近运行任务',
@@ -438,10 +438,10 @@ export const settingsDerivedAndRuntimeNamespace = {
       '在本機整理網頁標題，讓重複分頁、跳轉頁和多餘尾碼變成更清楚的證據標籤。',
     readableContentRefetch: '網頁可讀內容擷取',
     readableContentRefetchBody:
-      'v0.2 暫不開放。這個未來工作會在足夠可靠後，再重新造訪頁面並提取正文。',
+      '已排入 v0.3，v0.2.0 暫不開放。這個未來工作會在足夠可靠後，再重新造訪頁面並提取正文。',
     readableContentPlugin: '網頁可讀內容擷取',
     readableContentDescription:
-      '這個未來工作會擷取網頁正文。v0.2 中它保持停用，PathKeep 不會假裝現在已經能保存網頁正文。',
+      '這個未來工作會擷取網頁正文。v0.2.0 中它保持停用，PathKeep 不會假裝現在已經能保存網頁正文。',
     readableContentDeferredBadge: 'v0.3 開放',
     readableContentDeferredTooltip: '網頁正文擷取會在後續版本開放。',
     visitDerivedFactsModule: '造訪衍生事實',
@@ -519,7 +519,7 @@ export const settingsDerivedAndRuntimeNamespace = {
     pluginLastError: '最近錯誤',
     networkAccess: '網路',
     localOnly: '僅限本機',
-    readableContentRefetchImpact: 'v0.2 不會擷取網頁正文。',
+    readableContentRefetchImpact: 'v0.2.0 不會擷取網頁正文。',
     disablePlugin: '關閉',
     enablePlugin: '開啟',
     runtimeRecentJobs: '最近執行工作',

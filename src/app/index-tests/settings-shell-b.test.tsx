@@ -102,7 +102,7 @@ describe('App shell', () => {
     )
 
     await waitFor(() => {
-      expect(checkForAppUpdateSpy).toHaveBeenCalledWith('0.1.0')
+      expect(checkForAppUpdateSpy).toHaveBeenCalledWith('0.2.0')
     })
     expect(
       within(updatePanel).getByText(settingsT('updateReleaseNotes')),

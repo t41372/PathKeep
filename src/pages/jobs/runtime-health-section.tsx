@@ -115,6 +115,19 @@ export function JobsRuntimeHealthSection({
                 stored: contentPlugin.storedRecords,
               })
         : jobsT('contentFetchFallbackBody')
+  const visibleContentStats = readableContentFetchAvailable
+    ? {
+        queued: contentPlugin?.queuedJobs ?? 0,
+        running: contentPlugin?.runningJobs ?? 0,
+        failed: contentPlugin?.failedJobs ?? 0,
+        stored: contentPlugin?.storedRecords ?? 0,
+      }
+    : {
+        queued: 0,
+        running: 0,
+        failed: 0,
+        stored: 0,
+      }
 
   return (
     <>
@@ -133,19 +146,19 @@ export function JobsRuntimeHealthSection({
             <div className="jobs-meta-grid mono-support">
               <span>
                 {jobsT('queuedCount')}:{' '}
-                {(contentPlugin?.queuedJobs ?? 0).toLocaleString(language)}
+                {visibleContentStats.queued.toLocaleString(language)}
               </span>
               <span>
                 {jobsT('runningCount')}:{' '}
-                {(contentPlugin?.runningJobs ?? 0).toLocaleString(language)}
+                {visibleContentStats.running.toLocaleString(language)}
               </span>
               <span>
                 {jobsT('failedCount')}:{' '}
-                {(contentPlugin?.failedJobs ?? 0).toLocaleString(language)}
+                {visibleContentStats.failed.toLocaleString(language)}
               </span>
               <span>
                 {jobsT('savedReadableContent')}:{' '}
-                {(contentPlugin?.storedRecords ?? 0).toLocaleString(language)}
+                {visibleContentStats.stored.toLocaleString(language)}
               </span>
             </div>
             {readableContentFetchAvailable && contentPlugin?.lastError ? (
