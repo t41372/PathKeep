@@ -32,7 +32,7 @@ async function completePreviewOnboarding(page: Page) {
   await expect(
     page.getByRole('link', { name: 'Open Intelligence' }),
   ).toHaveCount(2)
-  await expect(page.getByText('Coming in v0.2').first()).toBeVisible()
+  await expect(page.getByText('Coming in v0.3').first()).toBeVisible()
   await expect(page.getByText('common.disabled')).toHaveCount(0)
 }
 
@@ -124,13 +124,13 @@ test('surfaces intelligence routes and degraded states after the first backup', 
   await expect(
     page.getByRole('button', { name: 'Hybrid', exact: true }),
   ).toBeDisabled()
-  await expect(page.getByText('Smart search is coming in v0.2')).toBeVisible()
+  await expect(page.getByText('Smart search is coming in v0.3')).toBeVisible()
 
   await Promise.all([
     page.waitForURL(/#\/assistant/),
     page.getByRole('link', { name: 'AI Assistant', exact: true }).click(),
   ])
-  await expect(page.getByText('Assistant is coming in v0.2')).toBeVisible()
+  await expect(page.getByText('Assistant is coming in v0.3')).toBeVisible()
 
   await Promise.all([
     page.waitForURL(/#\/intelligence/),

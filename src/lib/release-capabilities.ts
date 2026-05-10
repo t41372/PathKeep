@@ -1,11 +1,11 @@
 /**
  * @file release-capabilities.ts
- * @description Centralizes release-scope capability flags for surfaces deferred out of v0.1.0.
+ * @description Centralizes release-scope capability flags for surfaces deferred out of v0.2.0.
  * @module lib/release-capabilities
  *
  * ## Responsibilities
  * - Keep UI guards for optional AI and readable-content fetch features tied to one release fact.
- * - Make v0.1.0 disabled states explicit without deleting future-facing route shells.
+ * - Make v0.2.0 disabled states explicit without deleting future-facing route shells.
  * - Provide a non-localized release label for code paths that only need a stable version marker.
  *
  * ## Not responsible for
@@ -21,7 +21,7 @@
  */
 
 /**
- * Marks optional AI capabilities that are intentionally deferred from v0.1.0.
+ * Marks optional AI capabilities that are intentionally deferred from v0.2.0.
  *
  * The disabled UI surfaces stay visible so users can see the roadmap, but they
  * must not call provider probes, embedding builds, semantic search, assistant,
@@ -30,7 +30,7 @@
 export const optionalAiFeaturesAvailable = false
 
 /**
- * Marks network-backed readable-content fetching as deferred from v0.1.0.
+ * Marks network-backed readable-content fetching as deferred from v0.2.0.
  *
  * Core archive, keyword search, and deterministic Core Intelligence must remain
  * usable without claiming that PathKeep can fetch and store webpage bodies.
@@ -40,4 +40,4 @@ export const readableContentFetchAvailable = false
 /**
  * Names the next planned release bucket for disabled future-facing surfaces.
  */
-export const deferredFeatureReleaseLabel = 'v0.2'
+export const deferredFeatureReleaseLabel = 'v0.3'

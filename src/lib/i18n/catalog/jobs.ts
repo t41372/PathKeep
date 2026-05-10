@@ -67,7 +67,7 @@ export const jobsNamespaceCatalog = {
       'Local rebuilds update cards and evidence without waiting on future AI or webpage-body fetch features.',
     queueSummaryTitle: 'Assistant and embedding queue',
     queueSummaryBody:
-      'Optional assistant and embedding work is deferred from v0.1. Existing queued items stay reviewable if they are present.',
+      'Optional assistant and embedding work is deferred from v0.2. Existing queued items stay reviewable if they are present.',
     runtimeSummaryTitle: 'Local analysis',
     runtimeSummaryBody:
       'Analysis refreshes and content work keep a recoverable record of what ran, failed, or still waits.',
@@ -105,9 +105,9 @@ export const jobsNamespaceCatalog = {
     needsReviewIdle: 'No failed work needs review.',
     needsReviewBacklog: '{count} failed job(s) still need review or retry.',
     contentFetchTitle: 'Readable content',
-    contentFetchDeferredBadge: 'Coming in v0.2',
+    contentFetchDeferredBadge: 'Coming in v0.3',
     contentFetchDeferredBody:
-      'Webpage body fetching is not available in v0.1. This area stays visible for the roadmap, but PathKeep is not revisiting pages or saving readable copies yet.',
+      'Webpage body fetching is not available in v0.2. This area stays visible for the roadmap, but PathKeep is not revisiting pages or saving readable copies yet.',
     contentFetchBacklogBody:
       'PathKeep saved {stored} readable pages. {queued} page-text fetches are waiting so local analysis does not wait on every site.',
     contentFetchRunningBody:
@@ -137,14 +137,14 @@ export const jobsNamespaceCatalog = {
     errorRateLimited:
       'The upstream site temporarily refused the fetch. Retry it later.',
     deterministicRuntimeSummary:
-      'PathKeep is refreshing local analysis first. Webpage body fetching is deferred from v0.1.',
+      'PathKeep is refreshing local analysis first. Webpage body fetching is deferred from v0.2.',
     contentFetchQueuedSummaryHost:
-      'Readable-content work for {host} is deferred from v0.1.',
-    contentFetchQueuedSummary: 'Readable-content work is deferred from v0.1.',
+      'Readable-content work for {host} is deferred from v0.2.',
+    contentFetchQueuedSummary: 'Readable-content work is deferred from v0.2.',
     contentFetchRunningSummaryHost:
-      'PathKeep is not revisiting {host} for readable content in v0.1.',
+      'PathKeep is not revisiting {host} for readable content in v0.2.',
     contentFetchRunningSummary:
-      'PathKeep is not capturing readable page text in v0.1.',
+      'PathKeep is not capturing readable page text in v0.2.',
     sidebarTitle: 'Background work',
     sidebarNeedsSetup: 'Background work appears after setup.',
     sidebarLocked: 'Unlock the archive first',
@@ -238,7 +238,7 @@ export const jobsNamespaceCatalog = {
       '本地重建会更新卡片和证据，不会等待后续版本才开放的 AI 或网页正文抓取。',
     queueSummaryTitle: '助手与嵌入队列',
     queueSummaryBody:
-      '助手与嵌入任务已从 v0.1 延后；如果存在旧的排队项，仍可在这里检查。',
+      '助手与嵌入任务已从 v0.2 延后；如果存在旧的排队项，仍可在这里检查。',
     runtimeSummaryTitle: '本地分析',
     runtimeSummaryBody:
       '分析刷新和内容任务会保留可恢复记录，方便查看哪些已完成、失败或仍在等待。',
@@ -275,9 +275,9 @@ export const jobsNamespaceCatalog = {
     needsReviewIdle: '当前没有失败任务需要处理。',
     needsReviewBacklog: '还有 {count} 个失败任务等待你查看或重试。',
     contentFetchTitle: '网页可读内容',
-    contentFetchDeferredBadge: 'v0.2 开放',
+    contentFetchDeferredBadge: 'v0.3 开放',
     contentFetchDeferredBody:
-      '网页正文抓取不属于 v0.1 范围。这里先保留路线图入口，但 PathKeep 现在不会重新访问网页，也不会保存正文副本。',
+      '网页正文抓取不属于 v0.2 范围。这里先保留路线图入口，但 PathKeep 现在不会重新访问网页，也不会保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 条可读网页内容；还有 {queued} 条网页正文抓取在队列中，本地分析不用等每个网站都返回。',
     contentFetchRunningBody:
@@ -305,12 +305,12 @@ export const jobsNamespaceCatalog = {
       '这个页面跳进了登录或跳转边界，PathKeep 目前拿不到稳定的正文。',
     errorRateLimited: '上游网站暂时拒绝了抓取请求，稍后可以再试一次。',
     deterministicRuntimeSummary:
-      'PathKeep 会先刷新本地分析。网页正文抓取已从 v0.1 延后。',
-    contentFetchQueuedSummaryHost: '{host} 的网页正文任务已从 v0.1 延后。',
-    contentFetchQueuedSummary: '网页正文任务已从 v0.1 延后。',
+      'PathKeep 会先刷新本地分析。网页正文抓取已从 v0.2 延后。',
+    contentFetchQueuedSummaryHost: '{host} 的网页正文任务已从 v0.2 延后。',
+    contentFetchQueuedSummary: '网页正文任务已从 v0.2 延后。',
     contentFetchRunningSummaryHost:
-      'PathKeep v0.1 不会重新访问 {host} 抓取网页正文。',
-    contentFetchRunningSummary: 'PathKeep v0.1 不会抓取网页正文。',
+      'PathKeep v0.2 不会重新访问 {host} 抓取网页正文。',
+    contentFetchRunningSummary: 'PathKeep v0.2 不会抓取网页正文。',
     sidebarTitle: '后台工作',
     sidebarNeedsSetup: '完成设置后才会显示后台工作。',
     sidebarLocked: '先解锁存档',
@@ -403,7 +403,7 @@ export const jobsNamespaceCatalog = {
       '本機重建會更新卡片和證據，不會等待後續版本才開放的 AI 或網頁正文擷取。',
     queueSummaryTitle: '助手與嵌入佇列',
     queueSummaryBody:
-      '助手與嵌入工作已從 v0.1 延後；如果存在舊的排隊項，仍可在這裡檢查。',
+      '助手與嵌入工作已從 v0.2 延後；如果存在舊的排隊項，仍可在這裡檢查。',
     runtimeSummaryTitle: '本機分析',
     runtimeSummaryBody:
       '分析重新整理和內容任務會保留可恢復紀錄，方便查看哪些已完成、失敗或仍在等待。',
@@ -440,9 +440,9 @@ export const jobsNamespaceCatalog = {
     needsReviewIdle: '目前沒有失敗任務需要處理。',
     needsReviewBacklog: '還有 {count} 個失敗任務等你查看或重試。',
     contentFetchTitle: '網頁可讀內容',
-    contentFetchDeferredBadge: 'v0.2 開放',
+    contentFetchDeferredBadge: 'v0.3 開放',
     contentFetchDeferredBody:
-      '網頁正文擷取不屬於 v0.1 範圍。這裡先保留路線圖入口，但 PathKeep 現在不會重新造訪網頁，也不會保存正文副本。',
+      '網頁正文擷取不屬於 v0.2 範圍。這裡先保留路線圖入口，但 PathKeep 現在不會重新造訪網頁，也不會保存正文副本。',
     contentFetchBacklogBody:
       '已保存 {stored} 筆可讀網頁內容；還有 {queued} 筆網頁正文擷取在佇列中，本機分析不用等每個網站都回應。',
     contentFetchRunningBody:
@@ -470,12 +470,12 @@ export const jobsNamespaceCatalog = {
       '這個頁面跳進了登入或重新導向邊界，PathKeep 目前拿不到穩定的正文。',
     errorRateLimited: '上游網站暫時拒絕了抓取請求，稍後可以再試一次。',
     deterministicRuntimeSummary:
-      'PathKeep 會先重新整理本機分析。網頁正文擷取已從 v0.1 延後。',
-    contentFetchQueuedSummaryHost: '{host} 的網頁正文工作已從 v0.1 延後。',
-    contentFetchQueuedSummary: '網頁正文工作已從 v0.1 延後。',
+      'PathKeep 會先重新整理本機分析。網頁正文擷取已從 v0.2 延後。',
+    contentFetchQueuedSummaryHost: '{host} 的網頁正文工作已從 v0.2 延後。',
+    contentFetchQueuedSummary: '網頁正文工作已從 v0.2 延後。',
     contentFetchRunningSummaryHost:
-      'PathKeep v0.1 不會重新造訪 {host} 擷取網頁正文。',
-    contentFetchRunningSummary: 'PathKeep v0.1 不會擷取網頁正文。',
+      'PathKeep v0.2 不會重新造訪 {host} 擷取網頁正文。',
+    contentFetchRunningSummary: 'PathKeep v0.2 不會擷取網頁正文。',
     sidebarTitle: '背景工作',
     sidebarNeedsSetup: '完成設定後才會顯示背景工作。',
     sidebarLocked: '先解鎖封存',

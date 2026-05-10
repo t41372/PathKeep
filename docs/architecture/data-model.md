@@ -111,9 +111,9 @@
 - `derived/history-intelligence.sqlite`
   - 只保存 queue、assistant trace、enrichment metadata、deterministic read model 與 runtime state
 - `sidecars/semantic-index/`
-  - v0.1.0 只保留 future vector sidecar 目錄；不寫入 LanceDB vectors / ANN index
+  - v0.2.0 只保留 future vector sidecar 目錄；不寫入 LanceDB vectors / ANN index
 - `sidecars/intelligence-blobs/`
-  - v0.1.0 不抓取網頁正文；目錄只作 future readable-content blob boundary
+  - v0.2.0 不抓取網頁正文；目錄只作 future readable-content blob boundary
 
 ### Run ledger 與 rollback visibility
 
@@ -141,10 +141,11 @@
 
 - AI queue、assistant trace、semantic metadata、deterministic runtime state 都不再由 canonical archive bootstrap 建表；它們透過 `derived/history-intelligence.sqlite` 持久化。
 - `ai_index_ledger` 以 `(provider_id, model)` 為 key，記錄 `sidecar_table`、`index_version`、`state`、`source_watermark`、`last_run_id`、build started / finished、clear time 與 failure reason。
-- semantic metadata、assistant trace、AI queue 與 deterministic read model 都落在 `derived/history-intelligence.sqlite`。SQLite 僅保留 compact metadata / runtime accounting；向量 payload 不進 SQLite。v0.1.0 也不 shipping vector sidecar payload。
+- semantic metadata、assistant trace、AI queue 與 deterministic read model 都落在 `derived/history-intelligence.sqlite`。SQLite 僅保留 compact metadata / runtime accounting；向量 payload 不進 SQLite。v0.2.0 也不 shipping vector sidecar payload。
 - `ai_assistant_runs` 保存 run-linked assistant trace：`run_id`、question / answer、LLM provider、retrieval provider、citations JSON 與 notes JSON。queued assistant job 完成後要能回到同一筆 trace，而不是只剩暫時性的 UI state。
 - sidecar 可以整個刪除後再依 `ai_index_ledger` / canonical archive facts 重建；刪 sidecar 不應修改任何 canonical facts。
 - 2026-04-29 v0.1.0 release amendment：AI Assistant、embedding、semantic / hybrid search、vector sidecar sync、MCP / skill artifacts 都暫時 disabled；`ai_sidecar` 只保留 no-vector API stub，避免 UI 或 backend 假裝這些 runtime 已可用。
+- 2026-05-10 v0.2.0 planning repair：上述 optional AI / vector blocker 未在 v0.2.0 完成，全部移到 v0.3.0；default build 仍不得寫入 vector sidecar payload。
 
 ### Source-native evidence boundary
 
@@ -162,7 +163,7 @@
 
 - `AppConfig.enrichment.plugins[*]` 是 enrichment plugin 的設定 surface，至少保存 `id`、`enabled`、`version`。缺漏設定必須能從 built-in defaults 回補，避免舊 config 因為新增 plugin 而失真。
 - `AppConfig.deterministic.modules[*]` 是 Core Intelligence module 的設定 surface，至少保存 `id`、`enabled`、`version`。2026-04-15 hard reset 後，正式 shipping 的 built-ins 改為 `visit-derived-facts`、`daily-rollups`、`sessions`、`search-trails`、`refind-pages`、`activity-mix`、`search-effectiveness`、`domain-deep-dive`；缺漏設定同樣必須能從 built-in defaults 回補。
-- M5-A 起內建 enrichment plugin 固定有兩個：`title-normalization`（`m5-v1`、local-only）與 future-facing `readable-content-refetch`（`m4-v1`、network-backed）。v0.1.0 只預設啟用 `title-normalization`；`readable-content-refetch` 保留設定 / runtime row，但預設 disabled，且不得在 v0.1.0 抓取或保存網頁正文。
+- M5-A 起內建 enrichment plugin 固定有兩個：`title-normalization`（`m5-v1`、local-only）與 future-facing `readable-content-refetch`（`m4-v1`、network-backed）。v0.2.0 只預設啟用 `title-normalization`；`readable-content-refetch` 保留設定 / runtime row，但預設 disabled，且不得在 v0.2.0 抓取或保存網頁正文。
 - `search_engine_rules` 現在是 Settings derived-state surface 擁有的 deterministic config table，持久化在 `derived/history-intelligence.sqlite`。built-in search-engine rules 由 runtime 合成，只有使用者新增/修改的 custom 規則真正落表；但 visit classification、search-event extraction 與 Settings rule editor 都必須讀到同一份 merged enabled rule set，避免 UI 與 rebuild contract 漂移。
 - enrichment queue contract 掛在 `derived/history-intelligence.sqlite` 的 `intelligence_jobs`，並以 `job_type = 'enrichment-plugin'`、`plugin_id`、`run_id`、payload / artifact trace、`lease_owner`、`lease_expires_at`、`heartbeat_at`、`stop_requested` 區分；額外 trigger 關聯則落在 `intelligence_job_triggers`。這是 derived-state runtime policy，不是 canonical ingest schema 的一部分。
 - built-in enrichment runtime 目前是 first-party only；Settings / Insights 可以 review、retry、cancel 內建 job，但 third-party plugin execution 仍保持 deferred，不進 shipping runtime。
@@ -180,7 +181,7 @@
 - `bundle.json` 是 trusted local host 的 typed machine contract：至少包含 `bundleVersion`、`hostId`、`generatedAt`、`locale`、`dateRange`、`profileId`、`embedCards`、`widgetSnapshot`、`publicSnapshot`、`trustedOnlyCardIds`、`trustedOnlyCardCount` 與 `boundaryNotes`；`index.html` 直接內嵌同一份 bundle data 靜態渲染，不再從 `file://` 另行 fetch JSON。
 - `deterministic_module_runtime` 是 module-registry trace table，不是 canonical truth。它只保存 module version、status、dependencies、derived tables、last run / built / invalidated time、stale reason 與 notes，供 Settings / Insights 誠實顯示 rebuild-required state。
 - derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。2026-04-12 起，deterministic rebuild 的 live snapshot 也不得先清空再等待後續 commit；同 scope 的 derived rows、snapshot payload 與 module runtime 必須在同一個 intelligence transaction 內替換完成，避免留下半清空狀態。
-- refetch freshness / fetch status / snippet / readable text 都屬 future derived evidence，而不是 source of truth。v0.1.0 不抓取網頁正文；後續版本若啟用，這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
+- refetch freshness / fetch status / snippet / readable text 都屬 future derived evidence，而不是 source of truth。v0.2.0 不抓取網頁正文；後續版本若啟用，這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
 
 ### Remote backup bundle contract
 
@@ -197,8 +198,8 @@
 重度瀏覽器使用者（每天 ~2,500 visits）在 20 年間可能累積近 2000 萬筆記錄。核心 archive 本身不會是瓶頸（預估僅 40-80 GB），但 AI 相關資產如果設計不當會急速膨脹。
 
 - **AI 資產（embedding、向量索引、enrichment 文本、insight 衍生表）是可重建的衍生狀態**，不是核心數據。清空重跑不會丟失任何原始歷史紀錄。
-- **向量 payload 不進 SQLite**。v0.1.0 不 shipping semantic retrieval；future vector sidecar 仍需保留 replaceable sidecar boundary 與 compact SQLite metadata / rebuild accounting。
-- **語義搜尋不能做全表掃描**。如果 v0.2 重新啟用 embedding / vector search，必須先落地 ANN（近似最近鄰）索引與 release-size / runtime evidence；不得退回 SQLite 全庫 cosine 掃描。
+- **向量 payload 不進 SQLite**。v0.2.0 不 shipping semantic retrieval；future vector sidecar 仍需保留 replaceable sidecar boundary 與 compact SQLite metadata / rebuild accounting。
+- **語義搜尋不能做全表掃描**。如果 v0.3 重新啟用 embedding / vector search，必須先落地 ANN（近似最近鄰）索引與 release-size / runtime evidence；不得退回 SQLite 全庫 cosine 掃描。
 - **AI 資產不能拖慢核心 archive**。FTS、intelligence runtime、embedding / 向量索引、正文 blob 都和 canonical archive 隔離。
 - **設定頁面應顯示各類資產的磁碟佔用**：core archive、search projection、intelligence projection、semantic / blob sidecars、快照等，讓用戶清楚知道空間花在哪裡，以及最近的增長趨勢。
 - 產品層的 storage analytics summary 現在先分成兩個 top-level bucket：`core history`（`history-vault.sqlite` + `source-evidence.sqlite`）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。這是給 Dashboard / Intelligence / Settings 共用的使用者心智，不改變底層 storage planes。

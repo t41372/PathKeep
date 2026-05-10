@@ -113,7 +113,7 @@ The question is no longer whether you can extract meaning from decades of histor
 
 PathKeep runs quietly on your machine and **incrementally backs up browsing history from all your browsers** — automatically, on a schedule, without manual effort. It never reads live browser databases directly; instead, it stages safe copies, deduplicates, and appends to a local archive that you fully own and control.
 
-On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the AI assistant, MCP, and other AI-backed surfaces are v0.2 roadmap items, not v0.1.0 promises.
+On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the AI assistant, MCP, and other AI-backed surfaces are v0.3 roadmap items, not v0.2.0 promises.
 
 > Use Chrome with Google Sync enabled? PathKeep supports **Google Takeout import**, letting you recover extended history (often ~18 months, depending on your Google account settings) instead of just the local ~3 months.
 
@@ -124,7 +124,7 @@ On top of that archive, PathKeep gives you powerful recall (full-text search, re
 Download the latest release from [GitHub Releases](https://github.com/t41372/PathKeep/releases).
 
 - **macOS:** open the `.dmg`, move `PathKeep.app` to `/Applications`, then open it. Safari Browser Direct import requires granting Full Disk Access to PathKeep before scanning Safari history.
-- **Windows:** install the unsigned `.msi` or `-setup.exe` release package. Windows will show `Unknown Publisher`, and SmartScreen may require **More info -> Run anyway** until PathKeep has publisher reputation. Scheduled backups use Windows Task Scheduler. The installer bundles the WebView2 offline installer, but Windows Server Core / headless Server environments are not valid GUI acceptance hosts.
+- **Windows:** install the unsigned `.msi` or `-setup.exe` release package. Windows will show `Unknown Publisher`, and SmartScreen may require **More info -> Run anyway** until PathKeep has publisher reputation. Scheduled backups use Windows Task Scheduler. The installer uses the WebView2 download bootstrapper when the runtime is missing, so first install may need internet access; Windows Server Core / headless Server environments are not valid GUI acceptance hosts.
 - **Linux:** Support is on the way. Build from source if you want to try it out right now. ~~install the `.AppImage`, `.deb`, or `.rpm` artifact. Linux scheduled-backup support is still preview/manual-review because desktop keyring and `systemd --user` behavior varies by distribution.~~
 
 ## Uninstall
@@ -142,7 +142,7 @@ PathKeep is organized around three functional pillars, built in order of priorit
 ```
 ┌─────────────────────────────────────────────────────┐
 │               INTELLIGENCE                          │
-│   Core insights now · AI surfaces on v0.2 roadmap  │
+│   Core insights now · AI surfaces on v0.3 roadmap  │
 ├─────────────────────────────────────────────────────┤
 │               RECALL                                │
 │   Full-text search · Timeline · Filters · Export   │
@@ -177,12 +177,12 @@ Finding what you've seen before, across years of history.
 
 ### Intelligence
 
-Understanding your browsing patterns, built on top of a solid archive. **AI features are deferred for v0.1.0** — PathKeep works from local archive facts without any AI provider.
+Understanding your browsing patterns, built on top of a solid archive. **AI features are deferred for v0.2.0** — PathKeep works from local archive facts without any AI provider.
 
 - **Deterministic insights** — browsing rhythm calendar heatmap, search activity, domain deep-dive, sessions, search trails, query families, refind pages, activity mix, and periodic summaries — all computed from archive facts, no AI required
-- **Semantic search** — deferred to the v0.2 roadmap; v0.1.0 ships keyword and regex recall only
-- **AI assistant** — deferred to the v0.2 roadmap until provider, retrieval, evidence, and lock-state flows are truth-tested
-- **MCP server** — deferred to the v0.2 roadmap; v0.1.0 does not expose browsing history to external AI tools
+- **Semantic search** — deferred to the v0.3 roadmap; v0.2.0 ships keyword and regex recall only
+- **AI assistant** — deferred to the v0.3 roadmap until provider, retrieval, evidence, and lock-state flows are truth-tested
+- **MCP server** — deferred to the v0.3 roadmap; v0.2.0 does not expose browsing history to external AI tools
 - **Insight cards** — topic timelines, task/thread detection, browsing rhythm, explore-vs-exploit patterns, source effectiveness, and contrastive summaries from deterministic local models
 - **Remote backup** — Preview → Manual → Execute flow for S3-compatible remote bundles, with checksum and restore-readiness verification
 
@@ -222,8 +222,8 @@ Implemented browsers appear in discovery and archive data but are not yet in the
 | Toolchain         | Bun                                                             | Package management and scripts                   |
 | Canonical storage | SQLite (optional SQLCipher encryption)                          | 20-year durability, local-first                  |
 | Full-text search  | SQLite FTS5                                                     | Core recall, no external service                 |
-| Vector / semantic | Deferred for v0.1.0                                             | Future replaceable sidecar, not in default build |
-| AI inference      | Deferred for v0.1.0                                             | Future user-configured providers                 |
+| Vector / semantic | Deferred for v0.2.0                                             | Future replaceable sidecar, not in default build |
+| AI inference      | Deferred for v0.2.0                                             | Future user-configured providers                 |
 
 ---
 

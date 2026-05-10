@@ -49,7 +49,7 @@
 
 - AI provider 配置 UI
 - AI 計算任務系統（Job Queue）
-- Embedding pipeline + replaceable vector sidecar + 語義搜尋（v0.1.0 deferred，需重新驗證）
+- Embedding pipeline + replaceable vector sidecar + 語義搜尋（v0.2.0 deferred，移到 v0.3 blocker，需重新驗證）
 - 基礎洞察：Topic timeline, On This Day, Site Analytics, 定期總結
 - Ask My History（AI 問答，rig.rs 驅動 agentic RAG）
 - MCP server + AI IDE Skill

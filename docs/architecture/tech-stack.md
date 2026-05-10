@@ -18,7 +18,7 @@
 | 數據存儲         | SQLite storage planes（可選 SQLCipher 加密 canonical archive） | 本地優先、20 年持久性                                                                                                |
 | Secret storage   | `keyring-core` + platform-native stores                        | 保持 native keyring truth，避免把多餘的 fallback runtime 打進桌面 binary                                             |
 | 全文搜尋         | SQLite FTS5 + ICU4X / OpenCC-asset lexical analyzer            | 核心召回能力，不依賴外部服務；CJK gram / substring / bounded typo 召回不上 embedding                                 |
-| 向量 / 語義檢索  | Deferred from v0.1.0                                           | Optional AI / vector search 未達發佈標準，先不進 default build                                                       |
+| 向量 / 語義檢索  | Deferred from v0.2.0                                           | Optional AI / vector search 未達發佈標準，移到 v0.3 blocker，先不進 default build                                    |
 | AI 框架          | rig.rs                                                         | Rust 原生的 LLM + Embedding 框架                                                                                     |
 | AI 推理          | 本地推理（Ollama / LM Studio）或雲端 API                       | 可選、可配置                                                                                                         |
 | 審計             | 本地 audit artifacts + optional Git history                    | 審計檔案不依賴使用者電腦安裝 Git；Git 可用時才提供額外可追溯性                                                       |
@@ -30,7 +30,7 @@
 - **Canonical archive：`archive/history-vault.sqlite` / SQLCipher** — 唯一的 source of truth。
 - **全文召回：`derived/history-search.sqlite` + SQLite FTS5** — 核心功能，不是 AI 附件。M14 使用 ICU4X NFKC、官方 OpenCC 字典資產的繁簡 folding、lowercase / compact lexical normalization、unicode61 prefix FTS、CJK grams、trigram FTS、固定短別名 query expansion 與 bounded Rust-side typo fallback；OpenCC C++ library linking 仍只作 future toolchain-proof path，且必須先經過 [native-dependency-management.md](native-dependency-management.md) 的 vcpkg manifest contract。
 - **Intelligence runtime：`derived/history-intelligence.sqlite`** — queue、assistant trace、deterministic read model、enrichment metadata 與 compact semantic metadata / rebuild accounting。向量 payload 不進 SQLite。
-- **向量 / 語義檢索：v0.1.0 deferred** — 可替換的衍生狀態保留目錄與 metadata contract，但 default build 不再連結 LanceDB / vector runtime。
+- **向量 / 語義檢索：v0.2.0 deferred** — 可替換的衍生狀態保留目錄與 metadata contract，但 default build 不再連結 LanceDB / vector runtime。
 - **重型分析：DuckDB（延後引入）** — 只在 SQLite 被證明不夠用時才加入，作為可重建的 analytics mart。
 
 > **鐵律**：Canonical source of truth 永遠只在 `archive/history-vault.sqlite` 中。FTS、assistant trace、deterministic projections、embedding、向量索引、topic cluster、生成摘要等都屬可刪除、可重建的衍生狀態。
@@ -42,7 +42,7 @@
 | 為什麼 rig.rs | Rust 原生 LLM/Embedding 框架，與我們的 Rust workspace 自然整合                           |
 | Embedding     | 通過 rig.rs 統一的 provider abstraction 調用，支援 Ollama / OpenAI-compatible / 雲端 API |
 | LLM           | 同上，用於摘要生成、topic 命名、問答等 Intelligence 功能                                 |
-| 向量存儲      | v0.1.0 暫不 shipping；future sidecar 需重新立項驗證                                      |
+| 向量存儲      | v0.2.0 暫不 shipping；future sidecar 需重新立項驗證                                      |
 
 2026-04-07 implementation note：
 
@@ -61,13 +61,14 @@
 
 - 使用者已在 2026-04-10 明確 sign off：default desktop build 維持把 optional AI / MCP / semantic runtime 與 archive / shell-critical flow 一起 shipping；`optional` 指 disabled-by-default + provider / consent gated，不是第一次使用時再安裝另一個 helper。
 - 2026-04-29 v0.1.0 release amendment 覆蓋上面的 packaging 預期：AI / MCP / semantic runtime UI 先禁用，default build 不連結 LanceDB；future vector sidecar 仍需作為可重建 derived sidecar 重新驗證，而不能直接回填進 v0.1.0 release branch。
+- 2026-05-10 v0.2.0 planning repair 確認 v0.2.0 仍不 shipping optional AI / MCP / semantic runtime / readable-content fetch；這些 blocker 全部移到 v0.3.0，default build 仍不連結 LanceDB / vector runtime。
 
 2026-04-29 v0.1.0 release amendment：
 
 - 經 real app testing，AI Assistant、embedding、semantic / hybrid search、MCP / skill artifacts、以及 readable webpage body fetch 皆未達 v0.1.0 可發佈標準。
 - Default desktop build 暫時移除直接 `lancedb` / `lance` / `datafusion` 依賴；`vault-core::ai_sidecar` 保留 API-compatible stub，只回報 optional AI deferred / no vector payload。
-- `rig-core`、AI config schema、以及 future-facing command type surface 暫時保留，避免把 v0.2 runtime rewrite 綁進 v0.1.0 release blocker。
-- 這是 [ADR-009](decisions/009-default-desktop-optional-intelligence-shipping.md) 的 v0.1.0 amendment；未來若要重新打開 AI / vector / readable-content shipping surface，需補新的 runtime truth、packaging、release-size 與 supply-chain evidence。
+- `rig-core`、AI config schema、以及 future-facing command type surface 暫時保留，避免把 v0.3 runtime rewrite 綁進 v0.2.0 release blocker。
+- 這是 [ADR-009](decisions/009-default-desktop-optional-intelligence-shipping.md) 的 v0.1.0 amendment，並已被 2026-05-10 v0.2.0 planning repair 延續；未來若要在 v0.3 重新打開 AI / vector / readable-content shipping surface，需補新的 runtime truth、packaging、release-size 與 supply-chain evidence。
 
 ## 目標平台
 

@@ -185,7 +185,7 @@ describe('JobsRuntimeHealthSection', () => {
   test('renders live content runtime branches when webpage body fetch is release-enabled', async () => {
     vi.resetModules()
     vi.doMock('../../lib/release-capabilities', () => ({
-      deferredFeatureReleaseLabel: 'v0.2',
+      deferredFeatureReleaseLabel: 'v0.3',
       optionalAiFeaturesAvailable: false,
       readableContentFetchAvailable: true,
     }))

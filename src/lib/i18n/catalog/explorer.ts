@@ -47,12 +47,12 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: 'Smart search is limited right now',
     semanticRecallNeedsAttentionBody:
       'Check the provider, queue, and index status below before trying the same query again.',
-    optionalAiDeferredTitle: 'Smart search is coming in v0.2',
+    optionalAiDeferredTitle: 'Smart search is coming in v0.3',
     optionalAiDeferredBody:
-      'Semantic and hybrid search need embeddings and a vector index, so they are disabled in v0.1. Keyword search below still works against your local archive.',
+      'Semantic and hybrid search need embeddings and a vector index, so they are disabled in v0.2. Keyword search below still works against your local archive.',
     optionalAiDeferredTooltip:
       'Semantic and hybrid search are coming in a future update.',
-    optionalAiUnavailableReleaseDeferred: 'Smart search is coming in v0.2.',
+    optionalAiUnavailableReleaseDeferred: 'Smart search is coming in v0.3.',
     optionalAiUnavailableAiDisabled:
       'Enable AI in Settings before using smart search.',
     optionalAiUnavailableNoProvider:
@@ -230,11 +230,11 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智能搜索暂时不可用',
     semanticRecallNeedsAttentionBody:
       '请先检查下方的 provider、队列和索引状态，再重试相同查询。',
-    optionalAiDeferredTitle: '智能搜索将在 v0.2 中开放',
+    optionalAiDeferredTitle: '智能搜索将在 v0.3 中开放',
     optionalAiDeferredBody:
-      '语义搜索和混合搜索需要 embedding 与向量索引，所以 v0.1 暂时禁用。下方关键词搜索仍会读取你的本地存档。',
+      '语义搜索和混合搜索需要 embedding 与向量索引，所以 v0.2 暂时禁用。下方关键词搜索仍会读取你的本地存档。',
     optionalAiDeferredTooltip: '语义搜索和混合搜索会在后续版本开放。',
-    optionalAiUnavailableReleaseDeferred: '智能搜索将在 v0.2 中开放。',
+    optionalAiUnavailableReleaseDeferred: '智能搜索将在 v0.3 中开放。',
     optionalAiUnavailableAiDisabled: '请先在设置中启用 AI，再使用智能搜索。',
     optionalAiUnavailableNoProvider:
       '请在设置中选择一个向量模型来启用智能搜索。',
@@ -408,11 +408,11 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智慧搜尋暫時無法使用',
     semanticRecallNeedsAttentionBody:
       '請先檢查下方的 provider、佇列與索引狀態，再重試相同查詢。',
-    optionalAiDeferredTitle: '智慧搜尋會在 v0.2 開放',
+    optionalAiDeferredTitle: '智慧搜尋會在 v0.3 開放',
     optionalAiDeferredBody:
-      '語義搜尋和混合搜尋需要 embedding 與向量索引，所以 v0.1 暫時停用。下方關鍵字搜尋仍會讀取你的本機封存。',
+      '語義搜尋和混合搜尋需要 embedding 與向量索引，所以 v0.2 暫時停用。下方關鍵字搜尋仍會讀取你的本機封存。',
     optionalAiDeferredTooltip: '語義搜尋和混合搜尋會在後續版本開放。',
-    optionalAiUnavailableReleaseDeferred: '智慧搜尋會在 v0.2 開放。',
+    optionalAiUnavailableReleaseDeferred: '智慧搜尋會在 v0.3 開放。',
     optionalAiUnavailableAiDisabled: '請先在設定中啟用 AI，再使用智慧搜尋。',
     optionalAiUnavailableNoProvider:
       '請在設定中選擇一個向量模型來啟用智慧搜尋。',

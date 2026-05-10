@@ -120,12 +120,12 @@ describe('AiIntegrationReviewSection', () => {
     expect(screen.getByText('AI integrations are coming later')).toBeVisible()
     expect(
       screen.getByText(
-        'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.1 does not generate or install them.',
+        'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.2 does not generate or install them.',
       ),
     ).toBeVisible()
     expect(screen.getByText('MCP command')).toBeVisible()
     expect(screen.getByText('Generated files')).toBeVisible()
-    expect(screen.getAllByText('Coming in v0.2')).toHaveLength(3)
+    expect(screen.getAllByText('Coming in v0.3')).toHaveLength(3)
 
     expect(onCopyIntegrationValue).not.toHaveBeenCalled()
     expect(onOpenPath).not.toHaveBeenCalled()

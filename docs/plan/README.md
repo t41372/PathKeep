@@ -110,6 +110,8 @@
 >
 > **2026-05-03 M14 closeout note**：`WORK-M14-A` 已完成並完成供應鏈 remediation；`WORK-M14-C` 隨後恢復符合 trust gate 的 ICU4X NFKC / full-width normalization；`WORK-M14-D` 用官方 OpenCC 1.3.0 字典資產 + repo-owned Rust converter 恢復繁簡 folding；`WORK-M14-B` 完成 bounded alias / fuzzy recall，未新增 third-party dependency；`WORK-M14-E` 補上 project-scoped vcpkg native dependency tooling，future C / C++ product dependencies 不得依賴全局 Homebrew / apt / winget / `pkg-config` 路徑。Explorer keyword recall 現在走 deterministic lexical recall v2：ICU4X NFKC + OpenCC-derived `t2s` / `tw2sp` variants + lowercase / compact analyzer、SQLCipher-backed FTS5 unicode61 prefix + trigram projection、CJK 2/3-gram support fields、compact punctuation/space-insensitive recall、BM25 relevance default sort、短別名 `gh` / `yt` / `pr` query expansion、正常 FTS/trigram 無結果時的 bounded Latin typo fallback、以及 opaque relevance cursor。未經批准的 OpenCC binding 依賴已移除；OpenCC native C++ linking 只能走 pinned vcpkg manifest / CI proof / release packaging contract；SQL full-scan edit distance、SQLite extension、Jieba、embedding / semantic / vector runtime 均未啟用。
 
+> **2026-05-10 v0.2.0 release planning repair note**：v0.2.0 發佈範圍不再承諾 optional AI。正式 scope 是 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。未完成的 AI Assistant、embedding、semantic / hybrid search、MCP / skill artifacts、vector sidecar、readable-content fetch 已全部移到 `BACKLOG.md` 的 `WORK-AI-V03-A` / `WORK-READABLE-CONTENT-V03-A`，並以 v0.3.0 blocker 管理。
+
 > **2026-04-23 backend progress-audit note**：live tree scan 確認 `WORK-BE-A/B/C` 已把後端主 giant-file 戰役大幅收口，但不能宣稱整個 backend 已完成。這輪 `WORK-BE-D` 先把 `vault-core/src/ai_queue.rs` 的內嵌 regression suite 下沉到 `ai_queue/tests.rs`，讓 runtime module 從 `1019` 行降到 `768` 行；下一個 active block 已切到 `WORK-BE-E`，處理 `src-tauri/src/dev_ipc_bridge.rs` (`1141` 行) 與 command / worker-bridge intelligence façade rustdoc gaps。
 >
 > **2026-04-24 backend command-mirror closeout note**：`WORK-BE-E` 已完成。dev-only localhost bridge 現在由 `config`、`router`、`payloads`、`dispatch` focused owners 分工，parent `dev_ipc_bridge.rs` 只剩 listener startup / state handoff；command strings、payload shape、worker export surface、updater/file-manager adapters 與 localhost-only safety boundary 維持不變。`STATUS.md` / `BACKLOG.md` 目前沒有可提升的未阻塞 work block。
@@ -143,6 +145,7 @@
 | M12 Shared Support Actions / Diagnostics          | [m12-support-actions-and-diagnostics/README.md](m12-support-actions-and-diagnostics/README.md) |
 | M13 Broad Reuse Audit                             | [m13-broad-reuse-audit/README.md](m13-broad-reuse-audit/README.md)                             |
 | M14 Lexical Recall V2                             | [m14-lexical-recall-v2/README.md](m14-lexical-recall-v2/README.md)                             |
+| M15 v0.2.0 Release Closeout                       | [STATUS.md](STATUS.md)                                                                         |
 | 產品願景、需求、畫面結構                          | [../vision-and-requirements.md](../vision-and-requirements.md)                                 |
 
 ---

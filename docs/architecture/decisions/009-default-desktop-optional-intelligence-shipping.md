@@ -9,6 +9,10 @@ default v0.1.0 product surface, and the direct LanceDB build dependency is
 temporarily removed. The original packaging decision remains historical context,
 but it is no longer the active v0.1.0 release contract.
 
+Amended for v0.2.0 release scope (2026-05-10): optional AI, vector search,
+MCP / skill artifacts, and readable-content fetch remain deferred and move to
+v0.3.0 blockers. The default desktop graph still does not include LanceDB.
+
 ## 背景
 
 `WORK-QC-E` 已先把 macOS release executable 從約 `190M` 降到約 `104M`，證明上一輪最嚴重的膨脹並不是前端 bundle，而是桌面 binary 本體混進了可裁切的 keyring baggage 與未開啟的 release-size optimization。
@@ -36,15 +40,17 @@ surface 改為：
 - 保留 local archive、keyword Explorer、backup/import、Audit、Jobs、Schedule、
   Settings，以及 deterministic Core Intelligence。
 - Optional AI route / controls 保持可見，但 disabled，文案標記 `Coming in
-v0.2` / 後續版本開放。
+v0.3` / 後續版本開放。
 - `lancedb` / `lance` / `datafusion` 相關直接 build dependency 從 v0.1.0
   default desktop build 移除；`ai_sidecar` 僅保留 API-compatible no-vector stub。
 - `rig-core` 與 AI config / command type surface 暫時保留，避免把 future AI
   rewrite 和 release blocker 綁在同一個破壞性刪除裡。
-- Readable webpage body fetching 不再作為 v0.1.0 promise；UI 不得宣稱會
+- Readable webpage body fetching 不再作為 v0.2.0 promise；UI 不得宣稱會
   revisit pages 或保存正文。
 
-如果 v0.2 要重新啟用 AI / vector search / readable-content fetch，必須用新的
+2026-05-10 v0.2.0 planning repair：v0.2.0 未完成 optional AI / vector search /
+readable-content fetch，因此這些 blocker 全部移到 v0.3.0。若 v0.3 要重新啟用
+AI / vector search / readable-content fetch，必須用新的
 roadmap work block 補 runtime truth、packaging evidence、provider / lock-state
 acceptance、以及 release-size / supply-chain review，再更新本 ADR。
 
@@ -92,7 +98,7 @@ acceptance、以及 release-size / supply-chain review，再更新本 ADR。
 
 ### 5. 未來若要再次改變 default shipping surface，必須重新開 ADR 或 amendment
 
-如果未來要把 optional intelligence 從 default desktop build 拆出去，或把 v0.1.0 已 deferred 的 AI / vector runtime 重新納入 default build，必須：
+如果未來要把 optional intelligence 從 default desktop build 拆出去，或把 v0.1.0 / v0.2.0 已 deferred 的 AI / vector runtime 重新納入 default build，必須：
 
 - 重新產出 trade-off 決策文檔
 - 補新的 packaging / upgrade / rollback / support evidence

@@ -92,7 +92,7 @@
 | ------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `ai_jobs`, `ai_index_ledger`          | canonical archive SQLite                          | durable operational metadata；不是 canonical history facts                          |
 | `ai_embeddings`                       | `derived/history-intelligence.sqlite`             | compact semantic metadata / rebuild accounting；不是 vector payload source of truth |
-| Future semantic vector sidecar        | app data directory sidecar                        | v0.1.0 不 shipping LanceDB / vector runtime；future sidecar 必須可刪除後重建        |
+| Future semantic vector sidecar        | app data directory sidecar                        | v0.2.0 不 shipping LanceDB / vector runtime；future sidecar 必須可刪除後重建        |
 | enrichment / topics / threads / cards | canonical archive SQLite 的 derived tables        | rebuildable derived state；clear / rebuild 不可觸動 canonical visits                |
 | MCP / skill integration preview files | preview payload only（command + JSON / markdown） | manual-copy artifact；PathKeep 不會在 preview 時偷偷安裝外部工具設定                |
 | remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth                        |

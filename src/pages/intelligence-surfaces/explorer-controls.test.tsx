@@ -40,7 +40,7 @@ import {
 } from './test-helpers'
 
 vi.mock('../../lib/release-capabilities', () => ({
-  deferredFeatureReleaseLabel: 'v0.2',
+  deferredFeatureReleaseLabel: 'v0.3',
   optionalAiFeaturesAvailable: true,
   readableContentFetchAvailable: false,
 }))

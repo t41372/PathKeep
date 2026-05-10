@@ -9,6 +9,11 @@
 > future replaceable sidecar concept, but the default v0.1.0 build does not
 > include LanceDB / vector runtime, and the UI must present semantic search,
 > embedding, assistant, MCP, and readable webpage body fetch as deferred.
+>
+> v0.2.0 planning repair (2026-05-10): the same boundary remains active for
+> v0.2.0. Optional AI / semantic retrieval / readable-content fetch moved to
+> v0.3 blockers and still require new runtime, packaging, release-size, and
+> supply-chain evidence.
 
 ## 1. Executive Summary
 
@@ -22,7 +27,7 @@
 - Encryption: **SQLCipher**
 - Full-text recall: **SQLite FTS5**
 - Vector / semantic retrieval sidecar: **future replaceable sidecar** (LanceDB
-  was the earlier accepted candidate; v0.1.0 does not ship it)
+  was the earlier accepted candidate; v0.2.0 does not ship it)
 - AI / Embedding framework: **rig.rs**
 - Heavy analytics sidecar: **不在 day one 引入**；只有在後續 benchmark 證明必要時才加入 DuckDB
 
@@ -108,9 +113,10 @@ FTS5 is the correct search layer for lexical recall.
 ### 3.4 Vector / Semantic Search: Future Replaceable Sidecar
 
 LanceDB was the accepted candidate sidecar, driven by rig.rs for embedding
-generation. The 2026-04-29 v0.1.0 release amendment removes the direct LanceDB
-runtime from the default build until AI / semantic search has new runtime truth,
-packaging, release-size, and supply-chain evidence.
+generation. The 2026-04-29 v0.1.0 release amendment removed the direct LanceDB
+runtime from the default build, and the 2026-05-10 v0.2.0 planning repair keeps
+that boundary until AI / semantic search has new runtime truth, packaging,
+release-size, and supply-chain evidence.
 
 Why LanceDB was accepted as the earlier candidate:
 

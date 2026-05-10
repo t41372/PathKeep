@@ -161,7 +161,7 @@ describe('Dashboard panels', () => {
   test('renders dashboard AI quick links when optional AI is release-enabled', async () => {
     vi.resetModules()
     vi.doMock('../../lib/release-capabilities', () => ({
-      deferredFeatureReleaseLabel: 'v0.2',
+      deferredFeatureReleaseLabel: 'v0.3',
       optionalAiFeaturesAvailable: true,
       readableContentFetchAvailable: false,
     }))

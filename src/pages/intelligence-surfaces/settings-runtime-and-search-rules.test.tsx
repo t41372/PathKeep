@@ -169,7 +169,7 @@ describe('intelligence surfaces settings runtime and search rules', () => {
     expect(
       screen.getAllByText('Readable content fetcher').length,
     ).toBeGreaterThan(0)
-    expect(screen.getAllByText('Coming in v0.2').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Coming in v0.3').length).toBeGreaterThan(0)
     expect(
       screen.getAllByText('1 queued / 0 running / 1 failed').length,
     ).toBeGreaterThan(0)

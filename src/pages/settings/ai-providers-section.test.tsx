@@ -77,19 +77,19 @@ describe('AiProvidersSection', () => {
     })
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'AI features coming in v0.2' }),
+      screen.getByRole('button', { name: 'AI features coming in v0.3' }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'CHAT PROVIDERS' }))
 
     expect(
-      screen.getByText('Optional AI is not available in v0.1'),
+      screen.getByText('Optional AI is not available in v0.2'),
     ).toBeVisible()
-    expect(screen.getByText('Coming in v0.2')).toBeVisible()
+    expect(screen.getByText('Coming in v0.3')).toBeVisible()
     expect(
       screen.getAllByTitle('This feature is coming in a future update.'),
     ).toHaveLength(4)
     expect(
-      screen.getByRole('button', { name: 'AI features coming in v0.2' }),
+      screen.getByRole('button', { name: 'AI features coming in v0.3' }),
     ).toBeDisabled()
     expect(
       screen.getByRole('button', { name: 'CHAT PROVIDERS' }),
@@ -117,7 +117,7 @@ describe('AiProvidersSection', () => {
     })
 
     expect(
-      screen.getByText('Optional AI is not available in v0.1'),
+      screen.getByText('Optional AI is not available in v0.2'),
     ).toBeVisible()
     expect(
       screen.getByRole('button', { name: 'CHAT PROVIDERS' }),

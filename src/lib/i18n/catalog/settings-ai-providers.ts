@@ -23,11 +23,11 @@
  */
 export const settingsAiProvidersNamespace = {
   en: {
-    aiMasterToggle: 'AI features coming in v0.2',
-    aiDeferredBadge: 'Coming in v0.2',
-    aiDeferredTitle: 'Optional AI is not available in v0.1',
+    aiMasterToggle: 'AI features coming in v0.3',
+    aiDeferredBadge: 'Coming in v0.3',
+    aiDeferredTitle: 'Optional AI is not available in v0.2',
     aiDeferredBody:
-      'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are still taking shape. v0.1 ships the local archive and Core Intelligence first.',
+      'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are still taking shape. v0.2 ships the local archive and Core Intelligence first.',
     aiDeferredTooltip: 'This feature is coming in a future update.',
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
@@ -85,9 +85,9 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationUnavailable: 'Integration preview unavailable',
     aiIntegrationDeferredTitle: 'AI integrations are coming later',
     aiIntegrationDeferredBody:
-      'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.1 does not generate or install them.',
+      'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the roadmap, but v0.2 does not generate or install them.',
     aiIntegrationDeferredMcpBody:
-      'PathKeep v0.1 does not expose an MCP search surface.',
+      'PathKeep v0.2 does not expose an MCP search surface.',
     aiIntegrationDeferredFilesBody:
       'Generated assistant skill files will return after the AI runtime is reliable enough to ship.',
     aiIntegrationArtifactsTitle: 'AI integration artifacts',
@@ -147,11 +147,11 @@ export const settingsAiProvidersNamespace = {
       'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
   },
   'zh-CN': {
-    aiMasterToggle: 'AI 功能将在 v0.2 开放',
-    aiDeferredBadge: 'v0.2 开放',
-    aiDeferredTitle: 'v0.1 暂不开放可选 AI',
+    aiMasterToggle: 'AI 功能将在 v0.3 开放',
+    aiDeferredBadge: 'v0.3 开放',
+    aiDeferredTitle: 'v0.2 暂不开放可选 AI',
     aiDeferredBody:
-      '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物都还在打磨中。v0.1 会先交付本地存档和确定性智能分析。',
+      '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物都还在打磨中。v0.2 会先交付本地存档和确定性智能分析。',
     aiDeferredTooltip: '这个功能会在后续版本开放。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
@@ -208,8 +208,8 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationUnavailable: '集成预览不可用',
     aiIntegrationDeferredTitle: 'AI 集成稍后开放',
     aiIntegrationDeferredBody:
-      'MCP 命令和 skill 文件依赖同一套助手与 embedding runtime。这里先保留路线图入口，但 v0.1 不会生成或安装这些产物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.1 不提供 MCP 搜索接口。',
+      'MCP 命令和 skill 文件依赖同一套助手与 embedding runtime。这里先保留路线图入口，但 v0.2 不会生成或安装这些产物。',
+    aiIntegrationDeferredMcpBody: 'PathKeep v0.2 不提供 MCP 搜索接口。',
     aiIntegrationDeferredFilesBody:
       '等 AI runtime 足够可靠后，助手 skill 文件生成会在后续版本回来。',
     aiIntegrationArtifactsTitle: 'AI 集成产物',
@@ -267,11 +267,11 @@ export const settingsAiProvidersNamespace = {
       '教外部助手如何通过 MCP 查询 PathKeep 的 Codex skill 起始模板。',
   },
   'zh-TW': {
-    aiMasterToggle: 'AI 功能會在 v0.2 開放',
-    aiDeferredBadge: 'v0.2 開放',
-    aiDeferredTitle: 'v0.1 暫不開放可選 AI',
+    aiMasterToggle: 'AI 功能會在 v0.3 開放',
+    aiDeferredBadge: 'v0.3 開放',
+    aiDeferredTitle: 'v0.2 暫不開放可選 AI',
     aiDeferredBody:
-      '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物都還在打磨中。v0.1 會先交付本機封存和確定性智慧分析。',
+      '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物都還在打磨中。v0.2 會先交付本機封存和確定性智慧分析。',
     aiDeferredTooltip: '這個功能會在後續版本開放。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
@@ -328,8 +328,8 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationUnavailable: '整合預覽無法使用',
     aiIntegrationDeferredTitle: 'AI 整合稍後開放',
     aiIntegrationDeferredBody:
-      'MCP 指令和 skill 檔案依賴同一套助手與 embedding runtime。這裡先保留路線圖入口，但 v0.1 不會產生或安裝這些產物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.1 不提供 MCP 搜尋介面。',
+      'MCP 指令和 skill 檔案依賴同一套助手與 embedding runtime。這裡先保留路線圖入口，但 v0.2 不會產生或安裝這些產物。',
+    aiIntegrationDeferredMcpBody: 'PathKeep v0.2 不提供 MCP 搜尋介面。',
     aiIntegrationDeferredFilesBody:
       '等 AI runtime 足夠可靠後，助手 skill 檔案產生會在後續版本回來。',
     aiIntegrationArtifactsTitle: 'AI 整合產物',
