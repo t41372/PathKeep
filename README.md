@@ -47,6 +47,8 @@
   <img alt="License: GPL-3.0" src="https://img.shields.io/github/license/t41372/PathKeep?label=license" />
 </a>
 
+[中文](./README.CN.md) | English
+
 </div>
 
 <br/>
