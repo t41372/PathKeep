@@ -82,23 +82,23 @@
   background: var(--text-muted);
 }
 .chain-severity-dot--clear {
-  background: var(--success, #2da44e);
+  background: var(--success);
 }
 .chain-severity-dot--warning {
-  background: var(--warning, #d4a017);
+  background: var(--warning);
 }
 .chain-severity-dot--blocked {
-  background: var(--danger, #cf222e);
+  background: var(--error);
 }
 .chain-severity-dot--pending {
-  background: var(--text-faint, #8b949e);
+  background: var(--text-faint);
   opacity: 0.6;
 }
 .chain-block--warning {
-  border-color: var(--warning, #d4a017);
+  border-color: var(--warning);
 }
 .chain-block--blocked {
-  border-color: var(--danger, #cf222e);
+  border-color: var(--error);
 }
 .chain-block--pending {
   border-style: dashed;
@@ -327,7 +327,7 @@
 }
 
 .schedule-state-installed_error {
-  border-color: color-mix(in srgb, var(--danger) 58%, var(--border));
+  border-color: color-mix(in srgb, var(--error) 58%, var(--border));
 }
 
 .schedule-progress,
@@ -352,7 +352,7 @@
 }
 
 .schedule-result.error {
-  border-color: color-mix(in srgb, var(--danger) 56%, var(--border));
+  border-color: color-mix(in srgb, var(--error) 56%, var(--border));
 }
 
 .schedule-state-layout {
@@ -435,7 +435,7 @@
 }
 
 .schedule-issue.error {
-  border-color: color-mix(in srgb, var(--danger) 56%, var(--border));
+  border-color: color-mix(in srgb, var(--error) 56%, var(--border));
 }
 
 .schedule-evidence-list {
@@ -537,7 +537,7 @@
 }
 
 .schedule-check.fail {
-  border-color: color-mix(in srgb, var(--danger) 52%, var(--border));
+  border-color: color-mix(in srgb, var(--error) 52%, var(--border));
 }
 
 @media (max-width: 980px) {

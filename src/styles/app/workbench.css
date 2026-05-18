@@ -410,6 +410,11 @@
   gap: var(--space-2);
   border: 1px solid var(--border);
   background: var(--bg);
+  transition: border-color var(--transition);
+}
+
+.assistant-input-wrapper:focus-within {
+  border-color: var(--accent);
 }
 
 .assistant-input {

@@ -69,19 +69,19 @@
 }
 
 .jobs-hero-stat--active {
-  border-color: var(--accent, #5390f0);
-  background: color-mix(in srgb, var(--accent, #5390f0) 12%, transparent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .jobs-hero-stat--warning {
-  border-color: var(--warning, #d4a017);
-  background: color-mix(in srgb, var(--warning, #d4a017) 12%, transparent);
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 .jobs-hero-stat--danger {
-  border-color: var(--danger, #cf222e);
-  background: color-mix(in srgb, var(--danger, #cf222e) 12%, transparent);
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
 }
 .jobs-hero-stat--danger strong {
-  color: var(--danger, #cf222e);
+  color: var(--error);
 }
 
 .jobs-callout-strip,

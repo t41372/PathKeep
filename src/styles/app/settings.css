@@ -219,8 +219,8 @@
 }
 
 .ai-health-dot--blocked {
-  background: var(--danger);
-  box-shadow: 0 0 4px var(--danger);
+  background: var(--error);
+  box-shadow: 0 0 4px var(--error);
 }
 
 .ai-health-dot--info,

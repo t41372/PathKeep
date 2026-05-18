@@ -620,7 +620,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text);
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
   transition: border-color var(--transition);
 }
 
@@ -631,7 +631,7 @@
 }
 
 .explorer-search-hero__input.input-invalid {
-  border-color: var(--danger, #c0392b);
+  border-color: var(--error);
 }
 
 .explorer-search-hero__modes {
