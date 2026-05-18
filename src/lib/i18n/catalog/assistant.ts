@@ -44,7 +44,7 @@ export const assistantNamespaceCatalog = {
     deferredPanelEyebrow: 'IN PROGRESS',
     deferredBadge: 'Coming in v0.3',
     deferredPanelBody:
-      'The path is still extending. Assistant answers, embeddings, and vector search will open in a future release after they are reliable enough to trust.',
+      'Assistant answers, embeddings, and vector search ship in v0.3 once they meet our quality bar. Until then, keyword search and Core Intelligence cover most questions you can answer from history alone.',
     statusEyebrow: 'STATUS',
     testProvider: 'Test connection',
     refreshQueue: 'Refresh',
@@ -118,7 +118,7 @@ export const assistantNamespaceCatalog = {
     deferredPanelEyebrow: '建设中',
     deferredBadge: 'v0.3 开放',
     deferredPanelBody:
-      '这条路还在延伸。助手回答、embedding 和向量搜索会在足够可靠之后，于后续版本开放。',
+      '助手回答、embedding 和向量搜索会在质量达标后于 v0.3 开放。在此之前，关键词搜索和确定性智能分析已经能回答大部分基于历史记录的问题。',
     statusEyebrow: '助手状态',
     testProvider: '测试连接',
     refreshQueue: '刷新队列',
@@ -191,7 +191,7 @@ export const assistantNamespaceCatalog = {
     deferredPanelEyebrow: '建設中',
     deferredBadge: 'v0.3 開放',
     deferredPanelBody:
-      '這條路還在延伸。助手回答、embedding 和向量搜尋會在足夠可靠之後，於後續版本開放。',
+      '助手回答、embedding 與向量搜尋會在品質達標後於 v0.3 開放。在此之前，關鍵字搜尋和確定性智慧分析已經能回答大部分基於歷史紀錄的問題。',
     statusEyebrow: '助手狀態',
     testProvider: '測試連線',
     refreshQueue: '重新整理佇列',
