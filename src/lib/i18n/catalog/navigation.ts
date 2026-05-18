@@ -92,6 +92,9 @@ export const navigationNamespaceCatalog = {
     lockNow: 'Lock now',
     backupNow: 'Backup now',
     initializeFirst: 'Initialize first',
+    globalSearchLabel: 'Search history',
+    globalSearchPlaceholder: 'Search history…',
+    globalSearchShortcut: '⌘K',
   },
   'zh-CN': {
     primaryNavigation: '主导航',
@@ -158,6 +161,9 @@ export const navigationNamespaceCatalog = {
     lockNow: '立即锁定',
     backupNow: '立即备份',
     initializeFirst: '请先完成设置',
+    globalSearchLabel: '搜索历史',
+    globalSearchPlaceholder: '搜索历史…',
+    globalSearchShortcut: '⌘K',
   },
   'zh-TW': {
     primaryNavigation: '主要導覽',
@@ -224,5 +230,8 @@ export const navigationNamespaceCatalog = {
     lockNow: '立即鎖定',
     backupNow: '立即備份',
     initializeFirst: '請先完成設定',
+    globalSearchLabel: '搜尋歷史',
+    globalSearchPlaceholder: '搜尋歷史…',
+    globalSearchShortcut: '⌘K',
   },
 } as const

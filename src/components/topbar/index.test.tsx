@@ -94,7 +94,10 @@ describe('Topbar', () => {
 
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Notifications' })).toBeVisible()
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('searchbox', { name: 'Search history' }),
+    ).toBeVisible()
+    expect(screen.getByRole('search')).toHaveAccessibleName('Search history')
     expect(
       screen.getByRole('button', {
         name: 'Switch profile scope. Current: All profiles',
@@ -238,6 +241,107 @@ describe('Topbar', () => {
 
     await user.click(screen.getByRole('button', { name: 'Initialize first' }))
     expect(screen.getByText('/onboarding')).toBeVisible()
+  })
+
+  test('routes the global search submission to Explorer with the query', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+              <RouteDriver />
+            </MemoryRouter>
+          </ShellDataProvider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    const searchbox = screen.getByRole('searchbox', {
+      name: 'Search history',
+    })
+    await user.type(searchbox, 'tokio runtime')
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => {
+      expect(screen.getByText('/explorer?q=tokio%20runtime')).toBeVisible()
+    })
+  })
+
+  test('ignores empty global search submissions', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+              <RouteDriver />
+            </MemoryRouter>
+          </ShellDataProvider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    const searchbox = screen.getByRole('searchbox', {
+      name: 'Search history',
+    })
+    await user.type(searchbox, '   ')
+    await user.keyboard('{Enter}')
+
+    // RouteDriver renders the current location; empty submit must leave it alone.
+    expect(screen.getByText('/')).toBeVisible()
+  })
+
+  test('focuses the global search input on ⌘K / Ctrl+K', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <I18nProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <MemoryRouter>
+              <Topbar
+                screen={{
+                  ...onboardingScreen,
+                  labelKey: 'navigation.dashboardLabel',
+                  titleKey: 'navigation.dashboardTitle',
+                  subtitleKey: 'navigation.dashboardSubtitle',
+                }}
+              />
+            </MemoryRouter>
+          </ShellDataProvider>
+        </ProfileScopeProvider>
+      </I18nProvider>,
+    )
+
+    const searchbox = screen.getByRole('searchbox', {
+      name: 'Search history',
+    })
+    expect(searchbox).not.toHaveFocus()
+    await user.keyboard('{Meta>}k{/Meta}')
+    expect(searchbox).toHaveFocus()
+    // Re-focuses via Ctrl+K too (Windows / Linux primary modifier).
+    searchbox.blur()
+    await user.keyboard('{Control>}k{/Control}')
+    expect(searchbox).toHaveFocus()
   })
 
   test('locks the app session from the topbar app-lock action', async () => {

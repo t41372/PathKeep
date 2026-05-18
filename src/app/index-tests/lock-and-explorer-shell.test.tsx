@@ -257,7 +257,7 @@ describe('App shell', () => {
     ).toBeDisabled()
   })
 
-  test('topbar no longer exposes the removed global search control', async () => {
+  test('topbar exposes the global search control alongside notifications', async () => {
     await seedArchiveRun()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/'],
@@ -266,7 +266,9 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('searchbox', { name: 'Search history' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Notifications' }),
     ).toBeInTheDocument()

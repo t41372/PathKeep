@@ -114,13 +114,107 @@
   color: var(--text-bright);
   letter-spacing: 0.02em;
   margin: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page-title::before {
+  content: '+';
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .page-subtitle {
   font-family: var(--font-body);
   font-size: 12px;
   color: var(--text-faint);
-  margin: 2px 0 0;
+  margin: 2px 0 0 22px;
+  font-feature-settings: 'tnum' 1;
+}
+
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 420px;
+  padding: 6px var(--space-3);
+  margin: 0 var(--space-4);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  transition: border-color var(--transition);
+}
+
+.topbar-search:focus-within {
+  border-color: var(--accent);
+}
+
+.topbar-search__icon {
+  color: var(--text-faint);
+  font-family: var(--font-code);
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.topbar-search__input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  outline: none;
+  padding: 0;
+}
+
+.topbar-search__input::placeholder {
+  color: var(--text-faint);
+}
+
+.topbar-search__input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.topbar-search__shortcut {
+  font-family: var(--font-code);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  background: transparent;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 1100px) {
+  .topbar-search {
+    flex-basis: 220px;
+    margin: 0 var(--space-2);
+  }
+  .topbar-search__shortcut {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .topbar-search {
+    display: none;
+  }
 }
 
 .topbar-right {

@@ -13,7 +13,7 @@
  * - Loading, empty, error, permission, and callout behavior must stay aligned with `docs/design/ux-principles.md`.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   NavigationType,
   useNavigate,
@@ -61,6 +61,28 @@ export function Topbar({ screen }: TopbarProps) {
   } = useShellData()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [forwardAvailable, setForwardAvailable] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    function handleSearchShortcut(event: KeyboardEvent) {
+      const isShortcut =
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'k'
+      if (!isShortcut) {
+        return
+      }
+      event.preventDefault()
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    }
+    window.addEventListener('keydown', handleSearchShortcut)
+    return () => {
+      window.removeEventListener('keydown', handleSearchShortcut)
+    }
+  }, [])
 
   const archiveNeedsUnlock = isArchiveUnlockRequiredMessage(error)
   const backupDisabled =
@@ -120,6 +142,36 @@ export function Topbar({ screen }: TopbarProps) {
           <p className="page-subtitle">{subtitle}</p>
         </div>
       </div>
+
+      <form
+        className="topbar-search"
+        role="search"
+        aria-label={t('navigation.globalSearchLabel')}
+        onSubmit={(event) => {
+          event.preventDefault()
+          const trimmed = searchQuery.trim()
+          if (!trimmed) {
+            return
+          }
+          navigateToRoute(`/explorer?q=${encodeURIComponent(trimmed)}`)
+        }}
+      >
+        <span aria-hidden className="topbar-search__icon">
+          ⌕
+        </span>
+        <input
+          ref={searchInputRef}
+          type="search"
+          className="topbar-search__input"
+          placeholder={t('navigation.globalSearchPlaceholder')}
+          aria-label={t('navigation.globalSearchLabel')}
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        <kbd aria-hidden className="topbar-search__shortcut">
+          {t('navigation.globalSearchShortcut')}
+        </kbd>
+      </form>
 
       <div className="topbar-right">
         {appLockStatus?.enabled ? (
