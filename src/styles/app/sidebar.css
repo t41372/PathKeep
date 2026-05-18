@@ -69,16 +69,17 @@
 }
 
 .logo-name {
-  font-family: var(--font-ui);
+  font-family: var(--font-code);
   font-size: 14px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   color: var(--text-bright);
   text-transform: uppercase;
 }
 
 .logo-version {
-  font-family: var(--font-ui);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 11px;
   font-weight: 500;
   color: var(--text-faint);
@@ -99,10 +100,10 @@
 }
 
 .nav-section-label {
-  font-family: var(--font-ui);
-  font-size: 11px;
+  font-family: var(--font-code);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
   padding: var(--space-4) var(--space-4) var(--space-1) var(--space-4);
   text-transform: uppercase;
@@ -231,10 +232,10 @@
 }
 
 .sidebar-background-status__label {
-  font-family: var(--font-ui);
+  font-family: var(--font-code);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
   text-transform: uppercase;
 }

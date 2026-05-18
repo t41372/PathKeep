@@ -450,7 +450,8 @@
 
 .topbar-notifications__time {
   color: var(--text-faint);
-  font-family: var(--font-ui);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 10px;
 }
 
