@@ -95,6 +95,64 @@
 
 ---
 
+## Schedule × Encryption Interaction Matrix
+
+排程備份是否能自動運行，取決於平台和加密設定的組合。以下是完整的真值表。
+
+### 平台能力
+
+| 平台    | 自動安裝排程 | OS-level scheduler                  | 備註                                                                     |
+| ------- | ------------ | ----------------------------------- | ------------------------------------------------------------------------ |
+| macOS   | 是           | launchd LaunchAgent (`gui/<uid>`)   | 使用者登入即可；PathKeep 不需前台                                        |
+| Windows | 是           | Task Scheduler (`InteractiveToken`) | 使用者登入即可；PathKeep 不需前台                                        |
+| Linux   | 否           | systemd `--user` timer              | 使用者必須手動 `systemctl --user enable --now`；`apply_supported: false` |
+
+### 加密 × 密鑰儲存 × 後台備份
+
+| `archive_mode` | `remember_database_key_in_keyring` | 後台 worker 能解鎖 DB？                  | 結果                                                                  |
+| -------------- | ---------------------------------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| `Plaintext`    | N/A                                | 不需要解鎖                               | 後台備份正常運作                                                      |
+| `Encrypted`    | `true`                             | 從 OS keychain 取得密鑰                  | 後台備份正常運作                                                      |
+| `Encrypted`    | `false`                            | `keyring_get_database_key()` 回傳 `None` | **後台備份失敗**：`"database key is required for encrypted archives"` |
+
+### 密鑰讀取路徑（後台 worker）
+
+1. OS scheduler spawn `PathKeep --worker backup --due-only`
+2. `cli.rs:run_worker_cli` → `read_database_key_from_keyring()`
+3. `keyring.rs:keyring_get_database_key()` → 若 keychain 無此 entry → `Ok(None)`
+4. `run_backup_now(None, due_only)` → `open_archive_connection` → 若 `Encrypted` 且 key 為 `None` → `bail!`
+5. worker 退出，不寫入任何資料
+
+### GUI 警告覆蓋
+
+- **排程頁**：若 `Encrypted` 且 `!rememberDatabaseKeyInKeyring`，排程頁所有狀態面板頂部顯示 blocked callout，附「開啟安全設定」按鈕。
+- **Onboarding**：「儲存密碼到系統鑰匙圈」checkbox 文案已標註「定時備份必需」。
+- **Security page**（既有）：若 `rememberDatabaseKeyInKeyring=true` 但 keychain 內容缺失，顯示 `rememberedKeyMissingWarning`。
+
+### 設計決策：為何 Linux 不自動安裝排程
+
+v1 不對 Linux 做自動 `systemctl --user enable`，原因：
+
+1. **不是所有 Linux 環境都有 systemd `--user`**——Alpine、Void、Devuan 等用 OpenRC/runit/s6；WSL1 也沒有 systemd；NixOS 的使用者服務路徑不同
+2. **桌面 keyring 的可用性變化大**——有些 headless 環境沒有 D-Bus Secret Service，keyring crate 會回退到不安全的後端或直接失敗
+3. **權限模型因發行版而異**——Flatpak/Snap sandbox 限制對 `~/.config/systemd/user/` 的寫入
+4. **靜默安裝一個使用者不理解的後台服務是危險的**——Linux 使用者通常期望自己控制 systemd unit
+
+因此我們選擇：生成 `.service` + `.timer` 檔案內容，在 GUI 中完整顯示手動步驟（包含複製路徑、命令、驗證方式），讓使用者自行判斷是否適用並手動啟用。
+
+未來 v2 可考慮：偵測 `systemd --user` 是否可用 → 若可用則提供「半自動」install 按鈕（寫檔 + `systemctl daemon-reload + enable --now`）+ rollback。但 v1 不做。
+
+### 設計決策：為何不做 unencrypted staging
+
+SQLCipher 要求密鑰才能寫入。理論上可以先把原始歷史快照暫存到未加密的 staging area，等 GUI 解鎖再 flush 進加密 DB。我們**不這樣做**，因為：
+
+1. 未加密的暫存區違背使用者選擇「加密」的意圖——等於把明文歷史寫到磁碟上
+2. 增加攻擊面且難以確保暫存區被正確清理
+3. 使用者可以簡單地勾選「儲存到 keychain」來解決問題
+4. Fail-closed（拒絕寫入）比 fail-open（寫入明文）更安全
+
+---
+
 ## Exit Artifacts
 
 - macOS day-one scheduler PME 流程

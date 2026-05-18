@@ -122,7 +122,8 @@ export const onboardingNamespaceCatalog = {
     masterPasswordPlaceholder: 'Enter a password',
     confirmPasswordLabel: 'CONFIRM PASSWORD',
     confirmPasswordPlaceholder: 'Enter the same password again',
-    storeInKeyring: 'Remember password in system keychain',
+    storeInKeyring:
+      'Remember password in system keychain (required for scheduled backup)',
     plaintextOption: 'No encryption',
     plaintextSelectLabel: 'Skip encryption',
     plaintextDesc:
@@ -133,7 +134,7 @@ export const onboardingNamespaceCatalog = {
     tradeoffNoUpgrade: 'Switching to encrypted later requires a re-key',
     passwordWarningTitle: 'There is no password recovery.',
     passwordWarningBody:
-      'If you forget your master password, your archive cannot be recovered. PathKeep has no backdoor and does not store your password. Write it down somewhere safe.',
+      'If you forget your master password, your archive cannot be recovered. PathKeep has no backdoor. If you choose not to save the password to the system keychain, it exists only in your memory. Write it down somewhere safe.',
     scheduleTitle: 'Backup Schedule',
     scheduleDesc:
       "How often should PathKeep check for new history? It will only back up when there's new data.",
@@ -302,7 +303,7 @@ export const onboardingNamespaceCatalog = {
     masterPasswordPlaceholder: '输入密码',
     confirmPasswordLabel: '确认密码',
     confirmPasswordPlaceholder: '再次输入密码',
-    storeInKeyring: '保存密码到系统钥匙串，免去每次输入',
+    storeInKeyring: '保存密码到系统钥匙串（定时备份必需）',
     plaintextOption: '不加密',
     plaintextSelectLabel: '跳过加密',
     plaintextDesc:
@@ -313,7 +314,7 @@ export const onboardingNamespaceCatalog = {
     tradeoffNoUpgrade: '之后切换到加密需要重新设置密码',
     passwordWarningTitle: '密码无法找回。',
     passwordWarningBody:
-      '忘记密码意味着数据无法恢复。PathKeep 不保存密码，也没有后门。请务必把密码记在安全的地方。',
+      '忘记密码意味着数据无法恢复。PathKeep 没有后门。如果你不选择保存到钥匙串，密码只存在于你的记忆中。请务必把密码记在安全的地方。',
     scheduleTitle: '定时备份',
     scheduleDesc: '多久检查一次新的浏览历史？只有发现新数据时才会执行备份。',
     backupInterval: '检查间隔',
@@ -479,7 +480,7 @@ export const onboardingNamespaceCatalog = {
     masterPasswordPlaceholder: '輸入密碼',
     confirmPasswordLabel: '確認密碼',
     confirmPasswordPlaceholder: '再次輸入密碼',
-    storeInKeyring: '儲存密碼到系統鑰匙圈，免去每次輸入',
+    storeInKeyring: '儲存密碼到系統鑰匙圈（定時備份必需）',
     plaintextOption: '不加密',
     plaintextSelectLabel: '略過加密',
     plaintextDesc:
@@ -490,7 +491,7 @@ export const onboardingNamespaceCatalog = {
     tradeoffNoUpgrade: '之後切換到加密需要重新設定密碼',
     passwordWarningTitle: '密碼無法找回。',
     passwordWarningBody:
-      '忘記密碼代表資料無法復原。PathKeep 不儲存密碼，也沒有後門。請務必把密碼記在安全的地方。',
+      '忘記密碼代表資料無法復原。PathKeep 沒有後門。如果你不選擇儲存到鑰匙圈，密碼只存在於你的記憶中。請務必把密碼記在安全的地方。',
     scheduleTitle: '定時備份',
     scheduleDesc: '多久檢查一次新的瀏覽歷史？只有發現新資料時才會執行備份。',
     backupInterval: '檢查間隔',

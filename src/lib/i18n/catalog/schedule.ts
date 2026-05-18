@@ -295,6 +295,14 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsTaskXmlOk: 'The installed task matches the current plan.',
     verifyWindowsTaskXmlMismatch:
       'The installed task differs from the current plan.',
+    encryptedNoKeyringTitle:
+      'Scheduled backup cannot unlock an encrypted archive',
+    encryptedNoKeyringBody:
+      'Your archive is encrypted, but the password is not saved in the system keychain. Background backups will fail because the worker process has no way to unlock the database. Save the password to the keychain in Security settings, or switch to plaintext mode.',
+    encryptedNoKeyringAction: 'Open Security Settings',
+    linuxManualOnlyTitle: 'Linux requires manual setup',
+    linuxManualOnlyBody:
+      'Automatic schedule installation is not available on Linux. PathKeep generates the systemd service and timer files below — copy them to ~/.config/systemd/user/ and enable the timer manually.',
   },
   'zh-CN': {
     loadingPreview: '加载定时备份预览…',
@@ -522,6 +530,13 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsTaskXml: 'Task Scheduler XML',
     verifyWindowsTaskXmlOk: '已安装任务与当前计划一致。',
     verifyWindowsTaskXmlMismatch: '已安装任务与当前计划不同。',
+    encryptedNoKeyringTitle: '定时备份无法解锁加密归档',
+    encryptedNoKeyringBody:
+      '归档已加密，但密码未保存到系统钥匙串。后台备份会失败，因为工作进程无法解锁数据库。请在安全设置中保存密码到钥匙串，或切换到不加密模式。',
+    encryptedNoKeyringAction: '打开安全设置',
+    linuxManualOnlyTitle: 'Linux 需要手动安装',
+    linuxManualOnlyBody:
+      'Linux 不支持自动安装定时备份。PathKeep 已生成下方的 systemd 服务和计时器文件——请手动复制到 ~/.config/systemd/user/ 并启用计时器。',
   },
   'zh-TW': {
     loadingPreview: '載入定時備份預覽…',
@@ -749,5 +764,12 @@ export const scheduleNamespaceCatalog = {
     verifyWindowsTaskXml: 'Task Scheduler XML',
     verifyWindowsTaskXmlOk: '已安裝任務與目前計畫一致。',
     verifyWindowsTaskXmlMismatch: '已安裝任務與目前計畫不同。',
+    encryptedNoKeyringTitle: '定時備份無法解鎖加密歸檔',
+    encryptedNoKeyringBody:
+      '歸檔已加密，但密碼未儲存至系統鑰匙圈。背景備份會失敗，因為工作程序無法解鎖資料庫。請在安全設定中將密碼儲存至鑰匙圈，或切換為不加密模式。',
+    encryptedNoKeyringAction: '開啟安全設定',
+    linuxManualOnlyTitle: 'Linux 需要手動安裝',
+    linuxManualOnlyBody:
+      'Linux 不支援自動安裝定時備份。PathKeep 已產生下方的 systemd 服務和計時器檔案——請手動複製到 ~/.config/systemd/user/ 並啟用計時器。',
   },
 } as const

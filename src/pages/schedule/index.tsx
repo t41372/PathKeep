@@ -23,7 +23,7 @@
  *   archive history or unbounded browser data.
  */
 
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { BackupIntervalSelector } from '../../components/schedule/backup-interval-selector'
@@ -34,6 +34,7 @@ import { useI18n } from '../../lib/i18n'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import { backupIntervalHoursToMinutes } from '../../lib/schedule-options'
 import type {
+  AppSnapshot,
   BrowserProfile,
   ScheduleIssue,
   ScheduleManualStep,
@@ -155,6 +156,7 @@ export function SchedulePage() {
           operationActive={operation !== null}
           plan={plan}
           profiles={selectedProfiles}
+          snapshot={snapshot}
           snapshotInitialized={Boolean(snapshot?.config.initialized)}
           t={t}
         />
@@ -183,6 +185,7 @@ export function SchedulePage() {
           operationActive={operation !== null}
           plan={plan}
           profiles={selectedProfiles}
+          snapshot={snapshot}
           status={status}
           t={t}
         />
@@ -221,6 +224,7 @@ export function SchedulePage() {
           operationActive={operation !== null}
           plan={plan}
           profiles={selectedProfiles}
+          snapshot={snapshot}
           status={status}
           t={t}
         />
@@ -346,6 +350,7 @@ function NotInstalledState({
   operationActive,
   plan,
   profiles,
+  snapshot,
   snapshotInitialized,
   t,
 }: {
@@ -360,11 +365,14 @@ function NotInstalledState({
   operationActive: boolean
   plan: SchedulePlan
   profiles: BrowserProfile[]
+  snapshot: AppSnapshot | null
   snapshotInitialized: boolean
   t: Translator
 }) {
   return (
     <div className="schedule-state-layout">
+      <EncryptedNoKeyringWarning snapshot={snapshot} t={t} />
+      <LinuxManualOnlyCallout plan={plan} t={t} />
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('schedule.preInstallConfig')}</span>
@@ -462,6 +470,7 @@ function InstalledOkState({
   operationActive,
   plan,
   profiles,
+  snapshot,
   status,
   t,
 }: {
@@ -478,11 +487,13 @@ function InstalledOkState({
   operationActive: boolean
   plan: SchedulePlan
   profiles: BrowserProfile[]
+  snapshot: AppSnapshot | null
   status: ScheduleStatus
   t: Translator
 }) {
   return (
     <div className="schedule-state-layout">
+      <EncryptedNoKeyringWarning snapshot={snapshot} t={t} />
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('schedule.installedSummary')}</span>
@@ -581,6 +592,7 @@ function InstalledWarnState({
   operationActive,
   plan,
   profiles,
+  snapshot,
   status,
   t,
 }: {
@@ -599,11 +611,13 @@ function InstalledWarnState({
   operationActive: boolean
   plan: SchedulePlan
   profiles: BrowserProfile[]
+  snapshot: AppSnapshot | null
   status: ScheduleStatus
   t: Translator
 }) {
   return (
     <div className="schedule-state-layout">
+      <EncryptedNoKeyringWarning snapshot={snapshot} t={t} />
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">{t('schedule.problemSummary')}</span>
@@ -1095,6 +1109,69 @@ function VerificationList({
         <p className="mono-support">{t('schedule.noVerificationChecks')}</p>
       )}
     </div>
+  )
+}
+
+/**
+ * Warns when the archive is encrypted but the password is not saved to the
+ * system keychain — background worker runs will fail because they cannot
+ * unlock the database without user interaction.
+ *
+ * Renders nothing when the archive is plaintext or the keyring flag is on.
+ */
+function EncryptedNoKeyringWarning({
+  snapshot,
+  t,
+}: {
+  snapshot: AppSnapshot | null
+  t: Translator
+}) {
+  const navigate = useNavigate()
+  if (
+    !snapshot ||
+    snapshot.config.archiveMode !== 'Encrypted' ||
+    snapshot.config.rememberDatabaseKeyInKeyring
+  ) {
+    return null
+  }
+  return (
+    <StatusCallout
+      tone="blocked"
+      title={t('schedule.encryptedNoKeyringTitle')}
+      body={t('schedule.encryptedNoKeyringBody')}
+      actions={
+        <button
+          className="btn-primary"
+          type="button"
+          onClick={() => navigate('/security')}
+        >
+          {t('schedule.encryptedNoKeyringAction')}
+        </button>
+      }
+    />
+  )
+}
+
+/**
+ * Explains that automatic schedule installation is not available on the
+ * current platform (Linux) and directs the user to the manual steps below.
+ *
+ * Renders nothing when `plan.applySupported` is true (macOS / Windows).
+ */
+function LinuxManualOnlyCallout({
+  plan,
+  t,
+}: {
+  plan: SchedulePlan
+  t: Translator
+}) {
+  if (plan.applySupported) return null
+  return (
+    <StatusCallout
+      tone="warning"
+      title={t('schedule.linuxManualOnlyTitle')}
+      body={t('schedule.linuxManualOnlyBody')}
+    />
   )
 }
 

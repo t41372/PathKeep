@@ -113,7 +113,7 @@ The question is no longer whether you can extract meaning from decades of histor
 
 ### What PathKeep does about it
 
-PathKeep runs quietly on your machine and **incrementally backs up browsing history from all your browsers** — automatically, on a schedule, without manual effort. It never reads live browser databases directly; instead, it stages safe copies, deduplicates, and appends to a local archive that you fully own and control.
+PathKeep runs quietly on your machine and **incrementally backs up browsing history from all your browsers** on a schedule. On macOS and Windows, scheduled backup installs and runs automatically; on Linux, you generate the systemd files in-app and enable the timer manually. If your archive is encrypted, save the password to the system keychain so the background worker can unlock it — otherwise scheduled runs will fail silently. PathKeep never reads live browser databases directly; instead, it stages safe copies, deduplicates, and appends to a local archive that you fully own and control.
 
 On top of that archive, PathKeep gives you powerful recall (full-text search, regex, timeline, filters, export) and deterministic Core Intelligence from local archive facts. Semantic search, the AI assistant, MCP, and other AI-backed surfaces are v0.3 roadmap items, not v0.2.0 promises.
 
