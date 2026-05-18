@@ -137,7 +137,7 @@
 .import-browser-header__count {
   font-size: 12px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .import-browser-list {
@@ -211,7 +211,7 @@
 .browser-profile-card__profile {
   font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .browser-profile-card__status {
@@ -239,7 +239,7 @@
 .browser-profile-card__path {
   font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   padding-left: calc(28px + var(--space-3));
   overflow: hidden;
   text-overflow: ellipsis;
@@ -369,7 +369,7 @@
 .import-source-summary__path {
   font-size: 13px;
   color: var(--text-bright);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -384,7 +384,7 @@
 
 .import-source-summary__details summary {
   cursor: pointer;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .import-source-summary__profile {
@@ -422,7 +422,7 @@
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 13px;
 }
 
@@ -499,8 +499,10 @@
   justify-content: center;
   border: 1px solid var(--border);
   font-size: 11px;
+  font-weight: 700;
   color: var(--text-faint);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
 }
 
 .wizard-step.completed .step-number {
@@ -516,8 +518,10 @@
 
 .step-label {
   font-size: 11px;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  text-transform: uppercase;
 }
 .wizard-step.completed .step-label {
   color: var(--success);
@@ -547,7 +551,7 @@
   font-weight: 600;
   color: var(--text-bright);
   margin-bottom: var(--space-1);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .wizard-description {
   font-size: 12px;
@@ -601,13 +605,13 @@
   color: var(--text-faint);
   letter-spacing: 0.06em;
   margin-bottom: var(--space-1);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .preview-stat-value {
   font-size: 16px;
   font-weight: 700;
   color: var(--text-bright);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .preview-stat-value.accent {
   color: var(--accent);

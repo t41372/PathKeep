@@ -156,8 +156,9 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
+  letter-spacing: 0.06em;
   padding: 2px 8px;
   cursor: pointer;
   transition: all var(--transition);

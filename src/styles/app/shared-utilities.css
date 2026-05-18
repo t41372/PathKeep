@@ -238,8 +238,9 @@
   padding: var(--space-4);
   background: var(--bg);
   color: var(--text-bright);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
+  line-height: 1.6;
 }
 
 .result-row {
