@@ -84,7 +84,9 @@ describe('AiProvidersSection', () => {
     expect(screen.getByText('Optional AI is coming in v0.3')).toBeVisible()
     expect(screen.getByText('Coming in v0.3')).toBeVisible()
     expect(
-      screen.getAllByTitle('This feature is coming in a future update.'),
+      screen.getAllByTitle(
+        'Tracked for v0.3. Provider settings stay editable so you can pre-stage Ollama or your own endpoint.',
+      ),
     ).toHaveLength(4)
     expect(
       screen.getByRole('button', { name: 'AI features coming in v0.3' }),

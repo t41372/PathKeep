@@ -252,7 +252,7 @@ export const intelligenceSecondaryMetaNamespace = {
       '当前没有需要处理的 Core Intelligence 排队或运行中任务。',
     runtimeDigestLastActivity: '最近活动 {relative}',
     runtimeDigestIdleMeta: '最近没有队列活动',
-    externalOutputsDeferredTitle: '保存片段和小组件仍在后续版本',
+    externalOutputsDeferredTitle: '保存片段和小组件暂未开放',
     externalOutputsDeferredBody:
       'PathKeep 目前可以为未来的嵌入卡片、小组件和公开快照准备内部 payload，但这一版还没有交付任何外部宿主集成。',
   },
@@ -366,7 +366,7 @@ export const intelligenceSecondaryMetaNamespace = {
       '目前沒有需要處理的 Core Intelligence 排隊或執行中工作。',
     runtimeDigestLastActivity: '最近活動 {relative}',
     runtimeDigestIdleMeta: '最近沒有佇列活動',
-    externalOutputsDeferredTitle: '儲存片段與小工具仍在後續版本',
+    externalOutputsDeferredTitle: '儲存片段與小工具暫未開放',
     externalOutputsDeferredBody:
       'PathKeep 目前可以為未來的嵌入卡片、小工具與公開快照準備內部 payload，但這一版還沒有交付任何外部宿主整合。',
   },

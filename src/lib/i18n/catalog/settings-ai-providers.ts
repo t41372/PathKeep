@@ -28,7 +28,8 @@ export const settingsAiProvidersNamespace = {
     aiDeferredTitle: 'Optional AI is coming in v0.3',
     aiDeferredBody:
       'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are tracked for v0.3. v0.2.0 ships the local archive and Core Intelligence first.',
-    aiDeferredTooltip: 'This feature is coming in a future update.',
+    aiDeferredTooltip:
+      'Tracked for v0.3. Provider settings stay editable so you can pre-stage Ollama or your own endpoint.',
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
     aiAddLlmProvider: 'Add chat provider',
@@ -152,7 +153,8 @@ export const settingsAiProvidersNamespace = {
     aiDeferredTitle: '可选 AI 将在 v0.3 开放',
     aiDeferredBody:
       '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物已排入 v0.3。v0.2.0 会先交付本地存档和确定性智能分析。',
-    aiDeferredTooltip: '这个功能会在后续版本开放。',
+    aiDeferredTooltip:
+      '已排入 v0.3，但 provider 设置随时可编辑，可以提前配置 Ollama 或自定义 endpoint。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '添加对话模型',
@@ -272,7 +274,8 @@ export const settingsAiProvidersNamespace = {
     aiDeferredTitle: '可選 AI 將在 v0.3 開放',
     aiDeferredBody:
       '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物已排入 v0.3。v0.2.0 會先交付本機封存和確定性智慧分析。',
-    aiDeferredTooltip: '這個功能會在後續版本開放。',
+    aiDeferredTooltip:
+      '已排入 v0.3，但 provider 設定隨時可編輯，可以提前配置 Ollama 或自訂 endpoint。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '新增對話模型',

@@ -79,7 +79,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       'This future worker will fetch readable webpage bodies. It is disabled in v0.2.0 so PathKeep does not pretend it can save page text today.',
     readableContentDeferredBadge: 'Coming in v0.3',
     readableContentDeferredTooltip:
-      'Webpage body fetching is coming in a future update.',
+      'Webpage body fetching ships in v0.3 once it can be rate-limited and audited safely.',
     visitDerivedFactsModule: 'Visit-derived facts',
     visitDerivedFactsModuleDescription:
       'Normalizes visit-level evidence, site dictionary fields, and search metadata before downstream rebuild stages run.',
@@ -265,7 +265,8 @@ export const settingsDerivedAndRuntimeNamespace = {
     readableContentDescription:
       '这个未来任务会抓取网页正文。v0.2.0 中它保持禁用，PathKeep 不会假装现在已经能保存网页正文。',
     readableContentDeferredBadge: 'v0.3 开放',
-    readableContentDeferredTooltip: '网页正文抓取会在后续版本开放。',
+    readableContentDeferredTooltip:
+      '网页正文抓取在 v0.3 提供，等到可以安全限速和审计后再开放。',
     visitDerivedFactsModule: '访问派生事实',
     visitDerivedFactsModuleDescription:
       '先把 visit 级别的证据、站点词典字段和搜索元数据标准化，再交给后续重建阶段使用。',
@@ -443,7 +444,8 @@ export const settingsDerivedAndRuntimeNamespace = {
     readableContentDescription:
       '這個未來工作會擷取網頁正文。v0.2.0 中它保持停用，PathKeep 不會假裝現在已經能保存網頁正文。',
     readableContentDeferredBadge: 'v0.3 開放',
-    readableContentDeferredTooltip: '網頁正文擷取會在後續版本開放。',
+    readableContentDeferredTooltip:
+      '網頁正文擷取在 v0.3 提供，等到可以安全限速與稽核後再開放。',
     visitDerivedFactsModule: '造訪衍生事實',
     visitDerivedFactsModuleDescription:
       '先把 visit 層級的證據、站點詞典欄位與搜尋中繼資料標準化，再交給後續重建階段使用。',
