@@ -75,7 +75,8 @@ export const dashboardNamespaceCatalog = {
     optionalAiComingBadge: 'Coming in v0.3',
     optionalAiDeferredBody:
       'Assistant, semantic search, embeddings, and vector indexing are tracked for v0.3. Core Intelligence remains available below.',
-    optionalAiDeferredTooltip: 'This feature is coming in a future update.',
+    optionalAiDeferredTooltip:
+      'Tracked for v0.3 — until then keyword search and Core Intelligence cover the same questions.',
     reviewInsightsAction: 'Open Intelligence',
     trustActions: 'QUICK CHECKS',
     trustActionsBody:
@@ -148,7 +149,8 @@ export const dashboardNamespaceCatalog = {
     optionalAiComingBadge: 'v0.3 开放',
     optionalAiDeferredBody:
       '助手、智能搜索、embedding 和向量索引已排入 v0.3。下方的确定性智能分析仍可使用。',
-    optionalAiDeferredTooltip: '这个功能会在后续版本开放。',
+    optionalAiDeferredTooltip:
+      '已排入 v0.3，在此之前关键词搜索和确定性智能分析能回答同样的问题。',
     reviewInsightsAction: '打开智能分析',
     trustActions: '快速检查',
     trustActionsBody: '在下次备份前，快速检查这些设置是否正常。',
@@ -219,7 +221,8 @@ export const dashboardNamespaceCatalog = {
     optionalAiComingBadge: 'v0.3 開放',
     optionalAiDeferredBody:
       '助手、智慧搜尋、embedding 和向量索引已排入 v0.3。下方的確定性智慧分析仍可使用。',
-    optionalAiDeferredTooltip: '這個功能會在後續版本開放。',
+    optionalAiDeferredTooltip:
+      '已排入 v0.3，在此之前關鍵字搜尋和確定性智慧分析能回答同樣的問題。',
     reviewInsightsAction: '打開智慧分析',
     trustActions: '快速檢查',
     trustActionsBody: '下次備份前，快速檢查這些設定是否正常。',
