@@ -124,7 +124,7 @@
   display: block;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--border);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
@@ -186,21 +186,17 @@
 }
 
 .busy-overlay__progress-track {
-  height: 6px;
+  height: 4px;
   overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
 }
 
 .busy-overlay__progress-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent) 55%, var(--border)) 0%,
-    var(--accent) 100%
-  );
+  background: var(--accent);
 }
 
 .busy-overlay__progress-track--indeterminate {
@@ -230,10 +226,9 @@
 .busy-overlay__step-marker {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: transparent;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-elevated) 78%, transparent);
 }
 
 .busy-overlay__step--done {

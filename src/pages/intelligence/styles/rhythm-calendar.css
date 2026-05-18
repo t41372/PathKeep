@@ -113,7 +113,7 @@
   background: var(--bg-surface);
   cursor: pointer;
   flex-shrink: 0;
-  border-radius: 3px;
+  border-radius: var(--radius);
   transition:
     border-color var(--transition),
     background-color var(--transition),
@@ -223,7 +223,7 @@
   display: block;
   height: 16px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
 }
 

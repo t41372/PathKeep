@@ -76,7 +76,7 @@
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius);
   margin-right: var(--space-2);
   vertical-align: middle;
   background: var(--text-muted);

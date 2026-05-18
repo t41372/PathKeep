@@ -43,7 +43,7 @@
   display: block;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--border);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
@@ -93,21 +93,17 @@
 }
 
 .loading-state__progress-track {
-  height: 6px;
+  height: 4px;
   overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
 }
 
 .loading-state__progress-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent) 55%, var(--border)) 0%,
-    var(--accent) 100%
-  );
+  background: var(--accent);
 }
 
 .skeleton {

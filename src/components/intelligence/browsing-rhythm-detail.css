@@ -14,7 +14,7 @@
   display: block;
   height: 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--bg-surface) 70%, var(--text-faint) 30%);
 }
 
@@ -164,7 +164,7 @@
   width: 10px;
   height: 10px;
   min-width: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--text-bright) 24%, transparent);
   flex-shrink: 0;
 }

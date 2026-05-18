@@ -264,7 +264,7 @@
   background: var(--bg-surface);
   cursor: pointer;
   flex-shrink: 0;
-  border-radius: 3px;
+  border-radius: var(--radius);
   transition:
     border-color var(--transition),
     background-color var(--transition),

@@ -139,7 +139,7 @@
   display: inline-block;
   height: 4px;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius);
   margin-right: var(--space-1);
   vertical-align: middle;
   opacity: 0.6;
