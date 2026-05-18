@@ -51,8 +51,9 @@
     'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   --font-body: var(--font-ui);
   --font-code:
-    ui-monospace, 'SFMono-Regular', 'SF Mono', 'Cascadia Mono', 'Cascadia Code',
-    Consolas, 'Liberation Mono', Menlo, monospace;
+    'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace,
+    'SFMono-Regular', 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono',
+    Menlo, monospace;
   /* Compatibility alias for legacy shell rules; new UI should prefer --font-ui. */
   --font-mono: var(--font-ui);
 

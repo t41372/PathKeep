@@ -311,12 +311,16 @@
 }
 
 .stat-value {
-  font-family: var(--font-mono);
-  font-size: 24px;
+  font-family: var(--font-code);
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-bright);
   letter-spacing: -0.02em;
   line-height: 1.1;
+  font-feature-settings:
+    'tnum' 1,
+    'zero' 1;
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 .stat-block[data-tone='accent'] .stat-value,
@@ -329,9 +333,10 @@
 }
 
 .stat-detail {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   color: var(--text-muted);
+  font-feature-settings: 'tnum' 1;
 }
 
 .stat-delta {

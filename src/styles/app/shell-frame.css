@@ -27,11 +27,12 @@
 .corner-mark {
   position: absolute;
   z-index: 1;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 16px;
   color: var(--text-faint);
   pointer-events: none;
   line-height: 1;
+  user-select: none;
 }
 
 .corner-mark--tl {

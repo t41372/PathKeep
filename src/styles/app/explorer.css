@@ -98,7 +98,7 @@
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
   padding: 4px 10px;
   cursor: pointer;
@@ -135,13 +135,13 @@
 .timeline-label {
   font-size: 11px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .timeline-months {
   display: flex;
   gap: var(--space-2);
   font-size: 10px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .tl-month.active {
   color: var(--accent);
@@ -152,7 +152,7 @@
   display: flex;
   gap: 4px;
   font-size: 10px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .tl-day {
@@ -188,7 +188,7 @@
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
   padding: 4px 8px;
   cursor: pointer;
@@ -224,7 +224,7 @@
   border: 1px solid var(--accent);
   color: var(--accent);
   background: var(--accent-glow);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .filter-remove {
@@ -246,7 +246,7 @@
   background: none;
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   padding: 3px 8px;
   cursor: pointer;
@@ -334,7 +334,7 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--bg);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   color: var(--text-muted);
 }
 
@@ -386,7 +386,7 @@
 
 .history-page-jump__label {
   color: var(--text-faint);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
 }
 
@@ -397,7 +397,7 @@
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 12px;
 }
 
@@ -446,12 +446,14 @@
   border: 1px solid var(--border);
   font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--text-faint);
   background: var(--bg);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
+  text-transform: uppercase;
 }
 
 .favicon-placeholder.has-image {
@@ -478,12 +480,14 @@
   text-overflow: ellipsis;
 }
 .record-url {
-  font-size: 10px;
+  font-family: var(--font-code);
+  font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 2px;
+  font-feature-settings: 'tnum' 1;
 }
 .record-meta {
   display: flex;
@@ -515,11 +519,12 @@
 }
 
 .detail-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  text-transform: uppercase;
 }
 
 .detail-body {
@@ -540,11 +545,12 @@
 .field-label {
   display: block;
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
   margin-bottom: 2px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  text-transform: uppercase;
 }
 
 .field-value {
@@ -658,7 +664,7 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;

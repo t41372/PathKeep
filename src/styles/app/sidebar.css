@@ -152,14 +152,16 @@
 
 .nav-badge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
-  border: 1px solid var(--border);
-  padding: 1px 4px;
-  font-family: var(--font-ui);
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 1px 5px;
+  font-family: var(--font-code);
   text-transform: uppercase;
+  opacity: 0.85;
+  line-height: 1.4;
 }
 
 .nav-label--hidden {

@@ -54,7 +54,7 @@
   font-weight: 700;
   color: var(--accent);
   margin-bottom: var(--space-1);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .chain-block.older .chain-hash {
@@ -63,7 +63,7 @@
 .chain-meta {
   font-size: 10px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .chain-link {
   font-size: 14px;
@@ -131,7 +131,7 @@
   flex-direction: column;
   gap: 2px;
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .audit-review-section {
@@ -210,7 +210,7 @@
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--bg-elevated);
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .config-label {
@@ -231,7 +231,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
   letter-spacing: 0.06em;
   padding: 3px 10px;
@@ -249,7 +249,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   padding: var(--space-4);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   line-height: 1.6;
   color: var(--text-muted);

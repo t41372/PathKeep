@@ -95,19 +95,21 @@
 }
 
 .panel-title {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
   text-transform: uppercase;
 }
 
 .panel-action {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--accent);
   cursor: pointer;
+  text-decoration: none;
 }
 
 .panel-action:hover {
@@ -173,15 +175,17 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
 }
 
 .shell-table th,
 .data-table th {
   text-align: left;
+  font-family: var(--font-code);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--text-faint);
   padding: var(--space-2);
   border-bottom: 1px solid var(--border);
@@ -192,6 +196,7 @@
   padding: var(--space-2);
   border-bottom: 1px solid var(--bg-elevated);
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .shell-table tr:hover td,
@@ -220,11 +225,14 @@
 .tag {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   padding: 2px 6px;
   border: 1px solid;
   display: inline-block;
-  font-family: var(--font-ui);
+  font-family: var(--font-code);
+  text-transform: uppercase;
+  background: transparent;
+  line-height: 1.4;
 }
 
 .tag-sm {
@@ -247,12 +255,15 @@
 .state-chip,
 .status-badge {
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   padding: 2px 6px;
   border: 1px solid;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   text-transform: uppercase;
+  background: transparent;
+  display: inline-block;
+  line-height: 1.4;
 }
 
 .status-completed,
