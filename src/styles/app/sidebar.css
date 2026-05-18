@@ -279,7 +279,7 @@
 
 .sidebar-background-status[data-tone='queued']
   .sidebar-background-status__fill {
-  background: var(--accent-soft);
+  background: var(--accent-dim);
 }
 
 .sidebar-background-status__track--indeterminate

@@ -369,7 +369,7 @@
   min-width: 0;
   padding: var(--space-3);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--bg-surface);
   color: var(--text);
 }
 

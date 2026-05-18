@@ -84,7 +84,7 @@
 .breadth-index__meter {
   position: relative;
   height: 6px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
   overflow: hidden;
 }
 
@@ -157,7 +157,7 @@
 .path-flow-row__chip {
   display: inline-block;
   padding: 2px 8px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
   color: var(--text);
   font-family: var(--font-code);
   font-size: 0.75rem;
@@ -239,7 +239,7 @@
 .habit-row__type {
   font-size: 0.6875rem;
   padding: 1px 6px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -261,7 +261,7 @@
 }
 
 .habit-row__type--interrupted {
-  background: var(--danger, #c0392b);
+  background: var(--error);
   color: #fff;
 }
 
@@ -411,7 +411,7 @@
 
 .multi-browser__chip {
   padding: 2px 8px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
   font-size: 0.75rem;
   font-family: var(--font-code);
   color: var(--text);
@@ -488,7 +488,7 @@
 .multi-browser__category-bar {
   position: relative;
   height: 14px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
 }
 
 .multi-browser__category-bar-fill {
@@ -512,7 +512,7 @@
 .observed-section__badge {
   font-size: 0.625rem;
   padding: 2px 8px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -582,10 +582,10 @@
   font-size: 0.6875rem;
   color: var(--text-muted);
   padding: 1px 6px;
-  background: var(--bg-subtle, var(--border));
+  background: var(--border);
 }
 
 .observed-row__metric--warn {
-  background: var(--danger, #c0392b);
+  background: var(--error);
   color: #fff;
 }

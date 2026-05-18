@@ -206,7 +206,7 @@
   min-width: 38px;
   padding: 0 var(--space-2);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--bg-surface);
   color: var(--text-muted);
   font-family: var(--font-code);
   font-size: 11px;
