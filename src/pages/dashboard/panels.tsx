@@ -116,7 +116,7 @@ export function DashboardRecentRunsPanel({
                   </span>
                 </td>
                 <td>{runSourceSummary(run.profileScope)}</td>
-                <td className="accent">+{run.newVisits}</td>
+                <td className="mono accent">+{run.newVisits}</td>
                 <td>
                   <span
                     aria-label={t(runStatusKey(run.status))}
@@ -129,7 +129,7 @@ export function DashboardRecentRunsPanel({
                     {t(runStatusKey(run.status))}
                   </span>
                 </td>
-                <td className="dim">
+                <td className="mono dim">
                   {formatRelativeTime(
                     run.finishedAt ?? run.startedAt,
                     language,
