@@ -88,6 +88,7 @@
   gap: var(--space-2);
   color: var(--text-muted);
   font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 10px;
   letter-spacing: 0.03em;
 }
