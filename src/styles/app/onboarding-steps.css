@@ -32,7 +32,7 @@
   background: var(--accent-glow);
   font-size: 13px;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .dir-tree {
@@ -48,7 +48,7 @@
   font-size: 12px;
   color: var(--text);
   padding: var(--space-1) 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .dir-item.indent {
@@ -74,7 +74,8 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--bg-elevated);
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 .estimate-item.highlight {
@@ -233,7 +234,7 @@
 .tradeoff-row {
   font-size: 12px;
   padding: var(--space-1) 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 .tradeoff-pro {
   color: var(--success);
@@ -259,7 +260,8 @@
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -301,7 +303,8 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 13px;
   padding: var(--space-2) var(--space-3);
 }
@@ -351,7 +354,7 @@
   flex-shrink: 0;
 }
 .manual-step code {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   color: var(--text);
   background: var(--bg-surface);
@@ -382,7 +385,8 @@
   flex-shrink: 0;
   line-height: 1.4;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 .init-info {
   display: flex;
@@ -396,5 +400,5 @@
 .init-detail {
   font-size: 10px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }

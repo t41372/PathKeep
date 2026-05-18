@@ -180,7 +180,8 @@
   justify-content: space-between;
   gap: var(--space-2);
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums slashed-zero;
   font-size: 10px;
   letter-spacing: 0.03em;
 }
@@ -296,10 +297,10 @@
 }
 
 .stat-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
   text-transform: uppercase;
   margin-bottom: var(--space-2);
