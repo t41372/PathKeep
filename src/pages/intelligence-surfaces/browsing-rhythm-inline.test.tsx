@@ -22,7 +22,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { DateRange, DayInsights } from '../../lib/core-intelligence/types'
@@ -35,7 +35,18 @@ import {
   wrapSection,
 } from './test-helpers'
 
-beforeEach(resetIntelligenceSurfaceHarness)
+beforeEach(() => {
+  resetIntelligenceSurfaceHarness()
+  // Pin the clock so the default "month" preset (today − 1 month → today)
+  // always covers the hardcoded April 2026 mock dates (2026-04-15/16).
+  // Without this the test breaks once today moves past 2026-05-15.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(new Date('2026-04-30T12:00:00Z'))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 test('loads browsing-rhythm day preview inline and only navigates on explicit detail CTA', async () => {
   const user = userEvent.setup()

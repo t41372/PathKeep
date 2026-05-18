@@ -21,7 +21,7 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { SchedulePage } from './index'
 
@@ -618,6 +618,69 @@ describe('SchedulePage', () => {
     await waitFor(() => {
       expect(backendMock.scheduleStatus).toHaveBeenCalledTimes(7)
     })
+  })
+
+  test('shows encrypted-no-keyring warning and navigates to security settings on action', async () => {
+    const user = userEvent.setup()
+    useShellDataMock.mockReturnValue({
+      refreshAppData: refreshAppDataMock,
+      refreshKey: 1,
+      saveConfig: saveConfigMock,
+      snapshot: snapshotFixture({
+        config: {
+          archiveMode: 'Encrypted',
+          dueAfterHours: 12,
+          initialized: true,
+          rememberDatabaseKeyInKeyring: false,
+          scheduleCheckIntervalHours: 24,
+          selectedProfileIds: ['chrome:Default'],
+        },
+      }),
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/schedule']}>
+        <Routes>
+          <Route path="/schedule" element={<SchedulePage />} />
+          <Route
+            path="/security"
+            element={<div data-testid="security-route" />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(
+      await screen.findByText('schedule.encryptedNoKeyringTitle'),
+    ).toBeVisible()
+    expect(screen.getByText('schedule.encryptedNoKeyringBody')).toBeVisible()
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'schedule.encryptedNoKeyringAction',
+      }),
+    )
+
+    expect(await screen.findByTestId('security-route')).toBeInTheDocument()
+  })
+
+  test('shows Linux manual-only callout when the platform does not support auto-install', async () => {
+    backendMock.previewSchedule.mockResolvedValueOnce(
+      planFixture({ applySupported: false }),
+    )
+    backendMock.scheduleStatus.mockResolvedValueOnce(
+      statusFixture({
+        installState: 'not-installed',
+        lastSuccessfulBackupAt: null,
+      }),
+    )
+
+    renderSchedule()
+
+    expect(
+      await screen.findByText('schedule.linuxManualOnlyTitle'),
+    ).toBeVisible()
+    expect(screen.getByText('schedule.linuxManualOnlyBody')).toBeVisible()
   })
 
   test('renders error fallback copy when no typed issue or verification check is available', async () => {
