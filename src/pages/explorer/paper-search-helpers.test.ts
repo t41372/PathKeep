@@ -82,15 +82,26 @@ describe('paperSearchEntryFromHistoryEntry', () => {
     expect(fromNullTitle.title).toBe('https://example.com/y')
   })
 
-  test('maps known transition codes to labels', () => {
-    expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ transition: 1 }))
-        .transitionType,
-    ).toBe('typed')
-    expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ transition: 9 }))
-        .transitionType,
-    ).toBe('keyword')
+  test('maps every known transition code to its label', () => {
+    const cases: ReadonlyArray<[number, string]> = [
+      [0, 'link'],
+      [1, 'typed'],
+      [2, 'auto-bookmark'],
+      [3, 'auto-subframe'],
+      [4, 'manual-subframe'],
+      [5, 'generated'],
+      [6, 'start-page'],
+      [7, 'form-submit'],
+      [8, 'reload'],
+      [9, 'keyword'],
+      [10, 'keyword-generated'],
+    ]
+    for (const [code, label] of cases) {
+      expect(
+        paperSearchEntryFromHistoryEntry(makeEntry({ transition: code }))
+          .transitionType,
+      ).toBe(label)
+    }
   })
 
   test('returns undefined transitionType for unknown codes', () => {
@@ -98,6 +109,20 @@ describe('paperSearchEntryFromHistoryEntry', () => {
       paperSearchEntryFromHistoryEntry(makeEntry({ transition: 999 }))
         .transitionType,
     ).toBeUndefined()
+  })
+
+  test('returns undefined transitionType when the entry has no transition', () => {
+    expect(
+      paperSearchEntryFromHistoryEntry(makeEntry({ transition: null }))
+        .transitionType,
+    ).toBeUndefined()
+  })
+
+  test('time is empty when visitedAt is not parseable', () => {
+    expect(
+      paperSearchEntryFromHistoryEntry(makeEntry({ visitedAt: 'nonsense' }))
+        .time,
+    ).toBe('')
   })
 })
 

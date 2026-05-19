@@ -33,11 +33,7 @@ import {
 import { useAuditData } from './hooks/use-audit-data'
 import { AuditRunDetailPanel } from './panels/run-detail'
 import type { AuditFilterState } from './types'
-import {
-  PaperAuditView,
-  type PaperAuditChainEntry,
-} from '@/components/explorer-paper'
-import type { BackupRunOverview } from '../../lib/types'
+import { PaperAuditPanel } from './paper-audit-panel'
 
 /**
  * Renders the audit route.
@@ -758,93 +754,4 @@ export function AuditPage() {
       )}
     </section>
   )
-}
-
-/**
- * Paper-redesign chrome rendered above the v0.2 Audit Ledger when the
- * route has `?layout=paper`. The current pass only wires the manifest
- * chain (the most visually distinctive surface from the design); recent
- * runs / storage / snapshots remain in the v0.2 panels below until they
- * each get their own slot.
- */
-function PaperAuditPanel({
-  recentRuns,
-  currentRunId,
-  onSelectRun,
-  auditT,
-}: {
-  recentRuns: readonly BackupRunOverview[]
-  currentRunId: number | null
-  onSelectRun: (runId: number) => void
-  auditT: (key: string, vars?: Record<string, string | number>) => string
-}) {
-  const chain: PaperAuditChainEntry[] = recentRuns
-    .slice(0, 6)
-    .map((run) => ({
-      id: String(run.id),
-      hash: (run.manifestHash ?? '').slice(0, 7) || '—',
-      type: paperRunTypeLabel(run.runType, auditT),
-      when: paperWhenLabel(run.startedAt, auditT),
-      current: run.id === currentRunId,
-    }))
-    .reverse()
-  return (
-    <div data-testid="paper-audit-panel" className="mb-6">
-      <PaperAuditView
-        chain={chain}
-        onSelectChainBlock={(id) => onSelectRun(Number(id))}
-        recentRunsSlot={null}
-        storageBreakdownSlot={null}
-        exportPanelSlot={null}
-        snapshotsSlot={null}
-        copy={{
-          manifestTitle: auditT('paperManifestTitle'),
-          manifestBadge: auditT('paperManifestBadge'),
-          manifestCallout: auditT('paperManifestCallout'),
-          earlierBlockLabel: auditT('paperEarlierBlockLabel'),
-          recentRunsTitle: auditT('paperRecentRunsTitle'),
-          recentRunsBadge: auditT('paperRecentRunsBadge'),
-          storageTitle: auditT('paperStorageTitle'),
-          storageBadge: auditT('paperStorageBadge'),
-          exportTitle: auditT('paperExportTitle'),
-          snapshotsTitle: auditT('paperSnapshotsTitle'),
-          snapshotsBadge: auditT('paperSnapshotsBadge'),
-          footer: auditT('paperFooter'),
-        }}
-        testId="paper-audit-view"
-      />
-    </div>
-  )
-}
-
-function paperRunTypeLabel(
-  runType: string | undefined,
-  auditT: (key: string) => string,
-): string {
-  switch (runType) {
-    case 'backup':
-      return auditT('paperRunTypeBackup')
-    case 'import':
-      return auditT('paperRunTypeImport')
-    case 'maintenance':
-      return auditT('paperRunTypeMaintenance')
-    default:
-      return runType?.toUpperCase() ?? ''
-  }
-}
-
-function paperWhenLabel(
-  isoTimestamp: string,
-  auditT: (key: string, vars?: Record<string, string | number>) => string,
-): string {
-  const parsed = Date.parse(isoTimestamp)
-  if (Number.isNaN(parsed)) return ''
-  const deltaMs = Date.now() - parsed
-  if (deltaMs < 60_000) return auditT('paperWhenJustNow')
-  const minutes = Math.floor(deltaMs / 60_000)
-  if (minutes < 60) return auditT('paperWhenMinutesAgo', { count: minutes })
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return auditT('paperWhenHoursAgo', { count: hours })
-  const days = Math.floor(hours / 24)
-  return auditT('paperWhenDaysAgo', { count: days })
 }

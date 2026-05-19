@@ -119,6 +119,21 @@ describe('dashboard route fallback', () => {
     ).toEqual({ kind: 'archive-unavailable' })
   })
 
+  test('resolves onboarding zero-state when snapshot exists but the archive has not been initialized yet', () => {
+    expect(
+      resolveDashboardRouteFallback({
+        archiveAccessFallback: null,
+        dashboard: null,
+        dashboardLoading: false,
+        error: null,
+        loading: false,
+        snapshot: {
+          config: { initialized: false },
+        } as never,
+      }),
+    ).toEqual({ kind: 'onboarding-zero-state' })
+  })
+
   test('renders the onboarding and security actions for non-ready fallback states', () => {
     render(
       <MemoryRouter>
