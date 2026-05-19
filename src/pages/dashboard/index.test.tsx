@@ -15,7 +15,10 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n'
-import { ShellDataContext, type ShellDataContextValue } from '@/app/shell-data-context'
+import {
+  ShellDataContext,
+  type ShellDataContextValue,
+} from '@/app/shell-data-context'
 import { ProfileScopeProvider } from '@/lib/profile-scope'
 import { DashboardPage } from './index'
 import type { AppSnapshot, DashboardSnapshot } from '@/lib/types'

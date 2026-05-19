@@ -57,9 +57,8 @@ export function AppShell() {
 
   const matches = useMatches()
   const activeScreen =
-    [...matches]
-      .map((match) => readRouteHandle(match.handle))
-      .find(Boolean)?.screen ?? appScreens[0]
+    [...matches].map((match) => readRouteHandle(match.handle)).find(Boolean)
+      ?.screen ?? appScreens[0]
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readBoolean(SIDEBAR_KEY, false),
@@ -82,7 +81,10 @@ export function AppShell() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(SIDEBAR_KEY, sidebarCollapsed ? 'true' : 'false')
+      window.localStorage.setItem(
+        SIDEBAR_KEY,
+        sidebarCollapsed ? 'true' : 'false',
+      )
     } catch {
       // localStorage may be unavailable.
     }
@@ -178,7 +180,8 @@ export function AppShell() {
   }, [shell.snapshot])
 
   const totalPages = shell.dashboard?.totalVisits ?? null
-  const totalSize = humanizeBytes(sumStorageBytes(shell.dashboard?.storage)) || null
+  const totalSize =
+    humanizeBytes(sumStorageBytes(shell.dashboard?.storage)) || null
   const sinceLabel = shell.dashboard?.lastSuccessfulBackupAt
     ? formatSinceLabel(shell.dashboard.lastSuccessfulBackupAt)
     : null
@@ -187,8 +190,7 @@ export function AppShell() {
     : null
   const archiving = Boolean(shell.busyAction)
   const initialized = shell.snapshot?.archiveStatus?.initialized ?? false
-  const archiveHealthy =
-    initialized && !shell.snapshot?.archiveStatus?.warning
+  const archiveHealthy = initialized && !shell.snapshot?.archiveStatus?.warning
   const buildVersion = shell.buildInfo?.version
     ? `v${shell.buildInfo.version}`
     : null

@@ -27,7 +27,8 @@ vi.mock('../../lib/i18n', () => ({
     language: 'en',
     t: (key: string, vars?: Record<string, string | number>) =>
       vars ? `${key}:${JSON.stringify(vars)}` : key,
-    ns: (namespace: string) =>
+    ns:
+      (namespace: string) =>
       (key: string, vars?: Record<string, string | number>) =>
         vars
           ? `${namespace}.${key}:${JSON.stringify(vars)}`

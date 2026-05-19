@@ -5,7 +5,12 @@ import { PaperSettingsHeader } from './paper-settings-header'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
 const items: SettingsSectionNavItem[] = [
-  { key: 'general', id: 'settings-general', label: 'General', icon: 'settings' },
+  {
+    key: 'general',
+    id: 'settings-general',
+    label: 'General',
+    icon: 'settings',
+  },
   {
     key: 'applock',
     id: 'settings-applock',
@@ -14,7 +19,9 @@ const items: SettingsSectionNavItem[] = [
   },
 ]
 
-function renderHeader(overrides: Partial<React.ComponentProps<typeof PaperSettingsHeader>> = {}) {
+function renderHeader(
+  overrides: Partial<React.ComponentProps<typeof PaperSettingsHeader>> = {},
+) {
   return render(
     <MemoryRouter initialEntries={['/settings']}>
       <PaperSettingsHeader
@@ -38,7 +45,9 @@ describe('PaperSettingsHeader', () => {
         name: 'Settle the page before you read.',
       }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Persistent choices live here.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Persistent choices live here.'),
+    ).toBeInTheDocument()
   })
 
   test('renders one jump anchor per item with the labelled href', () => {
@@ -69,16 +78,16 @@ describe('PaperSettingsHeader', () => {
         return 1
       })
     renderHeader()
-    fireEvent.click(screen.getByRole<HTMLAnchorElement>('link', { name: 'App Lock' }))
+    fireEvent.click(
+      screen.getByRole<HTMLAnchorElement>('link', { name: 'App Lock' }),
+    )
     expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' })
     rafSpy.mockRestore()
   })
 
   test('uses the provided testId', () => {
     renderHeader({ testId: 'paper-settings-header-x' })
-    expect(
-      screen.getByTestId('paper-settings-header-x'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('paper-settings-header-x')).toBeInTheDocument()
   })
 
   test('falls back to the default testId when not provided', () => {

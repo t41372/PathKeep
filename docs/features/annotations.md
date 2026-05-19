@@ -68,13 +68,13 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 
 ### vault-core API
 
-| Function | 用途 |
-|---|---|
-| `get_annotation(paths, config, key, url)` | 讀單一 URL 的 `UrlAnnotation` 或 `None`。 |
-| `set_notes(paths, config, key, request)` | 寫 / 清 notes；空 body 自動刪 row。 |
-| `replace_tags(paths, config, key, request)` | 替換整組 tags；空 list 移除全部。 |
-| `list_annotations(paths, config, key, limit)` | 列出有 annotation 的 URL，updated_at desc。 |
-| `search_annotations(paths, config, key, query, limit)` | notes 子字串搜尋（大小寫無關）。 |
+| Function                                               | 用途                                        |
+| ------------------------------------------------------ | ------------------------------------------- |
+| `get_annotation(paths, config, key, url)`              | 讀單一 URL 的 `UrlAnnotation` 或 `None`。   |
+| `set_notes(paths, config, key, request)`               | 寫 / 清 notes；空 body 自動刪 row。         |
+| `replace_tags(paths, config, key, request)`            | 替換整組 tags；空 list 移除全部。           |
+| `list_annotations(paths, config, key, limit)`          | 列出有 annotation 的 URL，updated_at desc。 |
+| `search_annotations(paths, config, key, query, limit)` | notes 子字串搜尋（大小寫無關）。            |
 
 寫入時的硬性限制：
 
@@ -84,12 +84,12 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 
 ### Tauri commands
 
-| Command | Worker bridge | Vault core |
-|---|---|---|
-| `get_url_annotation` | `worker_bridge::get_annotation_impl` | `vault_core::get_annotation` |
-| `set_url_notes` | `worker_bridge::set_notes_impl` | `vault_core::set_notes` |
-| `replace_url_tags` | `worker_bridge::replace_tags_impl` | `vault_core::replace_tags` |
-| `list_url_annotations` | `worker_bridge::list_annotations_impl` | `vault_core::list_annotations` |
+| Command                  | Worker bridge                            | Vault core                       |
+| ------------------------ | ---------------------------------------- | -------------------------------- |
+| `get_url_annotation`     | `worker_bridge::get_annotation_impl`     | `vault_core::get_annotation`     |
+| `set_url_notes`          | `worker_bridge::set_notes_impl`          | `vault_core::set_notes`          |
+| `replace_url_tags`       | `worker_bridge::replace_tags_impl`       | `vault_core::replace_tags`       |
+| `list_url_annotations`   | `worker_bridge::list_annotations_impl`   | `vault_core::list_annotations`   |
 | `search_url_annotations` | `worker_bridge::search_annotations_impl` | `vault_core::search_annotations` |
 
 所有 command 都吃 session database key（與 archive 的 App Lock session 同層），加密 archive

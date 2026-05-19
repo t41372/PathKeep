@@ -629,7 +629,11 @@ function PaperAssistantPanel({
 }
 
 function citationsToEvidence(
-  citations: readonly { url: string; title?: string | null; visitedAt: string }[],
+  citations: readonly {
+    url: string
+    title?: string | null
+    visitedAt: string
+  }[],
 ): PaperAssistantEvidence[] {
   return citations.map((citation, index) => {
     let domain = ''

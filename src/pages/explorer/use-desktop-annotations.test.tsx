@@ -7,9 +7,10 @@ const replaceUrlTags = vi.fn()
 
 vi.mock('../../lib/backend-client', () => ({
   backend: {
-    getUrlAnnotation: (...args: unknown[]) => getUrlAnnotation(...args),
-    setUrlNotes: (...args: unknown[]) => setUrlNotes(...args),
-    replaceUrlTags: (...args: unknown[]) => replaceUrlTags(...args),
+    getUrlAnnotation: (...args: unknown[]) =>
+      getUrlAnnotation(...args) as unknown,
+    setUrlNotes: (...args: unknown[]) => setUrlNotes(...args) as unknown,
+    replaceUrlTags: (...args: unknown[]) => replaceUrlTags(...args) as unknown,
   },
 }))
 
