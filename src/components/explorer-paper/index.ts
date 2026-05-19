@@ -79,3 +79,11 @@ export type {
   PaperDetailPanelTitleVersion,
   PaperDetailPanelVisitHistoryRow,
 } from './paper-detail-panel'
+
+export { PaperSearchHero } from './paper-search-hero'
+export type {
+  PaperSearchHeroCopy,
+  PaperSearchHeroFilter,
+  PaperSearchHeroProps,
+  PaperSearchMode,
+} from './paper-search-hero'
