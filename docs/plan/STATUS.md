@@ -45,21 +45,20 @@
     - ✅ **Dashboard shipped**：`/` 路由已實作 paper-redesign landing page — HeroBand + greeting + 4-stat strip + On This Day card + This Week card + YearHeatmap + Active Threads + Archive card + epigraph footer；接入 `useShellData()` 與 `coreIntelligenceApi.getOnThisDay`，deep-link 進 Explorer / Intelligence。
     - ✅ **Settings Appearance section shipped**：theme / font / density / paper texture persisted prefs in place（`appearance-section.tsx` + `paper-preferences.ts`）。
     - ✅ **Design handoff preserved in-repo**：`docs/design/handoff/paper-redesign/` 收藏完整 design package（HTML / pk-tokens.css / 11 個 JSX）為 source-of-truth，搭配 `docs/design/handoff/README.md` 導讀。`/tmp/pathkeep-design/` 不再是必要依賴。
-    - ⏳ **Routes 仍待完成**（按優先序，每條都是獨立 work block-sized）：
-      - **`/explorer` Browse**（最大份量，視覺中心）：把現有 timeline-bar + filters + results panel + semantic / regex / runtime panels 全部重畫成 paper contact sheet — day-sticky toolbar、cs-target-banner、DayNavControl（prev / pill / next / today）、CalendarPopover（with density heatmap）、YearRail、DomainStack（>= 3 連續同 domain 折疊）、ContactFrame、ListRow、DayInsightsStrip、HourlySparkline、LoadingSkeleton、PlaceholderDay。接入既有 `useExplorerUrlState` / `useExplorerData` / `useExplorerFavicons` hooks，不要重寫 data layer。Regex / semantic / runtime / 進階篩選保留為 paper-aesthetic 抽屜或副 panel。
-      - **`/search`**：literary search hero — `sv-prompt`、`sv-input` (28 px Newsreader)、3-mode toggle (keyword / regex / semantic)、filter chips、SAVED_PROMPTS / RECENT_SEARCHES empty state、day-grouped result rows、`sv-result__seein` jump-to-Browse、provider-gated semantic snippet。
-      - **`/intelligence`**：4-KPI strip (`intel-kpis`)、topic timeline (`intel-topic-row` + bars)、top domains rank list、recent sessions、active threads、refind shelf、LLM-needed callouts；接 `get_intelligence_primary/secondary_overview`、`get_top_search_concepts`、`get_browsing_rhythm`、refind 演算。
-      - **`/assistant`**：chat surface (`assist-wrap` + `assist-msg`)、evidence panel (`assist-evidence`)、`assist-empty-prompts`、ProviderGate fallback；接 `ask_ai_assistant` + evidence anchors。
-      - **`/import`** PME：method picker (`import-methods` × 3)、wizard stepper、preview stats、file list、info callout；接 existing import preview / commit。
-      - **`/audit`**：manifest chain viz (`chain-viz` + `chain-block`)、runs table、storage breakdown bars、snapshots、export panel；接 existing audit data。
-      - **`/schedule` / `/security` / `/maintenance` / `/jobs` / `/integrations` / `/onboarding` / `/lock`**：每個用 paper card grid 重新編排既有資料；保留現有 hooks。
-      - **`/settings`**：完整 paper Settings — General / Archive / Sources / Notifications / About / 字體切換 / Accent color / Density；風格與整體一致（即使 design 圖未涵蓋）。Appearance section 已部分完成，其他 section 仍要 paper-style 重畫。
-      - **PKDetailPanel slide-over**：title + url + actions + first/last visit + visit history sparkline + provenance + title-version history + Notes textarea + Tags + "Look further" related list；textarea debounced 寫入 annotations backend。
-      - **i18n**：每個重畫的 route 上線時三語齊全；現有 `lock-and-explorer-shell.test.tsx` 對舊 topbar 的兩個 failing test 在 sweep 中同步重寫。
-    - ⏳ **Backend annotations**：migration 011_notes_tags.sql + `vault-core/src/annotations/` 模組 + `commands/annotations.rs`（get / set / list / search / export）；接入 backup / retention pruning；100% Rust coverage + 通過 mutation。
-    - ⏳ **Docs sweep**：design-tokens.md / screens-and-nav.md / ux-principles.md / ui-review-guardrails.md / typography-and-font-fallback.md / data-model.md 全部要按新方向重寫；新增 `docs/features/annotations.md`；intelligence.md + recall.md 移除 v0.3-coming 標記。
+    - ✅ **Routes 全部完成 paper opt-in 掛載**（每個 route 在 `?layout=paper` 下都接到對應的 paper view，現有 v0.2 surface 仍保留）：
+      - **`/explorer` Browse**：`?layout=paper` 渲染 PaperExplorerView — contact sheet + day-sticky toolbar + DayNavControl + CalendarPopover + YearRail + DomainStack + ContactFrame + ListRow，接入 `useExplorerUrlState` / `useExplorerData` / `useExplorerFavicons`，detail panel 寫入 annotations backend。
+      - **`/explorer?surface=search`**：PaperSearchView — literary hero + 3-mode toggle + day-grouped results + "see in context" jump-to-Browse；queryInput / mode / regex 共用 explorer URL state。
+      - **`/intelligence?layout=paper`**：PaperIntelligenceView — KPI strip + domain rank + refind shelf；接 `primaryOverview.topSites` / `refindPages` 與 dashboard stats。
+      - **`/assistant?layout=paper`**：PaperAssistantView — literary greeting + 3-prompt cards + chat composer + citation evidence；adapts AssistantConversationMessage[] → PaperAssistantMessageDescriptor[]，reuse existing handleSend / sending flow。
+      - **`/import?layout=paper`**：PaperImportPanel — literary intro + 3 method cards + 5-step stepper above the v0.2 workflow body。
+      - **`/audit?layout=paper`**：PaperAuditPanel — manifest chain block strip mapping `snapshot.recentRuns`，current run highlighted。
+      - **`/settings?layout=paper`**：PaperSettingsHeader — eyebrow / serif title / italic subtitle + paper jump-nav anchors；既有 sections 在 paper tokens 下自動繼承樣式。
+      - **PKDetailPanel slide-over**：title + url + actions + Notes textarea + Tags + Look further — `useDesktopAnnotations` 在 desktop transport 上寫進 annotations backend，browser-preview 仍走 localStorage。
+      - **剩餘 follow-up**：section-panel 級別的 paper restyle（Settings 各 section 仍 v0.2 視覺）、`/schedule` `/security` `/maintenance` `/jobs` `/integrations` `/onboarding` `/lock` 的 paper card grid 重排、把 `?layout=paper` 翻成預設。
+    - ✅ **Backend annotations**：migration 011_notes_tags.sql shipped；`vault-core::annotations` (get / set_notes / replace_tags / list / search) + 9 sibling tests；`vault-worker::annotations` thin layer；5 個 Tauri commands (`get_url_annotation` / `set_url_notes` / `replace_url_tags` / `list_url_annotations` / `search_url_annotations`)；typed front-end client + `useDesktopAnnotations` hook 接入 Explorer 路由；feature spec 在 `docs/features/annotations.md`。
+    - ⏳ **Docs sweep**：annotations feature spec 已上 (`docs/features/annotations.md`)；design-tokens.md / screens-and-nav.md / ux-principles.md / ui-review-guardrails.md / typography-and-font-fallback.md / data-model.md 仍要按新方向重寫；intelligence.md + recall.md 移除 v0.3-coming 標記。
     - ⏳ **Memory**：feedback_brutalist_radius.md / project_v0_3_redesign.md / feedback_typography_policy.md 改成記錄 brutalist → paper 轉向。
-    - ⏳ **Tests / quality**：`bun run check` 仍要通過（目前在 1193/1195 unit tests pass，2 個 failure 來自 `lock-and-explorer-shell.test.tsx` 對舊 topbar Notifications / searchbox 的斷言，需於 page sweep 同步重寫）。
+    - ✅ **Tests / quality**：3 個 stale v0.2 topbar tests 已重寫，full unit suite 1485/1485 pass；Rust 454 + 33 pass；mutation / e2e gate 仍待 `bun run check` 全套執行。
   - 驗收（block 結束時必須全部達標）：
     - 設計圖中每個畫面在 light + dark 下都與設計檔高度一致；Settings / Schedule / Security / Maintenance / Jobs / Integrations / Onboarding / AppLock 也用相同視覺語言補完。
     - 每個 route 接入真實後端（不再有 v0.3-coming disabled UI）；AI / semantic search 在 provider 未配置時 inline 提示 "Configure AI provider → Settings"。

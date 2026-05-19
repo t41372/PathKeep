@@ -1387,3 +1387,18 @@
   - Data boundary：新增 aggregate-only `bun run preview:showcase:shape` script，僅 read-only 讀取本機 archive 的總量、月份、活躍時段、來源族群與 search/run counts 作形狀參考；repo / bundle 不包含 raw browser history、URL、title、search term、profile path、username 或 secret。Tauri / desktop runtime path 不接入 showcase fixture。
   - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`package.json`](../../package.json)、[`vite.config.ts`](../../vite.config.ts)、[`vercel.json`](../../vercel.json) 與 browser-preview fixture / test source。
   - 驗收結果：targeted preview / showcase tests、`PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build`、Playwright static preview smoke（Dashboard / Explorer / Intelligence）與完整 `bun run check` 通過；`bun run check` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate 與 desktop-contract mutation gate。
+
+- [x] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival route sweep + backend annotations (Browse → Settings + notes/tags)
+  - 讀先：
+    `docs/design/handoff/paper-redesign/` (全套設計 + tokens + JSX)
+    `docs/plan/STATUS.md`
+    `docs/features/annotations.md`
+    `src/components/explorer-paper/` (43 個 paper primitives)
+  - 目標：讓 v0.3 paper redesign 的 7 個畫面（Browse / Search / Intelligence / Assistant / Import / Audit / Settings）全部在 `?layout=paper` opt-in 下能渲染、接到真實後端，並把 Browse detail panel 的 notes / tags 從 localStorage 升級到 canonical archive。
+  - 2026-05-19 closeout：
+    - **Route opt-in 完成**：`?layout=paper` 在 7 個 route 上都會渲染 paper view。Search 用 `?layout=paper&surface=search` 子 surface，分享 Explorer queryInput / mode / regex / results。Intelligence / Assistant / Import / Audit / Settings 各自有對應的 PaperPanel adapter；i18n 三語齊備。
+    - **i18n catalog**：2,757 keys × 3 locales，100% parity（含 paperBrowse / paperIntelligence / paperSearchView / paperAssistant / paperImport / paperAudit / paperSettings 等 sub-block）。
+    - **Backend annotations**：migration 011_notes_tags.sql；`vault-core::annotations`（get / set_notes / replace_tags / list / search）+ 9 tests；`vault-worker::annotations`；5 個 Tauri commands；typed front-end client + `useDesktopAnnotations` hook（optimistic cache + write-through）+ `hasDesktopCommandTransport` 切換；feature spec `docs/features/annotations.md`。
+    - **Test 修復**：3 個 stale v0.2 topbar tests 全部重寫成 paper-shell expected（`getByTestId('app-scroll')` 取代 `.workspace-scroll`、Notifications 斷言改成不存在、新增 `Find a page` palette opener 斷言、Dashboard route-fallback-state 新增 `snapshot.config.initialized === false → onboarding-zero-state` 分支）。
+    - **驗收結果**：JS unit suite 1,485 / 1,485 pass；Rust vault-core 454 / 454 + vault-worker 33 / 33；typecheck / lint / i18n parity 全部清零。完整 `bun run check` + `bun run verify` mutation / e2e / desktop-bridge truth gate 待後續 push 跑完。
+    - **後續 backlog**：section-panel paper restyle（Settings 各 section、Schedule / Security / Maintenance / Jobs / Integrations / Onboarding / Lock），`?layout=paper` 翻成預設，design-tokens / screens-and-nav / ux-principles / ui-review-guardrails / typography-and-font-fallback / data-model 文檔重寫，memory 三條轉向記錄。
