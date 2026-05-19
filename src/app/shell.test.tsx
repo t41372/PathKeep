@@ -12,7 +12,6 @@
  * - Backend wiring details (covered by shell-data tests).
  */
 
-import { act } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -73,11 +72,12 @@ describe('AppShell (paper redesign)', () => {
     const sidebar = screen.getByTestId('pk-sidebar')
     expect(sidebar).toHaveAttribute('data-collapsed', 'false')
 
-    const collapseButton = sidebar.querySelector(
+    const collapseButton = sidebar.querySelector<HTMLButtonElement>(
       'button[title*="Collapse"]',
-    ) as HTMLButtonElement | null
+    )
     expect(collapseButton).not.toBeNull()
-    await user.click(collapseButton!)
+    if (!collapseButton) throw new Error('collapse button missing')
+    await user.click(collapseButton)
     expect(window.localStorage.getItem('pathkeep.sidebar.collapsed')).toBe('true')
   })
 
@@ -123,7 +123,7 @@ function renderShell(
     },
   )
 
-  return act(() => render(<RouterProvider router={router} />))
+  return render(<RouterProvider router={router} />)
 }
 
 function shellValue(

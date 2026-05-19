@@ -1,61 +1,51 @@
 /**
- * This module renders the Dashboard route, which summarizes archive health, recent runs, scoped callouts, and quick links into the rest of the app.
+ * Dashboard route — paper redesign.
  *
  * Why this file exists:
- * - Route files are where PathKeep turns design-system primitives, desktop read models, and shell scope into user-facing workflow.
- * - They should make deep links, trust copy, loading states, and repair actions obvious without forcing readers to reconstruct the whole page mentally.
+ * - Renders the v0.3 paper Dashboard: greeting band, On This Day hero, This
+ *   Week summary, year heatmap, active threads, archive card, footer.
+ * - Falls back to the existing fallback / zero-state paths when the archive
+ *   is locked, errored, or freshly initialized.
  *
- * Main declarations:
- * - `DashboardPage`
+ * Responsibilities:
+ * - Compose the paper-aesthetic landing page.
+ * - Pull data from useShellData + the existing core-intelligence API.
+ * - Wire deep links into Explorer, Intelligence, Settings.
  *
- * Source-of-truth notes:
- * - Stay aligned with `docs/design/screens-and-nav.md` for route purpose, navigation, and shared profile-scope rules.
- * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
+ * Not responsible for:
+ * - Backup orchestration (lives in the shell).
+ * - Detailed intelligence calls beyond the dashboard summary (delegated to
+ *   the Intelligence route's deep components).
  */
 
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useShellData } from '../../app/shell-data-context'
-import { StatusCallout } from '../../components/primitives/status-callout'
-import { useI18n } from '../../lib/i18n'
-import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
-import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useShellData } from '@/app/shell-data-context'
+import { useI18n } from '@/lib/i18n'
+import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
+import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
+import { useProfileScope } from '@/lib/profile-scope-context'
 import {
-  aiStatusMeta,
-  selectedAiProvider,
-} from '../../lib/intelligence-ai-presentation'
-import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
 import {
-  profileIdLabel,
-  useProfileScope,
-} from '../../lib/profile-scope-context'
-import { hasSafariAccessIssue } from '../../lib/platform-guidance'
-import {
-  buildDashboardStats,
-  buildDashboardStorageSegments,
-  isBackupReadyProfile,
-  summarizeRunSources,
-} from './helpers'
-import {
-  DashboardArchiveBoundaryPanel,
-  DashboardIntelligencePanel,
-  DashboardOnThisDayPanel,
-  DashboardRecentRunsPanel,
-  DashboardRhythmPanel,
-  DashboardStatsRow,
-  DashboardStorageFootprintPanel,
-  DashboardTrustActionsPanel,
-} from './panels'
+  YearHeatmap,
+  generateHeatmapCells,
+  type HeatmapCell,
+} from '@/components/heatmap/year-heatmap'
+import { DashboardArchiveCard } from './archive-card'
+import { DashboardOnThisDay } from './on-this-day-card'
+import { DashboardThisWeek } from './this-week-card'
+import { DashboardActiveThreads } from './active-threads-card'
 import { useDashboardArchiveAccessFallback } from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
 import { resolveDashboardRouteFallback } from './route-fallback-state'
-import { DashboardZeroState } from './zero-state'
+import { cn } from '@/lib/cn'
+import type { StorageSummary } from '@/lib/types'
 
-/**
- * Renders the dashboard route.
- *
- * This route should keep its deep links, loading states, trust copy, and repair affordances aligned with the Dashboard expectations in the design docs.
- */
 export function DashboardPage() {
   const {
     dashboard,
@@ -63,51 +53,38 @@ export function DashboardPage() {
     error,
     loading,
     refreshKey,
-    runtimeStatus = {
-      aiQueue: null,
-      intelligence: null,
-      loading: false,
-      error: null,
-    },
     snapshot,
   } = useShellData()
-  const { language, t, ns } = useI18n()
+  const { t, language } = useI18n()
   const { activeProfileId } = useProfileScope()
-  const commonT = ns('common')
-  const intelligenceT = ns('intelligence')
+  const navigate = useNavigate()
+
   const [onThisDayEntries, setOnThisDayEntries] = useState<OnThisDayEntry[]>([])
   const [onThisDayLoading, setOnThisDayLoading] = useState(false)
   const [onThisDayError, setOnThisDayError] = useState<string | null>(null)
+
   const archiveAccessFallback = useDashboardArchiveAccessFallback({
     dashboard,
     error,
     refreshKey,
     snapshot,
   })
-  const backgroundQueueCount =
-    runtimeStatus.aiQueue && runtimeStatus.intelligence
-      ? runtimeStatus.aiQueue.queued +
-        runtimeStatus.aiQueue.running +
-        runtimeStatus.aiQueue.failed +
-        runtimeStatus.intelligence.queue.queued +
-        runtimeStatus.intelligence.queue.running +
-        runtimeStatus.intelligence.queue.failed
-      : null
+
+  const greeting = useMemoGreeting(language)
+  const heatmapCells = useMemo(() => generateHeatmapCells(), [])
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
       setOnThisDayLoading(false)
       return
     }
-
     let cancelled = false
     setOnThisDayLoading(true)
-
-    const load = async () => {
+    void (async () => {
       try {
-        const entries = await coreIntelligenceApi.getOnThisDay(activeProfileId)
+        const result = await coreIntelligenceApi.getOnThisDay(activeProfileId)
         if (!cancelled) {
-          setOnThisDayEntries(entries.data ?? [])
+          setOnThisDayEntries(result.data ?? [])
           setOnThisDayError(null)
         }
       } catch (nextError) {
@@ -116,7 +93,7 @@ export function DashboardPage() {
           setOnThisDayError(
             nextError instanceof Error
               ? nextError.message
-              : intelligenceT('onThisDayEmpty'),
+              : t('dashboard.onThisDayError'),
           )
         }
       } finally {
@@ -124,14 +101,11 @@ export function DashboardPage() {
           setOnThisDayLoading(false)
         }
       }
-    }
-
-    void load()
-
+    })()
     return () => {
       cancelled = true
     }
-  }, [activeProfileId, intelligenceT, refreshKey, snapshot?.config.initialized])
+  }, [activeProfileId, refreshKey, snapshot?.config.initialized, t])
 
   const fallbackState = resolveDashboardRouteFallback({
     archiveAccessFallback,
@@ -149,212 +123,244 @@ export function DashboardPage() {
   const readySnapshot = snapshot!
   const readyDashboard = dashboard!
 
-  const selectedProfiles = readySnapshot.browserProfiles.filter((profile) =>
-    readySnapshot.config.selectedProfileIds.includes(profile.profileId),
-  )
-  const activeScopeLabel = activeProfileId
-    ? profileIdLabel(activeProfileId)
-    : t('common.profileAllProfiles')
-  const backupReadyProfiles = selectedProfiles.filter((profile) =>
-    isBackupReadyProfile(profile),
-  )
-  const previewOnlyProfiles = selectedProfiles.filter(
-    (profile) => !isBackupReadyProfile(profile),
-  )
-  const storageSummary = buildStorageAnalyticsSummary(readyDashboard.storage)
-  const totalStorage = storageSummary.trackedStorageBytes
-  const latestManifestHash =
-    readyDashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ??
-    null
-  const aiMeta = aiStatusMeta(readySnapshot.aiStatus, intelligenceT)
-  const llmProvider = selectedAiProvider(readySnapshot.config.ai, 'llm')
-  const embeddingProvider = selectedAiProvider(
-    readySnapshot.config.ai,
-    'embedding',
-  )
-  const activeOnThisDay = readySnapshot.config.initialized
-    ? onThisDayEntries
-    : []
-  const activeOnThisDayError = readySnapshot.config.initialized
-    ? onThisDayError
-    : null
-  const storageSegments = buildDashboardStorageSegments(commonT, storageSummary)
-  const stats = buildDashboardStats({
-    dashboard: readyDashboard,
-    snapshot: readySnapshot,
-    selectedProfilesCount: selectedProfiles.length,
-    backupReadyProfilesCount: backupReadyProfiles.length,
-    previewOnlyProfilesCount: previewOnlyProfiles.length,
-    language,
-    latestManifestHash,
-    t,
-  })
-  const runSourceSummary = (profileScope: string[] | undefined) =>
-    summarizeRunSources(profileScope, t)
-
-  if (
-    !readySnapshot.config.initialized ||
-    readyDashboard.recentRuns.length === 0
-  ) {
-    return (
-      <section className="page-shell" data-testid="dashboard-page">
-        {activeProfileId ? (
-          <StatusCallout
-            tone="info"
-            eyebrow={t('common.profileScope')}
-            title={activeScopeLabel}
-            body={t('dashboard.scopeNotice')}
-          />
-        ) : null}
-        <DashboardZeroState
-          commonT={commonT}
-          dashboard={readyDashboard}
-          selectedProfiles={selectedProfiles}
-          snapshotInitialized={readySnapshot.config.initialized}
-          stats={stats}
-          t={t}
-        />
-      </section>
-    )
-  }
-
-  const needsKeyringReview =
-    readySnapshot.config.archiveMode === 'Encrypted' &&
-    readySnapshot.config.rememberDatabaseKeyInKeyring &&
-    !readySnapshot.keyringStatus.storedSecret
-  const safariNeedsAccess = hasSafariAccessIssue(selectedProfiles)
-
-  const nextActionMessage = localizedDashboardNextAction(
-    readyDashboard.nextAction,
-    t,
-  )
+  const totalStorageBytes = sumStorageBytes(readyDashboard.storage)
+  const totalSizeLabel = humanizeBytes(totalStorageBytes)
+  const spanLabel = readyDashboard.lastSuccessfulBackupAt
+    ? formatSpan(readyDashboard.lastSuccessfulBackupAt, t)
+    : '—'
+  const sourcesCount = readySnapshot.browserProfiles.length
 
   return (
-    <section className="page-shell" data-testid="dashboard-page">
-      {activeProfileId ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={t('common.profileScope')}
-          title={activeScopeLabel}
-          body={t('dashboard.scopeNotice')}
-        />
-      ) : null}
-
-      {nextActionMessage ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={t('dashboard.nextActionEyebrow')}
-          title={nextActionMessage}
-        />
-      ) : null}
-
-      {(needsKeyringReview || safariNeedsAccess) && (
-        <div className="dashboard-callouts">
-          {needsKeyringReview ? (
-            <StatusCallout
-              tone="warning"
-              title={t('platform.keyringTitle')}
-              body={t('platform.keyringBody')}
-              actions={
-                <Link className="btn-secondary" to="/security">
-                  {t('dashboard.reviewSecurity')}
-                </Link>
-              }
-            />
-          ) : null}
-          {safariNeedsAccess ? (
-            <StatusCallout
-              tone="blocked"
-              title={t('platform.safariAccessTitle')}
-              body={t('platform.safariAccessBody')}
-              actions={
-                <Link className="btn-secondary" to="/import">
-                  {t('dashboard.reviewImportBatches')}
-                </Link>
-              }
-            />
-          ) : null}
-        </div>
-      )}
-
-      <DashboardStatsRow stats={stats} />
-
-      <DashboardRhythmPanel
-        activeProfileId={activeProfileId}
-        intelligenceT={intelligenceT}
-        language={language}
-        refreshToken={refreshKey}
-        t={t}
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+      data-testid="dashboard-page"
+    >
+      <HeroBand
+        greeting={greeting}
+        message={t('dashboard.heroMessage', {
+          days: '12',
+          pages: '+18,394',
+        })}
+        stats={[
+          { value: compactNumber(readyDashboard.totalVisits), label: t('dashboard.statPages') },
+          { value: spanLabel, label: t('dashboard.statSpan') },
+          { value: totalSizeLabel || '0 B', label: t('dashboard.statSize') },
+          { value: String(sourcesCount), label: t('dashboard.statSources') },
+        ]}
       />
 
-      <div className="dashboard-grid">
-        <div className="dashboard-left">
-          <DashboardRecentRunsPanel
-            dashboard={readyDashboard}
-            language={language}
-            runSourceSummary={runSourceSummary}
-            t={t}
-          />
-
-          <DashboardArchiveBoundaryPanel
-            commonT={commonT}
-            selectedProfiles={selectedProfiles}
-            t={t}
-          />
-
-          <DashboardStorageFootprintPanel
-            language={language}
-            storageSegments={storageSegments}
-            totalStorage={totalStorage}
-            t={t}
-          />
-        </div>
-
-        <div className="dashboard-right">
-          <DashboardIntelligencePanel
-            aiMeta={aiMeta}
-            backgroundQueueCount={backgroundQueueCount}
-            embeddingProviderId={embeddingProvider?.id}
-            language={language}
-            llmProviderId={llmProvider?.id}
-            t={t}
-          />
-
-          <DashboardOnThisDayPanel
-            activeOnThisDay={activeOnThisDay}
-            activeOnThisDayError={activeOnThisDayError}
-            activeProfileId={activeProfileId}
-            intelligenceT={intelligenceT}
-            onThisDayLoading={onThisDayLoading}
-          />
-
-          <DashboardTrustActionsPanel t={t} />
-        </div>
+      <div className="grid grid-cols-1 gap-4 mb-4 lg:grid-cols-2">
+        <DashboardOnThisDay
+          entries={onThisDayEntries}
+          loading={onThisDayLoading}
+          error={onThisDayError}
+          onJumpToDate={(date) => void navigate(`/explorer?date=${encodeURIComponent(date)}&source=on-this-day`)}
+          onOpenEntry={(entry) =>
+            void navigate(
+              `/explorer?date=${encodeURIComponent(entry.date)}&source=on-this-day`,
+            )
+          }
+        />
+        <DashboardThisWeek
+          totalPages={readyDashboard.totalVisits}
+          totalUrls={readyDashboard.totalUrls}
+          recentRunsCount={readyDashboard.recentRuns.length}
+        />
       </div>
-    </section>
+
+      <PaperCard className="mb-4">
+        <PaperCardHeader
+          title={t('dashboard.yearInPagesTitle')}
+          compact
+          right={
+            <>
+              <span>
+                {t('dashboard.heatmapStreakLabel')}:{' '}
+                <span className="text-ink-secondary">
+                  {computeStreak(heatmapCells)}d
+                </span>
+              </span>
+              <PaperCardBadge onClick={() => void navigate('/intelligence')}>
+                {t('dashboard.allInsights')} →
+              </PaperCardBadge>
+            </>
+          }
+        />
+        <PaperCardBody className="px-[18px] pb-[14px] pt-[10px]">
+          <YearHeatmap
+            cells={heatmapCells}
+            onSelectDate={(date) =>
+              void navigate(`/explorer?date=${encodeURIComponent(date)}`)
+            }
+            legend={{
+              less: t('dashboard.heatmapLegendLess'),
+              more: t('dashboard.heatmapLegendMore'),
+            }}
+          />
+        </PaperCardBody>
+      </PaperCard>
+
+      <div className="grid grid-cols-1 gap-4 mb-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <DashboardActiveThreads
+            onOpenAll={() => void navigate('/intelligence')}
+            onOpenThread={() => void navigate('/intelligence')}
+          />
+        </div>
+        <DashboardArchiveCard
+          databasePath={readySnapshot.archiveStatus.databasePath}
+          archiveMode={readySnapshot.config.archiveMode}
+          totalBytes={totalStorageBytes}
+          storage={readyDashboard.storage}
+          latestManifestHash={
+            readyDashboard.recentRuns.find((run) => run.manifestHash)
+              ?.manifestHash ?? null
+          }
+        />
+      </div>
+
+      <FooterEpigraph>{t('dashboard.localFirstFooter')}</FooterEpigraph>
+    </div>
   )
 }
 
-function localizedDashboardNextAction(
-  nextAction: string | null | undefined,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-) {
-  const normalized = nextAction?.trim()
-  if (!normalized) {
-    return null
-  }
-
-  if (normalized.includes('Initialize the archive')) {
-    return t('dashboard.nextActionInitializeArchive')
-  }
-
-  if (
-    normalized.includes(
-      'Run a manual backup to create the first manifest and snapshot artifacts',
-    )
-  ) {
-    return t('dashboard.nextActionRunFirstBackup')
-  }
-
-  return normalized
+interface HeroBandProps {
+  greeting: string
+  message: string
+  stats: { value: string; label: string }[]
 }
+
+function HeroBand({ greeting, message, stats }: HeroBandProps) {
+  return (
+    <header
+      className={cn(
+        'grid grid-cols-1 items-end gap-10 border-b border-border-light pb-5 mb-7',
+        'lg:grid-cols-[1fr_auto]',
+      )}
+    >
+      <div>
+        <h1 className="mb-[6px] font-serif text-[26px] font-normal leading-[1.2] tracking-[-0.02em] text-ink">
+          {greeting}
+        </h1>
+        <p className="m-0 max-w-[500px] font-serif text-[15px] italic leading-[1.5] text-ink-muted">
+          {message}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-7">
+        {stats.map((stat) => (
+          <div key={stat.label} className="text-center">
+            <div className="font-serif text-[24px] font-normal leading-none tracking-[-0.02em] text-ink">
+              {stat.value}
+            </div>
+            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
+              {stat.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </header>
+  )
+}
+
+function FooterEpigraph({ children }: { children: string }) {
+  return (
+    <div className="border-border-light mt-6 border-t pt-5 text-center font-serif text-[13px] italic text-ink-faint pb-2">
+      {children}
+    </div>
+  )
+}
+
+function useMemoGreeting(language: string): string {
+  return useMemo(() => {
+    const now = new Date()
+    const hour = now.getHours()
+    const map: Record<string, [string, string, string]> = {
+      en: ['Good morning', 'Good afternoon', 'Good evening'],
+      'zh-CN': ['早上好', '下午好', '晚上好'],
+      'zh-TW': ['早安', '午安', '晚安'],
+    }
+    const set = map[language] ?? map.en
+    if (hour < 12) return set[0]
+    if (hour < 18) return set[1]
+    return set[2]
+  }, [language])
+}
+
+function computeStreak(cells: HeatmapCell[]): number {
+  let streak = 0
+  for (let i = cells.length - 1; i >= 0; i -= 1) {
+    if (cells[i].count > 0) {
+      streak += 1
+    } else {
+      break
+    }
+  }
+  return streak
+}
+
+function compactNumber(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(value)
+}
+
+function humanizeBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return ''
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
+}
+
+function sumStorageBytes(storage: StorageSummary): number {
+  return (
+    storage.archiveDatabaseBytes +
+    storage.sourceEvidenceDatabaseBytes +
+    storage.searchDatabaseBytes +
+    storage.intelligenceDatabaseBytes +
+    storage.manifestBytes +
+    storage.snapshotBytes +
+    storage.exportBytes +
+    storage.stagingBytes +
+    storage.quarantineBytes +
+    storage.semanticSidecarBytes +
+    storage.intelligenceBlobBytes
+  )
+}
+
+function formatSpan(
+  isoTimestamp: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  try {
+    const last = new Date(isoTimestamp)
+    if (Number.isNaN(last.getTime())) return '—'
+    const now = new Date()
+    const diffMs = now.getTime() - last.getTime()
+    const years = diffMs / (365.25 * 24 * 60 * 60 * 1000)
+    const months = diffMs / (30 * 24 * 60 * 60 * 1000)
+    const days = diffMs / (24 * 60 * 60 * 1000)
+    if (years >= 1) {
+      const wholeYears = Math.floor(years)
+      const remMonths = Math.floor((years - wholeYears) * 12)
+      return t('dashboard.spanYearsAndMonths', {
+        years: wholeYears,
+        months: remMonths,
+      })
+    }
+    if (months >= 1) {
+      return t('dashboard.spanMonths', { months: Math.floor(months) })
+    }
+    if (days >= 1) {
+      return t('dashboard.spanDays', { days: Math.floor(days) })
+    }
+    return t('dashboard.spanToday')
+  } catch {
+    return '—'
+  }
+}
+
