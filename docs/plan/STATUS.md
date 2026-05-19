@@ -14,10 +14,19 @@
 
 - [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending)
   - 讀先：
-    `/Users/tim/.claude/plans/fetch-this-design-file-purrfect-bumblebee.md` (full approved plan)
-    `/tmp/pathkeep-design/pathkeep-redesign-c/README.md`
-    `/tmp/pathkeep-design/pathkeep-redesign-c/project/pk-tokens.css`
-    `/tmp/pathkeep-design/pathkeep-redesign-c/project/PathKeep Redesign.html`
+    `docs/design/handoff/README.md` (handoff index)
+    `docs/design/handoff/paper-redesign/README.md` (cover sheet from design tool)
+    `docs/design/handoff/paper-redesign/project/pk-tokens.css` (visual rule book — 3,978 lines)
+    `docs/design/handoff/paper-redesign/project/PathKeep Redesign.html` (entry composition)
+    `docs/design/handoff/paper-redesign/project/pk-components.jsx` (PKSidebar / PKStatusBar / PKDetailPanel / PKSearchPalette / PKHeatmap)
+    `docs/design/handoff/paper-redesign/project/pk-views.jsx` (HomeView / Dashboard editorial layout — already shipped)
+    `docs/design/handoff/paper-redesign/project/pk-contactsheet.jsx` (Browse: contact sheet, day sticky, sessions, domain stacks)
+    `docs/design/handoff/paper-redesign/project/pk-browse-nav.jsx` (CalendarPopover / DayNavControl / YearRail / archive density)
+    `docs/design/handoff/paper-redesign/project/pk-search.jsx` (3-mode search hero + day-grouped results)
+    `docs/design/handoff/paper-redesign/project/pk-intelligence.jsx` (KPIs / topics / domains / sessions / refind)
+    `docs/design/handoff/paper-redesign/project/pk-assistant.jsx` (chat + evidence panel)
+    `docs/design/handoff/paper-redesign/project/pk-import.jsx` (method picker + wizard stepper)
+    `docs/design/handoff/paper-redesign/project/pk-audit.jsx` (manifest chain + runs + storage + snapshots)
     `docs/design/design-tokens.md` (will be rewritten)
     `docs/design/screens-and-nav.md` (will be rewritten)
     `docs/design/ux-principles.md` (will be rewritten)
@@ -33,14 +42,20 @@
   - 進度（2026-05-19）：
     - ✅ **Foundation shipped**：Tailwind v4 + shadcn primitives + cn helper + paper tokens.css + fonts.css (bundled Newsreader / JetBrains Mono) + paper.css (noise / vignette / animations) + tailwind.css (@theme 對應 paper tokens 與 shadcn 變數)；@/ path alias 接入 tsconfig + vite。
     - ✅ **Shell shipped**：`src/components/shell/` 新增 PKBrandMark / PKGlyph / PKSidebar / PKTopbar / PKStatusBar / PKSearchPalette；`src/app/shell.tsx` 已重寫為新 shell；i18n shell namespace 新增 paper-redesign 鍵 (findAPage / archiving / sources* / palette* / epigraph1..6) 在三語齊備。
-    - ⏳ **Routes 仍待完成**（按優先序）：
-      - `/` Dashboard：On This Day / This Week / heatmap / threads / archive card；接入 `load_dashboard_snapshot` + `get_on_this_day` + `get_top_search_concepts`。
-      - `/explorer` Browse：contact sheet + list / day-sticky / domain stacks / calendar popover / year rail / target banner；接入 `query_history` + `load_history_favicons` + `get_day_insights` + `get_browsing_rhythm`。
-      - `/search`：3-mode (keyword / regex / semantic gated) + filter chips + day-grouped results。
-      - `/intelligence`：KPI / topics / domains / sessions / threads / refind；接入 `get_intelligence_primary/secondary_overview` + 其他 Core Intelligence 讀模型。
-      - `/assistant`：chat + evidence panel + ProviderGate fallback；接 `ask_ai_assistant`。
-      - `/import` PME 流程；`/audit` chain + runs + snapshots；`/schedule` PME；`/security` passcode + keyring + S3；`/maintenance` doctor；`/jobs` 兩個 queue；`/integrations` AI provider + remote backup + MCP/skill preview；`/settings` General + Archive + Sources + Notifications + About + 字體切換；`/onboarding` 多步驟；`/lock` App Lock。
-      - PKDetailPanel + Notes/Tags wiring（detail panel slide-over，textarea debounced 寫入 annotations backend）。
+    - ✅ **Dashboard shipped**：`/` 路由已實作 paper-redesign landing page — HeroBand + greeting + 4-stat strip + On This Day card + This Week card + YearHeatmap + Active Threads + Archive card + epigraph footer；接入 `useShellData()` 與 `coreIntelligenceApi.getOnThisDay`，deep-link 進 Explorer / Intelligence。
+    - ✅ **Settings Appearance section shipped**：theme / font / density / paper texture persisted prefs in place（`appearance-section.tsx` + `paper-preferences.ts`）。
+    - ✅ **Design handoff preserved in-repo**：`docs/design/handoff/paper-redesign/` 收藏完整 design package（HTML / pk-tokens.css / 11 個 JSX）為 source-of-truth，搭配 `docs/design/handoff/README.md` 導讀。`/tmp/pathkeep-design/` 不再是必要依賴。
+    - ⏳ **Routes 仍待完成**（按優先序，每條都是獨立 work block-sized）：
+      - **`/explorer` Browse**（最大份量，視覺中心）：把現有 timeline-bar + filters + results panel + semantic / regex / runtime panels 全部重畫成 paper contact sheet — day-sticky toolbar、cs-target-banner、DayNavControl（prev / pill / next / today）、CalendarPopover（with density heatmap）、YearRail、DomainStack（>= 3 連續同 domain 折疊）、ContactFrame、ListRow、DayInsightsStrip、HourlySparkline、LoadingSkeleton、PlaceholderDay。接入既有 `useExplorerUrlState` / `useExplorerData` / `useExplorerFavicons` hooks，不要重寫 data layer。Regex / semantic / runtime / 進階篩選保留為 paper-aesthetic 抽屜或副 panel。
+      - **`/search`**：literary search hero — `sv-prompt`、`sv-input` (28 px Newsreader)、3-mode toggle (keyword / regex / semantic)、filter chips、SAVED_PROMPTS / RECENT_SEARCHES empty state、day-grouped result rows、`sv-result__seein` jump-to-Browse、provider-gated semantic snippet。
+      - **`/intelligence`**：4-KPI strip (`intel-kpis`)、topic timeline (`intel-topic-row` + bars)、top domains rank list、recent sessions、active threads、refind shelf、LLM-needed callouts；接 `get_intelligence_primary/secondary_overview`、`get_top_search_concepts`、`get_browsing_rhythm`、refind 演算。
+      - **`/assistant`**：chat surface (`assist-wrap` + `assist-msg`)、evidence panel (`assist-evidence`)、`assist-empty-prompts`、ProviderGate fallback；接 `ask_ai_assistant` + evidence anchors。
+      - **`/import`** PME：method picker (`import-methods` × 3)、wizard stepper、preview stats、file list、info callout；接 existing import preview / commit。
+      - **`/audit`**：manifest chain viz (`chain-viz` + `chain-block`)、runs table、storage breakdown bars、snapshots、export panel；接 existing audit data。
+      - **`/schedule` / `/security` / `/maintenance` / `/jobs` / `/integrations` / `/onboarding` / `/lock`**：每個用 paper card grid 重新編排既有資料；保留現有 hooks。
+      - **`/settings`**：完整 paper Settings — General / Archive / Sources / Notifications / About / 字體切換 / Accent color / Density；風格與整體一致（即使 design 圖未涵蓋）。Appearance section 已部分完成，其他 section 仍要 paper-style 重畫。
+      - **PKDetailPanel slide-over**：title + url + actions + first/last visit + visit history sparkline + provenance + title-version history + Notes textarea + Tags + "Look further" related list；textarea debounced 寫入 annotations backend。
+      - **i18n**：每個重畫的 route 上線時三語齊全；現有 `lock-and-explorer-shell.test.tsx` 對舊 topbar 的兩個 failing test 在 sweep 中同步重寫。
     - ⏳ **Backend annotations**：migration 011_notes_tags.sql + `vault-core/src/annotations/` 模組 + `commands/annotations.rs`（get / set / list / search / export）；接入 backup / retention pruning；100% Rust coverage + 通過 mutation。
     - ⏳ **Docs sweep**：design-tokens.md / screens-and-nav.md / ux-principles.md / ui-review-guardrails.md / typography-and-font-fallback.md / data-model.md 全部要按新方向重寫；新增 `docs/features/annotations.md`；intelligence.md + recall.md 移除 v0.3-coming 標記。
     - ⏳ **Memory**：feedback_brutalist_radius.md / project_v0_3_redesign.md / feedback_typography_policy.md 改成記錄 brutalist → paper 轉向。
