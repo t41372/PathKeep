@@ -1,0 +1,211 @@
+/**
+ * Paper aesthetic supporting layer.
+ *
+ * Why this file exists:
+ * - Encodes the materiality cues that make PathKeep feel like a book rather than a dashboard:
+ *   the subtle paper noise overlay, the darkroom vignette in dark mode, and the shared
+ *   keyframes used by the heatmap pulse, the contact-sheet highlight, the loading skeleton.
+ * - These rules are global and apply once at the root, so they live alongside tokens.css
+ *   instead of being pinned to any single component.
+ *
+ * The opacities for noise and vignette read from --noise-opacity / --vignette-opacity, which
+ * the Settings -> Appearance toggle can set to 0 to disable materiality entirely.
+ */
+
+/* ── Paper noise (SVG turbulence, fixed overlay). ── */
+#root::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+  opacity: var(--noise-opacity);
+  mix-blend-mode: var(--noise-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='250' height='250'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Darkroom vignette (dark mode only; light mode keeps --vignette-opacity at 0). ── */
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99998;
+  opacity: var(--vignette-opacity);
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+}
+
+/* ── Selection styling honors paper palette. ── */
+::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--ink);
+}
+
+/* ── Focus ring matches accent. ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Slim scrollbar for content surfaces. ── */
+.pk-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.pk-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.pk-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pk-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: var(--radius);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.pk-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+/* ── Reduced motion: still apply the materiality opacities, but stop animations. ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Shared keyframes used across the redesign. ── */
+@keyframes pk-slide-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pk-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pk-scale-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.92);
+    transform-origin: top;
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes pk-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes pk-pulse-cool {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes pk-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes pk-skeleton-shimmer {
+  from {
+    background-position: -800px 0;
+  }
+  to {
+    background-position: 800px 0;
+  }
+}
+
+@keyframes pk-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent);
+    background: var(--accent-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 12px transparent;
+    background: transparent;
+  }
+}
+
+/* Highlight effect used when arriving at a target row from search / on-this-day. */
+.pk-row-highlight {
+  position: relative;
+  animation: pk-highlight-pulse 2.6s ease-out;
+}
+
+/* ── Thread pulse dots: hot / warm / cool. ── */
+.pk-thread-pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pk-pulse 2s ease-in-out infinite;
+}
+.pk-thread-pulse--warm {
+  background: var(--warning);
+  animation-duration: 2.6s;
+}
+.pk-thread-pulse--cool {
+  background: var(--info);
+  animation: pk-pulse-cool 3.2s ease-in-out infinite;
+}
+
+/* ── Skeleton block for loading shells. ── */
+.pk-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-hover) 0%,
+    var(--bg-active) 50%,
+    var(--bg-hover) 100%
+  );
+  background-size: 1600px 100%;
+  animation: pk-skeleton-shimmer 1.6s linear infinite;
+  border-radius: var(--radius);
+}

@@ -1,62 +1,151 @@
-/*
- * This stylesheet defines the production token layer that mirrors the approved design-token contract.
+/**
+ * PathKeep Paper + Archival design tokens.
  *
  * Why this file exists:
- * - It is the CSS source of truth for color, spacing, typography, motion, and density values used across the shell.
- * - When the design docs change, this file is one of the first places that should move with them.
+ * - Single source of truth for color, typography, motion, density across the shell.
+ * - Replaces the brutalist v0.3 token set with the paper/archival palette from
+ *   docs/design/design-tokens.md (v0.3 redesign, paper aesthetic).
  *
  * Source-of-truth notes:
- * - Keep this aligned with `docs/design/design-tokens.md` and the typography fallback policy.
- * - New visual primitives should consume tokens instead of introducing ad-hoc color or spacing constants.
+ * - Keep aligned with docs/design/design-tokens.md and the typography fallback policy.
+ * - Light mode is the default. Dark mode is the "darkroom" variant.
+ * - The aliases at the bottom let legacy v0.2 surfaces render in the new palette
+ *   while they are being migrated. They will be removed once no consumers remain.
  */
 
 :root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* ── Surfaces ── */
+  --bg-page: #ece7de;
+  --bg-paper: #f6f3ed;
+  --bg-card: #fdfcf9;
+  --bg-hover: #e6e0d5;
+  --bg-active: #dbd4c7;
+  --bg-sidebar: #f0ebe3;
+  --bg-elevated: var(--bg-card);
+  --bg-overlay: rgba(28, 24, 20, 0.16);
+
+  /* ── Ink (text) ── */
+  --ink: #1c1814;
+  --ink-secondary: #4a4139;
+  --ink-muted: #887d6e;
+  --ink-faint: #beb3a2;
+  --ink-ghost: #d5cdc0;
+
+  /* ── Borders ── */
+  --border: #d5cdc0;
+  --border-light: #e4ddd2;
+  --border-strong: #c2b8a8;
+
+  /* ── Accent (slate blue, user-configurable via --accent-color) ── */
+  --accent-color: #3d5a80;
+  --accent: var(--accent-color);
+  --accent-soft: color-mix(in srgb, var(--accent) 8%, transparent);
+  --accent-medium: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-strong: color-mix(in srgb, var(--accent) 32%, transparent);
+  --accent-text: var(--accent);
+
+  /* ── Semantic ── */
+  --success: #4a8c5c;
+  --success-soft: color-mix(in srgb, var(--success) 12%, transparent);
+  --warning: #b38b2d;
+  --warning-soft: color-mix(in srgb, var(--warning) 14%, transparent);
+  --error: #a84040;
+  --error-soft: color-mix(in srgb, var(--error) 12%, transparent);
+  --info: #4a7aa8;
+  --info-soft: color-mix(in srgb, var(--info) 12%, transparent);
+
+  /* ── Materiality ── */
+  --noise-opacity: 0.028;
+  --noise-blend: multiply;
+  --vignette-opacity: 0;
+  --frame-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --frame-shadow-hover: 0 3px 12px rgba(0, 0, 0, 0.1);
+  --frame-shadow-strong: 0 6px 24px rgba(0, 0, 0, 0.12);
+
+  /* ── Domain fallback (for favicons / domain blocks) ── */
+  --domain-default: #8a7f70;
+}
+
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* Core Palette */
-  --bg: #0a0a0a;
-  --bg-elevated: #111111;
-  --bg-surface: #161616;
-  --bg-hover: #1a1a1a;
-  --border: #2a2a2a;
-  --border-active: #3a3a3a;
+  --bg-page: #110f0d;
+  --bg-paper: #191614;
+  --bg-card: #201c18;
+  --bg-hover: #292420;
+  --bg-active: #332d27;
+  --bg-sidebar: #151311;
+  --bg-elevated: var(--bg-card);
+  --bg-overlay: rgba(0, 0, 0, 0.5);
 
-  /* Text */
-  --text: #c8c8c8;
-  --text-muted: #6a6a6a;
-  --text-faint: #3e3e3e;
-  --text-bright: #e8e8e8;
+  --ink: #d4cbc0;
+  --ink-secondary: #a79d8e;
+  --ink-muted: #6a6055;
+  --ink-faint: #4f4639;
+  --ink-ghost: #2a2520;
 
-  /* Accent */
-  --accent: #ff7832;
-  --accent-dim: rgba(255, 120, 50, 0.15);
-  --accent-hover: #ff944d;
-  --accent-glow: rgba(255, 120, 50, 0.08);
+  --border: #302b25;
+  --border-light: #262220;
+  --border-strong: #3d362e;
 
-  /* Semantic */
-  --success: #4ade80;
-  --success-dim: rgba(74, 222, 128, 0.15);
-  --warning: #fbbf24;
-  --warning-dim: rgba(251, 191, 36, 0.15);
-  --error: #f87171;
-  --error-dim: rgba(248, 113, 113, 0.15);
-  --info: #60a5fa;
+  --accent: var(--accent-color, #3d5a80);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-medium: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-strong: color-mix(in srgb, var(--accent) 36%, transparent);
+  --accent-text: color-mix(in srgb, var(--accent) 65%, #b0c8e4);
 
-  /* Typography */
-  --font-ui:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu,
-    Cantarell, 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
-  --font-code:
-    ui-monospace, 'SFMono-Regular', 'SF Mono', 'Cascadia Mono', 'Cascadia Code',
-    Consolas, 'Liberation Mono', Menlo, monospace;
-  /* Compatibility alias for legacy shell rules; new UI should prefer --font-ui. */
-  --font-mono: var(--font-ui);
+  --success: #6aac7c;
+  --success-soft: color-mix(in srgb, var(--success) 16%, transparent);
+  --warning: #d3ab4d;
+  --warning-soft: color-mix(in srgb, var(--warning) 16%, transparent);
+  --error: #c86060;
+  --error-soft: color-mix(in srgb, var(--error) 16%, transparent);
+  --info: #6a9ac8;
+  --info-soft: color-mix(in srgb, var(--info) 16%, transparent);
 
-  /* Spacing */
+  --noise-opacity: 0.04;
+  --noise-blend: soft-light;
+  --vignette-opacity: 0.12;
+  --frame-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --frame-shadow-hover: 0 3px 12px rgba(0, 0, 0, 0.35);
+  --frame-shadow-strong: 0 8px 28px rgba(0, 0, 0, 0.5);
+
+  --domain-default: #6a6055;
+}
+
+/* ── Typography stacks ── */
+:root {
+  /* Default to bundled Newsreader. The "system" font preference is toggled by
+     setting data-fonts="system" on <html> from Settings; see fonts.css. */
+  --font-serif:
+    'Newsreader', Georgia, 'Iowan Old Style', 'Noto Serif', 'PingFang TC',
+    'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK TC', 'Noto Serif TC',
+    serif;
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang TC', 'Hiragino Sans', 'Microsoft JhengHei',
+    'Noto Sans TC', 'Noto Sans', sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas,
+    'Liberation Mono', Menlo, monospace;
+
+  /* Shape + motion */
+  --radius: 3px;
+  --radius-tight: 2px;
+  --radius-pill: 999px;
+  --transition: 150ms ease;
+  --transition-slow: 250ms ease;
+
+  /* Density */
+  --sidebar-w: 216px;
+  --sidebar-w-collapsed: 56px;
+  --topbar-h: 52px;
+  --statusbar-h: 32px;
+
+  /* Spacing scale (kept compatible with existing --space-* names). */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -66,65 +155,90 @@
   --space-8: 32px;
   --space-10: 40px;
   --space-12: 48px;
-
-  /* Density */
-  --layout-sidebar-width: 220px;
-  --layout-topbar-height: 52px;
-  --density-panel-padding: 20px;
-  --density-content-gap: 20px;
-
-  /* Shape + motion */
-  --radius: 0px;
-  --transition: 120ms ease;
 }
 
+/* ── CJK font-stack overrides per locale ── */
 :root:lang(zh-CN) {
-  --font-ui:
-    'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC',
-    'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans', ui-sans-serif, system-ui,
-    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
-  --font-mono: var(--font-ui);
+  --font-serif:
+    'Newsreader', Georgia, 'Songti SC', 'Source Han Serif SC',
+    'Noto Serif CJK SC', 'Noto Serif SC', SimSun, serif;
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
+    'Noto Sans CJK SC', 'Source Han Sans SC', 'Noto Sans SC', sans-serif;
 }
 
 :root:lang(zh-TW) {
-  --font-ui:
-    'Segoe UI Variable Text', 'Segoe UI', 'PingFang TC', 'Hiragino Sans CNS',
-    'Microsoft JhengHei UI', 'Microsoft JhengHei', 'Noto Sans CJK TC',
-    'Source Han Sans TC', 'Noto Sans TC', 'Noto Sans', ui-sans-serif, system-ui,
-    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
-  --font-mono: var(--font-ui);
+  --font-serif:
+    'Newsreader', Georgia, 'Songti TC', 'Source Han Serif TC',
+    'Noto Serif CJK TC', 'Noto Serif TC', PMingLiU, serif;
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang TC', 'Hiragino Sans CNS', 'Microsoft JhengHei UI',
+    'Noto Sans CJK TC', 'Source Han Sans TC', 'Noto Sans TC', sans-serif;
 }
 
-:root[data-theme='light'] {
-  color-scheme: light;
+/* ── System-only font preference: drop bundled families ── */
+:root[data-fonts='system'] {
+  --font-serif:
+    Georgia, 'Iowan Old Style', 'Noto Serif', 'PingFang TC',
+    'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK TC', 'Noto Serif TC',
+    serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo,
+    monospace;
+}
 
-  --bg: #f3f0ea;
-  --bg-elevated: #faf8f4;
-  --bg-surface: #ffffff;
-  --bg-hover: #ebe5dc;
-  --border: #d6cfc3;
-  --border-active: #bdb3a5;
+:root[data-fonts='system']:lang(zh-CN) {
+  --font-serif:
+    Georgia, 'Songti SC', 'Source Han Serif SC', 'Noto Serif CJK SC',
+    'Noto Serif SC', SimSun, serif;
+}
 
-  --text: #2d251d;
-  --text-muted: #6c6256;
-  --text-faint: #9f9384;
-  --text-bright: #16110c;
+:root[data-fonts='system']:lang(zh-TW) {
+  --font-serif:
+    Georgia, 'Songti TC', 'Source Han Serif TC', 'Noto Serif CJK TC',
+    'Noto Serif TC', PMingLiU, serif;
+}
 
-  --accent: #d85f21;
-  --accent-dim: rgba(216, 95, 33, 0.14);
-  --accent-hover: #ec7437;
-  --accent-glow: rgba(216, 95, 33, 0.08);
+/* ──────────────────────────────────────────────────────────────────
+   Legacy compatibility aliases.
+   Existing v0.2 surfaces reference the brutalist variable names. While the
+   paper redesign is being rolled out incrementally, alias them onto the new
+   tokens so the legacy UI continues to render — in the new palette — until
+   each page is rewritten.
 
-  --success: #2f8f4b;
-  --success-dim: rgba(47, 143, 75, 0.15);
-  --warning: #b37a00;
-  --warning-dim: rgba(179, 122, 0, 0.14);
-  --error: #c84d4d;
-  --error-dim: rgba(200, 77, 77, 0.14);
-  --info: #0d73c7;
+   Remove this block once no source file outside of src/styles/legacy.css
+   consumes these names.
+   ────────────────────────────────────────────────────────────────── */
+:root {
+  --bg: var(--bg-paper);
+  --bg-elevated: var(--bg-card);
+  --bg-surface: var(--bg-card);
+  --bg-hover: var(--bg-hover);
+  --border: var(--border);
+  --border-active: var(--border-strong);
+
+  --text: var(--ink);
+  --text-muted: var(--ink-muted);
+  --text-faint: var(--ink-faint);
+  --text-bright: var(--ink);
+
+  --accent: var(--accent);
+  --accent-dim: var(--accent-soft);
+  --accent-hover: color-mix(in srgb, var(--accent) 75%, white 25%);
+  --accent-glow: var(--accent-soft);
+
+  --success-dim: var(--success-soft);
+  --warning-dim: var(--warning-soft);
+  --error-dim: var(--error-soft);
+
+  --font-ui: var(--font-sans);
+  --font-body: var(--font-serif);
+  --font-code: var(--font-mono);
+
+  --layout-sidebar-width: var(--sidebar-w);
+  --layout-topbar-height: var(--topbar-h);
+  --density-panel-padding: var(--space-5);
+  --density-content-gap: var(--space-5);
 }

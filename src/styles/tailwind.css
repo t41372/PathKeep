@@ -1,0 +1,93 @@
+/**
+ * Tailwind v4 entry. The @theme block maps the paper design tokens onto
+ * Tailwind's utility scales so utilities like text-ink-muted, bg-paper,
+ * border-border-light, font-serif emit the correct CSS variables.
+ *
+ * shadcn/ui primitives expect a separate set of variable names (background,
+ * foreground, primary, ring, etc); we map those onto the paper tokens too so
+ * the shadcn primitives render in the paper aesthetic with no per-component
+ * overrides.
+ */
+
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@theme {
+  /* ── Paper-specific utilities ── */
+  --color-page: var(--bg-page);
+  --color-paper: var(--bg-paper);
+  --color-card-paper: var(--bg-card);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-sidebar-bg: var(--bg-sidebar);
+  --color-elevated: var(--bg-elevated);
+  --color-overlay: var(--bg-overlay);
+
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-ghost: var(--ink-ghost);
+
+  --color-border-default: var(--border);
+  --color-border-light: var(--border-light);
+  --color-border-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-medium: var(--accent-medium);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-text: var(--accent-text);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  /* ── Typography ── */
+  --font-serif: var(--font-serif);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* ── Radius and shadow ── */
+  --radius-paper: var(--radius);
+  --radius-tight: var(--radius-tight);
+  --radius-pill: var(--radius-pill);
+
+  --shadow-frame: var(--frame-shadow);
+  --shadow-frame-hover: var(--frame-shadow-hover);
+  --shadow-frame-strong: var(--frame-shadow-strong);
+
+  /* ── shadcn theme variables — mapped to paper tokens ── */
+  --color-background: var(--bg-paper);
+  --color-foreground: var(--ink);
+  --color-card: var(--bg-card);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--bg-card);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #fdfcf9;
+  --color-secondary: var(--bg-hover);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--bg-hover);
+  --color-muted-foreground: var(--ink-muted);
+  --color-destructive: var(--error);
+  --color-destructive-foreground: #fdfcf9;
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* shadcn computes md/sm/lg/xl from --radius; we want a paper-light rounding */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 3px;
+  --radius-xl: 5px;
+}
+
+/* Tell Tailwind to also scan files outside the default scan roots so any
+   future top-level template won't be missed. */
+@source "../**/*.{ts,tsx}";

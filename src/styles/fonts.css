@@ -1,0 +1,26 @@
+/**
+ * Bundled font declarations for the PathKeep paper aesthetic.
+ *
+ * Why this file exists:
+ * - PathKeep ships offline-first. We bundle Newsreader and JetBrains Mono Latin/Latin-ext
+ *   subsets via fontsource so first paint never depends on a CDN.
+ * - CJK glyphs always fall back to the system stack (declared in tokens.css). The bundled
+ *   fonts only carry Latin scripts; CJK ships zero font bytes.
+ *
+ * Each @import below pulls one weight from @fontsource. The package declares @font-face
+ * blocks per unicode-range (vietnamese / latin-ext / latin / greek / cyrillic); the
+ * browser will only download the subsets actually referenced by visible text.
+ *
+ * The Settings -> Typography toggle switches between bundled fonts and the system stack
+ * by setting data-fonts="system" on <html>; see tokens.css for the variable swap.
+ */
+
+/* Newsreader (serif) — body, headings, titles, captured page titles. */
+@import '@fontsource/newsreader/400.css';
+@import '@fontsource/newsreader/400-italic.css';
+@import '@fontsource/newsreader/500.css';
+@import '@fontsource/newsreader/600.css';
+
+/* JetBrains Mono — URLs, timestamps, code identifiers, mono small caps labels. */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';

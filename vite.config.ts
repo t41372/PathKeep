@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
+const rootDir = path.dirname(fileURLToPath(import.meta.url))
 const devServerPort = Number(process.env.PATHKEEP_DEV_SERVER_PORT || 1420)
 const browserPreviewDataset =
   process.env.PATHKEEP_BROWSER_PREVIEW_DATASET ||
@@ -9,7 +13,12 @@ const browserPreviewDataset =
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': path.join(rootDir, 'src'),
+    },
+  },
   define: {
     __PATHKEEP_BROWSER_PREVIEW_DATASET__: JSON.stringify(browserPreviewDataset),
   },
