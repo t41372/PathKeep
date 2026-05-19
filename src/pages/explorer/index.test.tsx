@@ -71,6 +71,8 @@ vi.mock('../../lib/backend-client', () => ({
     openPathInFileManager: vi.fn(),
     replayAiJob: vi.fn(),
     runAiQueueJobs: vi.fn(),
+    loadHistoryOgImages: vi.fn().mockResolvedValue([]),
+    markOgImagesShown: vi.fn().mockResolvedValue(undefined),
   },
 }))
 

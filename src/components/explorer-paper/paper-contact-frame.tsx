@@ -31,6 +31,13 @@ export interface PaperContactFrameEntry {
   time: string
   transitionType?: string | null
   faviconDataUrl?: string | null
+  /**
+   * Optional og:image preview, hydrated lazily by the card-mode hook.
+   * When present it replaces the domain-colour background with a
+   * full-bleed social card; the index + transition tokens stay legible
+   * via a top/bottom scrim so the card still scans as a paper frame.
+   */
+  ogImageDataUrl?: string | null
 }
 
 export interface PaperContactFrameProps {
@@ -79,13 +86,36 @@ export function PaperContactFrame({
     >
       <div
         className="relative flex aspect-[16/10] items-center justify-center overflow-hidden"
-        style={{ background: domainColor }}
+        style={{
+          background: entry.ogImageDataUrl ? '#000' : domainColor,
+        }}
       >
-        {entry.faviconDataUrl ? (
+        {entry.ogImageDataUrl ? (
+          <>
+            <img
+              src={entry.ogImageDataUrl}
+              alt=""
+              aria-hidden="true"
+              data-testid={testId ? `${testId}-og-image` : undefined}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            {/* Scrim so the index/transition tokens stay readable above
+                the og:image bytes. Top + bottom only — center stays clean. */}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  'linear-gradient(to bottom, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0) 18%, rgba(0,0,0,0) 82%, rgba(0,0,0,0.28) 100%)',
+              }}
+            />
+          </>
+        ) : entry.faviconDataUrl ? (
           <img
             src={entry.faviconDataUrl}
             alt=""
             aria-hidden="true"
+            data-testid={testId ? `${testId}-favicon` : undefined}
             className="h-[40%] w-auto opacity-90"
           />
         ) : (

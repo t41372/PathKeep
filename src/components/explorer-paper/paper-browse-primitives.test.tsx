@@ -215,6 +215,68 @@ describe('PaperContactFrame', () => {
     expect(screen.getAllByText('arxiv.org').length).toBeGreaterThan(0)
   })
 
+  test('renders the og:image when provided and overrides the favicon overlay', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 4,
+          title: 'A storied page',
+          domain: 'example.com',
+          url: 'https://example.com/story',
+          time: '09:15',
+          faviconDataUrl: 'data:image/png;base64,fav',
+          ogImageDataUrl: 'data:image/png;base64,ogi',
+        }}
+        domainColor="#264653"
+        domainAbbr="EXM"
+        testId="frame-og"
+      />,
+    )
+    const og = screen.getByTestId<HTMLImageElement>('frame-og-og-image')
+    expect(og.src).toBe('data:image/png;base64,ogi')
+    // favicon overlay must NOT render when og:image is present.
+    expect(screen.queryByTestId('frame-og-favicon')).toBeNull()
+  })
+
+  test('falls back to favicon when og:image is null, then to the swatch when both are null', () => {
+    const { rerender, container } = render(
+      <PaperContactFrame
+        entry={{
+          id: 5,
+          domain: 'docs.rs',
+          url: 'https://docs.rs/sqlx',
+          time: '18:45',
+          ogImageDataUrl: null,
+          faviconDataUrl: 'data:image/png;base64,onlyfav',
+        }}
+        domainColor="#aaa"
+        domainAbbr="DOC"
+        testId="frame-precedence"
+      />,
+    )
+    expect(screen.getByTestId('frame-precedence-favicon')).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-testid="frame-precedence-og-image"]'),
+    ).toBeNull()
+
+    rerender(
+      <PaperContactFrame
+        entry={{
+          id: 5,
+          domain: 'docs.rs',
+          url: 'https://docs.rs/sqlx',
+          time: '18:45',
+          ogImageDataUrl: null,
+          faviconDataUrl: null,
+        }}
+        domainColor="#aaa"
+        domainAbbr="DOC"
+        testId="frame-precedence"
+      />,
+    )
+    expect(screen.getByText('DOC')).toBeVisible()
+  })
+
   test('is safe to click without an onClick handler', () => {
     render(
       <PaperContactFrame

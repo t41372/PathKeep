@@ -345,6 +345,7 @@ function renderCardBlock({
         url: entry.url,
         time: formatTimeFromVisitTime(entry.visitTime),
         faviconDataUrl: entry.favicon?.dataUrl ?? null,
+        ogImageDataUrl: entry.ogImage?.dataUrl ?? null,
       }}
       domainColor={getDomainColor(entry.domain)}
       domainAbbr={getDomainAbbr(entry.domain)}

@@ -30,13 +30,14 @@ import {
 } from '../../lib/intelligence-ai-presentation'
 import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
-import { historyFaviconLookupKey } from './helpers'
+import { historyFaviconLookupKey, historyOgImageLookupKey } from './helpers'
 import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
+import { useExplorerOgImages } from './hooks/use-explorer-og-images'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
 import { ExplorerResultsPanel } from './panels/results-panel'
@@ -270,6 +271,11 @@ export function ExplorerPage() {
     loading,
     results: visibleTimeResults,
   })
+  const { ogImageCache } = useExplorerOgImages({
+    cacheToken: refreshKey,
+    loading,
+    results: visibleTimeResults,
+  })
   const renderedTimeResults = useMemo(() => {
     if (!visibleTimeResults) {
       return null
@@ -285,9 +291,13 @@ export function ExplorerPage() {
             historyFaviconLookupKey(item.profileId, item.url, item.visitTime),
           ) ??
           null,
+        ogImage:
+          item.ogImage ??
+          ogImageCache.get(historyOgImageLookupKey(item.url)) ??
+          null,
       })),
     }
-  }, [faviconCache, visibleTimeResults])
+  }, [faviconCache, ogImageCache, visibleTimeResults])
   const historyPage = loading
     ? (explicitPage ?? visibleTimeResults?.page ?? 1)
     : (visibleTimeResults?.page ?? explicitPage ?? 1)
