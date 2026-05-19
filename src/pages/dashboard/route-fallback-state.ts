@@ -89,6 +89,10 @@ export function resolveDashboardRouteFallback({
     return { description: error, kind: 'read-error' }
   }
 
+  if (snapshot && !snapshot.config.initialized) {
+    return { kind: 'onboarding-zero-state' }
+  }
+
   if (!snapshot || !dashboard) {
     return { kind: 'archive-unavailable' }
   }

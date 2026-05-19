@@ -217,7 +217,10 @@ export function AppShell() {
           backupRunning={archiving}
           archiveInitialized={initialized}
         />
-        <main className="pk-scrollbar flex-1 min-h-0 overflow-y-auto px-7 pb-7">
+        <main
+          className="pk-scrollbar flex-1 min-h-0 overflow-y-auto px-7 pb-7"
+          data-testid="app-scroll"
+        >
           <Outlet />
         </main>
         <PKStatusBar

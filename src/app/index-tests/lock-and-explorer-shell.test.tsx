@@ -197,7 +197,7 @@ describe('App shell', () => {
       expect(document.querySelectorAll('.record-item')).toHaveLength(50),
     )
 
-    const scrollContainer = document.querySelector('.workspace-scroll')
+    const scrollContainer = screen.getByTestId('app-scroll')
     expect(scrollContainer).toBeInstanceOf(HTMLElement)
     expectHtmlElement(scrollContainer).scrollTop = 240
 
@@ -257,7 +257,7 @@ describe('App shell', () => {
     ).toBeDisabled()
   })
 
-  test('topbar no longer exposes the removed global search control', async () => {
+  test('paper topbar uses a palette opener instead of a global search box', async () => {
     await seedArchiveRun()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/'],
@@ -266,9 +266,14 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     expect(await screen.findByTestId('app-shell')).toBeInTheDocument()
+    // The paper redesign removes the v0.2 topbar searchbox: search lives in a
+    // ⌘K palette, and notifications are not part of the chrome.
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Notifications' }),
+      screen.queryByRole('button', { name: 'Notifications' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Find a page/i }),
     ).toBeInTheDocument()
   })
 
