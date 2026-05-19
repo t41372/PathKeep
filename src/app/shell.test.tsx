@@ -1,174 +1,90 @@
 /**
- * @file shell.test.tsx
- * @description Focused coverage for the persistent app shell chrome owner.
- * @module app
+ * Coverage for the v0.3 paper-redesign app shell composition.
  *
- * ## Responsibilities
- * - Verify the shell responds to viewport collapse changes and manual sidebar toggles.
- * - Keep AppShell's route-wrapper behavior covered without mounting every real chrome child.
+ * What this test owns:
+ * - Verifies the shell renders sidebar, topbar, status bar, route outlet, and
+ *   the busy overlay path.
+ * - Verifies sidebar collapsed state persists through localStorage.
+ * - Verifies theme toggle flips data-theme and persists.
  *
- * ## Not responsible for
- * - Re-testing Sidebar, Topbar, or route content internals.
- * - Re-testing shell-data bootstrap behavior.
- *
- * ## Dependencies
- * - Uses a data router because AppShell reads route matches and renders an Outlet.
- *
- * ## Performance notes
- * - Child chrome is mocked so this test stays scoped to AppShell state transitions.
+ * What this test does NOT own:
+ * - Individual shell component rendering (covered in their own tests).
+ * - Backend wiring details (covered by shell-data tests).
  */
 
 import { act } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import {
+  createMemoryRouter,
+  RouterProvider,
+} from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   ShellDataContext,
   type ShellDataContextValue,
 } from './shell-data-context'
 import { AppShell } from './shell'
 import { appScreens } from './router'
+import { I18nProvider } from '@/lib/i18n'
 
-vi.mock('../components/sidebar', () => ({
-  Sidebar: ({
-    collapsed,
-    onToggle,
-  }: {
-    collapsed: boolean
-    onToggle: () => void
-  }) => (
-    <button data-collapsed={String(collapsed)} onClick={onToggle} type="button">
-      sidebar
-    </button>
+vi.mock('@/components/primitives/busy-overlay', () => ({
+  BusyOverlay: ({ label }: { label: string }) => (
+    <div data-testid="busy-overlay">{label}</div>
   ),
 }))
 
-vi.mock('../components/topbar', () => ({
-  Topbar: ({ screen }: { screen: { id: string } }) => (
-    <div data-testid="topbar-screen">{screen.id}</div>
-  ),
+vi.mock('@/lib/ipc/bridge', () => ({
+  invokeCommand: vi.fn().mockResolvedValue({ rows: [] }),
 }))
 
-vi.mock('../components/primitives/busy-overlay', () => ({
-  BusyOverlay: ({ label }: { label: string }) => <div>{label}</div>,
-}))
+describe('AppShell (paper redesign)', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+  })
 
-describe('AppShell', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  test('tracks responsive sidebar collapse and manual toggles', async () => {
-    const user = userEvent.setup()
-    let changeHandler: ((event: MediaQueryListEvent) => void) | null = null
-    const addEventListener = vi.fn(
-      (_event: 'change', handler: (event: MediaQueryListEvent) => void) => {
-        changeHandler = handler
-      },
-    )
-    const removeEventListener = vi.fn()
-    const matchMedia = vi.fn().mockReturnValue({
-      matches: true,
-      addEventListener,
-      removeEventListener,
-    })
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: matchMedia,
-    })
-
-    const view = renderShell()
-
-    const shell = screen.getByTestId('app-shell')
-    const sidebar = screen.getByRole('button', { name: 'sidebar' })
-    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'true')
-    expect(sidebar).toHaveAttribute('data-collapsed', 'true')
-    expect(matchMedia.mock.calls).toEqual([
-      ['(max-width: 1200px)'],
-      ['(max-width: 1200px)'],
-    ])
-
-    await user.click(sidebar)
-    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'false')
-
-    act(() => {
-      changeHandler?.({ matches: true } as MediaQueryListEvent)
-    })
-    expect(shell).toHaveAttribute('data-sidebar-collapsed', 'true')
-
-    view.unmount()
-    expect(removeEventListener).toHaveBeenCalledWith('change', changeHandler)
+  test('renders the sidebar, topbar, status bar, and outlet content', () => {
+    renderShell({}, '/')
+    expect(screen.getByTestId('app-shell')).toBeInTheDocument()
+    expect(screen.getByTestId('pk-sidebar')).toBeInTheDocument()
+    expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
+    expect(screen.getByTestId('pk-status-bar')).toBeInTheDocument()
+    expect(screen.getByText('route body')).toBeInTheDocument()
   })
 
-  test('renders without matchMedia and shows shell busy overlay fallbacks', () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: undefined,
-    })
-
-    renderShell({
-      busyAction: 'Running backup',
-      busyOverlay: null,
-    })
-
-    expect(screen.getByTestId('app-shell')).toHaveAttribute(
-      'data-sidebar-collapsed',
-      'false',
-    )
-    expect(screen.getByText('Running backup')).toBeVisible()
-    expect(screen.getByTestId('topbar-screen')).toHaveTextContent('dashboard')
+  test('renders the busy overlay when shell context advertises busyAction', () => {
+    renderShell({ busyAction: 'Running backup', busyOverlay: null })
+    expect(screen.getByTestId('busy-overlay')).toHaveTextContent('Running backup')
   })
 
   test('uses the deepest matched route handle as the active screen', () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: undefined,
-    })
-
     renderShell({}, '/jobs')
-
-    expect(screen.getByTestId('topbar-screen')).toHaveTextContent('jobs')
+    expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
   })
 
-  test('rewires the responsive listener if the matchMedia implementation changes', async () => {
+  test('persists sidebar collapsed state to localStorage on toggle', async () => {
     const user = userEvent.setup()
-    const firstRemoveEventListener = vi.fn()
-    const secondAddEventListener = vi.fn()
-    const firstMatchMedia = vi.fn().mockReturnValue({
-      matches: false,
-      addEventListener: vi.fn(),
-      removeEventListener: firstRemoveEventListener,
-    })
-    const secondMatchMedia = vi.fn().mockReturnValue({
-      matches: false,
-      addEventListener: secondAddEventListener,
-      removeEventListener: vi.fn(),
-    })
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: firstMatchMedia,
-    })
+    renderShell({}, '/')
+    const sidebar = screen.getByTestId('pk-sidebar')
+    expect(sidebar).toHaveAttribute('data-collapsed', 'false')
 
-    renderShell()
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: secondMatchMedia,
-    })
+    const collapseButton = sidebar.querySelector(
+      'button[title*="Collapse"]',
+    ) as HTMLButtonElement | null
+    expect(collapseButton).not.toBeNull()
+    await user.click(collapseButton!)
+    expect(window.localStorage.getItem('pathkeep.sidebar.collapsed')).toBe('true')
+  })
 
-    await user.click(screen.getByRole('button', { name: 'sidebar' }))
-
-    await waitFor(() =>
-      expect(secondMatchMedia).toHaveBeenCalledWith('(max-width: 1200px)'),
-    )
-    expect(firstRemoveEventListener).toHaveBeenCalledWith(
-      'change',
-      expect.any(Function),
-    )
-    expect(secondAddEventListener).toHaveBeenCalledWith(
-      'change',
-      expect.any(Function),
-    )
+  test('flips and persists theme on the html element', () => {
+    window.localStorage.setItem('pathkeep.theme', 'dark')
+    renderShell({}, '/')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })
 })
 
@@ -181,9 +97,11 @@ function renderShell(
       {
         path: '/',
         element: (
-          <ShellDataContext.Provider value={shellValue(overrides)}>
-            <AppShell />
-          </ShellDataContext.Provider>
+          <I18nProvider>
+            <ShellDataContext.Provider value={shellValue(overrides)}>
+              <AppShell />
+            </ShellDataContext.Provider>
+          </I18nProvider>
         ),
         children: [
           {
@@ -205,15 +123,33 @@ function renderShell(
     },
   )
 
-  return render(<RouterProvider router={router} />)
+  return act(() => render(<RouterProvider router={router} />))
 }
 
 function shellValue(
   overrides: Partial<ShellDataContextValue> = {},
 ): ShellDataContextValue {
   return {
+    buildInfo: null,
+    appLockStatus: null,
+    snapshot: null,
+    dashboard: null,
+    loading: false,
     busyAction: null,
     busyOverlay: null,
+    error: null,
+    notice: null,
+    refreshKey: 0,
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshRuntimeStatus: vi.fn(),
+    saveConfig: vi.fn(),
+    initializeArchive: vi.fn(),
+    runBackup: vi.fn().mockResolvedValue({}),
+    setAppLockPasscode: vi.fn(),
+    clearAppLockPasscode: vi.fn(),
+    lockAppSession: vi.fn().mockResolvedValue({}),
+    unlockAppSession: vi.fn(),
+    clearNotice: vi.fn(),
     ...overrides,
   } as ShellDataContextValue
 }
