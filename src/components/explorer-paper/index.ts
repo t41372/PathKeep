@@ -131,3 +131,22 @@ export type {
   PaperRefindItem,
   PaperRefindShelfProps,
 } from './paper-refind-shelf'
+
+export { PaperAssistantMessage } from './paper-assistant-message'
+export type {
+  PaperAssistantEvidence,
+  PaperAssistantMessageProps,
+  PaperAssistantRole,
+} from './paper-assistant-message'
+
+export { PaperAssistantComposer } from './paper-assistant-composer'
+export type {
+  PaperAssistantComposerCopy,
+  PaperAssistantComposerProps,
+} from './paper-assistant-composer'
+
+export { PaperAssistantGreeting } from './paper-assistant-greeting'
+export type {
+  PaperAssistantGreetingProps,
+  PaperAssistantGreetingPrompt,
+} from './paper-assistant-greeting'
