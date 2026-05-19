@@ -91,13 +91,14 @@ describe('main entrypoint', () => {
     expect(renderMock).toHaveBeenCalledTimes(1)
   })
 
-  test('ignores unsupported persisted theme values', async () => {
+  test('treats unsupported persisted theme values as light (paper default)', async () => {
     window.localStorage.setItem('pathkeep.theme', 'sepia')
     window.localStorage.setItem('pathkeep-language-preference', 'zh-TW')
 
     await import('./main.tsx')
 
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    // applyPaperPreferences resolves any unknown value back to the paper default.
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
     expect(document.documentElement.lang).toBe('zh-TW')
     expect(renderMock).toHaveBeenCalledTimes(1)
   })
@@ -121,7 +122,9 @@ describe('main entrypoint', () => {
 
     await import('./main.tsx')
 
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    // Even when localStorage explodes, applyPaperPreferences still applies the
+    // paper defaults so the app renders the right surface instead of a blank one.
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
     expect(document.documentElement.lang).toBe('en-US')
     expect(renderMock).toHaveBeenCalledTimes(1)
 
