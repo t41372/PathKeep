@@ -185,3 +185,16 @@ export type {
   PaperAssistantViewCopy,
   PaperAssistantViewProps,
 } from './paper-assistant-view'
+
+export { PaperImportView } from './paper-import-view'
+export type {
+  PaperImportMethod,
+  PaperImportViewProps,
+} from './paper-import-view'
+
+export { PaperAuditView } from './paper-audit-view'
+export type {
+  PaperAuditChainEntry,
+  PaperAuditViewCopy,
+  PaperAuditViewProps,
+} from './paper-audit-view'
