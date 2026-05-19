@@ -279,13 +279,21 @@
 /* ═══ STATS ROW ═══ */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* Responsive: 4 cards on wide viewports, wraps to 2 then 1 as space shrinks.
+     `minmax(0, 1fr)` lets a card shrink below its intrinsic content width so
+     long evidence strings (e.g. 64-char SHA-256 manifest hashes) get truncated
+     by their own overflow rules instead of pushing the row past the viewport. */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
 
 .stat-block,
 .stat-card {
+  /* `min-width: 0` is critical: it lets the grid track shrink below
+     intrinsic min-content, which keeps a card with a long manifest hash
+     from blowing the entire row wider than the viewport. */
+  min-width: 0;
   border: 1px solid var(--border);
   padding: var(--space-4);
   background: var(--bg);
@@ -320,6 +328,18 @@
 }
 
 /* Stat values stay uniform white per the design package; tone is signaled by .stat-delta only. */
+
+.stat-detail,
+.stat-delta {
+  /* Cards may carry evidence strings (manifest hashes, profile paths) that
+     would otherwise widen the card past its grid track. Truncate with
+     ellipsis so the column stays at its allotted width. */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .stat-detail {
   font-family: var(--font-code);

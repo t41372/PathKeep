@@ -21,12 +21,25 @@
 /* ═══ DASHBOARD GRID ═══ */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  /* `minmax(0, 1fr)` lets the left column shrink below its intrinsic
+     min-content width, which is required when child tables or hashes have
+     long unbreakable runs. Without this the grid forces both columns wider
+     than the viewport. */
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: var(--space-4);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .dashboard-left,
 .dashboard-right {
+  /* Same min-width rule as the parent — children of a grid track default to
+     `auto` which can exceed the track width when content is wide. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);

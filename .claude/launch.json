@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pathkeep-vite",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run dev"],
+      "port": 1420
+    }
+  ]
+}
