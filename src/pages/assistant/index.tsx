@@ -42,6 +42,15 @@ import {
   type AssistantConversationMessage,
 } from './conversation-panel'
 import { AssistantQueueSidebar, AssistantRuntimePanels } from './runtime-panels'
+import {
+  PaperAssistantView,
+  type PaperAssistantEvidence,
+  type PaperAssistantMessageDescriptor,
+} from '@/components/explorer-paper'
+import {
+  buildPaperAssistantPrompts,
+  buildPaperAssistantViewCopy,
+} from './paper-assistant-copy'
 
 /**
  * Explains how message id works.
@@ -490,27 +499,47 @@ export function AssistantPage() {
       ) : null}
 
       <div className="assistant-layout">
-        <AssistantConversationPanel
-          assistantT={assistantT}
-          handleCancelJob={handleCancelJob}
-          handleDrainQueue={handleDrainQueue}
-          handleLoadQueuedJob={handleLoadQueuedJob}
-          input={input}
-          language={language}
-          messages={messages}
-          onInputChange={setInput}
-          onPromptPick={setInput}
-          onSend={() => {
-            void handleSend()
-          }}
-          queueAction={queueAction}
-          responseMetaFor={(response) =>
-            assistantResponseMeta(response, intelligenceT)
-          }
-          sending={sending}
-          suggestedQuestions={suggestedQuestions}
-          t={t}
-        />
+        {searchParams.get('layout') === 'paper' ? (
+          <PaperAssistantPanel
+            assistantT={assistantT}
+            input={input}
+            language={language}
+            messages={messages}
+            onInputChange={setInput}
+            onSend={() => {
+              void handleSend()
+            }}
+            providerLabel={
+              llmProvider
+                ? `${llmProvider.name} / ${llmProvider.defaultModel}`
+                : null
+            }
+            sending={sending}
+            userByline={assistantT('paperUserByline')}
+          />
+        ) : (
+          <AssistantConversationPanel
+            assistantT={assistantT}
+            handleCancelJob={handleCancelJob}
+            handleDrainQueue={handleDrainQueue}
+            handleLoadQueuedJob={handleLoadQueuedJob}
+            input={input}
+            language={language}
+            messages={messages}
+            onInputChange={setInput}
+            onPromptPick={setInput}
+            onSend={() => {
+              void handleSend()
+            }}
+            queueAction={queueAction}
+            responseMetaFor={(response) =>
+              assistantResponseMeta(response, intelligenceT)
+            }
+            sending={sending}
+            suggestedQuestions={suggestedQuestions}
+            t={t}
+          />
+        )}
 
         <AssistantQueueSidebar
           assistantT={assistantT}
@@ -521,4 +550,100 @@ export function AssistantPage() {
       </div>
     </section>
   )
+}
+
+/**
+ * Mounts PaperAssistantView with the conversation state from the v0.2
+ * route. Splitting this out keeps `AssistantPage`'s render block thin and
+ * gives the message mapping its own narrow surface.
+ */
+function PaperAssistantPanel({
+  assistantT,
+  input,
+  language,
+  messages,
+  onInputChange,
+  onSend,
+  providerLabel,
+  sending,
+  userByline,
+}: {
+  assistantT: (key: string, vars?: Record<string, string | number>) => string
+  input: string
+  language: string
+  messages: AssistantConversationMessage[]
+  onInputChange: (next: string) => void
+  onSend: () => void
+  providerLabel: string | null
+  sending: boolean
+  userByline: string
+}) {
+  void language
+  const copy = useMemo(
+    () =>
+      buildPaperAssistantViewCopy(assistantT, {
+        providerLabel: providerLabel ?? null,
+      }),
+    [assistantT, providerLabel],
+  )
+  const prompts = useMemo(
+    () => buildPaperAssistantPrompts(assistantT),
+    [assistantT],
+  )
+  const assistantBylineLive = providerLabel
+    ? assistantT('paperAssistantByline', { provider: providerLabel })
+    : assistantT('paperComposerAttributionFallback')
+  const mapped = useMemo<PaperAssistantMessageDescriptor[]>(
+    () =>
+      messages.map((message) => ({
+        id: message.id,
+        role: message.role === 'user' ? 'user' : 'ai',
+        content: message.content,
+        byline: message.role === 'user' ? userByline : assistantBylineLive,
+        evidence:
+          message.role === 'assistant' && message.response
+            ? citationsToEvidence(message.response.citations)
+            : undefined,
+      })),
+    [assistantBylineLive, messages, userByline],
+  )
+
+  return (
+    <div className="assistant-paper-layout" data-testid="paper-assistant-panel">
+      <PaperAssistantView
+        messages={mapped}
+        input={input}
+        pending={sending}
+        prompts={prompts}
+        onInputChange={onInputChange}
+        onSubmit={(value) => {
+          onInputChange(value)
+          onSend()
+        }}
+        onPickPrompt={(prompt) => onInputChange(prompt.text)}
+        copy={copy}
+        testId="paper-assistant-view"
+      />
+    </div>
+  )
+}
+
+function citationsToEvidence(
+  citations: readonly { url: string; title?: string | null; visitedAt: string }[],
+): PaperAssistantEvidence[] {
+  return citations.map((citation, index) => {
+    let domain = ''
+    try {
+      domain = new URL(citation.url).hostname.replace(/^www\./, '')
+    } catch {
+      domain = ''
+    }
+    return {
+      id: `${citation.url}-${index}`,
+      date: citation.visitedAt.slice(0, 10),
+      title: citation.title?.trim() ? citation.title : citation.url,
+      domain,
+      url: citation.url,
+    }
+  })
 }
