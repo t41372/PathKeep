@@ -308,7 +308,7 @@
 
 .stat-value {
   font-family: var(--font-code);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--text-bright);
   letter-spacing: -0.02em;

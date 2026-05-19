@@ -108,9 +108,9 @@
 }
 
 .page-title {
-  font-family: var(--font-ui);
-  font-size: 16px;
-  font-weight: 650;
+  font-family: var(--font-code);
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text-bright);
   letter-spacing: 0.02em;
   margin: 0;
