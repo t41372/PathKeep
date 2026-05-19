@@ -298,6 +298,13 @@ export interface HistoryEntry {
   favicon?: {
     dataUrl: string
   } | null
+  /**
+   * Page-level og:image preview hydrated by the card-mode lookup hook.
+   * Distinct from {@link favicon}; either may be present independently.
+   */
+  ogImage?: {
+    dataUrl: string
+  } | null
   visitedAt: string
   visitTime: number
   durationMs?: number | null
@@ -332,6 +339,61 @@ export interface HistoryFaviconLookupResult {
   favicon?: {
     dataUrl: string
   } | null
+}
+
+/**
+ * Defines one batch og:image lookup entry. Card-mode hydration keys by page
+ * URL only — og:image describes the page itself, not the visit, and the
+ * cache is shared across browser profiles.
+ */
+export interface HistoryOgImageLookupEntry {
+  url: string
+}
+
+/**
+ * Defines one resolved og:image payload returned by the lazy card-mode lookup.
+ *
+ * `fetchStatus` is one of `ok | missing | http_error | parse_error |
+ * too_large | unsupported_mime | blocked | pending`. The frontend renders
+ * the og:image bytes only when status is `ok`; other statuses tell the UI
+ * whether to fall back to the favicon, the domain swatch, or a "block
+ * lifted" hint.
+ */
+export interface HistoryOgImageLookupResult {
+  url: string
+  ogImage?: {
+    dataUrl: string
+  } | null
+  fetchStatus: string
+}
+
+/** Cache footprint reported by `get_og_image_storage_stats`. */
+export interface OgImageStorageStats {
+  rowCount: number
+  blobCount: number
+  totalBytes: number
+  oldestFetchedAt?: string | null
+}
+
+/** Outcome of one cleanup pass. */
+export interface OgImageCleanupReport {
+  deletedRows: number
+  deletedBlobs: number
+  reclaimedBytes: number
+}
+
+/** User-pickable eviction mode for the og:image cache. Default is Off. */
+export type OgImageCleanupMode =
+  | { mode: 'off' }
+  | { mode: 'timeTtl'; maxAgeDays: number }
+  | { mode: 'sizeCap'; maxBytes: number }
+  | { mode: 'lru'; maxBytes: number }
+
+/** Persisted Settings → Storage → Link previews block. */
+export interface OgImageSettings {
+  fetchEnabled: boolean
+  blockedHosts: string[]
+  cleanup: OgImageCleanupMode
 }
 
 /**

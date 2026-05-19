@@ -226,6 +226,35 @@ export const backend = {
         favicon?: { dataUrl: string } | null
       }[]
     >('load_history_favicons', { entries }),
+  loadHistoryOgImages: (entries: { url: string }[]) =>
+    call<
+      {
+        url: string
+        ogImage?: { dataUrl: string } | null
+        fetchStatus: string
+      }[]
+    >('load_history_og_images', { entries }),
+  markOgImagesShown: (urls: string[]) =>
+    call<void>('mark_og_images_shown', { urls }),
+  triggerOgImageRefetch: (urls: string[]) =>
+    call<number>('trigger_og_image_refetch', { urls }),
+  getOgImageStorageStats: () =>
+    call<{
+      rowCount: number
+      blobCount: number
+      totalBytes: number
+      oldestFetchedAt?: string | null
+    }>('get_og_image_storage_stats', {}),
+  clearOgImageCache: () =>
+    call<{ deletedRows: number; deletedBlobs: number; reclaimedBytes: number }>(
+      'clear_og_image_cache',
+      {},
+    ),
+  runOgImageCleanup: () =>
+    call<{ deletedRows: number; deletedBlobs: number; reclaimedBytes: number }>(
+      'run_og_image_cleanup',
+      {},
+    ),
   loadDashboardSnapshot: () =>
     call<DashboardSnapshot>('load_dashboard_snapshot'),
   loadAuditRunDetail: (runId: number) =>

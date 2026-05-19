@@ -231,6 +231,14 @@ export function historyFaviconLookupKey(
   return `${profileId}\n${url}\n${visitTime ?? 0}`
 }
 
+/**
+ * Builds the cache key used by the og:image hydration hook. og:images are
+ * page-level (no profile / visit-time scoping) so the key is just the URL.
+ */
+export function historyOgImageLookupKey(url: string) {
+  return url
+}
+
 function compactMiddle(text: string, maxLength: number) {
   if (text.length <= maxLength) return text
 

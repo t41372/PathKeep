@@ -26,8 +26,8 @@
 use serde::Deserialize;
 use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
-    ExportRequest, HistoryFaviconLookupEntry, HistoryQuery, S3CredentialInput, SchedulePlan,
-    TakeoutRequest,
+    ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
+    S3CredentialInput, SchedulePlan, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -78,6 +78,22 @@ pub(super) struct QueryHistoryPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct HistoryFaviconPayload {
     pub(super) entries: Vec<HistoryFaviconLookupEntry>,
+}
+
+/// Mirrors the favicon lookup batching for og:image hydration so the
+/// dev bridge can exercise the card-mode hydration path under Playwright.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HistoryOgImagePayload {
+    pub(super) entries: Vec<HistoryOgImageLookupEntry>,
+}
+
+/// Carries a flat list of page URLs for the og:image mark-shown,
+/// trigger-refetch, and (future) selective-clear bridge endpoints.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OgImageUrlsPayload {
+    pub(super) urls: Vec<String>,
 }
 
 /// Identifies an audit or job run for detail lookups without exposing archive

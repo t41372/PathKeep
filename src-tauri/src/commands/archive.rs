@@ -131,6 +131,87 @@ pub(crate) async fn load_history_favicons(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Loads cached og:image payloads for already-visible card-mode rows.
+pub(crate) async fn load_history_og_images(
+    entries: Vec<vault_core::HistoryOgImageLookupEntry>,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("load_history_og_images", move || {
+        worker_bridge::load_history_og_images_impl(entries, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Bumps `last_shown_at` so LRU eviction has a fresh signal.
+pub(crate) async fn mark_og_images_shown(
+    urls: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<(), String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("mark_og_images_shown", move || {
+        worker_bridge::mark_og_images_shown_impl(urls, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Fetches og:image previews for the supplied URLs and persists each outcome.
+pub(crate) async fn trigger_og_image_refetch(
+    urls: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<u32, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("trigger_og_image_refetch", move || {
+        worker_bridge::refetch_og_images_impl(urls, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reports the current og:image cache footprint to the Settings panel.
+pub(crate) async fn get_og_image_storage_stats(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::OgImageStorageStats, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("get_og_image_storage_stats", move || {
+        worker_bridge::og_image_storage_stats_impl(session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Empties both og:image cache tables (behind the Settings confirm dialog).
+pub(crate) async fn clear_og_image_cache(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::OgImageCleanupReport, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("clear_og_image_cache", move || {
+        worker_bridge::clear_og_image_cache_impl(session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Runs one eviction pass using the user's configured cleanup mode.
+pub(crate) async fn run_og_image_cleanup(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::OgImageCleanupReport, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("run_og_image_cleanup", move || {
+        worker_bridge::run_og_image_cleanup_impl(session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the dashboard summary shown on the archive home surface.
 pub(crate) fn load_dashboard_snapshot(
     state: State<'_, SessionState>,

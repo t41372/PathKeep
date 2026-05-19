@@ -16,8 +16,12 @@
 import type {
   HistoryFaviconLookupEntry,
   HistoryFaviconLookupResult,
+  HistoryOgImageLookupEntry,
+  HistoryOgImageLookupResult,
   HistoryQuery,
   HistoryQueryResponse,
+  OgImageCleanupReport,
+  OgImageStorageStats,
 } from '../types'
 import { call } from './shared'
 
@@ -31,4 +35,16 @@ export const explorerClient = {
     call<HistoryQueryResponse>('query_history', { query }),
   loadHistoryFavicons: (entries: HistoryFaviconLookupEntry[]) =>
     call<HistoryFaviconLookupResult[]>('load_history_favicons', { entries }),
+  loadHistoryOgImages: (entries: HistoryOgImageLookupEntry[]) =>
+    call<HistoryOgImageLookupResult[]>('load_history_og_images', { entries }),
+  markOgImagesShown: (urls: string[]) =>
+    call<void>('mark_og_images_shown', { urls }),
+  triggerOgImageRefetch: (urls: string[]) =>
+    call<number>('trigger_og_image_refetch', { urls }),
+  getOgImageStorageStats: () =>
+    call<OgImageStorageStats>('get_og_image_storage_stats', {}),
+  clearOgImageCache: () =>
+    call<OgImageCleanupReport>('clear_og_image_cache', {}),
+  runOgImageCleanup: () =>
+    call<OgImageCleanupReport>('run_og_image_cleanup', {}),
 }

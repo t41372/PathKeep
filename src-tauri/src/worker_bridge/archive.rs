@@ -108,6 +108,57 @@ pub(crate) fn load_history_favicons_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Loads cached og:image payloads for already-visible card-mode rows.
+pub(crate) fn load_history_og_images_impl(
+    entries: Vec<vault_core::HistoryOgImageLookupEntry>,
+    session_database_key: Option<&str>,
+) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, String> {
+    worker_result(vault_worker::load_history_og_images(session_database_key, entries))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Bumps `last_shown_at` for the supplied page URLs (LRU eviction signal).
+pub(crate) fn mark_og_images_shown_impl(
+    urls: Vec<String>,
+    session_database_key: Option<&str>,
+) -> Result<(), String> {
+    worker_result(vault_worker::mark_og_images_shown(session_database_key, urls))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Fetches og:image previews for the given URLs and persists each outcome.
+pub(crate) fn refetch_og_images_impl(
+    urls: Vec<String>,
+    session_database_key: Option<&str>,
+) -> Result<u32, String> {
+    worker_result(vault_worker::refetch_og_images(session_database_key, urls))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Reports the current og:image cache footprint to Settings → Storage.
+pub(crate) fn og_image_storage_stats_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageStorageStats, String> {
+    worker_result(vault_worker::og_image_storage_stats(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Empties both og:image cache tables (behind the Settings confirm dialog).
+pub(crate) fn clear_og_image_cache_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCleanupReport, String> {
+    worker_result(vault_worker::clear_og_image_cache(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Runs one eviction pass using the user's configured cleanup mode.
+pub(crate) fn run_og_image_cleanup_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCleanupReport, String> {
+    worker_result(vault_worker::run_og_image_cleanup(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the dashboard snapshot for the current archive.
 pub(crate) fn dashboard_snapshot_impl(
     session_database_key: Option<&str>,

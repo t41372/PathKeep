@@ -151,6 +151,42 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "load_history_og_images" => {
+            let payload = parse_payload::<HistoryOgImagePayload>(payload)?;
+            json_value!(worker_bridge::load_history_og_images_impl(
+                payload.entries,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "mark_og_images_shown" => {
+            let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
+            json_value!(worker_bridge::mark_og_images_shown_impl(
+                payload.urls,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "trigger_og_image_refetch" => {
+            let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
+            json_value!(worker_bridge::refetch_og_images_impl(
+                payload.urls,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_og_image_storage_stats" => {
+            json_value!(worker_bridge::og_image_storage_stats_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "clear_og_image_cache" => {
+            json_value!(worker_bridge::clear_og_image_cache_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "run_og_image_cleanup" => {
+            json_value!(worker_bridge::run_og_image_cleanup_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(
                 session_key(&state.session).as_deref()

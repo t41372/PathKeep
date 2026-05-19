@@ -189,6 +189,104 @@ pub fn load_history_favicons(
     vault_core::load_history_favicons(&paths, &config, session_database_key, entries)
 }
 
+/// Loads cached og:image payloads for already-visible card-mode rows.
+pub fn load_history_og_images(
+    session_database_key: Option<&str>,
+    entries: Vec<vault_core::HistoryOgImageLookupEntry>,
+) -> Result<Vec<vault_core::HistoryOgImageLookupResult>> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::og_images::load_og_images(&paths, &config, session_database_key, entries)
+}
+
+/// Bumps `last_shown_at` for the given page URLs. Frontend calls this in
+/// a debounced batch after cards settle into view so user-configured
+/// LRU eviction has a real signal.
+pub fn mark_og_images_shown(
+    session_database_key: Option<&str>,
+    urls: Vec<String>,
+) -> Result<()> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    vault_core::og_images::mark_og_images_shown(&connection, &urls)
+}
+
+/// Reports cache footprint to the Settings → Storage panel.
+pub fn og_image_storage_stats(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageStorageStats> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    vault_core::og_images::storage_stats(&connection)
+}
+
+/// Drops every og:image cache row and its blob bytes. Behind the
+/// Settings → "Clear all link previews" confirm dialog.
+pub fn clear_og_image_cache(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCleanupReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    vault_core::og_images::clear_cache(&connection)
+}
+
+/// Runs one cleanup pass using the user's configured eviction mode.
+/// Settings exposes this as "Run cleanup now"; the daily schedule tick
+/// will also call this in C5.
+pub fn run_og_image_cleanup(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCleanupReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    vault_core::og_images::run_cleanup(&connection, config.og_image.cleanup)
+}
+
+/// Fetches og:image previews for the given URLs synchronously, one at
+/// a time, and persists each outcome. Skips URLs whose host is on the
+/// user's blocklist and short-circuits the whole call when the user
+/// has disabled fetching globally.
+///
+/// This is the entry point Tauri commands hand to `spawn_blocking` so
+/// the UI thread never sees a network stall. A future iteration can
+/// add parallelism + per-host rate limiting; for now we keep the
+/// politest possible default of strict serial fetching.
+pub fn refetch_og_images(
+    session_database_key: Option<&str>,
+    urls: Vec<String>,
+) -> Result<u32> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    if !config.og_image.fetch_enabled {
+        return Ok(0);
+    }
+    let connection =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    let client = vault_core::og_images_fetch::build_fetch_client()
+        .context("building og:image fetch client")?;
+    let mut successful = 0_u32;
+    for url in urls {
+        if vault_core::og_images_fetch::is_host_blocked(&config.og_image.blocked_hosts, &url) {
+            let outcome = vault_core::og_images_fetch::blocked_outcome(&url);
+            vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))?;
+            continue;
+        }
+        let outcome = vault_core::og_images_fetch::fetch_og_image_for(&client, &url);
+        if outcome.is_ok() {
+            successful += 1;
+        }
+        vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))?;
+    }
+    Ok(successful)
+}
+
 /// Loads the dashboard snapshot read model for the current unlocked session.
 pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<DashboardSnapshot> {
     let paths = vault_core::project_paths()?;

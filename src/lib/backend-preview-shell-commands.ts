@@ -292,6 +292,28 @@ export function handlePreviewShellCommand<T>(
           | { profileId: string; url: string; visitTime: number }[]
           | undefined) ?? [],
       ) as T
+    case 'load_history_og_images':
+      return ((args?.entries as { url: string }[] | undefined) ?? []).map(
+        (entry) => ({
+          url: entry.url,
+          ogImage: null,
+          fetchStatus: 'pending',
+        }),
+      ) as T
+    case 'mark_og_images_shown':
+      return undefined as T
+    case 'trigger_og_image_refetch':
+      return 0 as T
+    case 'get_og_image_storage_stats':
+      return {
+        rowCount: 0,
+        blobCount: 0,
+        totalBytes: 0,
+        oldestFetchedAt: null,
+      } as T
+    case 'clear_og_image_cache':
+    case 'run_og_image_cleanup':
+      return { deletedRows: 0, deletedBlobs: 0, reclaimedBytes: 0 } as T
     case 'load_dashboard_snapshot':
       return buildMockDashboardSnapshot(state) as T
     case 'load_audit_run_detail':
