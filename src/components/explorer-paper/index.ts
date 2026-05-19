@@ -87,3 +87,17 @@ export type {
   PaperSearchHeroProps,
   PaperSearchMode,
 } from './paper-search-hero'
+
+export { PaperSearchResult } from './paper-search-result'
+export type {
+  PaperSearchResultEntry,
+  PaperSearchResultProps,
+} from './paper-search-result'
+
+export { PaperSearchEmpty } from './paper-search-empty'
+export type {
+  PaperSearchEmptyCopy,
+  PaperSearchEmptyProps,
+  PaperSearchRecent,
+  PaperSearchSuggestion,
+} from './paper-search-empty'
