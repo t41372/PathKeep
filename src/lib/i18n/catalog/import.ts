@@ -291,6 +291,25 @@ export const importNamespaceCatalog = {
     batchIdLabel: 'Batch #{id}',
     repairSummary:
       'Cleaned up {derivedRows} derived rows, fixed {visibilityRows} visibility links, and rebuilt {importAudits} audit records.',
+    paperIntro:
+      "Three ways to bring your history into PathKeep. Pick a source — we'll preview what we found, and nothing is written until you say so.",
+    paperMethodBrowserTitle: 'Connected browser',
+    paperMethodBrowserDescription:
+      'Read directly from a browser installed on this machine — Chrome, Edge, Brave, Firefox, Safari.',
+    paperMethodBrowserHint: 'Recommended · live profile',
+    paperMethodTakeoutTitle: 'Google Takeout',
+    paperMethodTakeoutDescription:
+      'Drop in a Takeout export (ZIP or unpacked). Useful when the browser is offline or on another machine.',
+    paperMethodTakeoutHint: 'ZIP or unpacked',
+    paperMethodFileTitle: 'A single file',
+    paperMethodFileDescription:
+      'Point at one specific history file you already have — useful for testing or migrating manually.',
+    paperMethodFileHint: 'Advanced · raw file',
+    paperStepSelect: 'Select',
+    paperStepScan: 'Scan',
+    paperStepPreview: 'Preview',
+    paperStepConfirm: 'Confirm',
+    paperStepDone: 'Imported',
   },
   'zh-CN': {
     archiveNotInitialized: '还没有设置存档',
@@ -522,6 +541,25 @@ export const importNamespaceCatalog = {
     batchIdLabel: '批次 #{id}',
     repairSummary:
       '修复了 {derivedRows} 条分析数据、{visibilityRows} 条引用链接，并重建了 {importAudits} 条审计记录。',
+    paperIntro:
+      '三种方式把你的历史导入 PathKeep。选一个来源 — 我们会先预览扫描结果，未经你确认前不会写入。',
+    paperMethodBrowserTitle: '连接的浏览器',
+    paperMethodBrowserDescription:
+      '直接读取本机安装的浏览器 — Chrome / Edge / Brave / Firefox / Safari。',
+    paperMethodBrowserHint: '推荐 · 实时配置',
+    paperMethodTakeoutTitle: 'Google Takeout',
+    paperMethodTakeoutDescription:
+      '导入 Takeout 导出（ZIP 或已解压）。当浏览器离线或在另一台机器上时使用。',
+    paperMethodTakeoutHint: 'ZIP 或已解压',
+    paperMethodFileTitle: '单一文件',
+    paperMethodFileDescription:
+      '指向你已有的一个历史文件 — 用于测试或手动迁移。',
+    paperMethodFileHint: '高级 · 原始文件',
+    paperStepSelect: '选择',
+    paperStepScan: '扫描',
+    paperStepPreview: '预览',
+    paperStepConfirm: '确认',
+    paperStepDone: '已导入',
   },
   'zh-TW': {
     archiveNotInitialized: '還沒有設定封存',
@@ -754,5 +792,24 @@ export const importNamespaceCatalog = {
     batchIdLabel: '批次 #{id}',
     repairSummary:
       '修復了 {derivedRows} 筆分析資料、{visibilityRows} 筆參照連結，並重建了 {importAudits} 筆稽核紀錄。',
+    paperIntro:
+      '三種方式把你的歷史匯入 PathKeep。選一個來源 — 我們會先預覽掃描結果，未經你確認前不會寫入。',
+    paperMethodBrowserTitle: '連接的瀏覽器',
+    paperMethodBrowserDescription:
+      '直接讀取本機安裝的瀏覽器 — Chrome / Edge / Brave / Firefox / Safari。',
+    paperMethodBrowserHint: '推薦 · 即時設定檔',
+    paperMethodTakeoutTitle: 'Google Takeout',
+    paperMethodTakeoutDescription:
+      '匯入 Takeout 匯出（ZIP 或已解壓）。當瀏覽器離線或在另一台機器上時使用。',
+    paperMethodTakeoutHint: 'ZIP 或已解壓',
+    paperMethodFileTitle: '單一檔案',
+    paperMethodFileDescription:
+      '指向你已有的一個歷史檔案 — 用於測試或手動遷移。',
+    paperMethodFileHint: '進階 · 原始檔案',
+    paperStepSelect: '選擇',
+    paperStepScan: '掃描',
+    paperStepPreview: '預覽',
+    paperStepConfirm: '確認',
+    paperStepDone: '已匯入',
   },
 } as const
