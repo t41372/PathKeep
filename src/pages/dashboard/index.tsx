@@ -16,14 +16,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
-import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
 import type { OnThisDayEntry } from '../../lib/core-intelligence/types'
-import {
-  aiStatusMeta,
-  selectedAiProvider,
-} from '../../lib/intelligence-ai-presentation'
 import { buildStorageAnalyticsSummary } from '../../lib/storage-analytics'
 import {
   profileIdLabel,
@@ -37,14 +32,11 @@ import {
   summarizeRunSources,
 } from './helpers'
 import {
-  DashboardArchiveBoundaryPanel,
-  DashboardIntelligencePanel,
   DashboardOnThisDayPanel,
   DashboardRecentRunsPanel,
   DashboardRhythmPanel,
   DashboardStatsRow,
   DashboardStorageFootprintPanel,
-  DashboardTrustActionsPanel,
 } from './panels'
 import { useDashboardArchiveAccessFallback } from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
@@ -63,12 +55,6 @@ export function DashboardPage() {
     error,
     loading,
     refreshKey,
-    runtimeStatus = {
-      aiQueue: null,
-      intelligence: null,
-      loading: false,
-      error: null,
-    },
     snapshot,
   } = useShellData()
   const { language, t, ns } = useI18n()
@@ -84,15 +70,6 @@ export function DashboardPage() {
     refreshKey,
     snapshot,
   })
-  const backgroundQueueCount =
-    runtimeStatus.aiQueue && runtimeStatus.intelligence
-      ? runtimeStatus.aiQueue.queued +
-        runtimeStatus.aiQueue.running +
-        runtimeStatus.aiQueue.failed +
-        runtimeStatus.intelligence.queue.queued +
-        runtimeStatus.intelligence.queue.running +
-        runtimeStatus.intelligence.queue.failed
-      : null
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -166,12 +143,6 @@ export function DashboardPage() {
   const latestManifestHash =
     readyDashboard.recentRuns.find((run) => run.manifestHash)?.manifestHash ??
     null
-  const aiMeta = aiStatusMeta(readySnapshot.aiStatus, intelligenceT)
-  const llmProvider = selectedAiProvider(readySnapshot.config.ai, 'llm')
-  const embeddingProvider = selectedAiProvider(
-    readySnapshot.config.ai,
-    'embedding',
-  )
   const activeOnThisDay = readySnapshot.config.initialized
     ? onThisDayEntries
     : []
@@ -199,12 +170,11 @@ export function DashboardPage() {
     return (
       <section className="page-shell" data-testid="dashboard-page">
         {activeProfileId ? (
-          <StatusCallout
-            tone="info"
-            eyebrow={t('common.profileScope')}
-            title={activeScopeLabel}
-            body={t('dashboard.scopeNotice')}
-          />
+          <p className="dashboard-scope-line">
+            <span className="mono-kicker">{t('common.profileScope')}</span>
+            <span>{activeScopeLabel}</span>
+            <span className="dim">· {t('dashboard.scopeNotice')}</span>
+          </p>
         ) : null}
         <DashboardZeroState
           commonT={commonT}
@@ -229,63 +199,58 @@ export function DashboardPage() {
     t,
   )
 
+  const hasInlineNotices =
+    needsKeyringReview || safariNeedsAccess || Boolean(nextActionMessage)
+
   return (
     <section className="page-shell" data-testid="dashboard-page">
-      {activeProfileId ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={t('common.profileScope')}
-          title={activeScopeLabel}
-          body={t('dashboard.scopeNotice')}
-        />
-      ) : null}
-
-      {nextActionMessage ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={t('dashboard.nextActionEyebrow')}
-          title={nextActionMessage}
-        />
-      ) : null}
-
-      {(needsKeyringReview || safariNeedsAccess) && (
-        <div className="dashboard-callouts">
+      {hasInlineNotices ? (
+        <div className="dashboard-notice-stack">
+          {nextActionMessage ? (
+            <div className="warning-box warning-box--info">
+              <div className="warning-icon">{'>'}</div>
+              <div className="warning-text">
+                <strong>{t('dashboard.nextActionEyebrow')}</strong>{' '}
+                <span>{nextActionMessage}</span>
+              </div>
+            </div>
+          ) : null}
           {needsKeyringReview ? (
-            <StatusCallout
-              tone="warning"
-              title={t('platform.keyringTitle')}
-              body={t('platform.keyringBody')}
-              actions={
-                <Link className="btn-secondary" to="/security">
-                  {t('dashboard.reviewSecurity')}
+            <div className="warning-box">
+              <div className="warning-icon">{'!'}</div>
+              <div className="warning-text">
+                <strong>{t('platform.keyringTitle')}</strong>{' '}
+                <span>{t('platform.keyringBody')}</span>{' '}
+                <Link className="warning-box__action" to="/security">
+                  {t('dashboard.reviewSecurity')} →
                 </Link>
-              }
-            />
+              </div>
+            </div>
           ) : null}
           {safariNeedsAccess ? (
-            <StatusCallout
-              tone="blocked"
-              title={t('platform.safariAccessTitle')}
-              body={t('platform.safariAccessBody')}
-              actions={
-                <Link className="btn-secondary" to="/import">
-                  {t('dashboard.reviewImportBatches')}
+            <div className="warning-box warning-box--danger">
+              <div className="warning-icon">{'!'}</div>
+              <div className="warning-text">
+                <strong>{t('platform.safariAccessTitle')}</strong>{' '}
+                <span>{t('platform.safariAccessBody')}</span>{' '}
+                <Link className="warning-box__action" to="/import">
+                  {t('dashboard.reviewImportBatches')} →
                 </Link>
-              }
-            />
+              </div>
+            </div>
           ) : null}
         </div>
-      )}
+      ) : null}
+
+      {activeProfileId ? (
+        <p className="dashboard-scope-line">
+          <span className="mono-kicker">{t('common.profileScope')}</span>
+          <span>{activeScopeLabel}</span>
+          <span className="dim">· {t('dashboard.scopeNotice')}</span>
+        </p>
+      ) : null}
 
       <DashboardStatsRow stats={stats} />
-
-      <DashboardRhythmPanel
-        activeProfileId={activeProfileId}
-        intelligenceT={intelligenceT}
-        language={language}
-        refreshToken={refreshKey}
-        t={t}
-      />
 
       <div className="dashboard-grid">
         <div className="dashboard-left">
@@ -296,30 +261,16 @@ export function DashboardPage() {
             t={t}
           />
 
-          <DashboardArchiveBoundaryPanel
-            commonT={commonT}
-            selectedProfiles={selectedProfiles}
-            t={t}
-          />
-
-          <DashboardStorageFootprintPanel
+          <DashboardRhythmPanel
+            activeProfileId={activeProfileId}
+            intelligenceT={intelligenceT}
             language={language}
-            storageSegments={storageSegments}
-            totalStorage={totalStorage}
+            refreshToken={refreshKey}
             t={t}
           />
         </div>
 
         <div className="dashboard-right">
-          <DashboardIntelligencePanel
-            aiMeta={aiMeta}
-            backgroundQueueCount={backgroundQueueCount}
-            embeddingProviderId={embeddingProvider?.id}
-            language={language}
-            llmProviderId={llmProvider?.id}
-            t={t}
-          />
-
           <DashboardOnThisDayPanel
             activeOnThisDay={activeOnThisDay}
             activeOnThisDayError={activeOnThisDayError}
@@ -328,7 +279,12 @@ export function DashboardPage() {
             onThisDayLoading={onThisDayLoading}
           />
 
-          <DashboardTrustActionsPanel t={t} />
+          <DashboardStorageFootprintPanel
+            language={language}
+            storageSegments={storageSegments}
+            totalStorage={totalStorage}
+            t={t}
+          />
         </div>
       </div>
     </section>

@@ -319,14 +319,7 @@
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
-.stat-block[data-tone='accent'] .stat-value,
-.stat-card[data-tone='accent'] .stat-value {
-  color: var(--accent);
-}
-.stat-block[data-tone='success'] .stat-value,
-.stat-card[data-tone='success'] .stat-value {
-  color: var(--success);
-}
+/* Stat values stay uniform white per the design package; tone is signaled by .stat-delta only. */
 
 .stat-detail {
   font-family: var(--font-code);

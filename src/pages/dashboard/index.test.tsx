@@ -254,7 +254,6 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Personal')).toBeVisible()
     expect(screen.getByText('System keychain not available')).toBeVisible()
     expect(screen.getByText('Safari needs Full Disk Access')).toBeVisible()
-    expect(screen.getByText('queue:none')).toBeVisible()
     expect(await screen.findByText('today-error:none')).toBeVisible()
   })
 
