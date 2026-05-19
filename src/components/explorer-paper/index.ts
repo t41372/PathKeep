@@ -150,3 +150,9 @@ export type {
   PaperAssistantGreetingProps,
   PaperAssistantGreetingPrompt,
 } from './paper-assistant-greeting'
+
+export { PaperImportStepper } from './paper-import-stepper'
+export type { PaperImportStepperProps } from './paper-import-stepper'
+
+export { PaperImportMethodCard } from './paper-import-method-card'
+export type { PaperImportMethodCardProps } from './paper-import-method-card'
