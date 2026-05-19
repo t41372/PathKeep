@@ -371,6 +371,7 @@ function toListEntry(entry: HistoryEntry, language: string) {
     domain: entry.domain,
     url: entry.url,
     time: formatTimeFromVisitTime(entry.visitTime, language),
+    faviconDataUrl: entry.favicon?.dataUrl ?? null,
   }
 }
 

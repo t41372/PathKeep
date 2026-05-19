@@ -212,6 +212,51 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('docs.rs / sqlx')).toBeVisible()
   })
 
+  test('list view forwards entry.favicon.dataUrl as the row faviconDataUrl', () => {
+    const dayWithFavicon: PaperDay = {
+      date: '2026-05-16',
+      visitCount: 1,
+      domains: 1,
+      sessions: [
+        {
+          id: 'fav-session',
+          startMs: 0,
+          endMs: 0,
+          visitCount: 1,
+          blocks: [
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 999,
+                title: 'A page with a favicon',
+                domain: 'icons.test',
+                url: 'https://icons.test/page',
+                favicon: { dataUrl: 'data:image/png;base64,iVBORw0KG' },
+              }),
+            },
+          ],
+        },
+      ],
+    }
+
+    const { container } = render(
+      <PaperContactSheet
+        days={[dayWithFavicon]}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        testId="cs-list-favicon"
+      />,
+    )
+
+    const icon = container.querySelector<HTMLImageElement>(
+      'img[src^="data:image/png;base64"]',
+    )
+    expect(icon).not.toBeNull()
+    expect(icon?.src).toBe('data:image/png;base64,iVBORw0KG')
+  })
+
   test('view-toggle reports the new mode through onViewModeChange', () => {
     const onChange = vi.fn()
     render(

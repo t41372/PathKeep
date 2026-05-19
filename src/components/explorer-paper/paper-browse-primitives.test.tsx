@@ -303,6 +303,57 @@ describe('PaperListRow', () => {
 
     expect(() => fireEvent.click(screen.getByTestId('list-noop'))).not.toThrow()
   })
+
+  test('renders the favicon image and hides the swatch when faviconDataUrl is provided', () => {
+    render(
+      <PaperListRow
+        entry={{
+          ...entry,
+          faviconDataUrl: 'data:image/png;base64,iVBORw0KG',
+        }}
+        domainColor="#a8322d"
+        domainAbbr="ARX"
+        testId="list-favicon"
+      />,
+    )
+
+    const icon = screen.getByTestId<HTMLImageElement>('list-favicon-favicon')
+    expect(icon).toBeVisible()
+    expect(icon.tagName).toBe('IMG')
+    expect(icon.src).toBe('data:image/png;base64,iVBORw0KG')
+    expect(screen.queryByTestId('list-favicon-swatch')).not.toBeInTheDocument()
+  })
+
+  test('falls back to the domain swatch when faviconDataUrl is null or absent', () => {
+    const { rerender } = render(
+      <PaperListRow
+        entry={{ ...entry, faviconDataUrl: null }}
+        domainColor="#a8322d"
+        domainAbbr="ARX"
+        testId="list-no-favicon"
+      />,
+    )
+
+    expect(screen.getByTestId('list-no-favicon-swatch')).toHaveTextContent(
+      'ARX',
+    )
+    expect(
+      screen.queryByTestId('list-no-favicon-favicon'),
+    ).not.toBeInTheDocument()
+
+    // Omitting the field entirely takes the same path.
+    rerender(
+      <PaperListRow
+        entry={entry}
+        domainColor="#a8322d"
+        domainAbbr="ARX"
+        testId="list-no-favicon"
+      />,
+    )
+    expect(screen.getByTestId('list-no-favicon-swatch')).toHaveTextContent(
+      'ARX',
+    )
+  })
 })
 
 describe('PaperDomainStack', () => {
