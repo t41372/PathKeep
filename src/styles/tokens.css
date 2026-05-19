@@ -43,19 +43,25 @@
   --error-dim: rgba(248, 113, 113, 0.15);
   --info: #60a5fa;
 
-  /* Typography */
-  --font-ui:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI Variable Text', 'Segoe UI', Roboto, 'Noto Sans', Ubuntu,
-    Cantarell, 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
+  /* Typography
+   *
+   * v0.3 brutalist redesign override (see
+   * docs/design/typography-and-font-fallback.md, 2026-05-18 section):
+   * the whole UI now resolves to the JetBrains Mono stack. CJK system
+   * fonts stay in the same stack as per-glyph fallbacks so a mixed
+   * `English 你好 123` string renders Latin/digits in JetBrains Mono and
+   * `你好` in PingFang/YaHei without re-laying out the line.
+   */
   --font-code:
     'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace,
     'SFMono-Regular', 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono',
-    Menlo, monospace;
-  /* Compatibility alias for legacy shell rules; new UI should prefer --font-ui. */
-  --font-mono: var(--font-ui);
+    Menlo, 'PingFang SC', 'PingFang TC', 'Hiragino Sans GB',
+    'Microsoft YaHei UI', 'Microsoft JhengHei UI', 'Noto Sans CJK SC',
+    'Noto Sans CJK TC', 'Source Han Sans SC', 'Source Han Sans TC', monospace;
+  --font-ui: var(--font-code);
+  --font-body: var(--font-code);
+  /* Legacy alias kept so shell rules written before the override keep working. */
+  --font-mono: var(--font-code);
 
   /* Spacing */
   --space-1: 4px;
@@ -80,25 +86,27 @@
 }
 
 :root:lang(zh-CN) {
-  --font-ui:
-    'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans CJK SC',
-    'Source Han Sans SC', 'Noto Sans SC', 'Noto Sans', ui-sans-serif, system-ui,
-    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
-  --font-mono: var(--font-ui);
+  --font-code:
+    'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace,
+    'SFMono-Regular', 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono',
+    Menlo, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI',
+    'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang TC',
+    'Microsoft JhengHei UI', monospace;
+  --font-ui: var(--font-code);
+  --font-body: var(--font-code);
+  --font-mono: var(--font-code);
 }
 
 :root:lang(zh-TW) {
-  --font-ui:
-    'Segoe UI Variable Text', 'Segoe UI', 'PingFang TC', 'Hiragino Sans CNS',
-    'Microsoft JhengHei UI', 'Microsoft JhengHei', 'Noto Sans CJK TC',
-    'Source Han Sans TC', 'Noto Sans TC', 'Noto Sans', ui-sans-serif, system-ui,
-    -apple-system, BlinkMacSystemFont, Roboto, Ubuntu, Cantarell, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-body: var(--font-ui);
-  --font-mono: var(--font-ui);
+  --font-code:
+    'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace,
+    'SFMono-Regular', 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono',
+    Menlo, 'PingFang TC', 'Hiragino Sans CNS', 'Microsoft JhengHei UI',
+    'Microsoft JhengHei', 'Noto Sans CJK TC', 'Source Han Sans TC',
+    'PingFang SC', 'Microsoft YaHei UI', monospace;
+  --font-ui: var(--font-code);
+  --font-body: var(--font-code);
+  --font-mono: var(--font-code);
 }
 
 :root[data-theme='light'] {

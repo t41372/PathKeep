@@ -1,6 +1,44 @@
 # Typography And Font Fallback Strategy
 
-> 2026-04-10 closeout。這份文檔在使用者明確要求修正 UI 可讀性後新增，用來取代早期 prototype 把 shell chrome 大量設成 monospace 的暫時做法。
+> 2026-05-18 closeout (overrides 2026-04-10)。`feat/v0.3-redesign` 階段，使用者明確要求視覺對齊 brutalist 設計稿 (`reference/PathKeep — Desktop UI Design/`)，授權推翻 2026-04-10 sans-primary 政策。新政策見下一節；2026-04-10 區段保留為歷史紀錄。
+
+---
+
+## 2026-05-18 — Brutalist Redesign Override (user-authorized)
+
+### 推翻授權
+
+`feat/v0.3-redesign` 進行中，使用者編譯 app 後回報「跟之前一樣，跟新設計完全不一樣」。經過 agent 調查確認 token color / spacing / radius 已對齊設計稿，但 `--font-ui` / `--font-body` / `--font-mono` 都指向 system sans，導致 shell chrome 讀起來和舊版本一致，brutalist 視覺 (mono 主導) 沒有出現。
+
+使用者授權原文：「視覺設計，美術風格，和各種與 UI 和功能相關的設計，全部以新的設計 redesign 為主。舊的全部推翻。」
+
+### 新政策
+
+- **`--font-code` 升為 primary UI font stack**。stack 開頭為 `JetBrains Mono`, `Cascadia Code`, `Fira Code`, `ui-monospace`, `SFMono-Regular`, `SF Mono`, `Cascadia Mono`, `Consolas`, `Liberation Mono`, `Menlo`，接著是 CJK 系統字體 (`PingFang SC/TC`, `Hiragino Sans GB`, `Microsoft YaHei UI`, `Microsoft JhengHei UI`, `Noto Sans CJK SC/TC`, `Source Han Sans SC/TC`)，最後 fallback `monospace`。
+- **`--font-ui`、`--font-body`、`--font-mono` 全部 alias 到 `var(--font-code)`**。整個 UI 預設 mono；任何顯式 `font-family: var(--font-code)` 仍然有效，但不再有差異化效果 (這是刻意的：讓未來如果要再分流時有 selector hook)。
+- **CJK 字元改走 per-glyph fallback**。CSS 字體匹配是逐字元的，所以 `RUN #1847 · 已完成` 這種混合字串：Latin / 數字 / 標點分到 `JetBrains Mono`，`已完成` 分到 PingFang / YaHei (依 locale)。同一 baseline 區域，沒有 string-level re-layout。
+- **`:root:lang(zh-CN)` / `:root:lang(zh-TW)` 仍保留**，但只是把該 locale 對應的 CJK family 排在另一個地區 CJK family 之前 (例如 `lang(zh-TW)` 把 PingFang TC / JhengHei 放 PingFang SC / YaHei 前面)。三個 token (`--font-ui` / `--font-body` / `--font-mono`) 一起指向同一個 stack。
+
+### 保留的約束 (沒變)
+
+- 禁止 runtime 遠端字體載入 (Google Fonts / CDN 之類)
+- 禁止把整套 Noto / Source Han 超大字體 bundle 進 desktop binary
+- `html[lang]` 必須在首屏與 runtime locale 切換時同步更新
+
+### 接受的 trade-off
+
+- CJK 字元在主 UI 上由 PingFang / YaHei / JhengHei / Noto Sans CJK 渲染，而非原本的 `Segoe UI Variable Text` / `PingFang` 混排。視覺上 CJK 行距略寬、字形偏方正。使用者已明確接受這個 trade-off，視為 brutalist 風格的一部分。
+- 小字級 (10-11px) 的 CJK 在某些低 DPI 顯示器上可能略糊；如果未來 QA 真的回報問題，rollback path 見下方。
+- `--font-mono` legacy alias 留著只是為了不大規模 refactor 既有 CSS 規則；新 UI 不應主動引用 `--font-mono`，而要顯式寫 `--font-code` / `--font-ui` / `--font-body`。
+
+### Rollback path
+
+如果未來必須回到 sans-primary：
+
+1. 把 `src/styles/tokens.css` `--font-ui` / `--font-body` / `--font-mono` 改回原本的 system sans stack (參考下方 2026-04-10 區段的 decision 文字，原 stack 在當時 commit history 內)。
+2. `:root:lang(zh-CN)` / `:root:lang(zh-TW)` 同形回 sans-with-CJK 排序。
+3. 不要動 `--font-code` — 它本身就是 mono evidence-only 用途，無需改動。
+4. 同時恢復 `src/styles/app/sidebar.css` `.nav-item`、`src/styles/app/topbar.css` `.page-title` 的 `font-family` 從 `--font-code` 回到 `--font-ui` (因為 commit 2 把它們顯式 pin 到 mono)。
 
 ---
 
