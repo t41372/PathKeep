@@ -55,3 +55,7 @@ export type {
   PaperCalendarPopoverCopy,
   PaperCalendarPopoverProps,
 } from './paper-calendar-popover'
+
+export { PaperYearRail } from './paper-year-rail'
+export type { PaperYearRailProps } from './paper-year-rail'
+export { pickYearJumpIso } from './paper-year-rail-helpers'
