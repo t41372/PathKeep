@@ -157,4 +157,19 @@ describe('buildPaperSearchDayGroups', () => {
     expect(groups[0].entries).toHaveLength(1)
     expect(groups[0].label).toMatch(/2026/)
   })
+
+  test('within-day sort treats NaN timestamps as equal without throwing', () => {
+    // Both entries get the same day key (the raw 10-char prefix) so they
+    // land in the same bucket; the sort comparator then has to fall back
+    // to the NaN-safe `return 0` branch.
+    const groups = buildPaperSearchDayGroups(
+      [
+        makeEntry({ id: 1, visitedAt: 'bogus-date' }),
+        makeEntry({ id: 2, visitedAt: 'bogus-date' }),
+      ],
+      { language: 'en' },
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0].entries).toHaveLength(2)
+  })
 })

@@ -228,6 +228,38 @@ describe('PaperAssistantComposer', () => {
     expect(screen.getByText(/Powered by local LLM/)).toBeVisible()
     expect(screen.getByText(/↵ send/)).toBeVisible()
   })
+
+  test('clicking the Send button submits the trimmed value via the form onSubmit', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperAssistantComposer
+        value="  Hello there  "
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        copy={COMPOSER_COPY}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Send' }),
+    )
+    expect(onSubmit).toHaveBeenCalledWith('Hello there')
+  })
+
+  test('form onSubmit is a no-op when the value is empty', () => {
+    const onSubmit = vi.fn()
+    const { container } = render(
+      <PaperAssistantComposer
+        value=""
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        copy={COMPOSER_COPY}
+      />,
+    )
+    const form = container.querySelector('form')
+    if (!(form instanceof HTMLFormElement)) throw new Error('form missing')
+    fireEvent.submit(form)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })
 
 describe('PaperAssistantGreeting', () => {

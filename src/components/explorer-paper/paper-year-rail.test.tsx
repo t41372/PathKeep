@@ -27,6 +27,7 @@ function makeDensity(): Map<number, number> {
   map.set(2026, 180_000)
   map.set(2025, 70_000)
   map.set(2024, 30_000)
+  map.set(2023, 12_000) // → t2 (5k ≤ count < 30k)
   map.set(2020, 4_000)
   map.set(2010, 0)
   return map
@@ -181,6 +182,9 @@ describe('PaperYearRail', () => {
     expect(
       rail.querySelector('[data-year="2024"]')?.getAttribute('data-tier'),
     ).toBe('t3') // 30k boundary → t3
+    expect(
+      rail.querySelector('[data-year="2023"]')?.getAttribute('data-tier'),
+    ).toBe('t2') // 12k → t2 (covers the mid-range tier branch)
     expect(
       rail.querySelector('[data-year="2020"]')?.getAttribute('data-tier'),
     ).toBe('t1') // 4k → t1
