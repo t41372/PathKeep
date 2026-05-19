@@ -13,6 +13,7 @@
  * - This layer should stay typed, boring, and free of user-facing copy so routes can keep ownership of UX decisions.
  */
 
+export * from './annotations'
 export * from './app'
 export * from './archive'
 export * from './audit'
@@ -27,6 +28,7 @@ export * from './shared'
 export * from './support'
 export * from './update'
 
+import { annotationsClient } from './annotations'
 import { appClient } from './app'
 import { archiveClient } from './archive'
 import { auditClient } from './audit'
@@ -68,6 +70,11 @@ export const backend = {
   runBackupNow: archiveClient.runBackupNow,
   queryHistory: explorerClient.queryHistory,
   loadHistoryFavicons: explorerClient.loadHistoryFavicons,
+  getUrlAnnotation: annotationsClient.getUrlAnnotation,
+  setUrlNotes: annotationsClient.setUrlNotes,
+  replaceUrlTags: annotationsClient.replaceUrlTags,
+  listUrlAnnotations: annotationsClient.listUrlAnnotations,
+  searchUrlAnnotations: annotationsClient.searchUrlAnnotations,
   loadDashboardSnapshot: dashboardClient.getSnapshot,
   loadAuditRunDetail: auditClient.getRunDetail,
   exportHistory: archiveClient.exportHistory,

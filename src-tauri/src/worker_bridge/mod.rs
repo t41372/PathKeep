@@ -5,6 +5,7 @@
 //! session-state lookups, transient key updates, progress callbacks, and
 //! uniform string error shaping.
 
+mod annotations;
 mod app;
 mod archive;
 mod import;
@@ -14,7 +15,8 @@ mod schedule;
 mod security;
 
 pub(crate) use self::{
-    app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
+    annotations::*, app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*,
+    security::*,
 };
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.

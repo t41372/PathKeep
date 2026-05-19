@@ -15,6 +15,7 @@
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;
+pub mod annotations;
 pub mod app_lock;
 pub mod archive;
 mod browser_retention;
@@ -53,6 +54,9 @@ pub use archive::{
     open_source_evidence_connection, preview_retention, preview_snapshot_restore, rekey_archive,
     repair_health_issues, run_backup, run_backup_with_progress, run_retention_prune,
     run_snapshot_restore,
+};
+pub use annotations::{
+    get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};

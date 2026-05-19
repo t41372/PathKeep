@@ -4,6 +4,7 @@
 //! and canonical backend modules. They should stay descriptive and transport
 //! friendly rather than smuggling behavior.
 
+pub mod annotations;
 pub mod app;
 pub mod archive;
 pub mod audit;
@@ -17,8 +18,8 @@ pub mod security;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
-    app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*, progress::*,
-    remote::*, schedule::*, security::*,
+    annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*,
+    intelligence::*, progress::*, remote::*, schedule::*, security::*,
 };
 
 #[cfg(test)]

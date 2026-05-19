@@ -60,6 +60,8 @@ import {
 } from './paper-search-helpers'
 import { getDomainAbbr, getDomainColor } from './paper/domain-color'
 import { useLocalAnnotations } from './use-local-annotations'
+import { useDesktopAnnotations } from './use-desktop-annotations'
+import { hasDesktopCommandTransport } from '../../lib/runtime'
 import type { ExplorerVisitSelection } from './types'
 
 /**
@@ -178,7 +180,11 @@ export function ExplorerPage() {
     key: string
     visit: ExplorerVisitSelection
   } | null>(null)
-  const annotations = useLocalAnnotations()
+  const localAnnotations = useLocalAnnotations()
+  const desktopAnnotations = useDesktopAnnotations()
+  const annotations = hasDesktopCommandTransport()
+    ? desktopAnnotations
+    : localAnnotations
   const [paperDetailOpen, setPaperDetailOpen] = useState(false)
   const labels = useMemo(
     () => ({
