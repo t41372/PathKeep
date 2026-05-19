@@ -2,7 +2,7 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M15 — v0.2.0 Release Closeout**
+**當前 Milestone：M16 — v0.3 Paper Redesign**
 
 ---
 
@@ -11,6 +11,48 @@
 > 這裡的單位是 **work block**，每個 block 的份量大約是半個 milestone。
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
+
+- [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending)
+  - 讀先：
+    `/Users/tim/.claude/plans/fetch-this-design-file-purrfect-bumblebee.md` (full approved plan)
+    `/tmp/pathkeep-design/pathkeep-redesign-c/README.md`
+    `/tmp/pathkeep-design/pathkeep-redesign-c/project/pk-tokens.css`
+    `/tmp/pathkeep-design/pathkeep-redesign-c/project/PathKeep Redesign.html`
+    `docs/design/design-tokens.md` (will be rewritten)
+    `docs/design/screens-and-nav.md` (will be rewritten)
+    `docs/design/ux-principles.md` (will be rewritten)
+    `src/styles/tokens.css`
+    `src/components/shell/`
+  - 目標：把 v0.2 brutalist 前端徹底替換為 "Paper + Archival" 美學（cream 紙感、Newsreader serif + JetBrains Mono、3 px 圓角、paper noise、darkroom vignette），全部接入既有 Rust/Tauri 2 後端。同時新增 per-URL notes + tags 後端能力與 AI Assistant / 語意搜尋的 provider-gated 真實接入。
+  - 契約：
+    - 全部 user-visible copy 在 commit 時三語齊全（en / zh-CN / zh-TW），`html[lang]` 必須跟著 runtime locale 走（typography-and-font-fallback ADR）。
+    - 字體預設使用 bundled Newsreader + JetBrains Mono Latin subsets，Settings 提供 "system fonts only" 切換；CJK 永遠 fall back 到系統字體。
+    - 100% JS / Rust coverage 與 mutation gate 不放鬆；既有 quality-matrix.md 仍是權威。
+    - 此 redesign 已獲使用者授權 override 之前 Accepted design docs（design-tokens / screens-and-nav / ux-principles / brutalist radius / typography memory）。
+    - 後端只追加 url_annotations + url_tags table，現有 schema / commands 不破壞；migration 011 forward-only。
+  - 進度（2026-05-19）：
+    - ✅ **Foundation shipped**：Tailwind v4 + shadcn primitives + cn helper + paper tokens.css + fonts.css (bundled Newsreader / JetBrains Mono) + paper.css (noise / vignette / animations) + tailwind.css (@theme 對應 paper tokens 與 shadcn 變數)；@/ path alias 接入 tsconfig + vite。
+    - ✅ **Shell shipped**：`src/components/shell/` 新增 PKBrandMark / PKGlyph / PKSidebar / PKTopbar / PKStatusBar / PKSearchPalette；`src/app/shell.tsx` 已重寫為新 shell；i18n shell namespace 新增 paper-redesign 鍵 (findAPage / archiving / sources* / palette* / epigraph1..6) 在三語齊備。
+    - ⏳ **Routes 仍待完成**（按優先序）：
+      - `/` Dashboard：On This Day / This Week / heatmap / threads / archive card；接入 `load_dashboard_snapshot` + `get_on_this_day` + `get_top_search_concepts`。
+      - `/explorer` Browse：contact sheet + list / day-sticky / domain stacks / calendar popover / year rail / target banner；接入 `query_history` + `load_history_favicons` + `get_day_insights` + `get_browsing_rhythm`。
+      - `/search`：3-mode (keyword / regex / semantic gated) + filter chips + day-grouped results。
+      - `/intelligence`：KPI / topics / domains / sessions / threads / refind；接入 `get_intelligence_primary/secondary_overview` + 其他 Core Intelligence 讀模型。
+      - `/assistant`：chat + evidence panel + ProviderGate fallback；接 `ask_ai_assistant`。
+      - `/import` PME 流程；`/audit` chain + runs + snapshots；`/schedule` PME；`/security` passcode + keyring + S3；`/maintenance` doctor；`/jobs` 兩個 queue；`/integrations` AI provider + remote backup + MCP/skill preview；`/settings` General + Archive + Sources + Notifications + About + 字體切換；`/onboarding` 多步驟；`/lock` App Lock。
+      - PKDetailPanel + Notes/Tags wiring（detail panel slide-over，textarea debounced 寫入 annotations backend）。
+    - ⏳ **Backend annotations**：migration 011_notes_tags.sql + `vault-core/src/annotations/` 模組 + `commands/annotations.rs`（get / set / list / search / export）；接入 backup / retention pruning；100% Rust coverage + 通過 mutation。
+    - ⏳ **Docs sweep**：design-tokens.md / screens-and-nav.md / ux-principles.md / ui-review-guardrails.md / typography-and-font-fallback.md / data-model.md 全部要按新方向重寫；新增 `docs/features/annotations.md`；intelligence.md + recall.md 移除 v0.3-coming 標記。
+    - ⏳ **Memory**：feedback_brutalist_radius.md / project_v0_3_redesign.md / feedback_typography_policy.md 改成記錄 brutalist → paper 轉向。
+    - ⏳ **Tests / quality**：`bun run check` 仍要通過（目前在 1193/1195 unit tests pass，2 個 failure 來自 `lock-and-explorer-shell.test.tsx` 對舊 topbar Notifications / searchbox 的斷言，需於 page sweep 同步重寫）。
+  - 驗收（block 結束時必須全部達標）：
+    - 設計圖中每個畫面在 light + dark 下都與設計檔高度一致；Settings / Schedule / Security / Maintenance / Jobs / Integrations / Onboarding / AppLock 也用相同視覺語言補完。
+    - 每個 route 接入真實後端（不再有 v0.3-coming disabled UI）；AI / semantic search 在 provider 未配置時 inline 提示 "Configure AI provider → Settings"。
+    - Notes / Tags 從 detail panel 寫入後端 annotations，重新打開仍可讀；FTS 索引可以搜尋。
+    - 三語 i18n parity 100%；`html[lang]` 與 locale 同步；字體切換在 Settings 真實生效。
+    - `bun run check` + `bun run verify` 全綠（100% JS / Rust coverage + mutation gate + desktop bridge truth gate）。
+    - design-tokens / screens-and-nav / ux-principles / ui-review-guardrails / typography-and-font-fallback / data-model / annotations feature spec / intelligence / recall / STATUS / CHANGELOG / BACKLOG / research-and-decisions 全部反映新方向。
+    - 截圖：每個 route 在 light + dark 都產出，附在 release artifacts。
 
 - [x] **WORK-RELEASE-020-A** — v0.2.0 Planning Repair, Security Refresh, And Publication
   - 讀先：
