@@ -675,11 +675,14 @@ describe('intelligence surfaces', () => {
     }
   })
 
-  test('shows a compact runtime digest without a full-width settings banner', async () => {
+  test('renders the digest only when there are failed jobs to act on', async () => {
     const { snapshot } = await seedArchiveState()
     const intelligenceT = createNamespaceTranslator('en', 'intelligence')
-    const shellValue = createShellValue(snapshot, null)
-    shellValue.runtimeStatus = {
+
+    // First half: healthy running state. v0.3 redesign hides the digest in
+    // this case — the sidebar background-status strip carries the signal.
+    const runningShell = createShellValue(snapshot, null)
+    runningShell.runtimeStatus = {
       aiQueue: {
         paused: false,
         concurrency: 1,
@@ -699,32 +702,48 @@ describe('intelligence surfaces', () => {
         },
         plugins: [],
         modules: [],
-        recentJobs: [
-          {
-            id: 812,
-            jobType: 'deterministic-rebuild',
-            pluginId: null,
-            state: 'running',
-            historyId: null,
-            profileId: 'chrome:Default',
-            url: null,
-            title: 'chrome:Default · 30 days',
-            attempt: 1,
-            createdAt: '2026-04-17T09:35:00Z',
-            startedAt: '2026-04-17T09:36:00Z',
-            finishedAt: null,
-            updatedAt: '2026-04-17T09:40:00Z',
-            heartbeatAt: '2026-04-17T09:40:00Z',
-            progressLabel: 'Scoring visits',
-            progressDetail: '24,000 / 64,781 visits',
-            progressCurrent: 24000,
-            progressTotal: 64781,
-            progressPercent: 46.8,
-            lastError: null,
-            retryable: false,
-            cancellable: true,
-          },
-        ],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    const running = renderSurface(<IntelligencePage />, {
+      route: '/intelligence',
+      shellValue: runningShell,
+      snapshot,
+    })
+
+    await screen.findByTestId('intelligence-page')
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
+    running.unmount()
+
+    // Second half: failed runtime — digest renders as a warning.
+    const failedShell = createShellValue(snapshot, null)
+    failedShell.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 1,
+          cancelled: 0,
+          lastActivityAt: '2026-04-17T09:40:00Z',
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
         notes: [],
       },
       loading: false,
@@ -733,7 +752,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<IntelligencePage />, {
       route: '/intelligence',
-      shellValue,
+      shellValue: failedShell,
       snapshot,
     })
 
@@ -741,12 +760,6 @@ describe('intelligence surfaces', () => {
     expect(
       within(digest).getByText(intelligenceT('runtimeDigestTitle')),
     ).toBeVisible()
-    expect(
-      within(digest).getByText(
-        intelligenceT('runtimeDigestRunningTitle', { count: 1 }),
-      ),
-    ).toBeVisible()
-    expect(within(digest).getByText('24,000 / 64,781 visits')).toBeVisible()
     expect(within(digest).getByRole('link', { name: 'Jobs' })).toHaveAttribute(
       'href',
       '/jobs',
@@ -756,21 +769,44 @@ describe('intelligence surfaces', () => {
     ).not.toBeInTheDocument()
   })
 
-  test('keeps intelligence digest icons decorative instead of exposing raw ids', async () => {
-    const { snapshot, dashboard } = await seedArchiveState()
-    const intelligenceT = createNamespaceTranslator('en', 'intelligence')
+  test('keeps intelligence digest icons decorative when the digest does surface', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    const failedShell = createShellValue(snapshot, null)
+    failedShell.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 0,
+        running: 0,
+        failed: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 1,
+          cancelled: 0,
+          lastActivityAt: '2026-04-17T09:40:00Z',
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
 
     renderSurface(<IntelligencePage />, {
-      dashboard,
       route: '/intelligence',
+      shellValue: failedShell,
       snapshot,
     })
 
-    expect(
-      await screen.findByRole('heading', {
-        name: intelligenceT('runtimeDigestTitle'),
-      }),
-    ).toBeVisible()
+    await screen.findByTestId('intelligence-runtime-digest')
     expect(screen.queryByText('bar_chart')).not.toBeInTheDocument()
     expect(screen.queryByText('auto_stories')).not.toBeInTheDocument()
     expect(screen.queryByText('sync')).not.toBeInTheDocument()

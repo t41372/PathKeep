@@ -131,17 +131,6 @@ export function IntelligencePage() {
         ) : null}
       </div>
 
-      <InsightAccessStrip
-        date={dateRange.end}
-        dayHref={dayHref}
-        domainHref={domainHref}
-        suggestions={topSiteSuggestions.map((site) => ({
-          domain: site.registrableDomain,
-          label: site.displayName ?? site.registrableDomain,
-        }))}
-        t={t}
-      />
-
       <IntelligenceRuntimeDigest
         initialized={Boolean(snapshot?.config.initialized)}
         unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
@@ -172,6 +161,17 @@ export function IntelligencePage() {
       ) : (
         <IntelligenceSectionsSkeleton />
       )}
+
+      <InsightAccessStrip
+        date={dateRange.end}
+        dayHref={dayHref}
+        domainHref={domainHref}
+        suggestions={topSiteSuggestions.map((site) => ({
+          domain: site.registrableDomain,
+          label: site.displayName ?? site.registrableDomain,
+        }))}
+        t={t}
+      />
     </div>
   )
 }

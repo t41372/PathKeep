@@ -138,6 +138,16 @@ export function IntelligenceRuntimeDigest({
     }
   }, [initialized, intelligenceT, jobsT, language, runtimeStatus, unlocked])
 
+  // v0.3 redesign: the design package does not surface a runtime status panel
+  // at the top of /intelligence for healthy or in-flight queues. Only render
+  // when there is a real action item — warnings/errors or the archive isn't
+  // unlocked yet. Healthy / running / queued states are already represented
+  // in the sidebar background-status strip and on the dedicated /jobs route.
+  const needsArchiveAction = !initialized || !unlocked
+  if (digest.tone !== 'warning' && !needsArchiveAction) {
+    return null
+  }
+
   return (
     <section
       className="intelligence-section intelligence-runtime-digest"

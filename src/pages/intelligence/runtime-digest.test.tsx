@@ -99,7 +99,7 @@ describe('IntelligenceRuntimeDigest', () => {
     expect(screen.getByText('runtime bridge unavailable')).toBeVisible()
   })
 
-  test('summarizes queued background work and links to Jobs', () => {
+  test('stays silent for healthy queued background work (covered by sidebar + /jobs)', () => {
     renderDigest({
       runtime: runtimeStatus({
         intelligence: {
@@ -108,42 +108,15 @@ describe('IntelligenceRuntimeDigest', () => {
             ...runtimeStatus().intelligence!.queue,
             queued: 2,
           },
-          recentJobs: [
-            {
-              id: 5,
-              jobType: 'deterministic-rebuild',
-              pluginId: null,
-              state: 'queued',
-              historyId: null,
-              profileId: null,
-              url: null,
-              title: 'Rebuild local intelligence',
-              attempt: 1,
-              createdAt: '2026-04-25T10:00:00.000Z',
-              startedAt: null,
-              finishedAt: null,
-              updatedAt: '2026-04-25T10:00:00.000Z',
-              heartbeatAt: null,
-              progressLabel: null,
-              progressDetail: null,
-              progressCurrent: null,
-              progressTotal: null,
-              progressPercent: null,
-              lastError: null,
-              retryable: false,
-              cancellable: false,
-            },
-          ],
         },
       }),
     })
 
-    expect(screen.getByText('2 jobs queued')).toBeVisible()
-    expect(screen.getByText('Rebuild local intelligence')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute(
-      'href',
-      '/jobs',
-    )
+    // v0.3 redesign hides the digest on healthy info-tone states; the sidebar
+    // background-status strip and /jobs route already cover queued work.
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
   })
 
   test('summarizes failed runtime jobs with last activity details', () => {
@@ -172,7 +145,7 @@ describe('IntelligenceRuntimeDigest', () => {
     expect(screen.getByText(/Last activity/)).toBeVisible()
   })
 
-  test('summarizes runtime work when optional job detail is sparse', () => {
+  test('shows the digest only on the warning tone (failed jobs)', () => {
     const failed = renderDigest({
       runtime: runtimeStatus({
         intelligence: {
@@ -186,9 +159,12 @@ describe('IntelligenceRuntimeDigest', () => {
       }),
     })
 
+    // Failed runtime jobs are an actionable warning — digest renders.
     expect(screen.getByText('1 jobs need review')).toBeVisible()
     failed.unmount()
 
+    // Pure running state with no failures is healthy info — digest stays
+    // silent and the sidebar background-status strip carries the signal.
     const running = renderDigest({
       runtime: runtimeStatus({
         intelligence: {
@@ -207,7 +183,9 @@ describe('IntelligenceRuntimeDigest', () => {
       }),
     })
 
-    expect(screen.getByText('12,000 / 20,000 visits')).toBeVisible()
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
     running.unmount()
 
     renderDigest({
@@ -223,10 +201,12 @@ describe('IntelligenceRuntimeDigest', () => {
       }),
     })
 
-    expect(screen.getByText('1 jobs queued')).toBeVisible()
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
   })
 
-  test('summarizes running and ready runtime states without recent jobs', () => {
+  test('stays silent for healthy running and ready runtime states', () => {
     const { rerender } = renderDigest({
       runtime: runtimeStatus({
         intelligence: null,
@@ -238,8 +218,9 @@ describe('IntelligenceRuntimeDigest', () => {
       }),
     })
 
-    expect(screen.getByText('1 jobs running')).toBeVisible()
-    expect(screen.getByText('Running')).toBeVisible()
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
 
     rerender(
       <I18nProvider>
@@ -268,8 +249,10 @@ describe('IntelligenceRuntimeDigest', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('Runtime looks healthy')).toBeVisible()
-    expect(screen.getByText(/Last activity/)).toBeVisible()
+    // Ready / success tone: the v0.3 design surfaces nothing.
+    expect(
+      screen.queryByTestId('intelligence-runtime-digest'),
+    ).not.toBeInTheDocument()
   })
 })
 
