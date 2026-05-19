@@ -19,6 +19,7 @@ import {
   buildPaperDetailPanelCopy,
   buildPaperExplorerCopy,
   buildPaperIntelligenceCopy,
+  buildPaperSearchViewCopy,
 } from './paper-explorer-copy'
 
 function tFor(language: 'en' | 'zh-CN' | 'zh-TW') {
@@ -179,6 +180,63 @@ describe('buildPaperIntelligenceCopy', () => {
       )
       for (const value of stringValues) {
         expect(value).not.toMatch(/explorer\.paperIntelligence\./)
+      }
+    }
+  })
+})
+
+describe('buildPaperSearchViewCopy', () => {
+  test('builds Search view copy for English with nested hero and empty', () => {
+    const copy = buildPaperSearchViewCopy(tFor('en'))
+    expect(copy.hero.prompt).toBe('What would you like to find again?')
+    expect(copy.hero.modeKeyword).toBe('Keyword')
+    expect(copy.hero.modeSemantic).toBe('Semantic')
+    expect(copy.hero.removeChipLabel).toContain('{label}')
+    expect(copy.empty.tryAskingHeading).toBe('Try asking')
+    expect(copy.empty.recentMeta).toContain('{mode}')
+    expect(copy.resultsCount).toContain('{count}')
+    expect(copy.resultsCount).toContain('{noun}')
+    expect(copy.pageSuffixSingular).toBe('page')
+    expect(copy.pageSuffixPlural).toBe('pages')
+    expect(copy.noMatchesTitle).toBe('Memory is patient.')
+    expect(copy.seeInContextLabel).toBe('See in context →')
+    expect(copy.dayCountTemplate).toContain('{count}')
+  })
+
+  test('builds Search view copy for Simplified Chinese', () => {
+    const copy = buildPaperSearchViewCopy(tFor('zh-CN'))
+    expect(copy.hero.prompt).toBe('你想再找回什么？')
+    expect(copy.hero.modeKeyword).toBe('关键词')
+    expect(copy.empty.tryAskingHeading).toBe('试着这样问')
+    expect(copy.pageSuffixSingular).toBe('页')
+    expect(copy.seeInContextLabel).toBe('回到当天 →')
+  })
+
+  test('builds Search view copy for Traditional Chinese', () => {
+    const copy = buildPaperSearchViewCopy(tFor('zh-TW'))
+    expect(copy.hero.prompt).toBe('你想再找回什麼？')
+    expect(copy.hero.modeKeyword).toBe('關鍵字')
+    expect(copy.empty.recentHeading).toBe('最近搜尋')
+    expect(copy.noMatchesTitle).toBe('記憶需要時間。')
+  })
+
+  test('Search view copy has no missing-key leakage across locales', () => {
+    for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
+      const copy = buildPaperSearchViewCopy(tFor(language))
+      const all: string[] = [
+        ...Object.values(copy.hero),
+        ...Object.values(copy.empty),
+        copy.resultsCount,
+        copy.resultsRange,
+        copy.pageSuffixSingular,
+        copy.pageSuffixPlural,
+        copy.noMatchesTitle,
+        copy.noMatchesBody,
+        copy.seeInContextLabel,
+        copy.dayCountTemplate,
+      ]
+      for (const value of all) {
+        expect(value).not.toMatch(/explorer\.paperSearchView\./)
       }
     }
   })

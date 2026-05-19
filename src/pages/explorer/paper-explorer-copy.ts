@@ -18,6 +18,7 @@
 import type {
   PaperDetailPanelCopy,
   PaperIntelligenceViewCopy,
+  PaperSearchViewCopy,
 } from '@/components/explorer-paper'
 import type { PaperExplorerCopy } from './paper-view'
 
@@ -145,5 +146,51 @@ export function buildPaperIntelligenceCopy(
     refindBadge: t('paperIntelligence.refindBadge'),
     sessionPagesLabel: t('paperIntelligence.sessionPagesLabel'),
     threadPagesLabel: t('paperIntelligence.threadPagesLabel'),
+  }
+}
+
+/**
+ * Bundle PaperSearchView strings from the `explorer.paperSearchView.*` keys
+ * into the nested copy shape PaperSearchView expects.
+ *
+ * Splitting hero / empty into sub-objects mirrors the component's prop
+ * shape: PaperSearchView passes `copy.hero` to PaperSearchHero and
+ * `copy.empty` to PaperSearchEmpty unchanged.
+ */
+export function buildPaperSearchViewCopy(
+  t: ExplorerTranslator,
+): PaperSearchViewCopy {
+  return {
+    hero: {
+      prompt: t('paperSearchView.heroPrompt'),
+      inputPlaceholder: t('paperSearchView.heroInputPlaceholder'),
+      modesLabel: t('paperSearchView.heroModesLabel'),
+      filtersLabel: t('paperSearchView.heroFiltersLabel'),
+      modeKeyword: t('paperSearchView.heroModeKeyword'),
+      modeRegex: t('paperSearchView.heroModeRegex'),
+      modeSemantic: t('paperSearchView.heroModeSemantic'),
+      modeHintKeyword: t('paperSearchView.heroModeHintKeyword'),
+      modeHintRegex: t('paperSearchView.heroModeHintRegex'),
+      modeHintSemantic: t('paperSearchView.heroModeHintSemantic'),
+      addFilterDate: t('paperSearchView.heroAddFilterDate'),
+      addFilterSource: t('paperSearchView.heroAddFilterSource'),
+      addFilterDomain: t('paperSearchView.heroAddFilterDomain'),
+      addFilterVisitCount: t('paperSearchView.heroAddFilterVisitCount'),
+      removeChipLabel: t('paperSearchView.heroRemoveChipLabel'),
+    },
+    empty: {
+      tryAskingHeading: t('paperSearchView.emptyTryAskingHeading'),
+      recentHeading: t('paperSearchView.emptyRecentHeading'),
+      recentMeta: t('paperSearchView.emptyRecentMeta'),
+      footer: t('paperSearchView.emptyFooter'),
+    },
+    resultsCount: t('paperSearchView.resultsCount'),
+    resultsRange: t('paperSearchView.resultsRange'),
+    pageSuffixSingular: t('paperSearchView.pageSuffixSingular'),
+    pageSuffixPlural: t('paperSearchView.pageSuffixPlural'),
+    noMatchesTitle: t('paperSearchView.noMatchesTitle'),
+    noMatchesBody: t('paperSearchView.noMatchesBody'),
+    seeInContextLabel: t('paperSearchView.seeInContextLabel'),
+    dayCountTemplate: t('paperSearchView.dayCountTemplate'),
   }
 }

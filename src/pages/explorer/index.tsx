@@ -49,9 +49,16 @@ import { ExplorerTimelineBar } from './timeline-bar'
 import {
   buildPaperDetailPanelCopy,
   buildPaperExplorerCopy,
+  buildPaperSearchViewCopy,
 } from './paper-explorer-copy'
 import { PaperExplorerView } from './paper-view'
-import { PaperDetailPanel } from '@/components/explorer-paper'
+import { PaperDetailPanel, PaperSearchView } from '@/components/explorer-paper'
+import {
+  buildPaperSearchDayGroups,
+  explorerStateFromPaperSearchMode,
+  paperSearchModeFromExplorerState,
+} from './paper-search-helpers'
+import { getDomainAbbr, getDomainColor } from './paper/domain-color'
 import { useLocalAnnotations } from './use-local-annotations'
 import type { ExplorerVisitSelection } from './types'
 
@@ -548,7 +555,51 @@ export function ExplorerPage() {
           title={explorerT('noMatchesTitle')}
         />
       ) : view === 'time' && (loading || visibleTimeResults) ? (
-        searchParams.get('layout') === 'paper' ? (
+        searchParams.get('layout') === 'paper' &&
+        searchParams.get('surface') === 'search' ? (
+          <PaperSearchView
+            query={queryInput}
+            mode={paperSearchModeFromExplorerState(mode, regexMode)}
+            activeFilters={[]}
+            groups={buildPaperSearchDayGroups(
+              renderedTimeResults?.items ?? [],
+              { language },
+            )}
+            totalResults={renderedTimeResults?.total ?? 0}
+            resolveDomainColor={getDomainColor}
+            resolveDomainAbbr={getDomainAbbr}
+            onQueryChange={(next) => {
+              setQueryInput(next)
+              updateParam('q', next)
+            }}
+            onModeChange={(nextMode) => {
+              const next = explorerStateFromPaperSearchMode(nextMode)
+              updateParam('mode', next.mode === 'keyword' ? null : next.mode)
+              updateParam('regex', next.regexMode ? '1' : null)
+            }}
+            onRemoveFilter={() => {
+              /* paper hero filters are deferred to the next pass */
+            }}
+            onSubmit={(query) => {
+              setQueryInput(query)
+              updateParam('q', query)
+            }}
+            onSelectEntry={(entry) => {
+              setSelectedId(Number(entry.id))
+              setPaperDetailOpen(true)
+            }}
+            onSeeInContext={(entry, dayDate) => {
+              const next = new URLSearchParams(searchParams)
+              next.set('date', dayDate)
+              next.set('source', 'search')
+              next.delete('surface')
+              setSearchParams(next)
+              setSelectedId(Number(entry.id))
+            }}
+            copy={buildPaperSearchViewCopy(explorerT)}
+            testId="explorer-paper-search-view"
+          />
+        ) : searchParams.get('layout') === 'paper' ? (
           <PaperExplorerView
             entries={renderedTimeResults?.items ?? []}
             targetDate={searchParams.get('date')}
