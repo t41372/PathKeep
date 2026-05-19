@@ -216,6 +216,20 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument()
   })
 
+  test('opts into the paper contact-sheet view when layout=paper is in the URL', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('layout=paper'),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
+    // v0.2 results panel is unmounted when the paper view takes over.
+    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
+  })
+
   test('shows the deferred semantic callout when optional AI is unavailable', () => {
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({

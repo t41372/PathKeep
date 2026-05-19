@@ -46,6 +46,8 @@ import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
 import { ExplorerQueryFiltersPanel } from './query-filters-panel'
 import { ExplorerTimelineBar } from './timeline-bar'
+import { buildPaperExplorerCopy } from './paper-explorer-copy'
+import { PaperExplorerView } from './paper-view'
 import type { ExplorerVisitSelection } from './types'
 
 /**
@@ -539,43 +541,76 @@ export function ExplorerPage() {
           title={explorerT('noMatchesTitle')}
         />
       ) : view === 'time' && (loading || visibleTimeResults) ? (
-        <ExplorerResultsPanel
-          actionError={actionError}
-          commonT={commonT}
-          copyFeedback={copyFeedback}
-          explorerT={explorerT}
-          exportResult={exportResult}
-          handleCopyExportPath={handleCopyExportPath}
-          handleExport={handleExport}
-          handleHistoryPageJump={(historyPageCount) =>
-            handleHistoryPageJump(historyPage, historyPageCount)
-          }
-          handleFirstHistoryPage={() => handleFirstHistoryPage(historyPage)}
-          handleLastHistoryPage={(historyPageCount) =>
-            handleLastHistoryPage(historyPage, historyPageCount)
-          }
-          handleNextHistoryPage={() => handleNextHistoryPage(historyPage)}
-          handleOpenExportPath={async (path) => {
-            await backend.openPathInFileManager(path)
-          }}
-          handlePreviousHistoryPage={() =>
-            handlePreviousHistoryPage(historyPage)
-          }
-          handleVisit={handleVisit}
-          historyBlockedByInvalidRegex={historyBlockedByInvalidRegex}
-          historyPage={historyPage}
-          historyPageCount={historyPageCount}
-          historyPageInput={historyPageInput}
-          historyPageSize={pageSize}
-          intelligenceT={intelligenceT}
-          language={language}
-          loading={loading}
-          onHistoryPageInputChange={setHistoryPageInput}
-          onHistoryPageSizeChange={setHistoryPageSize}
-          onSelectHistory={setSelectedId}
-          results={renderedTimeResults}
-          selectedEntry={selectedEntry}
-        />
+        searchParams.get('layout') === 'paper' ? (
+          <PaperExplorerView
+            entries={renderedTimeResults?.items ?? []}
+            targetDate={searchParams.get('date')}
+            targetSource={
+              (searchParams.get('source') as
+                | 'on-this-day'
+                | 'search'
+                | 'intelligence'
+                | null) ?? null
+            }
+            targetQuery={searchParams.get('q') ?? null}
+            selectedEntryId={selectedEntry?.id ?? null}
+            onSelectEntry={(entry) => {
+              setSelectedId(entry.id)
+            }}
+            onJumpToDate={(iso) => {
+              const next = new URLSearchParams(searchParams)
+              next.set('date', iso)
+              setSearchParams(next)
+            }}
+            onClearTarget={() => {
+              const next = new URLSearchParams(searchParams)
+              next.delete('date')
+              next.delete('source')
+              setSearchParams(next)
+            }}
+            language={language}
+            copy={buildPaperExplorerCopy(explorerT)}
+            testId="explorer-paper-view"
+          />
+        ) : (
+          <ExplorerResultsPanel
+            actionError={actionError}
+            commonT={commonT}
+            copyFeedback={copyFeedback}
+            explorerT={explorerT}
+            exportResult={exportResult}
+            handleCopyExportPath={handleCopyExportPath}
+            handleExport={handleExport}
+            handleHistoryPageJump={(historyPageCount) =>
+              handleHistoryPageJump(historyPage, historyPageCount)
+            }
+            handleFirstHistoryPage={() => handleFirstHistoryPage(historyPage)}
+            handleLastHistoryPage={(historyPageCount) =>
+              handleLastHistoryPage(historyPage, historyPageCount)
+            }
+            handleNextHistoryPage={() => handleNextHistoryPage(historyPage)}
+            handleOpenExportPath={async (path) => {
+              await backend.openPathInFileManager(path)
+            }}
+            handlePreviousHistoryPage={() =>
+              handlePreviousHistoryPage(historyPage)
+            }
+            handleVisit={handleVisit}
+            historyBlockedByInvalidRegex={historyBlockedByInvalidRegex}
+            historyPage={historyPage}
+            historyPageCount={historyPageCount}
+            historyPageInput={historyPageInput}
+            historyPageSize={pageSize}
+            intelligenceT={intelligenceT}
+            language={language}
+            loading={loading}
+            onHistoryPageInputChange={setHistoryPageInput}
+            onHistoryPageSizeChange={setHistoryPageSize}
+            onSelectHistory={setSelectedId}
+            results={renderedTimeResults}
+            selectedEntry={selectedEntry}
+          />
+        )
       ) : view === 'session' ? (
         <div className="explorer-grid">
           <div className="record-list">

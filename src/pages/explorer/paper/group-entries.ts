@@ -46,7 +46,10 @@ export interface PaperDay {
 const SESSION_GAP_MINUTES = 30
 const STACK_THRESHOLD = 3
 
-export function localDayKey(visitedAt: string): string {
+export function localDayKey(visitedAt: string | null | undefined): string {
+  if (typeof visitedAt !== 'string' || visitedAt.length === 0) {
+    return 'unknown'
+  }
   const date = new Date(visitedAt)
   if (Number.isNaN(date.getTime())) return visitedAt.slice(0, 10)
   const year = date.getFullYear()
