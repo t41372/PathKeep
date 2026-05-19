@@ -15,6 +15,7 @@
  *   already pinned to one language.
  */
 
+import type { PaperDetailPanelCopy } from '@/components/explorer-paper'
 import type { PaperExplorerCopy } from './paper-view'
 
 export type ExplorerTranslator = (
@@ -85,5 +86,40 @@ export function buildPaperExplorerCopy(
       boundsMeta: t('paperBrowse.calendarBoundsMeta'),
     },
     yearRailTitle: t('paperBrowse.yearRailTitle'),
+  }
+}
+
+export function buildPaperDetailPanelCopy(
+  t: ExplorerTranslator,
+): PaperDetailPanelCopy {
+  return {
+    recordEyebrow: t('paperBrowse.detailRecordEyebrow'),
+    closeLabel: t('paperBrowse.detailClose'),
+    openAction: t('paperBrowse.detailActionOpen'),
+    copyAction: t('paperBrowse.detailActionCopy'),
+    refindAction: t('paperBrowse.detailActionRefind'),
+    exportAction: t('paperBrowse.detailActionExport'),
+    provenanceHeading: t('paperBrowse.detailProvenanceHeading'),
+    notesHeading: t('paperBrowse.detailNotesHeading'),
+    tagsHeading: t('paperBrowse.detailTagsHeading'),
+    lookFurtherHeading: t('paperBrowse.detailLookFurtherHeading'),
+    firstVisitLabel: t('paperBrowse.detailFirstVisit'),
+    lastVisitLabel: t('paperBrowse.detailLastVisit'),
+    totalVisitsLabel: t('paperBrowse.detailTotalVisits'),
+    typedCountLabel: t('paperBrowse.detailTypedCount'),
+    recentVisitsLabel: t('paperBrowse.detailRecentVisits'),
+    sourceLabel: t('paperBrowse.detailSource'),
+    transitionLabel: t('paperBrowse.detailTransition'),
+    capturedInRunLabel: t('paperBrowse.detailCapturedInRun'),
+    titleHistoryLabel: t('paperBrowse.detailTitleHistory'),
+    notesPlaceholder: t('paperBrowse.detailNotesPlaceholder'),
+    notesEmpty: t('paperBrowse.detailNotesEmpty'),
+    notesSavedLocally: t('paperBrowse.detailNotesSavedLocally'),
+    tagInputPlaceholder: t('paperBrowse.detailTagInputPlaceholder'),
+    pageLevelInsights: t('paperBrowse.detailLookPageInsights'),
+    allOfDomain: t('paperBrowse.detailLookAllOfDomain'),
+    threadLabel: t('paperBrowse.detailLookThread'),
+    sessionLabel: t('paperBrowse.detailLookSession'),
+    visitCountSuffix: t('paperBrowse.detailVisitCountSuffix'),
   }
 }

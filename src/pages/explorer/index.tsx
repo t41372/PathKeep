@@ -46,8 +46,13 @@ import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
 import { ExplorerQueryFiltersPanel } from './query-filters-panel'
 import { ExplorerTimelineBar } from './timeline-bar'
-import { buildPaperExplorerCopy } from './paper-explorer-copy'
+import {
+  buildPaperDetailPanelCopy,
+  buildPaperExplorerCopy,
+} from './paper-explorer-copy'
 import { PaperExplorerView } from './paper-view'
+import { PaperDetailPanel } from '@/components/explorer-paper'
+import { useLocalAnnotations } from './use-local-annotations'
 import type { ExplorerVisitSelection } from './types'
 
 /**
@@ -166,6 +171,8 @@ export function ExplorerPage() {
     key: string
     visit: ExplorerVisitSelection
   } | null>(null)
+  const annotations = useLocalAnnotations()
+  const [paperDetailOpen, setPaperDetailOpen] = useState(false)
   const labels = useMemo(
     () => ({
       exportFailed: explorerT('exportFailed'),
@@ -556,6 +563,7 @@ export function ExplorerPage() {
             selectedEntryId={selectedEntry?.id ?? null}
             onSelectEntry={(entry) => {
               setSelectedId(entry.id)
+              setPaperDetailOpen(true)
             }}
             onJumpToDate={(iso) => {
               const next = new URLSearchParams(searchParams)
@@ -663,6 +671,37 @@ export function ExplorerPage() {
             selectedVisit={selectedGroupedVisit}
           />
         </div>
+      ) : null}
+
+      {searchParams.get('layout') === 'paper' &&
+      paperDetailOpen &&
+      selectedEntry ? (
+        <PaperDetailPanel
+          entry={{
+            id: selectedEntry.id,
+            title: selectedEntry.title ?? selectedEntry.url,
+            url: selectedEntry.url,
+            domain: selectedEntry.domain,
+            firstVisitAt: selectedEntry.visitedAt,
+            lastVisitAt: selectedEntry.visitedAt,
+            source: profileIdLabel(selectedEntry.profileId),
+          }}
+          notes={annotations.notesFor(selectedEntry.url)}
+          tags={annotations.tagsFor(selectedEntry.url)}
+          onClose={() => setPaperDetailOpen(false)}
+          onOpen={(entry) => void handleVisit(String(entry.id))}
+          onCopyUrl={(entry) => {
+            void globalThis.navigator?.clipboard?.writeText(entry.url)
+          }}
+          onUpdateNotes={(next) =>
+            annotations.updateNotes(selectedEntry.url, next)
+          }
+          onUpdateTags={(next) =>
+            annotations.updateTags(selectedEntry.url, next)
+          }
+          copy={buildPaperDetailPanelCopy(explorerT)}
+          testId="explorer-paper-detail-panel"
+        />
       ) : null}
     </section>
   )

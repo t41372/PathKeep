@@ -15,7 +15,10 @@
 
 import { describe, expect, test } from 'vitest'
 import { createNamespaceTranslator } from '@/lib/i18n/catalog/catalog-runtime'
-import { buildPaperExplorerCopy } from './paper-explorer-copy'
+import {
+  buildPaperDetailPanelCopy,
+  buildPaperExplorerCopy,
+} from './paper-explorer-copy'
 
 function tFor(language: 'en' | 'zh-CN' | 'zh-TW') {
   return createNamespaceTranslator(language, 'explorer')
@@ -93,6 +96,40 @@ describe('buildPaperExplorerCopy', () => {
       // (e.g. "explorer.paperBrowse.contactSheetView"). Any value still
       // containing the namespace prefix means catalog parity has slipped.
       for (const value of all) {
+        expect(value).not.toMatch(/explorer\.paperBrowse\./)
+      }
+    }
+  })
+})
+
+describe('buildPaperDetailPanelCopy', () => {
+  test('builds the detail-panel copy for English', () => {
+    const copy = buildPaperDetailPanelCopy(tFor('en'))
+    expect(copy.recordEyebrow).toBe('Record')
+    expect(copy.openAction).toBe('Open')
+    expect(copy.notesHeading).toBe('Your notes')
+    expect(copy.allOfDomain).toContain('{domain}')
+    expect(copy.visitCountSuffix).toContain('{count}')
+  })
+
+  test('builds the detail-panel copy for Simplified Chinese', () => {
+    const copy = buildPaperDetailPanelCopy(tFor('zh-CN'))
+    expect(copy.recordEyebrow).toBe('记录')
+    expect(copy.notesHeading).toBe('你的笔记')
+    expect(copy.lookFurtherHeading).toBe('看得更深')
+  })
+
+  test('builds the detail-panel copy for Traditional Chinese', () => {
+    const copy = buildPaperDetailPanelCopy(tFor('zh-TW'))
+    expect(copy.recordEyebrow).toBe('紀錄')
+    expect(copy.notesHeading).toBe('你的筆記')
+    expect(copy.lookFurtherHeading).toBe('看得更深')
+  })
+
+  test('detail copy has no missing-key leakage across locales', () => {
+    for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
+      const copy = buildPaperDetailPanelCopy(tFor(language))
+      for (const value of Object.values(copy)) {
         expect(value).not.toMatch(/explorer\.paperBrowse\./)
       }
     }
