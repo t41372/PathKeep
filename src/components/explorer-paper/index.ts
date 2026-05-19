@@ -42,3 +42,9 @@ export type {
   PaperViewToggleOption,
   PaperViewToggleProps,
 } from './paper-view-toggle'
+
+export { PaperDayNavControl } from './paper-day-nav-control'
+export type {
+  PaperDayNavControlCopy,
+  PaperDayNavControlProps,
+} from './paper-day-nav-control'
