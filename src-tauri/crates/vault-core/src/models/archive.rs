@@ -300,6 +300,73 @@ pub struct HistoryFaviconLookupResult {
     pub favicon: Option<HistoryFavicon>,
 }
 
+/// One og:image payload returned alongside a card-mode history row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImage {
+    pub data_url: String,
+}
+
+/// One batch og:image lookup entry used by the card-mode hydration path.
+///
+/// Unlike favicon lookup the lookup key is page-URL only — there is no
+/// visit-time scoping because the og:image describes the page itself, and
+/// no profile partitioning because the cache is shared across browsers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImageLookupEntry {
+    pub url: String,
+}
+
+/// One resolved og:image payload returned by the lazy card-mode lookup command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImageLookupResult {
+    pub url: String,
+    pub og_image: Option<HistoryOgImage>,
+    pub fetch_status: String,
+}
+
+/// Counts and bytes reported by the og:image storage stats command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageStorageStats {
+    pub row_count: i64,
+    pub blob_count: i64,
+    pub total_bytes: i64,
+    pub oldest_fetched_at: Option<String>,
+}
+
+/// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
+/// and only manual "Clear cache" clears it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum OgImageCleanupMode {
+    Off,
+    /// Delete rows older than `max_age_days`.
+    TimeTtl { max_age_days: u32 },
+    /// Delete oldest-fetched rows until total bytes drop below `max_bytes`.
+    SizeCap { max_bytes: u64 },
+    /// Delete least-recently-shown rows until total bytes drop below `max_bytes`.
+    Lru { max_bytes: u64 },
+}
+
+impl Default for OgImageCleanupMode {
+    fn default() -> Self {
+        OgImageCleanupMode::Off
+    }
+}
+
+/// Outcome of one cleanup pass — reported back to the UI so the user sees
+/// how many rows/blobs were evicted and how many bytes were reclaimed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageCleanupReport {
+    pub deleted_rows: i64,
+    pub deleted_blobs: i64,
+    pub reclaimed_bytes: i64,
+}
+
 /// One visible visit row returned by archive recall.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

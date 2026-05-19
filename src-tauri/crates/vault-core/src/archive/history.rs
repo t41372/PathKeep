@@ -18,10 +18,19 @@ use super::*;
 
 mod export;
 mod favicons;
+pub mod og_images;
 mod pagination;
 
 pub use self::export::export_history;
 pub use self::favicons::load_history_favicons;
+// og_images functions are re-exported via the `og_images` module path so the
+// worker and Tauri command crates can address them as
+// `vault_core::archive::history::og_images::*`. They land in C3/C4.
+#[allow(unused_imports)]
+pub use self::og_images::{
+    OgImageInsert, clear_cache as clear_og_image_cache, load_og_images, mark_og_images_shown,
+    run_cleanup as run_og_image_cleanup, storage_stats as og_image_storage_stats, upsert_og_image,
+};
 #[cfg(test)]
 pub(super) use self::favicons::{
     LOAD_FAVICON_CROSS_PROFILE_HOST_SQL, LOAD_FAVICON_CROSS_PROFILE_PAGE_SQL,

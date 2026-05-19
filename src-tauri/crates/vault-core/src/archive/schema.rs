@@ -41,6 +41,7 @@ const MIGRATION_009_FAVICON_BLOB_DEDUP_SQL: &str =
 const MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL: &str =
     include_str!("../migrations/010_favicon_domain_fallback.sql");
 const MIGRATION_011_NOTES_TAGS_SQL: &str = include_str!("../migrations/011_notes_tags.sql");
+const MIGRATION_012_OG_IMAGES_SQL: &str = include_str!("../migrations/012_og_images.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -80,6 +81,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 9, sql: MIGRATION_009_FAVICON_BLOB_DEDUP_SQL },
     MigrationSpec { version: 10, sql: MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL },
     MigrationSpec { version: 11, sql: MIGRATION_011_NOTES_TAGS_SQL },
+    MigrationSpec { version: 12, sql: MIGRATION_012_OG_IMAGES_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -360,7 +362,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 11);
+        assert_eq!(current_version(&connection).expect("schema version"), 12);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -368,6 +370,8 @@ mod tests {
         assert!(has_table(&connection, "favicon_blobs"));
         assert!(has_table(&connection, "url_annotations"));
         assert!(has_table(&connection, "url_tags"));
+        assert!(has_table(&connection, "og_images"));
+        assert!(has_table(&connection, "og_image_blobs"));
         assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(has_index(&connection, "idx_favicons_page_lookup"));
         assert!(has_index(&connection, "idx_favicons_blob_hash"));
@@ -375,6 +379,10 @@ mod tests {
         assert!(has_index(&connection, "idx_favicons_registrable_profile_lookup"));
         assert!(has_index(&connection, "idx_url_annotations_updated_at"));
         assert!(has_index(&connection, "idx_url_tags_tag"));
+        assert!(has_index(&connection, "idx_og_images_page_url"));
+        assert!(has_index(&connection, "idx_og_images_blob_hash"));
+        assert!(has_index(&connection, "idx_og_images_refetch"));
+        assert!(has_index(&connection, "idx_og_images_last_shown"));
         assert!(!has_table(&connection, "history_search"));
         let legacy_surface_count: i64 = connection
             .query_row(
@@ -398,7 +406,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 11);
+        assert_eq!(count, 12);
     }
 
     #[test]
@@ -482,7 +490,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 11);
+        assert_eq!(current_version(&connection).expect("migrated version"), 12);
     }
 
     #[test]
@@ -533,7 +541,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 11);
+                assert_eq!(join.join().expect("thread join"), 12);
             }
         });
 
