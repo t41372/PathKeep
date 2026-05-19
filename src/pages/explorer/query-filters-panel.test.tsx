@@ -69,6 +69,11 @@ describe('ExplorerQueryFiltersPanel', () => {
       />,
     )
 
+    // Advanced filters live inside a <details> in the v0.3 redesign; expand it
+    // so the sort control becomes visible before asserting.
+    const summary = screen.getByText(explorerT('advancedFiltersEyebrow'))
+    fireEvent.click(summary)
+
     expect(screen.getByLabelText(explorerT('filterSort'))).toHaveValue(
       'relevance',
     )

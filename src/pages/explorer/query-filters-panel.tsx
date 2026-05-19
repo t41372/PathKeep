@@ -282,7 +282,15 @@ export function ExplorerQueryFiltersPanel({
           </div>
         </div>
 
-        <div className="panel-body explorer-secondary-controls">
+        <details className="panel-body explorer-secondary-controls">
+          <summary className="explorer-secondary-controls__summary">
+            <span className="mono-kicker">
+              {explorerT('advancedFiltersEyebrow')}
+            </span>
+            <span className="explorer-secondary-controls__hint">
+              {explorerT('advancedFiltersHint')}
+            </span>
+          </summary>
           <div
             className="segmented-row explorer-view-by"
             role="toolbar"
@@ -427,7 +435,7 @@ export function ExplorerQueryFiltersPanel({
               </select>
             </label>
           </div>
-        </div>
+        </details>
       </div>
     </>
   )

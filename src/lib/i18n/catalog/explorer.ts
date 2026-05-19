@@ -72,6 +72,8 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: 'SEARCH HISTORY',
     searchHeroPlaceholder: 'Type to search your history…',
     searchHeroLabel: 'Search mode',
+    advancedFiltersEyebrow: 'ADVANCED FILTERS',
+    advancedFiltersHint: 'View mode, domain, profile, browser, date range',
     advancedSearchHelpAria: 'Show advanced keyword syntax',
     advancedSearchHelpTitle: 'Advanced keyword syntax',
     advancedSearchHelpIntro:
@@ -254,6 +256,8 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: '搜索历史',
     searchHeroPlaceholder: '输入关键词搜索你的历史记录…',
     searchHeroLabel: '搜索模式',
+    advancedFiltersEyebrow: '进阶筛选',
+    advancedFiltersHint: '查看方式、域名、配置、浏览器、日期范围',
     advancedSearchHelpAria: '显示高级关键词语法',
     advancedSearchHelpTitle: '高级关键词语法',
     advancedSearchHelpIntro:
@@ -433,6 +437,8 @@ export const explorerNamespaceCatalog = {
     searchHeroEyebrow: '搜尋歷史',
     searchHeroPlaceholder: '輸入關鍵字搜尋你的歷史紀錄…',
     searchHeroLabel: '搜尋模式',
+    advancedFiltersEyebrow: '進階篩選',
+    advancedFiltersHint: '檢視方式、網域、設定檔、瀏覽器、日期範圍',
     advancedSearchHelpAria: '顯示進階關鍵字語法',
     advancedSearchHelpTitle: '進階關鍵字語法',
     advancedSearchHelpIntro:

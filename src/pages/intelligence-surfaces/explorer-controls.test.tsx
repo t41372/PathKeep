@@ -24,7 +24,7 @@
  * - Verifies debounce and pagination through existing network-boundary spies instead of extra render loops.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
@@ -162,6 +162,11 @@ describe('intelligence surfaces', () => {
         route: '/explorer',
         snapshot,
       })
+
+      // Advanced filters now live inside a collapsible <details> in v0.3.
+      fireEvent.click(
+        await screen.findByText(explorerT('advancedFiltersEyebrow')),
+      )
 
       expect(
         await screen.findByLabelText(explorerT('filterProfileAria')),

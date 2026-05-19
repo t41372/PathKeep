@@ -757,17 +757,68 @@
   overflow-wrap: anywhere;
 }
 
-/* ═══ SECONDARY CONTROLS (view-by + filter inputs) ═══ */
+/* ═══ SECONDARY CONTROLS (view-by + filter inputs, collapsible) ═══ */
 .explorer-secondary-controls {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   border-top: 1px solid var(--border);
-  padding-top: var(--space-3);
+  padding-top: 0;
+}
+
+.explorer-secondary-controls > .explorer-view-by,
+.explorer-secondary-controls > .explorer-filters {
+  display: none;
+}
+
+.explorer-secondary-controls[open] > .explorer-view-by,
+.explorer-secondary-controls[open] > .explorer-filters {
+  display: flex;
+}
+
+.explorer-secondary-controls[open] > .explorer-filters {
+  display: grid;
+}
+
+.explorer-secondary-controls__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.explorer-secondary-controls__summary::-webkit-details-marker {
+  display: none;
+}
+
+.explorer-secondary-controls__summary::before {
+  content: '+';
+  display: inline-block;
+  width: 14px;
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.explorer-secondary-controls[open]
+  .explorer-secondary-controls__summary::before {
+  content: '−';
+  color: var(--accent);
+}
+
+.explorer-secondary-controls__hint {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .explorer-view-by {
-  display: flex;
   align-items: center;
   gap: var(--space-2);
 }
