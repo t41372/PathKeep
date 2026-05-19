@@ -18,6 +18,7 @@ import { createNamespaceTranslator } from '@/lib/i18n/catalog/catalog-runtime'
 import {
   buildPaperDetailPanelCopy,
   buildPaperExplorerCopy,
+  buildPaperIntelligenceCopy,
 } from './paper-explorer-copy'
 
 function tFor(language: 'en' | 'zh-CN' | 'zh-TW') {
@@ -131,6 +132,53 @@ describe('buildPaperDetailPanelCopy', () => {
       const copy = buildPaperDetailPanelCopy(tFor(language))
       for (const value of Object.values(copy)) {
         expect(value).not.toMatch(/explorer\.paperBrowse\./)
+      }
+    }
+  })
+})
+
+describe('buildPaperIntelligenceCopy', () => {
+  test('builds Intelligence view copy for English with default summary fallback', () => {
+    const copy = buildPaperIntelligenceCopy(tFor('en'))
+    expect(copy.topicsTitle).toBe('Topics, over the last 30 days')
+    expect(copy.topicsRangeBadge).toContain('30D')
+    expect(copy.domainsTitle).toBe('Where you spent your time')
+    expect(copy.sessionsTitle).toBe('Recent sessions')
+    expect(copy.threadsTitle).toBe('Active threads')
+    expect(copy.refindTitle).toBe('Refind candidates')
+    expect(copy.topicsSummary).toContain('Topic clustering needs local LLM')
+  })
+
+  test('honours an LLM-supplied summary override', () => {
+    const copy = buildPaperIntelligenceCopy(tFor('en'), {
+      topicsSummary: 'This week was dominated by Rust internals.',
+    })
+    expect(copy.topicsSummary).toBe(
+      'This week was dominated by Rust internals.',
+    )
+  })
+
+  test('builds Intelligence copy for Simplified Chinese', () => {
+    const copy = buildPaperIntelligenceCopy(tFor('zh-CN'))
+    expect(copy.topicsTitle).toBe('近 30 天的主题')
+    expect(copy.domainsTitle).toBe('你的时间去了哪里')
+    expect(copy.refindTitle).toBe('常回看候选')
+  })
+
+  test('builds Intelligence copy for Traditional Chinese', () => {
+    const copy = buildPaperIntelligenceCopy(tFor('zh-TW'))
+    expect(copy.topicsTitle).toBe('近 30 天的主題')
+    expect(copy.threadsTitle).toBe('活躍線索')
+  })
+
+  test('Intelligence copy has no missing-key leakage across locales', () => {
+    for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
+      const copy = buildPaperIntelligenceCopy(tFor(language))
+      const stringValues = Object.values(copy).filter(
+        (value): value is string => typeof value === 'string',
+      )
+      for (const value of stringValues) {
+        expect(value).not.toMatch(/explorer\.paperIntelligence\./)
       }
     }
   })

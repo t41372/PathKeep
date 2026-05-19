@@ -15,7 +15,10 @@
  *   already pinned to one language.
  */
 
-import type { PaperDetailPanelCopy } from '@/components/explorer-paper'
+import type {
+  PaperDetailPanelCopy,
+  PaperIntelligenceViewCopy,
+} from '@/components/explorer-paper'
 import type { PaperExplorerCopy } from './paper-view'
 
 export type ExplorerTranslator = (
@@ -121,5 +124,26 @@ export function buildPaperDetailPanelCopy(
     threadLabel: t('paperBrowse.detailLookThread'),
     sessionLabel: t('paperBrowse.detailLookSession'),
     visitCountSuffix: t('paperBrowse.detailVisitCountSuffix'),
+  }
+}
+
+export function buildPaperIntelligenceCopy(
+  t: ExplorerTranslator,
+  options: { topicsSummary?: PaperIntelligenceViewCopy['topicsSummary'] } = {},
+): PaperIntelligenceViewCopy {
+  return {
+    topicsTitle: t('paperIntelligence.topicsTitle'),
+    topicsRangeBadge: t('paperIntelligence.topicsRangeBadge'),
+    topicsSummary:
+      options.topicsSummary ?? t('paperIntelligence.topicsSummaryFallback'),
+    domainsTitle: t('paperIntelligence.domainsTitle'),
+    domainsBadge: t('paperIntelligence.domainsBadge'),
+    sessionsTitle: t('paperIntelligence.sessionsTitle'),
+    sessionsBadge: t('paperIntelligence.sessionsBadge'),
+    threadsTitle: t('paperIntelligence.threadsTitle'),
+    refindTitle: t('paperIntelligence.refindTitle'),
+    refindBadge: t('paperIntelligence.refindBadge'),
+    sessionPagesLabel: t('paperIntelligence.sessionPagesLabel'),
+    threadPagesLabel: t('paperIntelligence.threadPagesLabel'),
   }
 }
