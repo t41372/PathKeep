@@ -48,3 +48,10 @@ export type {
   PaperDayNavControlCopy,
   PaperDayNavControlProps,
 } from './paper-day-nav-control'
+
+export { PaperCalendarPopover } from './paper-calendar-popover'
+export type {
+  PaperCalendarPopoverBounds,
+  PaperCalendarPopoverCopy,
+  PaperCalendarPopoverProps,
+} from './paper-calendar-popover'
