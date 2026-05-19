@@ -331,6 +331,10 @@ export function ExplorerPage() {
     setHistoryPageInput(String(historyPage))
   }, [historyPage, setHistoryPageInput])
 
+  const paperLayout = searchParams.get('layout') !== 'legacy'
+  const paperSearchSurface =
+    paperLayout && searchParams.get('surface') === 'search'
+
   if (shellLoading && !snapshot) {
     return <SkeletonExplorer label={t('common.loadingExplorer')} />
   }
@@ -381,50 +385,54 @@ export function ExplorerPage() {
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
-      <ExplorerTimelineBar
-        activeShortcutKey={activeDateShortcut()}
-        explorerT={explorerT}
-        onApplyDateShortcut={applyDateShortcut}
-        onClearDateRange={clearDateRange}
-        summary={
-          visibleTimeResults
-            ? {
-                currentPage: historyPage,
-                loaded: visibleTimeResults.items.length,
-                pageCount: historyPageCount,
-                total: visibleTimeResults.total,
-              }
-            : null
-        }
-        end={end}
-        start={start}
-      />
+      {paperLayout ? null : (
+        <ExplorerTimelineBar
+          activeShortcutKey={activeDateShortcut()}
+          explorerT={explorerT}
+          onApplyDateShortcut={applyDateShortcut}
+          onClearDateRange={clearDateRange}
+          summary={
+            visibleTimeResults
+              ? {
+                  currentPage: historyPage,
+                  loaded: visibleTimeResults.items.length,
+                  pageCount: historyPageCount,
+                  total: visibleTimeResults.total,
+                }
+              : null
+          }
+          end={end}
+          start={start}
+        />
+      )}
 
-      <ExplorerQueryFiltersPanel
-        activeFilters={activeFilters}
-        activeScopeLabel={activeScopeLabel}
-        browserKinds={browserKinds}
-        buildRecentSearchLabel={buildRecentSearchLabel}
-        clearAllFilters={clearAllFilters}
-        explicitProfileId={explicitProfileId}
-        explorerT={explorerT}
-        intelligenceT={intelligenceT}
-        mode={mode}
-        optionalAiAvailability={optionalAiAvailability}
-        profileId={profileId}
-        queryInput={queryInput}
-        recentSearches={recentSearches}
-        regexMode={regexMode}
-        regexValid={regexValid}
-        searchParams={searchParams}
-        selectedProfileIds={snapshot.config.selectedProfileIds}
-        setQueryInput={setQueryInput}
-        setSearchParams={setSearchParams}
-        setView={setView}
-        updateParam={updateParam}
-        view={view}
-        visibleRecordCount={visibleTimeResults?.total ?? null}
-      />
+      {paperLayout ? null : (
+        <ExplorerQueryFiltersPanel
+          activeFilters={activeFilters}
+          activeScopeLabel={activeScopeLabel}
+          browserKinds={browserKinds}
+          buildRecentSearchLabel={buildRecentSearchLabel}
+          clearAllFilters={clearAllFilters}
+          explicitProfileId={explicitProfileId}
+          explorerT={explorerT}
+          intelligenceT={intelligenceT}
+          mode={mode}
+          optionalAiAvailability={optionalAiAvailability}
+          profileId={profileId}
+          queryInput={queryInput}
+          recentSearches={recentSearches}
+          regexMode={regexMode}
+          regexValid={regexValid}
+          searchParams={searchParams}
+          selectedProfileIds={snapshot.config.selectedProfileIds}
+          setQueryInput={setQueryInput}
+          setSearchParams={setSearchParams}
+          setView={setView}
+          updateParam={updateParam}
+          view={view}
+          visibleRecordCount={visibleTimeResults?.total ?? null}
+        />
+      )}
 
       {optionalAiFixableReason ? (
         <StatusCallout
@@ -552,8 +560,7 @@ export function ExplorerPage() {
           title={explorerT('noMatchesTitle')}
         />
       ) : view === 'time' && (loading || visibleTimeResults) ? (
-        searchParams.get('layout') === 'paper' &&
-        searchParams.get('surface') === 'search' ? (
+        paperSearchSurface ? (
           <PaperSearchPanel
             query={queryInput}
             mode={mode}
@@ -587,7 +594,7 @@ export function ExplorerPage() {
               setSelectedId(Number(entry.id))
             }}
           />
-        ) : searchParams.get('layout') === 'paper' ? (
+        ) : paperLayout ? (
           <PaperExplorerView
             entries={renderedTimeResults?.items ?? []}
             targetDate={searchParams.get('date')}
@@ -712,7 +719,7 @@ export function ExplorerPage() {
         </div>
       ) : null}
 
-      {searchParams.get('layout') === 'paper' && paperDetailOpen ? (
+      {paperLayout && paperDetailOpen ? (
         <PaperDetailPanelMount
           selectedEntry={selectedEntry}
           annotations={annotations}

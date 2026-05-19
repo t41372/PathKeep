@@ -25,6 +25,10 @@ import {
   type PKStatusBarSource,
 } from '@/components/shell'
 import { invokeCommand } from '@/lib/ipc/bridge'
+import {
+  formatBuildRevisionLabel,
+  formatBuildVersionTitle,
+} from '@/lib/build-info'
 import type { HistoryQueryResponse, StorageSummary } from '@/lib/types'
 import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
@@ -194,6 +198,8 @@ export function AppShell() {
   const buildVersion = shell.buildInfo?.version
     ? `v${shell.buildInfo.version}`
     : null
+  const buildRevision = formatBuildRevisionLabel(shell.buildInfo)
+  const buildTitle = formatBuildVersionTitle(shell.buildInfo)
 
   return (
     <div
@@ -209,6 +215,8 @@ export function AppShell() {
         onToggleTheme={handleToggleTheme}
         onLockNow={handleLockNow}
         buildVersion={buildVersion}
+        buildRevision={buildRevision}
+        buildTitle={buildTitle}
         archiveHealthy={archiveHealthy ?? false}
       />
       <div className="bg-paper flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">

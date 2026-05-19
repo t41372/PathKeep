@@ -58,7 +58,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer?start=2026-04-01&end=2026-04-07',
+      route: '/explorer?start=2026-04-01&end=2026-04-07&layout=legacy',
       snapshot,
     })
 
@@ -91,7 +91,7 @@ describe('intelligence surfaces', () => {
 
     const loadingRender = renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       shellValue: {
         ...createShellValue(snapshot),
         snapshot: null,
@@ -108,7 +108,7 @@ describe('intelligence surfaces', () => {
 
     const errorRender = renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       shellValue: {
         ...createShellValue(snapshot),
         snapshot: null,
@@ -126,7 +126,7 @@ describe('intelligence surfaces', () => {
     uninitializedSnapshot.config.initialized = false
     const uninitializedRender = renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot: uninitializedSnapshot,
     })
 
@@ -140,7 +140,7 @@ describe('intelligence surfaces', () => {
     lockedSnapshot.archiveStatus.unlocked = false
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot: lockedSnapshot,
     })
 
@@ -159,7 +159,7 @@ describe('intelligence surfaces', () => {
 
       renderSurface(<ExplorerPage />, {
         language: 'en',
-        route: '/explorer',
+        route: '/explorer?layout=legacy',
         snapshot,
       })
 
@@ -180,7 +180,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -225,7 +225,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -306,7 +306,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -393,7 +393,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -478,7 +478,7 @@ describe('intelligence surfaces', () => {
 
     const firstRender = renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -501,7 +501,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -552,7 +552,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -604,7 +604,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -699,7 +699,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer',
+      route: '/explorer?layout=legacy',
       snapshot,
     })
 
@@ -758,7 +758,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer?page=2',
+      route: '/explorer?page=2&layout=legacy',
       snapshot,
     })
 
@@ -895,7 +895,7 @@ describe('intelligence surfaces', () => {
 
     renderSurface(<ExplorerPage />, {
       language: 'en',
-      route: '/explorer?mode=semantic&q=sqlite',
+      route: '/explorer?mode=semantic&q=sqlite&layout=legacy',
       shellValue,
       snapshot,
     })

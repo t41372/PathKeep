@@ -194,7 +194,8 @@ describe('ExplorerPage route shell', () => {
 
   test('renders time, session, and trail branches', () => {
     const { rerender } = renderExplorer()
-    expect(screen.getByTestId('results-panel')).toBeVisible()
+    // Time view defaults to the paper contact-sheet now.
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
 
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({ view: 'session' }),
@@ -216,17 +217,43 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument()
   })
 
-  test('opts into the paper contact-sheet view when layout=paper is in the URL', () => {
+  test('defaults to the paper contact-sheet view and hides the legacy chrome', () => {
+    renderExplorer()
+
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
+    // v0.2 results panel + the legacy timeline / filters chrome are gone.
+    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('timeline-bar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('filters-panel')).not.toBeInTheDocument()
+  })
+
+  test('falls back to the v0.2 explorer chrome when layout=legacy is in the URL', () => {
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({
-        searchParams: new URLSearchParams('layout=paper'),
+        searchParams: new URLSearchParams('layout=legacy'),
       }),
     )
 
     renderExplorer()
 
-    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
-    // v0.2 results panel is unmounted when the paper view takes over.
+    // Legacy results panel + timeline + query filters all mount again.
+    expect(screen.getByTestId('results-panel')).toBeVisible()
+    expect(screen.getByTestId('timeline-bar')).toBeVisible()
+    expect(screen.getByTestId('filters-panel')).toBeVisible()
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
+  })
+
+  test('shows the paper Search panel when surface=search is in the URL', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search'),
+      }),
+    )
+
+    renderExplorer()
+
+    // The PaperSearchPanel renders its own paper-search-view shell.
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
     expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
   })
 

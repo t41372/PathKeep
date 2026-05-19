@@ -14,10 +14,7 @@
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {
-  createMemoryRouter,
-  RouterProvider,
-} from 'react-router-dom'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   ShellDataContext,
@@ -58,7 +55,9 @@ describe('AppShell (paper redesign)', () => {
 
   test('renders the busy overlay when shell context advertises busyAction', () => {
     renderShell({ busyAction: 'Running backup', busyOverlay: null })
-    expect(screen.getByTestId('busy-overlay')).toHaveTextContent('Running backup')
+    expect(screen.getByTestId('busy-overlay')).toHaveTextContent(
+      'Running backup',
+    )
   })
 
   test('uses the deepest matched route handle as the active screen', () => {
@@ -78,13 +77,48 @@ describe('AppShell (paper redesign)', () => {
     expect(collapseButton).not.toBeNull()
     if (!collapseButton) throw new Error('collapse button missing')
     await user.click(collapseButton)
-    expect(window.localStorage.getItem('pathkeep.sidebar.collapsed')).toBe('true')
+    expect(window.localStorage.getItem('pathkeep.sidebar.collapsed')).toBe(
+      'true',
+    )
   })
 
   test('flips and persists theme on the html element', () => {
     window.localStorage.setItem('pathkeep.theme', 'dark')
     renderShell({}, '/')
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  test('renders the build version and short commit revision in the sidebar', () => {
+    renderShell({
+      buildInfo: {
+        productName: 'PathKeep',
+        version: '0.3.0',
+        gitCommitShort: 'abc1234',
+        gitCommitFull: 'abc1234deadbeef',
+        gitDirty: false,
+      },
+    })
+    expect(screen.getByTestId('pk-sidebar-build-version')).toHaveTextContent(
+      'v0.3.0',
+    )
+    expect(screen.getByTestId('pk-sidebar-build-revision')).toHaveTextContent(
+      'abc1234',
+    )
+  })
+
+  test('marks the revision with a "+" suffix when the working tree was dirty', () => {
+    renderShell({
+      buildInfo: {
+        productName: 'PathKeep',
+        version: '0.3.0',
+        gitCommitShort: 'abc1234',
+        gitCommitFull: 'abc1234deadbeef',
+        gitDirty: true,
+      },
+    })
+    expect(screen.getByTestId('pk-sidebar-build-revision')).toHaveTextContent(
+      'abc1234+',
+    )
   })
 })
 

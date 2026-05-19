@@ -33,6 +33,8 @@ export interface PKSidebarProps {
   onToggleTheme: () => void
   onLockNow: () => void
   buildVersion: string | null
+  buildRevision?: string | null
+  buildTitle?: string | null
   archiveHealthy: boolean
 }
 
@@ -44,6 +46,8 @@ export function PKSidebar({
   onToggleTheme,
   onLockNow,
   buildVersion,
+  buildRevision = null,
+  buildTitle = null,
   archiveHealthy,
 }: PKSidebarProps) {
   const { t } = useI18n()
@@ -61,18 +65,34 @@ export function PKSidebar({
       <div
         className={cn(
           'flex items-center gap-[10px] transition-[padding] duration-250 ease-out',
-          collapsed ? 'flex-col px-0 pt-[14px] pb-2' : 'px-4 pt-[18px] pb-[14px]',
+          collapsed
+            ? 'flex-col px-0 pt-[14px] pb-2'
+            : 'px-4 pt-[18px] pb-[14px]',
         )}
       >
         <PKBrandMark size={30} />
         {!collapsed && (
-          <div className="flex min-w-0 flex-col">
+          <div
+            className="flex min-w-0 flex-col"
+            title={buildTitle ?? undefined}
+          >
             <span className="font-serif text-[17px] leading-[1.1] font-medium tracking-[-0.01em] text-ink">
               PathKeep
             </span>
-            <span className="mt-[2px] font-mono text-[10px] tracking-[0.02em] text-ink-faint">
+            <span
+              className="mt-[2px] font-mono text-[10px] leading-[1.2] tracking-[0.02em] text-ink-faint"
+              data-testid="pk-sidebar-build-version"
+            >
               {buildVersion ?? t('navigation.loadingBuild')}
             </span>
+            {buildRevision ? (
+              <span
+                className="font-mono text-[9.5px] leading-[1.2] tracking-[0.04em] text-ink-faint/80"
+                data-testid="pk-sidebar-build-revision"
+              >
+                {buildRevision}
+              </span>
+            ) : null}
           </div>
         )}
         <button

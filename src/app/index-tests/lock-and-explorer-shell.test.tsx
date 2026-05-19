@@ -169,7 +169,7 @@ describe('App shell', () => {
     })
 
     const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/explorer?q=sqlite&page=3'],
+      initialEntries: ['/explorer?q=sqlite&page=3&layout=legacy'],
     })
 
     render(<App router={router} />)
