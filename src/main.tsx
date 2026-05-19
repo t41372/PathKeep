@@ -21,16 +21,11 @@ import { localeTag, resolveLanguage } from './lib/i18n'
 import { readStoredPreference } from './lib/i18n/context'
 import { installRuntimeDiagnostics } from './lib/runtime-diagnostics'
 import { resolveAppRuntime } from './lib/runtime'
+import { applyPaperPreferences } from './lib/paper-preferences'
 
-// Restore persisted theme preference before first paint
-try {
-  const saved = window.localStorage.getItem('pathkeep.theme')
-  if (saved === 'light' || saved === 'dark') {
-    document.documentElement.setAttribute('data-theme', saved)
-  }
-} catch {
-  // localStorage may be unavailable
-}
+// Apply persisted paper preferences (theme, fonts, density, paper texture)
+// before first paint so the user never sees a flash of the wrong palette.
+applyPaperPreferences(null)
 
 document.documentElement.setAttribute(
   'data-pathkeep-runtime',

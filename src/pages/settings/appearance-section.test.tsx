@@ -1,0 +1,84 @@
+/**
+ * Smoke test for the paper-redesign Appearance section.
+ *
+ * Verifies:
+ * - The section renders with localized labels.
+ * - Switching the theme toggle updates the document data-theme attribute and
+ *   persists the choice to localStorage.
+ * - Switching the fonts toggle persists 'system' and applies data-fonts.
+ */
+
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, test } from 'vitest'
+import { I18nProvider } from '@/lib/i18n'
+import { AppearanceSection } from './appearance-section'
+
+describe('AppearanceSection', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+    document.documentElement.removeAttribute('data-fonts')
+    document.documentElement.removeAttribute('data-density')
+    document.documentElement.style.removeProperty('--noise-opacity')
+  })
+
+  test('renders the four appearance fields', () => {
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    expect(screen.getByTestId('settings-appearance-section')).toBeInTheDocument()
+    expect(screen.getByText('Theme')).toBeInTheDocument()
+    expect(screen.getByText('Density')).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: /Darkroom · dark/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: /System fonts only/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('switch')).toBeInTheDocument()
+  })
+
+  test('switching the theme persists and applies the new value', async () => {
+    const user = userEvent.setup()
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    const darkButton = screen.getByRole('radio', { name: /Darkroom · dark/i })
+    await user.click(darkButton)
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(window.localStorage.getItem('pathkeep.theme')).toBe('dark')
+  })
+
+  test('switching fonts to system applies data-fonts and persists', async () => {
+    const user = userEvent.setup()
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    const systemButton = screen.getByRole('radio', {
+      name: /System fonts only/i,
+    })
+    await user.click(systemButton)
+    expect(document.documentElement.getAttribute('data-fonts')).toBe('system')
+    expect(window.localStorage.getItem('pathkeep.fonts')).toBe('system')
+  })
+
+  test('toggling paper texture off sets --noise-opacity to 0', async () => {
+    const user = userEvent.setup()
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    const toggle = screen.getByRole('switch')
+    await user.click(toggle)
+    expect(document.documentElement.style.getPropertyValue('--noise-opacity')).toBe('0')
+    expect(window.localStorage.getItem('pathkeep.paperTexture')).toBe('off')
+  })
+})

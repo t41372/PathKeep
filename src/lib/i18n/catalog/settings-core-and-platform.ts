@@ -56,6 +56,28 @@ export const settingsCoreAndPlatformNamespace = {
     preferencesOverview: 'Preferences',
     preferencesOverviewBody:
       'Use this page for persistent choices. Workflows that inspect files, generate artifacts, install updates, or rebuild data now live on their own pages.',
+    // ── Paper-redesign appearance ──
+    appearanceTitle: 'Appearance',
+    appearanceIntro:
+      'Light or darkroom, the typography of a book, and how much paper materiality you want under the ink.',
+    appearanceTheme: 'Theme',
+    appearanceThemeLight: 'Paper · light',
+    appearanceThemeDark: 'Darkroom · dark',
+    appearanceFonts: 'Typography',
+    appearanceFontsHelp:
+      'Bundled fonts ship offline; system fonts skip the bundle and use what your OS already provides. CJK always falls back to system fonts either way.',
+    appearanceFontBundled: 'Bundled · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: 'Default · ~400 KB of Latin subsets',
+    appearanceFontSystem: 'System fonts only',
+    appearanceFontSystemHint: 'Georgia / SF Mono / system sans',
+    appearanceDensity: 'Density',
+    appearanceDensityComfortable: 'Comfortable',
+    appearanceDensityCompact: 'Compact',
+    appearancePaperTexture: 'Paper materiality',
+    appearancePaperTextureHelp:
+      'Subtle paper noise overlay and the dark-mode darkroom vignette. Turn off for a flatter surface.',
+    appearancePaperOn: 'Texture on',
+    appearancePaperOff: 'Texture off',
     openMaintenance: 'Open Maintenance',
     openMaintenanceBody:
       'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
@@ -200,6 +222,27 @@ export const settingsCoreAndPlatformNamespace = {
     preferencesOverview: '偏好设置',
     preferencesOverviewBody:
       '这里只放长期保存的选择。检查文件、生成产物、安装更新或重建数据的流程已经移到独立页面。',
+    appearanceTitle: '外观',
+    appearanceIntro:
+      '选择纸面（亮色）还是暗房（深色），调整书一般的字体，并决定要不要在墨水之下保留纸张的质感。',
+    appearanceTheme: '主题',
+    appearanceThemeLight: '纸面 · 亮色',
+    appearanceThemeDark: '暗房 · 深色',
+    appearanceFonts: '字体',
+    appearanceFontsHelp:
+      '内置字体支持离线运行；系统字体跳过内置包，直接使用系统已有的字体。中日韩文字始终回退到系统字体。',
+    appearanceFontBundled: '内置 · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: '默认 · 约 400 KB Latin 子集',
+    appearanceFontSystem: '仅使用系统字体',
+    appearanceFontSystemHint: 'Georgia / SF Mono / 系统无衬线',
+    appearanceDensity: '密度',
+    appearanceDensityComfortable: '舒适',
+    appearanceDensityCompact: '紧凑',
+    appearancePaperTexture: '纸张质感',
+    appearancePaperTextureHelp:
+      '极轻的纸纹遮罩和深色模式下的暗房光晕。关闭即可得到纯平表面。',
+    appearancePaperOn: '已开启',
+    appearancePaperOff: '已关闭',
     openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
@@ -341,6 +384,27 @@ export const settingsCoreAndPlatformNamespace = {
     preferencesOverview: '偏好設定',
     preferencesOverviewBody:
       '這裡只放長期保存的選擇。檢查檔案、生成產物、安裝更新或重建資料的流程已經移到獨立頁面。',
+    appearanceTitle: '外觀',
+    appearanceIntro:
+      '選擇紙面（亮色）或暗房（深色），調整像書一般的字體，再決定要不要在墨水之下保留紙張的質感。',
+    appearanceTheme: '主題',
+    appearanceThemeLight: '紙面 · 亮色',
+    appearanceThemeDark: '暗房 · 深色',
+    appearanceFonts: '字體',
+    appearanceFontsHelp:
+      '內建字體支援離線執行；系統字體會略過內建包，直接使用系統已有的字體。中日韓文字始終回退到系統字體。',
+    appearanceFontBundled: '內建 · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: '預設 · 約 400 KB Latin 子集',
+    appearanceFontSystem: '僅使用系統字體',
+    appearanceFontSystemHint: 'Georgia / SF Mono / 系統無襯線',
+    appearanceDensity: '密度',
+    appearanceDensityComfortable: '舒適',
+    appearanceDensityCompact: '緊湊',
+    appearancePaperTexture: '紙張質感',
+    appearancePaperTextureHelp:
+      '極輕的紙紋遮罩與深色模式下的暗房光暈。關閉即可得到純平表面。',
+    appearancePaperOn: '已開啟',
+    appearancePaperOff: '已關閉',
     openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',

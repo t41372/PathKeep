@@ -28,6 +28,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
+import { AppearanceSection } from './appearance-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
 import { ProfileSelectionSection } from './profile-selection-section'
@@ -157,6 +158,7 @@ export function SettingsPage() {
 
       <div className="settings-group">
         <div className="settings-group__label">{t('settings.groupCore')}</div>
+        <AppearanceSection />
         <GeneralSection
           explorerBackgroundPrefetchPages={
             routeState.general.explorerBackgroundPrefetchPages
