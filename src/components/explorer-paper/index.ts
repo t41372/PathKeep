@@ -117,3 +117,17 @@ export type {
   PaperThreadRow,
   PaperThreadTone,
 } from './paper-thread-list'
+
+export { PaperTopicTimeline } from './paper-topic-timeline'
+export type {
+  PaperTopicBar,
+  PaperTopicRow,
+  PaperTopicTimelineProps,
+  PaperTopicTrend,
+} from './paper-topic-timeline'
+
+export { PaperRefindShelf } from './paper-refind-shelf'
+export type {
+  PaperRefindItem,
+  PaperRefindShelfProps,
+} from './paper-refind-shelf'
