@@ -56,6 +56,11 @@ export const settingsCoreAndPlatformNamespace = {
     preferencesOverview: 'Preferences',
     preferencesOverviewBody:
       'Use this page for persistent choices. Workflows that inspect files, generate artifacts, install updates, or rebuild data now live on their own pages.',
+    paperHeaderEyebrow: 'Preferences',
+    paperHeaderTitle: 'Settle the page before you read.',
+    paperHeaderSubtitle:
+      'Typography, language, locks, providers, and backup destinations. Persistent choices live here — workflows live on their own pages.',
+    paperJumpLabel: 'Jump to',
     // ── Paper-redesign appearance ──
     appearanceTitle: 'Appearance',
     appearanceIntro:
@@ -219,6 +224,11 @@ export const settingsCoreAndPlatformNamespace = {
     externalReviewBadge: '仅复核',
     general: '通用',
     generalDescription: '语言和 Explorer 性能偏好。',
+    paperHeaderEyebrow: '偏好设置',
+    paperHeaderTitle: '在阅读之前,先安顿好这一页。',
+    paperHeaderSubtitle:
+      '排版、语言、锁、AI 提供方、备份目的地。这里只放持久选项 — 流程都在各自的页面。',
+    paperJumpLabel: '跳转到',
     preferencesOverview: '偏好设置',
     preferencesOverviewBody:
       '这里只放长期保存的选择。检查文件、生成产物、安装更新或重建数据的流程已经移到独立页面。',
@@ -381,6 +391,11 @@ export const settingsCoreAndPlatformNamespace = {
     externalReviewBadge: '僅複核',
     general: '一般',
     generalDescription: '語言和 Explorer 效能偏好。',
+    paperHeaderEyebrow: '偏好設定',
+    paperHeaderTitle: '在閱讀之前，先安頓好這一頁。',
+    paperHeaderSubtitle:
+      '排版、語言、鎖、AI 供應方、備份目的地。這裡只放持久選項 — 流程都在各自的頁面。',
+    paperJumpLabel: '跳轉到',
     preferencesOverview: '偏好設定',
     preferencesOverviewBody:
       '這裡只放長期保存的選擇。檢查檔案、生成產物、安裝更新或重建資料的流程已經移到獨立頁面。',

@@ -22,7 +22,7 @@
  * - route shell 只做 gating 和 composition，不再承擔重型 section-local JSX 或 duplicated background loads。
  */
 
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
@@ -31,6 +31,7 @@ import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
+import { PaperSettingsHeader } from './paper-settings-header'
 import { ProfileSelectionSection } from './profile-selection-section'
 import { RemoteBackupPreferencesSection } from './remote-backup-preferences-section'
 import {
@@ -62,6 +63,8 @@ export function SettingsPage() {
     snapshot,
   } = useShellData()
   const { setLanguagePreference, t } = useI18n()
+  const [searchParams] = useSearchParams()
+  const paperLayout = searchParams.get('layout') === 'paper'
   const routeState = useSettingsRouteState({
     appLockStatus,
     buildInfo,
@@ -130,31 +133,44 @@ export function SettingsPage() {
 
   return (
     <section className="page-shell settings-page" data-testid="settings-page">
-      <SettingsSectionNav
-        items={settingsSectionNavItems}
-        label={t('navigation.settingsLabel')}
-      />
+      {paperLayout ? (
+        <PaperSettingsHeader
+          eyebrow={t('settings.paperHeaderEyebrow')}
+          title={t('settings.paperHeaderTitle')}
+          subtitle={t('settings.paperHeaderSubtitle')}
+          jumpLabel={t('settings.paperJumpLabel')}
+          items={settingsSectionNavItems}
+          testId="settings-paper-header"
+        />
+      ) : (
+        <SettingsSectionNav
+          items={settingsSectionNavItems}
+          label={t('navigation.settingsLabel')}
+        />
+      )}
 
-      <div className="settings-overview" aria-labelledby="settings-overview">
-        <div className="settings-overview__intro">
-          <h2 id="settings-overview">{t('settings.preferencesOverview')}</h2>
-          <p>{t('settings.preferencesOverviewBody')}</p>
+      {paperLayout ? null : (
+        <div className="settings-overview" aria-labelledby="settings-overview">
+          <div className="settings-overview__intro">
+            <h2 id="settings-overview">{t('settings.preferencesOverview')}</h2>
+            <p>{t('settings.preferencesOverviewBody')}</p>
+          </div>
+          <div className="settings-advanced-grid">
+            <Link className="settings-workflow-link-card" to="/maintenance">
+              <span className="settings-workflow-link-card__title">
+                {t('settings.openMaintenance')}
+              </span>
+              <span>{t('settings.openMaintenanceBody')}</span>
+            </Link>
+            <Link className="settings-workflow-link-card" to="/integrations">
+              <span className="settings-workflow-link-card__title">
+                {t('settings.openIntegrations')}
+              </span>
+              <span>{t('settings.openIntegrationsBody')}</span>
+            </Link>
+          </div>
         </div>
-        <div className="settings-advanced-grid">
-          <Link className="settings-workflow-link-card" to="/maintenance">
-            <span className="settings-workflow-link-card__title">
-              {t('settings.openMaintenance')}
-            </span>
-            <span>{t('settings.openMaintenanceBody')}</span>
-          </Link>
-          <Link className="settings-workflow-link-card" to="/integrations">
-            <span className="settings-workflow-link-card__title">
-              {t('settings.openIntegrations')}
-            </span>
-            <span>{t('settings.openIntegrationsBody')}</span>
-          </Link>
-        </div>
-      </div>
+      )}
 
       <div className="settings-group">
         <div className="settings-group__label">{t('settings.groupCore')}</div>
