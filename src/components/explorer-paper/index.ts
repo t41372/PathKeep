@@ -156,3 +156,12 @@ export type { PaperImportStepperProps } from './paper-import-stepper'
 
 export { PaperImportMethodCard } from './paper-import-method-card'
 export type { PaperImportMethodCardProps } from './paper-import-method-card'
+
+export { PaperChainBlock } from './paper-chain-block'
+export type { PaperChainBlockProps } from './paper-chain-block'
+
+export { PaperStorageBar } from './paper-storage-bar'
+export type {
+  PaperStorageBarProps,
+  PaperStorageBarTone,
+} from './paper-storage-bar'
