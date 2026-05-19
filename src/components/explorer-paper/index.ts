@@ -165,3 +165,23 @@ export type {
   PaperStorageBarProps,
   PaperStorageBarTone,
 } from './paper-storage-bar'
+
+export { PaperIntelligenceView } from './paper-intelligence-view'
+export type {
+  PaperIntelligenceViewCopy,
+  PaperIntelligenceViewProps,
+} from './paper-intelligence-view'
+
+export { PaperSearchView } from './paper-search-view'
+export type {
+  PaperSearchViewCopy,
+  PaperSearchViewDayGroup,
+  PaperSearchViewProps,
+} from './paper-search-view'
+
+export { PaperAssistantView } from './paper-assistant-view'
+export type {
+  PaperAssistantMessageDescriptor,
+  PaperAssistantViewCopy,
+  PaperAssistantViewProps,
+} from './paper-assistant-view'
