@@ -134,6 +134,33 @@ pub struct AppConfig {
     pub enrichment: EnrichmentSettings,
     pub deterministic: DeterministicSettings,
     pub ai: AiSettings,
+    pub og_image: OgImageSettings,
+}
+
+/// User-controllable og:image fetch + cache settings.
+///
+/// `fetch_enabled` defaults to true — the user can disable from
+/// Settings → Storage. `blocked_hosts` is a per-domain blocklist
+/// (one host per line in the UI, normalized to lower-case here).
+/// `cleanup` chooses how the cache is bounded; the default is
+/// `Off` per user direction (cache grows unbounded until the user
+/// opts into time / size / LRU eviction).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OgImageSettings {
+    pub fetch_enabled: bool,
+    pub blocked_hosts: Vec<String>,
+    pub cleanup: crate::models::OgImageCleanupMode,
+}
+
+impl Default for OgImageSettings {
+    fn default() -> Self {
+        Self {
+            fetch_enabled: true,
+            blocked_hosts: Vec::new(),
+            cleanup: crate::models::OgImageCleanupMode::default(),
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -157,6 +184,7 @@ impl Default for AppConfig {
             enrichment: EnrichmentSettings::default(),
             deterministic: DeterministicSettings::default(),
             ai: AiSettings::default(),
+            og_image: OgImageSettings::default(),
         }
     }
 }

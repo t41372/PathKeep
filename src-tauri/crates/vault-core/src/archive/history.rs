@@ -19,6 +19,7 @@ use super::*;
 mod export;
 mod favicons;
 pub mod og_images;
+pub mod og_images_fetch;
 mod pagination;
 
 pub use self::export::export_history;
