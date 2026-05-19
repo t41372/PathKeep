@@ -69,3 +69,13 @@ export type {
   PaperContactSheetYearRail,
   PaperViewMode,
 } from './paper-contact-sheet'
+
+export { PaperDetailPanel } from './paper-detail-panel'
+export type {
+  PaperDetailPanelCopy,
+  PaperDetailPanelEntry,
+  PaperDetailPanelLookFurtherCounts,
+  PaperDetailPanelProps,
+  PaperDetailPanelTitleVersion,
+  PaperDetailPanelVisitHistoryRow,
+} from './paper-detail-panel'
