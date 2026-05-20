@@ -102,6 +102,30 @@ export const settingsCoreAndPlatformNamespace = {
       'Delete every cached link preview? This is reversible only by re-fetching each page.',
     linkPreviewsCleanupSummary:
       'Deleted {rows} rows, {blobs} blobs, reclaimed {bytes}.',
+    linkPreviewsBlocklistLabel: 'Domain blocklist',
+    linkPreviewsBlocklistHint:
+      'One host per line — every page on these domains skips og:image fetching. Lines starting with # are treated as comments.',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# private corporate intranet\nintranet.example.local',
+    linkPreviewsBlocklistSave: 'Save blocklist',
+    linkPreviewsBlocklistReset: 'Reset',
+    linkPreviewsCleanupModeLabel: 'Eviction policy',
+    linkPreviewsCleanupModeHint:
+      'Off keeps every preview forever; pick another mode to let PathKeep prune the cache automatically on the daily maintenance tick.',
+    linkPreviewsCleanupModeOff: 'Off',
+    linkPreviewsCleanupModeOffHint: 'Cache grows unbounded.',
+    linkPreviewsCleanupModeTimeTtl: 'Age',
+    linkPreviewsCleanupModeTimeTtlHint: 'Drop rows older than the limit.',
+    linkPreviewsCleanupModeSizeCap: 'Size cap',
+    linkPreviewsCleanupModeSizeCapHint:
+      'Drop the oldest rows until the total fits.',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      'Drop the least-recently-shown rows until the total fits.',
+    linkPreviewsMaxAgeDaysLabel: 'Maximum age',
+    linkPreviewsMaxAgeDaysUnit: 'days',
+    linkPreviewsMaxBytesLabel: 'Maximum total',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: 'Open Maintenance',
     openMaintenanceBody:
       'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
@@ -291,6 +315,30 @@ export const settingsCoreAndPlatformNamespace = {
       '删除所有缓存的链接预览？只能通过重新抓取每个页面恢复。',
     linkPreviewsCleanupSummary:
       '已删除 {rows} 行、{blobs} 个文件，释放 {bytes}。',
+    linkPreviewsBlocklistLabel: '域名屏蔽列表',
+    linkPreviewsBlocklistHint:
+      '一行一个域名，列表内域名的页面将不抓取链接预览。以 # 开头的行视为注释。',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# 公司内网\nintranet.example.local',
+    linkPreviewsBlocklistSave: '保存屏蔽列表',
+    linkPreviewsBlocklistReset: '重置',
+    linkPreviewsCleanupModeLabel: '清理策略',
+    linkPreviewsCleanupModeHint:
+      '"关闭" 保留全部预览；选择其他模式时 PathKeep 会在每日维护时自动按规则清理。',
+    linkPreviewsCleanupModeOff: '关闭',
+    linkPreviewsCleanupModeOffHint: '缓存不限制增长。',
+    linkPreviewsCleanupModeTimeTtl: '按时长',
+    linkPreviewsCleanupModeTimeTtlHint: '删除早于阈值的行。',
+    linkPreviewsCleanupModeSizeCap: '按总量',
+    linkPreviewsCleanupModeSizeCapHint:
+      '按抓取时间最早的优先删除，直到总量低于阈值。',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      '按最近一次显示的时间最旧的优先删除，直到总量低于阈值。',
+    linkPreviewsMaxAgeDaysLabel: '最大保留',
+    linkPreviewsMaxAgeDaysUnit: '天',
+    linkPreviewsMaxBytesLabel: '总量上限',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
@@ -477,6 +525,30 @@ export const settingsCoreAndPlatformNamespace = {
       '刪除所有快取的連結預覽？只能透過重新擷取每個頁面恢復。',
     linkPreviewsCleanupSummary:
       '已刪除 {rows} 列、{blobs} 個檔案，釋放 {bytes}。',
+    linkPreviewsBlocklistLabel: '網域封鎖列表',
+    linkPreviewsBlocklistHint:
+      '一行一個網域，名單內網域的頁面不會抓取連結預覽。以 # 開頭的行視為註解。',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# 公司內網\nintranet.example.local',
+    linkPreviewsBlocklistSave: '儲存封鎖列表',
+    linkPreviewsBlocklistReset: '重置',
+    linkPreviewsCleanupModeLabel: '清理策略',
+    linkPreviewsCleanupModeHint:
+      '「關閉」保留全部預覽；選擇其他模式時 PathKeep 會在每日維護時依規則自動清理。',
+    linkPreviewsCleanupModeOff: '關閉',
+    linkPreviewsCleanupModeOffHint: '快取不限增長。',
+    linkPreviewsCleanupModeTimeTtl: '按時長',
+    linkPreviewsCleanupModeTimeTtlHint: '刪除早於閾值的列。',
+    linkPreviewsCleanupModeSizeCap: '按總量',
+    linkPreviewsCleanupModeSizeCapHint:
+      '依擷取時間最早優先刪除，直到總量低於閾值。',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      '依最近一次顯示時間最久遠優先刪除，直到總量低於閾值。',
+    linkPreviewsMaxAgeDaysLabel: '最長保留',
+    linkPreviewsMaxAgeDaysUnit: '天',
+    linkPreviewsMaxBytesLabel: '總量上限',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',

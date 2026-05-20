@@ -9,7 +9,7 @@
  * - Clear-all is guarded by window.confirm.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n'
@@ -18,8 +18,12 @@ import {
   type ShellDataContextValue,
 } from '@/app/shell-data-context'
 import { backend } from '@/lib/backend-client'
-import type { AppSnapshot } from '@/lib/types'
-import { LinkPreviewsSection } from './link-previews-section'
+import type { AppSnapshot, OgImageCleanupMode } from '@/lib/types'
+import {
+  LinkPreviewsSection,
+  clampNumber,
+  parseBlocklist,
+} from './link-previews-section'
 
 describe('LinkPreviewsSection', () => {
   beforeEach(() => {
@@ -99,6 +103,145 @@ describe('LinkPreviewsSection', () => {
     )
   })
 
+  test('blocklist input parses + saves blockedHosts (canonicalized + de-duped)', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    const textarea = screen.getByTestId('link-previews-blocklist-input')
+    await userEvent.type(
+      textarea,
+      'Example.com{Enter}# inline comment{Enter}example.com{Enter}other.example.org',
+    )
+    await userEvent.click(screen.getByTestId('link-previews-blocklist-save'))
+    expect(saveConfig).toHaveBeenCalledTimes(1)
+    expect(saveConfig.mock.calls[0][0].ogImage.blockedHosts).toEqual([
+      'example.com',
+      'other.example.org',
+    ])
+  })
+
+  test('blocklist reset reverts the draft to the persisted snapshot', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        blockedHosts: ['initial.example.test'],
+      }),
+    )
+    const textarea = screen.getByTestId(
+      'link-previews-blocklist-input',
+    ) as HTMLTextAreaElement
+    await userEvent.type(textarea, '{Enter}draft.example.test')
+    expect(textarea.value).toContain('draft.example.test')
+    await userEvent.click(screen.getByTestId('link-previews-blocklist-reset'))
+    expect(textarea.value).toBe('initial.example.test')
+  })
+
+  test('switching cleanup mode persists the default per-mode arg', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    await userEvent.click(
+      screen.getByTestId('link-previews-cleanup-mode-timeTtl'),
+    )
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup).toEqual({
+      mode: 'timeTtl',
+      maxAgeDays: 60,
+    })
+
+    await userEvent.click(
+      screen.getByTestId('link-previews-cleanup-mode-sizeCap'),
+    )
+    const sizeCap = saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup
+    expect(sizeCap.mode).toBe('sizeCap')
+    expect(sizeCap.maxBytes).toBe(200 * 1024 * 1024)
+
+    await userEvent.click(screen.getByTestId('link-previews-cleanup-mode-lru'))
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.mode).toBe('lru')
+  })
+
+  test('TimeTtl numeric input clamps the persisted value to [1, 3650] days', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'timeTtl', maxAgeDays: 30 },
+        saveConfig,
+      }),
+    )
+    const input = screen.getByTestId('link-previews-max-age-days')
+    fireEvent.change(input, { target: { value: '9999' } })
+    const lastClamped = saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup
+    expect(lastClamped.mode).toBe('timeTtl')
+    expect(lastClamped.maxAgeDays).toBe(3650)
+  })
+
+  test('TimeTtl numeric input clamps below the floor too', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'timeTtl', maxAgeDays: 30 },
+        saveConfig,
+      }),
+    )
+    fireEvent.change(screen.getByTestId('link-previews-max-age-days'), {
+      target: { value: '0' },
+    })
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.maxAgeDays).toBe(
+      1,
+    )
+  })
+
+  test('SizeCap numeric input persists bytes converted from MB', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'sizeCap', maxBytes: 200 * 1024 * 1024 },
+        saveConfig,
+      }),
+    )
+    fireEvent.change(screen.getByTestId('link-previews-max-bytes-mb'), {
+      target: { value: '512' },
+    })
+    const last = saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup
+    expect(last.maxBytes).toBe(512 * 1024 * 1024)
+  })
+
   test('Clear all is guarded by window.confirm', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 10,
@@ -126,11 +269,17 @@ describe('LinkPreviewsSection', () => {
 function withShell(overrides: {
   ogImageFetchEnabled: boolean
   saveConfig?: ShellDataContextValue['saveConfig']
+  blockedHosts?: string[]
+  cleanup?: OgImageCleanupMode
 }) {
   const value: ShellDataContextValue = {
     buildInfo: null,
     appLockStatus: null,
-    snapshot: makeSnapshot(overrides.ogImageFetchEnabled),
+    snapshot: makeSnapshot(
+      overrides.ogImageFetchEnabled,
+      overrides.blockedHosts ?? [],
+      overrides.cleanup ?? { mode: 'off' as const },
+    ),
     dashboard: null,
     loading: false,
     busyAction: null,
@@ -159,7 +308,11 @@ function withShell(overrides: {
   )
 }
 
-function makeSnapshot(ogImageFetchEnabled: boolean): AppSnapshot {
+function makeSnapshot(
+  ogImageFetchEnabled: boolean,
+  blockedHosts: string[],
+  cleanup: OgImageCleanupMode,
+): AppSnapshot {
   return {
     config: {
       initialized: true,
@@ -184,8 +337,8 @@ function makeSnapshot(ogImageFetchEnabled: boolean): AppSnapshot {
       ai: {} as never,
       ogImage: {
         fetchEnabled: ogImageFetchEnabled,
-        blockedHosts: [],
-        cleanup: { mode: 'off' as const },
+        blockedHosts,
+        cleanup,
       },
     },
     archiveStatus: {} as never,
@@ -194,3 +347,35 @@ function makeSnapshot(ogImageFetchEnabled: boolean): AppSnapshot {
     recentRuns: [],
   } as unknown as AppSnapshot
 }
+
+describe('parseBlocklist', () => {
+  test('trims, lowercases, drops empty + commented lines, and de-duplicates', () => {
+    expect(
+      parseBlocklist(
+        '\n  Example.com  \nexample.com\n#comment\nfoo.test\nFOO.test\n',
+      ),
+    ).toEqual(['example.com', 'foo.test'])
+  })
+
+  test('returns an empty array for empty / whitespace-only input', () => {
+    expect(parseBlocklist('')).toEqual([])
+    expect(parseBlocklist('   \n\t\n')).toEqual([])
+  })
+})
+
+describe('clampNumber', () => {
+  test('clamps below min and above max', () => {
+    expect(clampNumber(-1, 0, 10, 5)).toBe(0)
+    expect(clampNumber(99, 0, 10, 5)).toBe(10)
+  })
+
+  test('parses string inputs and falls back on NaN/empty', () => {
+    expect(clampNumber('42', 0, 100, 5)).toBe(42)
+    expect(clampNumber('not a number', 0, 100, 5)).toBe(5)
+    expect(clampNumber('', 0, 100, 5)).toBe(5)
+  })
+
+  test('floors fractional input to an integer', () => {
+    expect(clampNumber(3.9, 0, 10, 0)).toBe(3)
+  })
+})
