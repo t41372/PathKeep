@@ -60,6 +60,63 @@
   - 契約：不得在 backup/import critical path 內同步 refetch；不得宣稱可抓取登入頁、PDF、JSON、redirect boundary 或 rate-limited 內容；必須有 explicit privacy/network boundary、queue retry/cancel、failure taxonomy、人話 UI、storage accounting、clear/rebuild 行為，以及 real-site acceptance evidence。
   - 驗收：Settings / Jobs / Maintenance disabled-to-enabled flow、network boundary copy、real HTML/PDF/redirect/rate-limit fixtures、blob storage cleanup、`bun run check`，以及 archive/intelligence/data-model docs 回寫。
 
+- [ ] **WORK-V03-PAPER-REMAINING-ROUTES** — Paper restyle for /schedule, /security, /maintenance, /jobs, /integrations, /onboarding, /lock
+  - 讀先：
+    `docs/design/handoff/paper-redesign/project/pk-tokens.css`
+    `docs/design/handoff/paper-redesign/project/pk-app.jsx`
+    `docs/design/handoff/paper-redesign/project/pk-views.jsx`
+    `docs/design/handoff/paper-redesign/project/tweaks-panel.jsx`
+    `src/pages/{schedule,security,maintenance,jobs,integrations,onboarding,lock}/index.tsx`
+    `src/pages/settings/paper-form-primitives.tsx`
+    `src/pages/settings/link-previews-section.tsx` (reference impl)
+  - 目標：把 v0.3 paper aesthetic 套到剩下七個 sibling routes。每個 route 已經是 `?layout=paper` default surface，但內部仍是 v0.2 chrome。轉成 PaperCard / Field / Toggle / SegmentedControl 等 paper 原語，接真實 backend，三語 i18n parity 不能掉。
+  - 契約：
+    - **沒有設計來源**：`docs/design/handoff/paper-redesign/project/` 不含這七個 route 的專屬 JSX，只有 `pk-app.jsx` / `pk-views.jsx` / `tweaks-panel.jsx` 提供整體 framing 與 settings-like layout 參考。Implementation 走 token 一致性而非 pixel-perfect 設計對照。
+    - 不允許 disabled "Coming in v0.3" UI；現有功能要繼續可用。
+    - paper-form-primitives 是共用入口，Phase 3 Settings 子 section restyle 共用同一層；新需求若不適合該層應該下沉到 `src/components/primitives/`。
+    - 三語 i18n key 在 commit 時齊全（en / zh-CN / zh-TW）。
+  - 驗收：七個 route 全部走 paper 原語、`bun run check` clean、`docs/design/screens-and-nav.md` 寫回新的 paper page descriptions、`STATUS.md` `WORK-V03-PAPER-REDESIGN-A` 對應 acceptance criterion 已勾。
+
+- [ ] **WORK-V03-SETTINGS-SECTIONS-PAPER** — Paper restyle inside each Settings sub-section
+  - 讀先：
+    `src/pages/settings/paper-form-primitives.tsx`
+    `src/pages/settings/appearance-section.tsx` (reference impl)
+    `src/pages/settings/link-previews-section.tsx` (reference impl)
+    `src/pages/settings/{general,ai,applock,profiles,derived,remote,platform}-section.tsx`
+  - 目標：把 Settings 七個內部 section 從 v0.2 表單 chrome 轉成 paper 原語（Field / Toggle / SegmentedControl + PaperCard）。Phase 1.1 已先把 appearance + link-previews 兩個 section 轉好；其餘 sub-section 沿用同一層 primitives。
+  - 契約：每個 section 一個 commit，視覺一致 + 三語 i18n parity 維持。
+  - 驗收：`bun run check` clean、七個 section 用 paper-form-primitives + PaperCard、`docs/design/screens-and-nav.md` Settings 段落更新。
+
+- [ ] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
+  - 讀先：
+    `src/pages/explorer/index.tsx` (paperLayout 條件 + ExplorerTimelineBar / ExplorerQueryFiltersPanel / ExplorerResultsPanel 分支)
+    `src/app/index-tests/lock-and-explorer-shell.test.tsx`
+    `src/pages/explorer/index.test.tsx`
+    `src/pages/intelligence-surfaces/explorer-grouped-views.test.tsx`
+    `src/pages/intelligence-surfaces/explorer-controls.test.tsx`
+    `src/pages/settings/index.tsx`
+  - 目標：拔掉 `?layout=legacy` escape hatch、清掉 v0.2 panel files、四個還在用 layout=legacy 的測試重寫為 paper-surface expected。
+  - 契約：
+    - 測試重寫要對應到 paper surface 的真實斷言（不只是 search-and-replace 把 `layout=paper` 寫進去）。
+    - explorer/index.tsx 的 `paperLayout` 條件分支整段移除，paper 永遠是唯一路徑。
+    - 無用的 v0.2 panel files（panels/results-panel.tsx 等）刪掉而非排除 coverage。
+  - 驗收：`bun run check` clean、explorer/index.tsx coverage ≥99% lines（lift `WORK-V03-COVERAGE-RESIDUAL` 的最大殘餘）、`docs/plan/BACKLOG.md` 同步 close-out。
+
+- [ ] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
+  - 讀先：
+    `src/pages/dashboard/index.tsx`
+    `src/pages/dashboard/{archive-card,on-this-day-card,this-week-card,active-threads-card}.tsx`
+    `src/components/heatmap/year-heatmap.tsx` (deleted; will be reintroduced)
+    `src-tauri/crates/vault-core/src/intelligence/` (daily rollup write path)
+    `docs/dev/HANDOFF-2026-05-19-paper-redesign.md` §4.2.5, §4.2.6
+  - 目標：dashboard YearHeatmap + ActiveThreads 從 honest empty state（Codex P1 fix 留下的）升級成真實資料。
+  - 契約：
+    - 新增 backend API `get_daily_rollups(range)` → 每日 visit count；vault-core 讀取 + vault-worker 入口 + Tauri command + core-intelligence/api 包裝。
+    - Active Threads 接 `getPathFlows` / `getQueryFamilies`。
+    - 不重新引入 Codex P1 fix 移除的 fake data。
+    - dashboard.tsx `formatSpan` 建議抽到 sibling `dashboard-helpers.ts`（同 `shell-helpers.ts` pattern），同步補單測。
+  - 驗收：`bun run check` clean、dashboard 與 14.4 M visit 規模測試 manually verified、新 API path 有 100% coverage、`docs/architecture/data-model.md` 同步寫回 daily-rollup 段落。
+
 - [ ] **WORK-V03-COVERAGE-RESIDUAL** — Restore 100% JS coverage gate after orphan sweep
   - 讀先：
     `vitest.config.ts`
