@@ -1434,7 +1434,7 @@
     §6，原因是 dependency-surface 與另一個 work block 對齊。
   - 2026-05-20 closeout：
     - **Phase 1.1 — Settings 完整 UI** (`feat(settings): link-previews
-      blocklist + eviction mode picker (Phase 1.1)` + helper extract +
+blocklist + eviction mode picker (Phase 1.1)` + helper extract +
       i18n)：blocklist textarea 連 Save/Reset，eviction-mode segmented
       control（Off / TimeTtl / SizeCap / LRU）連數值 input（max age days /
       max bytes MB），全部寫回 AppConfig.ogImage；canonicalize 走
@@ -1446,7 +1446,7 @@
       （5 helper + 5 component），既有 4 個 link-previews tests + 4 個
       appearance tests 全部保留通過。
     - **Phase 1.2 — Worker parallelism + per-host rate limit** (`feat(archive):
-      og:image worker pool + per-host rate limit (Phase 1.2)`)：
+og:image worker pool + per-host rate limit (Phase 1.2)`)：
       `refetch_og_images` 改成 2-worker pool；workers 從 shared `Mutex<Vec<_>>`
       pop URL，用 `Arc<Mutex<HashMap<host, Instant>>>` 強制每個 host
       ≥ 500 ms 間距；fetch outcome 走 mpsc 回主 thread 寫 SQLite（rusqlite
@@ -1455,7 +1455,7 @@
       call zero、同 host 串行 ~500 ms、不同 host 不交叉、case-variant 合併、
       空 URL skip）。
     - **Phase 1.3 — Daily backup-tick cleanup hook** (`feat(archive): daily
-      og:image cache hygiene via backup tick (Phase 1.3)`)：
+og:image cache hygiene via backup tick (Phase 1.3)`)：
       `run_backup_now_with_progress` 在每個非 due-skipped backup 結束時
       呼叫 `run_og_image_cleanup`，結果走既有 `report.warnings` 通道
       （成功 + 有實際清掉東西時 annotate "removed N rows / M orphan blobs /
@@ -1463,7 +1463,7 @@
       no-op 則 silent）。即使 user 把 eviction mode 設成 Off，run_cleanup
       仍會 GC orphan blobs，保住 cache 一致性。+3 helper unit tests。
     - **Phase 1.4 — Negative-cache TTL auto-refetch** (`feat(archive):
-      negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
+negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
       `list_urls_due_for_refetch(connection, limit)`，oldest-first
       回最多 limit 個 `refetch_after <= now` 的 page_url；vault-worker
       `try_refetch_due_og_images` 用既有 `refetch_og_images` 重抓
@@ -1472,7 +1472,7 @@
       same-host distribution / 2 workers）。同樣 fold 進 backup
       `report.warnings`：no-op silent / 重試結果 annotate / 失敗 warning。
       +4 vault-core tests +3 vault-worker tests。`og_image.fetch_enabled
-      == false` 時整段 short-circuit，尊重 user 全域關閉的意願。
+== false` 時整段 short-circuit，尊重 user 全域關閉的意願。
     - **驗收結果**：cargo test -p vault-core --lib og_images:: 18 / 18，
       cargo test -p vault-worker --lib archive_flows::tests 12 / 12，
       cargo clippy -p vault-core -p vault-worker --all-targets -- -D
