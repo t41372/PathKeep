@@ -165,7 +165,47 @@ where
             ),
         );
     }
+    // Daily og:image cache hygiene. Runs even when the user-selected
+    // eviction mode is `Off` because vault_core::og_images::run_cleanup
+    // always GCs orphan blobs (rows pointing at no-longer-referenced
+    // blob hashes) — that GC is the safety floor that keeps the cache
+    // honest. Failures here are non-fatal: surface as a backup warning
+    // so the user can see "archive write succeeded, cleanup hiccupped"
+    // without losing the backup result. Skipped when the backup itself
+    // was skipped (due_skipped) because the OS scheduler is the one
+    // driving daily cadence and a manual run shouldn't double-fire.
+    if !report.due_skipped {
+        append_og_image_cleanup_result(
+            &mut report.warnings,
+            run_og_image_cleanup(session_database_key),
+        );
+    }
     Ok(report)
+}
+
+/// Pushes a non-fatal cleanup result onto a backup report's warning list.
+///
+/// Exposed at module scope so the success vs. failure formatting can be
+/// unit-tested directly, without spinning a full backup run.
+fn append_og_image_cleanup_result(
+    warnings: &mut Vec<String>,
+    result: Result<vault_core::OgImageCleanupReport>,
+) {
+    match result {
+        Ok(report) => {
+            if report.deleted_rows > 0 || report.deleted_blobs > 0 || report.reclaimed_bytes > 0 {
+                warnings.push(format!(
+                    "Link previews cache hygiene: removed {} rows, {} orphan blobs, reclaimed {} bytes.",
+                    report.deleted_rows,
+                    report.deleted_blobs,
+                    report.reclaimed_bytes,
+                ));
+            }
+        }
+        Err(error) => {
+            warnings.push(format!("Link previews cache hygiene failed: {error:#}",));
+        }
+    }
 }
 
 /// Queries visible archive history rows with the canonical filter contract.
@@ -721,16 +761,47 @@ mod tests {
     use super::{
         append_ai_auto_index_archive_result, append_ai_auto_index_enqueue_result,
         append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
-        append_core_refresh_import_result, core_refresh_import_note, core_refresh_rebuild_scopes,
-        host_throttle_wait,
+        append_core_refresh_import_result, append_og_image_cleanup_result,
+        core_refresh_import_note, core_refresh_rebuild_scopes, host_throttle_wait,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
-    use vault_core::AiQueueJob;
+    use vault_core::{AiQueueJob, OgImageCleanupReport};
 
     fn fresh_host_state() -> Arc<Mutex<HashMap<String, Instant>>> {
         Arc::new(Mutex::new(HashMap::new()))
+    }
+
+    #[test]
+    fn append_og_image_cleanup_result_silent_when_no_work_done() {
+        let mut warnings = Vec::new();
+        append_og_image_cleanup_result(
+            &mut warnings,
+            Ok(OgImageCleanupReport { deleted_rows: 0, deleted_blobs: 0, reclaimed_bytes: 0 }),
+        );
+        assert!(warnings.is_empty(), "no-op cleanup should not add a warning");
+    }
+
+    #[test]
+    fn append_og_image_cleanup_result_records_evicted_rows() {
+        let mut warnings = Vec::new();
+        append_og_image_cleanup_result(
+            &mut warnings,
+            Ok(OgImageCleanupReport { deleted_rows: 4, deleted_blobs: 2, reclaimed_bytes: 1_234 }),
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("4 rows"));
+        assert!(warnings[0].contains("2 orphan blobs"));
+    }
+
+    #[test]
+    fn append_og_image_cleanup_result_surfaces_errors_as_warnings() {
+        let mut warnings = Vec::new();
+        append_og_image_cleanup_result(&mut warnings, Err(anyhow::anyhow!("archive locked")));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("archive locked"));
+        assert!(warnings[0].contains("cache hygiene failed"));
     }
 
     #[test]
