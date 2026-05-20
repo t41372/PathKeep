@@ -1402,3 +1402,20 @@
     - **Test 修復**：3 個 stale v0.2 topbar tests 全部重寫成 paper-shell expected（`getByTestId('app-scroll')` 取代 `.workspace-scroll`、Notifications 斷言改成不存在、新增 `Find a page` palette opener 斷言、Dashboard route-fallback-state 新增 `snapshot.config.initialized === false → onboarding-zero-state` 分支）。
     - **驗收結果**：JS unit suite 1,485 / 1,485 pass；Rust vault-core 454 / 454 + vault-worker 33 / 33；typecheck / lint / i18n parity 全部清零。完整 `bun run check` + `bun run verify` mutation / e2e / desktop-bridge truth gate 待後續 push 跑完。
     - **後續 backlog**：section-panel paper restyle（Settings 各 section、Schedule / Security / Maintenance / Jobs / Integrations / Onboarding / Lock），`?layout=paper` 翻成預設，design-tokens / screens-and-nav / ux-principles / ui-review-guardrails / typography-and-font-fallback / data-model 文檔重寫，memory 三條轉向記錄。
+
+- [x] **WORK-V03-OG-IMAGE-A** — Card-mode og:image cache for paper Browse (per-URL key + content-hash dedup + opt-out posture)
+  - 讀先：
+    `.claude/plans/indexed-giggling-ullman.md` (plan + policy decisions)
+    `docs/features/og-images.md` (feature spec)
+    `docs/architecture/data-model.md` §`og_images` paragraph
+    `src-tauri/crates/vault-core/src/archive/history/og_images.rs` + `og_images_fetch.rs`
+  - 目標：讓 paper Browse 卡片模式渲染每個 page 的 og:image，使用者可以從 Settings 隨時關掉 fetch、看 cache 大小、清空 cache。
+  - 2026-05-19 closeout：
+    - **List-mode favicon (C1)**：`paper-list-row.tsx` 新增 16 px `<img>` slot，fallback 仍是 domain swatch。`PaperContactSheet.toListEntry` 透傳 `entry.favicon?.dataUrl`。+3 primitive tests。
+    - **Schema (C2)**：migration `012_og_images.sql` 新增 `og_images` (per-page-URL) + `og_image_blobs` (sha256_hex content-addressed dedup)。`schema.rs` 註冊 v12，四個 migration 測試 asserts 從 11 → 12。`vault-core::archive::history::og_images` 模組曝露 upsert / load / mark_shown / storage_stats / clear_cache / run_cleanup，四種驅逐模式（Off / TimeTtl / SizeCap / Lru）。新增 13 vault-core tests，含 `lookup_returns_none_for_unknown_page_with_known_host` 負斷言守 user 的 no-host-fallback 規則。
+    - **Fetch pipeline (C3)**：`og_images_fetch.rs` — reqwest blocking client（HTTPS-only、無 Referer、靜態 UA、2 MiB image cap、1 MiB HTML cap、12 s timeout、1 redirect、scraper 解析 og:image:secure*url → og:image → twitter:image → twitter:image:src）；`FetchedOgImage::as_insert()` 把 owned bytes 借進 `OgImageInsert<'*>`。`AppConfig`新增`OgImageSettings { fetch_enabled (default true), blocked_hosts, cleanup (default Off) }`。+15 mockito 測試。
+    - **Tauri commands + frontend hook (C4)**：六個 commands（`load_history_og_images` / `mark_og_images_shown` / `trigger_og_image_refetch` / `get_og_image_storage_stats` / `clear_og_image_cache` / `run_og_image_cleanup`），全在 `run_blocking_command`；vault-worker / worker_bridge / invoke_handler / dev IPC mirror 全到位；`backend-client/explorer.ts` + `backend.ts` typed 方法；`use-explorer-og-images.ts` hook（dedup + inflight + 1 s debounced mark_shown）。+7 hook tests。
+    - **Card render + Settings (C5)**：`paper-contact-frame.tsx` 渲染優先級 og:image > favicon > swatch，加頂底 scrim 保 index / transition token 可讀；Explorer route 在 `renderedTimeResults` 合併 ogImageCache；新增 Settings → Link previews 子 section（toggle / stats / Run cleanup / Clear all 含 `window.confirm` guard），三語 i18n keys 齊備。+2 contact frame tests +4 settings tests。
+    - **Docs sweep (C6)**：`docs/features/og-images.md` 新文；`docs/architecture/data-model.md` 加上 `og_images` 段落（強調 no-host-fallback 與 derived / 不入 backup 屬性）；STATUS + CHANGELOG + research-and-decisions 同步寫回；plan file 保存在 `.claude/plans/indexed-giggling-ullman.md`。
+    - **驗收結果**：JS unit suite 1,576 / 1,576 pass；vault-core 482 / 482 pass（C2 +13、C3 +15 = +28 new）；cargo workspace build clean；typecheck / lint / i18n parity 三語齊備。完整 `bun run check` + `bun run verify` mutation / e2e / desktop-bridge truth gate 待後續 push 跑完。
+    - **後續 backlog**：blocklist textarea UI、eviction-mode picker UI（TimeTtl / SizeCap / Lru 數值輸入）、per-host rate limit + 多 worker、daily schedule.rs tick 接 `run_og_image_cleanup`、negative-cache TTL auto-refetch worker、與 `WORK-READABLE-CONTENT-V03-A` 對齊的離線抓取整合。

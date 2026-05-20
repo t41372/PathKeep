@@ -118,10 +118,7 @@ export function useExplorerOgImages({
             next.set(historyOgImageLookupKey(url), null)
           }
           for (const row of loaded) {
-            next.set(
-              historyOgImageLookupKey(row.url),
-              row.ogImage ?? null,
-            )
+            next.set(historyOgImageLookupKey(row.url), row.ogImage ?? null)
           }
           return { token: cacheToken, entries: next }
         })

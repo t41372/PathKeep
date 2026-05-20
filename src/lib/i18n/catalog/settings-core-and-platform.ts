@@ -287,8 +287,10 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsCleanupLabel: '维护',
     linkPreviewsRunCleanupAction: '立即清理',
     linkPreviewsClearAllAction: '清空所有链接预览',
-    linkPreviewsClearConfirm: '删除所有缓存的链接预览？只能通过重新抓取每个页面恢复。',
-    linkPreviewsCleanupSummary: '已删除 {rows} 行、{blobs} 个文件，释放 {bytes}。',
+    linkPreviewsClearConfirm:
+      '删除所有缓存的链接预览？只能通过重新抓取每个页面恢复。',
+    linkPreviewsCleanupSummary:
+      '已删除 {rows} 行、{blobs} 个文件，释放 {bytes}。',
     openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
@@ -471,8 +473,10 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsCleanupLabel: '維護',
     linkPreviewsRunCleanupAction: '立即清理',
     linkPreviewsClearAllAction: '清空所有連結預覽',
-    linkPreviewsClearConfirm: '刪除所有快取的連結預覽？只能透過重新擷取每個頁面恢復。',
-    linkPreviewsCleanupSummary: '已刪除 {rows} 列、{blobs} 個檔案，釋放 {bytes}。',
+    linkPreviewsClearConfirm:
+      '刪除所有快取的連結預覽？只能透過重新擷取每個頁面恢復。',
+    linkPreviewsCleanupSummary:
+      '已刪除 {rows} 列、{blobs} 個檔案，釋放 {bytes}。',
     openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',

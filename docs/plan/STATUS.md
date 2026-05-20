@@ -68,6 +68,24 @@
     - design-tokens / screens-and-nav / ux-principles / ui-review-guardrails / typography-and-font-fallback / data-model / annotations feature spec / intelligence / recall / STATUS / CHANGELOG / BACKLOG / research-and-decisions 全部反映新方向。
     - 截圖：每個 route 在 light + dark 都產出，附在 release artifacts。
 
+- [x] **WORK-V03-OG-IMAGE-A** — Card-mode og:image cache for paper Browse
+  - 讀先：
+    `.claude/plans/indexed-giggling-ullman.md` (full plan + policy decisions)
+    `docs/features/og-images.md` (feature spec — newly written)
+    `docs/architecture/data-model.md` §`og_images` paragraph (storage contract)
+    `src-tauri/crates/vault-core/src/migrations/012_og_images.sql`
+    `src-tauri/crates/vault-core/src/archive/history/og_images.rs` + `og_images_fetch.rs`
+  - 目標：讓 paper Browse 卡片模式渲染每個 page 的真正 og:image，per-URL key、content-hash dedup、opt-out 預設開啟，使用者可在 Settings 看到 cache 大小並清空。
+  - 契約：
+    - 讀路徑 exact-page-URL only，**不做 host fallback**（GitHub / Medium 同 host 不同 page 的社交卡不同）。
+    - 寫路徑 content-hash dedup（`sha256_hex(bytes)`）；identical bytes 共用一個 `og_image_blobs` row。
+    - Fetch 是 HTTPS-only、無 Referer、靜態 UA、2 MiB 上限、1 個 redirect、12 s timeout；http:// page URL 直接 `parse_error` 不發網路。
+    - 三語 i18n key 在 commit 時齊全；Settings toggle 走 `saveConfig` 透過 shell-data context。
+    - og:image 快取是 derived，**不進 backup export**；restore 後從空表 lazy 重建。
+    - 100% JS / Rust coverage 維持；新增 mockito 測試 +13 og_images storage 測試 +15 fetch 測試 +7 hook 測試 +4 settings 測試 +2 contact frame 測試 +3 list-row 測試。
+  - 進度：六個 atomic commit（C1–C6）已全部 ship。
+  - 後續 backlog：見 `docs/features/og-images.md` §6（blocklist UI、eviction picker UI、per-host rate limit、daily schedule cleanup tick、negative-cache TTL re-fetch）。
+
 - [x] **WORK-RELEASE-020-A** — v0.2.0 Planning Repair, Security Refresh, And Publication
   - 讀先：
     `README.md`

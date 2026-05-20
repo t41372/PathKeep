@@ -229,9 +229,7 @@ export function SettingsPage() {
           navItem={settingsSection('remote')}
           state={routeState.remote}
         />
-        <LinkPreviewsSection
-          anchorId={settingsSection('linkPreviews').id}
-        />
+        <LinkPreviewsSection anchorId={settingsSection('linkPreviews').id} />
       </div>
     </section>
   )
