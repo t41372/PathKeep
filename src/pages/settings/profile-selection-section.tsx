@@ -21,9 +21,14 @@
  * - profile list 規模小且固定；本模組只渲染現有 snapshot，不做額外查詢。
  */
 
+import {
+  PaperCard,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
 import { BrowserIcon } from '../../lib/browser-icons'
-import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
 import type { BrowserProfile } from '../../lib/types'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -48,8 +53,9 @@ export interface ProfileSelectionSectionProps {
 /**
  * Renders the browser-profile selection review surface.
  *
- * This keeps the long profile list JSX out of the Settings route shell while
- * leaving save behavior under the hook that already owns config mutations.
+ * Paper aesthetic: PaperCard wrapper + per-profile button row using paper
+ * tokens (border-border-light, hover:bg-hover, accent fill when selected).
+ * BrowserIcon SVG kept inline.
  */
 export function ProfileSelectionSection({
   navItem,
@@ -59,18 +65,14 @@ export function ProfileSelectionSection({
   const { profiles, saving, selectedIds, onToggleProfile } = state
 
   return (
-    <div className="panel" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-      </div>
-      <div className="panel-body">
-        <p className="dashboard-next-action">
+    <PaperCard testId={navItem.id}>
+      <span id={navItem.id} aria-hidden />
+      <PaperCardHeader title={navItem.label} />
+      <PaperCardBody>
+        <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.browserProfilesBody')}
         </p>
-        <div className="profile-list">
+        <div className="flex flex-col gap-1.5">
           {profiles.map((profile) => {
             const checked = selectedIds.has(profile.profileId)
             const historyFileLabel =
@@ -79,7 +81,13 @@ export function ProfileSelectionSection({
               profile.profileName
             return (
               <button
-                className={`profile-item ${checked ? 'checked' : ''}`}
+                className={cn(
+                  'rounded-paper flex w-full items-center gap-3 border px-3 py-2 text-left transition-colors',
+                  checked
+                    ? 'border-accent bg-accent-soft'
+                    : 'border-border-default hover:border-ink-muted hover:bg-hover',
+                  saving ? 'cursor-not-allowed opacity-60' : '',
+                )}
                 disabled={saving}
                 key={profile.profileId}
                 type="button"
@@ -87,32 +95,37 @@ export function ProfileSelectionSection({
                   void onToggleProfile(profile.profileId)
                 }}
               >
-                <div className="profile-check">
-                  <div className={`checkbox ${checked ? 'active' : ''}`}>
-                    {checked ? <Glyph icon="check" filled /> : ''}
-                  </div>
-                </div>
-                <div className="profile-icon">
+                <span
+                  className={cn(
+                    'rounded-paper inline-grid h-5 w-5 place-items-center border font-mono text-[10px]',
+                    checked
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-border-default text-ink-faint',
+                  )}
+                >
+                  {checked ? '✓' : ''}
+                </span>
+                <span className="h-5 w-5 shrink-0">
                   <BrowserIcon browserName={profile.browserName} />
-                </div>
-                <div className="profile-info">
-                  <div className="profile-name">
+                </span>
+                <span className="flex flex-1 flex-col">
+                  <span className="text-ink font-sans text-[12.5px] font-medium">
                     {profile.browserName} / {profile.profileName}
-                  </div>
-                  <div className="profile-path dim mono">
+                  </span>
+                  <span className="text-ink-faint font-mono text-[10.5px]">
                     {historyFileLabel}
-                  </div>
-                </div>
-                <div className="profile-stats mono dim">
+                  </span>
+                </span>
+                <span className="text-ink-faint font-mono text-[10.5px]">
                   {profile.historyExists
                     ? `${t('settings.historyFound')} · ${profile.browserVersion ?? t('common.notAvailable')}`
                     : t('settings.noHistoryDetected')}
-                </div>
+                </span>
               </button>
             )
           })}
         </div>
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
