@@ -133,30 +133,30 @@ export function OnboardingPage() {
 
   if (loading && !snapshot) {
     return (
-      <section
-        className="page-shell onboarding-page"
+      <div
+        className="mx-auto flex w-full max-w-[720px] flex-col pt-7"
         data-testid="onboarding-page"
       >
         <LoadingState label={t('loadingDecisions')} />
-      </section>
+      </div>
     )
   }
 
   if (error && !snapshot) {
     return (
-      <section
-        className="page-shell onboarding-page"
+      <div
+        className="mx-auto flex w-full max-w-[720px] flex-col pt-7"
         data-testid="onboarding-page"
       >
         <ErrorState description={error} title={t('errorTitle')} />
-      </section>
+      </div>
     )
   }
 
   if (!snapshot) {
     return (
-      <section
-        className="page-shell onboarding-page"
+      <div
+        className="mx-auto flex w-full max-w-[720px] flex-col pt-7"
         data-testid="onboarding-page"
       >
         <EmptyState
@@ -164,7 +164,7 @@ export function OnboardingPage() {
           eyebrow={t('emptyEyebrow')}
           title={t('emptyTitle')}
         />
-      </section>
+      </div>
     )
   }
 
@@ -321,16 +321,29 @@ export function OnboardingPage() {
   }
 
   return (
-    <section data-testid="onboarding-page">
+    <div
+      className="mx-auto flex w-full max-w-[720px] flex-col gap-6 pt-7"
+      data-testid="onboarding-page"
+    >
       {step > 0 ? (
-        <div className="onboarding-stepper">
-          <div className="stepper-track">
+        <div className="flex w-full items-center justify-center">
+          <div className="flex w-full max-w-[640px] items-center gap-1">
             {onboardingStepKeys.map((key, index) => (
-              <div key={key} style={{ display: 'contents' }}>
+              <div
+                key={key}
+                className="flex flex-1 items-center gap-1"
+                style={{ display: 'contents' }}
+              >
                 <button
                   aria-current={index === step ? 'step' : undefined}
                   aria-label={`${t(key)}${index < step ? ' ✓' : ''}`}
-                  className={`stepper-step ${index < step ? 'completed' : ''} ${index === step ? 'active' : ''} ${index < step ? 'clickable' : ''}`}
+                  className={`flex flex-1 flex-col items-center gap-1.5 text-center ${
+                    index < step
+                      ? 'cursor-pointer'
+                      : index === step
+                        ? ''
+                        : 'opacity-60'
+                  }`}
                   disabled={index > step}
                   type="button"
                   onClick={() => {
@@ -339,15 +352,30 @@ export function OnboardingPage() {
                     }
                   }}
                 >
-                  <div className="stepper-dot">
-                    <span className="stepper-check">✓</span>
-                    <span className="stepper-num">{index + 1}</span>
+                  <div
+                    className={`grid h-7 w-7 place-items-center rounded-full border font-mono text-[10.5px] transition-colors ${
+                      index < step
+                        ? 'border-accent bg-accent text-white'
+                        : index === step
+                          ? 'border-accent text-accent-text bg-accent-soft'
+                          : 'border-border-default text-ink-faint'
+                    }`}
+                  >
+                    {index < step ? '✓' : index + 1}
                   </div>
-                  <span className="stepper-label">{t(key)}</span>
+                  <span
+                    className={`font-sans text-[10.5px] tracking-wide ${
+                      index === step ? 'text-ink font-medium' : 'text-ink-muted'
+                    }`}
+                  >
+                    {t(key)}
+                  </span>
                 </button>
                 {index < onboardingStepKeys.length - 1 ? (
                   <div
-                    className={`stepper-line ${index < step ? 'completed' : ''} ${index === step - 1 ? 'active' : ''}`}
+                    className={`mt-[-14px] h-px flex-1 ${
+                      index < step ? 'bg-accent' : 'bg-border-light'
+                    }`}
                   />
                 ) : null}
               </div>
@@ -440,7 +468,7 @@ export function OnboardingPage() {
           onOpenFullDiskAccessSettings={handleOpenFullDiskAccessSettings}
         />
       ) : null}
-    </section>
+    </div>
   )
 }
 
