@@ -307,4 +307,3 @@ interface PaletteRow {
   title?: string
   visited_at_iso?: string
 }
-

@@ -19,9 +19,7 @@ const screenDef = {
   subtitleKey: 'navigation.dashboardSubtitle',
 } as unknown as AppScreen
 
-function renderTopbar(
-  overrides: Partial<Parameters<typeof PKTopbar>[0]> = {},
-) {
+function renderTopbar(overrides: Partial<Parameters<typeof PKTopbar>[0]> = {}) {
   const props: Parameters<typeof PKTopbar>[0] = {
     screen: screenDef,
     onOpenPalette: vi.fn(),

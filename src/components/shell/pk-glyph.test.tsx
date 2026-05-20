@@ -10,11 +10,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { render } from '@testing-library/react'
-import {
-  PKGlyph,
-  PK_GLYPH_NAMES,
-  type GlyphIconName,
-} from './pk-glyph'
+import { PKGlyph, PK_GLYPH_NAMES, type GlyphIconName } from './pk-glyph'
 
 describe('PKGlyph', () => {
   test('renders an svg with the expected defaults for every catalogued icon', () => {

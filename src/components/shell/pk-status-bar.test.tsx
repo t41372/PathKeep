@@ -13,10 +13,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nProvider } from '@/lib/i18n'
-import {
-  PKStatusBar,
-  type PKStatusBarSource,
-} from './pk-status-bar'
+import { PKStatusBar, type PKStatusBarSource } from './pk-status-bar'
 
 const sources: PKStatusBarSource[] = [
   {

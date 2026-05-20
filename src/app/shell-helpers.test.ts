@@ -127,33 +127,19 @@ describe('readEpigraphIndex', () => {
 
   test('rotates when the stored value is malformed', () => {
     const storage = makeStorage({ k: '2026-05-20:not-a-number' })
-    const result = readEpigraphIndex(
-      'k',
-      6,
-      storage,
-      reference,
-      () => 0,
-    )
+    const result = readEpigraphIndex('k', 6, storage, reference, () => 0)
     expect(result).toBe(0)
   })
 
   test('rotates when no value has been stored yet', () => {
     const storage = makeStorage()
-    const result = readEpigraphIndex(
-      'k',
-      6,
-      storage,
-      reference,
-      () => 0.99,
-    )
+    const result = readEpigraphIndex('k', 6, storage, reference, () => 0.99)
     expect(result).toBe(5)
     expect(storage.getItem('k')).toBe('2026-05-20:5')
   })
 
   test('returns 0 when storage throws', () => {
-    expect(readEpigraphIndex('k', 6, makeThrowingStorage(), reference)).toBe(
-      0,
-    )
+    expect(readEpigraphIndex('k', 6, makeThrowingStorage(), reference)).toBe(0)
   })
 })
 
@@ -238,11 +224,7 @@ describe('formatLastArchivedLabel', () => {
   })
 
   test('passes locale + 2-digit hour/minute vars to the translator', () => {
-    const result = formatLastArchivedLabel(
-      '2026-04-15T08:09:00Z',
-      t,
-      'en',
-    )
+    const result = formatLastArchivedLabel('2026-04-15T08:09:00Z', t, 'en')
     expect(result.startsWith('shell.lastArchivedAt ')).toBe(true)
   })
 

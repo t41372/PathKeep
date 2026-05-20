@@ -288,7 +288,8 @@ describe('backend client', () => {
         args: { entries: [request] },
       },
       {
-        run: () => backend.loadHistoryOgImages([{ url: 'https://example.test' }]),
+        run: () =>
+          backend.loadHistoryOgImages([{ url: 'https://example.test' }]),
         command: 'load_history_og_images',
         args: { entries: [{ url: 'https://example.test' }] },
       },

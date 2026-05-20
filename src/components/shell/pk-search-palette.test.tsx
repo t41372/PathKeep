@@ -17,10 +17,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type * as ReactRouter from 'react-router-dom'
 import { I18nProvider } from '@/lib/i18n'
-import {
-  PKSearchPalette,
-  type PaletteResult,
-} from './pk-search-palette'
+import { PKSearchPalette, type PaletteResult } from './pk-search-palette'
 
 const navigateMock = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -121,9 +118,7 @@ describe('PKSearchPalette', () => {
     await user.keyboard('{Meta>}{Enter}{/Meta}')
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/explorer?q=github',
-    )
+    expect(navigateMock).toHaveBeenCalledWith('/explorer?q=github')
   })
 
   test('Cmd+Enter without query goes to /explorer', async () => {
