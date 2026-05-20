@@ -179,8 +179,66 @@ where
             &mut report.warnings,
             run_og_image_cleanup(session_database_key),
         );
+        // Negative-cache auto-refetch: try again for any URL whose
+        // `refetch_after` has elapsed. Bounded by NEGATIVE_CACHE_DAILY_BUDGET
+        // so a single overnight backlog can't burst-fire hundreds of
+        // outbound requests; remaining URLs roll into the next daily
+        // tick. Same warning channel as the cleanup pass.
+        append_og_image_refetch_due_result(
+            &mut report.warnings,
+            try_refetch_due_og_images(session_database_key, NEGATIVE_CACHE_DAILY_BUDGET),
+        );
     }
     Ok(report)
+}
+
+/// Per-day ceiling on negative-cache retries. The number lands between
+/// "enough to cover a normal user's daily transient-failure backlog" and
+/// "low enough that a single misconfigured backup can't spam an upstream
+/// in concert with the per-host rate limit". 50 keeps both invariants
+/// honest at ≤ 25s total wall-clock under the worst-case same-host
+/// distribution (50 × 500ms / 2 workers).
+const NEGATIVE_CACHE_DAILY_BUDGET: usize = 50;
+
+/// Looks up URLs whose `refetch_after` window has elapsed and hands
+/// them back to `refetch_og_images` for a second attempt. Returns the
+/// (count_due, count_succeeded) pair so the caller can surface both in
+/// the backup warning channel.
+fn try_refetch_due_og_images(
+    session_database_key: Option<&str>,
+    budget: usize,
+) -> Result<(usize, u32)> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    if !config.og_image.fetch_enabled {
+        return Ok((0, 0));
+    }
+    let due_urls = {
+        let connection =
+            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+        vault_core::og_images::list_urls_due_for_refetch(&connection, budget)?
+    };
+    if due_urls.is_empty() {
+        return Ok((0, 0));
+    }
+    let due_count = due_urls.len();
+    let successful = refetch_og_images(session_database_key, due_urls)?;
+    Ok((due_count, successful))
+}
+
+/// Pushes a non-fatal refetch-due result onto a backup report's warning
+/// list. Same shape as `append_og_image_cleanup_result` so the formatting
+/// stays auditable without spinning up a real worker.
+fn append_og_image_refetch_due_result(warnings: &mut Vec<String>, result: Result<(usize, u32)>) {
+    match result {
+        Ok((0, _)) => {}
+        Ok((due, successful)) => warnings.push(format!(
+            "Link previews negative-cache retry: re-attempted {due} URLs, {successful} succeeded.",
+        )),
+        Err(error) => {
+            warnings.push(format!("Link previews negative-cache retry failed: {error:#}",))
+        }
+    }
 }
 
 /// Pushes a non-fatal cleanup result onto a backup report's warning list.
@@ -762,7 +820,8 @@ mod tests {
         append_ai_auto_index_archive_result, append_ai_auto_index_enqueue_result,
         append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
         append_core_refresh_import_result, append_og_image_cleanup_result,
-        core_refresh_import_note, core_refresh_rebuild_scopes, host_throttle_wait,
+        append_og_image_refetch_due_result, core_refresh_import_note, core_refresh_rebuild_scopes,
+        host_throttle_wait,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -802,6 +861,31 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("archive locked"));
         assert!(warnings[0].contains("cache hygiene failed"));
+    }
+
+    #[test]
+    fn append_og_image_refetch_due_result_silent_when_no_due_rows() {
+        let mut warnings = Vec::new();
+        append_og_image_refetch_due_result(&mut warnings, Ok((0, 0)));
+        assert!(warnings.is_empty(), "no due rows should not add a warning even when successful=0",);
+    }
+
+    #[test]
+    fn append_og_image_refetch_due_result_annotates_retried_counts() {
+        let mut warnings = Vec::new();
+        append_og_image_refetch_due_result(&mut warnings, Ok((7, 4)));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("7 URLs"));
+        assert!(warnings[0].contains("4 succeeded"));
+    }
+
+    #[test]
+    fn append_og_image_refetch_due_result_surfaces_errors_as_warnings() {
+        let mut warnings = Vec::new();
+        append_og_image_refetch_due_result(&mut warnings, Err(anyhow::anyhow!("dns hiccup")));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("dns hiccup"));
+        assert!(warnings[0].contains("negative-cache retry failed"));
     }
 
     #[test]

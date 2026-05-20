@@ -237,6 +237,30 @@ pub fn mark_og_images_shown(connection: &Connection, urls: &[String]) -> Result<
 
 /// Reports the current cache footprint so Settings can display
 /// "X rows · Y blobs · Z bytes" without scanning the row table twice.
+/// Returns up to `limit` page URLs whose negative-cache window has elapsed
+/// (`refetch_after` is non-NULL and ≤ now). Caller hands them to
+/// `refetch_og_images` so the worker can take a second shot at hosts that
+/// were transiently down or rate-limited the first time. URLs without a
+/// scheduled refetch are ignored — those rows are either fresh successes
+/// or permanent failures (BLOCKED, NON_HTTPS, NO_IMAGE_TAG).
+pub fn list_urls_due_for_refetch(connection: &Connection, limit: usize) -> Result<Vec<String>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let mut statement = connection.prepare(
+        "SELECT page_url FROM og_images \
+         WHERE refetch_after IS NOT NULL AND refetch_after <= ?1 \
+         ORDER BY refetch_after ASC \
+         LIMIT ?2",
+    )?;
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let rows = statement
+        .query_map(params![now, limit], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 pub fn storage_stats(connection: &Connection) -> Result<OgImageStorageStats> {
     let stats = connection
         .query_row(STATS_SQL, [], |row| {
@@ -455,6 +479,79 @@ mod tests {
             fetch_attempts: 1,
             created_by_run_id: None,
         }
+    }
+
+    fn refetch_due_insert<'a>(page_url: &'a str, refetch_after: &'a str) -> OgImageInsert<'a> {
+        OgImageInsert {
+            page_url,
+            page_host: Some("example.com"),
+            source_og_url: None,
+            image_bytes: None,
+            mime: None,
+            width: None,
+            height: None,
+            fetch_status: fetch_status::MISSING,
+            http_status: Some(503),
+            refetch_after: Some(refetch_after),
+            fetch_attempts: 1,
+            created_by_run_id: None,
+        }
+    }
+
+    #[test]
+    fn list_urls_due_for_refetch_returns_rows_whose_window_has_elapsed() {
+        let connection = open_test_archive();
+        upsert_og_image(
+            &connection,
+            &refetch_due_insert("https://example.com/past", "2020-01-01T00:00:00Z"),
+        )
+        .unwrap();
+        upsert_og_image(
+            &connection,
+            &refetch_due_insert("https://example.com/future", "2099-12-31T00:00:00Z"),
+        )
+        .unwrap();
+
+        let due = list_urls_due_for_refetch(&connection, 10).unwrap();
+        assert_eq!(due, vec!["https://example.com/past".to_string()]);
+    }
+
+    #[test]
+    fn list_urls_due_for_refetch_skips_rows_with_null_refetch_after() {
+        let connection = open_test_archive();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached", b"\x89PNGsmall"))
+            .unwrap();
+        let due = list_urls_due_for_refetch(&connection, 10).unwrap();
+        assert!(due.is_empty());
+    }
+
+    #[test]
+    fn list_urls_due_for_refetch_honors_the_limit_and_orders_by_oldest_first() {
+        let connection = open_test_archive();
+        upsert_og_image(
+            &connection,
+            &refetch_due_insert("https://example.com/older", "2020-01-01T00:00:00Z"),
+        )
+        .unwrap();
+        upsert_og_image(
+            &connection,
+            &refetch_due_insert("https://example.com/newer", "2024-01-01T00:00:00Z"),
+        )
+        .unwrap();
+        let limited = list_urls_due_for_refetch(&connection, 1).unwrap();
+        assert_eq!(limited, vec!["https://example.com/older".to_string()]);
+    }
+
+    #[test]
+    fn list_urls_due_for_refetch_returns_empty_when_limit_is_zero() {
+        let connection = open_test_archive();
+        upsert_og_image(
+            &connection,
+            &refetch_due_insert("https://example.com/x", "2020-01-01T00:00:00Z"),
+        )
+        .unwrap();
+        let none = list_urls_due_for_refetch(&connection, 0).unwrap();
+        assert!(none.is_empty());
     }
 
     #[test]
