@@ -19,11 +19,8 @@ import {
 } from '@/app/shell-data-context'
 import { backend } from '@/lib/backend-client'
 import type { AppSnapshot, OgImageCleanupMode } from '@/lib/types'
-import {
-  LinkPreviewsSection,
-  clampNumber,
-  parseBlocklist,
-} from './link-previews-section'
+import { LinkPreviewsSection } from './link-previews-section'
+import { clampNumber, parseBlocklist } from './link-previews-helpers'
 
 describe('LinkPreviewsSection', () => {
   beforeEach(() => {
@@ -138,9 +135,9 @@ describe('LinkPreviewsSection', () => {
         blockedHosts: ['initial.example.test'],
       }),
     )
-    const textarea = screen.getByTestId(
+    const textarea = screen.getByTestId<HTMLTextAreaElement>(
       'link-previews-blocklist-input',
-    ) as HTMLTextAreaElement
+    )
     await userEvent.type(textarea, '{Enter}draft.example.test')
     expect(textarea.value).toContain('draft.example.test')
     await userEvent.click(screen.getByTestId('link-previews-blocklist-reset'))
@@ -175,7 +172,7 @@ describe('LinkPreviewsSection', () => {
     expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.mode).toBe('lru')
   })
 
-  test('TimeTtl numeric input clamps the persisted value to [1, 3650] days', async () => {
+  test('TimeTtl numeric input clamps the persisted value to [1, 3650] days', () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
@@ -197,7 +194,7 @@ describe('LinkPreviewsSection', () => {
     expect(lastClamped.maxAgeDays).toBe(3650)
   })
 
-  test('TimeTtl numeric input clamps below the floor too', async () => {
+  test('TimeTtl numeric input clamps below the floor too', () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
@@ -218,7 +215,7 @@ describe('LinkPreviewsSection', () => {
     expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.maxAgeDays).toBe(1)
   })
 
-  test('SizeCap numeric input persists bytes converted from MB', async () => {
+  test('SizeCap numeric input persists bytes converted from MB', () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,

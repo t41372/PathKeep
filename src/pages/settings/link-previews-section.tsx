@@ -36,6 +36,7 @@ import type {
 } from '@/lib/types'
 import { cn } from '@/lib/cn'
 import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
+import { clampNumber, parseBlocklist } from './link-previews-helpers'
 
 export interface LinkPreviewsSectionProps {
   anchorId?: string
@@ -58,38 +59,6 @@ const MAX_BYTES_MIN_MB = 1
 const MAX_BYTES_MAX_MB = 65_536
 
 const BYTES_PER_MB = 1_024 * 1_024
-
-/**
- * Parses a newline-separated blocklist editor value into an OgImageSettings
- * `blockedHosts` array. Trims whitespace, drops empty lines, de-duplicates,
- * and lowercases host strings so storage stays canonical regardless of how
- * the user types them.
- */
-export function parseBlocklist(value: string): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const raw of value.split(/\r?\n/)) {
-    const trimmed = raw.trim().toLowerCase()
-    if (!trimmed || trimmed.startsWith('#') || seen.has(trimmed)) continue
-    seen.add(trimmed)
-    out.push(trimmed)
-  }
-  return out
-}
-
-/** Clamps `raw` into [min, max]; returns `fallback` for NaN/empty. */
-export function clampNumber(
-  raw: number | string,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
-  const numeric = typeof raw === 'number' ? raw : Number.parseInt(raw, 10)
-  if (!Number.isFinite(numeric)) return fallback
-  if (numeric < min) return min
-  if (numeric > max) return max
-  return Math.trunc(numeric)
-}
 
 function modeId(mode: OgImageCleanupMode): CleanupModeId {
   return mode.mode
