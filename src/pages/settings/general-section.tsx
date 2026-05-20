@@ -11,11 +11,7 @@
  * - `GeneralSection`
  */
 
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import {
   explorerBackgroundPrefetchPageOptions,
   normalizeExplorerBackgroundPrefetchPages,

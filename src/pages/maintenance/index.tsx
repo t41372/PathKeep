@@ -26,11 +26,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { DerivedStateSection } from '../settings/derived-state-section'
 import { PlatformSection } from '../settings/platform-section'
 import { RemoteBackupSection } from '../settings/remote-backup-section'

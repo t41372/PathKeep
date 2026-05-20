@@ -100,7 +100,10 @@ export function RemoteBackupPreferencesSection({
             title={t('settings.remotePreferencesTitle')}
             body={t('settings.remotePreferencesBody')}
             actions={
-              <Link className={BUTTON_SECONDARY} to="/maintenance#settings-remote">
+              <Link
+                className={BUTTON_SECONDARY}
+                to="/maintenance#settings-remote"
+              >
                 {t('settings.openMaintenance')}
               </Link>
             }
@@ -242,9 +245,7 @@ export function RemoteBackupPreferencesSection({
               className={INPUT_CLASS}
               type="password"
               value={secretAccessKey}
-              onChange={(event) =>
-                onSecretAccessKeyChange(event.target.value)
-              }
+              onChange={(event) => onSecretAccessKeyChange(event.target.value)}
             />
           </Field>
 

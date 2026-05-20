@@ -21,11 +21,7 @@
  * - 本模組只渲染 route 已經準備好的 state，不自行發起 background work。
  */
 
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
@@ -110,7 +106,9 @@ export function UpdaterSection({ navItem, state }: UpdaterSectionProps) {
                   : 'info'
             }
             title={t('settings.updateBoundaryTitle')}
-            body={updateInstallState.message ?? t('settings.updateBoundaryBody')}
+            body={
+              updateInstallState.message ?? t('settings.updateBoundaryBody')
+            }
           />
         </div>
 
@@ -159,10 +157,7 @@ export function UpdaterSection({ navItem, state }: UpdaterSectionProps) {
                   updateInstallState.downloadedBytes ?? 0,
                   language,
                 ),
-                total: formatBytes(
-                  updateInstallState.contentLength,
-                  language,
-                ),
+                total: formatBytes(updateInstallState.contentLength, language),
               })}
             </p>
           </div>

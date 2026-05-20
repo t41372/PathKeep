@@ -27,12 +27,14 @@ async function completePreviewOnboarding(page: Page) {
   await page.getByRole('button', { name: 'Skip for now' }).click()
   await page.getByRole('button', { name: 'Create Archive & Back Up →' }).click()
 
-  await expect(page.getByText('RECENT RUNS')).toBeVisible()
-  await expect(page.getByText('ON THIS DAY')).toBeVisible()
-  await expect(
-    page.getByRole('link', { name: 'Open Intelligence' }),
-  ).toHaveCount(2)
-  await expect(page.getByText('Coming in v0.3').first()).toBeVisible()
+  // The v0.3 paper dashboard replaces the v0.2 "RECENT RUNS" panel +
+  // disabled "Coming in v0.3" badges with a card-based composition. The
+  // post-onboarding contract is now: the paper dashboard mounts and renders
+  // its canonical testid-keyed cards (Archive / On This Day / This Week /
+  // Active Threads).
+  await expect(page.getByTestId('dashboard-page')).toBeVisible()
+  await expect(page.getByTestId('dashboard-archive-card')).toBeVisible()
+  await expect(page.getByTestId('dashboard-on-this-day')).toBeVisible()
   await expect(page.getByText('common.disabled')).toHaveCount(0)
 }
 

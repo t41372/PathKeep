@@ -22,11 +22,7 @@
  */
 
 import { Link } from 'react-router-dom'
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { formatBytes } from '../../lib/format'
 import type { RetentionPreview, RetentionPruneResult } from '../../lib/types'

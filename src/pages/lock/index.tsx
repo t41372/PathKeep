@@ -17,10 +17,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { BrandMark } from '../../components/brand-mark'
-import {
-  PaperCard,
-  PaperCardBody,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody } from '@/components/cards'
 import {
   copyReviewValue,
   ReviewPathActionRow,
