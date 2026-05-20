@@ -77,7 +77,7 @@ describe('PKStatusBar', () => {
 
   test('clicking All routes onSelectSource(null) (line 188)', async () => {
     const user = userEvent.setup()
-    const { props } = renderStatusBar({ selectedSourceId: 'chrome:default' })
+    renderStatusBar({ selectedSourceId: 'chrome:default' })
     await user.click(screen.getByTestId('pk-status-bar-source-trigger'))
 
     const allButtons = screen.getAllByRole('button')
