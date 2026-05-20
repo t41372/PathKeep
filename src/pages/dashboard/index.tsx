@@ -25,17 +25,6 @@ import { useI18n } from '@/lib/i18n'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
 import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
 import { useProfileScope } from '@/lib/profile-scope-context'
-import {
-  PaperCard,
-  PaperCardBadge,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
-// The synthetic `generateHeatmapCells` helper is intentionally NOT imported
-// here. The backend does not currently expose a per-day visit count for the
-// past 365 days (only the `get_browsing_rhythm` dow×hour aggregate), so the
-// dashboard renders an honest "not wired yet" empty state instead of feeding
-// the heatmap fake levels that look like real archive data.
 import { DashboardArchiveCard } from './archive-card'
 import { DashboardOnThisDay } from './on-this-day-card'
 import { DashboardThisWeek } from './this-week-card'
@@ -49,6 +38,7 @@ import {
 import { useDashboardArchiveAccessFallback } from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
 import { resolveDashboardRouteFallback } from './route-fallback-state'
+import { DashboardYearHeatmapCard } from './year-heatmap-card'
 import { cn } from '@/lib/cn'
 
 export function DashboardPage() {
@@ -176,25 +166,17 @@ export function DashboardPage() {
         />
       </div>
 
-      <PaperCard className="mb-4">
-        <PaperCardHeader
-          title={t('dashboard.yearInPagesTitle')}
-          compact
-          right={
-            <PaperCardBadge onClick={() => void navigate('/intelligence')}>
-              {t('dashboard.allInsights')} →
-            </PaperCardBadge>
-          }
-        />
-        <PaperCardBody className="px-[18px] pb-[14px] pt-[10px]">
-          <p
-            className="m-0 font-serif text-[13.5px] italic leading-[1.55] text-ink-muted"
-            data-testid="dashboard-year-empty"
-          >
-            {t('dashboard.yearInPagesEmpty')}
-          </p>
-        </PaperCardBody>
-      </PaperCard>
+      <DashboardYearHeatmapCard
+        archiveReady={
+          readySnapshot.config.initialized && readySnapshot.archiveStatus.unlocked
+        }
+        onOpenInsights={() => void navigate('/intelligence')}
+        onSelectDate={(date) =>
+          void navigate(
+            `/explorer?date=${encodeURIComponent(date)}&source=on-this-day`,
+          )
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 mb-4 lg:grid-cols-3">
         <div className="lg:col-span-2">

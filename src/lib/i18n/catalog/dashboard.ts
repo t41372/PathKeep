@@ -136,8 +136,12 @@ export const dashboardNamespaceCatalog = {
     allInsights: 'Insights',
     heatmapLegendLess: 'Less',
     heatmapLegendMore: 'More',
+    heatmapStreakDays: '{count}-day streak',
+    heatmapStreakNone: 'No streak yet',
+    heatmapCellTooltip: '{date} · {count} pages',
+    yearInPagesError: 'Could not load the year heatmap.',
     yearInPagesEmpty:
-      'A per-day heatmap goes live when daily rollups land. For now, the full Intelligence surface holds the deeper view.',
+      'Run a first backup to start filling in the year heatmap.',
     // ── Active threads ──
     activeThreadsTitle: "What you've been thinking about",
     activeThreadsAll: 'All threads',
@@ -255,8 +259,11 @@ export const dashboardNamespaceCatalog = {
     weekStatUrls: '新增 URL',
     weekStatRuns: '备份次数',
     yearInPagesTitle: '过去一年',
-    yearInPagesEmpty:
-      '每日热图等待每日 rollups 接通后上线。目前 Intelligence 页有更深入的视图。',
+    yearInPagesEmpty: '运行第一次备份后，年度热图就会开始填充。',
+    yearInPagesError: '无法加载年度热图。',
+    heatmapStreakDays: '连续 {count} 天',
+    heatmapStreakNone: '暂无连续记录',
+    heatmapCellTooltip: '{date} · {count} 页',
     activeThreadsEmpty:
       '过去 30 天没有重复出现的多步路径。Intelligence 页面有更深入的调查视图。',
     activeThreadsError: '无法加载主题线。',
@@ -373,8 +380,11 @@ export const dashboardNamespaceCatalog = {
     weekStatUrls: '新增 URL',
     weekStatRuns: '備份次數',
     yearInPagesTitle: '過去一年',
-    yearInPagesEmpty:
-      '每日熱圖將在每日 rollups 接通後上線。目前 Intelligence 頁有更深入的視圖。',
+    yearInPagesEmpty: '執行第一次備份後，年度熱圖就會開始填充。',
+    yearInPagesError: '無法載入年度熱圖。',
+    heatmapStreakDays: '連續 {count} 天',
+    heatmapStreakNone: '暫無連續紀錄',
+    heatmapCellTooltip: '{date} · {count} 頁',
     activeThreadsEmpty:
       '過去 30 天沒有重複出現的多步路徑。Intelligence 頁面有更深入的調查視圖。',
     activeThreadsError: '無法載入主題線。',
