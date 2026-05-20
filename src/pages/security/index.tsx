@@ -98,28 +98,40 @@ export function SecurityPage() {
 
   if (!status && pageError === null)
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="security-page"
+      >
         <LoadingState label={t('security.loadingPosture')} />
-      </section>
+      </div>
     )
   if (!status) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="security-page"
+      >
         <EmptyState
           description={pageError!}
           eyebrow={t('navigation.securityLabel')}
           title={t('security.unavailableTitle')}
         />
-      </section>
+      </div>
     )
   }
 
   if (!status.initialized) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="security-page"
+      >
         <EmptyState
           action={
-            <Link className="btn-primary" to="/onboarding">
+            <Link
+              className="border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
+              to="/onboarding"
+            >
               {t('security.initFirstAction')}
             </Link>
           }
@@ -127,19 +139,25 @@ export function SecurityPage() {
           eyebrow={t('navigation.securityLabel')}
           title={t('security.notInitializedTitle')}
         />
-      </section>
+      </div>
     )
   }
 
   return (
-    <section className="page-shell security-page" data-testid="security-page">
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+      data-testid="security-page"
+    >
       {!status.keyringStatus.available ? (
         <StatusCallout
           tone="blocked"
           title={t('platform.keyringTitle')}
           body={t('platform.keyringBody')}
           actions={
-            <Link className="btn-secondary" to="/settings">
+            <Link
+              className="border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
+              to="/settings"
+            >
               {t('navigation.settingsLabel')}
             </Link>
           }
@@ -192,6 +210,6 @@ export function SecurityPage() {
         t={t}
       />
       {busy ? <BusyOverlay label={busy} /> : null}
-    </section>
+    </div>
   )
 }
