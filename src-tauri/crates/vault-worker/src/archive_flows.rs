@@ -252,33 +252,137 @@ pub fn run_og_image_cleanup(
 /// has disabled fetching globally.
 ///
 /// This is the entry point Tauri commands hand to `spawn_blocking` so
-/// the UI thread never sees a network stall. A future iteration can
-/// add parallelism + per-host rate limiting; for now we keep the
-/// politest possible default of strict serial fetching.
+/// the UI thread never sees a network stall. Fetches run on a small
+/// thread pool (currently 2 workers) so a long-tail of slow hosts can't
+/// block faster ones, with a per-host throttle that enforces at least
+/// 500 ms between requests targeting the same hostname — friendly to the
+/// upstream and a hard upper bound on our own RPS regardless of how
+/// many URLs the UI hands in.
+///
+/// SQLite isn't safe to share across threads, so the workers send
+/// `FetchedOgImage` outcomes back to the main thread via an mpsc
+/// channel and only the main thread writes to the archive. The Rust
+/// reqwest client is `Send + Sync` and is cloned via Arc to the
+/// workers.
 pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) -> Result<u32> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::{Duration, Instant};
+
+    const WORKER_POOL_SIZE: usize = 2;
+    const RATE_LIMIT_PER_HOST: Duration = Duration::from_millis(500);
+
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     if !config.og_image.fetch_enabled {
         return Ok(0);
     }
+    if urls.is_empty() {
+        return Ok(0);
+    }
     let connection =
         vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
-    let client = vault_core::og_images_fetch::build_fetch_client()
-        .context("building og:image fetch client")?;
+    let client = Arc::new(
+        vault_core::og_images_fetch::build_fetch_client()
+            .context("building og:image fetch client")?,
+    );
+    let blocked_hosts = Arc::new(config.og_image.blocked_hosts.clone());
+
+    // Reverse + pop = FIFO without amortizing O(n) drain costs.
+    let work: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(urls.into_iter().rev().collect()));
+    // Maps `host` → the next Instant at which a fetch for that host is
+    // allowed. Updated under lock by every worker before issuing a
+    // request so two workers can't blow the budget by picking same-host
+    // URLs at the same moment.
+    let host_state: Arc<Mutex<HashMap<String, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
+    let (sender, receiver) =
+        mpsc::channel::<(String, vault_core::og_images_fetch::FetchedOgImage)>();
+
+    let mut handles = Vec::with_capacity(WORKER_POOL_SIZE);
+    for _ in 0..WORKER_POOL_SIZE {
+        let work = Arc::clone(&work);
+        let client = Arc::clone(&client);
+        let host_state = Arc::clone(&host_state);
+        let blocked_hosts = Arc::clone(&blocked_hosts);
+        let sender = sender.clone();
+        handles.push(std::thread::spawn(move || {
+            loop {
+                let url = {
+                    let mut queue = match work.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+                    match queue.pop() {
+                        Some(url) => url,
+                        None => break,
+                    }
+                };
+
+                let wait = host_throttle_wait(&host_state, &url, RATE_LIMIT_PER_HOST);
+                if !wait.is_zero() {
+                    std::thread::sleep(wait);
+                }
+
+                let outcome =
+                    if vault_core::og_images_fetch::is_host_blocked(blocked_hosts.as_ref(), &url) {
+                        vault_core::og_images_fetch::blocked_outcome(&url)
+                    } else {
+                        vault_core::og_images_fetch::fetch_og_image_for(&client, &url)
+                    };
+                if sender.send((url, outcome)).is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+    drop(sender);
+
     let mut successful = 0_u32;
-    for url in urls {
-        if vault_core::og_images_fetch::is_host_blocked(&config.og_image.blocked_hosts, &url) {
-            let outcome = vault_core::og_images_fetch::blocked_outcome(&url);
-            vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))?;
-            continue;
-        }
-        let outcome = vault_core::og_images_fetch::fetch_og_image_for(&client, &url);
+    let mut last_persist_error: Option<anyhow::Error> = None;
+    while let Ok((url, outcome)) = receiver.recv() {
         if outcome.is_ok() {
             successful += 1;
         }
-        vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))?;
+        if let Err(error) =
+            vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))
+        {
+            last_persist_error = Some(error);
+        }
+    }
+    for handle in handles {
+        let _ = handle.join();
+    }
+    if let Some(error) = last_persist_error {
+        return Err(error);
     }
     Ok(successful)
+}
+
+/// Computes how long the worker should sleep before issuing a request
+/// for `url`'s host, and records the next-allowed slot for that host.
+///
+/// Exposed at module scope so the rate-limit logic can be unit-tested
+/// directly without spinning up the full reqwest pipeline.
+fn host_throttle_wait(
+    host_state: &std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    >,
+    url: &str,
+    interval: std::time::Duration,
+) -> std::time::Duration {
+    let host = vault_core::utils::url_domain(url).to_ascii_lowercase();
+    if host.is_empty() {
+        return std::time::Duration::ZERO;
+    }
+    let mut state = match host_state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let now = std::time::Instant::now();
+    let next_allowed = state.get(&host).copied().unwrap_or(now);
+    let my_slot = if next_allowed > now { next_allowed } else { now };
+    state.insert(host, my_slot + interval);
+    my_slot.saturating_duration_since(now)
 }
 
 /// Loads the dashboard snapshot read model for the current unlocked session.
@@ -618,8 +722,68 @@ mod tests {
         append_ai_auto_index_archive_result, append_ai_auto_index_enqueue_result,
         append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
         append_core_refresh_import_result, core_refresh_import_note, core_refresh_rebuild_scopes,
+        host_throttle_wait,
     };
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
     use vault_core::AiQueueJob;
+
+    fn fresh_host_state() -> Arc<Mutex<HashMap<String, Instant>>> {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+
+    #[test]
+    fn host_throttle_wait_returns_zero_for_first_request_to_a_host() {
+        let state = fresh_host_state();
+        let wait =
+            host_throttle_wait(&state, "https://github.com/foo/bar", Duration::from_millis(500));
+        assert_eq!(wait, Duration::ZERO);
+        assert!(state.lock().unwrap().contains_key("github.com"));
+    }
+
+    #[test]
+    fn host_throttle_wait_returns_zero_when_url_has_no_host() {
+        let state = fresh_host_state();
+        // The empty-string input is the only canonical "no host" case that
+        // url_domain produces an empty extraction for — malformed scheme
+        // prefixes (`not a url`, `httpsx://x`) still produce a hostlike
+        // bucket that the throttle is happy to track separately.
+        let wait = host_throttle_wait(&state, "", Duration::from_millis(500));
+        assert_eq!(wait, Duration::ZERO);
+        assert!(state.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn host_throttle_wait_serializes_back_to_back_same_host_requests() {
+        let state = fresh_host_state();
+        // First request reserves its slot at "now" and writes next_allowed = now + 500ms.
+        let first = host_throttle_wait(&state, "https://github.com/a", Duration::from_millis(500));
+        assert_eq!(first, Duration::ZERO);
+        // Second request has to wait roughly the full interval.
+        let second = host_throttle_wait(&state, "https://github.com/b", Duration::from_millis(500));
+        assert!(
+            second >= Duration::from_millis(450) && second <= Duration::from_millis(500),
+            "expected second host wait to be ~500ms, got {second:?}",
+        );
+    }
+
+    #[test]
+    fn host_throttle_wait_does_not_cross_pollinate_hosts() {
+        let state = fresh_host_state();
+        let _ = host_throttle_wait(&state, "https://github.com/a", Duration::from_millis(500));
+        let other = host_throttle_wait(&state, "https://medium.com/a", Duration::from_millis(500));
+        assert_eq!(other, Duration::ZERO);
+    }
+
+    #[test]
+    fn host_throttle_wait_lowercases_host_and_unifies_case_variants() {
+        let state = fresh_host_state();
+        let _ = host_throttle_wait(&state, "https://EXAMPLE.com/a", Duration::from_millis(500));
+        let second =
+            host_throttle_wait(&state, "https://example.com/b", Duration::from_millis(500));
+        assert!(second > Duration::ZERO, "case variants must share a host slot");
+    }
 
     #[test]
     fn core_refresh_note_helpers_cover_success_error_and_scope_edges() {
