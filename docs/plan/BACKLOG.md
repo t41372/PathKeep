@@ -76,19 +76,29 @@
   - 契約：保留現有 testid + behavior；不變更 i18n key。
   - 驗收：`bun run check` clean、整層走 paper tokens、tests 通過。
 
-- [ ] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
-  - 讀先：
-    `tests/e2e/shell.spec.ts`
-    `tests/e2e/desktop-bridge.spec.ts`
-    `src/pages/dashboard/index.tsx` (paper surface)
-    `src/app/shell.tsx`
-    `playwright.config.ts`
-  - 目標：6 個 `tests/e2e/shell.spec.ts` test 仍在斷言 v0.2 dashboard 標籤（"RECENT RUNS" 等）。paper redesign 把 dashboard 換成 Archive / On This Day / This Week / Year Heatmap / Active Threads paper cards 後這些斷言全部 missing。每個 test 需要改寫成 paper-surface 期望。
-  - 契約：
-    - 不允許 disable 或 skip — 把 test 重新對齊 paper surface 的真實 DOM。
-    - 共用的 `data-testid` (`dashboard-on-this-day`、`dashboard-archive-card`、`pk-status-bar` etc.) 是穩定的 anchor；避免靠 i18n copy 串斷言。
-    - 若某些 user journey 在 paper redesign 後概念上已不存在（e.g. legacy timeline bar），刪除 test 比強行對齊更好；要 PR comment 解釋。
-  - 驗收：`bun run test:e2e` 與 `bun run test:e2e:desktop-bridge:truth` clean、playwright HTML report 沒 fail、`docs/plan/BACKLOG.md` 同步 close-out。
+- [x] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
+  - 2026-05-20 closeout (commit 7a1543c, prior commit 5067cfa for the shared
+    `completePreviewOnboarding` helper):
+    - `tests/e2e/shell.spec.ts` now passes 5/5. The previously-failing four
+      tests fell into two buckets:
+      - **Surface-still-exists, selector drift** — "walks remote backup
+        settings and Maintenance PME": swapped `.panel`-class CSS locators
+        for `getByTestId('settings-remote')` in both Settings + Maintenance
+        scopes since the PaperCard root forwards `navItem.id` as testid.
+      - **Surface concept retired by Phase 4** — three tests asserted v0.2
+        ExplorerQueryFiltersPanel chrome (profile combobox in body, regex
+        toggle, debounced keyword input, inline alert copy, jsonl export
+        button, AdvancedSearchHelp hover card with `site:github.com -pathkeep`
+        and `manual OR youtube` example tokens), and "Hybrid coming in v0.3"
+        / "Assistant is coming in v0.3" deferred copy that paper now
+        replaces with the real composer. Two tests were trimmed to keep
+        their still-relevant assertions (audit ledger walk; intelligence +
+        assistant testids); the third — `keeps shared profile scope, regex
+        recall, and export guardrails aligned` — was deleted entirely with
+        a doc-comment block explaining where each retired surface moved.
+    - Run command:
+      `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome bun run
+      test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
   - Note：`playwright.config.ts` 已支援 Ubuntu 26.04 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var（系統 Chrome at `/usr/bin/google-chrome`）— upstream playwright supportedOSes table 還沒對 26.04 提供 chrome-headless-shell binary。
 
 - [x] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
