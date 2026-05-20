@@ -123,14 +123,14 @@
     `package.json`（`coverage:rust:quality` vs `coverage:rust`）
     `src-tauri/crates/vault-worker/src/archive_flows.rs`（og:image entries）
     `src-tauri/crates/vault-worker/src/annotations.rs`
-    `src-tauri/src/worker_bridge/archive.rs` / `annotations.rs` *_impl shims
-  - 目標：把 `bun run check` 的 `check:coverage` 從目前的 `coverage:rust:quality`（只覆 5 個 surface 檔）恢復到 `coverage:rust`（full workspace）。當前 full 覆蓋率失敗於 og:image worker entry points（load_history_og_images / mark_og_images_shown / og_image_storage_stats / clear_og_image_cache / refetch_og_images / 它們的 worker_bridge::archive::*_impl shims）以及 annotations 同類 shims。這些函式自 `WORK-V03-OG-IMAGE-A` C4-C5 + `WORK-V03-PAPER-REDESIGN-A` annotations backend 引入以來，Mac 上沒跑過 full gate，所以 regression 是被 dev-machine bring-up 才暴露出來。
+    `src-tauri/src/worker_bridge/archive.rs` / `annotations.rs` \*\_impl shims
+  - 目標：把 `bun run check` 的 `check:coverage` 從目前的 `coverage:rust:quality`（只覆 5 個 surface 檔）恢復到 `coverage:rust`（full workspace）。當前 full 覆蓋率失敗於 og:image worker entry points（load_history_og_images / mark_og_images_shown / og_image_storage_stats / clear_og_image_cache / refetch_og_images / 它們的 worker_bridge::archive::\*\_impl shims）以及 annotations 同類 shims。這些函式自 `WORK-V03-OG-IMAGE-A` C4-C5 + `WORK-V03-PAPER-REDESIGN-A` annotations backend 引入以來，Mac 上沒跑過 full gate，所以 regression 是被 dev-machine bring-up 才暴露出來。
   - 殘餘清單：
     - `src-tauri/crates/vault-worker/src/annotations.rs:14-64` — get / set_notes / replace_tags / list / search 五個 worker layer functions。需要新增 vault-worker integration test（真的 archive temp dir + connection + assertions）。
     - `src-tauri/crates/vault-worker/src/archive_flows.rs:289-346` — og:image worker entry points（load / mark / stats / clear / cleanup / refetch）。最複雜的是 refetch_og_images（要 mockito + temp archive + assert per-host throttle 與 dedup 行為）。
     - `src-tauri/src/worker_bridge/{archive,annotations}.rs:*_impl` — Tauri command shim functions。多數已被 worker_bridge::tests::command_helpers_cover_local_desktop_flows 用 `use super::*;` glob 走過，但 annotations 因為 Phase 0 將其拆出 glob（commit 13efd64）後失去覆蓋；需要 augment 該 test 或新增 annotations 對應的 integration test。
     - `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs:267 http_status_from_error` — defensive helper，需要 reqwest::Error 觸發 status 為 Some 的情境（real-server 503 等）。
-  - 契約：長期最優解，不允許再用 exclusion 蓋住 active runtime；只能寫實質 integration test 或把 *_impl shims 下沉到可單測層。`coverage:rust` 恢復為 full 後，`package.json` 的 `check:coverage` 換回 `coverage:rust`，並刪掉這個 backlog entry。
+  - 契約：長期最優解，不允許再用 exclusion 蓋住 active runtime；只能寫實質 integration test 或把 \*\_impl shims 下沉到可單測層。`coverage:rust` 恢復為 full 後，`package.json` 的 `check:coverage` 換回 `coverage:rust`，並刪掉這個 backlog entry。
   - 驗收：`bun run coverage:rust`（full）clean、`check:coverage` 用回 `coverage:rust`、worker / worker_bridge 兩層的 og:image + annotations integration tests 有 cargo test workspace coverage。
 
 - [ ] **WORK-V03-COVERAGE-RESIDUAL** — Restore 100% JS coverage gate after orphan sweep
