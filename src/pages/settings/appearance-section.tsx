@@ -18,12 +18,11 @@
 
 import { useState } from 'react'
 import { useI18n } from '@/lib/i18n'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
-import { applyPaperPreferences, type PaperPreferences } from '@/lib/paper-preferences'
+  applyPaperPreferences,
+  type PaperPreferences,
+} from '@/lib/paper-preferences'
 import { cn } from '@/lib/cn'
 
 export interface AppearanceSectionProps {
@@ -63,7 +62,9 @@ const THEME_OPTIONS: Array<{
   { id: 'dark', labelKey: 'settings.appearanceThemeDark' },
 ]
 
-export function AppearanceSection({ anchorId = 'appearance' }: AppearanceSectionProps) {
+export function AppearanceSection({
+  anchorId = 'appearance',
+}: AppearanceSectionProps) {
   const { t } = useI18n()
   const [prefs, setPrefs] = useState<PaperPreferences>(() =>
     applyPaperPreferences(null),

@@ -185,8 +185,8 @@
     'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK TC', 'Noto Serif TC',
     serif;
   --font-mono:
-    ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo,
-    monospace;
+    ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono',
+    Menlo, monospace;
 }
 
 :root[data-fonts='system']:lang(zh-CN) {

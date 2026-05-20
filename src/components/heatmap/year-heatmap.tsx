@@ -94,10 +94,7 @@ export function YearHeatmap({
       <div className="grid grid-cols-[24px_repeat(52,minmax(0,1fr))] gap-x-[2px] gap-y-[2px] pb-1 text-[8.5px] text-ink-faint font-mono tracking-[0.04em] uppercase">
         <span />
         {resolvedMonths.map((label, index) => (
-          <span
-            key={`${label}-${index}`}
-            className="col-span-4 truncate"
-          >
+          <span key={`${label}-${index}`} className="col-span-4 truncate">
             {label}
           </span>
         ))}
@@ -158,7 +155,8 @@ function DayRow({ label, row, onSelectDate }: DayRowProps) {
           aria-label={`${cell.date}: ${cell.count} pages`}
           className={cn(
             'aspect-square h-[10px] w-[10px] rounded-[2px] transition-transform hover:scale-110',
-            cell.level === 0 && 'bg-hover border border-border-light cursor-default',
+            cell.level === 0 &&
+              'bg-hover border border-border-light cursor-default',
             cell.level === 1 && 'bg-accent-soft',
             cell.level === 2 && 'bg-accent-medium',
             cell.level === 3 && 'bg-accent-strong',

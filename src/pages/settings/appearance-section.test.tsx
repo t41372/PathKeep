@@ -29,7 +29,9 @@ describe('AppearanceSection', () => {
         <AppearanceSection />
       </I18nProvider>,
     )
-    expect(screen.getByTestId('settings-appearance-section')).toBeInTheDocument()
+    expect(
+      screen.getByTestId('settings-appearance-section'),
+    ).toBeInTheDocument()
     expect(screen.getByText('Theme')).toBeInTheDocument()
     expect(screen.getByText('Density')).toBeInTheDocument()
     expect(
@@ -78,7 +80,9 @@ describe('AppearanceSection', () => {
     )
     const toggle = screen.getByRole('switch')
     await user.click(toggle)
-    expect(document.documentElement.style.getPropertyValue('--noise-opacity')).toBe('0')
+    expect(
+      document.documentElement.style.getPropertyValue('--noise-opacity'),
+    ).toBe('0')
     expect(window.localStorage.getItem('pathkeep.paperTexture')).toBe('off')
   })
 })

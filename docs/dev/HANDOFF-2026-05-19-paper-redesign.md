@@ -12,7 +12,7 @@
 
 - **Branch:** `feat/v0.3-redesign-2` (47 commits ahead of `main`).
 - **Last commit:** `c9a61895 fix(review): address Codex review — data
-  correctness + i18n + dedup math`.
+correctness + i18n + dedup math`.
 - **Tree state:** working tree has ~37 uncommitted v0.2-legacy
   prettier reformats + 2 untracked files (`src/components/status-bar/`,
   `src/styles/app/statusbar.css`). These are leftovers from earlier
@@ -58,13 +58,13 @@ Core acceptance criteria laid out in the original work block:
 
 ### 1.2 What the user added in **this** session (2026-05-19)
 
-| Turn | Ask | Outcome |
-|---|---|---|
-| Resume the v0.2→v0.3 sweep | "繼續工作" | Foundation tasks closed; finished list-view extracts + tests. |
-| "版本號下面要和舊版本一樣放編譯的 commit sha" + "我好像沒看到 redesign 過的 browse 和 search 頁面？為什麼？" | Show commit SHA under sidebar version; explain why Browse/Search look v0.2 | Commit `57105186` — wired `formatBuildRevisionLabel` into `PKSidebar`; flipped `?layout=paper` from opt-in to default with `?layout=legacy` as escape hatch; legacy tests updated to pass `layout=legacy`. |
-| "browse 歷史紀錄的頁面，列表模式時用網頁的 icon，卡片模式時用網頁的og:image。考慮一下怎麼高效的儲存。不要用 host 級別的緩存..." | Card mode shows og:image; per-URL keyed; content-hash dedup; not host-level | Six-commit block `WORK-V03-OG-IMAGE-A` (C1–C6). Plan saved at `.claude/plans/indexed-giggling-ullman.md`. Policy: opt-out (default on), user-pickable eviction (default Off), exclude from backup. |
-| Codex external review pasted in (P1×3, P2×6 findings) | Confirm + fix | Commit `c9a61895` — all P1 and 5/6 P2 addressed; remaining P2 (status-bar source picker filter no-op) documented but not wired (deferred — wider UX/backend question). |
-| "我現在想把你移動到開發機上，你的記憶可能要清除..." | Produce this handoff doc and transfer needed resources to `ssh ubuntu@100.84.91.69` → `/home/ubuntu/coding/PathKeep` | (current task) |
+| Turn                                                                                                                            | Ask                                                                                                                  | Outcome                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resume the v0.2→v0.3 sweep                                                                                                      | "繼續工作"                                                                                                           | Foundation tasks closed; finished list-view extracts + tests.                                                                                                                                              |
+| "版本號下面要和舊版本一樣放編譯的 commit sha" + "我好像沒看到 redesign 過的 browse 和 search 頁面？為什麼？"                    | Show commit SHA under sidebar version; explain why Browse/Search look v0.2                                           | Commit `57105186` — wired `formatBuildRevisionLabel` into `PKSidebar`; flipped `?layout=paper` from opt-in to default with `?layout=legacy` as escape hatch; legacy tests updated to pass `layout=legacy`. |
+| "browse 歷史紀錄的頁面，列表模式時用網頁的 icon，卡片模式時用網頁的og:image。考慮一下怎麼高效的儲存。不要用 host 級別的緩存..." | Card mode shows og:image; per-URL keyed; content-hash dedup; not host-level                                          | Six-commit block `WORK-V03-OG-IMAGE-A` (C1–C6). Plan saved at `.claude/plans/indexed-giggling-ullman.md`. Policy: opt-out (default on), user-pickable eviction (default Off), exclude from backup.         |
+| Codex external review pasted in (P1×3, P2×6 findings)                                                                           | Confirm + fix                                                                                                        | Commit `c9a61895` — all P1 and 5/6 P2 addressed; remaining P2 (status-bar source picker filter no-op) documented but not wired (deferred — wider UX/backend question).                                     |
+| "我現在想把你移動到開發機上，你的記憶可能要清除..."                                                                             | Produce this handoff doc and transfer needed resources to `ssh ubuntu@100.84.91.69` → `/home/ubuntu/coding/PathKeep` | (current task)                                                                                                                                                                                             |
 
 ### 1.3 Policy decisions confirmed by the user this session
 
@@ -141,12 +141,12 @@ the build-up.
 
 35 modified files + 2 untracked. Breakdown:
 
-| Bucket | Files | Verdict |
-|---|---|---|
-| Prettier reformats of shadcn primitives | `src/components/ui/{badge,button,command,dialog,dropdown-menu,input,label,popover,radio-group,scroll-area,select,separator,sheet,skeleton,slider,switch,tabs,textarea,tooltip}.tsx` | Stale — double-quote → single-quote reformats from an earlier session that was never committed. **Stash and forget.** |
-| Legacy v0.2 shell tweaks | `src/components/sidebar/index.tsx` + test (PATHKEEP→PathKeep brand), `src/styles/app/{buttons,shell-frame,sidebar,topbar}.css`, `src/styles/app.css`, `src/styles/tokens.css` | Legacy v0.2 surface — the paper shell (`PKSidebar`, `PKStatusBar`, etc.) replaces these. **Stash.** |
-| Misc loose tweaks | `docs/design/design-tokens.md`, `src/components/heatmap/year-heatmap.tsx`, `src/lib/i18n/catalog/navigation.ts`, `src/pages/dashboard/{archive-card,on-this-day-card}.tsx`, `src/pages/intelligence-surfaces/explorer-grouped-views.test.tsx`, `src/pages/settings/appearance-section.tsx` + test | Small drive-by edits never finalized. Inspect line-by-line on dev machine; most are no-ops worth dropping. **Stash, decide later.** |
-| Untracked v0.2 status bar | `src/components/status-bar/` (epigraph.ts, epigraph.test.ts, index.tsx, index.test.tsx), `src/styles/app/statusbar.css` | v0.2 status-bar component that was never deleted when paper shell replaced it. Not mounted by any active route. **Don't carry, don't commit.** Either `git clean -df` later or leave as-is. |
+| Bucket                                  | Files                                                                                                                                                                                                                                                                                             | Verdict                                                                                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prettier reformats of shadcn primitives | `src/components/ui/{badge,button,command,dialog,dropdown-menu,input,label,popover,radio-group,scroll-area,select,separator,sheet,skeleton,slider,switch,tabs,textarea,tooltip}.tsx`                                                                                                               | Stale — double-quote → single-quote reformats from an earlier session that was never committed. **Stash and forget.**                                                                       |
+| Legacy v0.2 shell tweaks                | `src/components/sidebar/index.tsx` + test (PATHKEEP→PathKeep brand), `src/styles/app/{buttons,shell-frame,sidebar,topbar}.css`, `src/styles/app.css`, `src/styles/tokens.css`                                                                                                                     | Legacy v0.2 surface — the paper shell (`PKSidebar`, `PKStatusBar`, etc.) replaces these. **Stash.**                                                                                         |
+| Misc loose tweaks                       | `docs/design/design-tokens.md`, `src/components/heatmap/year-heatmap.tsx`, `src/lib/i18n/catalog/navigation.ts`, `src/pages/dashboard/{archive-card,on-this-day-card}.tsx`, `src/pages/intelligence-surfaces/explorer-grouped-views.test.tsx`, `src/pages/settings/appearance-section.tsx` + test | Small drive-by edits never finalized. Inspect line-by-line on dev machine; most are no-ops worth dropping. **Stash, decide later.**                                                         |
+| Untracked v0.2 status bar               | `src/components/status-bar/` (epigraph.ts, epigraph.test.ts, index.tsx, index.test.tsx), `src/styles/app/statusbar.css`                                                                                                                                                                           | v0.2 status-bar component that was never deleted when paper shell replaced it. Not mounted by any active route. **Don't carry, don't commit.** Either `git clean -df` later or leave as-is. |
 
 **Recommendation:** On the dev machine, after the working tree from
 git is restored, **do nothing** with these — they're leftovers from
@@ -158,16 +158,16 @@ dev box for reference, scp them as a sibling tarball (see §6).
 
 Captured immediately after commit `c9a61895`:
 
-| Gate | Result |
-|---|---|
-| `bun run typecheck` | clean |
-| `bun run format` | clean (no changes pending) |
-| `bun run test:unit` | 252 files / **1,580 tests passing** |
-| `cargo test -p vault-core --lib` | **483 passed** |
-| `cargo build --workspace` | clean |
-| `bun run check` (FULL GATE) | **NOT YET RUN end-to-end after Codex fixes** — run on the dev machine first. |
-| `bun run check:deep` (mutation sweep) | not yet run since the last storage change |
-| `bun run test:e2e` | not run this session |
+| Gate                                  | Result                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| `bun run typecheck`                   | clean                                                                        |
+| `bun run format`                      | clean (no changes pending)                                                   |
+| `bun run test:unit`                   | 252 files / **1,580 tests passing**                                          |
+| `cargo test -p vault-core --lib`      | **483 passed**                                                               |
+| `cargo build --workspace`             | clean                                                                        |
+| `bun run check` (FULL GATE)           | **NOT YET RUN end-to-end after Codex fixes** — run on the dev machine first. |
+| `bun run check:deep` (mutation sweep) | not yet run since the last storage change                                    |
+| `bun run test:e2e`                    | not run this session                                                         |
 
 ---
 
@@ -178,32 +178,38 @@ in `~/.claude/plans/`, NOT in the repo — transfer separately, see §6).
 Six atomic commits:
 
 ### C1 — `48d67299` list-mode favicon
+
 - `paper-list-row.tsx` + `paper-contact-sheet.tsx` (pass-through)
 - 16 × 16 `<img>` slot with domain-swatch fallback (`data-testid={id}-favicon` / `-swatch`)
 - 3 new primitive tests
 
 ### C2 — `c8b0ef63` migration 012 + vault-core og_images module
+
 - `src-tauri/crates/vault-core/src/migrations/012_og_images.sql`
 - `og_images` (per-page-URL) + `og_image_blobs` (sha256_hex content-addressed)
 - 13 vault-core tests including negative `no host fallback` guard
 - Four eviction modes: Off / TimeTtl / SizeCap / Lru
 
 ### C3 — `1902efcf` fetch pipeline + AppConfig
+
 - `og_images_fetch.rs` — reqwest blocking + scraper, HTTPS-only, 2 MiB cap, 12s timeout
 - 15 mockito tests
 - `AppConfig.og_image` (fetch_enabled default true, blocked_hosts, cleanup default Off)
 
 ### C4 — `dde09daa` Tauri commands + frontend hook
+
 - 6 commands: `load_history_og_images`, `mark_og_images_shown`, `trigger_og_image_refetch`, `get_og_image_storage_stats`, `clear_og_image_cache`, `run_og_image_cleanup`
 - `use-explorer-og-images.ts` hook with 1s debounced `mark_shown`
 - 7 hook tests
 
 ### C5 — `13075fab` + `59a6f3ca` card render + Settings
+
 - `paper-contact-frame.tsx` precedence: og:image > favicon > swatch + scrim
 - `link-previews-section.tsx` Settings subsection: toggle + stats + cleanup buttons
 - 4 settings tests + 2 contact-frame tests
 
 ### C6 — `bbdede3c` docs sweep
+
 - `docs/features/og-images.md` (NEW, full feature spec)
 - `docs/architecture/data-model.md` — og_images paragraph
 - `docs/plan/STATUS.md` + `CHANGELOG.md` + `research-and-decisions.md` `PG-RD-ARCH-011`
@@ -211,18 +217,18 @@ Six atomic commits:
 
 ### Followups from Codex review (commit `c9a61895`)
 
-| Codex finding | Status | Notes |
-|---|---|---|
-| **P1** dashboard fake data | Fixed | Empty states; heroMessage rewritten in 3 langs |
-| **P1** `?date=` not driving query | Fixed | `url-state-derivations.ts` synthesizes start=end=date |
-| **P1** Detail panel Open passes id | Fixed | Now passes URL; test rewritten |
-| **P2** og:image size-cap byte accounting on shared blobs | Fixed | Refcount map; new regression test |
-| **P2** annotations hydration race | Fixed | `locallyMutatedRef` + `lastError` surface |
-| **P2** raw i18n strings | Fixed | `paper-view.tsx` + `shell.tsx` route through catalog |
-| **P2** status-bar bytes-as-pages | Fixed | `pages` made optional; never populated until real per-profile count exists |
-| **P2** `replace_tags` not atomic | Fixed | Wrapped in transaction; row-decode errors no longer swallowed |
-| **P2** Search "See in context" stays in search | Fixed | Drops `q`/`mode`/`regex`/`page` on jump |
-| **P2** Status-bar source picker filter no-op | **Deferred** | Toggle stores local state but doesn't filter queries. Documented in type comment; requires UX + backend wiring decision. |
+| Codex finding                                            | Status       | Notes                                                                                                                    |
+| -------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| **P1** dashboard fake data                               | Fixed        | Empty states; heroMessage rewritten in 3 langs                                                                           |
+| **P1** `?date=` not driving query                        | Fixed        | `url-state-derivations.ts` synthesizes start=end=date                                                                    |
+| **P1** Detail panel Open passes id                       | Fixed        | Now passes URL; test rewritten                                                                                           |
+| **P2** og:image size-cap byte accounting on shared blobs | Fixed        | Refcount map; new regression test                                                                                        |
+| **P2** annotations hydration race                        | Fixed        | `locallyMutatedRef` + `lastError` surface                                                                                |
+| **P2** raw i18n strings                                  | Fixed        | `paper-view.tsx` + `shell.tsx` route through catalog                                                                     |
+| **P2** status-bar bytes-as-pages                         | Fixed        | `pages` made optional; never populated until real per-profile count exists                                               |
+| **P2** `replace_tags` not atomic                         | Fixed        | Wrapped in transaction; row-decode errors no longer swallowed                                                            |
+| **P2** Search "See in context" stays in search           | Fixed        | Drops `q`/`mode`/`regex`/`page` on jump                                                                                  |
+| **P2** Status-bar source picker filter no-op             | **Deferred** | Toggle stores local state but doesn't filter queries. Documented in type comment; requires UX + backend wiring decision. |
 
 ---
 
@@ -256,7 +262,7 @@ Ordered by impact. **READ THE WHY before doing the WHAT.**
    `src/lib/profile-scope-context.tsx`.
 
 2. **Section-panel paper restyle inside Settings sections.** The route
-   wraps each section with `?layout=paper` chrome, but the *insides*
+   wraps each section with `?layout=paper` chrome, but the _insides_
    of `general` / `ai` / `applock` / `profiles` / `derived` / `remote` /
    `platform` sections still use the v0.2 form primitives. Designer
    prototype: `docs/design/handoff/paper-redesign/project/pk-settings.jsx`.
@@ -370,20 +376,20 @@ outside git:
 
 The plans directory holds three files; **only one is current**:
 
-| File | Status | Action |
-|---|---|---|
-| `indexed-giggling-ullman.md` | **CURRENT** — WORK-V03-OG-IMAGE-A plan | **MUST be transferred** to dev machine `~/.claude/plans/` |
-| `fetch-this-design-file-purrfect-bumblebee.md` | Historical (initial design-fetch plan) | Optional — useful for context only |
-| `staged-squishing-teapot.md` | Historical (earlier paper redesign plan) | Optional |
+| File                                           | Status                                   | Action                                                    |
+| ---------------------------------------------- | ---------------------------------------- | --------------------------------------------------------- |
+| `indexed-giggling-ullman.md`                   | **CURRENT** — WORK-V03-OG-IMAGE-A plan   | **MUST be transferred** to dev machine `~/.claude/plans/` |
+| `fetch-this-design-file-purrfect-bumblebee.md` | Historical (initial design-fetch plan)   | Optional — useful for context only                        |
+| `staged-squishing-teapot.md`                   | Historical (earlier paper redesign plan) | Optional                                                  |
 
 ### 6.2 Auto-memory at `~/.claude/projects/-Users-tim-LocalData-coding-2026-Lab-8-chrome-history-backup/memory/`
 
-| File | Status | Action |
-|---|---|---|
-| `MEMORY.md` | Active index | Transfer (rename project dir to match dev machine path) |
-| `feedback_brutalist_radius.md` | Active (superseded note) | Transfer |
-| `feedback_typography_policy.md` | Active | Transfer |
-| `project_v0_3_redesign.md` | Active (slightly stale — see §4.4) | Transfer |
+| File                            | Status                             | Action                                                  |
+| ------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| `MEMORY.md`                     | Active index                       | Transfer (rename project dir to match dev machine path) |
+| `feedback_brutalist_radius.md`  | Active (superseded note)           | Transfer                                                |
+| `feedback_typography_policy.md` | Active                             | Transfer                                                |
+| `project_v0_3_redesign.md`      | Active (slightly stale — see §4.4) | Transfer                                                |
 
 **Critical:** the directory name embeds the project absolute path. On the
 dev machine the path is `/home/ubuntu/coding/PathKeep`, so the destination
@@ -459,30 +465,30 @@ cargo test --workspace       # confirms Rust workspace-wide pass
 
 Where each major piece of the WORK-V03-OG-IMAGE-A surface lives:
 
-| Layer | Path |
-|---|---|
-| Migration SQL | `src-tauri/crates/vault-core/src/migrations/012_og_images.sql` |
-| Schema registration | `src-tauri/crates/vault-core/src/archive/schema.rs:82` (MIGRATIONS array) |
-| Core storage API | `src-tauri/crates/vault-core/src/archive/history/og_images.rs` |
-| Fetch pipeline | `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs` |
-| AppConfig field | `src-tauri/crates/vault-core/src/models/app.rs::OgImageSettings` |
-| Worker entry points | `src-tauri/crates/vault-worker/src/archive_flows.rs::load_history_og_images / refetch_og_images / …` |
-| Tauri commands | `src-tauri/src/commands/archive.rs` (6 commands) |
-| Worker bridge | `src-tauri/src/worker_bridge/archive.rs` (6 `*_impl`) |
-| Invoke handler | `src-tauri/src/lib.rs:118` |
-| Dev IPC mirror | `src-tauri/src/dev_ipc_bridge/{dispatch.rs,payloads.rs}` |
-| Frontend types | `src/lib/types/archive.ts::HistoryOgImage*` |
-| Backend client | `src/lib/backend-client/explorer.ts` + `src/lib/backend-client/index.ts` |
-| Backend facade | `src/lib/backend.ts` |
-| Hydration hook | `src/pages/explorer/hooks/use-explorer-og-images.ts` |
-| Lookup key | `src/pages/explorer/helpers.ts::historyOgImageLookupKey` |
-| Card render | `src/components/explorer-paper/paper-contact-frame.tsx` |
-| Settings UI | `src/pages/settings/link-previews-section.tsx` |
-| i18n keys | `src/lib/i18n/catalog/settings-core-and-platform.ts` (`linkPreviews*`) |
-| Feature spec | `docs/features/og-images.md` |
-| Data-model paragraph | `docs/architecture/data-model.md` (§ Storage planes) |
-| Decision record | `docs/plan/program/research-and-decisions.md::PG-RD-ARCH-011` |
-| Plan file | `~/.claude/plans/indexed-giggling-ullman.md` |
+| Layer                | Path                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| Migration SQL        | `src-tauri/crates/vault-core/src/migrations/012_og_images.sql`                                       |
+| Schema registration  | `src-tauri/crates/vault-core/src/archive/schema.rs:82` (MIGRATIONS array)                            |
+| Core storage API     | `src-tauri/crates/vault-core/src/archive/history/og_images.rs`                                       |
+| Fetch pipeline       | `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs`                                 |
+| AppConfig field      | `src-tauri/crates/vault-core/src/models/app.rs::OgImageSettings`                                     |
+| Worker entry points  | `src-tauri/crates/vault-worker/src/archive_flows.rs::load_history_og_images / refetch_og_images / …` |
+| Tauri commands       | `src-tauri/src/commands/archive.rs` (6 commands)                                                     |
+| Worker bridge        | `src-tauri/src/worker_bridge/archive.rs` (6 `*_impl`)                                                |
+| Invoke handler       | `src-tauri/src/lib.rs:118`                                                                           |
+| Dev IPC mirror       | `src-tauri/src/dev_ipc_bridge/{dispatch.rs,payloads.rs}`                                             |
+| Frontend types       | `src/lib/types/archive.ts::HistoryOgImage*`                                                          |
+| Backend client       | `src/lib/backend-client/explorer.ts` + `src/lib/backend-client/index.ts`                             |
+| Backend facade       | `src/lib/backend.ts`                                                                                 |
+| Hydration hook       | `src/pages/explorer/hooks/use-explorer-og-images.ts`                                                 |
+| Lookup key           | `src/pages/explorer/helpers.ts::historyOgImageLookupKey`                                             |
+| Card render          | `src/components/explorer-paper/paper-contact-frame.tsx`                                              |
+| Settings UI          | `src/pages/settings/link-previews-section.tsx`                                                       |
+| i18n keys            | `src/lib/i18n/catalog/settings-core-and-platform.ts` (`linkPreviews*`)                               |
+| Feature spec         | `docs/features/og-images.md`                                                                         |
+| Data-model paragraph | `docs/architecture/data-model.md` (§ Storage planes)                                                 |
+| Decision record      | `docs/plan/program/research-and-decisions.md::PG-RD-ARCH-011`                                        |
+| Plan file            | `~/.claude/plans/indexed-giggling-ullman.md`                                                         |
 
 ---
 

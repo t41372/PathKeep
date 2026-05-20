@@ -8,11 +8,7 @@
  */
 
 import { useMemo } from 'react'
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { useI18n } from '@/lib/i18n'
 import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
 

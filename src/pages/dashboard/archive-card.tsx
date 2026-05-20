@@ -7,11 +7,7 @@
  */
 
 import { useNavigate } from 'react-router-dom'
-import {
-  PaperCard,
-  PaperCardBody,
-  PaperCardHeader,
-} from '@/components/cards'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { useI18n } from '@/lib/i18n'
 import type { StorageSummary } from '@/lib/types'
 
