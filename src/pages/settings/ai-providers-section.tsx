@@ -22,8 +22,13 @@
  */
 
 import type { ReviewCopyFeedback } from '../../components/review'
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
@@ -119,22 +124,25 @@ export function AiProvidersSection({
   }
 
   return (
-    <div className="panel panel--optional" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-        <span className="panel-badge">{t('settings.aiDeferredBadge')}</span>
-      </div>
-      <div className="panel-body">
-        <StatusCallout
-          tone="info"
-          title={t('settings.aiDeferredTitle')}
-          body={t('settings.aiDeferredBody')}
-        />
+    <PaperCard testId={navItem.id}>
+      <span id={navItem.id} aria-hidden />
+      <PaperCardHeader
+        title={navItem.label}
+        right={<PaperCardBadge>{t('settings.aiDeferredBadge')}</PaperCardBadge>}
+      />
+      <PaperCardBody>
+        <div className="mb-4">
+          <StatusCallout
+            tone="info"
+            title={t('settings.aiDeferredTitle')}
+            body={t('settings.aiDeferredBody')}
+          />
+        </div>
 
-        <div className="settings-field-grid" aria-disabled="true">
+        <div
+          className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+          aria-disabled="true"
+        >
           {[
             t('settings.aiMasterToggle'),
             t('settings.aiLlmProviders'),
@@ -142,7 +150,7 @@ export function AiProvidersSection({
             t('settings.aiIntegrationArtifactsTitle'),
           ].map((label) => (
             <button
-              className="btn-secondary"
+              className="border-border-default text-ink-muted rounded-paper inline-flex items-center justify-center border px-3 py-2 font-sans text-[12px] opacity-60"
               disabled
               key={label}
               title={t('settings.aiDeferredTooltip')}
@@ -152,7 +160,7 @@ export function AiProvidersSection({
             </button>
           ))}
         </div>
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

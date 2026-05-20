@@ -20,8 +20,13 @@
  * - 本模組只做 composition，不做額外資料查詢。
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import type {
   AppSnapshot,
   ClearDerivedIntelligenceReport,
@@ -92,79 +97,79 @@ export function DerivedStateSection({
   }
 
   return (
-    <div className="panel panel--optional" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-        <span className="panel-badge">{t('settings.derivedOnly')}</span>
-      </div>
-      <div className="panel-body settings-remote-grid">
-        <StatusCallout
-          tone="info"
-          title={t('settings.derivedStateBoundaryTitle')}
-          body={t('settings.derivedStateBoundaryBody')}
-          actions={
-            <div className="settings-action-row">
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={Boolean(state.action)}
-                onClick={() => {
-                  void state.onRebuildDerivedState()
-                }}
-              >
-                {t('settings.rebuildDerivedState')}
-              </button>
-              <button
-                className="btn-danger"
-                type="button"
-                disabled={Boolean(state.action)}
-                onClick={() => {
-                  void state.onClearDerivedState()
-                }}
-              >
-                {t('settings.clearDerivedState')}
-              </button>
-            </div>
-          }
-        />
-        <StatusCallout
-          tone="info"
-          title={settingsNs('firstPartyRuntimeTitle')}
-          body={settingsNs('firstPartyRuntimeBody')}
-        />
+    <PaperCard testId={navItem.id}>
+      <span id={navItem.id} aria-hidden />
+      <PaperCardHeader
+        title={navItem.label}
+        right={<PaperCardBadge>{t('settings.derivedOnly')}</PaperCardBadge>}
+      />
+      <PaperCardBody>
+        <div className="flex flex-col gap-3">
+          <StatusCallout
+            tone="info"
+            title={t('settings.derivedStateBoundaryTitle')}
+            body={t('settings.derivedStateBoundaryBody')}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className="border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  disabled={Boolean(state.action)}
+                  onClick={() => {
+                    void state.onRebuildDerivedState()
+                  }}
+                >
+                  {t('settings.rebuildDerivedState')}
+                </button>
+                <button
+                  className="border-danger text-danger hover:bg-danger-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  disabled={Boolean(state.action)}
+                  onClick={() => {
+                    void state.onClearDerivedState()
+                  }}
+                >
+                  {t('settings.clearDerivedState')}
+                </button>
+              </div>
+            }
+          />
+          <StatusCallout
+            tone="info"
+            title={settingsNs('firstPartyRuntimeTitle')}
+            body={settingsNs('firstPartyRuntimeBody')}
+          />
 
-        <DerivedSearchRulesReview
-          action={state.action}
-          searchEngineRuleDraft={state.searchEngineRuleDraft}
-          searchEngineRuleDraftValid={state.searchEngineRuleDraftValid}
-          searchEngineRuleError={state.searchEngineRuleError}
-          searchEngineRules={state.searchEngineRules}
-          searchEngineRulesLoading={state.searchEngineRulesLoading}
-          onCancelSearchEngineRuleEdit={state.onCancelSearchEngineRuleEdit}
-          onDeleteSearchEngineRule={state.onDeleteSearchEngineRule}
-          onEditSearchEngineRule={state.onEditSearchEngineRule}
-          onSaveSearchEngineRule={state.onSaveSearchEngineRule}
-          onSearchEngineRuleDraftChange={state.onSearchEngineRuleDraftChange}
-          onStartSearchEngineRule={state.onStartSearchEngineRule}
-        />
+          <DerivedSearchRulesReview
+            action={state.action}
+            searchEngineRuleDraft={state.searchEngineRuleDraft}
+            searchEngineRuleDraftValid={state.searchEngineRuleDraftValid}
+            searchEngineRuleError={state.searchEngineRuleError}
+            searchEngineRules={state.searchEngineRules}
+            searchEngineRulesLoading={state.searchEngineRulesLoading}
+            onCancelSearchEngineRuleEdit={state.onCancelSearchEngineRuleEdit}
+            onDeleteSearchEngineRule={state.onDeleteSearchEngineRule}
+            onEditSearchEngineRule={state.onEditSearchEngineRule}
+            onSaveSearchEngineRule={state.onSaveSearchEngineRule}
+            onSearchEngineRuleDraftChange={state.onSearchEngineRuleDraftChange}
+            onStartSearchEngineRule={state.onStartSearchEngineRule}
+          />
 
-        <DerivedRuntimeReview
-          action={state.action}
-          clearReport={state.clearReport}
-          dashboardRecentRun={state.dashboardRecentRun}
-          intelligenceRuntime={state.intelligenceRuntime}
-          intelligenceRuntimeError={state.intelligenceRuntimeError}
-          rebuildQueueReport={state.rebuildQueueReport}
-          snapshot={snapshot}
-          onCancelRuntimeJob={state.onCancelRuntimeJob}
-          onDeterministicModuleToggle={state.onDeterministicModuleToggle}
-          onEnrichmentPluginToggle={state.onEnrichmentPluginToggle}
-          onRetryRuntimeJob={state.onRetryRuntimeJob}
-        />
-      </div>
-    </div>
+          <DerivedRuntimeReview
+            action={state.action}
+            clearReport={state.clearReport}
+            dashboardRecentRun={state.dashboardRecentRun}
+            intelligenceRuntime={state.intelligenceRuntime}
+            intelligenceRuntimeError={state.intelligenceRuntimeError}
+            rebuildQueueReport={state.rebuildQueueReport}
+            snapshot={snapshot}
+            onCancelRuntimeJob={state.onCancelRuntimeJob}
+            onDeterministicModuleToggle={state.onDeterministicModuleToggle}
+            onEnrichmentPluginToggle={state.onEnrichmentPluginToggle}
+            onRetryRuntimeJob={state.onRetryRuntimeJob}
+          />
+        </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
