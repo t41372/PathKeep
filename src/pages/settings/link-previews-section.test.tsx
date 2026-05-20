@@ -215,9 +215,7 @@ describe('LinkPreviewsSection', () => {
     fireEvent.change(screen.getByTestId('link-previews-max-age-days'), {
       target: { value: '0' },
     })
-    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.maxAgeDays).toBe(
-      1,
-    )
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.maxAgeDays).toBe(1)
   })
 
   test('SizeCap numeric input persists bytes converted from MB', async () => {

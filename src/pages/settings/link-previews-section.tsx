@@ -35,11 +35,7 @@ import type {
   OgImageStorageStats,
 } from '@/lib/types'
 import { cn } from '@/lib/cn'
-import {
-  Field,
-  SegmentedControl,
-  Toggle,
-} from './paper-form-primitives'
+import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
 
 export interface LinkPreviewsSectionProps {
   anchorId?: string
@@ -366,7 +362,9 @@ export function LinkPreviewsSection({
                 max={MAX_AGE_DAYS_MAX}
                 step={1}
                 value={cleanup.maxAgeDays}
-                onChange={(event) => void onChangeMaxAgeDays(event.target.value)}
+                onChange={(event) =>
+                  void onChangeMaxAgeDays(event.target.value)
+                }
                 data-testid="link-previews-max-age-days"
                 className="border-border-default rounded-paper bg-paper w-24 border px-2 py-1 text-right"
               />
@@ -386,7 +384,9 @@ export function LinkPreviewsSection({
                   MAX_BYTES_MIN_MB,
                   Math.round(cleanup.maxBytes / BYTES_PER_MB),
                 )}
-                onChange={(event) => void onChangeMaxBytesMb(event.target.value)}
+                onChange={(event) =>
+                  void onChangeMaxBytesMb(event.target.value)
+                }
                 data-testid="link-previews-max-bytes-mb"
                 className="border-border-default rounded-paper bg-paper w-24 border px-2 py-1 text-right"
               />

@@ -23,11 +23,7 @@ import {
   applyPaperPreferences,
   type PaperPreferences,
 } from '@/lib/paper-preferences'
-import {
-  Field,
-  SegmentedControl,
-  Toggle,
-} from './paper-form-primitives'
+import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
 
 export interface AppearanceSectionProps {
   anchorId?: string
@@ -140,4 +136,3 @@ export function AppearanceSection({
     </PaperCard>
   )
 }
-
