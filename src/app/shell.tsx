@@ -44,6 +44,7 @@ import {
   readTheme,
   sumStorageBytes,
 } from './shell-helpers'
+import { useProfileScope } from '@/lib/profile-scope-context'
 
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const THEME_KEY = 'pathkeep.theme'
@@ -93,7 +94,14 @@ export function AppShell() {
     readTheme(THEME_KEY, shellStorage()),
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [sourceFilter, setSourceFilter] = useState<string | null>(null)
+  // The status-bar source picker reads + writes the global profile-scope
+  // context, so selecting "Chrome · Default" actually filters every route
+  // that consumes `useProfileScope().activeProfileId` (Explorer queries,
+  // Intelligence aggregations, Dashboard cards). Setting it to null
+  // restores the all-profiles view. Previously this was a shell-local
+  // `useState` no-op that the v0.2 status bar wrote to but no route ever
+  // read — Codex flagged it in the review pass, deferred until Phase 5.
+  const { activeProfileId, setActiveProfileId } = useProfileScope()
   const [epigraphIndex] = useState<number>(() =>
     readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, shellStorage()),
   )
@@ -271,8 +279,8 @@ export function AppShell() {
           sinceLabel={sinceLabel}
           lastArchivedLabel={lastArchivedLabel}
           sources={sources}
-          selectedSourceId={sourceFilter}
-          onSelectSource={setSourceFilter}
+          selectedSourceId={activeProfileId}
+          onSelectSource={setActiveProfileId}
           onManageSources={handleManageSources}
           epigraphIndex={epigraphIndex}
         />

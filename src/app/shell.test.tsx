@@ -23,6 +23,7 @@ import {
 import { AppShell } from './shell'
 import { appScreens } from './router'
 import { I18nProvider } from '@/lib/i18n'
+import { ProfileScopeProvider } from '@/lib/profile-scope'
 
 vi.mock('@/components/primitives/busy-overlay', () => ({
   BusyOverlay: ({ label }: { label: string }) => (
@@ -158,9 +159,11 @@ function renderShell(
         path: '/',
         element: (
           <I18nProvider>
-            <ShellDataContext.Provider value={shellValue(overrides)}>
-              <AppShell />
-            </ShellDataContext.Provider>
+            <ProfileScopeProvider>
+              <ShellDataContext.Provider value={shellValue(overrides)}>
+                <AppShell />
+              </ShellDataContext.Provider>
+            </ProfileScopeProvider>
           </I18nProvider>
         ),
         children: [
