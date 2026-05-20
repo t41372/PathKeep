@@ -669,4 +669,47 @@ describe('backend facade preview workflows', () => {
       ]),
     )
   })
+
+  test('exercises the preview harness og:image facade surface', async () => {
+    // Drives the six og:image preview-harness wrappers (lines 229-256 of
+    // src/lib/backend.ts) — the post-c8b0ef63 surface is otherwise only
+    // hit through backend-client's mock dispatch, which routes around the
+    // real preview implementation.
+    await expect(
+      backend.loadHistoryOgImages([{ url: 'https://example.test/preview' }]),
+    ).resolves.toEqual(expect.any(Array))
+
+    await expect(
+      backend.markOgImagesShown(['https://example.test/preview']),
+    ).resolves.toBeUndefined()
+
+    await expect(
+      backend.triggerOgImageRefetch(['https://example.test/preview']),
+    ).resolves.toEqual(expect.any(Number))
+
+    await expect(backend.getOgImageStorageStats()).resolves.toEqual(
+      expect.objectContaining({
+        rowCount: expect.any(Number),
+        blobCount: expect.any(Number),
+        totalBytes: expect.any(Number),
+      }),
+    )
+
+    await expect(backend.clearOgImageCache()).resolves.toEqual(
+      expect.objectContaining({
+        deletedRows: expect.any(Number),
+        deletedBlobs: expect.any(Number),
+        reclaimedBytes: expect.any(Number),
+      }),
+    )
+
+    await expect(backend.runOgImageCleanup()).resolves.toEqual(
+      expect.objectContaining({
+        deletedRows: expect.any(Number),
+        deletedBlobs: expect.any(Number),
+        reclaimedBytes: expect.any(Number),
+      }),
+    )
+  })
+
 })
