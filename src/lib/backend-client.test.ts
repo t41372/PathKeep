@@ -288,6 +288,78 @@ describe('backend client', () => {
         args: { entries: [request] },
       },
       {
+        run: () => backend.loadHistoryOgImages([{ url: 'https://example.test' }]),
+        command: 'load_history_og_images',
+        args: { entries: [{ url: 'https://example.test' }] },
+      },
+      {
+        run: () => backend.markOgImagesShown(['https://example.test']),
+        command: 'mark_og_images_shown',
+        args: { urls: ['https://example.test'] },
+      },
+      {
+        run: () => backend.triggerOgImageRefetch(['https://example.test']),
+        command: 'trigger_og_image_refetch',
+        args: { urls: ['https://example.test'] },
+      },
+      {
+        run: () => backend.getOgImageStorageStats(),
+        command: 'get_og_image_storage_stats',
+        args: {},
+      },
+      {
+        run: () => backend.clearOgImageCache(),
+        command: 'clear_og_image_cache',
+        args: {},
+      },
+      {
+        run: () => backend.runOgImageCleanup(),
+        command: 'run_og_image_cleanup',
+        args: {},
+      },
+      {
+        run: () => backend.getUrlAnnotation('https://example.test'),
+        command: 'get_url_annotation',
+        args: { url: 'https://example.test' },
+      },
+      {
+        run: () =>
+          backend.setUrlNotes({ url: 'https://example.test', notes: 'note' }),
+        command: 'set_url_notes',
+        args: { request: { url: 'https://example.test', notes: 'note' } },
+      },
+      {
+        run: () =>
+          backend.replaceUrlTags({
+            url: 'https://example.test',
+            tags: ['t1', 't2'],
+          }),
+        command: 'replace_url_tags',
+        args: {
+          request: { url: 'https://example.test', tags: ['t1', 't2'] },
+        },
+      },
+      {
+        run: () => backend.listUrlAnnotations(),
+        command: 'list_url_annotations',
+        args: { limit: null },
+      },
+      {
+        run: () => backend.listUrlAnnotations(20),
+        command: 'list_url_annotations',
+        args: { limit: 20 },
+      },
+      {
+        run: () => backend.searchUrlAnnotations('keyword'),
+        command: 'search_url_annotations',
+        args: { query: 'keyword', limit: null },
+      },
+      {
+        run: () => backend.searchUrlAnnotations('keyword', 10),
+        command: 'search_url_annotations',
+        args: { query: 'keyword', limit: 10 },
+      },
+      {
         run: () => backend.loadDashboardSnapshot(),
         command: 'load_dashboard_snapshot',
       },

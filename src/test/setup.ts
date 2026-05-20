@@ -71,6 +71,21 @@ beforeAll(() => {
       writeText: vi.fn().mockResolvedValue(undefined),
     },
   })
+
+  // cmdk (search palette) needs ResizeObserver; jsdom doesn't ship one.
+  // Inert noop is enough for the library's internal layout bookkeeping.
+  if (typeof window.ResizeObserver === 'undefined') {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver
+  }
+
+  // Radix dialog primitives call element.scrollIntoView in autofocus paths.
+  if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = function () {}
+  }
 })
 
 afterEach(() => {

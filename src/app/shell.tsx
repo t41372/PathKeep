@@ -29,15 +29,28 @@ import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
 } from '@/lib/build-info'
-import type { HistoryQueryResponse, StorageSummary } from '@/lib/types'
+import type { HistoryQueryResponse } from '@/lib/types'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
+import {
+  EPIGRAPH_POOL_SIZE,
+  extractDomain,
+  formatLastArchivedLabel,
+  formatSinceLabel,
+  humanizeBytes,
+  readBoolean,
+  readEpigraphIndex,
+  readTheme,
+  sumStorageBytes,
+} from './shell-helpers'
 
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const THEME_KEY = 'pathkeep.theme'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
-const EPIGRAPH_POOL_SIZE = 6
+
+const SHELL_STORAGE: Storage | null =
+  typeof window !== 'undefined' ? window.localStorage : null
 
 const SOURCE_COLORS: Record<string, string> = {
   Chrome: '#4285F4',
@@ -67,14 +80,16 @@ export function AppShell() {
       ?.screen ?? appScreens[0]
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
-    readBoolean(SIDEBAR_KEY, false),
+    readBoolean(SIDEBAR_KEY, false, SHELL_STORAGE),
   )
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    readTheme(THEME_KEY),
+    readTheme(THEME_KEY, SHELL_STORAGE),
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sourceFilter, setSourceFilter] = useState<string | null>(null)
-  const [epigraphIndex] = useState<number>(() => readEpigraphIndex())
+  const [epigraphIndex] = useState<number>(() =>
+    readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, SHELL_STORAGE),
+  )
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -286,118 +301,3 @@ interface PaletteRow {
   visited_at_iso?: string
 }
 
-function readBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === 'undefined') return fallback
-  try {
-    const raw = window.localStorage.getItem(key)
-    if (raw === 'true') return true
-    if (raw === 'false') return false
-    return fallback
-  } catch {
-    return fallback
-  }
-}
-
-function readTheme(key: string): 'light' | 'dark' {
-  if (typeof window === 'undefined') return 'light'
-  try {
-    const raw = window.localStorage.getItem(key)
-    if (raw === 'dark') return 'dark'
-    return 'light'
-  } catch {
-    return 'light'
-  }
-}
-
-function readEpigraphIndex(): number {
-  if (typeof window === 'undefined') return 0
-  try {
-    const today = new Date().toISOString().slice(0, 10)
-    const stored = window.localStorage.getItem(EPIGRAPH_KEY)
-    if (stored) {
-      const [storedDate, indexString] = stored.split(':')
-      if (storedDate === today) {
-        const parsed = Number.parseInt(indexString ?? '', 10)
-        if (!Number.isNaN(parsed)) return parsed
-      }
-    }
-    const next = Math.floor(Math.random() * EPIGRAPH_POOL_SIZE)
-    window.localStorage.setItem(EPIGRAPH_KEY, `${today}:${next}`)
-    return next
-  } catch {
-    return 0
-  }
-}
-
-function extractDomain(url: string | undefined): string {
-  if (!url) return ''
-  try {
-    return new URL(url).hostname
-  } catch {
-    return ''
-  }
-}
-
-function sumStorageBytes(storage: StorageSummary | undefined): number {
-  if (!storage) return 0
-  return (
-    storage.archiveDatabaseBytes +
-    storage.sourceEvidenceDatabaseBytes +
-    storage.searchDatabaseBytes +
-    storage.intelligenceDatabaseBytes +
-    storage.manifestBytes +
-    storage.snapshotBytes +
-    storage.exportBytes +
-    storage.stagingBytes +
-    storage.quarantineBytes +
-    storage.semanticSidecarBytes +
-    storage.intelligenceBlobBytes
-  )
-}
-
-function humanizeBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
-}
-
-function formatSinceLabel(
-  isoTimestamp: string,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-  language: string,
-): string {
-  try {
-    const date = new Date(isoTimestamp)
-    if (Number.isNaN(date.getTime())) return ''
-    const locale = language === 'system' ? undefined : language
-    const month = date.toLocaleString(locale, { month: 'short' })
-    return t('shell.since', { month, year: date.getFullYear() })
-  } catch {
-    return ''
-  }
-}
-
-function formatLastArchivedLabel(
-  isoTimestamp: string,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-  language: string,
-): string {
-  try {
-    const date = new Date(isoTimestamp)
-    if (Number.isNaN(date.getTime())) return ''
-    const locale = language === 'system' ? undefined : language
-    const time = date.toLocaleTimeString(locale, {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    return t('shell.lastArchivedAt', { time })
-  } catch {
-    return ''
-  }
-}
