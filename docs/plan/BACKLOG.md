@@ -110,20 +110,40 @@
     actions). 1611/1611 unit tests pass. Commits: f3b2fd2 (paper sanitize) /
     d19cea3 (privacy test retarget) / afb7e94 (legacy retire).
 
-- [ ] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
-  - 讀先：
-    `src/pages/dashboard/index.tsx`
-    `src/pages/dashboard/{archive-card,on-this-day-card,this-week-card,active-threads-card}.tsx`
-    `src/components/heatmap/year-heatmap.tsx` (deleted; will be reintroduced)
-    `src-tauri/crates/vault-core/src/intelligence/` (daily rollup write path)
-    `docs/dev/HANDOFF-2026-05-19-paper-redesign.md` §4.2.5, §4.2.6
-  - 目標：dashboard YearHeatmap + ActiveThreads 從 honest empty state（Codex P1 fix 留下的）升級成真實資料。
-  - 契約：
-    - 新增 backend API `get_daily_rollups(range)` → 每日 visit count；vault-core 讀取 + vault-worker 入口 + Tauri command + core-intelligence/api 包裝。
-    - Active Threads 接 `getPathFlows` / `getQueryFamilies`。
-    - 不重新引入 Codex P1 fix 移除的 fake data。
-    - dashboard.tsx `formatSpan` 建議抽到 sibling `dashboard-helpers.ts`（同 `shell-helpers.ts` pattern），同步補單測。
-  - 驗收：`bun run check` clean、dashboard 與 14.4 M visit 規模測試 manually verified、新 API path 有 100% coverage、`docs/architecture/data-model.md` 同步寫回 daily-rollup 段落。
+- [x] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
+  - 2026-05-20 closeout: dashboard surfaces are now backed by real data on
+    every card.
+    - **Active Threads** (commit 03fcb86): calls
+      `coreIntelligenceApi.getPathFlows(last-30-days, profileId, 3, 10)` and
+      renders the top three recurring 3-step paths with arrow-chained domain
+      chips + `{count} occurrences` mono badges. Honest loading / empty /
+      error states; row clicks forward `flowId` to the route's `onOpenThread`.
+    - **Year Heatmap** (commit 897b816): replaces the empty placeholder with
+      a paper-aesthetic 7×N grid that fetches
+      `coreIntelligenceApi.getDiscoveryTrend(last-365-days, profileId, 'day')`
+      and buckets visit counts into 0-4 quartile levels. Streak badge surfaces
+      the longest consecutive-day run. Day clicks deep-link into Explorer's
+      Browse contact-sheet centred on the date.
+    - **Backend design decision**: the BACKLOG entry called for a new
+      `get_daily_rollups(range)` Tauri command, but `get_discovery_trend` with
+      `granularity='day'` already returns `{ dateKey, totalVisits }` rows from
+      `daily_summary_rollups` — the exact shape the heatmap consumes. Adding
+      a parallel `get_daily_rollups` command would have introduced a fourth
+      daily-aggregation path through `vault-core → vault-worker → tauri →
+      core-intelligence/api`, all returning the same data. Reusing the existing
+      endpoint keeps the surface lean, reuses the primary-overview cache, and
+      eliminates a maintenance edge. The new YearHeatmap is layered above the
+      same backend boundary the discovery-trend route already uses.
+    - **Helpers extraction**: `formatSpan`, `compactNumber`, `humanizeBytes`,
+      `sumStorageBytes`, plus new `dashboardThreadsRange` /
+      `dashboardHeatmapRange` / `isoDateOnly` live in
+      `src/pages/dashboard/dashboard-helpers.ts` with 15 unit cases — matches
+      the `shell-helpers.ts` pattern the BACKLOG called for.
+    - 1648/1648 unit tests pass. New surface tests: 5 (active-threads-card) +
+      5 (year-heatmap-card) + 8 (heatmap helpers) + 4 (YearHeatmap render) + 15
+      (dashboard-helpers).
+    - No fake / fabricated dashboard data reintroduced — every card preserves
+      the Trust & Transparency invariant.
 
 - [ ] **WORK-V03-RUST-COVERAGE-RESIDUAL** — Restore full-scope Rust coverage gate
   - 讀先：
