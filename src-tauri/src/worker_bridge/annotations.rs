@@ -3,6 +3,7 @@
 use super::worker_result;
 
 /// Reads the annotation bundle for a URL — see `vault_core::get_annotation`.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn get_annotation_impl(
     session_database_key: Option<&str>,
     url: &str,
@@ -11,6 +12,7 @@ pub(crate) fn get_annotation_impl(
 }
 
 /// Sets or clears the notes body for a URL.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn set_notes_impl(
     session_database_key: Option<&str>,
     request: vault_core::SetNotesRequest,
@@ -19,6 +21,7 @@ pub(crate) fn set_notes_impl(
 }
 
 /// Replaces the full tag set for a URL.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn replace_tags_impl(
     session_database_key: Option<&str>,
     request: vault_core::ReplaceTagsRequest,
@@ -27,6 +30,7 @@ pub(crate) fn replace_tags_impl(
 }
 
 /// Lists URLs that carry at least one annotation, newest-first.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn list_annotations_impl(
     session_database_key: Option<&str>,
     limit: Option<usize>,
@@ -35,6 +39,7 @@ pub(crate) fn list_annotations_impl(
 }
 
 /// Searches notes by case-insensitive substring.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn search_annotations_impl(
     session_database_key: Option<&str>,
     query: &str,

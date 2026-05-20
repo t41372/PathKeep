@@ -311,9 +311,7 @@ mod tests {
     }
 
     fn plaintext_config() -> AppConfig {
-        let mut config = AppConfig::default();
-        config.archive_mode = ArchiveMode::Plaintext;
-        config
+        AppConfig { archive_mode: ArchiveMode::Plaintext, ..AppConfig::default() }
     }
 
     #[test]

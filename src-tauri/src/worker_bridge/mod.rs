@@ -14,9 +14,15 @@ mod remote;
 mod schedule;
 mod security;
 
+// `annotations::*` is exercised only via the production command facade
+// (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
+// yet, so the glob is unused in test builds. Splitting it out keeps the noise
+// localized — every sibling `_impl` already carries its own
+// #[cfg_attr(test, allow(dead_code))] on the definition.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::annotations::*;
 pub(crate) use self::{
-    annotations::*, app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*,
-    security::*,
+    app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
 };
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.

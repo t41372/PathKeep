@@ -339,28 +339,17 @@ pub struct OgImageStorageStats {
 
 /// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
 /// and only manual "Clear cache" clears it.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "mode", rename_all = "camelCase")]
 pub enum OgImageCleanupMode {
+    #[default]
     Off,
     /// Delete rows older than `max_age_days`.
-    TimeTtl {
-        max_age_days: u32,
-    },
+    TimeTtl { max_age_days: u32 },
     /// Delete oldest-fetched rows until total bytes drop below `max_bytes`.
-    SizeCap {
-        max_bytes: u64,
-    },
+    SizeCap { max_bytes: u64 },
     /// Delete least-recently-shown rows until total bytes drop below `max_bytes`.
-    Lru {
-        max_bytes: u64,
-    },
-}
-
-impl Default for OgImageCleanupMode {
-    fn default() -> Self {
-        OgImageCleanupMode::Off
-    }
+    Lru { max_bytes: u64 },
 }
 
 /// Outcome of one cleanup pass — reported back to the UI so the user sees

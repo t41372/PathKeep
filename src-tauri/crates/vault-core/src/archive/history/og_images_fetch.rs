@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(insert.page_url, "https://github.com/foo");
         assert_eq!(insert.fetch_status, fetch_status::BLOCKED);
         assert!(insert.image_bytes.is_none());
-        assert_eq!(insert.page_host.as_deref(), Some("github.com"));
+        assert_eq!(insert.page_host, Some("github.com"));
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
             .mock("GET", "/og.png")
             .with_status(200)
             .with_header("content-type", "image/png")
-            .with_body(png_bytes.to_vec())
+            .with_body(png_bytes)
             .create();
 
         let client = build_fetch_client().unwrap();
