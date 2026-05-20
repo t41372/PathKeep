@@ -143,7 +143,9 @@ export const dashboardNamespaceCatalog = {
     activeThreadsAll: 'All threads',
     threadsPagesUnit: 'pages',
     activeThreadsEmpty:
-      'Threads will surface here once the Intelligence route wires query families and path flows. Open Intelligence for the current signal.',
+      'No recurring multi-step paths in the last 30 days. The full Intelligence surface holds the deeper investigation view.',
+    activeThreadsError: 'Could not load active threads.',
+    pathFlowsOccurrences: '{count} occurrences',
     // ── Archive card ──
     archiveCardTitle: 'Your archive',
     archiveLineCore: 'Core archive',
@@ -256,7 +258,9 @@ export const dashboardNamespaceCatalog = {
     yearInPagesEmpty:
       '每日热图等待每日 rollups 接通后上线。目前 Intelligence 页有更深入的视图。',
     activeThreadsEmpty:
-      '当 Intelligence 路由接上 query families 与 path flows 之后，主题线会浮现在这里。现在请前往 Intelligence 查看实时信号。',
+      '过去 30 天没有重复出现的多步路径。Intelligence 页面有更深入的调查视图。',
+    activeThreadsError: '无法加载主题线。',
+    pathFlowsOccurrences: '出现 {count} 次',
     heatmapStreakLabel: '连续',
     allInsights: '智能分析',
     heatmapLegendLess: '较少',
@@ -372,7 +376,9 @@ export const dashboardNamespaceCatalog = {
     yearInPagesEmpty:
       '每日熱圖將在每日 rollups 接通後上線。目前 Intelligence 頁有更深入的視圖。',
     activeThreadsEmpty:
-      '當 Intelligence 路由接上 query families 與 path flows 後，主題線會浮現在這裡。現在請前往 Intelligence 查看實時訊號。',
+      '過去 30 天沒有重複出現的多步路徑。Intelligence 頁面有更深入的調查視圖。',
+    activeThreadsError: '無法載入主題線。',
+    pathFlowsOccurrences: '出現 {count} 次',
     heatmapStreakLabel: '連續',
     allInsights: '智慧分析',
     heatmapLegendLess: '較少',

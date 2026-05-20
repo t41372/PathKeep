@@ -40,11 +40,16 @@ import { DashboardArchiveCard } from './archive-card'
 import { DashboardOnThisDay } from './on-this-day-card'
 import { DashboardThisWeek } from './this-week-card'
 import { DashboardActiveThreads } from './active-threads-card'
+import {
+  compactNumber,
+  formatSpan,
+  humanizeBytes,
+  sumStorageBytes,
+} from './dashboard-helpers'
 import { useDashboardArchiveAccessFallback } from './route-fallback-access'
 import { DashboardRouteFallback } from './route-fallback'
 import { resolveDashboardRouteFallback } from './route-fallback-state'
 import { cn } from '@/lib/cn'
-import type { StorageSummary } from '@/lib/types'
 
 export function DashboardPage() {
   const {
@@ -194,6 +199,10 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 mb-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <DashboardActiveThreads
+            archiveReady={
+              readySnapshot.config.initialized &&
+              readySnapshot.archiveStatus.unlocked
+            }
             onOpenAll={() => void navigate('/intelligence')}
             onOpenThread={() => void navigate('/intelligence')}
           />
@@ -277,68 +286,3 @@ function useMemoGreeting(language: string): string {
   }, [language])
 }
 
-function compactNumber(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return String(value)
-}
-
-function humanizeBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
-}
-
-function sumStorageBytes(storage: StorageSummary): number {
-  return (
-    storage.archiveDatabaseBytes +
-    storage.sourceEvidenceDatabaseBytes +
-    storage.searchDatabaseBytes +
-    storage.intelligenceDatabaseBytes +
-    storage.manifestBytes +
-    storage.snapshotBytes +
-    storage.exportBytes +
-    storage.stagingBytes +
-    storage.quarantineBytes +
-    storage.semanticSidecarBytes +
-    storage.intelligenceBlobBytes
-  )
-}
-
-function formatSpan(
-  isoTimestamp: string,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-): string {
-  try {
-    const last = new Date(isoTimestamp)
-    if (Number.isNaN(last.getTime())) return '—'
-    const now = new Date()
-    const diffMs = now.getTime() - last.getTime()
-    const years = diffMs / (365.25 * 24 * 60 * 60 * 1000)
-    const months = diffMs / (30 * 24 * 60 * 60 * 1000)
-    const days = diffMs / (24 * 60 * 60 * 1000)
-    if (years >= 1) {
-      const wholeYears = Math.floor(years)
-      const remMonths = Math.floor((years - wholeYears) * 12)
-      return t('dashboard.spanYearsAndMonths', {
-        years: wholeYears,
-        months: remMonths,
-      })
-    }
-    if (months >= 1) {
-      return t('dashboard.spanMonths', { months: Math.floor(months) })
-    }
-    if (days >= 1) {
-      return t('dashboard.spanDays', { days: Math.floor(days) })
-    }
-    return t('dashboard.spanToday')
-  } catch {
-    return '—'
-  }
-}
