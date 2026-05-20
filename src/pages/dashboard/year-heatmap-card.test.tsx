@@ -104,4 +104,23 @@ describe('DashboardYearHeatmapCard', () => {
     await user.click(cells[0] as HTMLButtonElement)
     expect(onSelectDate).toHaveBeenCalled()
   })
+
+  test('falls back to the translated error key when the rejection is not an Error', async () => {
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockRejectedValue(
+      'string-rejection',
+    )
+    renderCard()
+    expect(
+      await screen.findByTestId('dashboard-year-error'),
+    ).toHaveTextContent('Could not load the year heatmap.')
+  })
+
+  test('renders the "no streak" copy when the rolling window has no consecutive days', async () => {
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+      makeTrendResult([]),
+    )
+    renderCard()
+    const streak = await screen.findByTestId('dashboard-year-streak')
+    expect(streak).toHaveTextContent('No streak yet')
+  })
 })

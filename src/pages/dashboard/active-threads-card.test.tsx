@@ -137,4 +137,32 @@ describe('DashboardActiveThreads', () => {
     )
     expect(onOpenThread).toHaveBeenCalledWith('flow-target')
   })
+
+  test('falls back to the translated error key when the rejection is not an Error', async () => {
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockRejectedValue(
+      'string-rejection',
+    )
+    renderCard()
+    expect(
+      await screen.findByTestId('dashboard-active-threads-error'),
+    ).toHaveTextContent('Could not load active threads.')
+  })
+
+  test('row click does not throw when onOpenThread is omitted', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue({
+      data: [makeFlow({ flowId: 'flow-only' })],
+      meta: { state: 'ready' },
+    } as unknown as Awaited<
+      ReturnType<typeof coreIntelligenceApi.getPathFlows>
+    >)
+    renderCard({ onOpenThread: undefined })
+    await user.click(
+      await screen.findByTestId('dashboard-active-threads-row-flow-only'),
+    )
+    // no assertion needed — coverage is the goal here
+    expect(
+      screen.getByTestId('dashboard-active-threads-list'),
+    ).toBeInTheDocument()
+  })
 })

@@ -11,7 +11,7 @@
  * - Heatmap density correctness (covered by year-heatmap test).
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n'
@@ -25,6 +25,14 @@ import type { AppSnapshot, DashboardSnapshot } from '@/lib/types'
 
 vi.mock('@/lib/core-intelligence/api', () => ({
   getOnThisDay: vi.fn().mockResolvedValue({ data: [] }),
+  getPathFlows: vi.fn().mockResolvedValue({
+    data: [],
+    meta: { state: 'ready' },
+  }),
+  getDiscoveryTrend: vi.fn().mockResolvedValue({
+    data: { points: [], availableYears: [] },
+    meta: { state: 'ready' },
+  }),
 }))
 
 describe('DashboardPage (paper redesign)', () => {
@@ -45,6 +53,33 @@ describe('DashboardPage (paper redesign)', () => {
     expect(screen.getByTestId('dashboard-this-week')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-active-threads')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-archive-card')).toBeInTheDocument()
+  })
+
+  test('uses the em-dash span placeholder when no successful backup recorded', () => {
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: { ...makeDashboard(), lastSuccessfulBackupAt: null },
+    })
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  test('falls back to the translated on-this-day error key on non-Error rejection', async () => {
+    const api =
+      await vi.importMock<typeof import('@/lib/core-intelligence/api')>(
+        '@/lib/core-intelligence/api',
+      )
+    vi.mocked(api.getOnThisDay).mockRejectedValueOnce('string-rejection')
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    await waitFor(() =>
+      expect(api.getOnThisDay).toHaveBeenCalled(),
+    )
+    // The route's catch branch sets onThisDayError; the card surfaces it.
+    expect(
+      await screen.findByText('Could not load entries for this day.'),
+    ).toBeInTheDocument()
   })
 })
 
