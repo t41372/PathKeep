@@ -94,11 +94,11 @@
         replaces with the real composer. Two tests were trimmed to keep
         their still-relevant assertions (audit ledger walk; intelligence +
         assistant testids); the third — `keeps shared profile scope, regex
-        recall, and export guardrails aligned` — was deleted entirely with
+recall, and export guardrails aligned` — was deleted entirely with
         a doc-comment block explaining where each retired surface moved.
     - Run command:
       `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome bun run
-      test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
+test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
   - Note：`playwright.config.ts` 已支援 Ubuntu 26.04 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var（系統 Chrome at `/usr/bin/google-chrome`）— upstream playwright supportedOSes table 還沒對 26.04 提供 chrome-headless-shell binary。
 
 - [x] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
@@ -106,19 +106,19 @@
     `paperLayout`/`paperSearchSurface` ternary and mounts PaperExplorerView /
     PaperSearchPanel / PaperDetailPanelMount unconditionally (753 → 593 lines).
     Deleted `src/pages/explorer/{timeline-bar,query-filters-panel,advanced-search-help}.tsx`
-    + `src/pages/explorer/panels/results-panel.tsx` and their tests; dropped the
-    `.advanced-search-help` block from `explorer.css`. Paper components
-    (PaperContactFrame / PaperListRow / PaperDomainStack / PaperDetailPanel /
-    PaperSearchResult) now run URL/title text through `sanitizeExplorerDisplayText`
-    so the privacy invariant the v0.2 ExplorerResultsPanel guarded is preserved;
-    `privacy-redaction.test.tsx` retargeted onto PaperListRow + PaperSearchResult.
-    Trimmed legacy-chrome tests across `index.test.tsx`,
-    `lock-and-explorer-shell.test.tsx` (explicit-page-jumps test gone — paper has
-    no paginator), `explorer-grouped-views.test.tsx`, and rewrote
-    `explorer-controls.test.tsx` to keep only the three paper-neutral
-    survivors (shell-gate matrix, adjacent-page prefetch, semantic runtime
-    actions). 1611/1611 unit tests pass. Commits: f3b2fd2 (paper sanitize) /
-    d19cea3 (privacy test retarget) / afb7e94 (legacy retire).
+    - `src/pages/explorer/panels/results-panel.tsx` and their tests; dropped the
+      `.advanced-search-help` block from `explorer.css`. Paper components
+      (PaperContactFrame / PaperListRow / PaperDomainStack / PaperDetailPanel /
+      PaperSearchResult) now run URL/title text through `sanitizeExplorerDisplayText`
+      so the privacy invariant the v0.2 ExplorerResultsPanel guarded is preserved;
+      `privacy-redaction.test.tsx` retargeted onto PaperListRow + PaperSearchResult.
+      Trimmed legacy-chrome tests across `index.test.tsx`,
+      `lock-and-explorer-shell.test.tsx` (explicit-page-jumps test gone — paper has
+      no paginator), `explorer-grouped-views.test.tsx`, and rewrote
+      `explorer-controls.test.tsx` to keep only the three paper-neutral
+      survivors (shell-gate matrix, adjacent-page prefetch, semantic runtime
+      actions). 1611/1611 unit tests pass. Commits: f3b2fd2 (paper sanitize) /
+      d19cea3 (privacy test retarget) / afb7e94 (legacy retire).
 
 - [x] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
   - 2026-05-20 closeout: dashboard surfaces are now backed by real data on
@@ -140,7 +140,7 @@
       `daily_summary_rollups` — the exact shape the heatmap consumes. Adding
       a parallel `get_daily_rollups` command would have introduced a fourth
       daily-aggregation path through `vault-core → vault-worker → tauri →
-      core-intelligence/api`, all returning the same data. Reusing the existing
+core-intelligence/api`, all returning the same data. Reusing the existing
       endpoint keeps the surface lean, reuses the primary-overview cache, and
       eliminates a maintenance edge. The new YearHeatmap is layered above the
       same backend boundary the discovery-trend route already uses.

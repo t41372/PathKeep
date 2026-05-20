@@ -49,9 +49,7 @@ describe('YearHeatmap', () => {
       new Date(2026, 4, 19),
       3,
     )
-    render(
-      <YearHeatmap cells={cells} copy={COPY} onSelectDate={vi.fn()} />,
-    )
+    render(<YearHeatmap cells={cells} copy={COPY} onSelectDate={vi.fn()} />)
     const buttons = screen.getAllByRole('button')
     expect(buttons[0]).not.toBeDisabled() // 2026-05-19, count=4
     expect(buttons[1]).toBeDisabled() // empty
@@ -65,7 +63,9 @@ describe('YearHeatmap', () => {
       new Date(2026, 4, 19),
       1,
     )
-    render(<YearHeatmap cells={cells} copy={COPY} onSelectDate={onSelectDate} />)
+    render(
+      <YearHeatmap cells={cells} copy={COPY} onSelectDate={onSelectDate} />,
+    )
     const user = userEvent.setup()
     await user.click(screen.getAllByRole('button')[0])
     expect(onSelectDate).toHaveBeenCalledWith('2026-05-19', 4)

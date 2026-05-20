@@ -208,9 +208,13 @@ test('walks remote backup settings and Maintenance PME in browser preview', asyn
   // The "Open Maintenance" link lives inside the remote-backup preferences
   // card; both Settings + Maintenance reuse the same RemoteBackupSection
   // component so its testid is stable across routes.
-  await page.getByRole('link', { name: /Open Maintenance/i }).first().click()
+  await page
+    .getByRole('link', { name: /Open Maintenance/i })
+    .first()
+    .click()
   const maintenancePage = page.getByTestId('maintenance-page')
-  const maintenanceRemoteSection = maintenancePage.getByTestId('settings-remote')
+  const maintenanceRemoteSection =
+    maintenancePage.getByTestId('settings-remote')
 
   await expect(maintenancePage).toBeVisible()
   await maintenanceRemoteSection

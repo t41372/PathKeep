@@ -24,11 +24,13 @@ function makeTrendResult(
   >
 }
 
-function renderCard(props: Partial<{
-  archiveReady: boolean
-  onOpenInsights: () => void
-  onSelectDate: (date: string) => void
-}> = {}) {
+function renderCard(
+  props: Partial<{
+    archiveReady: boolean
+    onOpenInsights: () => void
+    onSelectDate: (date: string) => void
+  }> = {},
+) {
   return render(
     <ProfileScopeProvider>
       <I18nProvider>
@@ -72,9 +74,9 @@ describe('DashboardYearHeatmapCard', () => {
       new Error('boom'),
     )
     renderCard()
-    expect(
-      await screen.findByTestId('dashboard-year-error'),
-    ).toHaveTextContent('boom')
+    expect(await screen.findByTestId('dashboard-year-error')).toHaveTextContent(
+      'boom',
+    )
   })
 
   test('renders the heatmap grid + streak label on a populated result', async () => {
@@ -110,9 +112,9 @@ describe('DashboardYearHeatmapCard', () => {
       'string-rejection',
     )
     renderCard()
-    expect(
-      await screen.findByTestId('dashboard-year-error'),
-    ).toHaveTextContent('Could not load the year heatmap.')
+    expect(await screen.findByTestId('dashboard-year-error')).toHaveTextContent(
+      'Could not load the year heatmap.',
+    )
   })
 
   test('renders the "no streak" copy when the rolling window has no consecutive days', async () => {

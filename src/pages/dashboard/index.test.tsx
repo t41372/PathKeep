@@ -64,18 +64,15 @@ describe('DashboardPage (paper redesign)', () => {
   })
 
   test('falls back to the translated on-this-day error key on non-Error rejection', async () => {
-    const api =
-      await vi.importMock<typeof import('@/lib/core-intelligence/api')>(
-        '@/lib/core-intelligence/api',
-      )
+    const api = await vi.importMock<
+      typeof import('@/lib/core-intelligence/api')
+    >('@/lib/core-intelligence/api')
     vi.mocked(api.getOnThisDay).mockRejectedValueOnce('string-rejection')
     renderDashboard({
       snapshot: makeSnapshot(),
       dashboard: makeDashboard(),
     })
-    await waitFor(() =>
-      expect(api.getOnThisDay).toHaveBeenCalled(),
-    )
+    await waitFor(() => expect(api.getOnThisDay).toHaveBeenCalled())
     // The route's catch branch sets onThisDayError; the card surfaces it.
     expect(
       await screen.findByText('Could not load entries for this day.'),

@@ -131,9 +131,7 @@ describe('DashboardActiveThreads', () => {
     const onOpenThread = vi.fn()
     renderCard({ onOpenThread })
     await user.click(
-      await screen.findByTestId(
-        'dashboard-active-threads-row-flow-target',
-      ),
+      await screen.findByTestId('dashboard-active-threads-row-flow-target'),
     )
     expect(onOpenThread).toHaveBeenCalledWith('flow-target')
   })

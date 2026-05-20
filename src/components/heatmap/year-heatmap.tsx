@@ -88,7 +88,10 @@ export function YearHeatmap({
           <span
             key={index}
             className="tracking-[0.04em]"
-            style={{ gridColumnStart: marker.column + 1, gridColumnEnd: 'span 1' }}
+            style={{
+              gridColumnStart: marker.column + 1,
+              gridColumnEnd: 'span 1',
+            }}
           >
             {marker.label ?? ''}
           </span>
@@ -101,7 +104,9 @@ export function YearHeatmap({
         {[0, 1, 2, 3, 4, 5, 6].map((dow) => (
           <ColumnRow
             key={dow}
-            label={dow === 1 || dow === 3 || dow === 5 ? copy.dayLabels[dow] : ''}
+            label={
+              dow === 1 || dow === 3 || dow === 5 ? copy.dayLabels[dow] : ''
+            }
             cells={weeks.map((week) => week[dow] ?? null)}
             onSelectDate={onSelectDate}
             tooltip={copy.cellTooltip}

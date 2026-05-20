@@ -81,9 +81,9 @@ describe('PaperDetailPanelMount', () => {
     // The URL appears both as the title-fallback heading and as the mono
     // URL line — sanitizeExplorerDisplayText strips the protocol so the
     // rendered text is 'example.com/x'.
-    expect(
-      screen.getAllByText('example.com/x').length,
-    ).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('example.com/x').length).toBeGreaterThanOrEqual(
+      1,
+    )
   })
 
   test('clicking the close button forwards onClose', () => {

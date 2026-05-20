@@ -57,7 +57,10 @@ export function isoDateOnly(date: Date): string {
  * would scale to large archives but it also flattens out quiet weeks, which
  * makes the heatmap less honest for users with mostly-light browsing days.
  */
-export function bucketLevel(count: number, max: number): YearHeatmapCell['level'] {
+export function bucketLevel(
+  count: number,
+  max: number,
+): YearHeatmapCell['level'] {
   if (count <= 0) return 0
   if (max <= 0) return 0
   const ratio = count / max

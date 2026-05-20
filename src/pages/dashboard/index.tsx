@@ -168,7 +168,8 @@ export function DashboardPage() {
 
       <DashboardYearHeatmapCard
         archiveReady={
-          readySnapshot.config.initialized && readySnapshot.archiveStatus.unlocked
+          readySnapshot.config.initialized &&
+          readySnapshot.archiveStatus.unlocked
         }
         onOpenInsights={() => void navigate('/intelligence')}
         onSelectDate={(date) =>
@@ -267,4 +268,3 @@ function useMemoGreeting(language: string): string {
     return set[2]
   }, [language])
 }
-

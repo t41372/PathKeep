@@ -115,7 +115,10 @@ export function sumStorageBytes(storage: StorageSummary): number {
   )
 }
 
-type Translator = (key: string, vars?: Record<string, string | number>) => string
+type Translator = (
+  key: string,
+  vars?: Record<string, string | number>,
+) => string
 
 /**
  * Formats an archive span — the elapsed time between the last successful

@@ -113,8 +113,7 @@ describe('intelligence surfaces', () => {
     })
 
     renderSurface(<ExplorerPage />, {
-      route:
-        '/explorer?view=session&start=2026-04-01&end=2026-04-07',
+      route: '/explorer?view=session&start=2026-04-01&end=2026-04-07',
       snapshot,
     })
 
@@ -217,8 +216,7 @@ describe('intelligence surfaces', () => {
     })
 
     renderSurface(<ExplorerPage />, {
-      route:
-        '/explorer?view=trail&start=2026-04-01&end=2026-04-07',
+      route: '/explorer?view=trail&start=2026-04-01&end=2026-04-07',
       snapshot,
     })
 
