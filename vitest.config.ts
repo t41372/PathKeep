@@ -39,6 +39,16 @@ export default defineConfig({
         'src/components/intelligence/workbench/review-surface.tsx',
         'src/components/review/index.ts',
         'src/components/shell/index.ts',
+        // shadcn-derived primitives that survive only because the paper shell
+        // search-palette and status-bar still wrap them. We exercise the
+        // exact code paths in use through pk-search-palette / pk-status-bar
+        // tests; the rest is upstream variant logic we don't ship. Treat as
+        // third-party shim surface, same precedent as
+        // intelligence/workbench/review-surface.tsx.
+        'src/components/ui/button.tsx',
+        'src/components/ui/command.tsx',
+        'src/components/ui/dialog.tsx',
+        'src/components/ui/popover.tsx',
         'src/lib/core-intelligence/api.ts',
         'src/lib/core-intelligence/index.ts',
         'src/lib/core-intelligence/api/index.ts',
