@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -31,22 +31,16 @@ import {
 import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import { historyFaviconLookupKey, historyOgImageLookupKey } from './helpers'
-import {
-  profileIdLabel,
-  useProfileScope,
-} from '../../lib/profile-scope-context'
+import { useProfileScope } from '../../lib/profile-scope-context'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
 import { useExplorerOgImages } from './hooks/use-explorer-og-images'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
-import { ExplorerResultsPanel } from './panels/results-panel'
 import { ExplorerRuntimePanel } from './panels/runtime-panel'
 import { ExplorerSemanticPanel } from './panels/semantic-panel'
 import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
-import { ExplorerQueryFiltersPanel } from './query-filters-panel'
-import { ExplorerTimelineBar } from './timeline-bar'
 import { buildPaperExplorerCopy } from './paper-explorer-copy'
 import { PaperExplorerView } from './paper-view'
 import { PaperSearchPanel } from './paper-search-panel'
@@ -83,43 +77,24 @@ export function ExplorerPage() {
   const intelligenceT = ns('intelligence')
 
   const {
-    activeDateShortcut,
-    activeFilters,
-    applyDateShortcut,
-    browserKinds,
-    buildRecentSearchLabel,
     clearAllFilters,
-    clearDateRange,
     currentQuery,
     end,
-    explicitPage,
-    explicitProfileId,
     groupedDateRange,
-    handleFirstHistoryPage,
-    handleHistoryPageJump,
-    handleLastHistoryPage,
-    handleNextHistoryPage,
     handleNextSemanticPage,
-    handlePreviousHistoryPage,
     handlePreviousSemanticPage,
-    historyPageInput,
     mode,
-    pageSize,
     persistRecentSearch,
     profileId,
     queryInput,
-    recentSearches,
     regexMode,
     regexValid,
     searchParams,
     semanticQuery,
     semanticTrail,
-    setHistoryPageInput,
-    setHistoryPageSize,
     setQueryInput,
     setRecentSearches,
     setSearchParams,
-    setView,
     start,
     updateParam,
     view,
@@ -189,12 +164,7 @@ export function ExplorerPage() {
     [explorerT],
   )
   const {
-    actionError,
     cachedHistoryResults,
-    copyFeedback,
-    exportResult,
-    handleCopyExportPath,
-    handleExport,
     handleIndexAction,
     handleProviderProbe,
     handleQueueAction,
@@ -298,13 +268,6 @@ export function ExplorerPage() {
       })),
     }
   }, [faviconCache, ogImageCache, visibleTimeResults])
-  const historyPage = loading
-    ? (explicitPage ?? visibleTimeResults?.page ?? 1)
-    : (visibleTimeResults?.page ?? explicitPage ?? 1)
-  const historyPageCount = visibleTimeResults?.pageCount ?? 1
-  const activeScopeLabel = activeProfileId
-    ? profileIdLabel(activeProfileId)
-    : null
   const selectedEntry =
     (!loading ? visibleTimeResults : null)?.items.find(
       (item) => item.id === selectedId,
@@ -337,13 +300,7 @@ export function ExplorerPage() {
           ? explorerT('optionalAiProviderErrorBody')
           : explorerT('optionalAiDeferredBody')
 
-  useEffect(() => {
-    setHistoryPageInput(String(historyPage))
-  }, [historyPage, setHistoryPageInput])
-
-  const paperLayout = searchParams.get('layout') !== 'legacy'
-  const paperSearchSurface =
-    paperLayout && searchParams.get('surface') === 'search'
+  const paperSearchSurface = searchParams.get('surface') === 'search'
 
   if (shellLoading && !snapshot) {
     return <SkeletonExplorer label={t('common.loadingExplorer')} />
@@ -395,55 +352,6 @@ export function ExplorerPage() {
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
-      {paperLayout ? null : (
-        <ExplorerTimelineBar
-          activeShortcutKey={activeDateShortcut()}
-          explorerT={explorerT}
-          onApplyDateShortcut={applyDateShortcut}
-          onClearDateRange={clearDateRange}
-          summary={
-            visibleTimeResults
-              ? {
-                  currentPage: historyPage,
-                  loaded: visibleTimeResults.items.length,
-                  pageCount: historyPageCount,
-                  total: visibleTimeResults.total,
-                }
-              : null
-          }
-          end={end}
-          start={start}
-        />
-      )}
-
-      {paperLayout ? null : (
-        <ExplorerQueryFiltersPanel
-          activeFilters={activeFilters}
-          activeScopeLabel={activeScopeLabel}
-          browserKinds={browserKinds}
-          buildRecentSearchLabel={buildRecentSearchLabel}
-          clearAllFilters={clearAllFilters}
-          explicitProfileId={explicitProfileId}
-          explorerT={explorerT}
-          intelligenceT={intelligenceT}
-          mode={mode}
-          optionalAiAvailability={optionalAiAvailability}
-          profileId={profileId}
-          queryInput={queryInput}
-          recentSearches={recentSearches}
-          regexMode={regexMode}
-          regexValid={regexValid}
-          searchParams={searchParams}
-          selectedProfileIds={snapshot.config.selectedProfileIds}
-          setQueryInput={setQueryInput}
-          setSearchParams={setSearchParams}
-          setView={setView}
-          updateParam={updateParam}
-          view={view}
-          visibleRecordCount={visibleTimeResults?.total ?? null}
-        />
-      )}
-
       {optionalAiFixableReason ? (
         <StatusCallout
           tone={
@@ -614,7 +522,7 @@ export function ExplorerPage() {
               setSelectedId(Number(entry.id))
             }}
           />
-        ) : paperLayout ? (
+        ) : (
           <PaperExplorerView
             entries={renderedTimeResults?.items ?? []}
             targetDate={searchParams.get('date')}
@@ -645,44 +553,6 @@ export function ExplorerPage() {
             language={language}
             copy={buildPaperExplorerCopy(explorerT)}
             testId="explorer-paper-view"
-          />
-        ) : (
-          <ExplorerResultsPanel
-            actionError={actionError}
-            commonT={commonT}
-            copyFeedback={copyFeedback}
-            explorerT={explorerT}
-            exportResult={exportResult}
-            handleCopyExportPath={handleCopyExportPath}
-            handleExport={handleExport}
-            handleHistoryPageJump={(historyPageCount) =>
-              handleHistoryPageJump(historyPage, historyPageCount)
-            }
-            handleFirstHistoryPage={() => handleFirstHistoryPage(historyPage)}
-            handleLastHistoryPage={(historyPageCount) =>
-              handleLastHistoryPage(historyPage, historyPageCount)
-            }
-            handleNextHistoryPage={() => handleNextHistoryPage(historyPage)}
-            handleOpenExportPath={async (path) => {
-              await backend.openPathInFileManager(path)
-            }}
-            handlePreviousHistoryPage={() =>
-              handlePreviousHistoryPage(historyPage)
-            }
-            handleVisit={handleVisit}
-            historyBlockedByInvalidRegex={historyBlockedByInvalidRegex}
-            historyPage={historyPage}
-            historyPageCount={historyPageCount}
-            historyPageInput={historyPageInput}
-            historyPageSize={pageSize}
-            intelligenceT={intelligenceT}
-            language={language}
-            loading={loading}
-            onHistoryPageInputChange={setHistoryPageInput}
-            onHistoryPageSizeChange={setHistoryPageSize}
-            onSelectHistory={setSelectedId}
-            results={renderedTimeResults}
-            selectedEntry={selectedEntry}
           />
         )
       ) : view === 'session' ? (
@@ -739,7 +609,7 @@ export function ExplorerPage() {
         </div>
       ) : null}
 
-      {paperLayout && paperDetailOpen ? (
+      {paperDetailOpen ? (
         <PaperDetailPanelMount
           selectedEntry={selectedEntry}
           annotations={annotations}

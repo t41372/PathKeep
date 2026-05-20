@@ -94,10 +94,6 @@ vi.mock('./hooks/use-explorer-url-state', () => ({
   useExplorerUrlState: useExplorerUrlStateMock,
 }))
 
-vi.mock('./panels/results-panel', () => ({
-  ExplorerResultsPanel: () => <div data-testid="results-panel">results</div>,
-}))
-
 vi.mock('./panels/runtime-panel', () => ({
   ExplorerRuntimePanel: () => <div data-testid="runtime-panel">runtime</div>,
 }))
@@ -116,16 +112,6 @@ vi.mock('./panels/trail-group', () => ({
 
 vi.mock('./panels/detail-panel', () => ({
   ExplorerDetailPanel: () => <div data-testid="detail-panel">detail</div>,
-}))
-
-vi.mock('./query-filters-panel', () => ({
-  ExplorerQueryFiltersPanel: () => (
-    <div data-testid="filters-panel">filters</div>
-  ),
-}))
-
-vi.mock('./timeline-bar', () => ({
-  ExplorerTimelineBar: () => <div data-testid="timeline-bar">timeline</div>,
 }))
 
 describe('ExplorerPage route shell', () => {
@@ -156,7 +142,7 @@ describe('ExplorerPage route shell', () => {
     renderExplorer()
 
     expect(screen.getByText('explorer.regexInvalid')).toBeVisible()
-    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
   })
 
   test('renders query errors and empty history branches', () => {
@@ -219,30 +205,10 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument()
   })
 
-  test('defaults to the paper contact-sheet view and hides the legacy chrome', () => {
+  test('defaults to the paper contact-sheet view as the only Browse surface', () => {
     renderExplorer()
 
     expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
-    // v0.2 results panel + the legacy timeline / filters chrome are gone.
-    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('timeline-bar')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('filters-panel')).not.toBeInTheDocument()
-  })
-
-  test('falls back to the v0.2 explorer chrome when layout=legacy is in the URL', () => {
-    useExplorerUrlStateMock.mockReturnValue(
-      defaultUrlState({
-        searchParams: new URLSearchParams('layout=legacy'),
-      }),
-    )
-
-    renderExplorer()
-
-    // Legacy results panel + timeline + query filters all mount again.
-    expect(screen.getByTestId('results-panel')).toBeVisible()
-    expect(screen.getByTestId('timeline-bar')).toBeVisible()
-    expect(screen.getByTestId('filters-panel')).toBeVisible()
-    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
   })
 
   test('shows the paper Search panel when surface=search is in the URL', () => {
@@ -254,9 +220,9 @@ describe('ExplorerPage route shell', () => {
 
     renderExplorer()
 
-    // The PaperSearchPanel renders its own paper-search-view shell.
+    // The PaperSearchPanel renders its own paper-search-view shell instead
+    // of the contact-sheet Browse layout.
     expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
   })
 
   test('shows the deferred semantic callout when optional AI is unavailable', () => {

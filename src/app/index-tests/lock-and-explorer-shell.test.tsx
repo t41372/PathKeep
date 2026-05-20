@@ -22,20 +22,14 @@
  */
 
 import { beforeEach, describe, expect, test } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from '../index'
 import { appRoutes } from '../router'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
-import {
-  expectHtmlElement,
-  initializeArchiveOnly,
-  resetAppShellHarness,
-  seedArchiveRun,
-  shellT,
-} from './test-helpers'
+import { resetAppShellHarness, seedArchiveRun, shellT } from './test-helpers'
 
 describe('App shell', () => {
   beforeEach(() => {
@@ -147,115 +141,13 @@ describe('App shell', () => {
     ).not.toBeInTheDocument()
   })
 
-  test('supports explicit page jumps in explorer results and preserves the shell scroll position', async () => {
-    const user = userEvent.setup()
-    const baseTime = Date.now()
-
-    await initializeArchiveOnly()
-    backendTestHarness.mutateState((state) => {
-      state.history.items = Array.from({ length: 375 }, (_, index) => ({
-        id: index + 1,
-        profileId: 'chrome:Default',
-        url: `https://example.com/sqlite/${index + 1}`,
-        title: `SQLite note ${index + 1}`,
-        domain: 'example.com',
-        visitedAt: new Date(baseTime - index * 60_000).toISOString(),
-        visitTime: baseTime - index * 60_000,
-        durationMs: 5_000,
-        transition: 805306368,
-        sourceVisitId: index + 1,
-        appId: null,
-      }))
-    })
-
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: ['/explorer?q=sqlite&page=3&layout=legacy'],
-    })
-
-    render(<App router={router} />)
-
-    expect(await screen.findByTestId('explorer-page')).toBeInTheDocument()
-    await waitFor(() =>
-      expect(router.state.location.search).toContain('page=3'),
-    )
-    await waitFor(() =>
-      expect(
-        screen
-          .getAllByRole('spinbutton', {
-            name: 'Page number',
-          })
-          .every(
-            (input) =>
-              Number(
-                input.getAttribute('value') ??
-                  (input as HTMLInputElement).value,
-              ) === 3,
-          ),
-      ).toBe(true),
-    )
-    await waitFor(() =>
-      expect(document.querySelectorAll('.record-item')).toHaveLength(50),
-    )
-
-    const scrollContainer = screen.getByTestId('app-scroll')
-    expect(scrollContainer).toBeInstanceOf(HTMLElement)
-    expectHtmlElement(scrollContainer).scrollTop = 240
-
-    await user.click(screen.getAllByRole('button', { name: 'Next page' })[0])
-    await waitFor(() =>
-      expect(router.state.location.search).toContain('page=4'),
-    )
-    await waitFor(() =>
-      expect(
-        screen
-          .getAllByRole('spinbutton', {
-            name: 'Page number',
-          })
-          .every(
-            (input) =>
-              Number(
-                input.getAttribute('value') ??
-                  (input as HTMLInputElement).value,
-              ) === 4,
-          ),
-      ).toBe(true),
-    )
-    await waitFor(() =>
-      expect(screen.getAllByRole('button', { name: 'Go' })[0]).toBeEnabled(),
-    )
-    expect(expectHtmlElement(scrollContainer).scrollTop).toBe(240)
-
-    const pageInput = screen.getAllByRole('spinbutton', {
-      name: 'Page number',
-    })[0]
-    fireEvent.change(pageInput, { target: { value: '8' } })
-    await user.click(screen.getAllByRole('button', { name: 'Go' })[0])
-
-    await waitFor(() =>
-      expect(router.state.location.search).toContain('page=8'),
-    )
-    await waitFor(() =>
-      expect(
-        screen
-          .getAllByRole('spinbutton', {
-            name: 'Page number',
-          })
-          .every(
-            (input) =>
-              Number(
-                input.getAttribute('value') ??
-                  (input as HTMLInputElement).value,
-              ) === 8,
-          ),
-      ).toBe(true),
-    )
-    await waitFor(() =>
-      expect(document.querySelectorAll('.record-item')).toHaveLength(25),
-    )
-    expect(
-      screen.getAllByRole('button', { name: 'Last page' })[0],
-    ).toBeDisabled()
-  })
+  // The v0.2 "supports explicit page jumps in explorer results" test drove
+  // the legacy ExplorerResultsPanel's Next/Last page buttons + "Page number"
+  // spinbutton + scroll-position preservation across paginator clicks. Phase
+  // 4 retires that chrome — paper Browse uses date-anchored navigation on
+  // the contact sheet, not a paginator. There is no equivalent paper surface
+  // to drive, and useExplorerData's underlying pagination is already covered
+  // by its own hook tests.
 
   test('paper topbar uses a palette opener instead of a global search box', async () => {
     await seedArchiveRun()
