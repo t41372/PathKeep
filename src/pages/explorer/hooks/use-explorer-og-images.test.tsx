@@ -137,7 +137,7 @@ describe('useExplorerOgImages', () => {
     // markOgImagesShown is debounced ~1 s; advancing fake timers triggers it.
     await vi.advanceTimersByTimeAsync(1100)
     expect(markSpy).toHaveBeenCalledTimes(1)
-    const urls = markSpy.mock.calls[0][0] as string[]
+    const urls = markSpy.mock.calls[0][0]
     expect(urls.sort()).toEqual([
       'https://example.com/a',
       'https://example.com/b',
