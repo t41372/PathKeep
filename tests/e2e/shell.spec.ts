@@ -45,25 +45,15 @@ test('walks through onboarding, first backup, explorer, and audit in browser pre
 
   await page.getByRole('link', { name: 'Explorer', exact: true }).click()
 
-  await expect(
-    page.getByRole('heading', { name: 'History Explorer' }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', {
-      name: /SQLite inspection in browser developer tools/i,
-    }),
-  ).toBeVisible()
-  await expect(page.getByText('Advanced keyword syntax')).toBeHidden()
-  await page
-    .getByRole('button', { name: 'Show advanced keyword syntax' })
-    .hover()
-  await expect(page.getByText('site:github.com -pathkeep')).toBeVisible()
-  await expect(page.getByText('manual OR youtube')).toBeVisible()
-
-  await page.getByRole('button', { name: 'jsonl' }).evaluate((element) => {
-    ;(element as HTMLButtonElement).click()
-  })
-  await expect(page.getByText(/pathkeep-export-/)).toBeVisible()
+  // The paper redesign retired the v0.2 ExplorerQueryFiltersPanel chrome:
+  // the "SQLite inspection" trust callout, the AdvancedSearchHelp
+  // hover-card with `site:github.com -pathkeep` / `manual OR youtube`
+  // examples, and the inline `jsonl` export button are all gone. Phase 4
+  // (`?layout=legacy` retirement) deleted those panels — paper Browse is
+  // anchored on the contact-sheet + day navigator + paper Search palette
+  // instead, with export moved into the Maintenance route's PME flow.
+  // The remaining audit ledger journey still exists and is covered below.
+  await expect(page.getByTestId('explorer-page')).toBeVisible()
 
   await Promise.all([
     page.waitForURL(/#\/audit/),
@@ -114,86 +104,44 @@ test('keeps schedule and security review surfaces inspectable in browser preview
   await expect(page.getByText('Archive is Encrypted')).toBeVisible()
 })
 
-test('surfaces intelligence routes and degraded states after the first backup', async ({
+test('surfaces intelligence and assistant routes after the first backup', async ({
   page,
 }) => {
   await completePreviewOnboarding(page)
 
-  await page.goto('/#/explorer?mode=hybrid&q=sqlite')
-  await expect(
-    page.getByRole('heading', { name: 'History Explorer' }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Hybrid', exact: true }),
-  ).toBeDisabled()
-  await expect(page.getByText('Smart search is coming in v0.3')).toBeVisible()
+  // The paper redesign retired the v0.2 ExplorerQueryFiltersPanel's three-mode
+  // toggle (Keyword / Hybrid / Semantic) along with the "Smart search is
+  // coming in v0.3" / "Assistant is coming in v0.3" deferred copy. The paper
+  // Search panel composes mode selection differently and the assistant route
+  // now mounts a real composer. What is left to assert at the e2e level is
+  // simply that the routes still mount their canonical paper testids.
+  await page.goto('/#/assistant')
+  await expect(page).toHaveURL(/#\/assistant/)
 
-  await Promise.all([
-    page.waitForURL(/#\/assistant/),
-    page.getByRole('link', { name: 'AI Assistant', exact: true }).click(),
-  ])
-  await expect(page.getByText('Assistant is coming in v0.3')).toBeVisible()
-
-  await Promise.all([
-    page.waitForURL(/#\/intelligence/),
-    page.getByRole('link', { name: 'Intelligence', exact: true }).click(),
-  ])
+  await page.goto('/#/intelligence')
   await expect(page.getByTestId('intelligence-page')).toBeVisible({
     timeout: 10_000,
   })
   await expect(page.getByTestId('intelligence-runtime-digest')).toBeVisible()
-  await expect(
-    page.getByText('Manual output review moved to Settings'),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('link', { name: 'Review in Settings' }),
-  ).toHaveCount(0)
 })
 
-test('keeps shared profile scope, regex recall, and export guardrails aligned', async ({
-  page,
-}) => {
-  await completePreviewOnboarding(page)
-
-  await page
-    .getByRole('button', { name: 'Switch profile scope' })
-    .evaluate((element) => {
-      ;(element as HTMLButtonElement).click()
-    })
-  await page.getByRole('option', { name: 'Primary' }).evaluate((element) => {
-    ;(element as HTMLButtonElement).click()
-  })
-
-  await expect(page.getByText('Profile scope: Primary')).toBeVisible()
-
-  await page.getByRole('link', { name: 'Explorer', exact: true }).click()
-  await expect(page.getByLabel('Explorer profile')).toHaveValue(
-    'chrome:Default',
-  )
-  await expect(
-    page.getByText(
-      'Showing results for the selected profile. Change it in the top bar.',
-    ),
-  ).toBeVisible()
-
-  await page.getByRole('button', { name: 'Toggle regex mode' }).click()
-  await page.getByLabel('Explorer keyword').fill('sqlite(')
-
-  await expect(page.getByRole('alert')).toHaveText('Invalid regex')
-  await expect(
-    page.getByText('Fix the regex pattern before searching.'),
-  ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'jsonl' })).toHaveCount(0)
-
-  await page.getByLabel('Explorer keyword').fill('sqlite')
-  await expect(page.getByText('Valid regex')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'jsonl' })).toBeEnabled()
-
-  await page.getByRole('button', { name: 'jsonl' }).evaluate((element) => {
-    ;(element as HTMLButtonElement).click()
-  })
-  await expect(page.getByText(/pathkeep-export-/)).toBeVisible()
-})
+// The "keeps shared profile scope, regex recall, and export guardrails
+// aligned" test exercised the v0.2 inline ExplorerQueryFiltersPanel —
+// the "Explorer profile" combobox in the page body, the "Toggle regex
+// mode" button, the keyword `<input>` with debounced commit, the
+// inline-alert "Invalid regex" copy, and the `jsonl` export button. Paper
+// retired all five surfaces:
+//
+// - Profile scope lives in the top-bar source picker (covered by the
+//   shell's status-bar tests).
+// - Regex toggle lives inside the PaperSearchPanel mode strip with
+//   different copy.
+// - Keyword commit is immediate (no debounce), so the alert is gone too.
+// - Export moved into the Maintenance route's PME flow.
+//
+// No equivalent paper surface exists to drive the same workflow end-to-end;
+// the underlying behavior is covered by hook + intelligence-surface unit
+// tests.
 
 test('walks import preview, revert, restore, and doctor review in browser preview', async ({
   page,
@@ -244,14 +192,10 @@ test('walks remote backup settings and Maintenance PME in browser preview', asyn
 
   await page.getByRole('link', { name: 'Settings', exact: true }).click()
   const settingsPage = page.getByTestId('settings-page')
-  const remoteSection = settingsPage
-    .locator('.panel')
-    .filter({ hasText: 'CLOUD BACKUP' })
+  const remoteSection = page.getByTestId('settings-remote')
 
   await expect(settingsPage).toBeVisible()
-  await expect(
-    remoteSection.getByText('CLOUD BACKUP', { exact: true }),
-  ).toBeVisible()
+  await expect(remoteSection).toBeVisible()
 
   await remoteSection.getByLabel('Bucket').fill('example-bucket')
   await remoteSection.getByLabel('Region').fill('us-east-1')
@@ -261,11 +205,12 @@ test('walks remote backup settings and Maintenance PME in browser preview', asyn
   await remoteSection.getByLabel('Secret access key').fill('preview-secret')
   await remoteSection.getByRole('button', { name: 'Save credentials' }).click()
 
-  await remoteSection.getByRole('link', { name: 'Open Maintenance' }).click()
+  // The "Open Maintenance" link lives inside the remote-backup preferences
+  // card; both Settings + Maintenance reuse the same RemoteBackupSection
+  // component so its testid is stable across routes.
+  await page.getByRole('link', { name: /Open Maintenance/i }).first().click()
   const maintenancePage = page.getByTestId('maintenance-page')
-  const maintenanceRemoteSection = maintenancePage
-    .locator('.panel')
-    .filter({ hasText: 'CLOUD BACKUP' })
+  const maintenanceRemoteSection = maintenancePage.getByTestId('settings-remote')
 
   await expect(maintenancePage).toBeVisible()
   await maintenanceRemoteSection
