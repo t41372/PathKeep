@@ -87,6 +87,21 @@
   - 契約：每個 section 一個 commit，視覺一致 + 三語 i18n parity 維持。
   - 驗收：`bun run check` clean、七個 section 用 paper-form-primitives + PaperCard、`docs/design/screens-and-nav.md` Settings 段落更新。
 
+- [ ] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
+  - 讀先：
+    `tests/e2e/shell.spec.ts`
+    `tests/e2e/desktop-bridge.spec.ts`
+    `src/pages/dashboard/index.tsx` (paper surface)
+    `src/app/shell.tsx`
+    `playwright.config.ts`
+  - 目標：6 個 `tests/e2e/shell.spec.ts` test 仍在斷言 v0.2 dashboard 標籤（"RECENT RUNS" 等）。paper redesign 把 dashboard 換成 Archive / On This Day / This Week / Year Heatmap / Active Threads paper cards 後這些斷言全部 missing。每個 test 需要改寫成 paper-surface 期望。
+  - 契約：
+    - 不允許 disable 或 skip — 把 test 重新對齊 paper surface 的真實 DOM。
+    - 共用的 `data-testid` (`dashboard-on-this-day`、`dashboard-archive-card`、`pk-status-bar` etc.) 是穩定的 anchor；避免靠 i18n copy 串斷言。
+    - 若某些 user journey 在 paper redesign 後概念上已不存在（e.g. legacy timeline bar），刪除 test 比強行對齊更好；要 PR comment 解釋。
+  - 驗收：`bun run test:e2e` 與 `bun run test:e2e:desktop-bridge:truth` clean、playwright HTML report 沒 fail、`docs/plan/BACKLOG.md` 同步 close-out。
+  - Note：`playwright.config.ts` 已支援 Ubuntu 26.04 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var（系統 Chrome at `/usr/bin/google-chrome`）— upstream playwright supportedOSes table 還沒對 26.04 提供 chrome-headless-shell binary。
+
 - [ ] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
   - 讀先：
     `src/pages/explorer/index.tsx` (paperLayout 條件 + ExplorerTimelineBar / ExplorerQueryFiltersPanel / ExplorerResultsPanel 分支)
