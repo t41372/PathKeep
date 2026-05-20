@@ -165,13 +165,13 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 
 ## 6. 後續 backlog
 
-- **Settings 完整版**：blocklist textarea、eviction-mode 分段選擇器、TimeTtl/SizeCap/Lru
-  的數值輸入。後端 + AppConfig 已備好，只缺 UI。
-- **Parallelism + per-host rate limit**：`refetch_og_images` 改成多 worker + per-host
-  token bucket（每 host ≥ 500 ms 間距），減少對單一 host 的脈衝。
-- **Schedule tick**：把 `run_og_image_cleanup` 接進 daily schedule.rs 自動觸發。
+> 2026-05-20 update：原本列在這的 5 個 follow-up 中已有 4 個完成（Phase 1.1
+> Settings 完整 UI、Phase 1.2 worker parallelism + per-host rate limit、
+> Phase 1.3 daily backup-tick cleanup hook、Phase 1.4 negative-cache TTL
+> auto-refetch）。剩餘條目見下方。
+
 - **Width / height 量測**：若未來需要在 Settings stats 顯示「平均尺寸」，可加
   pure-Rust `image` crate（features = ["png", "jpeg"]），保持 vcpkg 紅線。
-- **Negative-cache TTL 重抓**：worker 自動掃 `refetch_after < now` 的 row 並重試一次。
+  價值偏低，純資訊性，不阻擋主流程。
 - **匯入時的離線抓取**：與 `WORK-READABLE-CONTENT-V03-A` 對齊，將 og:image 抓取納入
   該 work block 的 batch import 流程。
