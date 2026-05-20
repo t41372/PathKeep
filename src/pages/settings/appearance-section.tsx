@@ -75,8 +75,7 @@ export function AppearanceSection({
   }
 
   return (
-    <PaperCard testId="settings-appearance-section">
-      <span id={anchorId} aria-hidden />
+    <PaperCard testId="settings-appearance-section" id={anchorId}>
       <PaperCardHeader title={t('settings.appearanceTitle')} />
       <PaperCardBody>
         <p className="m-0 mb-4 font-serif text-[13.5px] italic leading-[1.55] text-ink-muted">

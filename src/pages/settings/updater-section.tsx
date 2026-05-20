@@ -90,7 +90,6 @@ export function UpdaterSection({ navItem, state }: UpdaterSectionProps) {
 
   return (
     <PaperCard testId={navItem.id}>
-      <span id={navItem.id} aria-hidden />
       <PaperCardHeader
         title={navItem.label}
         right={

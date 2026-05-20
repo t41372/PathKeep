@@ -250,8 +250,7 @@ export function LinkPreviewsSection({
   ]
 
   return (
-    <PaperCard testId="settings-link-previews-section">
-      <span id={anchorId} aria-hidden />
+    <PaperCard testId="settings-link-previews-section" id={anchorId}>
       <PaperCardHeader title={t('settings.linkPreviewsTitle')} />
       <PaperCardBody>
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">

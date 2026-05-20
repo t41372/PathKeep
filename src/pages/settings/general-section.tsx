@@ -63,7 +63,6 @@ export function GeneralSection({
 
   return (
     <PaperCard testId={navItem.id}>
-      <span id={navItem.id} aria-hidden />
       <PaperCardHeader title={navItem.label} />
       <PaperCardBody>
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">

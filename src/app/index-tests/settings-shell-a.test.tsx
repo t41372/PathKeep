@@ -312,7 +312,7 @@ describe('App shell', () => {
     const aiPanel = expectHtmlElement(
       within(settingsPage)
         .getAllByText(settingsT('aiProvider'))
-        .map((node) => node.closest('.panel'))
+        .map((node) => node.closest('section, .panel'))
         .find((node): node is HTMLElement => node instanceof HTMLElement) ??
         null,
     )
@@ -342,7 +342,7 @@ describe('App shell', () => {
     const aiPanel = expectHtmlElement(
       within(integrationsPage)
         .getByText(settingsT('aiIntegrationArtifactsTitle'))
-        .closest('.panel'),
+        .closest('section, .panel'),
     )
 
     expect(

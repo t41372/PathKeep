@@ -24,6 +24,13 @@ export interface PaperCardProps {
   className?: string
   accent?: boolean
   testId?: string
+  /**
+   * Optional DOM id forwarded to the root element. Settings sections + similar
+   * surfaces use it for hash-link scrolling (`#settings-derived` etc.) and
+   * for test queries that look up the panel via `document.getElementById`.
+   * Defaults to `testId` when only one identifier is needed for both.
+   */
+  id?: string
 }
 
 export function PaperCard({
@@ -31,6 +38,7 @@ export function PaperCard({
   className,
   accent = false,
   testId,
+  id,
 }: PaperCardProps) {
   return (
     <section
@@ -41,6 +49,7 @@ export function PaperCard({
         className,
       )}
       data-testid={testId}
+      id={id ?? testId}
     >
       {children}
     </section>

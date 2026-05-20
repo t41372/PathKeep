@@ -91,7 +91,6 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
 
   return (
     <PaperCard testId={navItem.id}>
-      <span id={navItem.id} aria-hidden />
       <PaperCardHeader
         title={navItem.label}
         right={

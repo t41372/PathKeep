@@ -154,7 +154,6 @@ export function RemoteBackupSection({
 
   return (
     <PaperCard testId={navItem.id}>
-      <span id={navItem.id} aria-hidden />
       <PaperCardHeader
         title={navItem.label}
         right={<PaperCardBadge>{t('settings.s3Compatible')}</PaperCardBadge>}
