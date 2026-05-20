@@ -64,6 +64,11 @@ fn host_denied(error: &str) -> bool {
         || normalized.contains("bootstrap failed: 5")
         || normalized.contains("input/output error")
         || normalized.contains("secret service: no result found")
+        // gnome-keyring on a headless box returns this when the default
+        // collection isn't unlocked (gcr-prompter has no display to ask
+        // the user). It's the post-timeout "give up" path for the same
+        // dev-VM scenario the wall-clock budget guards against.
+        || normalized.contains("locked collection")
 }
 
 #[test]
@@ -136,92 +141,90 @@ fn launcher_smoke_uses_path_shims_for_host_invocation() {
     assert!(captured.contains("https://example.com/pathkeep"));
 }
 
-/// Probes whether the Linux secret-service backend will respond at all
-/// without blocking on a `gcr-prompter` that can't reach a display.
-///
-/// On dev VMs / headless boxes, `gnome-keyring-daemon` activates on first
-/// secret-service access, then tries to spawn `gcr-prompter` to ask the
-/// user to unlock the default collection. With no real graphical session,
-/// the prompter dies but the daemon keeps waiting for a reply, hanging
-/// every subsequent client call indefinitely. Existing `host_denied`
-/// skipping only catches *explicit* failures (permission denied, no
-/// result found) — it can't catch this silent hang.
-///
-/// We run `keyring_status` on a detached worker thread and wait up to
-/// three seconds for it to return. If it doesn't, we treat the backend
-/// as unresponsive and let the caller skip the test the same way an
-/// explicit `host_denied` would. The worker thread continues to run but
-/// is reaped when the test binary exits — acceptable for a one-shot
-/// integration test.
-#[cfg(target_os = "linux")]
-fn linux_keyring_backend_unresponsive() -> bool {
-    use std::{sync::mpsc, time::Duration};
-
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(keyring_status());
-    });
-    receiver.recv_timeout(Duration::from_secs(3)).is_err()
-}
-
 fn native_keyring_roundtrip(service: &str) {
-    #[cfg(target_os = "linux")]
-    if linux_keyring_backend_unresponsive() {
-        eprintln!(
-            "Skipping native keyring smoke because the Linux secret-service backend did not respond within 3s — likely a headless host where gnome-keyring-daemon is waiting on an unreachable unlock prompt."
-        );
-        return;
-    }
-
     let _guard = env_lock().lock().expect("env lock");
     let original_service = std::env::var_os(TEST_KEYRING_SERVICE_ENV);
     unsafe {
         std::env::set_var(TEST_KEYRING_SERVICE_ENV, service);
     }
 
-    let result = (|| -> anyhow::Result<()> {
-        keyring_clear_database_key()?;
-        keyring_clear_s3_credentials()?;
-        keyring_clear_provider_api_key("integration-openai")?;
+    // Wall-clock cap on the whole roundtrip. On headless Linux dev VMs
+    // (XDG_SESSION_TYPE=tty, DISPLAY set but unreachable),
+    // gnome-keyring-daemon activates on first secret-service write and
+    // spawns gcr-prompter to ask the user to unlock the default
+    // collection. The prompter dies trying to open the display, but the
+    // daemon waits for it for ~2 hours before returning an error — long
+    // enough to wreck any reasonable per-commit gate. macOS Keychain and
+    // Windows Credential Manager both finish their roundtrip in well
+    // under a second, so 30 s is a generous upper bound for a healthy
+    // backend.
+    let result = run_keyring_body_with_timeout(std::time::Duration::from_secs(30));
 
-        let status = keyring_status();
-        if !status.available {
-            anyhow::bail!("native keyring backend is unavailable on this host");
-        }
-
-        keyring_set_database_key("native-db-secret")?;
-        assert_eq!(keyring_get_database_key()?, Some("native-db-secret".to_string()));
-
-        let credentials = S3CredentialInput {
-            access_key_id: "access".to_string(),
-            secret_access_key: "secret".to_string(),
-        };
-        keyring_set_s3_credentials(&credentials)?;
-        assert_eq!(keyring_get_s3_credentials()?, Some(credentials));
-
-        keyring_set_provider_api_key("integration-openai", "provider-secret")?;
-        assert_eq!(
-            keyring_get_provider_api_key("integration-openai")?,
-            Some("provider-secret".to_string())
-        );
-
-        keyring_clear_database_key()?;
-        keyring_clear_s3_credentials()?;
-        keyring_clear_provider_api_key("integration-openai")?;
-        assert_eq!(keyring_get_database_key()?, None);
-        Ok(())
-    })();
     restore_env(TEST_KEYRING_SERVICE_ENV, original_service);
 
     match result {
-        Ok(()) => {}
-        Err(error) if host_denied(&error.to_string()) => {
+        Some(Ok(())) => {}
+        Some(Err(error)) if host_denied(&error.to_string()) => {
             eprintln!(
                 "Skipping native keyring smoke because the host denied secure-store access: {error:#}"
             );
         }
-        Err(error) => panic!("native keyring roundtrip failed: {error:#}"),
+        Some(Err(error)) => panic!("native keyring roundtrip failed: {error:#}"),
+        None => {
+            eprintln!(
+                "Skipping native keyring smoke: native backend did not complete within 30s — likely a headless host where gnome-keyring-daemon is waiting on an unreachable unlock prompt."
+            );
+        }
     }
+}
+
+/// Runs the roundtrip body on a detached worker thread and waits up to
+/// `budget` for it to finish. Returns `None` if the budget elapses (the
+/// worker keeps running and is reaped when the test binary exits — fine
+/// for an integration-only test). The caller still holds `env_lock` and
+/// `TEST_KEYRING_SERVICE_ENV` for the full budget, which serializes
+/// against `launcher_smoke_uses_path_shims_for_host_invocation`.
+fn run_keyring_body_with_timeout(budget: std::time::Duration) -> Option<anyhow::Result<()>> {
+    use std::sync::mpsc;
+
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(keyring_roundtrip_body());
+    });
+    receiver.recv_timeout(budget).ok()
+}
+
+fn keyring_roundtrip_body() -> anyhow::Result<()> {
+    keyring_clear_database_key()?;
+    keyring_clear_s3_credentials()?;
+    keyring_clear_provider_api_key("integration-openai")?;
+
+    let status = keyring_status();
+    if !status.available {
+        anyhow::bail!("native keyring backend is unavailable on this host");
+    }
+
+    keyring_set_database_key("native-db-secret")?;
+    assert_eq!(keyring_get_database_key()?, Some("native-db-secret".to_string()));
+
+    let credentials = S3CredentialInput {
+        access_key_id: "access".to_string(),
+        secret_access_key: "secret".to_string(),
+    };
+    keyring_set_s3_credentials(&credentials)?;
+    assert_eq!(keyring_get_s3_credentials()?, Some(credentials));
+
+    keyring_set_provider_api_key("integration-openai", "provider-secret")?;
+    assert_eq!(
+        keyring_get_provider_api_key("integration-openai")?,
+        Some("provider-secret".to_string())
+    );
+
+    keyring_clear_database_key()?;
+    keyring_clear_s3_credentials()?;
+    keyring_clear_provider_api_key("integration-openai")?;
+    assert_eq!(keyring_get_database_key()?, None);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
