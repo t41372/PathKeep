@@ -22,11 +22,24 @@
  */
 
 import { Link } from 'react-router-dom'
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
+import { Field } from './paper-form-primitives'
 import type { SettingsSectionNavItem } from './section-nav-items'
 import type { RemoteBackupSectionState } from './remote-backup-section'
+
+const INPUT_CLASS =
+  'border-border-default rounded-paper bg-paper text-ink w-full font-mono text-[11.5px] px-2 py-1.5 focus:border-accent focus:outline-none disabled:opacity-60'
+const BUTTON_SECONDARY =
+  'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+const BUTTON_DANGER =
+  'border-danger text-danger hover:bg-danger-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * Props for the preference-only cloud-backup settings panel.
@@ -42,6 +55,10 @@ export interface RemoteBackupPreferencesSectionProps {
 
 /**
  * Renders saved backup preferences and credential controls without running backup workflows.
+ *
+ * Paper aesthetic: PaperCard wrap with mono "S3-compatible" badge; checkboxes
+ * + text inputs use paper tokens; credential review uses Field rows with
+ * status + last-uploaded annotation.
  */
 export function RemoteBackupPreferencesSection({
   credentialsSaved,
@@ -71,28 +88,28 @@ export function RemoteBackupPreferencesSection({
   }
 
   return (
-    <div className="panel panel--optional" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-        <span className="panel-badge">{t('settings.s3Compatible')}</span>
-      </div>
-      <div className="panel-body settings-remote-grid">
-        <StatusCallout
-          tone={configured ? 'info' : 'warning'}
-          title={t('settings.remotePreferencesTitle')}
-          body={t('settings.remotePreferencesBody')}
-          actions={
-            <Link className="btn-secondary" to="/maintenance#settings-remote">
-              {t('settings.openMaintenance')}
-            </Link>
-          }
-        />
+    <PaperCard testId={navItem.id}>
+      <span id={navItem.id} aria-hidden />
+      <PaperCardHeader
+        title={navItem.label}
+        right={<PaperCardBadge>{t('settings.s3Compatible')}</PaperCardBadge>}
+      />
+      <PaperCardBody>
+        <div className="mb-4">
+          <StatusCallout
+            tone={configured ? 'info' : 'warning'}
+            title={t('settings.remotePreferencesTitle')}
+            body={t('settings.remotePreferencesBody')}
+            actions={
+              <Link className={BUTTON_SECONDARY} to="/maintenance#settings-remote">
+                {t('settings.openMaintenance')}
+              </Link>
+            }
+          />
+        </div>
 
-        <div className="settings-field-grid">
-          <label className="checkbox-row">
+        <Field label={t('settings.remoteEnabled')}>
+          <label className="text-ink-muted flex items-center gap-2 font-sans text-[12px]">
             <input
               aria-label={t('settings.remoteEnabled')}
               checked={currentDraft.enabled}
@@ -103,7 +120,10 @@ export function RemoteBackupPreferencesSection({
             />
             <span>{t('settings.remoteEnabled')}</span>
           </label>
-          <label className="checkbox-row">
+        </Field>
+
+        <Field label={t('settings.pathStyleLabel')}>
+          <label className="text-ink-muted flex items-center gap-2 font-sans text-[12px]">
             <input
               aria-label={t('settings.pathStyleLabel')}
               checked={currentDraft.pathStyle}
@@ -114,7 +134,10 @@ export function RemoteBackupPreferencesSection({
             />
             <span>{t('settings.pathStyleLabel')}</span>
           </label>
-          <label className="checkbox-row">
+        </Field>
+
+        <Field label={t('settings.uploadAfterBackup')}>
+          <label className="text-ink-muted flex items-center gap-2 font-sans text-[12px]">
             <input
               aria-label={t('settings.uploadAfterBackup')}
               checked={currentDraft.uploadAfterBackup}
@@ -125,52 +148,50 @@ export function RemoteBackupPreferencesSection({
             />
             <span>{t('settings.uploadAfterBackup')}</span>
           </label>
-          <label className="field-stack">
-            <span>{t('settings.bucketLabel')}</span>
-            <input
-              aria-label={t('settings.bucketLabel')}
-              value={currentDraft.bucket}
-              onChange={(event) =>
-                onDraftChange({ bucket: event.target.value })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.regionLabel')}</span>
-            <input
-              aria-label={t('settings.regionLabel')}
-              value={currentDraft.region}
-              onChange={(event) =>
-                onDraftChange({ region: event.target.value })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.endpointLabel')}</span>
-            <input
-              aria-label={t('settings.endpointLabel')}
-              placeholder={t('settings.endpointPlaceholder')}
-              value={currentDraft.endpoint ?? ''}
-              onChange={(event) =>
-                onDraftChange({ endpoint: event.target.value || null })
-              }
-            />
-          </label>
-          <label className="field-stack">
-            <span>{t('settings.prefixLabel')}</span>
-            <input
-              aria-label={t('settings.prefixLabel')}
-              value={currentDraft.prefix}
-              onChange={(event) =>
-                onDraftChange({ prefix: event.target.value })
-              }
-            />
-          </label>
-        </div>
+        </Field>
 
-        <div className="settings-action-row">
+        <Field label={t('settings.bucketLabel')}>
+          <input
+            aria-label={t('settings.bucketLabel')}
+            className={INPUT_CLASS}
+            value={currentDraft.bucket}
+            onChange={(event) => onDraftChange({ bucket: event.target.value })}
+          />
+        </Field>
+
+        <Field label={t('settings.regionLabel')}>
+          <input
+            aria-label={t('settings.regionLabel')}
+            className={INPUT_CLASS}
+            value={currentDraft.region}
+            onChange={(event) => onDraftChange({ region: event.target.value })}
+          />
+        </Field>
+
+        <Field label={t('settings.endpointLabel')}>
+          <input
+            aria-label={t('settings.endpointLabel')}
+            className={INPUT_CLASS}
+            placeholder={t('settings.endpointPlaceholder')}
+            value={currentDraft.endpoint ?? ''}
+            onChange={(event) =>
+              onDraftChange({ endpoint: event.target.value || null })
+            }
+          />
+        </Field>
+
+        <Field label={t('settings.prefixLabel')}>
+          <input
+            aria-label={t('settings.prefixLabel')}
+            className={INPUT_CLASS}
+            value={currentDraft.prefix}
+            onChange={(event) => onDraftChange({ prefix: event.target.value })}
+          />
+        </Field>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
-            className="btn-secondary"
+            className={BUTTON_SECONDARY}
             type="button"
             disabled={Boolean(action)}
             onClick={() => {
@@ -181,74 +202,81 @@ export function RemoteBackupPreferencesSection({
           </button>
         </div>
 
-        <div className="settings-remote-columns">
-          <div className="field-stack">
-            <span>{t('settings.credentialsStatus')}</span>
-            <strong>
-              {credentialsSaved
-                ? t('settings.credentialsSaved')
-                : t('settings.credentialsMissing')}
-            </strong>
-            <span className="dim">
-              {lastUploadedAt
-                ? `${t('settings.lastUploadedAt')}: ${lastUploadedAt}`
-                : t('settings.remoteNoUploadYet')}
-            </span>
-            {lastUploadedObjectKey ? (
-              <span className="dim mono">{lastUploadedObjectKey}</span>
-            ) : null}
-            {lastError ? <span className="dim">{lastError}</span> : null}
-          </div>
-
-          <div className="settings-field-grid">
-            <label className="field-stack">
-              <span>{t('settings.accessKeyId')}</span>
-              <input
-                aria-label={t('settings.accessKeyId')}
-                value={accessKeyId}
-                onChange={(event) => onAccessKeyIdChange(event.target.value)}
-              />
-            </label>
-            <label className="field-stack">
-              <span>{t('settings.secretAccessKey')}</span>
-              <input
-                aria-label={t('settings.secretAccessKey')}
-                type="password"
-                value={secretAccessKey}
-                onChange={(event) =>
-                  onSecretAccessKeyChange(event.target.value)
-                }
-              />
-            </label>
-            <div className="settings-action-row">
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={
-                  Boolean(action) ||
-                  !accessKeyId.trim() ||
-                  !secretAccessKey.trim()
-                }
-                onClick={() => {
-                  void onStoreCredentials()
-                }}
-              >
-                {t('settings.storeRemoteCredentials')}
-              </button>
-              <button
-                className="btn-danger"
-                type="button"
-                disabled={Boolean(action) || !credentialsSaved}
-                onClick={() => {
-                  void onClearCredentials()
-                }}
-              >
-                {t('settings.clearRemoteCredentials')}
-              </button>
+        <div className="border-border-light mt-4 flex flex-col gap-3 border-t pt-3">
+          <Field label={t('settings.credentialsStatus')}>
+            <div className="flex flex-col gap-1">
+              <strong className="text-ink font-sans text-[12px]">
+                {credentialsSaved
+                  ? t('settings.credentialsSaved')
+                  : t('settings.credentialsMissing')}
+              </strong>
+              <span className="text-ink-faint font-mono text-[10.5px]">
+                {lastUploadedAt
+                  ? `${t('settings.lastUploadedAt')}: ${lastUploadedAt}`
+                  : t('settings.remoteNoUploadYet')}
+              </span>
+              {lastUploadedObjectKey ? (
+                <span className="text-ink-faint font-mono text-[10.5px]">
+                  {lastUploadedObjectKey}
+                </span>
+              ) : null}
+              {lastError ? (
+                <span className="text-danger font-mono text-[10.5px]">
+                  {lastError}
+                </span>
+              ) : null}
             </div>
+          </Field>
+
+          <Field label={t('settings.accessKeyId')}>
+            <input
+              aria-label={t('settings.accessKeyId')}
+              className={INPUT_CLASS}
+              value={accessKeyId}
+              onChange={(event) => onAccessKeyIdChange(event.target.value)}
+            />
+          </Field>
+
+          <Field label={t('settings.secretAccessKey')}>
+            <input
+              aria-label={t('settings.secretAccessKey')}
+              className={INPUT_CLASS}
+              type="password"
+              value={secretAccessKey}
+              onChange={(event) =>
+                onSecretAccessKeyChange(event.target.value)
+              }
+            />
+          </Field>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className={BUTTON_SECONDARY}
+              type="button"
+              disabled={
+                Boolean(action) ||
+                !accessKeyId.trim() ||
+                !secretAccessKey.trim()
+              }
+              onClick={() => {
+                void onStoreCredentials()
+              }}
+            >
+              {t('settings.storeRemoteCredentials')}
+            </button>
+            <button
+              className={BUTTON_DANGER}
+              type="button"
+              disabled={Boolean(action) || !credentialsSaved}
+              onClick={() => {
+                void onClearCredentials()
+              }}
+            >
+              {t('settings.clearRemoteCredentials')}
+            </button>
           </div>
         </div>
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

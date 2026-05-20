@@ -23,12 +23,17 @@
 
 import { Link } from 'react-router-dom'
 import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '@/components/cards'
+import {
   PmeTabBar,
   ReviewSection,
   VerifyCheckList,
 } from '../../components/review'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
 import type {
   RemoteBackupConfig,
@@ -36,7 +41,13 @@ import type {
   RemoteBackupResult,
   RemoteBackupVerification,
 } from '../../lib/types'
+import { Field } from './paper-form-primitives'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+const BUTTON_PRIMARY =
+  'border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+const BUTTON_SECONDARY =
+  'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * Defines the route-owned remote-backup state consumed by the extracted section.
@@ -78,6 +89,10 @@ export interface RemoteBackupSectionProps {
 
 /**
  * Renders the remote-backup PME review surface from route-owned state.
+ *
+ * Paper aesthetic: PaperCard for the outer + nested for the PME tab body.
+ * Config rows use Field; manual + execute + verify tab bodies arrange
+ * StatusCallout + Field + mono pre blocks in a vertical paper rhythm.
  */
 export function RemoteBackupSection({
   credentialsSaved,
@@ -138,38 +153,37 @@ export function RemoteBackupSection({
   ]
 
   return (
-    <div className="panel panel--optional" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-        <span className="panel-badge">{t('settings.s3Compatible')}</span>
-      </div>
-      <div className="panel-body settings-remote-grid">
-        <StatusCallout
-          tone={configured ? 'info' : 'warning'}
-          title={t('settings.remoteMaintenanceConfigTitle')}
-          body={t('settings.remoteMaintenanceConfigBody')}
-          actions={
-            <Link className="btn-secondary" to="/settings#settings-remote">
-              {t('settings.remoteMaintenanceEditSettings')}
-            </Link>
-          }
-        />
-
-        <div className="settings-field-grid settings-field-grid--readonly">
-          {configRows.map((row) => (
-            <div className="config-row" key={row.label}>
-              <span className="config-label">{row.label}</span>
-              <span className="config-value mono">{row.value}</span>
-            </div>
-          ))}
+    <PaperCard testId={navItem.id}>
+      <span id={navItem.id} aria-hidden />
+      <PaperCardHeader
+        title={navItem.label}
+        right={<PaperCardBadge>{t('settings.s3Compatible')}</PaperCardBadge>}
+      />
+      <PaperCardBody>
+        <div className="mb-4">
+          <StatusCallout
+            tone={configured ? 'info' : 'warning'}
+            title={t('settings.remoteMaintenanceConfigTitle')}
+            body={t('settings.remoteMaintenanceConfigBody')}
+            actions={
+              <Link className={BUTTON_SECONDARY} to="/settings#settings-remote">
+                {t('settings.remoteMaintenanceEditSettings')}
+              </Link>
+            }
+          />
         </div>
 
-        <div className="settings-action-row">
+        {configRows.map((row) => (
+          <Field key={row.label} label={row.label}>
+            <span className="text-ink-muted font-mono text-[11.5px]">
+              {row.value}
+            </span>
+          </Field>
+        ))}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
-            className="btn-secondary"
+            className={BUTTON_SECONDARY}
             type="button"
             disabled={Boolean(action) || !configured}
             onClick={() => {
@@ -179,7 +193,7 @@ export function RemoteBackupSection({
             {t('settings.previewRemoteBackup')}
           </button>
           <button
-            className="btn-primary"
+            className={BUTTON_PRIMARY}
             type="button"
             disabled={Boolean(action) || !configured || !credentialsSaved}
             onClick={() => {
@@ -189,7 +203,7 @@ export function RemoteBackupSection({
             {t('settings.executeRemoteBackup')}
           </button>
           <button
-            className="btn-secondary"
+            className={BUTTON_SECONDARY}
             type="button"
             disabled={Boolean(action) || !latestRemoteBundlePath}
             onClick={() => {
@@ -200,34 +214,39 @@ export function RemoteBackupSection({
           </button>
         </div>
 
-        <div className="settings-field-grid settings-field-grid--readonly">
-          <div className="field-stack">
-            <span>{t('settings.credentialsStatus')}</span>
-            <strong>
-              {credentialsSaved
-                ? t('settings.credentialsSaved')
-                : t('settings.credentialsMissing')}
-            </strong>
-            <span className="dim">
-              {lastUploadedAt
-                ? `${t('settings.lastUploadedAt')}: ${lastUploadedAt}`
-                : t('settings.remoteNoUploadYet')}
+        <div className="border-border-light mt-4 flex flex-col gap-1 border-t pt-3">
+          <span className="text-ink-faint font-mono text-[10px] tracking-[0.08em] uppercase">
+            {t('settings.credentialsStatus')}
+          </span>
+          <strong className="text-ink font-sans text-[12px]">
+            {credentialsSaved
+              ? t('settings.credentialsSaved')
+              : t('settings.credentialsMissing')}
+          </strong>
+          <span className="text-ink-faint font-mono text-[10.5px]">
+            {lastUploadedAt
+              ? `${t('settings.lastUploadedAt')}: ${lastUploadedAt}`
+              : t('settings.remoteNoUploadYet')}
+          </span>
+          {lastUploadedObjectKey ? (
+            <span className="text-ink-faint font-mono text-[10.5px]">
+              {lastUploadedObjectKey}
             </span>
-            {lastUploadedObjectKey ? (
-              <span className="dim mono">{lastUploadedObjectKey}</span>
-            ) : null}
-            {lastError ? <span className="dim">{lastError}</span> : null}
-          </div>
+          ) : null}
+          {lastError ? (
+            <span className="text-danger font-mono text-[10.5px]">
+              {lastError}
+            </span>
+          ) : null}
         </div>
 
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">
-              <Glyph icon="preview" filled />
-              <span>{t('settings.remotePme')}</span>
+        <div className="border-border-light mt-5 rounded-paper border">
+          <div className="border-border-light border-b px-3 py-2">
+            <span className="text-ink-faint font-mono text-[10px] tracking-[0.08em] uppercase">
+              {t('settings.remotePme')}
             </span>
           </div>
-          <div className="panel-body">
+          <div className="p-3">
             <PmeTabBar
               activeTab={tab}
               onChange={onSetTab}
@@ -240,11 +259,13 @@ export function RemoteBackupSection({
             />
 
             {action ? (
-              <StatusCallout tone="info" title={action} body="" />
+              <div className="mt-3">
+                <StatusCallout tone="info" title={action} body="" />
+              </div>
             ) : null}
 
             {tab === 'preview' ? (
-              <div className="settings-result-list">
+              <div className="mt-3 flex flex-col gap-3">
                 <StatusCallout
                   tone={preview ? 'info' : 'warning'}
                   title={t('settings.previewBoundaryTitle')}
@@ -256,44 +277,40 @@ export function RemoteBackupSection({
                 />
                 {preview ? (
                   <>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.bundlePath')}
-                      </span>
-                      <span className="config-value mono">
+                    <Field label={t('settings.bundlePath')}>
+                      <span className="text-ink-muted font-mono text-[11px] break-all">
                         {preview.bundlePath}
                       </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.objectKey')}
-                      </span>
-                      <span className="config-value mono">
+                    </Field>
+                    <Field label={t('settings.objectKey')}>
+                      <span className="text-ink-muted font-mono text-[11px] break-all">
                         {preview.objectKey}
                       </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.uploadUrl')}
-                      </span>
-                      <span className="config-value mono">
+                    </Field>
+                    <Field label={t('settings.uploadUrl')}>
+                      <span className="text-ink-muted font-mono text-[11px] break-all">
                         {preview.uploadUrl}
                       </span>
-                    </div>
-                    <div className="inline-note-list">
-                      {preview.warnings.map((warning) => (
-                        <div className="result-row" key={warning}>
-                          <p>{warning}</p>
-                        </div>
-                      ))}
-                    </div>
+                    </Field>
+                    {preview.warnings.length ? (
+                      <div className="flex flex-col gap-1">
+                        {preview.warnings.map((warning) => (
+                          <p
+                            key={warning}
+                            className="text-ink-faint m-0 font-mono text-[11px]"
+                          >
+                            {warning}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
               </div>
             ) : null}
 
             {tab === 'manual' ? (
-              <div className="settings-result-list">
+              <div className="mt-3 flex flex-col gap-3">
                 <StatusCallout
                   tone="info"
                   title={t('settings.manualBoundaryTitle')}
@@ -301,19 +318,23 @@ export function RemoteBackupSection({
                 />
                 {preview ? (
                   <>
-                    <div className="code-panel">
-                      <span>{t('settings.previewCommand')}</span>
-                      <pre>{preview.previewCommand}</pre>
-                    </div>
-                    <div className="inline-note-list">
+                    <Field label={t('settings.previewCommand')}>
+                      <pre className="border-border-light bg-page text-ink-muted rounded-paper m-0 max-h-64 overflow-y-auto border px-3 py-2 font-mono text-[11px] whitespace-pre-wrap">
+                        {preview.previewCommand}
+                      </pre>
+                    </Field>
+                    <div className="flex flex-col gap-1">
                       {preview.manualSteps.map((step) => (
-                        <div className="result-row" key={step}>
-                          <p>{step}</p>
-                        </div>
+                        <p
+                          key={step}
+                          className="text-ink-muted m-0 font-mono text-[11px]"
+                        >
+                          {step}
+                        </p>
                       ))}
-                      <div className="result-row">
-                        <p>{t('settings.retentionGuidance')}</p>
-                      </div>
+                      <p className="text-ink-muted m-0 font-mono text-[11px]">
+                        {t('settings.retentionGuidance')}
+                      </p>
                     </div>
                   </>
                 ) : (
@@ -327,7 +348,7 @@ export function RemoteBackupSection({
             ) : null}
 
             {tab === 'execute' ? (
-              <div className="settings-result-list">
+              <div className="mt-3 flex flex-col gap-3">
                 <StatusCallout
                   tone={result?.uploaded ? 'success' : 'warning'}
                   title={t('settings.executeBoundaryTitle')}
@@ -335,28 +356,21 @@ export function RemoteBackupSection({
                 />
                 {result ? (
                   <>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.bundlePath')}
-                      </span>
-                      <span className="config-value mono">
+                    <Field label={t('settings.bundlePath')}>
+                      <span className="text-ink-muted font-mono text-[11px] break-all">
                         {result.bundlePath}
                       </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.objectKey')}
-                      </span>
-                      <span className="config-value mono">
+                    </Field>
+                    <Field label={t('settings.objectKey')}>
+                      <span className="text-ink-muted font-mono text-[11px] break-all">
                         {result.objectKey}
                       </span>
-                    </div>
-                    <div className="config-row">
-                      <span className="config-label">
-                        {t('settings.executeMessage')}
+                    </Field>
+                    <Field label={t('settings.executeMessage')}>
+                      <span className="text-ink-muted font-mono text-[11.5px]">
+                        {result.message}
                       </span>
-                      <span className="config-value">{result.message}</span>
-                    </div>
+                    </Field>
                   </>
                 ) : (
                   <StatusCallout
@@ -369,7 +383,7 @@ export function RemoteBackupSection({
             ) : null}
 
             {tab === 'verify' ? (
-              <div className="settings-result-list">
+              <div className="mt-3 flex flex-col gap-3">
                 <StatusCallout
                   tone={verification?.restoreReady ? 'success' : 'warning'}
                   title={t('settings.verifyBoundaryTitle')}
@@ -418,7 +432,7 @@ export function RemoteBackupSection({
             ) : null}
           </div>
         </div>
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
