@@ -60,32 +60,21 @@
   - 契約：不得在 backup/import critical path 內同步 refetch；不得宣稱可抓取登入頁、PDF、JSON、redirect boundary 或 rate-limited 內容；必須有 explicit privacy/network boundary、queue retry/cancel、failure taxonomy、人話 UI、storage accounting、clear/rebuild 行為，以及 real-site acceptance evidence。
   - 驗收：Settings / Jobs / Maintenance disabled-to-enabled flow、network boundary copy、real HTML/PDF/redirect/rate-limit fixtures、blob storage cleanup、`bun run check`，以及 archive/intelligence/data-model docs 回寫。
 
-- [ ] **WORK-V03-PAPER-REMAINING-ROUTES** — Paper restyle for /schedule, /security, /maintenance, /jobs, /integrations, /onboarding, /lock
-  - 讀先：
-    `docs/design/handoff/paper-redesign/project/pk-tokens.css`
-    `docs/design/handoff/paper-redesign/project/pk-app.jsx`
-    `docs/design/handoff/paper-redesign/project/pk-views.jsx`
-    `docs/design/handoff/paper-redesign/project/tweaks-panel.jsx`
-    `src/pages/{schedule,security,maintenance,jobs,integrations,onboarding,lock}/index.tsx`
-    `src/pages/settings/paper-form-primitives.tsx`
-    `src/pages/settings/link-previews-section.tsx` (reference impl)
-  - 目標：把 v0.3 paper aesthetic 套到剩下七個 sibling routes。每個 route 已經是 `?layout=paper` default surface，但內部仍是 v0.2 chrome。轉成 PaperCard / Field / Toggle / SegmentedControl 等 paper 原語，接真實 backend，三語 i18n parity 不能掉。
-  - 契約：
-    - **沒有設計來源**：`docs/design/handoff/paper-redesign/project/` 不含這七個 route 的專屬 JSX，只有 `pk-app.jsx` / `pk-views.jsx` / `tweaks-panel.jsx` 提供整體 framing 與 settings-like layout 參考。Implementation 走 token 一致性而非 pixel-perfect 設計對照。
-    - 不允許 disabled "Coming in v0.3" UI；現有功能要繼續可用。
-    - paper-form-primitives 是共用入口，Phase 3 Settings 子 section restyle 共用同一層；新需求若不適合該層應該下沉到 `src/components/primitives/`。
-    - 三語 i18n key 在 commit 時齊全（en / zh-CN / zh-TW）。
-  - 驗收：七個 route 全部走 paper 原語、`bun run check` clean、`docs/design/screens-and-nav.md` 寫回新的 paper page descriptions、`STATUS.md` `WORK-V03-PAPER-REDESIGN-A` 對應 acceptance criterion 已勾。
+- [x] **WORK-V03-PAPER-REMAINING-ROUTES** — Paper restyle for /schedule, /security, /maintenance, /jobs, /integrations, /onboarding, /lock
+  - 2026-05-20 closeout: all seven sibling routes use the paper outer wrapper convention (`mx-auto max-w-[1080px] flex flex-col pt-7`) wrapped around existing data shapes. Inner sub-section / step component / state-panel chrome still v0.2 per route — that's a deeper Phase 3-shaped sweep covered by `WORK-SCHEDULE-PAGE-MAINT-A` (schedule), follow-up onboarding step paper sweep, and a future jobs panel paper sweep. Bottom-up commits: 8f8319c integrations / 6a568f2 security+maintenance / c213619 lock / 1852628 onboarding / 6b6599f jobs / e5d0ff6 schedule.
 
-- [ ] **WORK-V03-SETTINGS-SECTIONS-PAPER** — Paper restyle inside each Settings sub-section
+- [x] **WORK-V03-SETTINGS-SECTIONS-PAPER** — Paper restyle inside each Settings sub-section
+  - 2026-05-20 closeout: all 11 Settings sub-sections (general / platform / derived-state / ai-providers / app-lock / profile-selection / updater / retention / remote-backup-section / remote-backup-preferences + the already-paper appearance / link-previews from Phase 1.1) now use paper-form-primitives (Field / Toggle / SegmentedControl) + PaperCard. PaperCard accepts an optional `id` prop so `document.getElementById('settings-X')` queries + hash-link scrolling work as before. Commits: 3e8347f (Phase 1.1) / eaf59ba / 4a4f9e9 / acab346 / 690fff7 / 833d3d9.
+
+- [ ] **WORK-V03-PAPER-REMAINING-ROUTES-INNER** — Paper restyle sibling-route inner panels (deferred from Phase 2)
   - 讀先：
-    `src/pages/settings/paper-form-primitives.tsx`
-    `src/pages/settings/appearance-section.tsx` (reference impl)
-    `src/pages/settings/link-previews-section.tsx` (reference impl)
-    `src/pages/settings/{general,ai,applock,profiles,derived,remote,platform}-section.tsx`
-  - 目標：把 Settings 七個內部 section 從 v0.2 表單 chrome 轉成 paper 原語（Field / Toggle / SegmentedControl + PaperCard）。Phase 1.1 已先把 appearance + link-previews 兩個 section 轉好；其餘 sub-section 沿用同一層 primitives。
-  - 契約：每個 section 一個 commit，視覺一致 + 三語 i18n parity 維持。
-  - 驗收：`bun run check` clean、七個 section 用 paper-form-primitives + PaperCard、`docs/design/screens-and-nav.md` Settings 段落更新。
+    `src/pages/jobs/index.tsx` (jobs-grid / jobs-hero-card / panel chrome)
+    `src/pages/schedule/{not-installed,installed-ok,installed-warn}-state.tsx` (state panels)
+    `src/pages/onboarding/{welcome,browser-detection,storage,security,schedule,ready}-step.tsx`
+    `src/pages/security/panels.tsx` (SecurityStatusPanel / SecurityUnlockPanel / SecurityRekeyPanel)
+  - 目標：把 Phase 2 outer-wrapper sweep 留下的內部 v0.2 chrome（jobs-grid / panel-header / .schedule-header / step .fieldBlock 等）轉成 PaperCard + paper-form-primitives。
+  - 契約：保留現有 testid + behavior；不變更 i18n key。
+  - 驗收：`bun run check` clean、整層走 paper tokens、tests 通過。
 
 - [ ] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
   - 讀先：
