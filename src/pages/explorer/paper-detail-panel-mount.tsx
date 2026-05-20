@@ -35,8 +35,15 @@ export interface PaperDetailPanelMountProps {
   explorerT: (key: string, vars?: Record<string, string | number>) => string
   /** Tells the route to close the panel. */
   onClose: () => void
-  /** Triggered when the user clicks the panel's "Open" action. */
-  onOpen: (id: number | string) => void
+  /**
+   * Triggered when the user clicks the panel's "Open" action. Receives the
+   * canonical page URL so the route can pipe it into the same
+   * `handleVisit(url)` / `openExternalUrl(url)` flow that v0.2 used —
+   * passing the entry id here is a bug, because the route hands it to
+   * `openExternalUrl` which would otherwise try to navigate to the literal
+   * row id ("42").
+   */
+  onOpen: (url: string) => void
   /** Copy-URL action handler; falls back to the global clipboard when undefined. */
   onCopyUrl?: (url: string) => void
 }
@@ -64,7 +71,7 @@ export function PaperDetailPanelMount({
       notes={annotations.notesFor(selectedEntry.url)}
       tags={annotations.tagsFor(selectedEntry.url)}
       onClose={onClose}
-      onOpen={(entry) => onOpen(entry.id)}
+      onOpen={(entry) => onOpen(entry.url)}
       onCopyUrl={(entry) => {
         if (onCopyUrl) {
           onCopyUrl(entry.url)

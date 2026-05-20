@@ -73,6 +73,24 @@ describe('explorer url-state derivations', () => {
     })
   })
 
+  test('synthesizes start/end from `date` when no explicit range is set', () => {
+    const state = deriveExplorerUrlParamState(
+      new URLSearchParams('date=2026-05-17'),
+      null,
+    )
+    expect(state.start).toBe('2026-05-17')
+    expect(state.end).toBe('2026-05-17')
+  })
+
+  test('explicit start/end win over the `date` shorthand', () => {
+    const state = deriveExplorerUrlParamState(
+      new URLSearchParams('date=2026-05-17&start=2026-04-01&end=2026-04-30'),
+      null,
+    )
+    expect(state.start).toBe('2026-04-01')
+    expect(state.end).toBe('2026-04-30')
+  })
+
   test('defaults keyword searches to relevance when sort is not explicit', () => {
     expect(
       deriveExplorerUrlParamState(new URLSearchParams('q=github'), null).sort,

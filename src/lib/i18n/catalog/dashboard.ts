@@ -102,7 +102,13 @@ export const dashboardNamespaceCatalog = {
     scopeNotice:
       'Intelligence views and search results are filtered to the selected profile. Archive health and storage stats always show the full archive.',
     // ── Paper-redesign hero band ──
-    heroMessage: '{days} days away. {pages} pages quietly kept. Everything is here.',
+    // Previously took `{days}` and `{pages}` substitutions that the route
+    // filled with hard-coded literals ("12" / "+18,394"). That was a
+    // Trust & Transparency violation: numbers that looked like real
+    // archive data weren't. The honest message keeps no substitutions
+    // and lets the four real stat cards beneath it carry the numbers.
+    heroMessage:
+      'Everything you’ve kept lives here. Pick up where you left off.',
     statPages: 'Pages',
     statSpan: 'Span',
     statSize: 'GB',
@@ -111,7 +117,8 @@ export const dashboardNamespaceCatalog = {
     onThisDayTitle: 'On this day, a year ago',
     onThisDayError: 'Could not load entries for this day.',
     onThisDayEmpty: 'No archived pages exactly one year ago.',
-    onThisDayFallbackNote: 'Summary needs local LLM · falls back to page listing',
+    onThisDayFallbackNote:
+      'Summary needs local LLM · falls back to page listing',
     onThisDayCountFallback: '{count} pages archived · {deep} deep dives',
     // ── This Week ──
     thisWeekTitle: 'This week',
@@ -129,10 +136,14 @@ export const dashboardNamespaceCatalog = {
     allInsights: 'Insights',
     heatmapLegendLess: 'Less',
     heatmapLegendMore: 'More',
+    yearInPagesEmpty:
+      'A per-day heatmap goes live when daily rollups land. For now, the full Intelligence surface holds the deeper view.',
     // ── Active threads ──
     activeThreadsTitle: "What you've been thinking about",
     activeThreadsAll: 'All threads',
     threadsPagesUnit: 'pages',
+    activeThreadsEmpty:
+      'Threads will surface here once the Intelligence route wires query families and path flows. Open Intelligence for the current signal.',
     // ── Archive card ──
     archiveCardTitle: 'Your archive',
     archiveLineCore: 'Core archive',
@@ -145,7 +156,8 @@ export const dashboardNamespaceCatalog = {
     archiveExport: 'Export',
     archiveReveal: 'Reveal',
     // ── Footer ──
-    localFirstFooter: 'Local-first. 0 network requests. Your reading life, kept safe.',
+    localFirstFooter:
+      'Local-first. 0 network requests. Your reading life, kept safe.',
     // ── Span formatter ──
     spanYearsAndMonths: '{years}y {months}m',
     spanMonths: '{months}m',
@@ -223,7 +235,7 @@ export const dashboardNamespaceCatalog = {
     scopeNotice:
       '已选择特定浏览器，智能分析视图和搜索会根据选择筛选，但存档状态和存储统计仍显示全部数据。',
     // ── 纸面重设计 hero band ──
-    heroMessage: '已经 {days} 天没打开。+{pages} 个页面悄悄保留。一切都在。',
+    heroMessage: '你保留下来的一切都在这里。从你停下的地方继续。',
     statPages: '页面',
     statSpan: '跨度',
     statSize: 'GB',
@@ -241,6 +253,10 @@ export const dashboardNamespaceCatalog = {
     weekStatUrls: '新增 URL',
     weekStatRuns: '备份次数',
     yearInPagesTitle: '过去一年',
+    yearInPagesEmpty:
+      '每日热图等待每日 rollups 接通后上线。目前 Intelligence 页有更深入的视图。',
+    activeThreadsEmpty:
+      '当 Intelligence 路由接上 query families 与 path flows 之后，主题线会浮现在这里。现在请前往 Intelligence 查看实时信号。',
     heatmapStreakLabel: '连续',
     allInsights: '智能分析',
     heatmapLegendLess: '较少',
@@ -335,7 +351,7 @@ export const dashboardNamespaceCatalog = {
     scopeNotice:
       '已選擇特定瀏覽器，智慧分析視圖和搜尋會依此篩選，但封存狀態和儲存統計仍顯示全部資料。',
     // ── 紙面重設計 hero band ──
-    heroMessage: '已經 {days} 天沒打開。+{pages} 個頁面悄悄保留。一切都在。',
+    heroMessage: '你保留下來的一切都在這裡。從你停下的地方繼續。',
     statPages: '頁面',
     statSpan: '跨度',
     statSize: 'GB',
@@ -353,6 +369,10 @@ export const dashboardNamespaceCatalog = {
     weekStatUrls: '新增 URL',
     weekStatRuns: '備份次數',
     yearInPagesTitle: '過去一年',
+    yearInPagesEmpty:
+      '每日熱圖將在每日 rollups 接通後上線。目前 Intelligence 頁有更深入的視圖。',
+    activeThreadsEmpty:
+      '當 Intelligence 路由接上 query families 與 path flows 後，主題線會浮現在這裡。現在請前往 Intelligence 查看實時訊號。',
     heatmapStreakLabel: '連續',
     allInsights: '智慧分析',
     heatmapLegendLess: '較少',

@@ -31,11 +31,11 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
-import {
-  YearHeatmap,
-  generateHeatmapCells,
-  type HeatmapCell,
-} from '@/components/heatmap/year-heatmap'
+// The synthetic `generateHeatmapCells` helper is intentionally NOT imported
+// here. The backend does not currently expose a per-day visit count for the
+// past 365 days (only the `get_browsing_rhythm` dow×hour aggregate), so the
+// dashboard renders an honest "not wired yet" empty state instead of feeding
+// the heatmap fake levels that look like real archive data.
 import { DashboardArchiveCard } from './archive-card'
 import { DashboardOnThisDay } from './on-this-day-card'
 import { DashboardThisWeek } from './this-week-card'
@@ -71,7 +71,6 @@ export function DashboardPage() {
   })
 
   const greeting = useMemoGreeting(language)
-  const heatmapCells = useMemo(() => generateHeatmapCells(), [])
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -137,12 +136,12 @@ export function DashboardPage() {
     >
       <HeroBand
         greeting={greeting}
-        message={t('dashboard.heroMessage', {
-          days: '12',
-          pages: '+18,394',
-        })}
+        message={t('dashboard.heroMessage')}
         stats={[
-          { value: compactNumber(readyDashboard.totalVisits), label: t('dashboard.statPages') },
+          {
+            value: compactNumber(readyDashboard.totalVisits),
+            label: t('dashboard.statPages'),
+          },
           { value: spanLabel, label: t('dashboard.statSpan') },
           { value: totalSizeLabel || '0 B', label: t('dashboard.statSize') },
           { value: String(sourcesCount), label: t('dashboard.statSources') },
@@ -154,7 +153,11 @@ export function DashboardPage() {
           entries={onThisDayEntries}
           loading={onThisDayLoading}
           error={onThisDayError}
-          onJumpToDate={(date) => void navigate(`/explorer?date=${encodeURIComponent(date)}&source=on-this-day`)}
+          onJumpToDate={(date) =>
+            void navigate(
+              `/explorer?date=${encodeURIComponent(date)}&source=on-this-day`,
+            )
+          }
           onOpenEntry={(entry) =>
             void navigate(
               `/explorer?date=${encodeURIComponent(entry.date)}&source=on-this-day`,
@@ -173,30 +176,18 @@ export function DashboardPage() {
           title={t('dashboard.yearInPagesTitle')}
           compact
           right={
-            <>
-              <span>
-                {t('dashboard.heatmapStreakLabel')}:{' '}
-                <span className="text-ink-secondary">
-                  {computeStreak(heatmapCells)}d
-                </span>
-              </span>
-              <PaperCardBadge onClick={() => void navigate('/intelligence')}>
-                {t('dashboard.allInsights')} →
-              </PaperCardBadge>
-            </>
+            <PaperCardBadge onClick={() => void navigate('/intelligence')}>
+              {t('dashboard.allInsights')} →
+            </PaperCardBadge>
           }
         />
         <PaperCardBody className="px-[18px] pb-[14px] pt-[10px]">
-          <YearHeatmap
-            cells={heatmapCells}
-            onSelectDate={(date) =>
-              void navigate(`/explorer?date=${encodeURIComponent(date)}`)
-            }
-            legend={{
-              less: t('dashboard.heatmapLegendLess'),
-              more: t('dashboard.heatmapLegendMore'),
-            }}
-          />
+          <p
+            className="m-0 font-serif text-[13.5px] italic leading-[1.55] text-ink-muted"
+            data-testid="dashboard-year-empty"
+          >
+            {t('dashboard.yearInPagesEmpty')}
+          </p>
         </PaperCardBody>
       </PaperCard>
 
@@ -286,18 +277,6 @@ function useMemoGreeting(language: string): string {
   }, [language])
 }
 
-function computeStreak(cells: HeatmapCell[]): number {
-  let streak = 0
-  for (let i = cells.length - 1; i >= 0; i -= 1) {
-    if (cells[i].count > 0) {
-      streak += 1
-    } else {
-      break
-    }
-  }
-  return streak
-}
-
 function compactNumber(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
@@ -363,4 +342,3 @@ function formatSpan(
     return '—'
   }
 }
-

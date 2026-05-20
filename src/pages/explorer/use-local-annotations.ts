@@ -52,6 +52,13 @@ export interface LocalAnnotations {
   tagsFor(key: string | null | undefined): string[]
   updateNotes(key: string, next: string): void
   updateTags(key: string, next: string[]): void
+  /**
+   * Last async failure from a hydration or write. The localStorage hook
+   * never fails (so this is always `null`); the desktop hook populates it
+   * when a backend GET/PUT rejects, so the detail panel can surface the
+   * problem instead of silently pretending the edit was saved.
+   */
+  lastError?: string | null
 }
 
 export function useLocalAnnotations(): LocalAnnotations {
@@ -88,7 +95,7 @@ export function useLocalAnnotations(): LocalAnnotations {
   }, [])
 
   return useMemo(
-    () => ({ notesFor, tagsFor, updateNotes, updateTags }),
+    () => ({ notesFor, tagsFor, updateNotes, updateTags, lastError: null }),
     [notesFor, tagsFor, updateNotes, updateTags],
   )
 }

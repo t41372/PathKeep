@@ -316,20 +316,51 @@ fn evict_until_under_size(
     max_bytes: u64,
     use_last_shown: bool,
 ) -> Result<i64> {
-    // Pull (page_url, byte_size) ordered by eviction priority. Rows without
-    // a blob still contribute zero bytes but they get evicted first under
-    // both Size and LRU modes since they take a row slot for no benefit.
+    // Pull every row's (page_url, blob_hash, byte_size) ordered by eviction
+    // priority. Rows without a blob still contribute zero bytes but they get
+    // evicted first under both Size and LRU modes since they take a row slot
+    // for no benefit.
+    //
+    // Important: bytes can only be reclaimed when the LAST row referencing a
+    // blob is deleted, because identical bytes are deduped in og_image_blobs.
+    // The earlier implementation subtracted byte_size for *every* evicted
+    // row, which double-counts on shared blobs and stops eviction early
+    // (leaving the cache above the cap). We now track a refcount per blob
+    // and only debit `total_bytes` when the refcount hits zero.
     let order_clause = if use_last_shown {
         // NULLS FIRST means rows never shown evict before rows shown long ago.
         "last_shown_at IS NULL DESC, last_shown_at ASC, fetched_at ASC"
     } else {
         "fetched_at ASC"
     };
+
+    // refcount = number of og_images rows pointing at each blob_hash. We
+    // build this up-front; the eviction walk decrements it.
+    let mut refcount: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    let mut blob_bytes: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    {
+        let mut refstmt = connection.prepare(
+            "SELECT og_images.image_blob_hash, og_image_blobs.byte_size
+             FROM og_images
+             LEFT JOIN og_image_blobs
+               ON og_image_blobs.blob_hash = og_images.image_blob_hash
+             WHERE og_images.image_blob_hash IS NOT NULL",
+        )?;
+        let mut rows = refstmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let hash: String = row.get(0)?;
+            let bytes: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
+            *refcount.entry(hash.clone()).or_insert(0) += 1;
+            blob_bytes.entry(hash).or_insert(bytes);
+        }
+    }
+
     let sql = format!(
         "SELECT og_images.page_url,
-                COALESCE(og_image_blobs.byte_size, 0)
+                og_images.image_blob_hash
          FROM og_images
-         LEFT JOIN og_image_blobs ON og_image_blobs.blob_hash = og_images.image_blob_hash
          ORDER BY {order_clause}",
     );
     let mut statement = connection.prepare(&sql)?;
@@ -348,9 +379,19 @@ fn evict_until_under_size(
         match rows.next()? {
             Some(row) => {
                 let url: String = row.get(0)?;
-                let bytes: i64 = row.get(1)?;
+                let blob_hash: Option<String> = row.get(1)?;
                 evict_urls.push(url);
-                total_bytes -= bytes;
+                if let Some(hash) = blob_hash {
+                    if let Some(remaining) = refcount.get_mut(&hash) {
+                        *remaining -= 1;
+                        if *remaining <= 0 {
+                            // This was the last row referencing the blob —
+                            // its bytes will actually be reclaimed by the
+                            // orphan GC pass that runs after the evict.
+                            total_bytes -= *blob_bytes.get(&hash).unwrap_or(&0);
+                        }
+                    }
+                }
             }
             None => break,
         }
@@ -636,6 +677,97 @@ mod tests {
             .optional()
             .unwrap();
         assert!(surviving_a.is_none());
+    }
+
+    #[test]
+    fn cleanup_size_cap_accounts_for_shared_blobs_correctly() {
+        // Regression for the byte-accounting bug where evicting a row that
+        // shared its blob with other rows would still subtract the full
+        // blob byte_size from `total_bytes`, stopping eviction early and
+        // leaving the cache above the cap.
+        let connection = open_test_archive();
+
+        // Build a 600 KiB blob shared by /shared-a, /shared-b, /shared-c
+        // (1.8 MiB worth of duplicate accounting if we naively subtracted
+        // per row), and a separate 200 KiB blob held by /unique. Total
+        // actual storage = 800 KiB. Cap at 700 KiB → ONLY the unique blob
+        // can be reclaimed; the shared blob can't be evicted without
+        // dropping all three rows.
+        let big_bytes = vec![0xAB_u8; 600 * 1024];
+        let small_bytes = {
+            // distinct content so this is a distinct blob.
+            let mut v = vec![0_u8; 200 * 1024];
+            for (idx, byte) in v.iter_mut().enumerate() {
+                *byte = (idx % 200) as u8;
+            }
+            v
+        };
+        upsert_og_image(
+            &connection,
+            &ok_insert("https://example.com/shared-a", &big_bytes),
+        )
+        .unwrap();
+        upsert_og_image(
+            &connection,
+            &ok_insert("https://example.com/shared-b", &big_bytes),
+        )
+        .unwrap();
+        upsert_og_image(
+            &connection,
+            &ok_insert("https://example.com/shared-c", &big_bytes),
+        )
+        .unwrap();
+        upsert_og_image(
+            &connection,
+            &ok_insert("https://example.com/unique", &small_bytes),
+        )
+        .unwrap();
+        // Make /unique oldest so it would be evicted first by fetched_at.
+        connection
+            .execute(
+                "UPDATE og_images SET fetched_at = '2026-01-01T00:00:00Z'
+                 WHERE page_url = 'https://example.com/unique'",
+                [],
+            )
+            .unwrap();
+
+        let stats_before = storage_stats(&connection).unwrap();
+        assert_eq!(stats_before.blob_count, 2);
+        assert_eq!(
+            stats_before.total_bytes,
+            (big_bytes.len() + small_bytes.len()) as i64,
+        );
+
+        let report = run_cleanup(
+            &connection,
+            OgImageCleanupMode::SizeCap {
+                max_bytes: 700 * 1024,
+            },
+        )
+        .unwrap();
+        // The unique blob accounts for the only bytes that can actually be
+        // reclaimed without dropping all three shared rows. The eviction
+        // should pick exactly the unique row (oldest fetched_at) and stop.
+        assert_eq!(report.deleted_rows, 1);
+        assert_eq!(report.deleted_blobs, 1);
+        assert_eq!(report.reclaimed_bytes, small_bytes.len() as i64);
+
+        // Shared rows survive.
+        let surviving: Vec<String> = connection
+            .prepare("SELECT page_url FROM og_images ORDER BY page_url")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(
+            surviving,
+            vec![
+                "https://example.com/shared-a".to_string(),
+                "https://example.com/shared-b".to_string(),
+                "https://example.com/shared-c".to_string(),
+            ],
+        );
     }
 
     #[test]

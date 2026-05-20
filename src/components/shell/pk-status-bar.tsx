@@ -16,7 +16,11 @@
  */
 
 import { useMemo } from 'react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { useI18n } from '@/lib/i18n/hooks'
 import { cn } from '@/lib/cn'
 
@@ -25,7 +29,16 @@ export interface PKStatusBarSource {
   label: string
   profile?: string | null
   color: string
-  pages: number
+  /**
+   * Per-source page count. Optional because the backend's
+   * `BrowserProfile.historyBytes` is *bytes on disk* (not a row count),
+   * and we don't currently surface a per-profile visit total.
+   * Earlier versions of this prop received `historyBytes` here and
+   * displayed it as "pages" — a visible-to-the-user inaccuracy. Until
+   * the backend exposes a real per-profile row count, leave undefined
+   * and the picker shows only the byte size.
+   */
+  pages?: number
   size: string
 }
 
@@ -75,11 +88,10 @@ export function PKStatusBar({
     return pool[idx]
   }, [epigraphIndex, t])
 
-  const totalPagesLabel = totalPages !== null
-    ? new Intl.NumberFormat().format(totalPages)
-    : null
+  const totalPagesLabel =
+    totalPages !== null ? new Intl.NumberFormat().format(totalPages) : null
   const activeSource = selectedSourceId
-    ? sources.find((s) => s.id === selectedSourceId) ?? null
+    ? (sources.find((s) => s.id === selectedSourceId) ?? null)
     : null
   const sourceTriggerLabel = activeSource
     ? `${activeSource.label}${activeSource.profile ? ` · ${activeSource.profile}` : ''}`
@@ -143,13 +155,15 @@ export function PKStatusBar({
                       style={{ background: activeSource.color }}
                     />
                   ) : (
-                    sources.slice(0, 4).map((source) => (
-                      <span
-                        key={source.id}
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: source.color }}
-                      />
-                    ))
+                    sources
+                      .slice(0, 4)
+                      .map((source) => (
+                        <span
+                          key={source.id}
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ background: source.color }}
+                        />
+                      ))
                   )}
                 </span>
                 <span>{sourceTriggerLabel}</span>
@@ -203,7 +217,9 @@ export function PKStatusBar({
                   key={source.id}
                   type="button"
                   onClick={() =>
-                    onSelectSource(selectedSourceId === source.id ? null : source.id)
+                    onSelectSource(
+                      selectedSourceId === source.id ? null : source.id,
+                    )
                   }
                   className={cn(
                     'flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-hover',
@@ -218,11 +234,16 @@ export function PKStatusBar({
                     <span className="block font-sans text-[12.5px] text-ink">
                       {source.label}
                       {source.profile ? (
-                        <span className="text-ink-faint"> · {source.profile}</span>
+                        <span className="text-ink-faint">
+                          {' '}
+                          · {source.profile}
+                        </span>
                       ) : null}
                     </span>
                     <span className="block font-mono text-[10px] text-ink-faint">
-                      {new Intl.NumberFormat().format(source.pages)} {t('shell.pages')} · {source.size}
+                      {typeof source.pages === 'number' && source.pages > 0
+                        ? `${new Intl.NumberFormat().format(source.pages)} ${t('shell.pages')} · ${source.size}`
+                        : source.size}
                     </span>
                   </span>
                   {selectedSourceId === source.id && (
@@ -259,7 +280,5 @@ export function PKStatusBar({
 }
 
 function Sep() {
-  return (
-    <span aria-hidden className="bg-border-light inline-block h-3 w-px" />
-  )
+  return <span aria-hidden className="bg-border-light inline-block h-3 w-px" />
 }

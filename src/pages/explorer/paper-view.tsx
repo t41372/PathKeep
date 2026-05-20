@@ -85,6 +85,19 @@ export interface PaperExplorerCopy {
   }
   /** Template for the year-rail tooltip: "{year} · {count} pages". */
   yearRailTitle: string
+  /** ARIA label for the year-scrubber rail. */
+  yearRailAria: string
+  /** Target-banner kicker copy for the four sources. */
+  target: {
+    fromOnThisDay: string
+    fromSearch: string
+    /** Supports a `{query}` substitution. */
+    fromSearchWithQuery: string
+    fromIntelligence: string
+    /** Supports a `{count}` substitution. */
+    pagesArchived: string
+    noArchive: string
+  }
 }
 
 export interface PaperExplorerViewProps {
@@ -253,9 +266,15 @@ export function PaperExplorerView({
       },
       currentDate: activeDate,
       onJump: handleCalendarSelect,
-      ariaLabel: 'Year scrubber',
+      ariaLabel: copy.yearRailAria,
     }),
-    [perYearDensity, bounds, activeDate, handleCalendarSelect],
+    [
+      perYearDensity,
+      bounds,
+      activeDate,
+      handleCalendarSelect,
+      copy.yearRailAria,
+    ],
   )
 
   const target = useMemo<PaperContactSheetTarget | null>(
@@ -267,8 +286,17 @@ export function PaperExplorerView({
         targetEntryId,
         days,
         language,
+        copy.target,
       ),
-    [targetDate, targetSource, targetQuery, targetEntryId, days, language],
+    [
+      targetDate,
+      targetSource,
+      targetQuery,
+      targetEntryId,
+      days,
+      language,
+      copy.target,
+    ],
   )
 
   const calendarSlot = calOpen ? (
@@ -376,6 +404,7 @@ function buildTarget(
   entryId: number | string | null,
   days: PaperDay[],
   language: string,
+  targetCopy: PaperExplorerCopy['target'],
 ): PaperContactSheetTarget | null {
   if (!targetDate) return null
   const targetDay = days.find((day) => day.date === targetDate)
@@ -383,14 +412,14 @@ function buildTarget(
   const kicker =
     safeSource === 'search'
       ? query
-        ? `From search · "${query}"`
-        : 'From search'
+        ? targetCopy.fromSearchWithQuery.replace('{query}', query)
+        : targetCopy.fromSearch
       : safeSource === 'intelligence'
-        ? 'From intelligence'
-        : "From 'On this day'"
+        ? targetCopy.fromIntelligence
+        : targetCopy.fromOnThisDay
   const status = targetDay
-    ? `${targetDay.visitCount} pages archived`
-    : 'No archive for this exact day yet'
+    ? targetCopy.pagesArchived.replace('{count}', String(targetDay.visitCount))
+    : targetCopy.noArchive
   return {
     source: safeSource,
     date: targetDate,

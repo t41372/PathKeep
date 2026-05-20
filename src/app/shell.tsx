@@ -30,6 +30,7 @@ import {
   formatBuildVersionTitle,
 } from '@/lib/build-info'
 import type { HistoryQueryResponse, StorageSummary } from '@/lib/types'
+import { useI18n } from '@/lib/i18n'
 import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
 
@@ -58,6 +59,7 @@ const SOURCE_COLORS: Record<string, string> = {
 export function AppShell() {
   const shell = useShellData()
   const navigate = useNavigate()
+  const { language, t } = useI18n()
 
   const matches = useMatches()
   const activeScreen =
@@ -178,7 +180,9 @@ export function AppShell() {
         SOURCE_COLORS[profile.browserFamily] ??
         SOURCE_COLORS[profile.browserName] ??
         '#8a7f70',
-      pages: Math.max(0, profile.historyBytes),
+      // `historyBytes` is bytes on disk for the source's history database,
+      // not a row count. Leaving `pages` undefined so the picker shows
+      // just the byte size instead of falsely reporting "N pages".
       size: humanizeBytes(profile.historyBytes),
     }))
   }, [shell.snapshot])
@@ -187,10 +191,14 @@ export function AppShell() {
   const totalSize =
     humanizeBytes(sumStorageBytes(shell.dashboard?.storage)) || null
   const sinceLabel = shell.dashboard?.lastSuccessfulBackupAt
-    ? formatSinceLabel(shell.dashboard.lastSuccessfulBackupAt)
+    ? formatSinceLabel(shell.dashboard.lastSuccessfulBackupAt, t, language)
     : null
   const lastArchivedLabel = shell.dashboard?.lastSuccessfulBackupAt
-    ? formatLastArchivedLabel(shell.dashboard.lastSuccessfulBackupAt)
+    ? formatLastArchivedLabel(
+        shell.dashboard.lastSuccessfulBackupAt,
+        t,
+        language,
+      )
     : null
   const archiving = Boolean(shell.busyAction)
   const initialized = shell.snapshot?.archiveStatus?.initialized ?? false
@@ -359,26 +367,36 @@ function humanizeBytes(bytes: number): string {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
-function formatSinceLabel(isoTimestamp: string): string {
+function formatSinceLabel(
+  isoTimestamp: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+): string {
   try {
     const date = new Date(isoTimestamp)
     if (Number.isNaN(date.getTime())) return ''
-    const month = date.toLocaleString('en-US', { month: 'short' })
-    return `Since ${month} ${date.getFullYear()}`
+    const locale = language === 'system' ? undefined : language
+    const month = date.toLocaleString(locale, { month: 'short' })
+    return t('shell.since', { month, year: date.getFullYear() })
   } catch {
     return ''
   }
 }
 
-function formatLastArchivedLabel(isoTimestamp: string): string {
+function formatLastArchivedLabel(
+  isoTimestamp: string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  language: string,
+): string {
   try {
     const date = new Date(isoTimestamp)
     if (Number.isNaN(date.getTime())) return ''
-    const time = date.toLocaleTimeString([], {
+    const locale = language === 'system' ? undefined : language
+    const time = date.toLocaleTimeString(locale, {
       hour: '2-digit',
       minute: '2-digit',
     })
-    return `Last archived ${time}`
+    return t('shell.lastArchivedAt', { time })
   } catch {
     return ''
   }

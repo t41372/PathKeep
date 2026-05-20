@@ -103,11 +103,11 @@ describe('PaperDetailPanelMount', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  test('Open action forwards the entry id', () => {
+  test('Open action forwards the page URL (not the entry id)', () => {
     const onOpen = vi.fn()
     render(
       <PaperDetailPanelMount
-        selectedEntry={makeEntry({ id: 42 })}
+        selectedEntry={makeEntry({ id: 42, url: 'https://example.com/x' })}
         annotations={emptyAnnotations()}
         explorerT={explorerT}
         onClose={() => {}}
@@ -117,7 +117,10 @@ describe('PaperDetailPanelMount', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'paperBrowse.detailActionOpen' }),
     )
-    expect(onOpen).toHaveBeenCalledWith(42)
+    // The route hands this argument to handleVisit → openExternalUrl,
+    // so it must be the URL string. Passing the numeric id would try to
+    // open "42" as a URL.
+    expect(onOpen).toHaveBeenCalledWith('https://example.com/x')
   })
 
   test('Copy URL action forwards through onCopyUrl when provided', () => {

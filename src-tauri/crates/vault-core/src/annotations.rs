@@ -118,21 +118,30 @@ pub fn replace_tags(
         anyhow::bail!("url is required");
     }
     let normalized = normalize_tags(&request.tags)?;
-    let connection = open_archive_connection(paths, config, key)?;
+    let mut connection = open_archive_connection(paths, config, key)?;
     let now = now_rfc3339();
-    connection
-        .execute("DELETE FROM url_tags WHERE url = ?1", params![request.url])
-        .context("clearing url_tags for replacement")?;
-    if !normalized.is_empty() {
-        let mut statement = connection.prepare(
-            r#"INSERT INTO url_tags(url, tag, created_at, source_profile)
-               VALUES(?1, ?2, ?3, ?4)"#,
-        )?;
-        for tag in &normalized {
-            statement
-                .execute(params![request.url, tag, now, request.source_profile])
-                .with_context(|| format!("inserting url_tags row for `{tag}`"))?;
+    // Replace must be atomic: a delete-then-insert sequence that errors
+    // half-way through (constraint violation, disk-full, etc.) would
+    // silently drop the user's tag list. Wrap the whole replacement in a
+    // transaction so either the new tag list lands or nothing changes.
+    {
+        let tx = connection
+            .transaction()
+            .context("opening replace_tags transaction")?;
+        tx.execute("DELETE FROM url_tags WHERE url = ?1", params![request.url])
+            .context("clearing url_tags for replacement")?;
+        if !normalized.is_empty() {
+            let mut statement = tx.prepare(
+                r#"INSERT INTO url_tags(url, tag, created_at, source_profile)
+                   VALUES(?1, ?2, ?3, ?4)"#,
+            )?;
+            for tag in &normalized {
+                statement
+                    .execute(params![request.url, tag, now, request.source_profile])
+                    .with_context(|| format!("inserting url_tags row for `{tag}`"))?;
+            }
         }
+        tx.commit().context("committing replace_tags transaction")?;
     }
     Ok(read_annotation(&connection, &request.url)?.unwrap_or_else(|| UrlAnnotation {
         url: request.url.clone(),
@@ -184,8 +193,8 @@ pub fn search_annotations(
     )?;
     let urls: Vec<String> = statement
         .query_map(params![pattern, cap as i64], |row| row.get::<_, String>(0))?
-        .filter_map(|row| row.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("decoding search_annotations URL rows")?;
     let mut out = Vec::with_capacity(urls.len());
     for url in &urls {
         if let Some(annotation) = read_annotation(&connection, url)? {
@@ -235,8 +244,8 @@ fn collect_annotated_urls(connection: &Connection, cap: usize) -> Result<Vec<Str
     )?;
     let rows: Vec<String> = statement
         .query_map(params![cap as i64], |row| row.get::<_, String>(0))?
-        .filter_map(|row| row.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("decoding annotated-URL rows")?;
     Ok(rows)
 }
 
@@ -261,8 +270,8 @@ fn read_annotation(connection: &Connection, url: &str) -> Result<Option<UrlAnnot
     )?;
     let tags: Vec<String> = tag_statement
         .query_map(params![url], |row| row.get::<_, String>(0))?
-        .filter_map(|row| row.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .context("decoding url_tags rows")?;
     match (row, tags.is_empty()) {
         (Some((notes, created_at, updated_at, source_profile)), _) => Ok(Some(UrlAnnotation {
             url: url.to_string(),

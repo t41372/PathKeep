@@ -71,6 +71,15 @@ const COPY: PaperExplorerCopy = {
     boundsMeta: '{firstYear}–{lastYear} · {totalDays} days',
   },
   yearRailTitle: '{year} · {count} pages',
+  yearRailAria: 'Year scrubber',
+  target: {
+    fromOnThisDay: "From 'On this day'",
+    fromSearch: 'From search',
+    fromSearchWithQuery: 'From search · "{query}"',
+    fromIntelligence: 'From intelligence',
+    pagesArchived: '{count} pages archived',
+    noArchive: 'No archive for this exact day yet',
+  },
 }
 
 function makeEntry(overrides: Partial<HistoryEntry>): HistoryEntry {

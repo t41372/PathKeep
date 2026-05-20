@@ -599,7 +599,17 @@ export function ExplorerPage() {
               const next = new URLSearchParams(searchParams)
               next.set('date', dayDate)
               next.set('source', 'search')
+              // Drop the search-mode params so the user actually lands in the
+              // Browse day-context view instead of "search results within
+              // that day". Keeping `q` / `mode` / `regex` here would leave
+              // the user staring at the same filtered list and call the
+              // jump a no-op.
               next.delete('surface')
+              next.delete('q')
+              next.delete('mode')
+              next.delete('regex')
+              next.delete('page')
+              setQueryInput('')
               setSearchParams(next)
               setSelectedId(Number(entry.id))
             }}
@@ -735,7 +745,7 @@ export function ExplorerPage() {
           annotations={annotations}
           explorerT={explorerT}
           onClose={() => setPaperDetailOpen(false)}
-          onOpen={(id) => void handleVisit(String(id))}
+          onOpen={(url) => void handleVisit(url)}
         />
       ) : null}
     </section>

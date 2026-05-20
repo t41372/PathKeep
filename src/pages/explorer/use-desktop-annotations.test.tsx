@@ -99,4 +99,58 @@ describe('useDesktopAnnotations', () => {
     expect(result.current.tagsFor(undefined)).toEqual([])
     expect(getUrlAnnotation).not.toHaveBeenCalled()
   })
+
+  test('local edits survive a late hydration response (race guard)', async () => {
+    // Set up a deferred hydration so we can interleave a local edit
+    // before the backend GET resolves.
+    let resolveHydrate:
+      | ((value: { notes: string; tags: string[] } | null) => void)
+      | null = null
+    getUrlAnnotation.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHydrate = resolve
+      }),
+    )
+    setUrlNotes.mockResolvedValue({
+      url: 'https://example.com/race',
+      notes: 'my-edit',
+      tags: [],
+      updatedAt: '',
+      createdAt: '',
+    })
+    const { result } = renderHook(() => useDesktopAnnotations())
+
+    // Touch notesFor to trigger hydration kickoff.
+    expect(result.current.notesFor('https://example.com/race')).toBe('')
+
+    // User types before the GET returns.
+    act(() => {
+      result.current.updateNotes('https://example.com/race', 'my-edit')
+    })
+    expect(result.current.notesFor('https://example.com/race')).toBe('my-edit')
+
+    // Backend GET finally returns a stale value. The hook must NOT
+    // overwrite the user's optimistic edit.
+    act(() => {
+      resolveHydrate?.({ notes: 'STALE backend value', tags: [] })
+    })
+    await waitFor(() => {
+      expect(getUrlAnnotation).toHaveBeenCalled()
+    })
+    expect(result.current.notesFor('https://example.com/race')).toBe('my-edit')
+  })
+
+  test('setUrlNotes failure surfaces via lastError', async () => {
+    getUrlAnnotation.mockResolvedValue(null)
+    setUrlNotes.mockRejectedValueOnce(new Error('archive locked'))
+    const { result } = renderHook(() => useDesktopAnnotations())
+    act(() => {
+      result.current.updateNotes('https://example.com/locked', 'edit')
+    })
+    await waitFor(() => {
+      expect(result.current.lastError).not.toBeNull()
+    })
+    expect(result.current.lastError).toContain('notes')
+    expect(result.current.lastError).toContain('archive locked')
+  })
 })

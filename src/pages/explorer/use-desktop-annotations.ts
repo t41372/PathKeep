@@ -40,6 +40,16 @@ const EMPTY_BUNDLE: Bundle = { notes: '', tags: [] }
 export function useDesktopAnnotations(): LocalAnnotations {
   const [cache, setCache] = useState<Record<string, Bundle>>({})
   const hydratedRef = useRef<Set<string>>(new Set())
+  // Tracks URLs the user has mutated locally. Hydration responses for
+  // these URLs are discarded, so an in-flight `get_url_annotation` cannot
+  // overwrite a `set_url_notes` write the user just made. Without this,
+  // typing while the GET is in flight would lose data.
+  const locallyMutatedRef = useRef<Set<string>>(new Set())
+  // Latest async error from a write or hydration call. Surfaced via the
+  // `lastError` accessor so the panel (or a future toast) can show the
+  // user that their edit did not reach the archive, instead of silently
+  // pretending it did.
+  const [lastError, setLastError] = useState<string | null>(null)
 
   const ensureHydrated = useCallback((url: string) => {
     if (hydratedRef.current.has(url)) return
@@ -48,6 +58,10 @@ export function useDesktopAnnotations(): LocalAnnotations {
       .getUrlAnnotation(url)
       .then((annotation) => {
         if (!annotation) return
+        // If the user has typed since we kicked off the GET, the backend
+        // payload is stale relative to the optimistic value already in
+        // the cache — drop it to avoid the hydration race.
+        if (locallyMutatedRef.current.has(url)) return
         setCache((prev) => ({
           ...prev,
           [url]: {
@@ -56,10 +70,9 @@ export function useDesktopAnnotations(): LocalAnnotations {
           },
         }))
       })
-      .catch(() => {
-        // Hydration errors leave the cache empty; the user keeps writing
-        // optimistically and the next mutation tries the backend again.
+      .catch((error: unknown) => {
         hydratedRef.current.delete(url)
+        setLastError(formatError(error, 'hydrate'))
       })
   }, [])
 
@@ -81,28 +94,43 @@ export function useDesktopAnnotations(): LocalAnnotations {
   )
 
   const updateNotes = useCallback((key: string, next: string) => {
+    locallyMutatedRef.current.add(key)
     setCache((prev) => ({
       ...prev,
       [key]: { notes: next, tags: prev[key]?.tags ?? [] },
     }))
-    backend.setUrlNotes({ url: key, notes: next }).catch(() => {
-      // The cache already holds the optimistic value; users can retry by
-      // editing again. A future pass can surface a toast or status pill.
-    })
+    backend.setUrlNotes({ url: key, notes: next }).then(
+      () => setLastError(null),
+      (error: unknown) => {
+        setLastError(formatError(error, 'notes'))
+      },
+    )
   }, [])
 
   const updateTags = useCallback((key: string, next: string[]) => {
+    locallyMutatedRef.current.add(key)
     setCache((prev) => ({
       ...prev,
       [key]: { notes: prev[key]?.notes ?? '', tags: next },
     }))
-    backend.replaceUrlTags({ url: key, tags: next }).catch(() => {
-      // Same optimistic policy as updateNotes — keep the cache value.
-    })
+    backend.replaceUrlTags({ url: key, tags: next }).then(
+      () => setLastError(null),
+      (error: unknown) => {
+        setLastError(formatError(error, 'tags'))
+      },
+    )
   }, [])
 
   return useMemo(
-    () => ({ notesFor, tagsFor, updateNotes, updateTags }),
-    [notesFor, tagsFor, updateNotes, updateTags],
+    () => ({ notesFor, tagsFor, updateNotes, updateTags, lastError }),
+    [notesFor, tagsFor, updateNotes, updateTags, lastError],
   )
+}
+
+function formatError(
+  error: unknown,
+  scope: 'hydrate' | 'notes' | 'tags',
+): string {
+  const reason = error instanceof Error ? error.message : String(error)
+  return `${scope}: ${reason}`
 }

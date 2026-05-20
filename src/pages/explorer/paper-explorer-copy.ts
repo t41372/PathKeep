@@ -90,6 +90,15 @@ export function buildPaperExplorerCopy(
       boundsMeta: t('paperBrowse.calendarBoundsMeta'),
     },
     yearRailTitle: t('paperBrowse.yearRailTitle'),
+    yearRailAria: t('paperBrowse.yearRailAria'),
+    target: {
+      fromOnThisDay: t('paperBrowse.targetFromOnThisDay'),
+      fromSearch: t('paperBrowse.targetFromSearch'),
+      fromSearchWithQuery: t('paperBrowse.targetFromSearchWithQuery'),
+      fromIntelligence: t('paperBrowse.targetFromIntelligence'),
+      pagesArchived: t('paperBrowse.targetPagesArchived'),
+      noArchive: t('paperBrowse.targetNoArchive'),
+    },
   }
 }
 
