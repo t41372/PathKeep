@@ -91,20 +91,24 @@
   - 驗收：`bun run test:e2e` 與 `bun run test:e2e:desktop-bridge:truth` clean、playwright HTML report 沒 fail、`docs/plan/BACKLOG.md` 同步 close-out。
   - Note：`playwright.config.ts` 已支援 Ubuntu 26.04 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var（系統 Chrome at `/usr/bin/google-chrome`）— upstream playwright supportedOSes table 還沒對 26.04 提供 chrome-headless-shell binary。
 
-- [ ] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
-  - 讀先：
-    `src/pages/explorer/index.tsx` (paperLayout 條件 + ExplorerTimelineBar / ExplorerQueryFiltersPanel / ExplorerResultsPanel 分支)
-    `src/app/index-tests/lock-and-explorer-shell.test.tsx`
-    `src/pages/explorer/index.test.tsx`
-    `src/pages/intelligence-surfaces/explorer-grouped-views.test.tsx`
-    `src/pages/intelligence-surfaces/explorer-controls.test.tsx`
-    `src/pages/settings/index.tsx`
-  - 目標：拔掉 `?layout=legacy` escape hatch、清掉 v0.2 panel files、四個還在用 layout=legacy 的測試重寫為 paper-surface expected。
-  - 契約：
-    - 測試重寫要對應到 paper surface 的真實斷言（不只是 search-and-replace 把 `layout=paper` 寫進去）。
-    - explorer/index.tsx 的 `paperLayout` 條件分支整段移除，paper 永遠是唯一路徑。
-    - 無用的 v0.2 panel files（panels/results-panel.tsx 等）刪掉而非排除 coverage。
-  - 驗收：`bun run check` clean、explorer/index.tsx coverage ≥99% lines（lift `WORK-V03-COVERAGE-RESIDUAL` 的最大殘餘）、`docs/plan/BACKLOG.md` 同步 close-out。
+- [x] **WORK-V03-LEGACY-RETIRE** — Retire `?layout=legacy` and the v0.2 panel branches
+  - 2026-05-20 closeout: `?layout=legacy` is gone — explorer/index.tsx ditches the
+    `paperLayout`/`paperSearchSurface` ternary and mounts PaperExplorerView /
+    PaperSearchPanel / PaperDetailPanelMount unconditionally (753 → 593 lines).
+    Deleted `src/pages/explorer/{timeline-bar,query-filters-panel,advanced-search-help}.tsx`
+    + `src/pages/explorer/panels/results-panel.tsx` and their tests; dropped the
+    `.advanced-search-help` block from `explorer.css`. Paper components
+    (PaperContactFrame / PaperListRow / PaperDomainStack / PaperDetailPanel /
+    PaperSearchResult) now run URL/title text through `sanitizeExplorerDisplayText`
+    so the privacy invariant the v0.2 ExplorerResultsPanel guarded is preserved;
+    `privacy-redaction.test.tsx` retargeted onto PaperListRow + PaperSearchResult.
+    Trimmed legacy-chrome tests across `index.test.tsx`,
+    `lock-and-explorer-shell.test.tsx` (explicit-page-jumps test gone — paper has
+    no paginator), `explorer-grouped-views.test.tsx`, and rewrote
+    `explorer-controls.test.tsx` to keep only the three paper-neutral
+    survivors (shell-gate matrix, adjacent-page prefetch, semantic runtime
+    actions). 1611/1611 unit tests pass. Commits: f3b2fd2 (paper sanitize) /
+    d19cea3 (privacy test retarget) / afb7e94 (legacy retire).
 
 - [ ] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
   - 讀先：
