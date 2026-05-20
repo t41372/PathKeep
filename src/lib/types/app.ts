@@ -134,6 +134,27 @@ export interface AppConfig {
   enrichment: EnrichmentSettings
   deterministic: DeterministicSettings
   ai: AiSettings
+  /**
+   * Optional in TS because legacy test fixtures predate the C3 backend
+   * AppConfig extension. The backend's serde default ensures the runtime
+   * shape always carries an `ogImage` value, even from older configs.
+   */
+  ogImage?: OgImageSettingsConfig
+}
+
+/**
+ * og:image fetch + cache settings persisted as part of AppConfig. Defaults:
+ * fetch_enabled = true, blocked_hosts = [], cleanup mode = off. Surfaced in
+ * Settings → Link previews.
+ */
+export interface OgImageSettingsConfig {
+  fetchEnabled: boolean
+  blockedHosts: string[]
+  cleanup:
+    | { mode: 'off' }
+    | { mode: 'timeTtl'; maxAgeDays: number }
+    | { mode: 'sizeCap'; maxBytes: number }
+    | { mode: 'lru'; maxBytes: number }
 }
 
 /**

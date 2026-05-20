@@ -36,6 +36,7 @@ export type SettingsSectionKey =
   | 'ai'
   | 'derived'
   | 'remote'
+  | 'linkPreviews'
   | 'platform'
 
 interface SettingsSectionSpec {
@@ -85,6 +86,11 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     icon: 'cloud_upload',
     labelKey: 'settings.remoteBackup',
   },
+  linkPreviews: {
+    id: 'settings-link-previews',
+    icon: 'preview',
+    labelKey: 'settings.linkPreviewsTitle',
+  },
   platform: {
     id: 'settings-platform',
     icon: 'build',
@@ -101,6 +107,7 @@ const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'ai',
   'derived',
   'remote',
+  'linkPreviews',
   'platform',
 ]
 

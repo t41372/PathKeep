@@ -83,6 +83,25 @@ export const settingsCoreAndPlatformNamespace = {
       'Subtle paper noise overlay and the dark-mode darkroom vignette. Turn off for a flatter surface.',
     appearancePaperOn: 'Texture on',
     appearancePaperOff: 'Texture off',
+    // ── Link previews (og:image cache) ──
+    linkPreviewsTitle: 'Link previews',
+    linkPreviewsIntro:
+      'Card-mode Browse fetches each page’s og:image preview when one is available. Bytes are cached locally and deduplicated; nothing is sent off-machine besides the GET to the page itself.',
+    linkPreviewsFetchToggleLabel: 'Fetch link previews from the web',
+    linkPreviewsFetchToggleHint:
+      'When off, card mode falls back to the favicon or the domain swatch. Already-cached previews still render.',
+    linkPreviewsFetchOn: 'Fetching on',
+    linkPreviewsFetchOff: 'Fetching off',
+    linkPreviewsStatsLabel: 'Cache footprint',
+    linkPreviewsStatsRows: '{rows} rows · {blobs} blobs · {bytes}',
+    linkPreviewsStatsEmpty: 'No previews cached yet.',
+    linkPreviewsCleanupLabel: 'Maintenance',
+    linkPreviewsRunCleanupAction: 'Run cleanup now',
+    linkPreviewsClearAllAction: 'Clear all link previews',
+    linkPreviewsClearConfirm:
+      'Delete every cached link preview? This is reversible only by re-fetching each page.',
+    linkPreviewsCleanupSummary:
+      'Deleted {rows} rows, {blobs} blobs, reclaimed {bytes}.',
     openMaintenance: 'Open Maintenance',
     openMaintenanceBody:
       'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
@@ -253,6 +272,23 @@ export const settingsCoreAndPlatformNamespace = {
       '极轻的纸纹遮罩和深色模式下的暗房光晕。关闭即可得到纯平表面。',
     appearancePaperOn: '已开启',
     appearancePaperOff: '已关闭',
+    // ── 链接预览（og:image 缓存）──
+    linkPreviewsTitle: '链接预览',
+    linkPreviewsIntro:
+      '卡片模式的 Browse 会在能取到 og:image 时抓取页面预览。字节缓存在本地、内容相同则只存一份；除了访问页面本身的 GET 之外，不会把数据传出本机。',
+    linkPreviewsFetchToggleLabel: '从网络抓取链接预览',
+    linkPreviewsFetchToggleHint:
+      '关闭后，卡片模式会退回 favicon 或域名色块；已经缓存的预览依然会显示。',
+    linkPreviewsFetchOn: '抓取已开启',
+    linkPreviewsFetchOff: '抓取已关闭',
+    linkPreviewsStatsLabel: '缓存大小',
+    linkPreviewsStatsRows: '{rows} 行 · {blobs} 个文件 · {bytes}',
+    linkPreviewsStatsEmpty: '尚未缓存任何预览。',
+    linkPreviewsCleanupLabel: '维护',
+    linkPreviewsRunCleanupAction: '立即清理',
+    linkPreviewsClearAllAction: '清空所有链接预览',
+    linkPreviewsClearConfirm: '删除所有缓存的链接预览？只能通过重新抓取每个页面恢复。',
+    linkPreviewsCleanupSummary: '已删除 {rows} 行、{blobs} 个文件，释放 {bytes}。',
     openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
@@ -420,6 +456,23 @@ export const settingsCoreAndPlatformNamespace = {
       '極輕的紙紋遮罩與深色模式下的暗房光暈。關閉即可得到純平表面。',
     appearancePaperOn: '已開啟',
     appearancePaperOff: '已關閉',
+    // ── 連結預覽（og:image 快取）──
+    linkPreviewsTitle: '連結預覽',
+    linkPreviewsIntro:
+      '卡片模式的 Browse 會在能取到 og:image 時擷取頁面預覽。位元組快取在本機、內容相同就只存一份；除了訪問頁面本身的 GET 之外，不會把資料傳出本機。',
+    linkPreviewsFetchToggleLabel: '從網路擷取連結預覽',
+    linkPreviewsFetchToggleHint:
+      '關閉之後，卡片模式會退回 favicon 或網域色塊；已經快取的預覽仍會顯示。',
+    linkPreviewsFetchOn: '擷取已開啟',
+    linkPreviewsFetchOff: '擷取已關閉',
+    linkPreviewsStatsLabel: '快取大小',
+    linkPreviewsStatsRows: '{rows} 列 · {blobs} 個檔案 · {bytes}',
+    linkPreviewsStatsEmpty: '尚未快取任何預覽。',
+    linkPreviewsCleanupLabel: '維護',
+    linkPreviewsRunCleanupAction: '立即清理',
+    linkPreviewsClearAllAction: '清空所有連結預覽',
+    linkPreviewsClearConfirm: '刪除所有快取的連結預覽？只能透過重新擷取每個頁面恢復。',
+    linkPreviewsCleanupSummary: '已刪除 {rows} 列、{blobs} 個檔案，釋放 {bytes}。',
     openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',

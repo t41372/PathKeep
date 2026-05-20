@@ -29,6 +29,7 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
+import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
 import { PaperSettingsHeader } from './paper-settings-header'
@@ -87,6 +88,7 @@ export function SettingsPage() {
     'applock',
     'ai',
     'remote',
+    'linkPreviews',
   ])
   const settingsSection = (key: SettingsSectionKey) =>
     getSettingsSectionNavItem(settingsSectionNavItems, key)
@@ -226,6 +228,9 @@ export function SettingsPage() {
           }
           navItem={settingsSection('remote')}
           state={routeState.remote}
+        />
+        <LinkPreviewsSection
+          anchorId={settingsSection('linkPreviews').id}
         />
       </div>
     </section>
