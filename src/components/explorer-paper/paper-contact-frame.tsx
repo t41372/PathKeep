@@ -22,6 +22,7 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperContactFrameEntry {
   id: number | string
@@ -150,7 +151,9 @@ export function PaperContactFrame({
       </div>
       <div className="px-[10px] pb-[10px] pt-[9px]">
         <div className="text-ink line-clamp-2 font-serif text-[12.5px] leading-[1.35]">
-          {entry.title || entry.url || entry.domain}
+          {sanitizeExplorerDisplayText(
+            entry.title || entry.url || entry.domain,
+          )}
         </div>
         <div className="mt-[5px] flex items-center justify-between">
           <span className="text-ink-faint max-w-[65%] truncate font-mono text-[10px]">

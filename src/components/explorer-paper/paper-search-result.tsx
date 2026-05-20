@@ -21,6 +21,7 @@
 
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperSearchResultEntry {
   id: number | string
@@ -91,10 +92,15 @@ export function PaperSearchResult({
 
       <div className="min-w-0">
         <div className="text-ink m-0 font-serif text-[14.5px] leading-[1.3] tracking-[-0.005em]">
-          {highlightQuery(entry.title || entry.url || entry.domain, query)}
+          {highlightQuery(
+            sanitizeExplorerDisplayText(
+              entry.title || entry.url || entry.domain,
+            ),
+            query,
+          )}
         </div>
         <div className="text-ink-faint truncate font-mono text-[10.5px]">
-          {entry.domain} · {entry.url}
+          {entry.domain} · {sanitizeExplorerDisplayText(entry.url, 96)}
         </div>
         {entry.snippet ? (
           <div className="text-ink-muted mt-1 line-clamp-2 font-serif text-[12.5px] italic leading-[1.4]">

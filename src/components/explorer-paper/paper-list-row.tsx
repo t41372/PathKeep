@@ -14,6 +14,7 @@
  */
 
 import { cn } from '@/lib/cn'
+import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperListRowEntry {
   id: number | string
@@ -89,7 +90,9 @@ export function PaperListRow({
       )}
       <span className="flex min-w-0 items-baseline gap-2">
         <span className="text-ink flex-1 truncate font-sans text-[12.5px]">
-          {entry.title || entry.url || entry.domain}
+          {sanitizeExplorerDisplayText(
+            entry.title || entry.url || entry.domain,
+          )}
         </span>
         <span className="text-ink-faint shrink-0 font-mono text-[10px]">
           {entry.domain}

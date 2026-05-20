@@ -117,7 +117,7 @@ describe('PaperDetailPanel', () => {
     )
 
     expect(screen.getByText('tokio-rs/tokio')).toBeVisible()
-    expect(screen.getByText('https://github.com/tokio-rs/tokio')).toBeVisible()
+    expect(screen.getByText('github.com/tokio-rs/tokio')).toBeVisible()
     expect(screen.getByText('47')).toBeVisible() // visit count
     expect(screen.getByText('12')).toBeVisible() // typed count
     expect(screen.getByText('Chrome / Default')).toBeVisible()

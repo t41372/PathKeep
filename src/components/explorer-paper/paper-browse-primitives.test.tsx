@@ -196,7 +196,8 @@ describe('PaperContactFrame', () => {
       />,
     )
 
-    expect(screen.getByText('https://docs.rs/sqlx')).toBeVisible()
+    // sanitizeExplorerDisplayText strips protocol + www. and keeps the path.
+    expect(screen.getByText('docs.rs/sqlx')).toBeVisible()
     expect(screen.queryByText('DOC')).toBeNull()
     const img = screen.getByTestId('frame-favicon').querySelector('img')
     expect(img?.getAttribute('src')).toBe('data:image/png;base64,abc')
@@ -350,7 +351,9 @@ describe('PaperListRow', () => {
       />,
     )
 
-    expect(screen.getByText('https://docs.rs')).toBeVisible()
+    // sanitizeExplorerDisplayText collapses 'https://docs.rs' to 'docs.rs',
+    // which coincides with entry.domain — list-row shows it in both columns.
+    expect(screen.getAllByText('docs.rs').length).toBeGreaterThanOrEqual(1)
   })
 
   test('survives clicks when no handler is provided', () => {

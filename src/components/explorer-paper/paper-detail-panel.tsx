@@ -35,6 +35,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { cn } from '@/lib/cn'
+import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperDetailPanelCopy {
   /** Mono uppercase eyebrow above the title, e.g. "RECORD". */
@@ -307,7 +308,7 @@ export function PaperDetailPanel({
             id={`${entry.id}-detail-title`}
             className="text-ink m-0 font-serif text-[20px] font-medium leading-[1.3] tracking-[-0.01em]"
           >
-            {entry.title || entry.url}
+            {sanitizeExplorerDisplayText(entry.title || entry.url, 200)}
           </h2>
           <a
             className="text-accent-text mt-2 block break-all font-mono text-[11.5px] leading-[1.4]"
@@ -315,7 +316,7 @@ export function PaperDetailPanel({
             target="_blank"
             rel="noreferrer noopener"
           >
-            {entry.url}
+            {sanitizeExplorerDisplayText(entry.url, 200)}
           </a>
 
           <div className="mt-[14px] flex flex-wrap gap-[6px]">

@@ -23,6 +23,7 @@
 
 import { useState } from 'react'
 import { cn } from '@/lib/cn'
+import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperDomainStackEntry {
   id: number | string
@@ -151,7 +152,9 @@ export function PaperDomainStack({
               <span className="text-ink-faint mr-[6px] font-mono text-[10px]">
                 {entry.time}
               </span>
-              {entry.title || entry.url || entry.domain}
+              {sanitizeExplorerDisplayText(
+                entry.title || entry.url || entry.domain,
+              )}
             </button>
           ))}
           {overflowCount > 0 ? (
@@ -196,10 +199,12 @@ export function PaperDomainStack({
               </span>
               <div className="min-w-0">
                 <div className="text-ink truncate font-serif text-[13px]">
-                  {entry.title || entry.url || entry.domain}
+                  {sanitizeExplorerDisplayText(
+                    entry.title || entry.url || entry.domain,
+                  )}
                 </div>
                 <div className="text-ink-faint mt-px truncate font-mono text-[10px]">
-                  {entry.url || entry.domain}
+                  {sanitizeExplorerDisplayText(entry.url || entry.domain)}
                 </div>
               </div>
               <span className="text-ink-faint font-mono text-[10.5px]">

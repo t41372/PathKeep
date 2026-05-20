@@ -37,7 +37,7 @@ describe('PaperSearchResult', () => {
 
     expect(screen.getByText('tokio-rs/tokio: rust async runtime')).toBeVisible()
     expect(
-      screen.getByText('github.com · https://github.com/tokio-rs/tokio'),
+      screen.getByText('github.com · github.com/tokio-rs/tokio'),
     ).toBeVisible()
     expect(screen.getByText('21:42')).toBeVisible()
     expect(screen.getByText('link')).toBeVisible()
