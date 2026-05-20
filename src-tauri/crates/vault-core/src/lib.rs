@@ -42,6 +42,9 @@ pub use ai::{
     provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
     semantic_search_history, test_provider_connection,
 };
+pub use annotations::{
+    get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
+};
 pub use app_lock::{
     app_lock_status, app_lock_status_with_biometric, clear_app_lock_passcode,
     ensure_app_lock_unlocked, hydrate_app_lock_config, initialize_app_lock_session,
@@ -54,9 +57,6 @@ pub use archive::{
     og_images, og_images_fetch, open_source_evidence_connection, preview_retention,
     preview_snapshot_restore, rekey_archive, repair_health_issues, run_backup,
     run_backup_with_progress, run_retention_prune, run_snapshot_restore,
-};
-pub use annotations::{
-    get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, save_config};

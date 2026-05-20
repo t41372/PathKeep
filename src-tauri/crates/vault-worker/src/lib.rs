@@ -30,9 +30,7 @@ pub(crate) use self::intelligence::{
     maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain, start_ai_job_control,
 };
 pub use self::{
-    annotations::{
-        get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
-    },
+    annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
         RekeyRequest, app_snapshot, initialize_archive_database, rekey_archive_database,
         save_user_config,

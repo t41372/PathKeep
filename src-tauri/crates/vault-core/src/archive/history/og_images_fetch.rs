@@ -262,9 +262,7 @@ pub fn is_host_blocked(blocked_hosts: &[String], page_url: &str) -> bool {
     if host.is_empty() {
         return false;
     }
-    blocked_hosts
-        .iter()
-        .any(|blocked| blocked.trim().to_ascii_lowercase() == host)
+    blocked_hosts.iter().any(|blocked| blocked.trim().to_ascii_lowercase() == host)
 }
 
 fn http_status_from_error(error: &reqwest::Error) -> Option<i64> {
@@ -287,10 +285,7 @@ fn response_content_type_is(response: &Response, expected_prefix: &str) -> bool 
 }
 
 fn supported_image_mime(response: &Response) -> Option<&'static str> {
-    let raw = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())?;
+    let raw = response.headers().get(CONTENT_TYPE).and_then(|value| value.to_str().ok())?;
     let head = raw.split(';').next()?.trim().to_ascii_lowercase();
     match head.as_str() {
         "image/png" => Some("image/png"),
@@ -346,11 +341,7 @@ fn upgrade_http_to_https(url: &str) -> String {
 
 fn nonempty_host(page_url: &str) -> Option<String> {
     let host = url_domain(page_url).to_ascii_lowercase();
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
-    }
+    if host.is_empty() { None } else { Some(host) }
 }
 
 #[cfg(test)]
@@ -629,11 +620,7 @@ mod tests {
         };
         outcome.source_og_url = Some(og_image_url.clone());
 
-        let image_response = match client
-            .get(&og_image_url)
-            .header(ACCEPT, ACCEPT_IMAGE)
-            .send()
-        {
+        let image_response = match client.get(&og_image_url).header(ACCEPT, ACCEPT_IMAGE).send() {
             Ok(response) => response,
             Err(error) => {
                 outcome.fetch_status = fetch_status::HTTP_ERROR;

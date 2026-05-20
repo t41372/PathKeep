@@ -344,11 +344,17 @@ pub struct OgImageStorageStats {
 pub enum OgImageCleanupMode {
     Off,
     /// Delete rows older than `max_age_days`.
-    TimeTtl { max_age_days: u32 },
+    TimeTtl {
+        max_age_days: u32,
+    },
     /// Delete oldest-fetched rows until total bytes drop below `max_bytes`.
-    SizeCap { max_bytes: u64 },
+    SizeCap {
+        max_bytes: u64,
+    },
     /// Delete least-recently-shown rows until total bytes drop below `max_bytes`.
-    Lru { max_bytes: u64 },
+    Lru {
+        max_bytes: u64,
+    },
 }
 
 impl Default for OgImageCleanupMode {

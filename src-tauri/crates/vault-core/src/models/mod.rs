@@ -18,8 +18,8 @@ pub mod security;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
-    annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*,
-    intelligence::*, progress::*, remote::*, schedule::*, security::*,
+    annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*,
+    progress::*, remote::*, schedule::*, security::*,
 };
 
 #[cfg(test)]

@@ -202,10 +202,7 @@ pub fn load_history_og_images(
 /// Bumps `last_shown_at` for the given page URLs. Frontend calls this in
 /// a debounced batch after cards settle into view so user-configured
 /// LRU eviction has a real signal.
-pub fn mark_og_images_shown(
-    session_database_key: Option<&str>,
-    urls: Vec<String>,
-) -> Result<()> {
+pub fn mark_og_images_shown(session_database_key: Option<&str>, urls: Vec<String>) -> Result<()> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let connection =
@@ -258,10 +255,7 @@ pub fn run_og_image_cleanup(
 /// the UI thread never sees a network stall. A future iteration can
 /// add parallelism + per-host rate limiting; for now we keep the
 /// politest possible default of strict serial fetching.
-pub fn refetch_og_images(
-    session_database_key: Option<&str>,
-    urls: Vec<String>,
-) -> Result<u32> {
+pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) -> Result<u32> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     if !config.og_image.fetch_enabled {

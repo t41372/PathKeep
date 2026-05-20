@@ -40,9 +40,5 @@ pub(crate) fn search_annotations_impl(
     query: &str,
     limit: Option<usize>,
 ) -> Result<Vec<vault_core::UrlAnnotation>, String> {
-    worker_result(vault_worker::search_annotations(
-        session_database_key,
-        query,
-        limit,
-    ))
+    worker_result(vault_worker::search_annotations(session_database_key, query, limit))
 }

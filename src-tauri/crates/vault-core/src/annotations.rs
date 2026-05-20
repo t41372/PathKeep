@@ -99,10 +99,8 @@ pub fn set_notes(
             )
             .context("writing url_annotations row")?;
     }
-    Ok(read_annotation(&connection, &request.url)?.unwrap_or_else(|| UrlAnnotation {
-        url: request.url.clone(),
-        ..UrlAnnotation::default()
-    }))
+    Ok(read_annotation(&connection, &request.url)?
+        .unwrap_or_else(|| UrlAnnotation { url: request.url.clone(), ..UrlAnnotation::default() }))
 }
 
 /// Replaces the full tag set for a URL. Tags are trimmed and de-duplicated
@@ -125,9 +123,7 @@ pub fn replace_tags(
     // silently drop the user's tag list. Wrap the whole replacement in a
     // transaction so either the new tag list lands or nothing changes.
     {
-        let tx = connection
-            .transaction()
-            .context("opening replace_tags transaction")?;
+        let tx = connection.transaction().context("opening replace_tags transaction")?;
         tx.execute("DELETE FROM url_tags WHERE url = ?1", params![request.url])
             .context("clearing url_tags for replacement")?;
         if !normalized.is_empty() {
@@ -143,10 +139,8 @@ pub fn replace_tags(
         }
         tx.commit().context("committing replace_tags transaction")?;
     }
-    Ok(read_annotation(&connection, &request.url)?.unwrap_or_else(|| UrlAnnotation {
-        url: request.url.clone(),
-        ..UrlAnnotation::default()
-    }))
+    Ok(read_annotation(&connection, &request.url)?
+        .unwrap_or_else(|| UrlAnnotation { url: request.url.clone(), ..UrlAnnotation::default() }))
 }
 
 /// Lists every URL that has at least one annotation (note or tag), sorted by
@@ -265,9 +259,8 @@ fn read_annotation(connection: &Connection, url: &str) -> Result<Option<UrlAnnot
             },
         )
         .optional()?;
-    let mut tag_statement = connection.prepare(
-        "SELECT tag FROM url_tags WHERE url = ?1 ORDER BY created_at ASC, tag ASC",
-    )?;
+    let mut tag_statement = connection
+        .prepare("SELECT tag FROM url_tags WHERE url = ?1 ORDER BY created_at ASC, tag ASC")?;
     let tags: Vec<String> = tag_statement
         .query_map(params![url], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -281,11 +274,9 @@ fn read_annotation(connection: &Connection, url: &str) -> Result<Option<UrlAnnot
             updated_at,
             source_profile,
         })),
-        (None, false) => Ok(Some(UrlAnnotation {
-            url: url.to_string(),
-            tags,
-            ..UrlAnnotation::default()
-        })),
+        (None, false) => {
+            Ok(Some(UrlAnnotation { url: url.to_string(), tags, ..UrlAnnotation::default() }))
+        }
         (None, true) => Ok(None),
     }
 }
@@ -297,16 +288,17 @@ mod tests {
         config::{ProjectPaths, project_paths_with_root},
         models::{AppConfig, ArchiveMode},
     };
-    use std::{fs, sync::atomic::{AtomicU32, Ordering}};
+    use std::{
+        fs,
+        sync::atomic::{AtomicU32, Ordering},
+    };
 
     static TEST_PATH_SEQ: AtomicU32 = AtomicU32::new(0);
 
     fn make_paths(label: &str) -> ProjectPaths {
         let seq = TEST_PATH_SEQ.fetch_add(1, Ordering::SeqCst);
-        let root = std::env::temp_dir().join(format!(
-            "pk-annot-{label}-{}-{seq}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pk-annot-{label}-{}-{seq}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         project_paths_with_root(&root)
@@ -419,11 +411,7 @@ mod tests {
             &paths,
             &config,
             None,
-            ReplaceTagsRequest {
-                url: url.into(),
-                tags: vec!["one".into()],
-                source_profile: None,
-            },
+            ReplaceTagsRequest { url: url.into(), tags: vec!["one".into()], source_profile: None },
         )
         .unwrap();
         let after_set = get_annotation(&paths, &config, None, url).unwrap().unwrap();
@@ -527,11 +515,7 @@ mod tests {
                 &paths,
                 &config,
                 None,
-                SetNotesRequest {
-                    url: url.into(),
-                    notes: note.into(),
-                    source_profile: None,
-                },
+                SetNotesRequest { url: url.into(), notes: note.into(), source_profile: None },
             )
             .unwrap();
         }
@@ -541,5 +525,4 @@ mod tests {
         let last_url = &listed[2].url;
         assert!(first_url != last_url);
     }
-
 }

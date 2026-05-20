@@ -139,10 +139,7 @@ pub fn upsert_og_image(connection: &Connection, insert: &OgImageInsert<'_>) -> R
     // REPLACE would zero out `fetch_attempts` and `last_shown_at` if we kept
     // those columns out of the row payload.
     connection
-        .execute(
-            "DELETE FROM og_images WHERE page_url = ?1",
-            params![insert.page_url],
-        )
+        .execute("DELETE FROM og_images WHERE page_url = ?1", params![insert.page_url])
         .context("clearing prior og_image row")?;
 
     connection
@@ -283,10 +280,9 @@ pub fn run_cleanup(
         }
         OgImageCleanupMode::TimeTtl { max_age_days } => {
             let cutoff = cutoff_iso(max_age_days);
-            deleted_rows = connection.execute(
-                "DELETE FROM og_images WHERE fetched_at < ?1",
-                params![cutoff],
-            )? as i64;
+            deleted_rows = connection
+                .execute("DELETE FROM og_images WHERE fetched_at < ?1", params![cutoff])?
+                as i64;
         }
         OgImageCleanupMode::SizeCap { max_bytes } => {
             deleted_rows = evict_until_under_size(connection, max_bytes, false)?;
@@ -336,10 +332,8 @@ fn evict_until_under_size(
 
     // refcount = number of og_images rows pointing at each blob_hash. We
     // build this up-front; the eviction walk decrements it.
-    let mut refcount: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
-    let mut blob_bytes: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut refcount: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut blob_bytes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     {
         let mut refstmt = connection.prepare(
             "SELECT og_images.image_blob_hash, og_image_blobs.byte_size
@@ -367,11 +361,7 @@ fn evict_until_under_size(
     let mut rows = statement.query([])?;
 
     let mut total_bytes: i64 = connection
-        .query_row(
-            "SELECT COALESCE(SUM(byte_size), 0) FROM og_image_blobs",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT COALESCE(SUM(byte_size), 0) FROM og_image_blobs", [], |row| row.get(0))
         .unwrap_or(0);
     let cap = max_bytes as i64;
     let mut evict_urls = Vec::new();
@@ -401,10 +391,8 @@ fn evict_until_under_size(
 
     let mut deleted = 0_i64;
     for url in evict_urls {
-        deleted += connection.execute(
-            "DELETE FROM og_images WHERE page_url = ?1",
-            params![url],
-        )? as i64;
+        deleted +=
+            connection.execute("DELETE FROM og_images WHERE page_url = ?1", params![url])? as i64;
     }
     Ok(deleted)
 }
@@ -496,9 +484,7 @@ mod tests {
         // and end-to-end through the worker/command integration tests.
         let mut statement = connection.prepare(LOAD_OG_IMAGE_SQL).unwrap();
         let (bytes, _status): (Option<Vec<u8>>, String) = statement
-            .query_row(params!["https://example.com/a"], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
+            .query_row(params!["https://example.com/a"], |row| Ok((row.get(0)?, row.get(1)?)))
             .unwrap();
         assert_eq!(bytes.as_deref(), Some(&a_bytes[..]));
     }
@@ -507,17 +493,11 @@ mod tests {
     fn lookup_returns_none_for_unknown_page_with_known_host() {
         let connection = open_test_archive();
         let bytes = b"\x89PNGknown-page";
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/known", bytes),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/known", bytes)).unwrap();
 
         let mut statement = connection.prepare(LOAD_OG_IMAGE_SQL).unwrap();
         let result: Option<(Option<Vec<u8>>, String)> = statement
-            .query_row(params!["https://example.com/unknown"], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
+            .query_row(params!["https://example.com/unknown"], |row| Ok((row.get(0)?, row.get(1)?)))
             .optional()
             .unwrap();
         // Negative assertion guarding the "no host fallback" rule: a sibling
@@ -530,16 +510,8 @@ mod tests {
         let connection = open_test_archive();
         let bytes_v1 = b"\x89PNGversion-one";
         let bytes_v2 = b"\x89PNGversion-two";
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/page", bytes_v1),
-        )
-        .unwrap();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/page", bytes_v2),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/page", bytes_v1)).unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/page", bytes_v2)).unwrap();
 
         let stats = storage_stats(&connection).unwrap();
         assert_eq!(stats.row_count, 1);
@@ -580,16 +552,10 @@ mod tests {
     #[test]
     fn cleanup_time_ttl_deletes_only_expired_rows() {
         let connection = open_test_archive();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/fresh", b"\x89PNGfresh"),
-        )
-        .unwrap();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/stale", b"\x89PNGstale"),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/fresh", b"\x89PNGfresh"))
+            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/stale", b"\x89PNGstale"))
+            .unwrap();
         connection
             .execute(
                 "UPDATE og_images
@@ -619,11 +585,8 @@ mod tests {
         // 100-byte payloads, three rows = 300 bytes. Cap at 150 → evict two.
         let bytes = vec![0_u8; 100];
         for (idx, url) in ["a", "b", "c"].iter().enumerate() {
-            upsert_og_image(
-                &connection,
-                &ok_insert(&format!("https://example.com/{url}"), &bytes),
-            )
-            .unwrap();
+            upsert_og_image(&connection, &ok_insert(&format!("https://example.com/{url}"), &bytes))
+                .unwrap();
             connection
                 .execute(
                     "UPDATE og_images
@@ -641,11 +604,8 @@ mod tests {
         for (idx, url) in ["a", "b", "c"].iter().enumerate() {
             let mut bytes = b"\x89PNGunique-".to_vec();
             bytes.extend_from_slice(idx.to_string().as_bytes());
-            upsert_og_image(
-                &connection,
-                &ok_insert(&format!("https://example.com/{url}"), &bytes),
-            )
-            .unwrap();
+            upsert_og_image(&connection, &ok_insert(&format!("https://example.com/{url}"), &bytes))
+                .unwrap();
             connection
                 .execute(
                     "UPDATE og_images
@@ -660,9 +620,7 @@ mod tests {
         }
 
         let before = storage_stats(&connection).unwrap();
-        let mode = OgImageCleanupMode::SizeCap {
-            max_bytes: (before.total_bytes / 2) as u64,
-        };
+        let mode = OgImageCleanupMode::SizeCap { max_bytes: (before.total_bytes / 2) as u64 };
         let report = run_cleanup(&connection, mode).unwrap();
         let after = storage_stats(&connection).unwrap();
         assert!(report.deleted_rows >= 1, "expected at least one eviction");
@@ -702,26 +660,14 @@ mod tests {
             }
             v
         };
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/shared-a", &big_bytes),
-        )
-        .unwrap();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/shared-b", &big_bytes),
-        )
-        .unwrap();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/shared-c", &big_bytes),
-        )
-        .unwrap();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/unique", &small_bytes),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/shared-a", &big_bytes))
+            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/shared-b", &big_bytes))
+            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/shared-c", &big_bytes))
+            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/unique", &small_bytes))
+            .unwrap();
         // Make /unique oldest so it would be evicted first by fetched_at.
         connection
             .execute(
@@ -733,18 +679,11 @@ mod tests {
 
         let stats_before = storage_stats(&connection).unwrap();
         assert_eq!(stats_before.blob_count, 2);
-        assert_eq!(
-            stats_before.total_bytes,
-            (big_bytes.len() + small_bytes.len()) as i64,
-        );
+        assert_eq!(stats_before.total_bytes, (big_bytes.len() + small_bytes.len()) as i64,);
 
-        let report = run_cleanup(
-            &connection,
-            OgImageCleanupMode::SizeCap {
-                max_bytes: 700 * 1024,
-            },
-        )
-        .unwrap();
+        let report =
+            run_cleanup(&connection, OgImageCleanupMode::SizeCap { max_bytes: 700 * 1024 })
+                .unwrap();
         // The unique blob accounts for the only bytes that can actually be
         // reclaimed without dropping all three shared rows. The eviction
         // should pick exactly the unique row (oldest fetched_at) and stop.
@@ -776,11 +715,8 @@ mod tests {
         for url in ["a", "b", "c"] {
             let mut bytes = b"\x89PNGlru-".to_vec();
             bytes.extend_from_slice(url.as_bytes());
-            upsert_og_image(
-                &connection,
-                &ok_insert(&format!("https://example.com/{url}"), &bytes),
-            )
-            .unwrap();
+            upsert_og_image(&connection, &ok_insert(&format!("https://example.com/{url}"), &bytes))
+                .unwrap();
         }
         // /b shown most recently, /a shown long ago, /c never shown.
         connection
@@ -799,9 +735,7 @@ mod tests {
             .unwrap();
 
         let before = storage_stats(&connection).unwrap();
-        let mode = OgImageCleanupMode::Lru {
-            max_bytes: (before.total_bytes / 3) as u64,
-        };
+        let mode = OgImageCleanupMode::Lru { max_bytes: (before.total_bytes / 3) as u64 };
         run_cleanup(&connection, mode).unwrap();
 
         // /c (never shown) and /a (oldest shown) should be gone before /b.
@@ -837,11 +771,8 @@ mod tests {
     #[test]
     fn mark_shown_bumps_last_shown_at_for_provided_urls() {
         let connection = open_test_archive();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/page", b"\x89PNGpage"),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/page", b"\x89PNGpage"))
+            .unwrap();
         assert!(
             connection
                 .query_row::<Option<String>, _, _>(
@@ -873,11 +804,7 @@ mod tests {
     #[test]
     fn clear_cache_empties_both_tables() {
         let connection = open_test_archive();
-        upsert_og_image(
-            &connection,
-            &ok_insert("https://example.com/a", b"\x89PNGa"),
-        )
-        .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/a", b"\x89PNGa")).unwrap();
         upsert_og_image(&connection, &miss_insert("https://example.com/b")).unwrap();
 
         let report = clear_cache(&connection).unwrap();
@@ -897,11 +824,7 @@ mod tests {
         let config = AppConfig::default();
         let bootstrap = open_archive_connection(&paths, &config, None).expect("open archive");
         let png_bytes: [u8; 9] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01];
-        upsert_og_image(
-            &bootstrap,
-            &ok_insert("https://example.com/p", &png_bytes),
-        )
-        .unwrap();
+        upsert_og_image(&bootstrap, &ok_insert("https://example.com/p", &png_bytes)).unwrap();
         drop(bootstrap);
 
         let results = load_og_images(
@@ -909,28 +832,16 @@ mod tests {
             &config,
             None,
             vec![
-                HistoryOgImageLookupEntry {
-                    url: "https://example.com/p".into(),
-                },
-                HistoryOgImageLookupEntry {
-                    url: "https://example.com/p".into(),
-                },
-                HistoryOgImageLookupEntry {
-                    url: "https://example.com/q".into(),
-                },
+                HistoryOgImageLookupEntry { url: "https://example.com/p".into() },
+                HistoryOgImageLookupEntry { url: "https://example.com/p".into() },
+                HistoryOgImageLookupEntry { url: "https://example.com/q".into() },
             ],
         )
         .expect("load og images");
         assert_eq!(results.len(), 2);
-        let p_hit = results
-            .iter()
-            .find(|r| r.url == "https://example.com/p")
-            .expect("p result");
+        let p_hit = results.iter().find(|r| r.url == "https://example.com/p").expect("p result");
         assert!(p_hit.og_image.is_some());
-        let q_miss = results
-            .iter()
-            .find(|r| r.url == "https://example.com/q")
-            .expect("q result");
+        let q_miss = results.iter().find(|r| r.url == "https://example.com/q").expect("q result");
         assert!(q_miss.og_image.is_none());
         assert_eq!(q_miss.fetch_status, "pending");
     }
