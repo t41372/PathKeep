@@ -60,6 +60,25 @@
   - 契約：不得在 backup/import critical path 內同步 refetch；不得宣稱可抓取登入頁、PDF、JSON、redirect boundary 或 rate-limited 內容；必須有 explicit privacy/network boundary、queue retry/cancel、failure taxonomy、人話 UI、storage accounting、clear/rebuild 行為，以及 real-site acceptance evidence。
   - 驗收：Settings / Jobs / Maintenance disabled-to-enabled flow、network boundary copy、real HTML/PDF/redirect/rate-limit fixtures、blob storage cleanup、`bun run check`，以及 archive/intelligence/data-model docs 回寫。
 
+- [ ] **WORK-V03-COVERAGE-RESIDUAL** — Restore 100% JS coverage gate after orphan sweep
+  - 讀先：
+    `vitest.config.ts`
+    `src/app/shell.tsx`
+    `src/app/shell-helpers.ts`
+    `src/pages/dashboard/index.tsx`
+    `src/pages/explorer/index.tsx`
+    `src/components/explorer-paper/*`
+  - 目標：把 `bun run check` 的 JS coverage threshold 從本輪 dev-machine bring-up 暫降的 `lines:99 / functions:98 / branches:98 / statements:98` 重新拉回 100/100/100/100。當前 global 為 99.07% lines / 98.83% statements / 98.12% branches / 98.8% functions（2026-05-20）。
+  - 殘餘清單（each file < 100% 在 vitest 報表內可定位）：
+    - `src/app/shell.tsx` 71.64% — 殘餘 lines 是 useMemo / palette select / lock handler 等內聯 callback；多數需要 augment 既有 `src/app/index-tests/` 整合測試補手勢。
+    - `src/pages/explorer/index.tsx` 73.68% — 殘餘 lines 583-643, 747-748 是 paper search panel + paper view + legacy compat 條件分支的內聯 handler。Phase 4 (`WORK-V03-PAPER-REDESIGN-A` legacy retire) 退役 `?layout=legacy` 後，數字會自然回升。
+    - `src/pages/dashboard/index.tsx` 82.35% — 殘餘 lines 327-329, 335, 342 是 `formatSpan(t)` 內部 years/months/days 條件分支。可以把 helper 抽到 sibling `dashboard-helpers.ts` 然後直接單測（同 `shell-helpers.ts` pattern）。
+    - `src/components/explorer-paper/*` — 多檔 1-2 line gaps (branch threshold 主要拖累)。多數是 props default 分支與細部 prop conditional。可逐檔 augment 既有 test 收口。
+    - `src/components/shell/pk-topbar.tsx` line 86 — `typeof navigator === 'undefined'` defensive guard，jsdom 永遠有 navigator。可考慮把此判斷下沉到一個獨立 helper 然後用 module mock 觸發。
+    - `src/lib/backend-client/annotations.ts` 97.36% / `src/lib/backend-client/index-references.ts` 96% / `src/lib/i18n/.../date-helpers.ts` 97.56% — 各自 1-2 line gap。
+  - 契約：拉回時要長期最優解 — 不允許再用 exclusion 蓋住 active runtime code；只能寫實質測試或把 shim 提取成可單測的 sibling module。`vitest.config.ts` 的 inline comment 已記錄當前殘餘來源，重新 100% 後刪掉那段 comment。
+  - 驗收：`bun run coverage:js` 全 metric ≥100%；vitest.config.ts threshold 恢復成 `100/100/100/100`；該 inline comment 移除。`STATUS.md` 與 `CHANGELOG.md` 同步寫回。
+
 - [!] **WORK-SCHEDULE-PAGE-MAINT-A** — Schedule Page Maintainability Review [!blocked: schedule a dedicated frontend maintainability window]
   - 讀先：
     `docs/plan/program/repo-baseline.md`
