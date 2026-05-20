@@ -258,15 +258,21 @@ export function JobsPage() {
 
   if (loading && !snapshot) {
     return (
-      <section className="page-shell" data-testid="jobs-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="jobs-page"
+      >
         <LoadingState label={jobsT('loadingPage')} />
-      </section>
+      </div>
     )
   }
 
   if (!snapshot?.config.initialized) {
     return (
-      <section className="page-shell" data-testid="jobs-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="jobs-page"
+      >
         <EmptyState
           description={jobsT('setupDescription')}
           eyebrow={jobsT('statusEyebrow')}
@@ -277,13 +283,16 @@ export function JobsPage() {
             </Link>
           }
         />
-      </section>
+      </div>
     )
   }
 
   if (!snapshot.archiveStatus.unlocked) {
     return (
-      <section className="page-shell" data-testid="jobs-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="jobs-page"
+      >
         <PermissionGate
           detail={jobsT('lockedDetail')}
           eyebrow={jobsT('lockedEyebrow')}
@@ -293,21 +302,27 @@ export function JobsPage() {
             {commonT('reviewSecurity')}
           </Link>
         </PermissionGate>
-      </section>
+      </div>
     )
   }
 
   if (runtimeLoading) {
     return (
-      <section className="page-shell" data-testid="jobs-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="jobs-page"
+      >
         <LoadingState label={jobsT('loadingPage')} />
-      </section>
+      </div>
     )
   }
 
   if (runtimeStatus.error && !aiQueue && !runtime) {
     return (
-      <section className="page-shell" data-testid="jobs-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="jobs-page"
+      >
         <ErrorState
           title={jobsT('pageUnavailableTitle')}
           description={runtimeStatus.error}
@@ -321,7 +336,7 @@ export function JobsPage() {
             </button>
           }
         />
-      </section>
+      </div>
     )
   }
 
@@ -391,7 +406,10 @@ export function JobsPage() {
             ? jobsT('overviewHeadlineQueued', { count: queueCounts.queued })
             : jobsT('overviewHeadlineIdle')
   return (
-    <section className="page-shell jobs-page" data-testid="jobs-page">
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+      data-testid="jobs-page"
+    >
       <div className="jobs-grid">
         <StatusCallout
           tone={statusCallout.tone}
@@ -710,6 +728,6 @@ export function JobsPage() {
           />
         </div>
       </div>
-    </section>
+    </div>
   )
 }
