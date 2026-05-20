@@ -16,7 +16,15 @@
 import '@testing-library/jest-dom/vitest'
 
 import { afterEach, beforeAll, vi } from 'vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
+
+// testing-library's default asyncUtilTimeout is ~1s. Under the full
+// coverage:js sweep on slower hosts (Linux dev VMs, v8 coverage
+// instrumentation, ~250 files in parallel), heavy shell tests like the
+// settings/maintenance route can take 2-4 s just to hydrate the App.
+// 5 s is well within vitest's 15 s testTimeout and large enough that
+// findBy* won't mask real failures with spurious timeouts.
+configure({ asyncUtilTimeout: 5000 })
 
 beforeAll(() => {
   const storage = (() => {
