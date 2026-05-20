@@ -49,8 +49,15 @@ const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const THEME_KEY = 'pathkeep.theme'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
 
-const SHELL_STORAGE: Storage | null =
-  typeof window !== 'undefined' ? window.localStorage : null
+/**
+ * Resolved at call time, not at module load — vitest's setup file replaces
+ * `window.localStorage` with a Map-backed mock inside `beforeAll`, which
+ * runs *after* this module is evaluated. Capturing the reference statically
+ * would freeze it to the pre-mock object and silently miss test mutations.
+ */
+function shellStorage(): Storage | null {
+  return typeof window !== 'undefined' ? window.localStorage : null
+}
 
 const SOURCE_COLORS: Record<string, string> = {
   Chrome: '#4285F4',
@@ -80,15 +87,15 @@ export function AppShell() {
       ?.screen ?? appScreens[0]
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
-    readBoolean(SIDEBAR_KEY, false, SHELL_STORAGE),
+    readBoolean(SIDEBAR_KEY, false, shellStorage()),
   )
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    readTheme(THEME_KEY, SHELL_STORAGE),
+    readTheme(THEME_KEY, shellStorage()),
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sourceFilter, setSourceFilter] = useState<string | null>(null)
   const [epigraphIndex] = useState<number>(() =>
-    readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, SHELL_STORAGE),
+    readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, shellStorage()),
   )
 
   useEffect(() => {
