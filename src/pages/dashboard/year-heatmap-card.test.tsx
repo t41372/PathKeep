@@ -126,6 +126,22 @@ describe('DashboardYearHeatmapCard', () => {
     expect(streak).toHaveTextContent('No streak yet')
   })
 
+  test('unmounting mid-flight with a rejected fetch skips the error setters', async () => {
+    let rejectTrend: (reason: unknown) => void = () => {}
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectTrend = reject
+        }),
+    )
+    const { unmount } = renderCard()
+    unmount()
+    // Flushing a rejection after unmount drives the
+    // `cancelled === true` branch inside the catch at line 93.
+    act(() => rejectTrend(new Error('boom')))
+    await new Promise((resolve) => window.setTimeout(resolve, 10))
+  })
+
   test('unmounting mid-flight skips the post-fetch setters (cancelled branch)', async () => {
     let resolveTrend: (
       value: Awaited<ReturnType<typeof coreIntelligenceApi.getDiscoveryTrend>>,
@@ -143,6 +159,19 @@ describe('DashboardYearHeatmapCard', () => {
     // bail out without touching React state.
     act(() => resolveTrend(makeTrendResult([])))
     await new Promise((resolve) => window.setTimeout(resolve, 10))
+  })
+
+  test('tolerates a malformed response with no points field (?? fallback)', async () => {
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue({
+      // Intentionally missing `points` so the route's `result.data?.points ?? []`
+      // (line 85 of year-heatmap-card.tsx) takes its falsy branch.
+      data: {},
+      meta: { state: 'ready' as const },
+    } as never)
+    renderCard()
+    expect(
+      await screen.findByTestId('dashboard-year-heatmap-grid'),
+    ).toBeInTheDocument()
   })
 
   test('renders the heatmap in a zh-CN locale (covers the language ternary)', async () => {

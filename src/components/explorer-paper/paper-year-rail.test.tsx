@@ -88,6 +88,23 @@ describe('PaperYearRail', () => {
     ).toBe('2026')
   })
 
+  test('omitting currentDate also falls back to the last bound year', () => {
+    render(
+      <PaperYearRail
+        densityByYear={makeDensity()}
+        bounds={makeBounds()}
+        onJump={() => {}}
+        testId="rail-omit-date"
+      />,
+    )
+    // currentDate is undefined — the ternary at lines 58-63 of
+    // paper-year-rail.tsx takes the falsy branch and uses bounds.lastYear.
+    const rail = screen.getByTestId('rail-omit-date')
+    expect(
+      rail.querySelector('[data-current="true"]')?.getAttribute('data-year'),
+    ).toBe('2026')
+  })
+
   test('clicking a year cell fires onJump with the pickYearJumpIso target', () => {
     const onJump = vi.fn()
     render(

@@ -164,6 +164,34 @@ describe('DashboardActiveThreads', () => {
     ).toBeInTheDocument()
   })
 
+  test('tolerates a malformed response with no data field (?? fallback)', async () => {
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue({
+      // Intentionally missing `data` so the route's `result.data ?? []`
+      // (line 85 of active-threads-card.tsx) takes its falsy branch.
+      meta: { state: 'ready' as const },
+    } as unknown as Awaited<ReturnType<typeof coreIntelligenceApi.getPathFlows>>)
+    renderCard()
+    expect(
+      await screen.findByTestId('dashboard-active-threads-empty'),
+    ).toBeInTheDocument()
+  })
+
+  test('unmounting mid-flight with a rejected fetch skips the error setters', async () => {
+    let rejectFlows: (reason: unknown) => void = () => {}
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectFlows = reject
+        }),
+    )
+    const { unmount } = renderCard()
+    unmount()
+    // Flushing a rejection post-unmount drives the `cancelled === true`
+    // branch inside the catch (line 89 of active-threads-card.tsx).
+    act(() => rejectFlows(new Error('boom')))
+    await new Promise((resolve) => window.setTimeout(resolve, 10))
+  })
+
   test('unmounting mid-flight skips post-fetch setters (cancelled branch)', async () => {
     let resolveFlows: (value: PathFlow[]) => void = () => {}
     vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockImplementation(
