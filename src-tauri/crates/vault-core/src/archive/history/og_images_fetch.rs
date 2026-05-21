@@ -693,6 +693,53 @@ mod tests {
     }
 
     #[test]
+    fn fetch_recovers_from_non_utf8_html_via_lossy_decode() {
+        // Walk the utf8 fallback arm on line 198: when the page returns
+        // bytes that include invalid UTF-8 sequences, String::from_utf8_lossy
+        // substitutes the U+FFFD replacement character so og:image extraction
+        // still finds the meta tag inserted after the broken bytes.
+        let mut page = mockito::Server::new();
+        let mut images = mockito::Server::new();
+        let image_url = format!("{}/og.png", images.url());
+        let mut body = b"<html><head>\xFF\xFE bad-bytes-here ".to_vec();
+        body.extend_from_slice(
+            format!("<meta property=\"og:image\" content=\"{image_url}\"></head></html>").as_bytes(),
+        );
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(body)
+            .create();
+        let _image = images
+            .mock("GET", "/og.png")
+            .with_status(200)
+            .with_header("content-type", "image/png")
+            .with_body(b"\x89PNG\r\n\x1a\nlossy-decode-test".to_vec())
+            .create();
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        assert_eq!(outcome.fetch_status(), fetch_status::OK);
+        assert!(outcome.image_bytes.is_some());
+    }
+
+    #[test]
+    fn absolutize_url_returns_raw_when_base_cannot_be_parsed() {
+        // Cover the inner fall-through on line 355 — when the base cannot
+        // be parsed as a URL, absolutize_url returns the raw fragment
+        // verbatim instead of joining. We can't reach this through the full
+        // fetch pipeline (page-fetch always supplies a parseable URL) but
+        // extract_og_image_url forwards the caller's base into absolutize
+        // so passing an empty base walks the failure branch.
+        let html = r#"<html><head>
+          <meta property="og:image" content="/relative/og.png">
+        </head></html>"#;
+        // reqwest::Url::parse("") fails (relative-without-base error).
+        let result = extract_og_image_url(html, "").unwrap();
+        assert_eq!(result, "/relative/og.png");
+    }
+
+    #[test]
     fn absolutize_url_joins_relative_paths_against_the_page() {
         // Direct helper tests so the relative path branch (line 360 area)
         // executes deterministically — important because some pages return

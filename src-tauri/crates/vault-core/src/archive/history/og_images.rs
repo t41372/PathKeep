@@ -723,15 +723,17 @@ mod tests {
         assert!(report.deleted_rows >= 1, "expected at least one eviction");
         assert!(after.total_bytes <= (before.total_bytes / 2));
         // Oldest row ('/a') must be gone before younger rows under SizeCap.
-        let surviving_a: Option<String> = connection
+        // Count rows whose page_url matches /a via COUNT(*) so the row
+        // mapper closure walks its success path (vs. the prior None-arm
+        // pattern that left the mapper dead).
+        let surviving_a_count: i64 = connection
             .query_row(
-                "SELECT page_url FROM og_images WHERE page_url = 'https://example.com/a'",
+                "SELECT COUNT(*) FROM og_images WHERE page_url = 'https://example.com/a'",
                 [],
                 |row| row.get(0),
             )
-            .optional()
             .unwrap();
-        assert!(surviving_a.is_none());
+        assert_eq!(surviving_a_count, 0);
     }
 
     #[test]

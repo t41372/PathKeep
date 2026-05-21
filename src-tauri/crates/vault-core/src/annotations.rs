@@ -523,4 +523,77 @@ mod tests {
         let last_url = &listed[2].url;
         assert!(first_url != last_url);
     }
+
+    #[test]
+    fn set_notes_rejects_empty_or_whitespace_url() {
+        let paths = make_paths("empty-url-notes");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        let err = set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest { url: "   ".into(), notes: "x".into(), source_profile: None },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("url"));
+    }
+
+    #[test]
+    fn replace_tags_rejects_empty_or_whitespace_url() {
+        let paths = make_paths("empty-url-tags");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        let err = replace_tags(
+            &paths,
+            &config,
+            None,
+            ReplaceTagsRequest { url: "".into(), tags: vec!["x".into()], source_profile: None },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("url"));
+    }
+
+    #[test]
+    fn replace_tags_rejects_when_tag_count_exceeds_per_url_limit() {
+        let paths = make_paths("too-many-tags");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        // MAX_TAGS_PER_URL + 1 unique short tags.
+        let tags: Vec<String> = (0..=MAX_TAGS_PER_URL).map(|n| format!("t{n}")).collect();
+        let err = replace_tags(
+            &paths,
+            &config,
+            None,
+            ReplaceTagsRequest {
+                url: "https://example.com/many".into(),
+                tags,
+                source_profile: None,
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("tags"));
+    }
+
+    #[test]
+    fn search_with_empty_query_falls_through_to_list_annotations() {
+        let paths = make_paths("search-empty");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: "https://example.com/first".into(),
+                notes: "alpha".into(),
+                source_profile: None,
+            },
+        )
+        .unwrap();
+        // Whitespace-only query takes the "trimmed.is_empty()" branch on
+        // line 178-179 → delegates to list_annotations.
+        let listed = search_annotations(&paths, &config, None, "   ", None).unwrap();
+        assert_eq!(listed.len(), 1);
+    }
 }
