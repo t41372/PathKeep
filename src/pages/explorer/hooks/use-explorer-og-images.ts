@@ -6,13 +6,19 @@
  * ## Responsibilities
  * - Keep the main Explorer history query payload free of og:image bytes.
  * - Batch-load missing og:image payloads for already-visible URLs.
+ * - Enqueue a bounded background fetch (`triggerOgImageRefetch`) for any
+ *   visible URL the cache has no `ok` row for, so cards eventually pick up
+ *   the real social-card image instead of being stuck on the favicon
+ *   fallback forever. Both literal cache-miss URLs and existing-but-not-ok
+ *   rows are eligible — the backend dedupes via `og_image_blobs` and
+ *   honours per-host rate limit + blocked-host policy.
  * - Bump `last_shown_at` (LRU eviction signal) in a debounced batch when
  *   cards land in the viewport.
  * - Cache resolved og:image lookups for the current Explorer data epoch.
  *
  * ## Not responsible for
- * - Triggering a network refetch — that's `triggerOgImageRefetch`, called
- *   from Settings or the Explorer route on demand.
+ * - Settings → Storage cleanup / blocklist UI; those call
+ *   `triggerOgImageRefetch` directly for a Settings-driven refetch sweep.
  * - Rendering placeholders or precedence between og:image / favicon /
  *   swatch — that belongs to the card frame component.
  *
@@ -32,6 +38,11 @@ import type { HistoryEntry, HistoryQueryResponse } from '../../../lib/types'
 import { historyOgImageLookupKey } from '../helpers'
 
 const MARK_SHOWN_DEBOUNCE_MS = 1000
+// Bound the per-render enqueue batch so a 200-row Explorer page can't
+// stampede the worker pool. The Rust side rate-limits per host on top
+// of this so the absolute ceiling is 2 concurrent worker threads × the
+// host rate limit, not this number.
+const FETCH_ENQUEUE_BATCH_CAP = 20
 
 interface UseExplorerOgImagesOptions {
   cacheToken: number
@@ -62,6 +73,10 @@ export function useExplorerOgImages({
   const inflightKeysRef = useRef(new Set<string>())
   const markShownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingMarkShownRef = useRef<Set<string>>(new Set())
+  // Tracks URLs we've already kicked at the refetch worker in this cache
+  // epoch so a re-render doesn't re-enqueue them. Cleared whenever the
+  // explorer cacheToken bumps (new query, fresh load).
+  const enqueuedFetchRef = useRef<Set<string>>(new Set())
   const emptyCache = useMemo(
     () => new Map<string, HistoryEntry['ogImage'] | null>(),
     [],
@@ -72,6 +87,7 @@ export function useExplorerOgImages({
   useEffect(() => {
     inflightKeysRef.current.clear()
     pendingMarkShownRef.current.clear()
+    enqueuedFetchRef.current.clear()
   }, [cacheToken])
 
   const visibleUrls = useMemo(() => {
@@ -112,6 +128,33 @@ export function useExplorerOgImages({
       .loadHistoryOgImages(missing.map((url) => ({ url })))
       .then((loaded) => {
         if (cancelled) return
+        const loadedByKey = new Map(
+          loaded.map((row) => [historyOgImageLookupKey(row.url), row]),
+        )
+        // Any URL we asked about that didn't come back with an `ok`
+        // row needs a real network fetch. Bound the enqueue batch so a
+        // 1440 M-row archive can't synchronously hand the worker pool
+        // the entire visible window.
+        const enqueueCandidates: string[] = []
+        for (const url of missing) {
+          const key = historyOgImageLookupKey(url)
+          const row = loadedByKey.get(key)
+          if (!row || row.fetchStatus !== 'ok') {
+            if (!enqueuedFetchRef.current.has(key)) {
+              enqueueCandidates.push(url)
+              enqueuedFetchRef.current.add(key)
+            }
+          }
+        }
+        if (enqueueCandidates.length > 0) {
+          const batch = enqueueCandidates.slice(0, FETCH_ENQUEUE_BATCH_CAP)
+          void backend.triggerOgImageRefetch(batch).catch(() => {
+            // refetch is best-effort: rate-limit, network failure, or
+            // disabled-fetch settings all reject without poisoning the
+            // cache load. Surface nothing to the user — the worker
+            // persists a negative-cache row regardless.
+          })
+        }
         setCacheState((current) => {
           const next = new Map(current.entries)
           for (const url of missing) {

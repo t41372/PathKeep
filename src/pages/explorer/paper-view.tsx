@@ -82,6 +82,7 @@ export interface PaperExplorerCopy {
     pagesArchived: string
     monthSummary: string
     boundsMeta: string
+    dialogLabel: string
   }
   /** Template for the year-rail tooltip: "{year} · {count} pages". */
   yearRailTitle: string
@@ -102,6 +103,41 @@ export interface PaperExplorerCopy {
     pagesArchived: string
     noArchive: string
   }
+  pagination: {
+    /** Label on the "older / next page" button (paper goes newest→oldest, so next is older). */
+    older: string
+    /** Label on the "newer / previous page" button. */
+    newer: string
+    /** Caption template, e.g. "Page {page} of {pageCount} · {total} rows". */
+    summary: string
+    /** Caption when total/pageCount aren't known yet (initial load). */
+    summaryPending: string
+    /** Page-size selector label, e.g. "Rows per page". */
+    pageSizeLabel: string
+  }
+}
+
+/**
+ * Page-level pagination handles forwarded from the Explorer route.
+ *
+ * The paper Browse surface defaults to a day-grouped contact sheet, but a
+ * 1440 M-row archive can't fit in any single response page. The route owns
+ * the cursor / page state in `useExplorerUrlState`; the view receives only
+ * the read-out state + the prev/next/page-size handlers so the footer
+ * affordances stay decoupled from URL grammar.
+ */
+export interface PaperExplorerPagination {
+  /** 1-indexed current page; `null` means the implicit "page 1". */
+  page: number | null
+  pageSize: number
+  total: number
+  /** 0 when the archive is empty or while the initial query loads. */
+  pageCount: number
+  hasPrevious: boolean
+  hasNext: boolean
+  onPrevious: () => void
+  onNext: () => void
+  onChangePageSize?: (next: number) => void
 }
 
 export interface PaperExplorerViewProps {
@@ -127,6 +163,7 @@ export interface PaperExplorerViewProps {
   onSelectEntry?: (entry: HistoryEntry) => void
   onJumpToDate?: (iso: string) => void
   onClearTarget?: () => void
+  pagination?: PaperExplorerPagination
   language?: string
   /** Today's anchor in local time. Tests inject; routes default to new Date(). */
   todayIso?: string
@@ -148,6 +185,7 @@ export function PaperExplorerView({
   onSelectEntry,
   onJumpToDate,
   onClearTarget,
+  pagination,
   language = 'en',
   todayIso,
   initialViewMode = 'cards',
@@ -343,6 +381,14 @@ export function PaperExplorerView({
       onClearTarget={onClearTarget}
       selectedEntryId={selectedEntryId}
       onSelectEntry={onSelectEntry}
+      pagination={
+        pagination
+          ? {
+              ...pagination,
+              copy: copy.pagination,
+            }
+          : null
+      }
       language={language}
       copy={copy.contactSheet}
     />

@@ -102,6 +102,13 @@ export function buildPaperExplorerCopy(
       pagesArchived: t('paperBrowse.targetPagesArchived'),
       noArchive: t('paperBrowse.targetNoArchive'),
     },
+    pagination: {
+      older: t('paperBrowse.paginationOlder'),
+      newer: t('paperBrowse.paginationNewer'),
+      summary: t('paperBrowse.paginationSummary'),
+      summaryPending: t('paperBrowse.paginationSummaryPending'),
+      pageSizeLabel: t('paperBrowse.paginationPageSizeLabel'),
+    },
   }
 }
 

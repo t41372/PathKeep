@@ -16,6 +16,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import type * as BackendClient from '@/lib/backend-client'
 import {
   ShellDataContext,
   type ShellDataContextValue,
@@ -32,7 +33,7 @@ vi.mock('@/components/primitives/busy-overlay', () => ({
 }))
 
 vi.mock('@/lib/backend-client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/backend-client')>()
+  const actual = await importOriginal<typeof BackendClient>()
   return {
     ...actual,
     backend: {

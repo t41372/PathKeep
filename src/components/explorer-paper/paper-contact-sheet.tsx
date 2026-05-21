@@ -112,6 +112,31 @@ export interface PaperContactSheetCopy {
   empty: string
 }
 
+/**
+ * Pagination footer descriptor. Optional — when omitted, the contact sheet
+ * renders without page navigation (which is the right call for a single-day
+ * insight surface). The Browse route supplies it so a 1440 M-row archive
+ * can step backwards through history pages.
+ */
+export interface PaperContactSheetPagination {
+  page: number | null
+  pageSize: number
+  total: number
+  pageCount: number
+  hasPrevious: boolean
+  hasNext: boolean
+  onPrevious: () => void
+  onNext: () => void
+  onChangePageSize?: (next: number) => void
+  copy: {
+    older: string
+    newer: string
+    summary: string
+    summaryPending: string
+    pageSizeLabel: string
+  }
+}
+
 export interface PaperContactSheetProps {
   /** Pre-grouped days, newest → oldest. */
   days: PaperDay[]
@@ -124,6 +149,8 @@ export interface PaperContactSheetProps {
   onClearTarget?: () => void
   selectedEntryId?: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  /** Optional page-level navigation footer. Null disables the footer. */
+  pagination?: PaperContactSheetPagination | null
   /** Language tag used for time/labels in headers. */
   language?: string
   copy: PaperContactSheetCopy
@@ -141,6 +168,7 @@ export function PaperContactSheet({
   onClearTarget,
   selectedEntryId = null,
   onSelectEntry,
+  pagination,
   language = 'en',
   copy,
   className,
@@ -283,7 +311,83 @@ export function PaperContactSheet({
           testId="paper-contact-sheet-year-rail"
         />
       ) : null}
+
+      {pagination ? <PaginationFooter pagination={pagination} /> : null}
     </section>
+  )
+}
+
+function PaginationFooter({
+  pagination,
+}: {
+  pagination: PaperContactSheetPagination
+}) {
+  const {
+    page,
+    pageSize,
+    total,
+    pageCount,
+    hasPrevious,
+    hasNext,
+    onPrevious,
+    onNext,
+    onChangePageSize,
+    copy,
+  } = pagination
+  const currentPage = page ?? 1
+  const summary =
+    pageCount > 0
+      ? copy.summary
+          .replace('{page}', currentPage.toLocaleString())
+          .replace('{pageCount}', pageCount.toLocaleString())
+          .replace('{total}', total.toLocaleString())
+      : copy.summaryPending
+  return (
+    <footer
+      data-testid="paper-contact-sheet-pagination"
+      className="border-border-light mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4 font-mono text-[10.5px] tracking-[0.04em] text-ink-muted"
+    >
+      <span>{summary}</span>
+      <div className="flex items-center gap-2">
+        {onChangePageSize ? (
+          <label className="flex items-center gap-2">
+            <span className="text-ink-faint">{copy.pageSizeLabel}</span>
+            <select
+              value={pageSize}
+              onChange={(event) =>
+                onChangePageSize(Number.parseInt(event.target.value, 10))
+              }
+              className="border-border-default bg-card-paper text-ink rounded-paper border px-2 py-1 font-mono text-[10.5px]"
+              data-testid="paper-contact-sheet-page-size"
+            >
+              {[25, 50, 100, 200].map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          disabled={!hasPrevious}
+          onClick={onPrevious}
+          data-testid="paper-contact-sheet-page-prev"
+          className="border-border-default text-ink-muted hover:border-ink-muted hover:text-ink rounded-paper border px-3 py-1 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          ← {copy.newer}
+        </button>
+        <button
+          type="button"
+          disabled={!hasNext}
+          onClick={onNext}
+          data-testid="paper-contact-sheet-page-next"
+          className="border-border-default text-ink-muted hover:border-ink-muted hover:text-ink rounded-paper border px-3 py-1 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {copy.older} →
+        </button>
+      </div>
+    </footer>
   )
 }
 

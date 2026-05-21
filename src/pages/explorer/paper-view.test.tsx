@@ -69,9 +69,12 @@ const COPY: PaperExplorerCopy = {
     pagesArchived: '{count} pages archived',
     monthSummary: '{active} active days · {total} pages',
     boundsMeta: '{firstYear}–{lastYear} · {totalDays} days',
+    dialogLabel: 'Calendar',
   },
   yearRailTitle: '{year} · {count} pages',
   yearRailAria: 'Year scrubber',
+  yearRailNowLabel: 'now',
+  yearRailFirstLabel: 'first',
   target: {
     fromOnThisDay: "From 'On this day'",
     fromSearch: 'From search',
@@ -79,6 +82,13 @@ const COPY: PaperExplorerCopy = {
     fromIntelligence: 'From intelligence',
     pagesArchived: '{count} pages archived',
     noArchive: 'No archive for this exact day yet',
+  },
+  pagination: {
+    older: 'Older',
+    newer: 'Newer',
+    summary: 'Page {page} of {pageCount} · {total} rows',
+    summaryPending: 'Loading more pages…',
+    pageSizeLabel: 'Rows per page',
   },
 }
 

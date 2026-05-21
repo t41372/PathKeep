@@ -446,4 +446,81 @@ describe('PaperContactSheet', () => {
     )
     expect(activeHeader).not.toBeNull()
   })
+
+  test('renders the pagination footer and fires older/newer/pageSize handlers', () => {
+    const onPrevious = vi.fn()
+    const onNext = vi.fn()
+    const onChangePageSize = vi.fn()
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        pagination={{
+          page: 3,
+          pageSize: 50,
+          total: 1234,
+          pageCount: 25,
+          hasPrevious: true,
+          hasNext: true,
+          onPrevious,
+          onNext,
+          onChangePageSize,
+          copy: {
+            older: 'Older',
+            newer: 'Newer',
+            summary: 'Page {page} of {pageCount} · {total} rows',
+            summaryPending: 'Loading…',
+            pageSizeLabel: 'Rows per page',
+          },
+        }}
+        testId="cs-pagination"
+      />,
+    )
+    expect(screen.getByTestId('paper-contact-sheet-pagination')).toBeVisible()
+    expect(screen.getByText(/Page 3 of 25 · 1,234 rows/)).toBeVisible()
+    fireEvent.click(screen.getByTestId('paper-contact-sheet-page-prev'))
+    expect(onPrevious).toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('paper-contact-sheet-page-next'))
+    expect(onNext).toHaveBeenCalled()
+    fireEvent.change(screen.getByTestId('paper-contact-sheet-page-size'), {
+      target: { value: '100' },
+    })
+    expect(onChangePageSize).toHaveBeenCalledWith(100)
+  })
+
+  test('pagination footer renders pending summary when pageCount is 0', () => {
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        pagination={{
+          page: null,
+          pageSize: 25,
+          total: 0,
+          pageCount: 0,
+          hasPrevious: false,
+          hasNext: false,
+          onPrevious: () => {},
+          onNext: () => {},
+          copy: {
+            older: 'Older',
+            newer: 'Newer',
+            summary: 'Page {page} of {pageCount} · {total} rows',
+            summaryPending: 'Loading more pages…',
+            pageSizeLabel: 'Rows per page',
+          },
+        }}
+        testId="cs-pagination-pending"
+      />,
+    )
+    expect(screen.getByText('Loading more pages…')).toBeVisible()
+    // pageSize selector omitted when onChangePageSize is undefined.
+    expect(screen.queryByTestId('paper-contact-sheet-page-size')).toBeNull()
+  })
 })

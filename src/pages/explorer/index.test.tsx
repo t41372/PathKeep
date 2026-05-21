@@ -74,6 +74,7 @@ vi.mock('../../lib/backend-client', () => ({
     runAiQueueJobs: vi.fn(),
     loadHistoryOgImages: vi.fn().mockResolvedValue([]),
     markOgImagesShown: vi.fn().mockResolvedValue(undefined),
+    triggerOgImageRefetch: vi.fn().mockResolvedValue(0),
   },
 }))
 

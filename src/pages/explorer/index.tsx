@@ -80,10 +80,14 @@ export function ExplorerPage() {
     clearAllFilters,
     currentQuery,
     end,
+    explicitPage,
     groupedDateRange,
+    handleNextHistoryPage,
+    handlePreviousHistoryPage,
     handleNextSemanticPage,
     handlePreviousSemanticPage,
     mode,
+    pageSize,
     persistRecentSearch,
     profileId,
     queryInput,
@@ -92,6 +96,7 @@ export function ExplorerPage() {
     searchParams,
     semanticQuery,
     semanticTrail,
+    setHistoryPageSize,
     setQueryInput,
     setRecentSearches,
     setSearchParams,
@@ -549,6 +554,23 @@ export function ExplorerPage() {
               next.delete('date')
               next.delete('source')
               setSearchParams(next)
+            }}
+            pagination={{
+              page: explicitPage,
+              pageSize,
+              total: visibleTimeResults?.total ?? 0,
+              pageCount: visibleTimeResults?.pageCount ?? 0,
+              hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
+              hasNext: Boolean(visibleTimeResults?.hasNext),
+              onPrevious: () =>
+                handlePreviousHistoryPage(
+                  visibleTimeResults?.page ?? explicitPage ?? 1,
+                ),
+              onNext: () =>
+                handleNextHistoryPage(
+                  visibleTimeResults?.page ?? explicitPage ?? 1,
+                ),
+              onChangePageSize: setHistoryPageSize,
             }}
             language={language}
             copy={buildPaperExplorerCopy(explorerT)}

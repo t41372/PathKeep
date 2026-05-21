@@ -180,6 +180,73 @@ describe('useExplorerOgImages', () => {
     // No throw, no unhandled rejection bubbling out of the hook.
     await vi.advanceTimersByTimeAsync(1100)
   })
+
+  test('enqueues a bounded triggerOgImageRefetch batch for non-ok cache rows', async () => {
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([
+      {
+        url: 'https://example.com/missing',
+        ogImage: null,
+        fetchStatus: 'missing',
+      },
+      {
+        url: 'https://example.com/cached',
+        ogImage: { dataUrl: 'data:image/png;base64,AAA=' },
+        fetchStatus: 'ok',
+      },
+    ])
+    vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    const refetch = vi
+      .spyOn(backend, 'triggerOgImageRefetch')
+      .mockResolvedValue(1)
+
+    const results = historyResponse([
+      historyEntry(1, 'https://example.com/missing'),
+      historyEntry(2, 'https://example.com/cached'),
+      historyEntry(3, 'https://example.com/never-seen'),
+    ])
+
+    renderHook(() =>
+      useExplorerOgImages({ cacheToken: 1, loading: false, results }),
+    )
+    await waitFor(() => expect(refetch).toHaveBeenCalled())
+    const enqueued = refetch.mock.calls[0]?.[0] ?? []
+    // Cached "ok" row is excluded; the missing-status + literal-cache-miss
+    // rows are both eligible for the refetch enqueue.
+    expect(enqueued).toEqual(
+      expect.arrayContaining([
+        'https://example.com/missing',
+        'https://example.com/never-seen',
+      ]),
+    )
+    expect(enqueued).not.toContain('https://example.com/cached')
+  })
+
+  test('swallows triggerOgImageRefetch rejections without poisoning the cache', async () => {
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
+    vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    vi.spyOn(backend, 'triggerOgImageRefetch').mockRejectedValue(
+      new Error('rate-limit'),
+    )
+    const results = historyResponse([
+      historyEntry(1, 'https://example.com/needs-fetch'),
+    ])
+    const { result } = renderHook(() =>
+      useExplorerOgImages({ cacheToken: 1, loading: false, results }),
+    )
+    await waitFor(() =>
+      expect(
+        result.current.ogImageCache.has(
+          historyOgImageLookupKey('https://example.com/needs-fetch'),
+        ),
+      ).toBe(true),
+    )
+    // The cache still stores null for the URL and the route doesn't blow up.
+    expect(
+      result.current.ogImageCache.get(
+        historyOgImageLookupKey('https://example.com/needs-fetch'),
+      ),
+    ).toBeNull()
+  })
 })
 
 function historyResponse(items: HistoryEntry[]): HistoryQueryResponse {

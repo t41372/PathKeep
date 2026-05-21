@@ -54,7 +54,7 @@
     "release:check": "node scripts/verify-release-config.mjs",
     "check:supply-chain": "bun run audit:rust && bun run deny:rust",
     "check:platform": "node scripts/run-platform-checks.mjs",
-    "check:coverage": "bun run coverage:js && bun run coverage:rust:quality",
+    "check:coverage": "bun run coverage:js && bun run coverage:rust",
     "check:mutation": "bun run mutation:js:desktop-contract",
     "check:js": "bun run format:check && bun run lint && bun run check:i18n && bun run typecheck && bun run test:unit",
     "check:rust": "bun run fmt:rust && bun run lint:rust && bun run test:rust",

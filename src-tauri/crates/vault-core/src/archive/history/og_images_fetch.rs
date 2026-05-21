@@ -320,17 +320,28 @@ fn supported_image_mime(response: &Response) -> Option<&'static str> {
     }
 }
 
+#[derive(Debug)]
 enum BodyReadError {
     TooLarge,
     Io,
 }
 
-fn read_response_body(mut response: Response, cap_bytes: usize) -> Result<Vec<u8>, BodyReadError> {
-    use std::io::Read;
+fn read_response_body(response: Response, cap_bytes: usize) -> Result<Vec<u8>, BodyReadError> {
+    read_capped_bytes(response, cap_bytes)
+}
+
+/// Read-cap helper extracted so unit tests can drive both fall-throughs
+/// (Io error mid-stream + TooLarge) without standing up a partial-body
+/// mockito server. The production fetch path calls this exclusively via
+/// `read_response_body`.
+fn read_capped_bytes<R: std::io::Read>(
+    mut reader: R,
+    cap_bytes: usize,
+) -> Result<Vec<u8>, BodyReadError> {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 8 * 1024];
     loop {
-        let n = match response.read(&mut chunk) {
+        let n = match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => n,
             Err(_) => return Err(BodyReadError::Io),
@@ -738,6 +749,32 @@ mod tests {
         // reqwest::Url::parse("") fails (relative-without-base error).
         let result = extract_og_image_url(html, "").unwrap();
         assert_eq!(result, "/relative/og.png");
+    }
+
+    #[test]
+    fn read_capped_bytes_returns_io_when_underlying_reader_errors() {
+        struct ErrorReader;
+        impl std::io::Read for ErrorReader {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "boom"))
+            }
+        }
+        let result = super::read_capped_bytes(ErrorReader, 1024);
+        assert!(matches!(result, Err(super::BodyReadError::Io)));
+    }
+
+    #[test]
+    fn read_capped_bytes_returns_too_large_when_stream_exceeds_cap() {
+        let big = vec![0_u8; 16 * 1024];
+        let result = super::read_capped_bytes(big.as_slice(), 1024);
+        assert!(matches!(result, Err(super::BodyReadError::TooLarge)));
+    }
+
+    #[test]
+    fn read_capped_bytes_drains_short_stream_under_cap() {
+        let payload = b"<html>hello</html>".to_vec();
+        let bytes = super::read_capped_bytes(payload.as_slice(), 1024).unwrap();
+        assert_eq!(bytes, payload);
     }
 
     #[test]
