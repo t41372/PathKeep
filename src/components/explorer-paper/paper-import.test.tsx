@@ -123,4 +123,36 @@ describe('PaperImportMethodCard', () => {
 
     expect(screen.getByTestId('method-icon')).toBeVisible()
   })
+
+  test('renders the icon with the inactive accent class when active is false', () => {
+    render(
+      <PaperImportMethodCard
+        id="zip"
+        title="ZIP archive"
+        description="…"
+        icon={<span data-testid="inactive-icon">▦</span>}
+        onSelect={() => {}}
+      />,
+    )
+    // The `active ? 'text-accent' : 'text-ink-muted'` ternary at line 67
+    // of paper-import-method-card.tsx fires the falsy branch.
+    const iconWrapper = screen.getByTestId('inactive-icon').parentElement
+    expect(iconWrapper?.className).toContain('text-ink-muted')
+  })
+
+  test('renders the icon with the active accent class when active is true', () => {
+    render(
+      <PaperImportMethodCard
+        id="zip-active"
+        title="ZIP archive (active)"
+        description="…"
+        icon={<span data-testid="active-icon">▦</span>}
+        onSelect={() => {}}
+        active
+      />,
+    )
+    // Active branch of the same ternary at line 67.
+    const iconWrapper = screen.getByTestId('active-icon').parentElement
+    expect(iconWrapper?.className).toContain('text-accent')
+  })
 })

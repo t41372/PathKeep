@@ -115,6 +115,23 @@ describe('PaperAssistantMessage', () => {
     )
     expect(screen.queryByTestId('paper-assistant-evidence')).toBeNull()
   })
+
+  test('renders evidence rows without the count strip when evidenceLabel is omitted', () => {
+    render(
+      <PaperAssistantMessage
+        role="ai"
+        evidence={EVIDENCE}
+        testId="msg-no-label"
+      >
+        Body
+      </PaperAssistantMessage>,
+    )
+    // The evidence panel still mounts, but the `evidenceLabel ?` ternary
+    // at line 99 of paper-assistant-message.tsx takes the falsy branch
+    // and the count strip is not rendered.
+    expect(screen.getByTestId('paper-assistant-evidence')).toBeVisible()
+    expect(screen.queryByText(/Evidence ·/)).toBeNull()
+  })
 })
 
 describe('PaperAssistantComposer', () => {

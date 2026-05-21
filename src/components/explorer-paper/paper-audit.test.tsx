@@ -55,6 +55,36 @@ describe('PaperChainBlock', () => {
     )
     expect(screen.queryByText(/·/)).toBeNull()
   })
+
+  test('renders the type-only meta row without the · separator', () => {
+    render(
+      <PaperChainBlock
+        id="#1844"
+        hash="9b34…ab12"
+        type="IMPORT"
+        testId="chain-type-only"
+      />,
+    )
+    // The `type ? <span>` branch fires (line 55), the `type && when`
+    // separator (line 56) takes the falsy branch.
+    expect(screen.getByText('IMPORT')).toBeVisible()
+    expect(screen.queryByText(/·/)).toBeNull()
+  })
+
+  test('renders the when-only meta row without the · separator', () => {
+    render(
+      <PaperChainBlock
+        id="#1843"
+        hash="ee42…ff77"
+        when="3d ago"
+        testId="chain-when-only"
+      />,
+    )
+    // The `when ? <span>` branch fires (line 57); the `type && when`
+    // separator stays falsy because type is undefined.
+    expect(screen.getByText('3d ago')).toBeVisible()
+    expect(screen.queryByText(/·/)).toBeNull()
+  })
 })
 
 describe('PaperStorageBar', () => {
