@@ -147,6 +147,40 @@ describe('AppShell (paper redesign)', () => {
     // This is a lightweight cover assertion to anchor the mock + import.
     expect(invokeCommand).toBeDefined()
   })
+
+  test('palette query routes through invokeCommand with the trimmed search term', async () => {
+    const user = userEvent.setup()
+    const { invokeCommand } = await import('@/lib/ipc/bridge')
+    vi.mocked(invokeCommand).mockResolvedValue({
+      rows: [
+        {
+          visit_id: 7,
+          url_id: 99,
+          url: 'https://example.com/article',
+          title: 'Example article',
+          visited_at_iso: '2026-04-17T10:30:00',
+        },
+      ],
+    } as unknown as Awaited<ReturnType<typeof invokeCommand>>)
+    renderShell({}, '/')
+    const paletteTrigger = screen
+      .getByTestId('pk-topbar')
+      .querySelector('button')
+    if (!paletteTrigger) throw new Error('palette trigger missing')
+    await user.click(paletteTrigger)
+    const input = await screen.findByPlaceholderText(/Find a page/i)
+    await user.type(input, 'example')
+    // The palette debounces queries by 160 ms before firing the search.
+    await new Promise((resolve) => window.setTimeout(resolve, 250))
+    await vi.waitFor(() =>
+      expect(invokeCommand).toHaveBeenCalledWith(
+        'query_history',
+        expect.objectContaining({
+          query: expect.objectContaining({ search: 'example' }),
+        }),
+      ),
+    )
+  })
 })
 
 function renderShell(
