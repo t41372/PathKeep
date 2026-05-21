@@ -21,10 +21,17 @@
 import type { RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
+import {
   copyReviewValue,
   ReviewPathActionRow,
   type ReviewCopyFeedback,
 } from '../../components/review'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { formatRelativeTime } from '../../lib/format'
 import type { ResolvedLanguage } from '../../lib/i18n'
 import { archiveModeKey, securityModeKey } from '../../lib/trust-review'
@@ -61,11 +68,9 @@ export function SecurityStatusPanel({
   }
 
   return (
-    <div className="panel" id="unlock-archive">
-      <div className="panel-header">
-        <span className="panel-title">{t('security.encryptionStatus')}</span>
-      </div>
-      <div className="panel-body">
+    <PaperCard testId="security-status-panel" id="unlock-archive">
+      <PaperCardHeader title={t('security.encryptionStatus')} />
+      <PaperCardBody>
         <div className="security-status">
           <div
             className={`security-icon ${status.encrypted ? 'encrypted' : ''}`}
@@ -177,22 +182,21 @@ export function SecurityStatusPanel({
         ) : null}
 
         {localizedWarnings.map((warning) => (
-          <div key={warning} className="warning-box">
-            <div className="warning-icon">⚠</div>
-            <div className="warning-text">{warning}</div>
+          <div key={warning} className="mt-3">
+            <StatusCallout tone="warning" title={warning} />
           </div>
         ))}
         {status.encrypted ? (
-          <div className="warning-box">
-            <div className="warning-icon">⚠</div>
-            <div className="warning-text">
-              <strong>{t('security.passwordLossTitle')}</strong>{' '}
-              {t('security.passwordLossBody')}
-            </div>
+          <div className="mt-3">
+            <StatusCallout
+              tone="warning"
+              title={t('security.passwordLossTitle')}
+              body={t('security.passwordLossBody')}
+            />
           </div>
         ) : null}
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
 
@@ -227,16 +231,18 @@ export function SecurityUnlockPanel({
   unlockInputRef,
 }: SecurityUnlockPanelProps) {
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{t('security.unlockKeyringTitle')}</span>
-        <span className="panel-action">
-          {status.unlocked
-            ? t('security.sessionActive')
-            : t('security.needsUnlock')}
-        </span>
-      </div>
-      <div className="panel-body">
+    <PaperCard testId="security-unlock-panel">
+      <PaperCardHeader
+        title={t('security.unlockKeyringTitle')}
+        right={
+          <PaperCardBadge>
+            {status.unlocked
+              ? t('security.sessionActive')
+              : t('security.needsUnlock')}
+          </PaperCardBadge>
+        }
+      />
+      <PaperCardBody>
         <div className="security-form-grid">
           <label className="field-stack">
             <span className="mono-kicker">
@@ -307,8 +313,8 @@ export function SecurityUnlockPanel({
           </button>
         </div>
         <p className="mono-support">{t('security.keyringConvenience')}</p>
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
 
@@ -355,14 +361,16 @@ export function SecurityRekeyPanel({
   localizedWarning,
 }: SecurityRekeyPanelProps) {
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{t('security.rekeyTitle')}</span>
-        <span className="panel-action">
-          {t('security.previewBeforeExecute')}
-        </span>
-      </div>
-      <div className="panel-body">
+    <PaperCard testId="security-rekey-panel">
+      <PaperCardHeader
+        title={t('security.rekeyTitle')}
+        right={
+          <PaperCardBadge>
+            {t('security.previewBeforeExecute')}
+          </PaperCardBadge>
+        }
+      />
+      <PaperCardBody>
         <div className="security-form-grid">
           <label className="field-stack">
             <span className="mono-kicker">{t('security.targetMode')}</span>
@@ -486,9 +494,11 @@ export function SecurityRekeyPanel({
               </div>
             ))}
             {preview.warnings.map((warning) => (
-              <div key={warning} className="warning-box">
-                <div className="warning-icon">⚠</div>
-                <div className="warning-text">{localizedWarning(warning)}</div>
+              <div key={warning} className="mt-3">
+                <StatusCallout
+                  tone="warning"
+                  title={localizedWarning(warning)}
+                />
               </div>
             ))}
           </div>
@@ -500,7 +510,7 @@ export function SecurityRekeyPanel({
             {actionError}
           </p>
         ) : null}
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
