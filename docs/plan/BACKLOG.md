@@ -66,15 +66,34 @@
 - [x] **WORK-V03-SETTINGS-SECTIONS-PAPER** — Paper restyle inside each Settings sub-section
   - 2026-05-20 closeout: all 11 Settings sub-sections (general / platform / derived-state / ai-providers / app-lock / profile-selection / updater / retention / remote-backup-section / remote-backup-preferences + the already-paper appearance / link-previews from Phase 1.1) now use paper-form-primitives (Field / Toggle / SegmentedControl) + PaperCard. PaperCard accepts an optional `id` prop so `document.getElementById('settings-X')` queries + hash-link scrolling work as before. Commits: 3e8347f (Phase 1.1) / eaf59ba / 4a4f9e9 / acab346 / 690fff7 / 833d3d9.
 
-- [ ] **WORK-V03-PAPER-REMAINING-ROUTES-INNER** — Paper restyle sibling-route inner panels (deferred from Phase 2)
-  - 讀先：
-    `src/pages/jobs/index.tsx` (jobs-grid / jobs-hero-card / panel chrome)
-    `src/pages/schedule/{not-installed,installed-ok,installed-warn}-state.tsx` (state panels)
-    `src/pages/onboarding/{welcome,browser-detection,storage,security,schedule,ready}-step.tsx`
-    `src/pages/security/panels.tsx` (SecurityStatusPanel / SecurityUnlockPanel / SecurityRekeyPanel)
-  - 目標：把 Phase 2 outer-wrapper sweep 留下的內部 v0.2 chrome（jobs-grid / panel-header / .schedule-header / step .fieldBlock 等）轉成 PaperCard + paper-form-primitives。
-  - 契約：保留現有 testid + behavior；不變更 i18n key。
-  - 驗收：`bun run check` clean、整層走 paper tokens、tests 通過。
+- [x] **WORK-V03-PAPER-REMAINING-ROUTES-INNER** — Paper restyle sibling-route inner panels (deferred from Phase 2)
+  - 2026-05-20 closeout (commits cc33a92 / d6ac788 / eb0172f):
+    - **Security panels** (cc33a92) — SecurityStatusPanel / SecurityUnlockPanel /
+      SecurityRekeyPanel outer chrome now uses PaperCard + PaperCardHeader +
+      PaperCardBody. PaperCardBadge surfaces the "session active / needs unlock"
+      and "preview before execute" subtitles. Warning rows (password loss,
+      rekey-preview warnings, custom localizedWarnings) all use StatusCallout
+      instead of the bespoke `.warning-box` chrome.
+    - **Onboarding steps** (d6ac788) — StorageStep / ScheduleStep /
+      BrowserDetectionStep / ReadyStep wrap their sub-panels in PaperCard with
+      PaperCardBadge subtitles. SecurityStep keeps its bespoke radio-card mode
+      picker (Encrypted / Plaintext) since it's a designed editorial pattern.
+      Five `.ob-info-box` and `.warning-box` rows across the four steps now
+      use StatusCallout primitives (info / warning toned).
+    - **Jobs panels** (eb0172f) — overview hero / queue summary / runtime
+      summary cards in `jobs/index.tsx`, plus JobPanel + RuntimeJobPanel from
+      `jobs/job-panels.tsx`, plus the 4 focus cards + 2 runtime-health
+      summary cards from `jobs/runtime-health-section.tsx`, all use
+      PaperCard. Updated three `.closest('.panel')` selectors in
+      jobs-runtime.test.tsx to `.closest('section, .panel')` so they find
+      the new PaperCard `<section>` root.
+    - Schedule state panels (not-installed / installed-ok / installed-warn)
+      are explicitly **deferred** — they sit inside the 1297-line
+      schedule/index.tsx and belong to the larger `WORK-SCHEDULE-PAGE-MAINT-A`
+      maintainability sweep that needs to extract the state-panel components
+      out of the route before reskinning. Welcome / ready hero blocks stay
+      editorial by design.
+    - 1654/1654 unit tests pass; `bun run check:base` clean.
 
 - [x] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
   - 2026-05-20 closeout (commit 7a1543c, prior commit 5067cfa for the shared
