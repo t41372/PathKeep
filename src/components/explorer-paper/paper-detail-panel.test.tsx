@@ -324,6 +324,50 @@ describe('PaperDetailPanel', () => {
     expect(onUpdateTags).toHaveBeenLastCalledWith(['rust'])
   })
 
+  test('pressing Enter on a whitespace-only input does not commit a tag', () => {
+    const onUpdateTags = vi.fn()
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={['rust']}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={onUpdateTags}
+        copy={COPY}
+      />,
+    )
+
+    const input = screen.getByTestId('paper-detail-tag-input')
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    // handleAddTag at line 221 short-circuits with `if (!candidate) return`
+    // because trim() yields the empty string. No tag is committed.
+    expect(onUpdateTags).not.toHaveBeenCalled()
+  })
+
+  test('Backspace on an empty input with no tags is a no-op', () => {
+    const onUpdateTags = vi.fn()
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={onUpdateTags}
+        copy={COPY}
+      />,
+    )
+
+    const input = screen.getByTestId('paper-detail-tag-input')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.keyDown(input, { key: 'Backspace' })
+    // Branch at line 244-247 of paper-detail-panel.tsx requires tags.length > 0;
+    // with no tags the handler does not fire onUpdateTags.
+    expect(onUpdateTags).not.toHaveBeenCalled()
+  })
+
   test('duplicate tag is rejected silently and clears the input', () => {
     const onUpdateTags = vi.fn()
     render(
