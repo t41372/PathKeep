@@ -24,12 +24,11 @@ import {
   type PaletteResult,
   type PKStatusBarSource,
 } from '@/components/shell'
-import { invokeCommand } from '@/lib/ipc/bridge'
+import { backend } from '@/lib/backend-client'
 import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
 } from '@/lib/build-info'
-import type { HistoryQueryResponse } from '@/lib/types'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from './shell-data-context'
 import { appScreens, readRouteHandle } from './router'
@@ -41,13 +40,17 @@ import {
   humanizeBytes,
   readBoolean,
   readEpigraphIndex,
-  readTheme,
   sumStorageBytes,
 } from './shell-helpers'
+import {
+  PAPER_PREFERENCES_EVENT,
+  applyPaperPreferences,
+  readPaperPreferences,
+  type PaperPreferencesEventDetail,
+} from '@/lib/paper-preferences'
 import { useProfileScope } from '@/lib/profile-scope-context'
 
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
-const THEME_KEY = 'pathkeep.theme'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
 
 /**
@@ -90,8 +93,12 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readBoolean(SIDEBAR_KEY, false, shellStorage()),
   )
-  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
-    readTheme(THEME_KEY, shellStorage()),
+  // Single source of truth for the paper appearance preferences. Settings
+  // dispatches `PAPER_PREFERENCES_EVENT` whenever it mutates a preference, so
+  // the shell mirror below stays in sync — toggling theme from either place
+  // is visible everywhere.
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    () => readPaperPreferences().theme,
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
   // The status-bar source picker reads + writes the global profile-scope
@@ -106,14 +113,28 @@ export function AppShell() {
     readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, shellStorage()),
   )
 
+  // Mount-pass: push the read preferences into the document so
+  // <html data-theme>, fonts, density, paper-texture line up with persisted
+  // state. Subsequent updates flow through PAPER_PREFERENCES_EVENT.
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-    try {
-      window.localStorage.setItem(THEME_KEY, theme)
-    } catch {
-      // localStorage may be unavailable in some test environments.
+    applyPaperPreferences(null)
+  }, [])
+
+  // Listen for preference mutations dispatched by `applyPaperPreferences`
+  // (Settings → Appearance, or any future caller) so the shell's theme
+  // mirror stays in sync without each owner persisting separately.
+  useEffect(() => {
+    function handlePreferencesChange(event: Event) {
+      const detail = (event as CustomEvent<PaperPreferencesEventDetail>).detail
+      if (detail?.preferences) setTheme(detail.preferences.theme)
     }
-  }, [theme])
+    window.addEventListener(PAPER_PREFERENCES_EVENT, handlePreferencesChange)
+    return () =>
+      window.removeEventListener(
+        PAPER_PREFERENCES_EVENT,
+        handlePreferencesChange,
+      )
+  }, [])
 
   useEffect(() => {
     try {
@@ -141,7 +162,14 @@ export function AppShell() {
   }, [paletteOpen])
 
   const handleToggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+    // Route the toggle through applyPaperPreferences so the document
+    // attribute, persistence layer, and Settings appearance card all
+    // synchronise via the shared event channel.
+    const current = readPaperPreferences()
+    applyPaperPreferences({
+      ...current,
+      theme: current.theme === 'dark' ? 'light' : 'dark',
+    })
   }, [])
 
   const handleLockNow = useCallback(() => {
@@ -158,26 +186,22 @@ export function AppShell() {
 
   const handleSearchQuery = useCallback(
     async (query: string): Promise<PaletteResult[]> => {
-      if (!query.trim()) return []
+      const trimmed = query.trim()
+      if (!trimmed) return []
       try {
-        const response = await invokeCommand<HistoryQueryResponse>(
-          'query_history',
-          {
-            query: {
-              search: query,
-              limit: 8,
-              offset: 0,
-            },
-          },
-        )
-        const rows = (response as unknown as { rows?: PaletteRow[] }).rows ?? []
-        return rows.slice(0, 8).map((row, index) => ({
-          id: row.visit_id ?? row.url_id ?? row.url ?? String(index),
-          title: row.title ?? row.url ?? '(untitled)',
-          domain: extractDomain(row.url),
-          url: row.url ?? '',
-          visitDate: row.visited_at_iso?.slice(0, 10) ?? null,
-          visitTime: row.visited_at_iso?.slice(11, 16) ?? null,
+        const response = await backend.queryHistory({
+          q: trimmed,
+          limit: 8,
+          sort: 'relevance',
+        })
+        const items = response.items ?? []
+        return items.slice(0, 8).map((entry) => ({
+          id: String(entry.id),
+          title: entry.title ?? entry.url ?? '(untitled)',
+          domain: entry.domain || extractDomain(entry.url),
+          url: entry.url ?? '',
+          visitDate: entry.visitedAt?.slice(0, 10) ?? null,
+          visitTime: entry.visitedAt?.slice(11, 16) ?? null,
         }))
       } catch {
         return []
@@ -308,10 +332,3 @@ export function AppShell() {
   )
 }
 
-interface PaletteRow {
-  visit_id?: string
-  url_id?: string
-  url?: string
-  title?: string
-  visited_at_iso?: string
-}

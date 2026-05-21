@@ -62,6 +62,8 @@ export interface PaperCalendarPopoverCopy {
   monthSummary: string
   /** Template for the meta block, e.g. "{firstYear}–{lastYear} · {totalDays} days". */
   boundsMeta: string
+  /** Aria-label for the popover dialog itself. */
+  dialogLabel: string
 }
 
 export interface PaperCalendarPopoverBounds {
@@ -171,7 +173,7 @@ export function PaperCalendarPopover({
   return (
     <div
       role="dialog"
-      aria-label="Calendar"
+      aria-label={copy.dialogLabel}
       data-testid={testId}
       className={cn(
         'absolute left-0 top-[calc(100%+8px)] z-[1000] w-[340px] overflow-hidden',

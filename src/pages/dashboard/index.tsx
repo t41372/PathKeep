@@ -50,7 +50,7 @@ export function DashboardPage() {
     refreshKey,
     snapshot,
   } = useShellData()
-  const { t, language } = useI18n()
+  const { t } = useI18n()
   const { activeProfileId } = useProfileScope()
   const navigate = useNavigate()
 
@@ -65,7 +65,7 @@ export function DashboardPage() {
     snapshot,
   })
 
-  const greeting = useMemoGreeting(language)
+  const greeting = useMemoGreeting(t)
 
   useEffect(() => {
     if (!snapshot?.config.initialized) {
@@ -253,18 +253,13 @@ function FooterEpigraph({ children }: { children: string }) {
   )
 }
 
-function useMemoGreeting(language: string): string {
+function useMemoGreeting(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
   return useMemo(() => {
-    const now = new Date()
-    const hour = now.getHours()
-    const map: Record<string, [string, string, string]> = {
-      en: ['Good morning', 'Good afternoon', 'Good evening'],
-      'zh-CN': ['早上好', '下午好', '晚上好'],
-      'zh-TW': ['早安', '午安', '晚安'],
-    }
-    const set = map[language] ?? map.en
-    if (hour < 12) return set[0]
-    if (hour < 18) return set[1]
-    return set[2]
-  }, [language])
+    const hour = new Date().getHours()
+    if (hour < 12) return t('dashboard.greetingMorning')
+    if (hour < 18) return t('dashboard.greetingAfternoon')
+    return t('dashboard.greetingEvening')
+  }, [t])
 }

@@ -107,7 +107,7 @@ vi.mock('../../lib/i18n/hooks', () => ({
       }
       return key
     },
-    ns: (_namespace: string) => (key: string) => key,
+    ns: () => (key: string) => key,
   }),
 }))
 

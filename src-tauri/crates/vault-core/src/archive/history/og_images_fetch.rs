@@ -703,7 +703,8 @@ mod tests {
         let image_url = format!("{}/og.png", images.url());
         let mut body = b"<html><head>\xFF\xFE bad-bytes-here ".to_vec();
         body.extend_from_slice(
-            format!("<meta property=\"og:image\" content=\"{image_url}\"></head></html>").as_bytes(),
+            format!("<meta property=\"og:image\" content=\"{image_url}\"></head></html>")
+                .as_bytes(),
         );
         let _page = page
             .mock("GET", "/")
@@ -715,7 +716,7 @@ mod tests {
             .mock("GET", "/og.png")
             .with_status(200)
             .with_header("content-type", "image/png")
-            .with_body(b"\x89PNG\r\n\x1a\nlossy-decode-test".to_vec())
+            .with_body(b"\x89PNG\r\n\x1a\nlossy-decode-test")
             .create();
         let client = build_fetch_client().unwrap();
         let outcome = fetch_og_image_for_unchecked(&client, &page.url());

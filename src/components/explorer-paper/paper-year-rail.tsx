@@ -38,6 +38,14 @@ export interface PaperYearRailProps {
   ariaLabel?: string
   /** Pretty-format helper, e.g. (year, count) => "1990 · 12,345 pages". */
   titleFor?: (year: number, count: number) => string
+  /**
+   * Caption strings under the newest-year and oldest-year footers ("now" /
+   * "first" in English, "现在" / "起点" in zh-CN). Defaults are kept for the
+   * design-tool fixtures and the standalone test renderings, but the
+   * Browse route passes the localised copy explicitly.
+   */
+  nowLabel?: string
+  firstLabel?: string
   className?: string
   testId?: string
 }
@@ -49,6 +57,8 @@ export function PaperYearRail({
   onJump,
   ariaLabel,
   titleFor,
+  nowLabel = 'now',
+  firstLabel = 'first',
   className,
   testId,
 }: PaperYearRailProps) {
@@ -82,7 +92,7 @@ export function PaperYearRail({
     >
       <div className="border-border-light text-ink-faint flex flex-col items-center border-b border-dashed py-[2px] font-mono text-[9px] leading-[1.1] tracking-[0.04em]">
         <span>{bounds.lastYear}</span>
-        <span className="text-ink-ghost mt-px text-[8px]">now</span>
+        <span className="text-ink-ghost mt-px text-[8px]">{nowLabel}</span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-px px-1 py-1">
@@ -141,7 +151,7 @@ export function PaperYearRail({
 
       <div className="border-border-light text-ink-faint flex flex-col items-center border-t border-dashed py-[2px] font-mono text-[9px] leading-[1.1] tracking-[0.04em]">
         <span>{bounds.firstYear}</span>
-        <span className="text-ink-ghost mt-px text-[8px]">first</span>
+        <span className="text-ink-ghost mt-px text-[8px]">{firstLabel}</span>
       </div>
     </aside>
   )

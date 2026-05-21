@@ -87,6 +87,10 @@ export interface PaperExplorerCopy {
   yearRailTitle: string
   /** ARIA label for the year-scrubber rail. */
   yearRailAria: string
+  /** Caption under the newest-year footer of the year rail (e.g. "now"). */
+  yearRailNowLabel: string
+  /** Caption under the oldest-year footer of the year rail (e.g. "first"). */
+  yearRailFirstLabel: string
   /** Target-banner kicker copy for the four sources. */
   target: {
     fromOnThisDay: string
@@ -267,6 +271,8 @@ export function PaperExplorerView({
       currentDate: activeDate,
       onJump: handleCalendarSelect,
       ariaLabel: copy.yearRailAria,
+      nowLabel: copy.yearRailNowLabel,
+      firstLabel: copy.yearRailFirstLabel,
     }),
     [
       perYearDensity,
@@ -274,6 +280,8 @@ export function PaperExplorerView({
       activeDate,
       handleCalendarSelect,
       copy.yearRailAria,
+      copy.yearRailNowLabel,
+      copy.yearRailFirstLabel,
     ],
   )
 

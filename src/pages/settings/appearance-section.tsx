@@ -16,12 +16,14 @@
  *   see the right state.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import {
+  PAPER_PREFERENCES_EVENT,
   applyPaperPreferences,
   type PaperPreferences,
+  type PaperPreferencesEventDetail,
 } from '@/lib/paper-preferences'
 import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
 
@@ -69,6 +71,18 @@ export function AppearanceSection({
   const [prefs, setPrefs] = useState<PaperPreferences>(() =>
     applyPaperPreferences(null),
   )
+
+  // Listen for preference mutations from peers (e.g. the shell's theme
+  // toggle button) so this card stays in sync without holding a stale
+  // mirror.
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<PaperPreferencesEventDetail>).detail
+      if (detail?.preferences) setPrefs(detail.preferences)
+    }
+    window.addEventListener(PAPER_PREFERENCES_EVENT, handle)
+    return () => window.removeEventListener(PAPER_PREFERENCES_EVENT, handle)
+  }, [])
 
   const update = (patch: Partial<PaperPreferences>) => {
     setPrefs((current) => applyPaperPreferences({ ...current, ...patch }))

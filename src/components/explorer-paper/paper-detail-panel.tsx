@@ -64,8 +64,14 @@ export interface PaperDetailPanelCopy {
   notesPlaceholder: string
   notesEmpty: string
   notesSavedLocally: string
+  /** Singular char counter, e.g. "1 char". */
+  notesCharSingular: string
+  /** Plural char counter, e.g. "{count} chars". */
+  notesCharPlural: string
   /** Tag chip helpers. */
   tagInputPlaceholder: string
+  /** Aria-label template for the remove-tag button, with `{tag}` placeholder. */
+  tagRemoveAriaLabel: string
   /** Look-further row labels. */
   pageLevelInsights: string
   allOfDomain: string
@@ -452,7 +458,12 @@ export function PaperDetailPanel({
           <div className="text-ink-faint mt-1 flex justify-between font-mono text-[9.5px]">
             <span>
               {notesValue
-                ? `${notesValue.length} ${notesValue.length === 1 ? 'char' : 'chars'}`
+                ? notesValue.length === 1
+                  ? copy.notesCharSingular
+                  : copy.notesCharPlural.replace(
+                      '{count}',
+                      String(notesValue.length),
+                    )
                 : copy.notesEmpty}
             </span>
             <span>{notesValue ? copy.notesSavedLocally : ''}</span>
@@ -469,7 +480,7 @@ export function PaperDetailPanel({
                 {tag}
                 <button
                   type="button"
-                  aria-label={`Remove tag ${tag}`}
+                  aria-label={copy.tagRemoveAriaLabel.replace('{tag}', tag)}
                   onClick={() => handleRemoveTag(tag)}
                   className="text-ink-faint hover:text-error ml-[2px] px-[1px] text-[10px]"
                 >

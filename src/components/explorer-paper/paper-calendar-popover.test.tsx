@@ -40,6 +40,7 @@ const COPY: PaperCalendarPopoverCopy = {
   pagesArchived: '{count} pages archived',
   monthSummary: '{active} active days · {total} pages',
   boundsMeta: '{firstYear}–{lastYear} · {totalDays} days',
+  dialogLabel: 'Calendar',
 }
 
 const BOUNDS: PaperCalendarPopoverBounds = {

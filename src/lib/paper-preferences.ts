@@ -84,9 +84,26 @@ export function persistPaperPreferences(prefs: PaperPreferences): void {
 }
 
 /**
+ * Custom event dispatched on `window` whenever the paper preferences change.
+ * The shell + Settings appearance card both listen so neither cache drifts
+ * away from the persisted state — the previous design left them each owning
+ * a private `useState` copy and a Settings change never propagated back to
+ * the shell's theme button.
+ */
+export const PAPER_PREFERENCES_EVENT = 'pathkeep.paperPreferencesChanged'
+
+export interface PaperPreferencesEventDetail {
+  preferences: PaperPreferences
+}
+
+/**
  * Idempotent helper: read prefs (or accept a candidate), apply them to <html>,
  * persist, and return the resolved bundle. Components and the shell both call
  * this so the document state and the persisted state never diverge.
+ *
+ * After applying, dispatches `PAPER_PREFERENCES_EVENT` on the window so other
+ * subscribers (shell, Settings) can rehydrate their local mirrors from the
+ * single source of truth.
  */
 export function applyPaperPreferences(
   candidate: PaperPreferences | null,
@@ -106,5 +123,12 @@ export function applyPaperPreferences(
     }
   }
   persistPaperPreferences(resolved)
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent<PaperPreferencesEventDetail>(PAPER_PREFERENCES_EVENT, {
+        detail: { preferences: resolved },
+      }),
+    )
+  }
   return resolved
 }

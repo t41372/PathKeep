@@ -109,6 +109,9 @@ export const dashboardNamespaceCatalog = {
     // and lets the four real stat cards beneath it carry the numbers.
     heroMessage:
       'Everything you’ve kept lives here. Pick up where you left off.',
+    greetingMorning: 'Good morning',
+    greetingAfternoon: 'Good afternoon',
+    greetingEvening: 'Good evening',
     statPages: 'Pages',
     statSpan: 'Span',
     statSize: 'GB',
@@ -242,6 +245,9 @@ export const dashboardNamespaceCatalog = {
       '已选择特定浏览器，智能分析视图和搜索会根据选择筛选，但存档状态和存储统计仍显示全部数据。',
     // ── 纸面重设计 hero band ──
     heroMessage: '你保留下来的一切都在这里。从你停下的地方继续。',
+    greetingMorning: '早上好',
+    greetingAfternoon: '下午好',
+    greetingEvening: '晚上好',
     statPages: '页面',
     statSpan: '跨度',
     statSize: 'GB',
@@ -363,6 +369,9 @@ export const dashboardNamespaceCatalog = {
       '已選擇特定瀏覽器，智慧分析視圖和搜尋會依此篩選，但封存狀態和儲存統計仍顯示全部資料。',
     // ── 紙面重設計 hero band ──
     heroMessage: '你保留下來的一切都在這裡。從你停下的地方繼續。',
+    greetingMorning: '早安',
+    greetingAfternoon: '午安',
+    greetingEvening: '晚安',
     statPages: '頁面',
     statSpan: '跨度',
     statSize: 'GB',

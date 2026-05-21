@@ -91,6 +91,10 @@ export interface PaperContactSheetYearRail {
   currentDate: string
   onJump: (iso: string) => void
   ariaLabel?: string
+  /** Localised "now" caption under the newest-year footer. */
+  nowLabel?: string
+  /** Localised "first" caption under the oldest-year footer. */
+  firstLabel?: string
 }
 
 export interface PaperContactSheetCopy {
@@ -274,6 +278,8 @@ export function PaperContactSheet({
           currentDate={yearRail.currentDate}
           onJump={yearRail.onJump}
           ariaLabel={yearRail.ariaLabel}
+          nowLabel={yearRail.nowLabel}
+          firstLabel={yearRail.firstLabel}
           testId="paper-contact-sheet-year-rail"
         />
       ) : null}
