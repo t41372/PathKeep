@@ -90,6 +90,11 @@ const COPY: PaperExplorerCopy = {
     summaryPending: 'Loading more pages…',
     pageSizeLabel: 'Rows per page',
   },
+  infiniteScroll: {
+    loadingMore: 'Loading earlier days…',
+    endOfArchive: 'You’ve reached the start of the archive.',
+    loadedSummary: 'Loaded {loaded} of {total} pages · {rows} rows in view',
+  },
 }
 
 function makeEntry(overrides: Partial<HistoryEntry>): HistoryEntry {

@@ -26,7 +26,7 @@
  * - Paper Browse primitives + DayNavControl + CalendarPopover + YearRail.
  */
 
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperBlock, PaperDay } from '@/pages/explorer/paper/group-entries'
@@ -137,6 +137,25 @@ export interface PaperContactSheetPagination {
   }
 }
 
+/**
+ * Infinite-scroll descriptor — supplied by the Browse route when there's
+ * no date filter so the sheet renders a single continuous timeline that
+ * lazy-loads older pages as the user scrolls toward the bottom.
+ */
+export interface PaperContactSheetInfiniteScroll {
+  loadingMore: boolean
+  canLoadMore: boolean
+  onLoadMore: () => void
+  loadedPageCount: number
+  totalPages: number
+  totalRows: number
+  copy: {
+    loadingMore: string
+    endOfArchive: string
+    loadedSummary: string
+  }
+}
+
 export interface PaperContactSheetProps {
   /** Pre-grouped days, newest → oldest. */
   days: PaperDay[]
@@ -151,6 +170,8 @@ export interface PaperContactSheetProps {
   onSelectEntry?: (entry: HistoryEntry) => void
   /** Optional page-level navigation footer. Null disables the footer. */
   pagination?: PaperContactSheetPagination | null
+  /** Optional infinite-scroll descriptor — mutually exclusive with pagination. */
+  infiniteScroll?: PaperContactSheetInfiniteScroll | null
   /** Language tag used for time/labels in headers. */
   language?: string
   copy: PaperContactSheetCopy
@@ -169,6 +190,7 @@ export function PaperContactSheet({
   selectedEntryId = null,
   onSelectEntry,
   pagination,
+  infiniteScroll,
   language = 'en',
   copy,
   className,
@@ -313,7 +335,93 @@ export function PaperContactSheet({
       ) : null}
 
       {pagination ? <PaginationFooter pagination={pagination} /> : null}
+      {infiniteScroll ? <InfiniteScrollFooter scroll={infiniteScroll} /> : null}
     </section>
+  )
+}
+
+function InfiniteScrollFooter({
+  scroll,
+}: {
+  scroll: PaperContactSheetInfiniteScroll
+}) {
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const { canLoadMore, loadingMore, onLoadMore } = scroll
+  // IntersectionObserver-driven lazy load. Triggers `onLoadMore` whenever
+  // the sentinel scrolls into view AND there's more archive below.
+  // `rootMargin: 400px` pre-loads slightly before the bottom so the user
+  // never sees the skeleton pop in.
+  useEffect(() => {
+    const node = sentinelRef.current
+    if (!node) return
+    if (!canLoadMore) return
+    if (typeof IntersectionObserver === 'undefined') {
+      // jsdom + extremely old browsers: fall back to firing immediately so
+      // the auto-load still works (slower, but never gets stuck).
+      onLoadMore()
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore()
+        }
+      },
+      { root: null, rootMargin: '400px', threshold: 0 },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [canLoadMore, onLoadMore])
+
+  const rowsInView = scroll.totalRows
+  const loadedSummary = scroll.copy.loadedSummary
+    .replace('{loaded}', scroll.loadedPageCount.toLocaleString())
+    .replace('{total}', Math.max(1, scroll.totalPages).toLocaleString())
+    .replace('{rows}', rowsInView.toLocaleString())
+
+  return (
+    <footer
+      data-testid="paper-contact-sheet-infinite-footer"
+      className="mt-6 flex flex-col items-center gap-3 border-t border-border-light pt-4 font-mono text-[10.5px] tracking-[0.04em] text-ink-muted"
+    >
+      {loadingMore ? (
+        <div
+          data-testid="paper-contact-sheet-infinite-skeleton"
+          className="flex w-full max-w-[640px] flex-col gap-3"
+          aria-hidden="true"
+        >
+          {/* Lazy-load skeleton — three placeholder day cards that pulse while
+              the next page is in flight. Matches the design tool's lazy state. */}
+          {[0, 1, 2].map((index) => (
+            <div
+              key={index}
+              className="flex animate-pulse items-stretch gap-3 rounded-paper border border-border-light bg-card-paper px-3 py-3"
+            >
+              <div className="h-14 w-14 shrink-0 rounded-paper bg-page" />
+              <div className="flex flex-1 flex-col gap-2 py-1">
+                <div className="h-3 w-2/3 rounded-[2px] bg-page" />
+                <div className="h-2.5 w-1/2 rounded-[2px] bg-page opacity-70" />
+                <div className="h-2 w-1/3 rounded-[2px] bg-page opacity-50" />
+              </div>
+            </div>
+          ))}
+          <span className="text-center text-ink-faint">
+            {scroll.copy.loadingMore}
+          </span>
+        </div>
+      ) : null}
+      {!loadingMore && canLoadMore ? (
+        <div
+          ref={sentinelRef}
+          data-testid="paper-contact-sheet-infinite-sentinel"
+          aria-hidden="true"
+          className="h-px w-full"
+        />
+      ) : null}
+      <span className="text-ink-faint">
+        {canLoadMore ? loadedSummary : scroll.copy.endOfArchive}
+      </span>
+    </footer>
   )
 }
 

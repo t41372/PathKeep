@@ -491,6 +491,111 @@ describe('PaperContactSheet', () => {
     expect(onChangePageSize).toHaveBeenCalledWith(100)
   })
 
+  test('infinite-scroll footer renders sentinel + summary when canLoadMore', () => {
+    const onLoadMore = vi.fn()
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        infiniteScroll={{
+          loadingMore: false,
+          canLoadMore: true,
+          onLoadMore,
+          loadedPageCount: 2,
+          totalPages: 8,
+          totalRows: 416,
+          copy: {
+            loadingMore: 'Loading earlier days…',
+            endOfArchive: 'End of archive',
+            loadedSummary:
+              'Loaded {loaded} of {total} pages · {rows} rows in view',
+          },
+        }}
+        testId="cs-infinite"
+      />,
+    )
+    expect(
+      screen.getByTestId('paper-contact-sheet-infinite-footer'),
+    ).toBeVisible()
+    expect(
+      screen.getByTestId('paper-contact-sheet-infinite-sentinel'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Loaded 2 of 8 pages · 416 rows in view/),
+    ).toBeVisible()
+  })
+
+  test('infinite-scroll footer renders the lazy skeleton while loading more', () => {
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        infiniteScroll={{
+          loadingMore: true,
+          canLoadMore: true,
+          onLoadMore: () => {},
+          loadedPageCount: 1,
+          totalPages: 4,
+          totalRows: 200,
+          copy: {
+            loadingMore: 'Loading earlier days…',
+            endOfArchive: 'End of archive',
+            loadedSummary:
+              'Loaded {loaded} of {total} pages · {rows} rows in view',
+          },
+        }}
+        testId="cs-infinite-loading"
+      />,
+    )
+    expect(
+      screen.getByTestId('paper-contact-sheet-infinite-skeleton'),
+    ).toBeVisible()
+    expect(screen.getByText('Loading earlier days…')).toBeVisible()
+    // Sentinel hidden while a load is inflight to prevent re-triggering.
+    expect(
+      screen.queryByTestId('paper-contact-sheet-infinite-sentinel'),
+    ).toBeNull()
+  })
+
+  test('infinite-scroll footer renders end-of-archive caption when canLoadMore is false', () => {
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        infiniteScroll={{
+          loadingMore: false,
+          canLoadMore: false,
+          onLoadMore: () => {},
+          loadedPageCount: 4,
+          totalPages: 4,
+          totalRows: 200,
+          copy: {
+            loadingMore: 'Loading earlier days…',
+            endOfArchive: 'You’ve reached the start of the archive.',
+            loadedSummary:
+              'Loaded {loaded} of {total} pages · {rows} rows in view',
+          },
+        }}
+        testId="cs-infinite-end"
+      />,
+    )
+    expect(
+      screen.getByText('You’ve reached the start of the archive.'),
+    ).toBeVisible()
+    expect(
+      screen.queryByTestId('paper-contact-sheet-infinite-sentinel'),
+    ).toBeNull()
+  })
+
   test('pagination footer renders pending summary when pageCount is 0', () => {
     render(
       <PaperContactSheet

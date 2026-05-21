@@ -115,6 +115,14 @@ export interface PaperExplorerCopy {
     /** Page-size selector label, e.g. "Rows per page". */
     pageSizeLabel: string
   }
+  infiniteScroll: {
+    /** Caption next to the lazy-load skeleton while the next page is fetching. */
+    loadingMore: string
+    /** Footer rendered when all pages are merged into the timeline. */
+    endOfArchive: string
+    /** Caption template for the "loaded P/T pages · R rows" footer. */
+    loadedSummary: string
+  }
 }
 
 /**
@@ -138,6 +146,24 @@ export interface PaperExplorerPagination {
   onPrevious: () => void
   onNext: () => void
   onChangePageSize?: (next: number) => void
+}
+
+/**
+ * Drives the IntersectionObserver-based infinite scroll for the default
+ * paper Browse surface. The contact sheet renders a sentinel near the
+ * bottom of the day list; when it intersects, `onLoadMore` is invoked and
+ * the route appends the next page's items to the rendered entries.
+ */
+export interface PaperExplorerInfiniteScroll {
+  loadingMore: boolean
+  canLoadMore: boolean
+  onLoadMore: () => void
+  /** Pages currently merged into the timeline, including the head page. */
+  loadedPageCount: number
+  /** Total pages the head response reported (0 while archive is loading). */
+  totalPages: number
+  /** Total row count from the head response — used by the "loaded N of M" caption. */
+  totalRows: number
 }
 
 export interface PaperExplorerViewProps {
@@ -164,6 +190,7 @@ export interface PaperExplorerViewProps {
   onJumpToDate?: (iso: string) => void
   onClearTarget?: () => void
   pagination?: PaperExplorerPagination
+  infiniteScroll?: PaperExplorerInfiniteScroll
   language?: string
   /** Today's anchor in local time. Tests inject; routes default to new Date(). */
   todayIso?: string
@@ -186,6 +213,7 @@ export function PaperExplorerView({
   onJumpToDate,
   onClearTarget,
   pagination,
+  infiniteScroll,
   language = 'en',
   todayIso,
   initialViewMode = 'cards',
@@ -386,6 +414,14 @@ export function PaperExplorerView({
           ? {
               ...pagination,
               copy: copy.pagination,
+            }
+          : null
+      }
+      infiniteScroll={
+        infiniteScroll
+          ? {
+              ...infiniteScroll,
+              copy: copy.infiniteScroll,
             }
           : null
       }

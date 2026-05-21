@@ -32,8 +32,10 @@ import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availabili
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import { historyFaviconLookupKey, historyOgImageLookupKey } from './helpers'
 import { useProfileScope } from '../../lib/profile-scope-context'
+import { useExplorerArchiveDensity } from './hooks/use-explorer-archive-density'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
+import { useExplorerInfinitePages } from './hooks/use-explorer-infinite-pages'
 import { useExplorerOgImages } from './hooks/use-explorer-og-images'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
@@ -251,14 +253,51 @@ export function ExplorerPage() {
     loading,
     results: visibleTimeResults,
   })
+  const archiveDensity = useExplorerArchiveDensity({
+    archiveReady,
+    profileId,
+    refreshKey,
+  })
+  // Infinite scroll: accumulate pages 2..N when there's no date filter and
+  // we're in the default paper Browse surface. A date-narrowed view, search
+  // surface, or grouped (session/trail) view bypasses accumulation so the
+  // existing pagination footer handles those edge cases honestly. The
+  // `surface=search` check resolves below at line ~340, so we replicate the
+  // same predicate here without forward-referencing.
+  const dateFiltered = Boolean(searchParams.get('date'))
+  const surfaceIsSearch = searchParams.get('surface') === 'search'
+  const infiniteDisabled =
+    !archiveReady ||
+    view !== 'time' ||
+    surfaceIsSearch ||
+    dateFiltered ||
+    historyBlockedByInvalidRegex
+  const {
+    extraItems: infiniteExtraItems,
+    loadedPageCount: infiniteLoadedPageCount,
+    loadingMore: infiniteLoadingMore,
+    canLoadMore: infiniteCanLoadMore,
+    loadMore: infiniteLoadMore,
+  } = useExplorerInfinitePages({
+    query: currentQuery,
+    headResults: visibleTimeResults,
+    disabled: infiniteDisabled,
+    cacheToken: refreshKey,
+  })
   const renderedTimeResults = useMemo(() => {
     if (!visibleTimeResults) {
       return null
     }
-
+    // When infinite scroll is active, prepend the head page items + every
+    // accumulated extra page so the contact sheet renders one continuous
+    // timeline. Date-filtered / search-surface views keep the head-only
+    // shape so their pagination footer still drives the visible window.
+    const combinedItems = infiniteDisabled
+      ? visibleTimeResults.items
+      : [...visibleTimeResults.items, ...infiniteExtraItems]
     return {
       ...visibleTimeResults,
-      items: visibleTimeResults.items.map((item) => ({
+      items: combinedItems.map((item) => ({
         ...item,
         favicon:
           item.favicon ??
@@ -272,7 +311,13 @@ export function ExplorerPage() {
           null,
       })),
     }
-  }, [faviconCache, ogImageCache, visibleTimeResults])
+  }, [
+    faviconCache,
+    infiniteDisabled,
+    infiniteExtraItems,
+    ogImageCache,
+    visibleTimeResults,
+  ])
   const selectedEntry =
     (!loading ? visibleTimeResults : null)?.items.find(
       (item) => item.id === selectedId,
@@ -530,6 +575,11 @@ export function ExplorerPage() {
         ) : (
           <PaperExplorerView
             entries={renderedTimeResults?.items ?? []}
+            archiveBounds={archiveDensity.bounds ?? undefined}
+            additionalDensity={{
+              perDay: archiveDensity.perDay,
+              perYear: archiveDensity.perYear,
+            }}
             targetDate={searchParams.get('date')}
             targetSource={
               (searchParams.get('source') as
@@ -555,23 +605,39 @@ export function ExplorerPage() {
               next.delete('source')
               setSearchParams(next)
             }}
-            pagination={{
-              page: explicitPage,
-              pageSize,
-              total: visibleTimeResults?.total ?? 0,
-              pageCount: visibleTimeResults?.pageCount ?? 0,
-              hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
-              hasNext: Boolean(visibleTimeResults?.hasNext),
-              onPrevious: () =>
-                handlePreviousHistoryPage(
-                  visibleTimeResults?.page ?? explicitPage ?? 1,
-                ),
-              onNext: () =>
-                handleNextHistoryPage(
-                  visibleTimeResults?.page ?? explicitPage ?? 1,
-                ),
-              onChangePageSize: setHistoryPageSize,
-            }}
+            pagination={
+              infiniteDisabled
+                ? {
+                    page: explicitPage,
+                    pageSize,
+                    total: visibleTimeResults?.total ?? 0,
+                    pageCount: visibleTimeResults?.pageCount ?? 0,
+                    hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
+                    hasNext: Boolean(visibleTimeResults?.hasNext),
+                    onPrevious: () =>
+                      handlePreviousHistoryPage(
+                        visibleTimeResults?.page ?? explicitPage ?? 1,
+                      ),
+                    onNext: () =>
+                      handleNextHistoryPage(
+                        visibleTimeResults?.page ?? explicitPage ?? 1,
+                      ),
+                    onChangePageSize: setHistoryPageSize,
+                  }
+                : undefined
+            }
+            infiniteScroll={
+              infiniteDisabled
+                ? undefined
+                : {
+                    loadingMore: infiniteLoadingMore,
+                    canLoadMore: infiniteCanLoadMore,
+                    onLoadMore: infiniteLoadMore,
+                    loadedPageCount: infiniteLoadedPageCount,
+                    totalPages: visibleTimeResults?.pageCount ?? 0,
+                    totalRows: visibleTimeResults?.total ?? 0,
+                  }
+            }
             language={language}
             copy={buildPaperExplorerCopy(explorerT)}
             testId="explorer-paper-view"

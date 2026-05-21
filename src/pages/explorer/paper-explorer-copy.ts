@@ -109,6 +109,11 @@ export function buildPaperExplorerCopy(
       summaryPending: t('paperBrowse.paginationSummaryPending'),
       pageSizeLabel: t('paperBrowse.paginationPageSizeLabel'),
     },
+    infiniteScroll: {
+      loadingMore: t('paperBrowse.infiniteLoadingMore'),
+      endOfArchive: t('paperBrowse.infiniteEndOfArchive'),
+      loadedSummary: t('paperBrowse.infiniteLoadedSummary'),
+    },
   }
 }
 
