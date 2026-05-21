@@ -61,15 +61,17 @@ export default defineConfig({
         'src/pages/intelligence/promoted-entity-routes.tsx',
         'src/pages/intelligence/sections/secondary-sections.tsx',
       ],
-      // 99% — calibrated to the v0.3 paper-redesign achievable state after
-      // the orphan sweep. The residual ~1% lives in the legacy explorer
-      // layout=legacy branch (Phase 4 retires it), dashboard/shell helper
-      // catch fallbacks (defensive `new Date(...)` paths the Date
-      // constructor doesn't actually throw on), and 1-line gaps inside
-      // explorer-paper components. Each file at <100% is enumerated in
-      // BACKLOG.md ("WORK-V03-COVERAGE-RESIDUAL"); the next sweep raises
-      // the floor as Phase 4 + the explorer-paper hardening lands. Do not
-      // lower further without an additional backlog item.
+      // Coverage floor — calibrated after Phase 4 / Phase 6 / inner-panel
+      // paper sweep. Current global is 99.17 lines / 98.87 functions /
+      // 98.03 branches / 98.92 statements. The residual gap (<1%) sits in
+      // a stable set of pre-existing files that each need a targeted
+      // unit-test sweep: shell.tsx (palette / lock-handler / useMemo
+      // callbacks), paper-contact-sheet.tsx + paper-detail-panel.tsx
+      // (rare branch cases), paper-intelligence-view, the shell topbar's
+      // `typeof navigator === 'undefined'` defensive guard, and a few
+      // 1-line gaps elsewhere. WORK-V03-COVERAGE-RESIDUAL tracks the
+      // restoration path back to 100. Do not lower thresholds without a
+      // matching backlog entry.
       thresholds: {
         lines: 99,
         functions: 98,
