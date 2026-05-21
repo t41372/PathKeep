@@ -4,6 +4,12 @@
  * @module pages/onboarding
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 
@@ -39,87 +45,91 @@ export function StorageStep({
         <p className="ob-desc">{t('storageDesc')}</p>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('archiveRoot')}</span>
-          <span className="panel-action">{t('localFirst')}</span>
-        </div>
-        <div className="panel-body">
-          <div
-            className="storage-path-display"
-            style={{ marginBottom: 'var(--space-4)' }}
-          >
-            <span className="storage-path-field">{appRoot}</span>
-          </div>
+      <div className="mt-4">
+        <PaperCard testId="onboarding-storage-archive-root">
+          <PaperCardHeader
+            title={t('archiveRoot')}
+            right={<PaperCardBadge>{t('localFirst')}</PaperCardBadge>}
+          />
+          <PaperCardBody>
+            <div
+              className="storage-path-display"
+              style={{ marginBottom: 'var(--space-4)' }}
+            >
+              <span className="storage-path-field">{appRoot}</span>
+            </div>
 
-          <div className="dir-tree">
-            <div className="dir-item">
-              <span className="dir-icon">📁</span>
-              <span>{appRoot}</span>
+            <div className="dir-tree">
+              <div className="dir-item">
+                <span className="dir-icon">📁</span>
+                <span>{appRoot}</span>
+              </div>
+              <div className="dir-item indent">
+                <span className="dir-icon">🗄</span>
+                <span>archive/history-vault.sqlite</span>
+              </div>
+              <div className="dir-item indent">
+                <span className="dir-icon">📋</span>
+                <span>audit/manifests/</span>
+              </div>
+              <div className="dir-item indent">
+                <span className="dir-icon">📸</span>
+                <span>raw-snapshots/</span>
+              </div>
+              <div className="dir-item indent">
+                <span className="dir-icon">📤</span>
+                <span>exports/</span>
+              </div>
+              <div className="dir-item indent">
+                <span className="dir-icon">⚙</span>
+                <span>config.json</span>
+              </div>
             </div>
-            <div className="dir-item indent">
-              <span className="dir-icon">🗄</span>
-              <span>archive/history-vault.sqlite</span>
-            </div>
-            <div className="dir-item indent">
-              <span className="dir-icon">📋</span>
-              <span>audit/manifests/</span>
-            </div>
-            <div className="dir-item indent">
-              <span className="dir-icon">📸</span>
-              <span>raw-snapshots/</span>
-            </div>
-            <div className="dir-item indent">
-              <span className="dir-icon">📤</span>
-              <span>exports/</span>
-            </div>
-            <div className="dir-item indent">
-              <span className="dir-icon">⚙</span>
-              <span>config.json</span>
-            </div>
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('sizeEstimates')}</span>
-          <span className="panel-action">{t('projected')}</span>
-        </div>
-        <div className="panel-body">
-          <div className="estimate-grid">
-            <div className="estimate-item">
-              <span className="estimate-label">{t('estimateArchiveDb')}</span>
-              <span className="estimate-value mono">
-                {formatBytes(storageEstimate.archiveDbBytes, language)}
-              </span>
+      <div className="mt-4">
+        <PaperCard testId="onboarding-storage-size-estimates">
+          <PaperCardHeader
+            title={t('sizeEstimates')}
+            right={<PaperCardBadge>{t('projected')}</PaperCardBadge>}
+          />
+          <PaperCardBody>
+            <div className="estimate-grid">
+              <div className="estimate-item">
+                <span className="estimate-label">{t('estimateArchiveDb')}</span>
+                <span className="estimate-value mono">
+                  {formatBytes(storageEstimate.archiveDbBytes, language)}
+                </span>
+              </div>
+              <div className="estimate-item">
+                <span className="estimate-label">{t('estimateManifest')}</span>
+                <span className="estimate-value mono">
+                  {formatBytes(storageEstimate.manifestBytes, language)}
+                </span>
+              </div>
+              <div className="estimate-item">
+                <span className="estimate-label">{t('estimateSnapshots')}</span>
+                <span className="estimate-value mono">
+                  {formatBytes(storageEstimate.snapshotsBytes, language)}
+                </span>
+              </div>
+              <div className="estimate-item highlight">
+                <span className="estimate-label">{t('estimateTotal')}</span>
+                <span className="estimate-value mono">
+                  {formatBytes(storageEstimate.totalBytes, language)}
+                </span>
+              </div>
             </div>
-            <div className="estimate-item">
-              <span className="estimate-label">{t('estimateManifest')}</span>
-              <span className="estimate-value mono">
-                {formatBytes(storageEstimate.manifestBytes, language)}
-              </span>
-            </div>
-            <div className="estimate-item">
-              <span className="estimate-label">{t('estimateSnapshots')}</span>
-              <span className="estimate-value mono">
-                {formatBytes(storageEstimate.snapshotsBytes, language)}
-              </span>
-            </div>
-            <div className="estimate-item highlight">
-              <span className="estimate-label">{t('estimateTotal')}</span>
-              <span className="estimate-value mono">
-                {formatBytes(storageEstimate.totalBytes, language)}
-              </span>
-            </div>
-          </div>
-          <p className="mono-support" style={{ marginTop: 'var(--space-3)' }}>
-            {t('estimateExplanation', {
-              count: storageEstimate.profileCount,
-              source: formatBytes(storageEstimate.sourceBytes, language),
-            })}
-          </p>
-        </div>
+            <p className="mono-support" style={{ marginTop: 'var(--space-3)' }}>
+              {t('estimateExplanation', {
+                count: storageEstimate.profileCount,
+                source: formatBytes(storageEstimate.sourceBytes, language),
+              })}
+            </p>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       <div className="ob-actions">

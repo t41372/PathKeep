@@ -4,7 +4,14 @@
  * @module pages/onboarding
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { LoadingState } from '../../components/primitives/loading-state'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { BackupIntervalSelector } from '../../components/schedule/backup-interval-selector'
 import { useI18n } from '../../lib/i18n'
 import type { SchedulePlan, ScheduleStatus } from '../../lib/types'
@@ -50,24 +57,26 @@ export function ScheduleStep({
         <p className="ob-desc">{t('scheduleDesc')}</p>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('backupInterval')}</span>
-          <span className="panel-action">{t('selectHours')}</span>
-        </div>
-        <div className="panel-body">
-          <BackupIntervalSelector
-            customInvalidMessage={t('intervalCustomInvalid')}
-            customLabel={t('intervalCustomLabel')}
-            customUnitLabel={t('intervalCustomUnit')}
-            disabled={Boolean(busyAction)}
-            formatLabel={(hours) =>
-              t('intervalChipLabel').replace('{hours}', String(hours))
-            }
-            value={dueAfterHours}
-            onChange={onSelectDueAfterHours}
+      <div className="mt-4">
+        <PaperCard testId="onboarding-schedule-interval">
+          <PaperCardHeader
+            title={t('backupInterval')}
+            right={<PaperCardBadge>{t('selectHours')}</PaperCardBadge>}
           />
-        </div>
+          <PaperCardBody>
+            <BackupIntervalSelector
+              customInvalidMessage={t('intervalCustomInvalid')}
+              customLabel={t('intervalCustomLabel')}
+              customUnitLabel={t('intervalCustomUnit')}
+              disabled={Boolean(busyAction)}
+              formatLabel={(hours) =>
+                t('intervalChipLabel').replace('{hours}', String(hours))
+              }
+              value={dueAfterHours}
+              onChange={onSelectDueAfterHours}
+            />
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       {schedulePreviewLoading ? (
@@ -81,43 +90,46 @@ export function ScheduleStep({
       ) : null}
 
       {schedulePlan ? (
-        <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-          <div className="panel-header">
-            <span className="panel-title">{t('schedulePreview')}</span>
-            <span className="panel-action">
-              {schedulePlatformLabel(schedulePlan.platform, t)}
-            </span>
-          </div>
-          <div className="panel-body">
-            {scheduleStatus ? (
-              <div className="schedule-onboarding-status">
-                <span className="summary-label">{t('scheduleStatus')}</span>
-                <span className="status-badge">
-                  {scheduleInstallStateLabel(scheduleStatus.installState, t)}
-                </span>
-              </div>
-            ) : null}
-            <div className="manual-steps">
-              {schedulePlan.manualSteps.map((step, index) => (
-                <div className="manual-step" key={`${index}-${step}`}>
-                  <span className="step-num-inline">{index + 1}.</span>
-                  <span>
-                    {localizeScheduleManualStep(step, schedulePlan.label, t)}
+        <div className="mt-4">
+          <PaperCard testId="onboarding-schedule-preview">
+            <PaperCardHeader
+              title={t('schedulePreview')}
+              right={
+                <PaperCardBadge>
+                  {schedulePlatformLabel(schedulePlan.platform, t)}
+                </PaperCardBadge>
+              }
+            />
+            <PaperCardBody>
+              {scheduleStatus ? (
+                <div className="schedule-onboarding-status">
+                  <span className="summary-label">{t('scheduleStatus')}</span>
+                  <span className="status-badge">
+                    {scheduleInstallStateLabel(scheduleStatus.installState, t)}
                   </span>
                 </div>
-              ))}
-            </div>
-          </div>
+              ) : null}
+              <div className="manual-steps">
+                {schedulePlan.manualSteps.map((step, index) => (
+                  <div className="manual-step" key={`${index}-${step}`}>
+                    <span className="step-num-inline">{index + 1}.</span>
+                    <span>
+                      {localizeScheduleManualStep(step, schedulePlan.label, t)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </PaperCardBody>
+          </PaperCard>
         </div>
       ) : null}
 
-      <div className="ob-info-box">
-        <span className="info-icon">i</span>
-        <span className="info-text">
-          <strong>{t('scheduleSkipHintTitle')}</strong>
-          <br />
-          {t('scheduleSkipHintBody')}
-        </span>
+      <div className="mt-4">
+        <StatusCallout
+          tone="info"
+          title={t('scheduleSkipHintTitle')}
+          body={t('scheduleSkipHintBody')}
+        />
       </div>
 
       <div className="ob-actions">

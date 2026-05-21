@@ -4,6 +4,7 @@
  * @module pages/onboarding
  */
 
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'
 import type { SecurityDraftState } from './shared'
@@ -173,12 +174,12 @@ export function SecurityStep({
         </div>
       </div>
 
-      <div className="warning-box">
-        <span className="warning-icon">⚠</span>
-        <span className="warning-text">
-          <strong>{t('passwordWarningTitle')}</strong>{' '}
-          {t('passwordWarningBody')}
-        </span>
+      <div className="mt-4">
+        <StatusCallout
+          tone="warning"
+          title={t('passwordWarningTitle')}
+          body={t('passwordWarningBody')}
+        />
       </div>
 
       {localError ? (

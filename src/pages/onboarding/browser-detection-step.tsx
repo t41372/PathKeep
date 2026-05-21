@@ -13,6 +13,13 @@
  * - 不決定 onboarding 下一步是否合法。
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import { BrowserIcon } from '../../lib/browser-icons'
 import { useI18n } from '../../lib/i18n'
@@ -77,15 +84,18 @@ export function BrowserDetectionStep({
         </span>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('detectedProfiles')}</span>
-          <span className="panel-action">
-            {t('found').replace('{count}', String(browserProfiles.length))}
-          </span>
-        </div>
-        <div className="panel-body" style={{ padding: 0 }}>
-          <div className="profile-list">
+      <div className="mt-4">
+        <PaperCard testId="onboarding-browser-detection-profiles">
+          <PaperCardHeader
+            title={t('detectedProfiles')}
+            right={
+              <PaperCardBadge>
+                {t('found').replace('{count}', String(browserProfiles.length))}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="p-0">
+            <div className="profile-list">
             {[...readableProfiles, ...attentionProfiles].map((profile) => {
               const selected = selectedProfileIds.includes(profile.profileId)
               const retention = browserRetentionMeta(profile, commonT)
@@ -190,30 +200,34 @@ export function BrowserDetectionStep({
                 </label>
               )
             })}
-          </div>
-        </div>
+            </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       {browserProfiles.some(
         (profile) => profile.browserFamily !== 'chromium',
       ) ? (
-        <div className="ob-info-box">
-          <span className="info-icon">ℹ</span>
-          <span className="info-text">{t('firefoxSafariInfo')}</span>
+        <div className="mt-4">
+          <StatusCallout tone="info" title={t('firefoxSafariInfo')} />
         </div>
       ) : null}
 
       {selectedAccessIssueCount > 0 ? (
-        <div className="ob-info-box ob-info-box--warning">
-          <span className="info-icon">!</span>
-          <span className="info-text">{t('selectedProfilesNeedAccess')}</span>
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={onOpenFullDiskAccessSettings}
-          >
-            {t('openFullDiskAccessSettings')}
-          </button>
+        <div className="mt-4">
+          <StatusCallout
+            tone="warning"
+            title={t('selectedProfilesNeedAccess')}
+            actions={
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={onOpenFullDiskAccessSettings}
+              >
+                {t('openFullDiskAccessSettings')}
+              </button>
+            }
+          />
         </div>
       ) : null}
 
