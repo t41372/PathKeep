@@ -146,6 +146,7 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
 /// `http://localhost` mock server without standing up TLS. Production
 /// callers always go through `fetch_og_image_for`; the test path passes
 /// `upgrade_image_url = false` so mockito's http URLs survive intact.
+#[cfg(test)]
 pub(crate) fn fetch_og_image_for_unchecked(client: &Client, page_url: &str) -> FetchedOgImage {
     fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ false)
 }
@@ -696,12 +697,10 @@ mod tests {
         // Direct helper tests so the relative path branch (line 360 area)
         // executes deterministically — important because some pages return
         // og:image="/path/og.png" instead of an absolute URL.
-        let html = format!(
-            "<html><head>\
+        let html = "<html><head>\
              <meta property=\"og:image\" content=\"/relative/og.png\">\
-             </head></html>",
-        );
-        let absolute = extract_og_image_url(&html, "https://example.com/path/article")
+             </head></html>";
+        let absolute = extract_og_image_url(html, "https://example.com/path/article")
             .expect("relative og:image should be resolved");
         assert!(
             absolute.starts_with("https://example.com/relative/og.png"),
