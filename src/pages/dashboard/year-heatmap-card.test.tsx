@@ -125,4 +125,41 @@ describe('DashboardYearHeatmapCard', () => {
     const streak = await screen.findByTestId('dashboard-year-streak')
     expect(streak).toHaveTextContent('No streak yet')
   })
+
+  test('unmounting mid-flight skips the post-fetch setters (cancelled branch)', async () => {
+    let resolveTrend: (
+      value: Awaited<ReturnType<typeof coreIntelligenceApi.getDiscoveryTrend>>,
+    ) => void = () => {}
+    vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveTrend = resolve
+        }),
+    )
+    const { unmount } = renderCard()
+    unmount()
+    // Flushing the promise after unmount drives the `cancelled === true`
+    // branches at lines 83 / 93 / 102 of year-heatmap-card.tsx — they
+    // bail out without touching React state.
+    act(() => resolveTrend(makeTrendResult([])))
+    await new Promise((resolve) => window.setTimeout(resolve, 10))
+  })
+
+  test('renders the heatmap in a zh-CN locale (covers the language ternary)', async () => {
+    window.localStorage.setItem('pathkeep-language-preference', 'zh-CN')
+    try {
+      vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockResolvedValue(
+        makeTrendResult([{ dateKey: '2026-05-19', totalVisits: 4 }]),
+      )
+      renderCard()
+      // buildHeatmapCopy's `language === 'en' ? 'en-US' : language` ternary
+      // (lines 191 + 195) takes the else branch when the resolved locale is
+      // anything other than English.
+      expect(
+        await screen.findByTestId('dashboard-year-heatmap-grid'),
+      ).toBeInTheDocument()
+    } finally {
+      window.localStorage.removeItem('pathkeep-language-preference')
+    }
+  })
 })

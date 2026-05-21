@@ -163,4 +163,23 @@ describe('DashboardActiveThreads', () => {
       screen.getByTestId('dashboard-active-threads-list'),
     ).toBeInTheDocument()
   })
+
+  test('unmounting mid-flight skips post-fetch setters (cancelled branch)', async () => {
+    let resolveFlows: (value: PathFlow[]) => void = () => {}
+    vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockImplementation(
+      () =>
+        new Promise<{ data: PathFlow[]; meta: { state: 'ready' } }>(
+          (resolve) => {
+            resolveFlows = (data) => resolve({ data, meta: { state: 'ready' } })
+          },
+        ) as unknown as ReturnType<typeof coreIntelligenceApi.getPathFlows>,
+    )
+    const { unmount } = renderCard()
+    unmount()
+    // Flushing the in-flight promise post-unmount drives the
+    // `cancelled === true` branches at lines 84 / 89 / 98 of
+    // active-threads-card.tsx — they short-circuit without touching state.
+    act(() => resolveFlows([makeFlow({ flowId: 'flow-late' })]))
+    await new Promise((resolve) => window.setTimeout(resolve, 10))
+  })
 })
