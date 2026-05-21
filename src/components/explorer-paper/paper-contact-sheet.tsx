@@ -36,6 +36,11 @@ import {
 } from '@/pages/explorer/paper/domain-color'
 import { PaperContactFrame } from './paper-contact-frame'
 import { PaperDayHeader } from './paper-day-header'
+import {
+  PaperDayInsights,
+  type PaperDayInsightsCopy,
+} from './paper-day-insights'
+import { aggregateDayInsights } from './paper-day-insights-helpers'
 import { PaperDomainStack } from './paper-domain-stack'
 import { PaperListRow } from './paper-list-row'
 import { PaperSessionHeader } from './paper-session-header'
@@ -172,6 +177,12 @@ export interface PaperContactSheetProps {
   pagination?: PaperContactSheetPagination | null
   /** Optional infinite-scroll descriptor — mutually exclusive with pagination. */
   infiniteScroll?: PaperContactSheetInfiniteScroll | null
+  /**
+   * Localised copy for the per-day insights strip. When omitted the strip
+   * is hidden — the design tool shows it under every day separator, so
+   * routes that want the editorial Browse layout must supply this.
+   */
+  dayInsightsCopy?: PaperDayInsightsCopy
   /** Language tag used for time/labels in headers. */
   language?: string
   copy: PaperContactSheetCopy
@@ -191,6 +202,7 @@ export function PaperContactSheet({
   onSelectEntry,
   pagination,
   infiniteScroll,
+  dayInsightsCopy,
   language = 'en',
   copy,
   className,
@@ -272,6 +284,15 @@ export function PaperContactSheet({
               )}
               active={target?.date === day.date}
             />
+
+            {dayInsightsCopy ? (
+              <PaperDayInsights
+                insights={aggregateDayInsights(day)}
+                copy={dayInsightsCopy}
+                language={language}
+                testId={`paper-day-insights-${day.date}`}
+              />
+            ) : null}
 
             {day.sessions.map((session) => (
               <div key={session.id} className="mt-4">

@@ -114,6 +114,17 @@ export function buildPaperExplorerCopy(
       endOfArchive: t('paperBrowse.infiniteEndOfArchive'),
       loadedSummary: t('paperBrowse.infiniteLoadedSummary'),
     },
+    dayInsights: {
+      topDomainsTitle: t('paperBrowse.dayInsightsTopDomains'),
+      activityTitle: t('paperBrowse.dayInsightsActivity'),
+      hourlyTitle: t('paperBrowse.dayInsightsHourly'),
+      pagesLabel: t('paperBrowse.dayInsightsPages'),
+      typedLabel: t('paperBrowse.dayInsightsTyped'),
+      linksLabel: t('paperBrowse.dayInsightsLinks'),
+      searchesLabel: t('paperBrowse.dayInsightsSearches'),
+      sessionsTemplate: t('paperBrowse.dayInsightsSessionsTemplate'),
+      domainsTemplate: t('paperBrowse.dayInsightsDomainsTemplate'),
+    },
   }
 }
 

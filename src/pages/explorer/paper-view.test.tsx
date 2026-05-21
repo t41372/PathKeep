@@ -95,6 +95,17 @@ const COPY: PaperExplorerCopy = {
     endOfArchive: 'You’ve reached the start of the archive.',
     loadedSummary: 'Loaded {loaded} of {total} pages · {rows} rows in view',
   },
+  dayInsights: {
+    topDomainsTitle: 'Top domains',
+    activityTitle: 'Activity',
+    hourlyTitle: '24-hour activity',
+    pagesLabel: 'Pages',
+    typedLabel: 'Typed',
+    linksLabel: 'Links',
+    searchesLabel: 'Searches',
+    sessionsTemplate: '{count} sessions',
+    domainsTemplate: '{count} domains',
+  },
 }
 
 function makeEntry(overrides: Partial<HistoryEntry>): HistoryEntry {

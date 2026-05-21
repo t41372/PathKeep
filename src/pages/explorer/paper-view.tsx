@@ -123,6 +123,19 @@ export interface PaperExplorerCopy {
     /** Caption template for the "loaded P/T pages · R rows" footer. */
     loadedSummary: string
   }
+  dayInsights: {
+    topDomainsTitle: string
+    activityTitle: string
+    hourlyTitle: string
+    pagesLabel: string
+    typedLabel: string
+    linksLabel: string
+    searchesLabel: string
+    /** `{count}` placeholder for session count. */
+    sessionsTemplate: string
+    /** `{count}` placeholder for distinct domain count. */
+    domainsTemplate: string
+  }
 }
 
 /**
@@ -425,6 +438,7 @@ export function PaperExplorerView({
             }
           : null
       }
+      dayInsightsCopy={copy.dayInsights}
       language={language}
       copy={copy.contactSheet}
     />
