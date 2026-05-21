@@ -300,7 +300,7 @@ describe('AppShell (paper redesign)', () => {
     const sidebar = screen.getByTestId('pk-sidebar')
     const themeToggle = sidebar.querySelector(
       'button[aria-label*="theme" i]',
-    ) as HTMLButtonElement | null
+    )
     if (!themeToggle) throw new Error('theme toggle missing')
     await user.click(themeToggle)
     // Toggle 1 → dark, toggle 2 → light. Either way, the data-theme attr
@@ -315,7 +315,7 @@ describe('AppShell (paper redesign)', () => {
     const sidebar = screen.getByTestId('pk-sidebar')
     const lockButton = sidebar.querySelector(
       'button[aria-label*="Lock" i]',
-    ) as HTMLButtonElement | null
+    )
     if (!lockButton) throw new Error('lock-now button missing')
     await user.click(lockButton)
     expect(lockAppSession).toHaveBeenCalledWith('manual')
