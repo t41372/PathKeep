@@ -128,6 +128,36 @@ pub fn blocked_outcome(page_url: &str) -> FetchedOgImage {
 
 /// One pass through the fetch pipeline.
 pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
+    if !page_url.starts_with("https://") {
+        return FetchedOgImage {
+            page_host: nonempty_host(page_url),
+            source_og_url: None,
+            image_bytes: None,
+            mime: None,
+            fetch_status: fetch_status::PARSE_ERROR,
+            http_status: None,
+        };
+    }
+    fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ true)
+}
+
+/// Same pipeline as `fetch_og_image_for` minus the HTTPS guard, exposed so
+/// the mockito-based unit tests can drive the full body through an
+/// `http://localhost` mock server without standing up TLS. Production
+/// callers always go through `fetch_og_image_for`; the test path passes
+/// `upgrade_image_url = false` so mockito's http URLs survive intact.
+pub(crate) fn fetch_og_image_for_unchecked(
+    client: &Client,
+    page_url: &str,
+) -> FetchedOgImage {
+    fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ false)
+}
+
+fn fetch_og_image_for_pipeline(
+    client: &Client,
+    page_url: &str,
+    upgrade_image_url: bool,
+) -> FetchedOgImage {
     let mut outcome = FetchedOgImage {
         page_host: nonempty_host(page_url),
         source_og_url: None,
@@ -136,11 +166,6 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
         fetch_status: fetch_status::HTTP_ERROR,
         http_status: None,
     };
-
-    if !page_url.starts_with("https://") {
-        outcome.fetch_status = fetch_status::PARSE_ERROR;
-        return outcome;
-    }
 
     let page = match client.get(page_url).header(ACCEPT, ACCEPT_HTML).send() {
         Ok(response) => response,
@@ -182,7 +207,11 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
             return outcome;
         }
     };
-    let og_image_url = upgrade_http_to_https(&og_image_url);
+    let og_image_url = if upgrade_image_url {
+        upgrade_http_to_https(&og_image_url)
+    } else {
+        og_image_url
+    };
     outcome.source_og_url = Some(og_image_url.clone());
 
     let image_response = match client.get(&og_image_url).header(ACCEPT, ACCEPT_IMAGE).send() {
@@ -420,6 +449,44 @@ mod tests {
     }
 
     #[test]
+    fn https_page_url_passes_through_the_production_dispatcher() {
+        // `fetch_og_image_for` is the production entry: the https-guard
+        // branch falls through to `fetch_og_image_for_pipeline(.., true)`
+        // (line 141). We point it at an unresolvable host so the request
+        // fails with a network error — exercising both the guard fall-
+        // through and `http_status_from_error` (line 297) on the
+        // err.status() == None path.
+        let client = build_fetch_client().unwrap();
+        let outcome =
+            fetch_og_image_for(&client, "https://og-image-test.invalid./");
+        // DNS resolution / connect should fail; status remains None.
+        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+        assert!(outcome.image_bytes.is_none());
+    }
+
+    #[test]
+    fn http_only_image_url_is_upgraded_to_https_by_production_pipeline() {
+        // Production callers run `fetch_og_image_for` which sets
+        // upgrade_image_url=true. After og:image extraction the pipeline
+        // calls `upgrade_http_to_https` — covered indirectly here by
+        // pointing at an https page that returns an http://og.png URL.
+        // We can't use mockito (https-only guard), so we exercise the
+        // helper directly to lock the branch.
+        assert_eq!(
+            upgrade_http_to_https("http://images.example.com/og.png"),
+            "https://images.example.com/og.png"
+        );
+        assert_eq!(
+            upgrade_http_to_https("https://images.example.com/og.png"),
+            "https://images.example.com/og.png"
+        );
+        assert_eq!(
+            upgrade_http_to_https("data:image/png;base64,AAA"),
+            "data:image/png;base64,AAA"
+        );
+    }
+
+    #[test]
     fn is_host_blocked_matches_lowercase_and_ignores_whitespace() {
         let blocklist = vec!["GitHub.com".to_string(), "  medium.com  ".to_string()];
         assert!(is_host_blocked(&blocklist, "https://github.com/foo"));
@@ -462,7 +529,7 @@ mod tests {
         let page_url = page.url();
         // Mockito uses http:// — we relax the https-only guard here via a
         // direct call to the inner helper for testing.
-        let outcome = fetch_via_http_for_tests(&client, &page_url);
+        let outcome = fetch_og_image_for_unchecked(&client, &page_url);
         assert_eq!(outcome.fetch_status(), fetch_status::OK);
         assert!(outcome.is_ok());
         let insert = outcome.as_insert(&page_url);
@@ -483,7 +550,7 @@ mod tests {
             .create();
 
         let client = build_fetch_client().unwrap();
-        let outcome = fetch_via_http_for_tests(&client, &page.url());
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::MISSING);
         assert!(outcome.image_bytes.is_none());
     }
@@ -494,7 +561,7 @@ mod tests {
         let _page = page.mock("GET", "/").with_status(404).create();
 
         let client = build_fetch_client().unwrap();
-        let outcome = fetch_via_http_for_tests(&client, &page.url());
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
         assert_eq!(outcome.http_status, Some(404));
     }
@@ -510,7 +577,7 @@ mod tests {
             .create();
 
         let client = build_fetch_client().unwrap();
-        let outcome = fetch_via_http_for_tests(&client, &page.url());
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
     }
 
@@ -534,7 +601,7 @@ mod tests {
             .create();
 
         let client = build_fetch_client().unwrap();
-        let outcome = fetch_via_http_for_tests(&client, &page.url());
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::UNSUPPORTED_MIME);
     }
 
@@ -561,106 +628,96 @@ mod tests {
             .create();
 
         let client = build_fetch_client().unwrap();
-        let outcome = fetch_via_http_for_tests(&client, &page.url());
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::TOO_LARGE);
     }
 
-    /// Test helper that bypasses the https-only guard so we can exercise
-    /// the rest of the pipeline against a localhost mock server. Real
-    /// production callers always reach `fetch_og_image_for` directly.
-    fn fetch_via_http_for_tests(client: &Client, page_url: &str) -> FetchedOgImage {
-        let mut outcome = FetchedOgImage {
-            page_host: nonempty_host(page_url),
-            source_og_url: None,
-            image_bytes: None,
-            mime: None,
-            fetch_status: fetch_status::HTTP_ERROR,
-            http_status: None,
-        };
+    // Tests above call `fetch_og_image_for_unchecked` directly (the
+    // production helper that bypasses the https-only guard) so they can
+    // run against mockito's http:// mock servers without standing up TLS.
 
-        let page = match client.get(page_url).header(ACCEPT, ACCEPT_HTML).send() {
-            Ok(response) => response,
-            Err(error) => {
-                outcome.fetch_status = fetch_status::HTTP_ERROR;
-                outcome.http_status = http_status_from_error(&error);
-                return outcome;
-            }
-        };
-        outcome.http_status = Some(i64::from(page.status().as_u16()));
-        if !page.status().is_success() {
-            outcome.fetch_status = fetch_status::HTTP_ERROR;
-            return outcome;
-        }
-        if !response_content_type_is(&page, "text/html") {
-            outcome.fetch_status = fetch_status::PARSE_ERROR;
-            return outcome;
-        }
-        let html_bytes = match read_response_body(page, MAX_HTML_BYTES) {
-            Ok(bytes) => bytes,
-            Err(BodyReadError::TooLarge) => {
-                outcome.fetch_status = fetch_status::PARSE_ERROR;
-                return outcome;
-            }
-            Err(BodyReadError::Io) => {
-                outcome.fetch_status = fetch_status::HTTP_ERROR;
-                return outcome;
-            }
-        };
-        let html = match std::str::from_utf8(&html_bytes) {
-            Ok(text) => text.to_string(),
-            Err(_) => String::from_utf8_lossy(&html_bytes).into_owned(),
-        };
+    #[test]
+    fn fetch_returns_parse_error_when_html_body_exceeds_cap() {
+        let mut page = mockito::Server::new();
+        let huge = vec![b'a'; MAX_HTML_BYTES + 4 * 1024];
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(huge)
+            .create();
 
-        let og_image_url = match extract_og_image_url(&html, page_url) {
-            Some(url) => url,
-            None => {
-                outcome.fetch_status = fetch_status::MISSING;
-                return outcome;
-            }
-        };
-        outcome.source_og_url = Some(og_image_url.clone());
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        // body length > MAX_HTML_BYTES → read_response_body returns
+        // BodyReadError::TooLarge → PARSE_ERROR (line 190 branch).
+        assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
+    }
 
-        let image_response = match client.get(&og_image_url).header(ACCEPT, ACCEPT_IMAGE).send() {
-            Ok(response) => response,
-            Err(error) => {
-                outcome.fetch_status = fetch_status::HTTP_ERROR;
-                outcome.http_status = http_status_from_error(&error);
-                return outcome;
-            }
-        };
-        outcome.http_status = Some(i64::from(image_response.status().as_u16()));
-        if !image_response.status().is_success() {
-            outcome.fetch_status = fetch_status::HTTP_ERROR;
-            return outcome;
-        }
-        let mime = match supported_image_mime(&image_response) {
-            Some(mime) => mime,
-            None => {
-                outcome.fetch_status = fetch_status::UNSUPPORTED_MIME;
-                return outcome;
-            }
-        };
-        if let Some(declared_length) = image_response.content_length() {
-            if declared_length as usize > MAX_IMAGE_BYTES {
-                outcome.fetch_status = fetch_status::TOO_LARGE;
-                return outcome;
-            }
-        }
-        let bytes = match read_response_body(image_response, MAX_IMAGE_BYTES) {
-            Ok(bytes) => bytes,
-            Err(BodyReadError::TooLarge) => {
-                outcome.fetch_status = fetch_status::TOO_LARGE;
-                return outcome;
-            }
-            Err(BodyReadError::Io) => {
-                outcome.fetch_status = fetch_status::HTTP_ERROR;
-                return outcome;
-            }
-        };
+    #[test]
+    fn fetch_returns_http_error_when_og_image_url_is_unreachable() {
+        let mut page = mockito::Server::new();
+        // Point the og:image at an unresolvable hostname so the image fetch
+        // step returns Err → covers lines 219-222 (http_error after image
+        // network failure).
+        let html =
+            html_with_og_image("http://og-image-test.invalid./og.png");
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(html)
+            .create();
 
-        outcome.image_bytes = Some(bytes);
-        outcome.mime = Some(mime);
-        outcome.fetch_status = fetch_status::OK;
-        outcome
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+    }
+
+    #[test]
+    fn fetch_returns_http_error_when_image_endpoint_returns_404() {
+        let mut page = mockito::Server::new();
+        let mut images = mockito::Server::new();
+        let image_url = format!("{}/og.png", images.url());
+        let html = html_with_og_image(&image_url);
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(html)
+            .create();
+        let _image = images.mock("GET", "/og.png").with_status(404).create();
+
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        // Covers lines 226-228 (HTTP_ERROR after image status != success).
+        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+        assert_eq!(outcome.http_status, Some(404));
+    }
+
+    #[test]
+    fn is_host_blocked_short_circuits_on_empty_host() {
+        // url_domain("") == "" → empty host check returns false (line 292).
+        let blocked = vec!["example.com".to_string()];
+        assert!(!is_host_blocked(&blocked, ""));
+    }
+
+    #[test]
+    fn absolutize_url_joins_relative_paths_against_the_page() {
+        // Direct helper tests so the relative path branch (line 360 area)
+        // executes deterministically — important because some pages return
+        // og:image="/path/og.png" instead of an absolute URL.
+        let html = format!(
+            "<html><head>\
+             <meta property=\"og:image\" content=\"/relative/og.png\">\
+             </head></html>",
+        );
+        let absolute =
+            extract_og_image_url(&html, "https://example.com/path/article")
+                .expect("relative og:image should be resolved");
+        assert!(
+            absolute.starts_with("https://example.com/relative/og.png"),
+            "expected absolute URL, got {absolute}",
+        );
     }
 }

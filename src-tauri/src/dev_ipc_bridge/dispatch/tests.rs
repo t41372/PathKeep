@@ -323,6 +323,52 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(&state, "load_dashboard_snapshot", json!({}));
     dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
+    // og:image + annotations dispatch arms (cover dispatch.rs lines 154-188).
+    dispatch_for_coverage(
+        &state,
+        "load_history_og_images",
+        json!({ "entries": [] }),
+    );
+    dispatch_for_coverage(&state, "mark_og_images_shown", json!({ "urls": [] }));
+    dispatch_for_coverage(&state, "trigger_og_image_refetch", json!({ "urls": [] }));
+    dispatch_for_coverage(&state, "get_og_image_storage_stats", json!({}));
+    dispatch_for_coverage(&state, "clear_og_image_cache", json!({}));
+    dispatch_for_coverage(&state, "run_og_image_cleanup", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "get_url_annotation",
+        json!({ "url": "https://example.com/seed" }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "set_url_notes",
+        json!({
+            "request": {
+                "url": "https://example.com/seed",
+                "notes": "dispatch-test"
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "replace_url_tags",
+        json!({
+            "request": {
+                "url": "https://example.com/seed",
+                "tags": ["dispatch", "test"]
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "list_url_annotations",
+        json!({ "limit": 10 }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "search_url_annotations",
+        json!({ "query": "dispatch", "limit": 10 }),
+    );
     dispatch_for_coverage(
         &state,
         "export_history",
