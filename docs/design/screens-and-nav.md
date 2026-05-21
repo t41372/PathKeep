@@ -1,10 +1,9 @@
 # 畫面與導航結構
 
-> 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。  
-> designer prototype 匯出檔目前已在 repo：`reference/PathKeep — Desktop UI Design/`。  
-> 這份 export 主要覆蓋 shell chrome 與 Dashboard 的視覺語言；對於 prototype 尚未畫出的畫面或狀態，這份文檔與 [design-tokens.md](design-tokens.md) 仍是現行 source of truth。
+> 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。
+> **v0.3 paper redesign**: 完整 designer prototype 已遷移到 `docs/design/handoff/paper-redesign/`（HTML + pk-tokens.css + 11 個 JSX views）。舊的 `reference/PathKeep — Desktop UI Design/` brutalist prototype 由 v0.2 phase 留下，僅供歷史對照，不再是 source of truth。
 > production token source of truth 是 [design-tokens.md](design-tokens.md)；新增 token 時要同步更新文檔與 `src/styles/tokens.css`。
-> 如果 prototype 缺少某個畫面或狀態，才用 Stitch / 補充設計決策補齊；補齊時仍需維持和 prototype 一致的視覺語言與導航結構。
+> 如果 paper-redesign prototype 缺少某個畫面或狀態（例如 grouped session/trail panels、search-keywords drilldown），才用補充設計決策填補；補齊時仍需維持和 paper-redesign prototype 一致的視覺語言（cream paper、3 px radius、Newsreader serif / system sans / JetBrains Mono 三套字體、slate-blue accent）與導航結構。
 > 長期 UI review / implementation 紅線另見 [ui-review-guardrails.md](ui-review-guardrails.md)；這份文檔負責 route 與 IA 規格，guardrails 負責哪些退化一律不能放行。
 
 ---
@@ -31,17 +30,22 @@
 
 ## Prototype Coverage Snapshot
 
-### 目前 export 已覆蓋
+### 目前 paper-redesign handoff 已覆蓋
 
-- shell chrome：sidebar 分區、brand / version、archive status footer、background-work footer strip、topbar notification queue、共享 profile scope switcher 與主 CTA
-- Dashboard 視覺語言：stat cards、recent runs table、On This Day、yearly browsing rhythm preview、storage breakdown、AI / queue summary 的資訊層級
-- Dashboard 導航語法：從首頁快速跳到 Explorer、Assistant、Intelligence、Audit 等核心入口
+- shell chrome：sidebar 三分區（CORE / OPERATIONS / SYSTEM）、PKBrandMark / PKGlyph、PKTopbar palette 入口、PKStatusBar 來源切換器與輪播 epigraph、`Backup now` 主 CTA
+- Dashboard 視覺語言：HeroBand + 4-stat strip、On This Day、This Week、Year Heatmap (7×N 真實日曆熱力)、Active Threads、Archive card、epigraph footer
+- Explorer Browse 視覺：contact sheet、day-sticky toolbar、DayNavControl、CalendarPopover、YearRail、DomainStack、ContactFrame、ListRow
+- Explorer Search 視覺：3-mode hero + day-grouped results + see-in-context jump
+- Intelligence、Assistant、Import、Audit、Settings 主要 view
+- Detail Panel slide-over（460 px、200 ms）：Notes + Tags + Look further
 
-### 目前 export 尚未明確覆蓋
+### 目前 paper-redesign handoff 尚未明確覆蓋
 
 - Onboarding wizard 的逐步狀態、empty / error / resume-later 細節
 - Import / rollback / doctor repair / rekey / remote backup / maintenance cleanup 的 PME step-by-step 畫面
 - Audit run detail、Schedule verify / mismatch、Security recovery / warning 變體
+- Jobs 頁的 plugin / module / runtime queue detail
+- Explorer 的 session / trail grouped view 內部
 - Explorer / Assistant / Intelligence 的 loading / empty / disabled / failed / explainability 狀態
 - keyboard-only walkthrough、reduced-motion fallback、長字串 i18n wrapping 等非靜態視覺驗收
 

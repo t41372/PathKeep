@@ -1,6 +1,11 @@
 # Typography And Font Fallback Strategy
 
-> 2026-04-10 closeout。這份文檔在使用者明確要求修正 UI 可讀性後新增，用來取代早期 prototype 把 shell chrome 大量設成 monospace 的暫時做法。
+> 2026-04-10 first closeout (v0.2 brutalist phase).
+> **Updated 2026-05-20** for the v0.3 paper redesign: three-font system
+> (`--font-serif` Newsreader + `--font-sans` system + `--font-mono`
+> JetBrains Mono), bundled Latin subsets, Settings → Appearance "system
+> fonts only" override. The CJK fallback contract from the v0.2 phase
+> (system stack for non-Latin scripts) carries forward unchanged.
 
 ---
 
@@ -66,13 +71,22 @@ PathKeep 是本地優先、跨 macOS / Windows / Linux 的桌面 app。它目前
 
 ## 決策
 
-PathKeep 預設 shipping 採 **方案 C**。
+PathKeep 採 **方案 C + bundled Latin (paper redesign 升級)**。
 
-- 主 UI 字體使用 `--font-ui` / `--font-body`，以 curated system sans stack 為主
-- `zh-CN` / `zh-TW` 透過 `:root:lang(...)` 提升 PingFang / Microsoft YaHei / Microsoft JhengHei / Noto CJK 類字體的優先級
-- `--font-code` 只用於 path、ID、command、純 evidence value 等真正需要 monospace 對齊的內容
-- `--font-mono` 只保留為 legacy shell CSS alias，不再代表新的產品設計意圖
-- `html[lang]` 必須在首屏與 runtime locale 切換時同步更新
+### v0.2 contract (carried over)
+
+- `zh-CN` / `zh-TW` 透過 `:root:lang(...)` 提升 PingFang / Microsoft YaHei / Microsoft JhengHei / Noto CJK 類字體的優先級。CJK 永遠走系統字體。
+- `html[lang]` 必須在首屏與 runtime locale 切換時同步更新。
+
+### v0.3 paper redesign (additions)
+
+- 三套字體 tokens（取代舊的 `--font-ui` / `--font-body` / `--font-code`）：
+  - `--font-serif` `'Newsreader', Georgia, serif` — 編輯體 headings、敘述體 body、Dashboard / On This Day / Settings hero copy。
+  - `--font-sans` 系統 sans stack — UI chrome、按鈕、列表標題、密集 labels、status bar。
+  - `--font-mono` `'JetBrains Mono', ui-monospace, SFMono-Regular, monospace` — path / ID / command / mono badge / heatmap labels。
+- Bundled Latin subsets via `@fontsource/newsreader` and `@fontsource/jetbrains-mono`. **No runtime Google Fonts import**, no CDN dependency.
+- Settings → Appearance "Fonts" 提供 `bundled`（預設）與 `system` 兩段切換。`data-fonts="system"` 在 `<html>` 上會 swap to system fallback stack on the fly。
+- 舊 `--font-ui` / `--font-body` / `--font-code` 仍以 legacy alias 形式存在 (`tokens.css` 底部)，直到所有 v0.2 routes 改寫完成後一併刪除。新 UI 不得再寫這些別名。
 
 ---
 
