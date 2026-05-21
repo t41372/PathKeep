@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  getDomainAbbr,
-  getDomainColor,
-  hashString,
-} from './domain-color'
+import { getDomainAbbr, getDomainColor, hashString } from './domain-color'
 
 describe('hashString', () => {
   it('returns 0 for empty input and a stable non-negative number otherwise', () => {

@@ -394,7 +394,9 @@ describe('IntelligencePage', () => {
       secondaryLoading: false,
       secondaryError: null,
     })
-    peekIntelligencePrimaryOverviewMock.mockReturnValue({ topSites: { data: [] } })
+    peekIntelligencePrimaryOverviewMock.mockReturnValue({
+      topSites: { data: [] },
+    })
 
     const user = userEvent.setup()
     render(

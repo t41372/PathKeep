@@ -15,14 +15,18 @@ function makeDay(date: string, visitCount = 1): PaperDay {
 
 describe('pickInitialDate', () => {
   it('returns targetDate when provided', () => {
-    expect(pickInitialDate('2025-10-01', [makeDay('2025-09-30')], '2026-05-21')).toBe(
-      '2025-10-01',
-    )
+    expect(
+      pickInitialDate('2025-10-01', [makeDay('2025-09-30')], '2026-05-21'),
+    ).toBe('2025-10-01')
   })
 
   it('returns the newest day when no target and the archive has rows', () => {
     expect(
-      pickInitialDate(null, [makeDay('2025-09-30'), makeDay('2025-09-29')], '2026-05-21'),
+      pickInitialDate(
+        null,
+        [makeDay('2025-09-30'), makeDay('2025-09-29')],
+        '2026-05-21',
+      ),
     ).toBe('2025-09-30')
   })
 
@@ -33,7 +37,10 @@ describe('pickInitialDate', () => {
 
 describe('buildPerDayDensity', () => {
   it('returns the loaded-day counts when no overrides supplied', () => {
-    const map = buildPerDayDensity([makeDay('2025-09-30', 5), makeDay('2025-09-29', 3)], undefined)
+    const map = buildPerDayDensity(
+      [makeDay('2025-09-30', 5), makeDay('2025-09-29', 3)],
+      undefined,
+    )
     expect(map.get('2025-09-30')).toBe(5)
     expect(map.get('2025-09-29')).toBe(3)
   })
@@ -62,7 +69,11 @@ describe('buildPerDayDensity', () => {
 describe('buildPerYearDensity', () => {
   it('sums visit counts per year from loaded days', () => {
     const map = buildPerYearDensity(
-      [makeDay('2025-09-30', 5), makeDay('2025-08-01', 7), makeDay('2024-12-31', 2)],
+      [
+        makeDay('2025-09-30', 5),
+        makeDay('2025-08-01', 7),
+        makeDay('2024-12-31', 2),
+      ],
       undefined,
     )
     expect(map.get(2025)).toBe(12)
@@ -70,7 +81,10 @@ describe('buildPerYearDensity', () => {
   })
 
   it('skips days whose year cannot be parsed', () => {
-    const map = buildPerYearDensity([makeDay('bogus', 9), makeDay('2025-01-01', 4)], undefined)
+    const map = buildPerYearDensity(
+      [makeDay('bogus', 9), makeDay('2025-01-01', 4)],
+      undefined,
+    )
     expect(map.get(2025)).toBe(4)
     expect(map.has(Number.NaN)).toBe(false)
   })

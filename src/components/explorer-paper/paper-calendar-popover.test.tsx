@@ -269,9 +269,7 @@ describe('PaperCalendarPopover', () => {
 
   test('1 year ago footer falls back to bounds.lastIso when value is empty', () => {
     const onSelect = vi.fn()
-    render(
-      <PaperCalendarPopover {...baseProps({ value: '', onSelect })} />,
-    )
+    render(<PaperCalendarPopover {...baseProps({ value: '', onSelect })} />)
     fireEvent.click(screen.getByRole('button', { name: /1 year ago/ }))
     expect(onSelect).toHaveBeenCalledWith('2025-05-17')
   })

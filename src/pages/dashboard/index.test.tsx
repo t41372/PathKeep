@@ -161,9 +161,7 @@ describe('DashboardPage (paper redesign)', () => {
       dashboard: makeDashboard(),
     })
     const user = userEvent.setup()
-    const row = await screen.findByTestId(
-      'dashboard-active-threads-row-flow-1',
-    )
+    const row = await screen.findByTestId('dashboard-active-threads-row-flow-1')
     await user.click(row)
   })
 
