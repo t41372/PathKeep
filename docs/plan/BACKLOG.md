@@ -78,26 +78,22 @@
 
 - [x] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
   - 2026-05-20 closeout (commit 7a1543c, prior commit 5067cfa for the shared
-    `completePreviewOnboarding` helper):
-    - `tests/e2e/shell.spec.ts` now passes 5/5. The previously-failing four
-      tests fell into two buckets:
-      - **Surface-still-exists, selector drift** — "walks remote backup
-        settings and Maintenance PME": swapped `.panel`-class CSS locators
-        for `getByTestId('settings-remote')` in both Settings + Maintenance
-        scopes since the PaperCard root forwards `navItem.id` as testid.
-      - **Surface concept retired by Phase 4** — three tests asserted v0.2
-        ExplorerQueryFiltersPanel chrome (profile combobox in body, regex
-        toggle, debounced keyword input, inline alert copy, jsonl export
-        button, AdvancedSearchHelp hover card with `site:github.com -pathkeep`
-        and `manual OR youtube` example tokens), and "Hybrid coming in v0.3"
-        / "Assistant is coming in v0.3" deferred copy that paper now
-        replaces with the real composer. Two tests were trimmed to keep
-        their still-relevant assertions (audit ledger walk; intelligence +
-        assistant testids); the third — `keeps shared profile scope, regex
+    `completePreviewOnboarding` helper): - `tests/e2e/shell.spec.ts` now passes 5/5. The previously-failing four
+    tests fell into two buckets: - **Surface-still-exists, selector drift** — "walks remote backup
+    settings and Maintenance PME": swapped `.panel`-class CSS locators
+    for `getByTestId('settings-remote')` in both Settings + Maintenance
+    scopes since the PaperCard root forwards `navItem.id` as testid. - **Surface concept retired by Phase 4** — three tests asserted v0.2
+    ExplorerQueryFiltersPanel chrome (profile combobox in body, regex
+    toggle, debounced keyword input, inline alert copy, jsonl export
+    button, AdvancedSearchHelp hover card with `site:github.com -pathkeep`
+    and `manual OR youtube` example tokens), and "Hybrid coming in v0.3"
+    / "Assistant is coming in v0.3" deferred copy that paper now
+    replaces with the real composer. Two tests were trimmed to keep
+    their still-relevant assertions (audit ledger walk; intelligence +
+    assistant testids); the third — `keeps shared profile scope, regex
 recall, and export guardrails aligned` — was deleted entirely with
-        a doc-comment block explaining where each retired surface moved.
-    - Run command:
-      `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome bun run
+    a doc-comment block explaining where each retired surface moved. - Run command:
+    `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome bun run
 test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
   - Note：`playwright.config.ts` 已支援 Ubuntu 26.04 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env var（系統 Chrome at `/usr/bin/google-chrome`）— upstream playwright supportedOSes table 還沒對 26.04 提供 chrome-headless-shell binary。
 
@@ -122,38 +118,32 @@ test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
 
 - [x] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
   - 2026-05-20 closeout: dashboard surfaces are now backed by real data on
-    every card.
-    - **Active Threads** (commit 03fcb86): calls
-      `coreIntelligenceApi.getPathFlows(last-30-days, profileId, 3, 10)` and
-      renders the top three recurring 3-step paths with arrow-chained domain
-      chips + `{count} occurrences` mono badges. Honest loading / empty /
-      error states; row clicks forward `flowId` to the route's `onOpenThread`.
-    - **Year Heatmap** (commit 897b816): replaces the empty placeholder with
-      a paper-aesthetic 7×N grid that fetches
-      `coreIntelligenceApi.getDiscoveryTrend(last-365-days, profileId, 'day')`
-      and buckets visit counts into 0-4 quartile levels. Streak badge surfaces
-      the longest consecutive-day run. Day clicks deep-link into Explorer's
-      Browse contact-sheet centred on the date.
-    - **Backend design decision**: the BACKLOG entry called for a new
-      `get_daily_rollups(range)` Tauri command, but `get_discovery_trend` with
-      `granularity='day'` already returns `{ dateKey, totalVisits }` rows from
-      `daily_summary_rollups` — the exact shape the heatmap consumes. Adding
-      a parallel `get_daily_rollups` command would have introduced a fourth
-      daily-aggregation path through `vault-core → vault-worker → tauri →
+    every card. - **Active Threads** (commit 03fcb86): calls
+    `coreIntelligenceApi.getPathFlows(last-30-days, profileId, 3, 10)` and
+    renders the top three recurring 3-step paths with arrow-chained domain
+    chips + `{count} occurrences` mono badges. Honest loading / empty /
+    error states; row clicks forward `flowId` to the route's `onOpenThread`. - **Year Heatmap** (commit 897b816): replaces the empty placeholder with
+    a paper-aesthetic 7×N grid that fetches
+    `coreIntelligenceApi.getDiscoveryTrend(last-365-days, profileId, 'day')`
+    and buckets visit counts into 0-4 quartile levels. Streak badge surfaces
+    the longest consecutive-day run. Day clicks deep-link into Explorer's
+    Browse contact-sheet centred on the date. - **Backend design decision**: the BACKLOG entry called for a new
+    `get_daily_rollups(range)` Tauri command, but `get_discovery_trend` with
+    `granularity='day'` already returns `{ dateKey, totalVisits }` rows from
+    `daily_summary_rollups` — the exact shape the heatmap consumes. Adding
+    a parallel `get_daily_rollups` command would have introduced a fourth
+    daily-aggregation path through `vault-core → vault-worker → tauri →
 core-intelligence/api`, all returning the same data. Reusing the existing
-      endpoint keeps the surface lean, reuses the primary-overview cache, and
-      eliminates a maintenance edge. The new YearHeatmap is layered above the
-      same backend boundary the discovery-trend route already uses.
-    - **Helpers extraction**: `formatSpan`, `compactNumber`, `humanizeBytes`,
-      `sumStorageBytes`, plus new `dashboardThreadsRange` /
-      `dashboardHeatmapRange` / `isoDateOnly` live in
-      `src/pages/dashboard/dashboard-helpers.ts` with 15 unit cases — matches
-      the `shell-helpers.ts` pattern the BACKLOG called for.
-    - 1648/1648 unit tests pass. New surface tests: 5 (active-threads-card) +
-      5 (year-heatmap-card) + 8 (heatmap helpers) + 4 (YearHeatmap render) + 15
-      (dashboard-helpers).
-    - No fake / fabricated dashboard data reintroduced — every card preserves
-      the Trust & Transparency invariant.
+    endpoint keeps the surface lean, reuses the primary-overview cache, and
+    eliminates a maintenance edge. The new YearHeatmap is layered above the
+    same backend boundary the discovery-trend route already uses. - **Helpers extraction**: `formatSpan`, `compactNumber`, `humanizeBytes`,
+    `sumStorageBytes`, plus new `dashboardThreadsRange` /
+    `dashboardHeatmapRange` / `isoDateOnly` live in
+    `src/pages/dashboard/dashboard-helpers.ts` with 15 unit cases — matches
+    the `shell-helpers.ts` pattern the BACKLOG called for. - 1648/1648 unit tests pass. New surface tests: 5 (active-threads-card) +
+    5 (year-heatmap-card) + 8 (heatmap helpers) + 4 (YearHeatmap render) + 15
+    (dashboard-helpers). - No fake / fabricated dashboard data reintroduced — every card preserves
+    the Trust & Transparency invariant.
 
 - [ ] **WORK-V03-RUST-COVERAGE-RESIDUAL** — Restore full-scope Rust coverage gate
   - 讀先：
