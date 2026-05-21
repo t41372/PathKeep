@@ -18,6 +18,7 @@
  */
 
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ExplorerPage } from './index'
@@ -112,6 +113,102 @@ vi.mock('./panels/trail-group', () => ({
 
 vi.mock('./panels/detail-panel', () => ({
   ExplorerDetailPanel: () => <div data-testid="detail-panel">detail</div>,
+}))
+
+// Mock the paper surfaces so each test can fire their callbacks via
+// dedicated trigger buttons. The real components are exhaustively tested
+// in src/components/explorer-paper/.
+vi.mock('./paper-view', () => ({
+  PaperExplorerView: (props: {
+    onSelectEntry: (entry: { id: number }) => void
+    onJumpToDate: (iso: string) => void
+    onClearTarget: () => void
+  }) => (
+    <div data-testid="explorer-paper-view">
+      <button
+        type="button"
+        data-testid="paper-view-select"
+        onClick={() => props.onSelectEntry({ id: 42 })}
+      >
+        select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-view-jump"
+        onClick={() => props.onJumpToDate('2026-04-15')}
+      >
+        jump
+      </button>
+      <button
+        type="button"
+        data-testid="paper-view-clear-target"
+        onClick={() => props.onClearTarget()}
+      >
+        clear
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('./paper-search-panel', () => ({
+  PaperSearchPanel: (props: {
+    onQueryChange: (next: string) => void
+    onModeChange: (next: { mode: string; regexMode: boolean }) => void
+    onSubmit: (query: string) => void
+    onSelectEntry: (id: number) => void
+    onSeeInContext: (entry: { id: string }, dayDate: string) => void
+  }) => (
+    <div data-testid="paper-search-panel">
+      <button
+        type="button"
+        data-testid="paper-search-change"
+        onClick={() => props.onQueryChange('next-query')}
+      >
+        change
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-mode"
+        onClick={() =>
+          props.onModeChange({ mode: 'semantic', regexMode: true })
+        }
+      >
+        mode
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-mode-keyword"
+        onClick={() =>
+          props.onModeChange({ mode: 'keyword', regexMode: false })
+        }
+      >
+        keyword
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-submit"
+        onClick={() => props.onSubmit('committed')}
+      >
+        submit
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-select"
+        onClick={() => props.onSelectEntry(7)}
+      >
+        select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-see-in-context"
+        onClick={() =>
+          props.onSeeInContext({ id: '17' }, '2026-04-15')
+        }
+      >
+        see-in-context
+      </button>
+    </div>
+  ),
 }))
 
 describe('ExplorerPage route shell', () => {
@@ -223,6 +320,93 @@ describe('ExplorerPage route shell', () => {
     // The PaperSearchPanel renders its own paper-search-view shell instead
     // of the contact-sheet Browse layout.
     expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+  })
+
+  test('PaperSearchPanel callbacks drive the route url-state + selection setters', async () => {
+    const user = userEvent.setup()
+    const setQueryInput = vi.fn()
+    const updateParam = vi.fn()
+    const setSearchParams = vi.fn()
+    const setSelectedId = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=initial'),
+        setQueryInput,
+        updateParam,
+        setSearchParams,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          setSelectedId,
+        }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-search-change'))
+    expect(setQueryInput).toHaveBeenCalledWith('next-query')
+    expect(updateParam).toHaveBeenCalledWith('q', 'next-query')
+
+    await user.click(screen.getByTestId('paper-search-mode'))
+    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).toHaveBeenCalledWith('regex', '1')
+
+    await user.click(screen.getByTestId('paper-search-mode-keyword'))
+    // keyword mode collapses back to the default (passes null on both).
+    expect(updateParam).toHaveBeenCalledWith('mode', null)
+    expect(updateParam).toHaveBeenCalledWith('regex', null)
+
+    await user.click(screen.getByTestId('paper-search-submit'))
+    expect(setQueryInput).toHaveBeenCalledWith('committed')
+    expect(updateParam).toHaveBeenCalledWith('q', 'committed')
+
+    await user.click(screen.getByTestId('paper-search-select'))
+    expect(setSelectedId).toHaveBeenCalledWith(7)
+
+    await user.click(screen.getByTestId('paper-search-see-in-context'))
+    expect(setSearchParams).toHaveBeenCalled()
+    const nextParams = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(nextParams.get('date')).toBe('2026-04-15')
+    expect(nextParams.get('source')).toBe('search')
+    expect(nextParams.get('q')).toBeNull()
+    expect(nextParams.get('surface')).toBeNull()
+    expect(setSelectedId).toHaveBeenCalledWith(17)
+  })
+
+  test('PaperExplorerView callbacks drive the route selection + url-state setters', async () => {
+    const user = userEvent.setup()
+    const setSelectedId = vi.fn()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('date=2026-04-01&source=search'),
+        setSearchParams,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          setSelectedId,
+        }),
+    )
+    renderExplorer()
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(setSelectedId).toHaveBeenCalledWith(42)
+
+    await user.click(screen.getByTestId('paper-view-jump'))
+    const jumpedParams = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(jumpedParams.get('date')).toBe('2026-04-15')
+
+    await user.click(screen.getByTestId('paper-view-clear-target'))
+    const cleared = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(cleared.get('date')).toBeNull()
+    expect(cleared.get('source')).toBeNull()
   })
 
   test('shows the deferred semantic callout when optional AI is unavailable', () => {
