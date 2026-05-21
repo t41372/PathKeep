@@ -1,0 +1,579 @@
+- generic [ref=e10]:
+  - complementary [ref=e11]:
+    - generic [ref=e12]:
+      - img "PathKeep" [ref=e13]
+      - generic "0.2.0 (preview-build+)" [ref=e18]:
+        - generic [ref=e19]: PathKeep
+        - generic [ref=e20]: v0.2.0
+        - generic [ref=e21]: preview+
+      - button "Collapse navigation" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+    - navigation "Primary navigation" [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]: CORE
+        - link "Dashboard" [ref=e28] [cursor=pointer]:
+          - /url: "#/"
+          - img [ref=e30]
+          - generic [ref=e31]: Dashboard
+        - link "Explorer" [ref=e32] [cursor=pointer]:
+          - /url: "#/explorer"
+          - img [ref=e34]
+          - generic [ref=e37]: Explorer
+        - link "Intelligence" [ref=e38] [cursor=pointer]:
+          - /url: "#/intelligence"
+          - img [ref=e40]
+          - generic [ref=e42]: Intelligence
+        - link "AI Assistant v0.3" [ref=e43] [cursor=pointer]:
+          - /url: "#/assistant"
+          - img [ref=e45]
+          - generic [ref=e51]: AI Assistant
+          - generic [ref=e52]: v0.3
+      - generic [ref=e53]:
+        - generic [ref=e54]: OPERATIONS
+        - link "Import" [ref=e55] [cursor=pointer]:
+          - /url: "#/import"
+          - img [ref=e57]
+          - generic [ref=e59]: Import
+        - link "Audit Ledger" [ref=e60] [cursor=pointer]:
+          - /url: "#/audit"
+          - img [ref=e62]
+          - generic [ref=e66]: Audit Ledger
+        - link "Jobs" [ref=e67] [cursor=pointer]:
+          - /url: "#/jobs"
+          - img [ref=e69]
+          - generic [ref=e73]: Jobs
+        - link "Integrations" [ref=e74] [cursor=pointer]:
+          - /url: "#/integrations"
+          - img [ref=e76]
+          - generic [ref=e79]: Integrations
+      - generic [ref=e80]:
+        - generic [ref=e81]: SYSTEM
+        - link "Scheduled Backup Settings" [ref=e82] [cursor=pointer]:
+          - /url: "#/schedule"
+          - img [ref=e84]
+          - generic [ref=e89]: Scheduled Backup Settings
+        - link "Security" [ref=e90] [cursor=pointer]:
+          - /url: "#/security"
+          - img [ref=e92]
+          - generic [ref=e94]: Security
+        - link "Settings" [ref=e95] [cursor=pointer]:
+          - /url: "#/settings"
+          - img [ref=e97]
+          - generic [ref=e100]: Settings
+        - link "Maintenance" [ref=e101] [cursor=pointer]:
+          - /url: "#/maintenance"
+          - img [ref=e103]
+          - generic [ref=e105]: Maintenance
+    - generic [ref=e106]:
+      - button "Lock now" [ref=e107] [cursor=pointer]:
+        - img [ref=e108]
+      - generic "Archive healthy" [ref=e111]: Archive healthy
+      - button "Toggle theme" [ref=e113] [cursor=pointer]:
+        - img [ref=e114]
+  - generic [ref=e116]:
+    - banner [ref=e117]:
+      - generic [ref=e118]:
+        - heading "Dashboard" [level=1] [ref=e119]
+        - generic [ref=e120]: Your archive at a glance
+      - generic [ref=e121]:
+        - button "Find a page… Ctrl+K" [ref=e122] [cursor=pointer]:
+          - img [ref=e123]
+          - generic [ref=e126]: Find a page…
+          - generic [ref=e127]: Ctrl+K
+        - button "Backup now" [ref=e128] [cursor=pointer]:
+          - img [ref=e129]
+          - text: Backup now
+    - main [ref=e131]:
+      - generic [ref=e132]:
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - heading "Good morning" [level=1] [ref=e135]
+            - paragraph [ref=e136]: Everything you’ve kept lives here. Pick up where you left off.
+          - generic [ref=e137]:
+            - generic [ref=e138]:
+              - generic [ref=e139]: 348.0K
+              - generic [ref=e140]: Pages
+            - generic [ref=e141]:
+              - generic [ref=e142]: today
+              - generic [ref=e143]: Span
+            - generic [ref=e144]:
+              - generic [ref=e145]: 1.4 GB
+              - generic [ref=e146]: GB
+            - generic [ref=e147]:
+              - generic [ref=e148]: "4"
+              - generic [ref=e149]: Sources
+        - generic [ref=e150]:
+          - generic [ref=e151]:
+            - generic [ref=e152]:
+              - generic [ref=e153]: On this day, a year ago
+              - button "May 21, 2025" [ref=e155] [cursor=pointer]:
+                - text: May 21, 2025
+                - generic [ref=e156]: →
+            - list [ref=e158]:
+              - listitem [ref=e159]:
+                - button "2025 Reviewed local storage and desktop packaging references. sqlite.org · tauri.app · github.com" [ref=e160] [cursor=pointer]:
+                  - generic [ref=e161]: "2025"
+                  - generic [ref=e162]:
+                    - generic [ref=e163]: Reviewed local storage and desktop packaging references.
+                    - generic [ref=e164]: sqlite.org · tauri.app · github.com
+          - generic [ref=e165]:
+            - generic [ref=e166]:
+              - generic [ref=e167]: This week
+              - generic [ref=e169]: Week 21
+            - generic [ref=e170]:
+              - paragraph [ref=e171]: Configure a local LLM to generate a weekly editorial summary.
+              - paragraph [ref=e172]: For now, the counts below come straight from the archive — no inference.
+              - generic [ref=e173]:
+                - generic [ref=e174]:
+                  - generic [ref=e175]: 348,000
+                  - generic [ref=e176]: Pages
+                - generic [ref=e177]:
+                  - generic [ref=e178]: 172,000
+                  - generic [ref=e179]: New URLs
+                - generic [ref=e180]:
+                  - generic [ref=e181]: "3"
+                  - generic [ref=e182]: Runs
+        - generic [ref=e183]:
+          - generic [ref=e184]:
+            - generic [ref=e185]: A year in pages
+            - button "Insights →" [ref=e187] [cursor=pointer]
+          - generic [ref=e189]:
+            - generic [ref=e190]:
+              - generic [ref=e191]: Streak
+              - generic [ref=e192]: 29-day streak
+            - generic [ref=e193]:
+              - generic [ref=e194]:
+                - generic [ref=e195]: May
+                - generic [ref=e196]: Jun
+                - generic [ref=e197]: Jul
+                - generic [ref=e198]: Aug
+                - generic [ref=e199]: Sep
+                - generic [ref=e200]: Oct
+                - generic [ref=e201]: Nov
+                - generic [ref=e202]: Dec
+                - generic [ref=e203]: Jan
+                - generic [ref=e204]: Feb
+                - generic [ref=e205]: Mar
+                - generic [ref=e206]: Apr
+                - generic [ref=e207]: May
+              - generic [ref=e208]:
+                - button "2025-05-25 · 0 pages" [disabled] [ref=e209] [cursor=pointer]
+                - button "2025-06-01 · 0 pages" [disabled] [ref=e210] [cursor=pointer]
+                - button "2025-06-08 · 0 pages" [disabled] [ref=e211] [cursor=pointer]
+                - button "2025-06-15 · 0 pages" [disabled] [ref=e212] [cursor=pointer]
+                - button "2025-06-22 · 0 pages" [disabled] [ref=e213] [cursor=pointer]
+                - button "2025-06-29 · 0 pages" [disabled] [ref=e214] [cursor=pointer]
+                - button "2025-07-06 · 0 pages" [disabled] [ref=e215] [cursor=pointer]
+                - button "2025-07-13 · 0 pages" [disabled] [ref=e216] [cursor=pointer]
+                - button "2025-07-20 · 0 pages" [disabled] [ref=e217] [cursor=pointer]
+                - button "2025-07-27 · 0 pages" [disabled] [ref=e218] [cursor=pointer]
+                - button "2025-08-03 · 0 pages" [disabled] [ref=e219] [cursor=pointer]
+                - button "2025-08-10 · 0 pages" [disabled] [ref=e220] [cursor=pointer]
+                - button "2025-08-17 · 0 pages" [disabled] [ref=e221] [cursor=pointer]
+                - button "2025-08-24 · 0 pages" [disabled] [ref=e222] [cursor=pointer]
+                - button "2025-08-31 · 0 pages" [disabled] [ref=e223] [cursor=pointer]
+                - button "2025-09-07 · 0 pages" [disabled] [ref=e224] [cursor=pointer]
+                - button "2025-09-14 · 0 pages" [disabled] [ref=e225] [cursor=pointer]
+                - button "2025-09-21 · 0 pages" [disabled] [ref=e226] [cursor=pointer]
+                - button "2025-09-28 · 0 pages" [disabled] [ref=e227] [cursor=pointer]
+                - button "2025-10-05 · 0 pages" [disabled] [ref=e228] [cursor=pointer]
+                - button "2025-10-12 · 0 pages" [disabled] [ref=e229] [cursor=pointer]
+                - button "2025-10-19 · 0 pages" [disabled] [ref=e230] [cursor=pointer]
+                - button "2025-10-26 · 0 pages" [disabled] [ref=e231] [cursor=pointer]
+                - button "2025-11-02 · 0 pages" [disabled] [ref=e232] [cursor=pointer]
+                - button "2025-11-09 · 0 pages" [disabled] [ref=e233] [cursor=pointer]
+                - button "2025-11-16 · 0 pages" [disabled] [ref=e234] [cursor=pointer]
+                - button "2025-11-23 · 0 pages" [disabled] [ref=e235] [cursor=pointer]
+                - button "2025-11-30 · 0 pages" [disabled] [ref=e236] [cursor=pointer]
+                - button "2025-12-07 · 0 pages" [disabled] [ref=e237] [cursor=pointer]
+                - button "2025-12-14 · 0 pages" [disabled] [ref=e238] [cursor=pointer]
+                - button "2025-12-21 · 0 pages" [disabled] [ref=e239] [cursor=pointer]
+                - button "2025-12-28 · 0 pages" [disabled] [ref=e240] [cursor=pointer]
+                - button "2026-01-04 · 0 pages" [disabled] [ref=e241] [cursor=pointer]
+                - button "2026-01-11 · 0 pages" [disabled] [ref=e242] [cursor=pointer]
+                - button "2026-01-18 · 0 pages" [disabled] [ref=e243] [cursor=pointer]
+                - button "2026-01-25 · 0 pages" [disabled] [ref=e244] [cursor=pointer]
+                - button "2026-02-01 · 0 pages" [disabled] [ref=e245] [cursor=pointer]
+                - button "2026-02-08 · 0 pages" [disabled] [ref=e246] [cursor=pointer]
+                - button "2026-02-15 · 0 pages" [disabled] [ref=e247] [cursor=pointer]
+                - button "2026-02-22 · 0 pages" [disabled] [ref=e248] [cursor=pointer]
+                - button "2026-03-01 · 0 pages" [disabled] [ref=e249] [cursor=pointer]
+                - button "2026-03-08 · 0 pages" [disabled] [ref=e250] [cursor=pointer]
+                - button "2026-03-15 · 0 pages" [disabled] [ref=e251] [cursor=pointer]
+                - button "2026-03-22 · 0 pages" [disabled] [ref=e252] [cursor=pointer]
+                - button "2026-03-29 · 0 pages" [disabled] [ref=e253] [cursor=pointer]
+                - button "2026-04-05 · 0 pages" [disabled] [ref=e254] [cursor=pointer]
+                - button "2026-04-12 · 0 pages" [disabled] [ref=e255] [cursor=pointer]
+                - button "2026-04-19 · 0 pages" [disabled] [ref=e256] [cursor=pointer]
+                - button "2026-04-26 · 192 pages" [ref=e257] [cursor=pointer]
+                - button "2026-05-03 · 174 pages" [ref=e258] [cursor=pointer]
+                - button "2026-05-10 · 156 pages" [ref=e259] [cursor=pointer]
+                - button "2026-05-17 · 138 pages" [ref=e260] [cursor=pointer]
+                - generic [ref=e262]: Mon
+                - button "2025-05-26 · 0 pages" [disabled] [ref=e263] [cursor=pointer]
+                - button "2025-06-02 · 0 pages" [disabled] [ref=e264] [cursor=pointer]
+                - button "2025-06-09 · 0 pages" [disabled] [ref=e265] [cursor=pointer]
+                - button "2025-06-16 · 0 pages" [disabled] [ref=e266] [cursor=pointer]
+                - button "2025-06-23 · 0 pages" [disabled] [ref=e267] [cursor=pointer]
+                - button "2025-06-30 · 0 pages" [disabled] [ref=e268] [cursor=pointer]
+                - button "2025-07-07 · 0 pages" [disabled] [ref=e269] [cursor=pointer]
+                - button "2025-07-14 · 0 pages" [disabled] [ref=e270] [cursor=pointer]
+                - button "2025-07-21 · 0 pages" [disabled] [ref=e271] [cursor=pointer]
+                - button "2025-07-28 · 0 pages" [disabled] [ref=e272] [cursor=pointer]
+                - button "2025-08-04 · 0 pages" [disabled] [ref=e273] [cursor=pointer]
+                - button "2025-08-11 · 0 pages" [disabled] [ref=e274] [cursor=pointer]
+                - button "2025-08-18 · 0 pages" [disabled] [ref=e275] [cursor=pointer]
+                - button "2025-08-25 · 0 pages" [disabled] [ref=e276] [cursor=pointer]
+                - button "2025-09-01 · 0 pages" [disabled] [ref=e277] [cursor=pointer]
+                - button "2025-09-08 · 0 pages" [disabled] [ref=e278] [cursor=pointer]
+                - button "2025-09-15 · 0 pages" [disabled] [ref=e279] [cursor=pointer]
+                - button "2025-09-22 · 0 pages" [disabled] [ref=e280] [cursor=pointer]
+                - button "2025-09-29 · 0 pages" [disabled] [ref=e281] [cursor=pointer]
+                - button "2025-10-06 · 0 pages" [disabled] [ref=e282] [cursor=pointer]
+                - button "2025-10-13 · 0 pages" [disabled] [ref=e283] [cursor=pointer]
+                - button "2025-10-20 · 0 pages" [disabled] [ref=e284] [cursor=pointer]
+                - button "2025-10-27 · 0 pages" [disabled] [ref=e285] [cursor=pointer]
+                - button "2025-11-03 · 0 pages" [disabled] [ref=e286] [cursor=pointer]
+                - button "2025-11-10 · 0 pages" [disabled] [ref=e287] [cursor=pointer]
+                - button "2025-11-17 · 0 pages" [disabled] [ref=e288] [cursor=pointer]
+                - button "2025-11-24 · 0 pages" [disabled] [ref=e289] [cursor=pointer]
+                - button "2025-12-01 · 0 pages" [disabled] [ref=e290] [cursor=pointer]
+                - button "2025-12-08 · 0 pages" [disabled] [ref=e291] [cursor=pointer]
+                - button "2025-12-15 · 0 pages" [disabled] [ref=e292] [cursor=pointer]
+                - button "2025-12-22 · 0 pages" [disabled] [ref=e293] [cursor=pointer]
+                - button "2025-12-29 · 0 pages" [disabled] [ref=e294] [cursor=pointer]
+                - button "2026-01-05 · 0 pages" [disabled] [ref=e295] [cursor=pointer]
+                - button "2026-01-12 · 0 pages" [disabled] [ref=e296] [cursor=pointer]
+                - button "2026-01-19 · 0 pages" [disabled] [ref=e297] [cursor=pointer]
+                - button "2026-01-26 · 0 pages" [disabled] [ref=e298] [cursor=pointer]
+                - button "2026-02-02 · 0 pages" [disabled] [ref=e299] [cursor=pointer]
+                - button "2026-02-09 · 0 pages" [disabled] [ref=e300] [cursor=pointer]
+                - button "2026-02-16 · 0 pages" [disabled] [ref=e301] [cursor=pointer]
+                - button "2026-02-23 · 0 pages" [disabled] [ref=e302] [cursor=pointer]
+                - button "2026-03-02 · 0 pages" [disabled] [ref=e303] [cursor=pointer]
+                - button "2026-03-09 · 0 pages" [disabled] [ref=e304] [cursor=pointer]
+                - button "2026-03-16 · 0 pages" [disabled] [ref=e305] [cursor=pointer]
+                - button "2026-03-23 · 0 pages" [disabled] [ref=e306] [cursor=pointer]
+                - button "2026-03-30 · 0 pages" [disabled] [ref=e307] [cursor=pointer]
+                - button "2026-04-06 · 0 pages" [disabled] [ref=e308] [cursor=pointer]
+                - button "2026-04-13 · 0 pages" [disabled] [ref=e309] [cursor=pointer]
+                - button "2026-04-20 · 0 pages" [disabled] [ref=e310] [cursor=pointer]
+                - button "2026-04-27 · 210 pages" [ref=e311] [cursor=pointer]
+                - button "2026-05-04 · 192 pages" [ref=e312] [cursor=pointer]
+                - button "2026-05-11 · 174 pages" [ref=e313] [cursor=pointer]
+                - button "2026-05-18 · 156 pages" [ref=e314] [cursor=pointer]
+                - button "2025-05-27 · 0 pages" [disabled] [ref=e316] [cursor=pointer]
+                - button "2025-06-03 · 0 pages" [disabled] [ref=e317] [cursor=pointer]
+                - button "2025-06-10 · 0 pages" [disabled] [ref=e318] [cursor=pointer]
+                - button "2025-06-17 · 0 pages" [disabled] [ref=e319] [cursor=pointer]
+                - button "2025-06-24 · 0 pages" [disabled] [ref=e320] [cursor=pointer]
+                - button "2025-07-01 · 0 pages" [disabled] [ref=e321] [cursor=pointer]
+                - button "2025-07-08 · 0 pages" [disabled] [ref=e322] [cursor=pointer]
+                - button "2025-07-15 · 0 pages" [disabled] [ref=e323] [cursor=pointer]
+                - button "2025-07-22 · 0 pages" [disabled] [ref=e324] [cursor=pointer]
+                - button "2025-07-29 · 0 pages" [disabled] [ref=e325] [cursor=pointer]
+                - button "2025-08-05 · 0 pages" [disabled] [ref=e326] [cursor=pointer]
+                - button "2025-08-12 · 0 pages" [disabled] [ref=e327] [cursor=pointer]
+                - button "2025-08-19 · 0 pages" [disabled] [ref=e328] [cursor=pointer]
+                - button "2025-08-26 · 0 pages" [disabled] [ref=e329] [cursor=pointer]
+                - button "2025-09-02 · 0 pages" [disabled] [ref=e330] [cursor=pointer]
+                - button "2025-09-09 · 0 pages" [disabled] [ref=e331] [cursor=pointer]
+                - button "2025-09-16 · 0 pages" [disabled] [ref=e332] [cursor=pointer]
+                - button "2025-09-23 · 0 pages" [disabled] [ref=e333] [cursor=pointer]
+                - button "2025-09-30 · 0 pages" [disabled] [ref=e334] [cursor=pointer]
+                - button "2025-10-07 · 0 pages" [disabled] [ref=e335] [cursor=pointer]
+                - button "2025-10-14 · 0 pages" [disabled] [ref=e336] [cursor=pointer]
+                - button "2025-10-21 · 0 pages" [disabled] [ref=e337] [cursor=pointer]
+                - button "2025-10-28 · 0 pages" [disabled] [ref=e338] [cursor=pointer]
+                - button "2025-11-04 · 0 pages" [disabled] [ref=e339] [cursor=pointer]
+                - button "2025-11-11 · 0 pages" [disabled] [ref=e340] [cursor=pointer]
+                - button "2025-11-18 · 0 pages" [disabled] [ref=e341] [cursor=pointer]
+                - button "2025-11-25 · 0 pages" [disabled] [ref=e342] [cursor=pointer]
+                - button "2025-12-02 · 0 pages" [disabled] [ref=e343] [cursor=pointer]
+                - button "2025-12-09 · 0 pages" [disabled] [ref=e344] [cursor=pointer]
+                - button "2025-12-16 · 0 pages" [disabled] [ref=e345] [cursor=pointer]
+                - button "2025-12-23 · 0 pages" [disabled] [ref=e346] [cursor=pointer]
+                - button "2025-12-30 · 0 pages" [disabled] [ref=e347] [cursor=pointer]
+                - button "2026-01-06 · 0 pages" [disabled] [ref=e348] [cursor=pointer]
+                - button "2026-01-13 · 0 pages" [disabled] [ref=e349] [cursor=pointer]
+                - button "2026-01-20 · 0 pages" [disabled] [ref=e350] [cursor=pointer]
+                - button "2026-01-27 · 0 pages" [disabled] [ref=e351] [cursor=pointer]
+                - button "2026-02-03 · 0 pages" [disabled] [ref=e352] [cursor=pointer]
+                - button "2026-02-10 · 0 pages" [disabled] [ref=e353] [cursor=pointer]
+                - button "2026-02-17 · 0 pages" [disabled] [ref=e354] [cursor=pointer]
+                - button "2026-02-24 · 0 pages" [disabled] [ref=e355] [cursor=pointer]
+                - button "2026-03-03 · 0 pages" [disabled] [ref=e356] [cursor=pointer]
+                - button "2026-03-10 · 0 pages" [disabled] [ref=e357] [cursor=pointer]
+                - button "2026-03-17 · 0 pages" [disabled] [ref=e358] [cursor=pointer]
+                - button "2026-03-24 · 0 pages" [disabled] [ref=e359] [cursor=pointer]
+                - button "2026-03-31 · 0 pages" [disabled] [ref=e360] [cursor=pointer]
+                - button "2026-04-07 · 0 pages" [disabled] [ref=e361] [cursor=pointer]
+                - button "2026-04-14 · 0 pages" [disabled] [ref=e362] [cursor=pointer]
+                - button "2026-04-21 · 0 pages" [disabled] [ref=e363] [cursor=pointer]
+                - button "2026-04-28 · 228 pages" [ref=e364] [cursor=pointer]
+                - button "2026-05-05 · 210 pages" [ref=e365] [cursor=pointer]
+                - button "2026-05-12 · 192 pages" [ref=e366] [cursor=pointer]
+                - button "2026-05-19 · 174 pages" [ref=e367] [cursor=pointer]
+                - generic [ref=e369]: Wed
+                - button "2025-05-21 · 0 pages" [disabled] [ref=e370] [cursor=pointer]
+                - button "2025-05-28 · 0 pages" [disabled] [ref=e371] [cursor=pointer]
+                - button "2025-06-04 · 0 pages" [disabled] [ref=e372] [cursor=pointer]
+                - button "2025-06-11 · 0 pages" [disabled] [ref=e373] [cursor=pointer]
+                - button "2025-06-18 · 0 pages" [disabled] [ref=e374] [cursor=pointer]
+                - button "2025-06-25 · 0 pages" [disabled] [ref=e375] [cursor=pointer]
+                - button "2025-07-02 · 0 pages" [disabled] [ref=e376] [cursor=pointer]
+                - button "2025-07-09 · 0 pages" [disabled] [ref=e377] [cursor=pointer]
+                - button "2025-07-16 · 0 pages" [disabled] [ref=e378] [cursor=pointer]
+                - button "2025-07-23 · 0 pages" [disabled] [ref=e379] [cursor=pointer]
+                - button "2025-07-30 · 0 pages" [disabled] [ref=e380] [cursor=pointer]
+                - button "2025-08-06 · 0 pages" [disabled] [ref=e381] [cursor=pointer]
+                - button "2025-08-13 · 0 pages" [disabled] [ref=e382] [cursor=pointer]
+                - button "2025-08-20 · 0 pages" [disabled] [ref=e383] [cursor=pointer]
+                - button "2025-08-27 · 0 pages" [disabled] [ref=e384] [cursor=pointer]
+                - button "2025-09-03 · 0 pages" [disabled] [ref=e385] [cursor=pointer]
+                - button "2025-09-10 · 0 pages" [disabled] [ref=e386] [cursor=pointer]
+                - button "2025-09-17 · 0 pages" [disabled] [ref=e387] [cursor=pointer]
+                - button "2025-09-24 · 0 pages" [disabled] [ref=e388] [cursor=pointer]
+                - button "2025-10-01 · 0 pages" [disabled] [ref=e389] [cursor=pointer]
+                - button "2025-10-08 · 0 pages" [disabled] [ref=e390] [cursor=pointer]
+                - button "2025-10-15 · 0 pages" [disabled] [ref=e391] [cursor=pointer]
+                - button "2025-10-22 · 0 pages" [disabled] [ref=e392] [cursor=pointer]
+                - button "2025-10-29 · 0 pages" [disabled] [ref=e393] [cursor=pointer]
+                - button "2025-11-05 · 0 pages" [disabled] [ref=e394] [cursor=pointer]
+                - button "2025-11-12 · 0 pages" [disabled] [ref=e395] [cursor=pointer]
+                - button "2025-11-19 · 0 pages" [disabled] [ref=e396] [cursor=pointer]
+                - button "2025-11-26 · 0 pages" [disabled] [ref=e397] [cursor=pointer]
+                - button "2025-12-03 · 0 pages" [disabled] [ref=e398] [cursor=pointer]
+                - button "2025-12-10 · 0 pages" [disabled] [ref=e399] [cursor=pointer]
+                - button "2025-12-17 · 0 pages" [disabled] [ref=e400] [cursor=pointer]
+                - button "2025-12-24 · 0 pages" [disabled] [ref=e401] [cursor=pointer]
+                - button "2025-12-31 · 0 pages" [disabled] [ref=e402] [cursor=pointer]
+                - button "2026-01-07 · 0 pages" [disabled] [ref=e403] [cursor=pointer]
+                - button "2026-01-14 · 0 pages" [disabled] [ref=e404] [cursor=pointer]
+                - button "2026-01-21 · 0 pages" [disabled] [ref=e405] [cursor=pointer]
+                - button "2026-01-28 · 0 pages" [disabled] [ref=e406] [cursor=pointer]
+                - button "2026-02-04 · 0 pages" [disabled] [ref=e407] [cursor=pointer]
+                - button "2026-02-11 · 0 pages" [disabled] [ref=e408] [cursor=pointer]
+                - button "2026-02-18 · 0 pages" [disabled] [ref=e409] [cursor=pointer]
+                - button "2026-02-25 · 0 pages" [disabled] [ref=e410] [cursor=pointer]
+                - button "2026-03-04 · 0 pages" [disabled] [ref=e411] [cursor=pointer]
+                - button "2026-03-11 · 0 pages" [disabled] [ref=e412] [cursor=pointer]
+                - button "2026-03-18 · 0 pages" [disabled] [ref=e413] [cursor=pointer]
+                - button "2026-03-25 · 0 pages" [disabled] [ref=e414] [cursor=pointer]
+                - button "2026-04-01 · 0 pages" [disabled] [ref=e415] [cursor=pointer]
+                - button "2026-04-08 · 0 pages" [disabled] [ref=e416] [cursor=pointer]
+                - button "2026-04-15 · 0 pages" [disabled] [ref=e417] [cursor=pointer]
+                - button "2026-04-22 · 120 pages" [ref=e418] [cursor=pointer]
+                - button "2026-04-29 · 246 pages" [ref=e419] [cursor=pointer]
+                - button "2026-05-06 · 228 pages" [ref=e420] [cursor=pointer]
+                - button "2026-05-13 · 210 pages" [ref=e421] [cursor=pointer]
+                - button "2026-05-20 · 192 pages" [ref=e422] [cursor=pointer]
+                - button "2025-05-22 · 0 pages" [disabled] [ref=e423] [cursor=pointer]
+                - button "2025-05-29 · 0 pages" [disabled] [ref=e424] [cursor=pointer]
+                - button "2025-06-05 · 0 pages" [disabled] [ref=e425] [cursor=pointer]
+                - button "2025-06-12 · 0 pages" [disabled] [ref=e426] [cursor=pointer]
+                - button "2025-06-19 · 0 pages" [disabled] [ref=e427] [cursor=pointer]
+                - button "2025-06-26 · 0 pages" [disabled] [ref=e428] [cursor=pointer]
+                - button "2025-07-03 · 0 pages" [disabled] [ref=e429] [cursor=pointer]
+                - button "2025-07-10 · 0 pages" [disabled] [ref=e430] [cursor=pointer]
+                - button "2025-07-17 · 0 pages" [disabled] [ref=e431] [cursor=pointer]
+                - button "2025-07-24 · 0 pages" [disabled] [ref=e432] [cursor=pointer]
+                - button "2025-07-31 · 0 pages" [disabled] [ref=e433] [cursor=pointer]
+                - button "2025-08-07 · 0 pages" [disabled] [ref=e434] [cursor=pointer]
+                - button "2025-08-14 · 0 pages" [disabled] [ref=e435] [cursor=pointer]
+                - button "2025-08-21 · 0 pages" [disabled] [ref=e436] [cursor=pointer]
+                - button "2025-08-28 · 0 pages" [disabled] [ref=e437] [cursor=pointer]
+                - button "2025-09-04 · 0 pages" [disabled] [ref=e438] [cursor=pointer]
+                - button "2025-09-11 · 0 pages" [disabled] [ref=e439] [cursor=pointer]
+                - button "2025-09-18 · 0 pages" [disabled] [ref=e440] [cursor=pointer]
+                - button "2025-09-25 · 0 pages" [disabled] [ref=e441] [cursor=pointer]
+                - button "2025-10-02 · 0 pages" [disabled] [ref=e442] [cursor=pointer]
+                - button "2025-10-09 · 0 pages" [disabled] [ref=e443] [cursor=pointer]
+                - button "2025-10-16 · 0 pages" [disabled] [ref=e444] [cursor=pointer]
+                - button "2025-10-23 · 0 pages" [disabled] [ref=e445] [cursor=pointer]
+                - button "2025-10-30 · 0 pages" [disabled] [ref=e446] [cursor=pointer]
+                - button "2025-11-06 · 0 pages" [disabled] [ref=e447] [cursor=pointer]
+                - button "2025-11-13 · 0 pages" [disabled] [ref=e448] [cursor=pointer]
+                - button "2025-11-20 · 0 pages" [disabled] [ref=e449] [cursor=pointer]
+                - button "2025-11-27 · 0 pages" [disabled] [ref=e450] [cursor=pointer]
+                - button "2025-12-04 · 0 pages" [disabled] [ref=e451] [cursor=pointer]
+                - button "2025-12-11 · 0 pages" [disabled] [ref=e452] [cursor=pointer]
+                - button "2025-12-18 · 0 pages" [disabled] [ref=e453] [cursor=pointer]
+                - button "2025-12-25 · 0 pages" [disabled] [ref=e454] [cursor=pointer]
+                - button "2026-01-01 · 0 pages" [disabled] [ref=e455] [cursor=pointer]
+                - button "2026-01-08 · 0 pages" [disabled] [ref=e456] [cursor=pointer]
+                - button "2026-01-15 · 0 pages" [disabled] [ref=e457] [cursor=pointer]
+                - button "2026-01-22 · 0 pages" [disabled] [ref=e458] [cursor=pointer]
+                - button "2026-01-29 · 0 pages" [disabled] [ref=e459] [cursor=pointer]
+                - button "2026-02-05 · 0 pages" [disabled] [ref=e460] [cursor=pointer]
+                - button "2026-02-12 · 0 pages" [disabled] [ref=e461] [cursor=pointer]
+                - button "2026-02-19 · 0 pages" [disabled] [ref=e462] [cursor=pointer]
+                - button "2026-02-26 · 0 pages" [disabled] [ref=e463] [cursor=pointer]
+                - button "2026-03-05 · 0 pages" [disabled] [ref=e464] [cursor=pointer]
+                - button "2026-03-12 · 0 pages" [disabled] [ref=e465] [cursor=pointer]
+                - button "2026-03-19 · 0 pages" [disabled] [ref=e466] [cursor=pointer]
+                - button "2026-03-26 · 0 pages" [disabled] [ref=e467] [cursor=pointer]
+                - button "2026-04-02 · 0 pages" [disabled] [ref=e468] [cursor=pointer]
+                - button "2026-04-09 · 0 pages" [disabled] [ref=e469] [cursor=pointer]
+                - button "2026-04-16 · 0 pages" [disabled] [ref=e470] [cursor=pointer]
+                - button "2026-04-23 · 138 pages" [ref=e471] [cursor=pointer]
+                - button "2026-04-30 · 120 pages" [ref=e472] [cursor=pointer]
+                - button "2026-05-07 · 246 pages" [ref=e473] [cursor=pointer]
+                - button "2026-05-14 · 228 pages" [ref=e474] [cursor=pointer]
+                - generic [ref=e476]: Fri
+                - button "2025-05-23 · 0 pages" [disabled] [ref=e477] [cursor=pointer]
+                - button "2025-05-30 · 0 pages" [disabled] [ref=e478] [cursor=pointer]
+                - button "2025-06-06 · 0 pages" [disabled] [ref=e479] [cursor=pointer]
+                - button "2025-06-13 · 0 pages" [disabled] [ref=e480] [cursor=pointer]
+                - button "2025-06-20 · 0 pages" [disabled] [ref=e481] [cursor=pointer]
+                - button "2025-06-27 · 0 pages" [disabled] [ref=e482] [cursor=pointer]
+                - button "2025-07-04 · 0 pages" [disabled] [ref=e483] [cursor=pointer]
+                - button "2025-07-11 · 0 pages" [disabled] [ref=e484] [cursor=pointer]
+                - button "2025-07-18 · 0 pages" [disabled] [ref=e485] [cursor=pointer]
+                - button "2025-07-25 · 0 pages" [disabled] [ref=e486] [cursor=pointer]
+                - button "2025-08-01 · 0 pages" [disabled] [ref=e487] [cursor=pointer]
+                - button "2025-08-08 · 0 pages" [disabled] [ref=e488] [cursor=pointer]
+                - button "2025-08-15 · 0 pages" [disabled] [ref=e489] [cursor=pointer]
+                - button "2025-08-22 · 0 pages" [disabled] [ref=e490] [cursor=pointer]
+                - button "2025-08-29 · 0 pages" [disabled] [ref=e491] [cursor=pointer]
+                - button "2025-09-05 · 0 pages" [disabled] [ref=e492] [cursor=pointer]
+                - button "2025-09-12 · 0 pages" [disabled] [ref=e493] [cursor=pointer]
+                - button "2025-09-19 · 0 pages" [disabled] [ref=e494] [cursor=pointer]
+                - button "2025-09-26 · 0 pages" [disabled] [ref=e495] [cursor=pointer]
+                - button "2025-10-03 · 0 pages" [disabled] [ref=e496] [cursor=pointer]
+                - button "2025-10-10 · 0 pages" [disabled] [ref=e497] [cursor=pointer]
+                - button "2025-10-17 · 0 pages" [disabled] [ref=e498] [cursor=pointer]
+                - button "2025-10-24 · 0 pages" [disabled] [ref=e499] [cursor=pointer]
+                - button "2025-10-31 · 0 pages" [disabled] [ref=e500] [cursor=pointer]
+                - button "2025-11-07 · 0 pages" [disabled] [ref=e501] [cursor=pointer]
+                - button "2025-11-14 · 0 pages" [disabled] [ref=e502] [cursor=pointer]
+                - button "2025-11-21 · 0 pages" [disabled] [ref=e503] [cursor=pointer]
+                - button "2025-11-28 · 0 pages" [disabled] [ref=e504] [cursor=pointer]
+                - button "2025-12-05 · 0 pages" [disabled] [ref=e505] [cursor=pointer]
+                - button "2025-12-12 · 0 pages" [disabled] [ref=e506] [cursor=pointer]
+                - button "2025-12-19 · 0 pages" [disabled] [ref=e507] [cursor=pointer]
+                - button "2025-12-26 · 0 pages" [disabled] [ref=e508] [cursor=pointer]
+                - button "2026-01-02 · 0 pages" [disabled] [ref=e509] [cursor=pointer]
+                - button "2026-01-09 · 0 pages" [disabled] [ref=e510] [cursor=pointer]
+                - button "2026-01-16 · 0 pages" [disabled] [ref=e511] [cursor=pointer]
+                - button "2026-01-23 · 0 pages" [disabled] [ref=e512] [cursor=pointer]
+                - button "2026-01-30 · 0 pages" [disabled] [ref=e513] [cursor=pointer]
+                - button "2026-02-06 · 0 pages" [disabled] [ref=e514] [cursor=pointer]
+                - button "2026-02-13 · 0 pages" [disabled] [ref=e515] [cursor=pointer]
+                - button "2026-02-20 · 0 pages" [disabled] [ref=e516] [cursor=pointer]
+                - button "2026-02-27 · 0 pages" [disabled] [ref=e517] [cursor=pointer]
+                - button "2026-03-06 · 0 pages" [disabled] [ref=e518] [cursor=pointer]
+                - button "2026-03-13 · 0 pages" [disabled] [ref=e519] [cursor=pointer]
+                - button "2026-03-20 · 0 pages" [disabled] [ref=e520] [cursor=pointer]
+                - button "2026-03-27 · 0 pages" [disabled] [ref=e521] [cursor=pointer]
+                - button "2026-04-03 · 0 pages" [disabled] [ref=e522] [cursor=pointer]
+                - button "2026-04-10 · 0 pages" [disabled] [ref=e523] [cursor=pointer]
+                - button "2026-04-17 · 0 pages" [disabled] [ref=e524] [cursor=pointer]
+                - button "2026-04-24 · 156 pages" [ref=e525] [cursor=pointer]
+                - button "2026-05-01 · 138 pages" [ref=e526] [cursor=pointer]
+                - button "2026-05-08 · 120 pages" [ref=e527] [cursor=pointer]
+                - button "2026-05-15 · 246 pages" [ref=e528] [cursor=pointer]
+                - button "2025-05-24 · 0 pages" [disabled] [ref=e530] [cursor=pointer]
+                - button "2025-05-31 · 0 pages" [disabled] [ref=e531] [cursor=pointer]
+                - button "2025-06-07 · 0 pages" [disabled] [ref=e532] [cursor=pointer]
+                - button "2025-06-14 · 0 pages" [disabled] [ref=e533] [cursor=pointer]
+                - button "2025-06-21 · 0 pages" [disabled] [ref=e534] [cursor=pointer]
+                - button "2025-06-28 · 0 pages" [disabled] [ref=e535] [cursor=pointer]
+                - button "2025-07-05 · 0 pages" [disabled] [ref=e536] [cursor=pointer]
+                - button "2025-07-12 · 0 pages" [disabled] [ref=e537] [cursor=pointer]
+                - button "2025-07-19 · 0 pages" [disabled] [ref=e538] [cursor=pointer]
+                - button "2025-07-26 · 0 pages" [disabled] [ref=e539] [cursor=pointer]
+                - button "2025-08-02 · 0 pages" [disabled] [ref=e540] [cursor=pointer]
+                - button "2025-08-09 · 0 pages" [disabled] [ref=e541] [cursor=pointer]
+                - button "2025-08-16 · 0 pages" [disabled] [ref=e542] [cursor=pointer]
+                - button "2025-08-23 · 0 pages" [disabled] [ref=e543] [cursor=pointer]
+                - button "2025-08-30 · 0 pages" [disabled] [ref=e544] [cursor=pointer]
+                - button "2025-09-06 · 0 pages" [disabled] [ref=e545] [cursor=pointer]
+                - button "2025-09-13 · 0 pages" [disabled] [ref=e546] [cursor=pointer]
+                - button "2025-09-20 · 0 pages" [disabled] [ref=e547] [cursor=pointer]
+                - button "2025-09-27 · 0 pages" [disabled] [ref=e548] [cursor=pointer]
+                - button "2025-10-04 · 0 pages" [disabled] [ref=e549] [cursor=pointer]
+                - button "2025-10-11 · 0 pages" [disabled] [ref=e550] [cursor=pointer]
+                - button "2025-10-18 · 0 pages" [disabled] [ref=e551] [cursor=pointer]
+                - button "2025-10-25 · 0 pages" [disabled] [ref=e552] [cursor=pointer]
+                - button "2025-11-01 · 0 pages" [disabled] [ref=e553] [cursor=pointer]
+                - button "2025-11-08 · 0 pages" [disabled] [ref=e554] [cursor=pointer]
+                - button "2025-11-15 · 0 pages" [disabled] [ref=e555] [cursor=pointer]
+                - button "2025-11-22 · 0 pages" [disabled] [ref=e556] [cursor=pointer]
+                - button "2025-11-29 · 0 pages" [disabled] [ref=e557] [cursor=pointer]
+                - button "2025-12-06 · 0 pages" [disabled] [ref=e558] [cursor=pointer]
+                - button "2025-12-13 · 0 pages" [disabled] [ref=e559] [cursor=pointer]
+                - button "2025-12-20 · 0 pages" [disabled] [ref=e560] [cursor=pointer]
+                - button "2025-12-27 · 0 pages" [disabled] [ref=e561] [cursor=pointer]
+                - button "2026-01-03 · 0 pages" [disabled] [ref=e562] [cursor=pointer]
+                - button "2026-01-10 · 0 pages" [disabled] [ref=e563] [cursor=pointer]
+                - button "2026-01-17 · 0 pages" [disabled] [ref=e564] [cursor=pointer]
+                - button "2026-01-24 · 0 pages" [disabled] [ref=e565] [cursor=pointer]
+                - button "2026-01-31 · 0 pages" [disabled] [ref=e566] [cursor=pointer]
+                - button "2026-02-07 · 0 pages" [disabled] [ref=e567] [cursor=pointer]
+                - button "2026-02-14 · 0 pages" [disabled] [ref=e568] [cursor=pointer]
+                - button "2026-02-21 · 0 pages" [disabled] [ref=e569] [cursor=pointer]
+                - button "2026-02-28 · 0 pages" [disabled] [ref=e570] [cursor=pointer]
+                - button "2026-03-07 · 0 pages" [disabled] [ref=e571] [cursor=pointer]
+                - button "2026-03-14 · 0 pages" [disabled] [ref=e572] [cursor=pointer]
+                - button "2026-03-21 · 0 pages" [disabled] [ref=e573] [cursor=pointer]
+                - button "2026-03-28 · 0 pages" [disabled] [ref=e574] [cursor=pointer]
+                - button "2026-04-04 · 0 pages" [disabled] [ref=e575] [cursor=pointer]
+                - button "2026-04-11 · 0 pages" [disabled] [ref=e576] [cursor=pointer]
+                - button "2026-04-18 · 0 pages" [disabled] [ref=e577] [cursor=pointer]
+                - button "2026-04-25 · 174 pages" [ref=e578] [cursor=pointer]
+                - button "2026-05-02 · 156 pages" [ref=e579] [cursor=pointer]
+                - button "2026-05-09 · 138 pages" [ref=e580] [cursor=pointer]
+                - button "2026-05-16 · 120 pages" [ref=e581] [cursor=pointer]
+              - generic [ref=e583]:
+                - generic [ref=e584]: Less
+                - generic [ref=e591]: More
+        - generic [ref=e592]:
+          - generic [ref=e594]:
+            - generic [ref=e595]:
+              - generic [ref=e596]: What you've been thinking about
+              - button "All threads →" [ref=e598] [cursor=pointer]
+            - list [ref=e600]:
+              - listitem [ref=e601]:
+                - button "Search Docs Source 16 occurrences" [ref=e602] [cursor=pointer]:
+                  - generic [ref=e603]:
+                    - generic [ref=e604]:
+                      - generic [ref=e605]: Search
+                      - generic [ref=e606]: →
+                    - generic [ref=e607]:
+                      - generic [ref=e608]: Docs
+                      - generic [ref=e609]: →
+                    - generic [ref=e611]: Source
+                  - generic [ref=e612]: 16 occurrences
+          - generic [ref=e613]:
+            - generic [ref=e615]: Your archive
+            - generic [ref=e616]:
+              - generic [ref=e617]: ~/Library/Application Support/com.yi-ting.pathkeep/archive/history-vault.sqlite
+              - generic [ref=e618]: Encrypted · 1.4 GB
+              - generic [ref=e619]:
+                - generic [ref=e620]: Core archive
+                - generic [ref=e621]: 741.9 MB
+              - generic [ref=e622]:
+                - generic [ref=e623]: Search & intelligence
+                - generic [ref=e624]: 159.3 MB
+              - generic [ref=e625]:
+                - generic [ref=e626]: Snapshots & manifests
+                - generic [ref=e627]: 1.5 MB
+              - generic [ref=e628]:
+                - text: Chain verified ·
+                - code [ref=e629]: prev…2042
+              - generic [ref=e630]:
+                - button "Export" [ref=e631] [cursor=pointer]
+                - button "Reveal" [ref=e632] [cursor=pointer]
+        - generic [ref=e633]: Local-first. 0 network requests. Your reading life, kept safe.
+    - contentinfo [ref=e634]:
+      - generic [ref=e637]: Archive kept
+      - generic [ref=e639]: 348,000 pages · 1.4 GB
+      - generic [ref=e641]: Since May 2026
+      - 'button "{count, plural, one {1 source} other {# sources}}" [ref=e643] [cursor=pointer]':
+        - generic [ref=e649]: "{count, plural, one {1 source} other {# sources}}"
+      - generic [ref=e651]: Last archived 03:21 AM
+      - generic [ref=e652]: A small library, growing.
+  - generic [ref=e653]:
+    - heading "Find a page" [level=2] [ref=e654]
+    - paragraph [ref=e655]: Search across every visit in your archive

@@ -165,6 +165,23 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     the Trust & Transparency invariant.
 
 - [ ] **WORK-V03-RUST-COVERAGE-RESIDUAL** — Restore full-scope Rust coverage gate
+  - 2026-05-21 進度 (commit f986455 + this session):
+    - **`package.json` `check:coverage` 已恢復為 `coverage:rust` (full scope)** —
+      codex review flagged that running `coverage:rust:quality` was an
+      unauthorised gate weakening vs. docs/plan/program/quality-matrix.md.
+      The script now calls the full gate and surfaces residual failures
+      honestly. `bun run check` will fail until the residual closes.
+    - **annotations.rs**: 4 條 defensive 分支已關閉 (set_notes empty URL,
+      replace_tags empty URL, replace_tags >MAX_TAGS_PER_URL, search
+      empty-query fallthrough to list_annotations).
+    - **og_images.rs:730**: row mapper closure now exercised by changing
+      the existing eviction test from `surviving_a == None` (closure
+      cold) to a COUNT(*) query_row that fires the closure on success.
+    - **og_images_fetch.rs**: 11 → 7 lines closed (utf8 lossy decode
+      fallback, absolutize_url base-parse failure, plus the
+      `read_capped_bytes<R: Read>` extraction for Io / TooLarge / Ok
+      paths — production `read_response_body` now delegates to the
+      generic helper which is directly unit-testable).
   - 2026-05-20 進度 (commit a436304):
     - **全部 22 個 uncovered functions 已關閉**: vault-worker::annotations × 5,
       vault-worker::archive_flows og:image entries × 5 (load_history_og_images,
@@ -182,20 +199,75 @@ core-intelligence/api`, all returning the same data. Reusing the existing
       direct fetch_og_image_for against unresolvable host。
     - `node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full` 現在
       report "Uncovered Rust source functions: (empty)"。
-  - 剩餘殘餘（uncovered LINES，functions 已 0）：
-    - `src-tauri/crates/vault-core/src/annotations.rs:69,116,179,220` — 4 條 defensive 分支。
-    - `src-tauri/crates/vault-core/src/archive/history/og_images.rs:730` — 1 行。
-    - `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs:194,195,200,211,246,247,250,251,274,341,360` —
-      11 條 mid-stream IO errors / utf8 fallback / content_length cap inner branch /
-      Selector::parse failure / absolutize_url base.join failure。多數需要合成
-      reqwest::Error 或 partial-body fixture，不容易自然觸發。
+  - 剩餘殘餘（uncovered LINES，functions 已 0 — 2026-05-21 update）：
+    - `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs:192,193,241,242,245,246,269` —
+      7 行: HTML body Io error (192-193), image body TooLarge mid-stream
+      (241-242), image body Io error (245-246), Selector::parse failure
+      (269 — unreachable since selector strings are static literals).
+      192-246 require a partial-body / mid-stream-close fixture mockito
+      can't deliver natively.
     - `src-tauri/crates/vault-worker/src/archive_flows.rs:214,224,225,226,411,421,428,431,442,444,447,454,477` —
-      refetch_og_images mpsc-recv 失敗 + persist error 路徑、retry mtime 邏輯。
+      13 行: try_refetch_due_og_images backup-flow path (214: fetch_enabled
+      false, 224-226: due-urls success path with non-empty list), worker
+      pool internals (411 mutex poison, 421 rate-limit sleep, 428 fetch
+      success branch, 431 sender disconnect, 442 successful counter
+      bump, 444-447 persist error, 454 propagate persist error, 477
+      host_throttle mutex poison). Needs either an integration test that
+      stands up backup flow + mockito worker, or a refactor that
+      decomposes the worker loop into testable units.
   - 契約：長期最優解，不允許再用 exclusion 蓋住 active runtime；只能寫實質 integration test。
     `coverage:rust` 恢復為 full（不再用 quality 限制）後，`package.json` 的 `check:coverage`
     換回 `coverage:rust`，並刪掉這個 backlog entry。
   - 驗收：`node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full` 報告 0 uncovered lines
     且 0 uncovered functions、`check:coverage` 用回 `coverage:rust`。
+
+- [!] **WORK-V03-CODEX-REVIEW-FOLLOWUP** — Codex review (2026-05-21) closeout for feat/v0.3-redesign-2 [!blocked: Rust + JS coverage residuals still open]
+  - 讀先：
+    `src/app/shell.tsx`
+    `src/lib/paper-preferences.ts`
+    `src/components/explorer-paper/paper-contact-sheet.tsx`
+    `src/pages/explorer/hooks/use-explorer-og-images.ts`
+    `package.json` (check:coverage)
+    `vitest.config.ts`
+  - 2026-05-21 codex review captured the following findings against the branch:
+    - ✅ #1 Blocking: shell.tsx palette query contract — palette was sending
+      `{ search, limit, offset }` and reading `response.rows` instead of the
+      real `{ q, limit, sort }` / `response.items`. Tests were mocking the
+      wrong shape, hiding the bug. Fixed in commit a187ee0: shell now calls
+      `backend.queryHistory` with the typed contract and maps HistoryEntry
+      items. shell.test.tsx mocks the typed backend.
+    - ✅ #5 Medium: i18n raw English copy — char/chars counter, "Remove tag",
+      "Calendar" dialog aria, "now" / "first" year-rail captions, dashboard
+      morning/afternoon/evening greetings are all in the three-language
+      catalog now. 2803 keys × 3 locales, parity 100%.
+    - ✅ #6 Medium: theme dual state — applyPaperPreferences now dispatches
+      `pathkeep.paperPreferencesChanged` and both shell.tsx + Settings
+      Appearance subscribe. Theme toggle button in topbar updates Settings
+      radio without re-mount. Visually verified with playwright (light →
+      dark via topbar → Settings radio shifts to "Darkroom · dark").
+    - ✅ #2 Blocking: paper Explorer pagination — PaperContactSheet now
+      renders an optional footer with Newer/Older buttons + page-size
+      selector + "Page X of Y · N rows" summary. PaperExplorerView accepts
+      a `pagination` descriptor; Explorer route threads
+      handlePreviousHistoryPage / handleNextHistoryPage /
+      setHistoryPageSize from useExplorerUrlState. 1440 M-row goal now
+      addressable via cursor/pagination. Visually verified.
+    - ✅ #3 High: og:image fetch trigger — use-explorer-og-images now
+      enqueues `triggerOgImageRefetch(batch)` for non-`ok` rows after
+      loadHistoryOgImages resolves. Bounded at 20 per render, deduped
+      per cache epoch, .catch swallows rate-limit / fetch-disabled
+      rejections.
+    - 🟡 #4 Blocking/Process: 100% coverage gate restoration —
+      `check:coverage` script is restored to `coverage:rust` (full), not
+      the quality slice. The full gate still fails until the
+      WORK-V03-RUST-COVERAGE-RESIDUAL line residual closes (7 lines in
+      og_images_fetch defensive arms + 13 lines in archive_flows worker
+      pool). vitest threshold remains at 99/99/98/99 pending
+      WORK-V03-COVERAGE-RESIDUAL; raising it to 100/100/100/100 would
+      also require closing the JS jsdom-defensive guards.
+  - 契約：codex 把 #4 標為 merge blocker。在 line residual 關閉或得到 user 明確
+    授權的 deviation 之前，這個 follow-up block 維持 blocked。不要私自降回
+    quality slice。
 
 - [ ] **WORK-V03-COVERAGE-RESIDUAL** — Restore 100% JS coverage gate after orphan sweep
   - 讀先：

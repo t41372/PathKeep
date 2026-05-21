@@ -1,0 +1,115 @@
+- generic [ref=e10]:
+  - complementary [ref=e11]:
+    - generic [ref=e12]:
+      - img "PathKeep" [ref=e13]
+      - generic "0.2.0 (preview-build+)" [ref=e18]:
+        - generic [ref=e19]: PathKeep
+        - generic [ref=e20]: v0.2.0
+        - generic [ref=e21]: preview+
+      - button "Collapse navigation" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+    - navigation "Primary navigation" [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]: CORE
+        - link "Dashboard" [ref=e28] [cursor=pointer]:
+          - /url: "#/"
+          - img [ref=e30]
+          - generic [ref=e31]: Dashboard
+        - link "Explorer" [ref=e32] [cursor=pointer]:
+          - /url: "#/explorer"
+          - img [ref=e34]
+          - generic [ref=e37]: Explorer
+        - link "Intelligence" [ref=e38] [cursor=pointer]:
+          - /url: "#/intelligence"
+          - img [ref=e40]
+          - generic [ref=e42]: Intelligence
+        - link "AI Assistant v0.3" [ref=e43] [cursor=pointer]:
+          - /url: "#/assistant"
+          - img [ref=e45]
+          - generic [ref=e51]: AI Assistant
+          - generic [ref=e52]: v0.3
+      - generic [ref=e53]:
+        - generic [ref=e54]: OPERATIONS
+        - link "Import" [ref=e55] [cursor=pointer]:
+          - /url: "#/import"
+          - img [ref=e57]
+          - generic [ref=e59]: Import
+        - link "Audit Ledger" [ref=e60] [cursor=pointer]:
+          - /url: "#/audit"
+          - img [ref=e62]
+          - generic [ref=e66]: Audit Ledger
+        - link "Jobs" [ref=e67] [cursor=pointer]:
+          - /url: "#/jobs"
+          - img [ref=e69]
+          - generic [ref=e73]: Jobs
+        - link "Integrations" [ref=e74] [cursor=pointer]:
+          - /url: "#/integrations"
+          - img [ref=e76]
+          - generic [ref=e79]: Integrations
+      - generic [ref=e80]:
+        - generic [ref=e81]: SYSTEM
+        - link "Scheduled Backup Settings" [ref=e82] [cursor=pointer]:
+          - /url: "#/schedule"
+          - img [ref=e84]
+          - generic [ref=e89]: Scheduled Backup Settings
+        - link "Security" [ref=e90] [cursor=pointer]:
+          - /url: "#/security"
+          - img [ref=e92]
+          - generic [ref=e94]: Security
+        - link "Settings" [ref=e95] [cursor=pointer]:
+          - /url: "#/settings"
+          - img [ref=e97]
+          - generic [ref=e100]: Settings
+        - link "Maintenance" [ref=e101] [cursor=pointer]:
+          - /url: "#/maintenance"
+          - img [ref=e103]
+          - generic [ref=e105]: Maintenance
+    - generic [ref=e106]:
+      - button "Lock now" [ref=e107] [cursor=pointer]:
+        - img [ref=e108]
+      - generic "Archive healthy" [ref=e111]: Archive healthy
+      - button "Toggle theme" [ref=e113] [cursor=pointer]:
+        - img [ref=e114]
+  - generic [ref=e116]:
+    - banner [ref=e117]:
+      - generic [ref=e118]:
+        - heading "History Explorer" [level=1] [ref=e656]
+        - generic [ref=e120]: Search and browse your history
+      - generic [ref=e121]:
+        - button "Find a page… Ctrl+K" [ref=e122] [cursor=pointer]:
+          - img [ref=e123]
+          - generic [ref=e126]: Find a page…
+          - generic [ref=e127]: Ctrl+K
+        - button "Backup now" [ref=e128] [cursor=pointer]:
+          - img [ref=e129]
+          - text: Backup now
+    - main [ref=e131]:
+      - generic [ref=e1754]:
+        - generic [ref=e1755]:
+          - generic [ref=e1756]: What would you like to find again?
+          - textbox "Type a phrase, a domain, or a question…" [ref=e1758]
+          - generic [ref=e1759]:
+            - generic [ref=e1760]: Mode
+            - tablist [ref=e1761]:
+              - tab "Keyword" [selected] [ref=e1762] [cursor=pointer]
+              - tab "Regex" [ref=e1763] [cursor=pointer]
+              - tab "Semantic" [ref=e1764] [cursor=pointer]
+            - generic [ref=e1765]: Match the exact words, with quotes and operators.
+          - generic [ref=e1766]:
+            - generic [ref=e1767]: Filters
+            - button "+ Date" [disabled] [ref=e1768] [cursor=pointer]
+            - button "+ Source" [disabled] [ref=e1769] [cursor=pointer]
+            - button "+ Domain" [disabled] [ref=e1770] [cursor=pointer]
+            - button "+ Visit count" [disabled] [ref=e1771] [cursor=pointer]
+        - generic [ref=e1773]: Memory is patient. Type something above to begin recalling.
+    - contentinfo [ref=e634]:
+      - generic [ref=e637]: Archive kept
+      - generic [ref=e639]: 348,000 pages · 1.4 GB
+      - generic [ref=e641]: Since May 2026
+      - 'button "{count, plural, one {1 source} other {# sources}}" [ref=e643] [cursor=pointer]':
+        - generic [ref=e649]: "{count, plural, one {1 source} other {# sources}}"
+      - generic [ref=e651]: Last archived 03:21 AM
+      - generic [ref=e652]: A small library, growing.
+  - generic [ref=e653]:
+    - heading "Find a page" [level=2] [ref=e654]
+    - paragraph [ref=e655]: Search across every visit in your archive
