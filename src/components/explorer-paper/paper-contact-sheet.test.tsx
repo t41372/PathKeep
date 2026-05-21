@@ -402,6 +402,26 @@ describe('PaperContactSheet', () => {
     expect(onSelect.mock.calls[0][0].id).toBe(11)
   })
 
+  test('fall-back labels render when the locale is a malformed BCP-47 tag', () => {
+    // language="-" forces toLocaleTimeString / toLocaleDateString to throw
+    // inside the time + day formatting helpers. The component must use the
+    // "--:--" / raw-iso fallbacks rather than crashing.
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        language="-"
+        copy={COPY}
+        testId="cs-bad-locale"
+      />,
+    )
+    // The raw-iso day-header fallback surfaces both day strings.
+    expect(screen.getByText('2026-05-15')).toBeVisible()
+    expect(screen.getByText('2026-05-16')).toBeVisible()
+  })
+
   test('marks the active day header when target.date matches', () => {
     const { container } = render(
       <PaperContactSheet

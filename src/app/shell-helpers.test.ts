@@ -216,6 +216,12 @@ describe('formatSinceLabel', () => {
       /"year":2026/,
     )
   })
+
+  test("returns '' when toLocaleString throws on a malformed BCP-47 tag", () => {
+    // Single-hyphen locale → RangeError from Intl. The try/catch must
+    // fall through to the empty string.
+    expect(formatSinceLabel('2026-04-15T00:00:00Z', t, '-')).toBe('')
+  })
 })
 
 describe('formatLastArchivedLabel', () => {
@@ -232,5 +238,9 @@ describe('formatLastArchivedLabel', () => {
     expect(
       formatLastArchivedLabel('2026-04-15T08:09:00Z', t, 'system'),
     ).toMatch(/shell.lastArchivedAt/)
+  })
+
+  test("returns '' when toLocaleTimeString throws on a malformed BCP-47 tag", () => {
+    expect(formatLastArchivedLabel('2026-04-15T08:09:00Z', t, '-')).toBe('')
   })
 })

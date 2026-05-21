@@ -133,5 +133,17 @@ describe('dashboard-helpers', () => {
     test('returns em-dash for malformed timestamps', () => {
       expect(formatSpan('not-a-date', t)).toBe('—')
     })
+
+    test('returns em-dash when the translator throws (catch fall-through)', () => {
+      // Simulates a translator catalog mishap: the try/catch must absorb
+      // the throw and produce the em-dash placeholder instead of crashing
+      // the hero strip.
+      const throwingT: Parameters<typeof formatSpan>[1] = () => {
+        throw new Error('catalog miss')
+      }
+      const last = new Date('2025-12-20T08:00:00Z').toISOString()
+      const now = new Date('2026-05-20T08:00:00Z')
+      expect(formatSpan(last, throwingT, now)).toBe('—')
+    })
   })
 })

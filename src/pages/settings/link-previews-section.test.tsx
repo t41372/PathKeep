@@ -172,6 +172,28 @@ describe('LinkPreviewsSection', () => {
     expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup.mode).toBe('lru')
   })
 
+  test('switching cleanup mode to "off" persists { mode: "off" }', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    // Render with non-off initial mode so clicking "off" actually toggles.
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'timeTtl', maxAgeDays: 60 },
+        saveConfig,
+      }),
+    )
+    await userEvent.click(screen.getByTestId('link-previews-cleanup-mode-off'))
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup).toEqual({
+      mode: 'off',
+    })
+  })
+
   test('TimeTtl numeric input clamps the persisted value to [1, 3650] days', () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,

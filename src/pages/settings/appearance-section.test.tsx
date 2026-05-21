@@ -71,6 +71,23 @@ describe('AppearanceSection', () => {
     expect(window.localStorage.getItem('pathkeep.fonts')).toBe('system')
   })
 
+  test('switching density persists and applies the new value', async () => {
+    const user = userEvent.setup()
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    // Cozy (the default) → Compact. The label is the i18n key in test
+    // since this section uses a deeply-namespaced translator.
+    const compactButton = screen.getByRole('radio', { name: /Compact/i })
+    await user.click(compactButton)
+    expect(document.documentElement.getAttribute('data-density')).toBe(
+      'compact',
+    )
+    expect(window.localStorage.getItem('pathkeep.density')).toBe('compact')
+  })
+
   test('toggling paper texture off sets --noise-opacity to 0', async () => {
     const user = userEvent.setup()
     render(

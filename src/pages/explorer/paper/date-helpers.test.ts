@@ -83,6 +83,13 @@ describe('prettyDay', () => {
   test('falls back to the ISO string when the date is invalid', () => {
     expect(prettyDay('not-a-date')).toBe('not-a-date')
   })
+
+  test('falls back to the ISO string when toLocaleDateString throws on a malformed locale', () => {
+    // Locale tags with invalid grammar (a single hyphen) throw RangeError
+    // in V8's Intl implementation. The function's try/catch must return the
+    // ISO input verbatim.
+    expect(prettyDay('2026-05-17', { language: '-' })).toBe('2026-05-17')
+  })
 })
 
 describe('dayDensityTier', () => {
