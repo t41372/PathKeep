@@ -65,35 +65,35 @@ export function ReadyStep({
           />
           <PaperCardBody>
             <div className="summary-config">
-            <div className="config-row">
-              <span className="config-label">{t('configProfiles')}</span>
-              <span className="config-value">
-                {t('configProfilesValue').replace(
-                  '{count}',
-                  String(selectedCount),
-                )}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('configStorage')}</span>
-              <span className="config-value">{appRoot}</span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('configEncryption')}</span>
-              <span className="config-value">
-                {archiveMode === 'Encrypted'
-                  ? commonT('modeEncrypted')
-                  : commonT('modePlaintext')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('configSchedule')}</span>
-              <span className="config-value">
-                {scheduleSetupMode === 'skip'
-                  ? t('configScheduleSkippedValue')
-                  : scheduleValue}
-              </span>
-            </div>
+              <div className="config-row">
+                <span className="config-label">{t('configProfiles')}</span>
+                <span className="config-value">
+                  {t('configProfilesValue').replace(
+                    '{count}',
+                    String(selectedCount),
+                  )}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configStorage')}</span>
+                <span className="config-value">{appRoot}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configEncryption')}</span>
+                <span className="config-value">
+                  {archiveMode === 'Encrypted'
+                    ? commonT('modeEncrypted')
+                    : commonT('modePlaintext')}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configSchedule')}</span>
+                <span className="config-value">
+                  {scheduleSetupMode === 'skip'
+                    ? t('configScheduleSkippedValue')
+                    : scheduleValue}
+                </span>
+              </div>
             </div>
           </PaperCardBody>
         </PaperCard>
@@ -117,35 +117,35 @@ export function ReadyStep({
           />
           <PaperCardBody>
             <div className="init-steps">
-            <div className="init-step">
-              <span className="init-num">1.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep1Action')}</span>
-                <span className="init-detail">
-                  {archiveMode === 'Encrypted'
-                    ? t('initStep1DetailEncrypted')
-                    : t('initStep1DetailPlaintext')}
-                </span>
+              <div className="init-step">
+                <span className="init-num">1.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep1Action')}</span>
+                  <span className="init-detail">
+                    {archiveMode === 'Encrypted'
+                      ? t('initStep1DetailEncrypted')
+                      : t('initStep1DetailPlaintext')}
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="init-step">
-              <span className="init-num">2.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep2Action')}</span>
-                <span className="init-detail">{t('initStep2Detail')}</span>
+              <div className="init-step">
+                <span className="init-num">2.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep2Action')}</span>
+                  <span className="init-detail">{t('initStep2Detail')}</span>
+                </div>
               </div>
-            </div>
-            <div className="init-step">
-              <span className="init-num">3.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep3Action')}</span>
-                <span className="init-detail">
-                  {t('initStep3Detail')
-                    .replace('{count}', String(selectedCount))
-                    .replace('{plural}', selectedCount !== 1 ? 's' : '')}
-                </span>
+              <div className="init-step">
+                <span className="init-num">3.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep3Action')}</span>
+                  <span className="init-detail">
+                    {t('initStep3Detail')
+                      .replace('{count}', String(selectedCount))
+                      .replace('{plural}', selectedCount !== 1 ? 's' : '')}
+                  </span>
+                </div>
               </div>
-            </div>
             </div>
           </PaperCardBody>
         </PaperCard>

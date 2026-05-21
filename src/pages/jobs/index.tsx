@@ -16,6 +16,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
@@ -491,16 +497,21 @@ export function JobsPage() {
         ) : null}
 
         <div className="jobs-overview-grid">
-          <div className="panel jobs-hero-card jobs-hero-card--wide">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('overviewTitle')}</span>
-              <span className="panel-action">
-                {lastActivityAt
-                  ? formatRelativeTime(lastActivityAt, language)
-                  : jobsT('sidebarIdleDetail')}
-              </span>
-            </div>
-            <div className="panel-body">
+          <PaperCard
+            className="jobs-hero-card jobs-hero-card--wide"
+            testId="jobs-overview-card"
+          >
+            <PaperCardHeader
+              title={jobsT('overviewTitle')}
+              right={
+                <PaperCardBadge>
+                  {lastActivityAt
+                    ? formatRelativeTime(lastActivityAt, language)
+                    : jobsT('sidebarIdleDetail')}
+                </PaperCardBadge>
+              }
+            />
+            <PaperCardBody>
               <div className="jobs-state-board">
                 <div className="jobs-hero-copy">
                   <h2>{heroHeadline}</h2>
@@ -555,19 +566,24 @@ export function JobsPage() {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
+            </PaperCardBody>
+          </PaperCard>
 
-          <div className="panel jobs-overview-card">
-            <div className="panel-header">
-              <span className="panel-title">{jobsT('queueSummaryTitle')}</span>
-              <span className="panel-action">
-                {snapshot.config.ai.jobQueuePaused
-                  ? jobsT('queueStatePaused')
-                  : jobsT('queueStateLive')}
-              </span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
+          <PaperCard
+            className="jobs-overview-card"
+            testId="jobs-queue-summary-card"
+          >
+            <PaperCardHeader
+              title={jobsT('queueSummaryTitle')}
+              right={
+                <PaperCardBadge>
+                  {snapshot.config.ai.jobQueuePaused
+                    ? jobsT('queueStatePaused')
+                    : jobsT('queueStateLive')}
+                </PaperCardBadge>
+              }
+            />
+            <PaperCardBody className="jobs-panel-stack">
               <p>{jobsT('queueSummaryBody')}</p>
               <div className="intelligence-stat-row">
                 <div className="summary-stat">
@@ -604,20 +620,23 @@ export function JobsPage() {
                   ? formatRelativeTime(lastActivityAt, language)
                   : jobsT('sidebarIdleDetail')}
               </p>
-            </div>
-          </div>
+            </PaperCardBody>
+          </PaperCard>
 
-          <div className="panel jobs-overview-card">
-            <div className="panel-header">
-              <span className="panel-title">
-                {jobsT('runtimeSummaryTitle')}
-              </span>
-              <span className="panel-action">
-                {(runtime?.queue.queued ?? 0).toLocaleString(language)}{' '}
-                {jobsT('queuedCount').toLowerCase()}
-              </span>
-            </div>
-            <div className="panel-body jobs-panel-stack">
+          <PaperCard
+            className="jobs-overview-card"
+            testId="jobs-runtime-summary-card"
+          >
+            <PaperCardHeader
+              title={jobsT('runtimeSummaryTitle')}
+              right={
+                <PaperCardBadge>
+                  {(runtime?.queue.queued ?? 0).toLocaleString(language)}{' '}
+                  {jobsT('queuedCount').toLowerCase()}
+                </PaperCardBadge>
+              }
+            />
+            <PaperCardBody className="jobs-panel-stack">
               <p>{jobsT('runtimeSummaryBody')}</p>
               <div className="intelligence-stat-row">
                 <div className="summary-stat">
@@ -650,8 +669,8 @@ export function JobsPage() {
                   </span>
                 </div>
               </div>
-            </div>
-          </div>
+            </PaperCardBody>
+          </PaperCard>
         </div>
         <JobsRuntimeHealthSection
           commonT={commonT}

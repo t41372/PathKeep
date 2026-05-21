@@ -365,9 +365,7 @@ export function SecurityRekeyPanel({
       <PaperCardHeader
         title={t('security.rekeyTitle')}
         right={
-          <PaperCardBadge>
-            {t('security.previewBeforeExecute')}
-          </PaperCardBadge>
+          <PaperCardBadge>{t('security.previewBeforeExecute')}</PaperCardBadge>
         }
       />
       <PaperCardBody>

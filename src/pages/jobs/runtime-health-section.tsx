@@ -22,6 +22,12 @@
  * - Works entirely from the already-loaded runtime snapshot; it does not trigger additional reads.
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { ReviewRuntimeBoundaryCard } from '../../components/review'
 import { formatDateTime } from '../../lib/format'
 import {
@@ -132,16 +138,18 @@ export function JobsRuntimeHealthSection({
   return (
     <>
       <div className="jobs-focus-grid">
-        <div className="panel jobs-focus-card">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('contentFetchTitle')}</span>
-            <span className="panel-action">
-              {readableContentFetchAvailable
-                ? enrichmentPluginBoundaryLabel('network', settingsT)
-                : jobsT('contentFetchDeferredBadge')}
-            </span>
-          </div>
-          <div className="panel-body jobs-panel-stack">
+        <PaperCard className="jobs-focus-card">
+          <PaperCardHeader
+            title={jobsT('contentFetchTitle')}
+            right={
+              <PaperCardBadge>
+                {readableContentFetchAvailable
+                  ? enrichmentPluginBoundaryLabel('network', settingsT)
+                  : jobsT('contentFetchDeferredBadge')}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="jobs-panel-stack">
             <p>{contentQueueMessage}</p>
             <div className="jobs-meta-grid mono-support">
               <span>
@@ -166,19 +174,19 @@ export function JobsRuntimeHealthSection({
                 {summarizePluginError(contentPlugin, jobsT)}
               </p>
             ) : null}
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
 
-        <div className="panel jobs-focus-card">
-          <div className="panel-header">
-            <span className="panel-title">
-              {enrichmentPluginLabel('title-normalization', settingsT)}
-            </span>
-            <span className="panel-action">
-              {enrichmentPluginBoundaryLabel('local', settingsT)}
-            </span>
-          </div>
-          <div className="panel-body jobs-panel-stack">
+        <PaperCard className="jobs-focus-card">
+          <PaperCardHeader
+            title={enrichmentPluginLabel('title-normalization', settingsT)}
+            right={
+              <PaperCardBadge>
+                {enrichmentPluginBoundaryLabel('local', settingsT)}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="jobs-panel-stack">
             <p>{jobsT('titleNormalizationBody')}</p>
             <div className="jobs-meta-grid mono-support">
               <span>
@@ -198,18 +206,20 @@ export function JobsRuntimeHealthSection({
                 {(titlePlugin?.storedRecords ?? 0).toLocaleString(language)}
               </span>
             </div>
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
 
-        <div className="panel jobs-focus-card">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('modulesTitle')}</span>
-            <span className="panel-action">
-              {readyModuleCount.toLocaleString(language)} /{' '}
-              {(runtime?.modules.length ?? 0).toLocaleString(language)}
-            </span>
-          </div>
-          <div className="panel-body jobs-panel-stack">
+        <PaperCard className="jobs-focus-card">
+          <PaperCardHeader
+            title={jobsT('modulesTitle')}
+            right={
+              <PaperCardBadge>
+                {readyModuleCount.toLocaleString(language)} /{' '}
+                {(runtime?.modules.length ?? 0).toLocaleString(language)}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="jobs-panel-stack">
             <p>
               {attentionModuleCount > 0
                 ? jobsT('moduleAttentionBody', {
@@ -233,14 +243,12 @@ export function JobsRuntimeHealthSection({
                   : commonT('notAvailable')}
               </span>
             </div>
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
 
-        <div className="panel jobs-focus-card">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('recoveryTitle')}</span>
-          </div>
-          <div className="panel-body jobs-panel-stack">
+        <PaperCard className="jobs-focus-card">
+          <PaperCardHeader title={jobsT('recoveryTitle')} />
+          <PaperCardBody className="jobs-panel-stack">
             <p>{jobsT('recoveryBody')}</p>
             {runtime?.notes?.length ? (
               <div className="jobs-notes">
@@ -253,8 +261,8 @@ export function JobsRuntimeHealthSection({
             ) : (
               <p className="mono-support">{jobsT('noRecoveryNotes')}</p>
             )}
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       <div className="jobs-section-heading">
@@ -263,11 +271,9 @@ export function JobsRuntimeHealthSection({
       </div>
 
       <div className="jobs-summary-grid">
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('pluginsTitle')}</span>
-          </div>
-          <div className="panel-body jobs-status-grid">
+        <PaperCard>
+          <PaperCardHeader title={jobsT('pluginsTitle')} />
+          <PaperCardBody className="jobs-status-grid">
             {(runtime?.plugins ?? []).map((plugin) => (
               <ReviewRuntimeBoundaryCard
                 key={plugin.pluginId}
@@ -318,14 +324,12 @@ export function JobsRuntimeHealthSection({
                 title={enrichmentPluginLabel(plugin.pluginId, settingsT)}
               />
             ))}
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
 
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">{jobsT('modulesTitle')}</span>
-          </div>
-          <div className="panel-body jobs-status-grid">
+        <PaperCard>
+          <PaperCardHeader title={jobsT('modulesTitle')} />
+          <PaperCardBody className="jobs-status-grid">
             {(runtime?.modules ?? []).map((module) => (
               <ReviewRuntimeBoundaryCard
                 key={module.moduleId}
@@ -361,8 +365,8 @@ export function JobsRuntimeHealthSection({
                 title={deterministicModuleLabel(module.moduleId, settingsT)}
               />
             ))}
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
     </>
   )
