@@ -62,21 +62,23 @@ export default defineConfig({
         'src/pages/intelligence/sections/secondary-sections.tsx',
       ],
       // Coverage floor — calibrated after Phase 4 / Phase 6 / inner-panel
-      // paper sweep. Current global is 99.17 lines / 98.87 functions /
-      // 98.03 branches / 98.92 statements. The residual gap (<1%) sits in
-      // a stable set of pre-existing files that each need a targeted
-      // unit-test sweep: shell.tsx (palette / lock-handler / useMemo
-      // callbacks), paper-contact-sheet.tsx + paper-detail-panel.tsx
-      // (rare branch cases), paper-intelligence-view, the shell topbar's
-      // `typeof navigator === 'undefined'` defensive guard, and a few
-      // 1-line gaps elsewhere. WORK-V03-COVERAGE-RESIDUAL tracks the
-      // restoration path back to 100. Do not lower thresholds without a
-      // matching backlog entry.
+      // paper sweep + the Phase 7 dashboard / shell / paper-preferences
+      // test additions. Current global is 99.28 lines / 98.96 functions /
+      // 98.12 branches / 99.02 statements (2026-05-20). Threshold lifted
+      // from {99,98,98,98} → {99,98,98,99} to lock in the statement gain.
+      // The residual <1% sits in a stable set of pre-existing files that
+      // each need a targeted unit-test sweep: shell.tsx (handlePaletteSelect
+      // / handleManageSources / response-no-rows fallback), the various
+      // explorer-paper components with 1-line branch gaps, paper-intelligence-view,
+      // the shell topbar's `typeof navigator === 'undefined'` defensive
+      // guard (unreachable in jsdom). WORK-V03-COVERAGE-RESIDUAL tracks
+      // the restoration path back to 100. Do not lower thresholds without
+      // a matching backlog entry.
       thresholds: {
         lines: 99,
         functions: 98,
         branches: 98,
-        statements: 98,
+        statements: 99,
       },
     },
   },

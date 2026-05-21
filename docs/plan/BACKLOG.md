@@ -186,16 +186,23 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src/app/shell.tsx`
     `src/app/shell-helpers.ts`
     `src/pages/dashboard/index.tsx`
-    `src/pages/explorer/index.tsx`
     `src/components/explorer-paper/*`
-  - 目標：把 `bun run check` 的 JS coverage threshold 從本輪 dev-machine bring-up 暫降的 `lines:99 / functions:98 / branches:98 / statements:98` 重新拉回 100/100/100/100。當前 global 為 99.07% lines / 98.83% statements / 98.12% branches / 98.8% functions（2026-05-20）。
-  - 殘餘清單（each file < 100% 在 vitest 報表內可定位）：
-    - `src/app/shell.tsx` 71.64% — 殘餘 lines 是 useMemo / palette select / lock handler 等內聯 callback；多數需要 augment 既有 `src/app/index-tests/` 整合測試補手勢。
-    - `src/pages/explorer/index.tsx` 73.68% — 殘餘 lines 583-643, 747-748 是 paper search panel + paper view + legacy compat 條件分支的內聯 handler。Phase 4 (`WORK-V03-PAPER-REDESIGN-A` legacy retire) 退役 `?layout=legacy` 後，數字會自然回升。
-    - `src/pages/dashboard/index.tsx` 82.35% — 殘餘 lines 327-329, 335, 342 是 `formatSpan(t)` 內部 years/months/days 條件分支。可以把 helper 抽到 sibling `dashboard-helpers.ts` 然後直接單測（同 `shell-helpers.ts` pattern）。
-    - `src/components/explorer-paper/*` — 多檔 1-2 line gaps (branch threshold 主要拖累)。多數是 props default 分支與細部 prop conditional。可逐檔 augment 既有 test 收口。
+  - 目標：把 `bun run check` 的 JS coverage threshold 從目前的 `lines:99 / functions:98 / branches:98 / statements:99` 重新拉回 100/100/100/100。
+  - 2026-05-20 進度（commit 63ddf37 / 5b3720c / b4a2872 / b7c58ab）：
+    - **dashboard/index.tsx** 從 82.35% lines → 98.42% lines。新增 dashboard-helpers.ts (15 unit cases) + 3 個 route-shell callback tests（On This Day open-entry、jumpToDate target-label button、insights badge、All threads badge）。剩餘殘餘 ~2 lines 是 useMemoGreeting 的 evening (hour ≥ 18) 分支與 footer，需要 Date mock 才能測。
+    - **paper-preferences.ts** 從 88.88% statements / 72.22% branches → 100/83。新增 9 unit cases；剩下 branch 缺口是 `typeof window === 'undefined'` SSR guards（jsdom 永遠 truthy，無法觸發）。
+    - **shell.tsx** 從 70.88% → 81.01% statements。新增一個 palette debounce test 觸發 invokeCommand('query_history')；handlePaletteSelect (lines 191-196)、handleManageSources (line 156)、response 沒 rows 的 fallback (line 173) 仍未覆蓋。後續要在 popover 開啟後點 manage-sources、在 palette UI 上選結果。
+    - **dashboard-helpers.ts** + **dashboard cards** 100% lines；殘餘是 branch-only 細節（兩個 in-flight cancelled 路徑、language === 'en' 三元 fallback）。
+    - threshold 已從 99/98/98/98 提升到 99/98/98/99 鎖定 statement 改善；global 為 99.28 lines / 98.96 functions / 98.12 branches / 99.02 statements。
+  - 殘餘清單（each file < 100% 在 vitest 報表內可定位，更新自當前 coverage:js 報告）：
+    - `src/app/shell.tsx` 81.01% — handlePaletteSelect (lines 191-196) + handleManageSources (line 156) + response no-rows fallback (line 173)。需要 popover 開啟 + manage-sources click + palette CommandItem select 的整合測試。
+    - `src/pages/dashboard/index.tsx` 86.2% statements / 67.74% branches — 殘餘是 `useMemoGreeting` evening hour ≥ 18 分支 + 三個 FooterEpigraph / DashboardYearHeatmapCard 內聯 arrows。需要 Date mock + 直接驅動三張卡片 callbacks。
+    - `src/components/explorer-paper/*` — 多檔 1-2 line gaps (branch threshold 主要拖累)：paper-contact-sheet (89.83/84.9), paper-detail-panel (96.59/93.25), paper-domain-stack (100/81.48), paper-intelligence-view (100/62.5), paper-search-result (90/84), paper-list-row (100/93.75), paper-contact-frame (100/95.83), paper-import-method-card (100/92.3), paper-year-rail (100/94.11), paper-audit-view (100/77.77), paper-assistant-view (100/80)。多數是 props default 分支與細部 prop conditional。
     - `src/components/shell/pk-topbar.tsx` line 86 — `typeof navigator === 'undefined'` defensive guard，jsdom 永遠有 navigator。可考慮把此判斷下沉到一個獨立 helper 然後用 module mock 觸發。
-    - `src/lib/backend-client/annotations.ts` 97.36% / `src/lib/backend-client/index-references.ts` 96% / `src/lib/i18n/.../date-helpers.ts` 97.56% — 各自 1-2 line gap。
+    - `src/components/shell/pk-status-bar.tsx` 93.75% lines — small uncovered chunk around line 188。
+    - `src/components/shell/pk-search-palette.tsx` 98.21% statements / 85.71% branches — palette `paletteHintFullSearch` Cmd+Enter shortcut + multi-result render path。
+    - `src/components/explorer-paper/paper-calendar-popover.tsx` 100% statements / 87.5% branches — month-jump callbacks。
+    - `src/lib/backend-client/annotations.ts` 97.36% / `src/lib/i18n/.../date-helpers.ts` 97.56% — 各自 1-2 line gap。
   - 契約：拉回時要長期最優解 — 不允許再用 exclusion 蓋住 active runtime code；只能寫實質測試或把 shim 提取成可單測的 sibling module。`vitest.config.ts` 的 inline comment 已記錄當前殘餘來源，重新 100% 後刪掉那段 comment。
   - 驗收：`bun run coverage:js` 全 metric ≥100%；vitest.config.ts threshold 恢復成 `100/100/100/100`；該 inline comment 移除。`STATUS.md` 與 `CHANGELOG.md` 同步寫回。
 
