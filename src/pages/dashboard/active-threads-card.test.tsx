@@ -169,7 +169,9 @@ describe('DashboardActiveThreads', () => {
       // Intentionally missing `data` so the route's `result.data ?? []`
       // (line 85 of active-threads-card.tsx) takes its falsy branch.
       meta: { state: 'ready' as const },
-    } as unknown as Awaited<ReturnType<typeof coreIntelligenceApi.getPathFlows>>)
+    } as unknown as Awaited<
+      ReturnType<typeof coreIntelligenceApi.getPathFlows>
+    >)
     renderCard()
     expect(
       await screen.findByTestId('dashboard-active-threads-empty'),

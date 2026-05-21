@@ -165,20 +165,37 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     the Trust & Transparency invariant.
 
 - [ ] **WORK-V03-RUST-COVERAGE-RESIDUAL** — Restore full-scope Rust coverage gate
-  - 讀先：
-    `scripts/verify-rust-coverage.mjs`
-    `package.json`（`coverage:rust:quality` vs `coverage:rust`）
-    `src-tauri/crates/vault-worker/src/archive_flows.rs`（og:image entries）
-    `src-tauri/crates/vault-worker/src/annotations.rs`
-    `src-tauri/src/worker_bridge/archive.rs` / `annotations.rs` \*\_impl shims
-  - 目標：把 `bun run check` 的 `check:coverage` 從目前的 `coverage:rust:quality`（只覆 5 個 surface 檔）恢復到 `coverage:rust`（full workspace）。當前 full 覆蓋率失敗於 og:image worker entry points（load_history_og_images / mark_og_images_shown / og_image_storage_stats / clear_og_image_cache / refetch_og_images / 它們的 worker_bridge::archive::\*\_impl shims）以及 annotations 同類 shims。這些函式自 `WORK-V03-OG-IMAGE-A` C4-C5 + `WORK-V03-PAPER-REDESIGN-A` annotations backend 引入以來，Mac 上沒跑過 full gate，所以 regression 是被 dev-machine bring-up 才暴露出來。
-  - 殘餘清單：
-    - `src-tauri/crates/vault-worker/src/annotations.rs:14-64` — get / set_notes / replace_tags / list / search 五個 worker layer functions。需要新增 vault-worker integration test（真的 archive temp dir + connection + assertions）。
-    - `src-tauri/crates/vault-worker/src/archive_flows.rs:289-346` — og:image worker entry points（load / mark / stats / clear / cleanup / refetch）。最複雜的是 refetch_og_images（要 mockito + temp archive + assert per-host throttle 與 dedup 行為）。
-    - `src-tauri/src/worker_bridge/{archive,annotations}.rs:*_impl` — Tauri command shim functions。多數已被 worker_bridge::tests::command_helpers_cover_local_desktop_flows 用 `use super::*;` glob 走過，但 annotations 因為 Phase 0 將其拆出 glob（commit 13efd64）後失去覆蓋；需要 augment 該 test 或新增 annotations 對應的 integration test。
-    - `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs:267 http_status_from_error` — defensive helper，需要 reqwest::Error 觸發 status 為 Some 的情境（real-server 503 等）。
-  - 契約：長期最優解，不允許再用 exclusion 蓋住 active runtime；只能寫實質 integration test 或把 \*\_impl shims 下沉到可單測層。`coverage:rust` 恢復為 full 後，`package.json` 的 `check:coverage` 換回 `coverage:rust`，並刪掉這個 backlog entry。
-  - 驗收：`bun run coverage:rust`（full）clean、`check:coverage` 用回 `coverage:rust`、worker / worker_bridge 兩層的 og:image + annotations integration tests 有 cargo test workspace coverage。
+  - 2026-05-20 進度 (commit a436304):
+    - **全部 22 個 uncovered functions 已關閉**: vault-worker::annotations × 5,
+      vault-worker::archive_flows og:image entries × 5 (load_history_og_images,
+      mark_og_images_shown, og_image_storage_stats, clear_og_image_cache,
+      run_og_image_cleanup, refetch_og_images),
+      worker_bridge::annotations::\*\_impl × 5,
+      worker_bridge::archive::\*\_impl og:image shims × 5,
+      vault-core::og_images_fetch::http_status_from_error.
+    - **dispatch.rs 154-188** og:image + annotations 命令分配臂 covered by
+      extending `dispatch_command_decodes_all_browser_mirror_command_payloads`.
+    - **og_images_fetch 設計修正**: 移除 fetch_og_image_for / 測試用 helper 的 ~70
+      行重複，提取 `fetch_og_image_for_pipeline(client, page_url, upgrade_image_url: bool)`
+      讓 mockito 測試直接走 production pipeline。新增 4 個 mockito tests:
+      HTML body > MAX_HTML_BYTES, og:image URL unreachable, image endpoint 404,
+      direct fetch_og_image_for against unresolvable host。
+    - `node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full` 現在
+      report "Uncovered Rust source functions: (empty)"。
+  - 剩餘殘餘（uncovered LINES，functions 已 0）：
+    - `src-tauri/crates/vault-core/src/annotations.rs:69,116,179,220` — 4 條 defensive 分支。
+    - `src-tauri/crates/vault-core/src/archive/history/og_images.rs:730` — 1 行。
+    - `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs:194,195,200,211,246,247,250,251,274,341,360` —
+      11 條 mid-stream IO errors / utf8 fallback / content_length cap inner branch /
+      Selector::parse failure / absolutize_url base.join failure。多數需要合成
+      reqwest::Error 或 partial-body fixture，不容易自然觸發。
+    - `src-tauri/crates/vault-worker/src/archive_flows.rs:214,224,225,226,411,421,428,431,442,444,447,454,477` —
+      refetch_og_images mpsc-recv 失敗 + persist error 路徑、retry mtime 邏輯。
+  - 契約：長期最優解，不允許再用 exclusion 蓋住 active runtime；只能寫實質 integration test。
+    `coverage:rust` 恢復為 full（不再用 quality 限制）後，`package.json` 的 `check:coverage`
+    換回 `coverage:rust`，並刪掉這個 backlog entry。
+  - 驗收：`node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full` 報告 0 uncovered lines
+    且 0 uncovered functions、`check:coverage` 用回 `coverage:rust`。
 
 - [ ] **WORK-V03-COVERAGE-RESIDUAL** — Restore 100% JS coverage gate after orphan sweep
   - 讀先：

@@ -149,9 +149,7 @@ describe('PaperIntelligenceView', () => {
     // not the badge slot, so we don't try to assert on it. Use unique
     // sentinels for the badges that do render.
     expect(screen.getByText('TOPICS-BADGE-X')).toBeVisible()
-    expect(
-      screen.queryByText('A session = pages in one sitting'),
-    ).toBeNull()
+    expect(screen.queryByText('A session = pages in one sitting')).toBeNull()
     expect(screen.queryByText('3+ visits / 90d')).toBeNull()
   })
 })

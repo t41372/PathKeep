@@ -257,8 +257,7 @@ describe('PaperContactFrame', () => {
     // The og:image still mounts, but the `testId ? ... : undefined` ternary
     // at line 100 of paper-contact-frame.tsx takes the falsy branch.
     expect(
-      document.querySelectorAll('img[src^="data:image/png;base64,ogi"]')
-        .length,
+      document.querySelectorAll('img[src^="data:image/png;base64,ogi"]').length,
     ).toBe(1)
   })
 
@@ -671,7 +670,12 @@ describe('PaperDomainStack', () => {
         domainColor="#7a9cc7"
         domainAbbr="DOC"
         entries={[
-          { id: 101, domain: 'docs.rs', url: 'https://docs.rs/tokio', time: '17:00' },
+          {
+            id: 101,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/tokio',
+            time: '17:00',
+          },
           { id: 102, domain: 'docs.rs', time: '17:05' },
         ]}
         expandLabel="Toggle docs"
@@ -718,11 +722,41 @@ describe('PaperDomainStack', () => {
         domainColor="#7a9cc7"
         domainAbbr="DOC"
         entries={[
-          { id: 301, domain: 'docs.rs', url: 'https://docs.rs/a', title: 'a', time: '17:00' },
-          { id: 302, domain: 'docs.rs', url: 'https://docs.rs/b', title: 'b', time: '17:05' },
-          { id: 303, domain: 'docs.rs', url: 'https://docs.rs/c', title: 'c', time: '17:10' },
-          { id: 304, domain: 'docs.rs', url: 'https://docs.rs/d', title: 'd', time: '17:15' },
-          { id: 305, domain: 'docs.rs', url: 'https://docs.rs/e', title: 'e', time: '17:20' },
+          {
+            id: 301,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/a',
+            title: 'a',
+            time: '17:00',
+          },
+          {
+            id: 302,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/b',
+            title: 'b',
+            time: '17:05',
+          },
+          {
+            id: 303,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/c',
+            title: 'c',
+            time: '17:10',
+          },
+          {
+            id: 304,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/d',
+            title: 'd',
+            time: '17:15',
+          },
+          {
+            id: 305,
+            domain: 'docs.rs',
+            url: 'https://docs.rs/e',
+            title: 'e',
+            time: '17:20',
+          },
         ]}
         expandLabel="Toggle docs"
         morePrefix="+"

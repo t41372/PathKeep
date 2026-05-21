@@ -201,9 +201,7 @@ vi.mock('./paper-search-panel', () => ({
       <button
         type="button"
         data-testid="paper-search-see-in-context"
-        onClick={() =>
-          props.onSeeInContext({ id: '17' }, '2026-04-15')
-        }
+        onClick={() => props.onSeeInContext({ id: '17' }, '2026-04-15')}
       >
         see-in-context
       </button>
@@ -400,7 +398,9 @@ describe('ExplorerPage route shell', () => {
     expect(setSelectedId).toHaveBeenCalledWith(42)
 
     await user.click(screen.getByTestId('paper-view-jump'))
-    const jumpedParams = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    const jumpedParams = setSearchParams.mock.calls.at(
+      -1,
+    )?.[0] as URLSearchParams
     expect(jumpedParams.get('date')).toBe('2026-04-15')
 
     await user.click(screen.getByTestId('paper-view-clear-target'))
