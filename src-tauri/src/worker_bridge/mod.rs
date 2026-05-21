@@ -945,48 +945,34 @@ mod tests {
             .expect("list annotations");
         assert!(listed.iter().any(|record| record.url == url));
 
-        let searched = super::search_annotations_impl(
-            session_key(&session).as_deref(),
-            "internals",
-            Some(10),
-        )
-        .expect("search annotations");
+        let searched =
+            super::search_annotations_impl(session_key(&session).as_deref(), "internals", Some(10))
+                .expect("search annotations");
         assert!(searched.iter().any(|record| record.url == url));
 
         // Og:image impls — every PME boundary except the network refetch
         // (covered by og_images_fetch unit tests). Empty + no-blob inputs
         // exercise the bulk path; stats / cleanup / clear close the loop.
-        let empty_lookup = super::load_history_og_images_impl(
-            Vec::new(),
-            session_key(&session).as_deref(),
-        )
-        .expect("empty og:image lookup");
+        let empty_lookup =
+            super::load_history_og_images_impl(Vec::new(), session_key(&session).as_deref())
+                .expect("empty og:image lookup");
         assert!(empty_lookup.is_empty());
 
-        super::mark_og_images_shown_impl(
-            vec![url.to_string()],
-            session_key(&session).as_deref(),
-        )
-        .expect("mark og:image shown for URL with no cached blob");
+        super::mark_og_images_shown_impl(vec![url.to_string()], session_key(&session).as_deref())
+            .expect("mark og:image shown for URL with no cached blob");
 
-        let _initial_stats =
-            super::og_image_storage_stats_impl(session_key(&session).as_deref())
-                .expect("og:image storage stats");
+        let _initial_stats = super::og_image_storage_stats_impl(session_key(&session).as_deref())
+            .expect("og:image storage stats");
 
-        let _cleanup =
-            super::run_og_image_cleanup_impl(session_key(&session).as_deref())
-                .expect("og:image cleanup pass");
+        let _cleanup = super::run_og_image_cleanup_impl(session_key(&session).as_deref())
+            .expect("og:image cleanup pass");
 
-        let _cleared =
-            super::clear_og_image_cache_impl(session_key(&session).as_deref())
-                .expect("clear og:image cache");
+        let _cleared = super::clear_og_image_cache_impl(session_key(&session).as_deref())
+            .expect("clear og:image cache");
 
         // Refetch impl: empty URL list + blocked-host path + fetch_enabled=false fast-path.
-        let zero = super::refetch_og_images_impl(
-            Vec::new(),
-            session_key(&session).as_deref(),
-        )
-        .expect("refetch with empty url list");
+        let zero = super::refetch_og_images_impl(Vec::new(), session_key(&session).as_deref())
+            .expect("refetch with empty url list");
         assert_eq!(zero, 0);
 
         // Block a host in the user's config so the refetch worker takes

@@ -31,8 +31,8 @@ export interface PaperYearRailProps {
   /** Year-aggregate visit counts. */
   densityByYear: ReadonlyMap<number, number>
   bounds: { firstYear: number; lastYear: number; lastIso: string }
-  /** Active day's ISO string — drives current-year highlight + month indicator. */
-  currentDate: string
+  /** Active day's ISO string — drives current-year highlight + month indicator. Optional: when omitted the highlight falls back to bounds.lastYear. */
+  currentDate?: string
   onJump: (iso: string) => void
   /** Screen-reader label for the whole control. */
   ariaLabel?: string

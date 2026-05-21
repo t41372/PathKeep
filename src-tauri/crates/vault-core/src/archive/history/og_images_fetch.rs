@@ -146,10 +146,7 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
 /// `http://localhost` mock server without standing up TLS. Production
 /// callers always go through `fetch_og_image_for`; the test path passes
 /// `upgrade_image_url = false` so mockito's http URLs survive intact.
-pub(crate) fn fetch_og_image_for_unchecked(
-    client: &Client,
-    page_url: &str,
-) -> FetchedOgImage {
+pub(crate) fn fetch_og_image_for_unchecked(client: &Client, page_url: &str) -> FetchedOgImage {
     fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ false)
 }
 
@@ -207,11 +204,8 @@ fn fetch_og_image_for_pipeline(
             return outcome;
         }
     };
-    let og_image_url = if upgrade_image_url {
-        upgrade_http_to_https(&og_image_url)
-    } else {
-        og_image_url
-    };
+    let og_image_url =
+        if upgrade_image_url { upgrade_http_to_https(&og_image_url) } else { og_image_url };
     outcome.source_og_url = Some(og_image_url.clone());
 
     let image_response = match client.get(&og_image_url).header(ACCEPT, ACCEPT_IMAGE).send() {
@@ -457,8 +451,7 @@ mod tests {
         // through and `http_status_from_error` (line 297) on the
         // err.status() == None path.
         let client = build_fetch_client().unwrap();
-        let outcome =
-            fetch_og_image_for(&client, "https://og-image-test.invalid./");
+        let outcome = fetch_og_image_for(&client, "https://og-image-test.invalid./");
         // DNS resolution / connect should fail; status remains None.
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
         assert!(outcome.image_bytes.is_none());
@@ -480,10 +473,7 @@ mod tests {
             upgrade_http_to_https("https://images.example.com/og.png"),
             "https://images.example.com/og.png"
         );
-        assert_eq!(
-            upgrade_http_to_https("data:image/png;base64,AAA"),
-            "data:image/png;base64,AAA"
-        );
+        assert_eq!(upgrade_http_to_https("data:image/png;base64,AAA"), "data:image/png;base64,AAA");
     }
 
     #[test]
@@ -660,8 +650,7 @@ mod tests {
         // Point the og:image at an unresolvable hostname so the image fetch
         // step returns Err → covers lines 219-222 (http_error after image
         // network failure).
-        let html =
-            html_with_og_image("http://og-image-test.invalid./og.png");
+        let html = html_with_og_image("http://og-image-test.invalid./og.png");
         let _page = page
             .mock("GET", "/")
             .with_status(200)
@@ -712,9 +701,8 @@ mod tests {
              <meta property=\"og:image\" content=\"/relative/og.png\">\
              </head></html>",
         );
-        let absolute =
-            extract_og_image_url(&html, "https://example.com/path/article")
-                .expect("relative og:image should be resolved");
+        let absolute = extract_og_image_url(&html, "https://example.com/path/article")
+            .expect("relative og:image should be resolved");
         assert!(
             absolute.starts_with("https://example.com/relative/og.png"),
             "expected absolute URL, got {absolute}",
