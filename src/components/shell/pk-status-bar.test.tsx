@@ -77,20 +77,21 @@ describe('PKStatusBar', () => {
 
   test('clicking All routes onSelectSource(null) (line 188)', async () => {
     const user = userEvent.setup()
-    renderStatusBar({ selectedSourceId: 'chrome:default' })
+    const { props } = renderStatusBar({ selectedSourceId: 'chrome:default' })
     await user.click(screen.getByTestId('pk-status-bar-source-trigger'))
 
-    const allButtons = screen.getAllByRole('button')
-    // The "All sources" button has the sources-all i18n text.
-    const allButton = allButtons.find(
-      (button) =>
-        !!button.textContent &&
-        button.textContent.length > 0 &&
-        !button.textContent.includes('Chrome') &&
-        !button.textContent.includes('Firefox') &&
-        !button.textContent.match(/source.{1,8}$/i),
+    // The "All sources" row is the first popover button after the sources
+    // header. Identify it by the aggregate-pages count text which only the
+    // all-sources row carries.
+    const popoverButtons = screen.getAllByRole('button')
+    const allRow = popoverButtons.find((button) =>
+      button.textContent?.includes(' pages'),
     )
-    expect(allButton).toBeDefined()
+    expect(allRow).toBeDefined()
+    if (allRow) {
+      await user.click(allRow)
+      expect(props.onSelectSource).toHaveBeenLastCalledWith(null)
+    }
   })
 
   test('toggles off the same source when clicked again', async () => {

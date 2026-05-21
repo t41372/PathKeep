@@ -70,6 +70,36 @@ describe('groupEntriesByDay', () => {
     expect(days[0].sessions.length).toBeGreaterThanOrEqual(1)
   })
 
+  test('falls back to Date.parse(visitedAt) when visitTime is missing or zero', () => {
+    // visitTime=0 forces visitTimeMs to walk the Date.parse fallback branch
+    // (group-entries.ts:65). The session split still resolves from visitedAt.
+    const days = groupEntriesByDay([
+      makeEntry({
+        id: 1,
+        visitTime: 0,
+        visitedAt: '2026-05-17T08:00:00.000Z',
+      }),
+      makeEntry({
+        id: 2,
+        visitTime: 0,
+        visitedAt: '2026-05-17T08:10:00.000Z',
+      }),
+    ])
+    expect(days).toHaveLength(1)
+    expect(days[0].sessions).toHaveLength(1)
+    expect(days[0].sessions[0].visitCount).toBe(2)
+  })
+
+  test('falls back to 0 when both visitTime is missing and visitedAt is unparseable', () => {
+    // visitTime=0 + invalid visitedAt → visitTimeMs returns 0 (line 66 fall-
+    // through). The entry still groups under its raw date prefix.
+    const days = groupEntriesByDay([
+      makeEntry({ id: 1, visitTime: 0, visitedAt: 'not-a-date' }),
+    ])
+    expect(days).toHaveLength(1)
+    expect(days[0].sessions).toHaveLength(1)
+  })
+
   test('splits a day into multiple sessions when there is a > 30 minute gap', () => {
     const days = groupEntriesByDay([
       makeEntry({

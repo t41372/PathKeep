@@ -136,6 +136,85 @@ describe('DashboardPage (paper redesign)', () => {
     const user = userEvent.setup()
     await user.click(screen.getByText(/All threads/))
   })
+
+  test('clicking an Active Threads row fires the route onOpenThread navigate', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getPathFlows).mockResolvedValueOnce({
+      data: [
+        {
+          flowId: 'flow-1',
+          stepCount: 3,
+          occurrenceCount: 4,
+          steps: [
+            { index: 0, label: 'github.com' },
+            { index: 1, label: 'docs.rs' },
+            { index: 2, label: 'crates.io' },
+          ],
+        },
+      ],
+      meta: { state: 'ready' },
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const row = await screen.findByTestId(
+      'dashboard-active-threads-row-flow-1',
+    )
+    await user.click(row)
+  })
+
+  test('renders the afternoon greeting branch when hour falls between 12 and 18', () => {
+    // Pin time to 14:00 local so useMemoGreeting takes the `hour < 18` arm.
+    vi.setSystemTime(new Date(2026, 4, 20, 14, 0, 0))
+    try {
+      renderDashboard({
+        snapshot: makeSnapshot(),
+        dashboard: makeDashboard(),
+      })
+      expect(screen.getByText('Good afternoon')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('renders the evening greeting branch when hour is >= 18', () => {
+    vi.setSystemTime(new Date(2026, 4, 20, 21, 0, 0))
+    try {
+      renderDashboard({
+        snapshot: makeSnapshot(),
+        dashboard: makeDashboard(),
+      })
+      expect(screen.getByText('Good evening')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('clicking a Year Heatmap day cell fires the route onSelectDate navigate', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getDiscoveryTrend).mockResolvedValueOnce({
+      data: {
+        points: [{ dateKey: '2026-04-20', totalVisits: 8 }],
+        availableYears: [2026],
+      },
+      meta: { state: 'ready' },
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const cell = await screen.findByRole('button', {
+      name: /2026-04-20/,
+    })
+    await user.click(cell)
+  })
 })
 
 function renderDashboard(overrides: Partial<ShellDataContextValue>) {

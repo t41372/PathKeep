@@ -447,6 +447,99 @@ describe('PaperDetailPanel', () => {
     expect(onOpenSession).toHaveBeenCalledWith(entry)
   })
 
+  test('renders the singular "char" copy when notes is exactly one character', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes="x"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+    expect(screen.getByText('1 char')).toBeVisible()
+  })
+
+  test('falls back to URL for the title heading when title is empty', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry({
+          title: '',
+          url: 'https://example.com/no-title',
+        })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+    // Title heading falls back to the URL (sanitized).
+    const heading = screen.getByRole('heading', { level: 2 })
+    expect(heading.textContent).toContain('example.com/no-title')
+  })
+
+  test('debounced save clears a pending timer when a new keystroke arrives', () => {
+    const onUpdateNotes = vi.fn()
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotes}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+    const textarea = screen.getByTestId('paper-detail-notes')
+    // First keystroke schedules a save at +400ms.
+    fireEvent.change(textarea, { target: { value: 'first draft' } })
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    // Second keystroke arrives within the debounce — must clear the prior timer.
+    fireEvent.change(textarea, { target: { value: 'final copy' } })
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    // First half of the window doesn't fire yet — proves the first timer was cleared.
+    expect(onUpdateNotes).not.toHaveBeenCalled()
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(onUpdateNotes).toHaveBeenCalledTimes(1)
+    expect(onUpdateNotes).toHaveBeenCalledWith('final copy')
+  })
+
+  test('unmount clears a pending debounced save timer', () => {
+    const onUpdateNotes = vi.fn()
+    const { unmount } = render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotes}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+    fireEvent.change(screen.getByTestId('paper-detail-notes'), {
+      target: { value: 'unsent thoughts' },
+    })
+    unmount()
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onUpdateNotes).not.toHaveBeenCalled()
+  })
+
   test('resets the local notes buffer when entry id changes', () => {
     const { rerender } = render(
       <PaperDetailPanel

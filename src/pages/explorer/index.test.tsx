@@ -150,6 +150,30 @@ vi.mock('./paper-view', () => ({
   ),
 }))
 
+vi.mock('./paper-detail-panel-mount', () => ({
+  PaperDetailPanelMount: (props: {
+    onClose: () => void
+    onOpen: (url: string) => void
+  }) => (
+    <div data-testid="paper-detail-mount">
+      <button
+        type="button"
+        data-testid="paper-detail-close"
+        onClick={() => props.onClose()}
+      >
+        close
+      </button>
+      <button
+        type="button"
+        data-testid="paper-detail-open"
+        onClick={() => props.onOpen('https://example.com/open')}
+      >
+        open
+      </button>
+    </div>
+  ),
+}))
+
 vi.mock('./paper-search-panel', () => ({
   PaperSearchPanel: (props: {
     onQueryChange: (next: string) => void
@@ -407,6 +431,31 @@ describe('ExplorerPage route shell', () => {
     const cleared = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
     expect(cleared.get('date')).toBeNull()
     expect(cleared.get('source')).toBeNull()
+  })
+
+  test('paper detail mount onClose hides the panel and onOpen forwards to handleVisit', async () => {
+    const user = userEvent.setup()
+    const handleVisit = vi.fn()
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          handleVisit,
+        }),
+    )
+
+    renderExplorer()
+
+    // Selecting an entry in the paper view opens the detail mount.
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(screen.getByTestId('paper-detail-mount')).toBeVisible()
+
+    // onOpen forwards through handleVisit.
+    await user.click(screen.getByTestId('paper-detail-open'))
+    expect(handleVisit).toHaveBeenCalledWith('https://example.com/open')
+
+    // onClose drops the mount.
+    await user.click(screen.getByTestId('paper-detail-close'))
+    expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
   })
 
   test('shows the deferred semantic callout when optional AI is unavailable', () => {

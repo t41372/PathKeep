@@ -153,4 +153,18 @@ describe('useDesktopAnnotations', () => {
     expect(result.current.lastError).toContain('notes')
     expect(result.current.lastError).toContain('archive locked')
   })
+
+  test('replaceUrlTags failure surfaces via lastError with "tags" scope', async () => {
+    getUrlAnnotation.mockResolvedValue(null)
+    replaceUrlTags.mockRejectedValueOnce(new Error('write blocked'))
+    const { result } = renderHook(() => useDesktopAnnotations())
+    act(() => {
+      result.current.updateTags('https://example.com/locked', ['x'])
+    })
+    await waitFor(() => {
+      expect(result.current.lastError).not.toBeNull()
+    })
+    expect(result.current.lastError).toContain('tags')
+    expect(result.current.lastError).toContain('write blocked')
+  })
 })

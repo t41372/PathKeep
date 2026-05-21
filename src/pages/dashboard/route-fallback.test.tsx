@@ -106,6 +106,26 @@ describe('dashboard route fallback', () => {
     ).toEqual({ kind: 'unlock-required' })
   })
 
+  test('resolves read-error when an error landed but the archive is reachable and initialized', () => {
+    // Encrypted=false, initialized=true, unlocked=true → no unlock needed; the
+    // resolver must fall through to the generic read-error branch so the user
+    // sees the underlying message.
+    expect(
+      resolveDashboardRouteFallback({
+        archiveAccessFallback: {
+          encrypted: false,
+          initialized: true,
+          unlocked: true,
+        },
+        dashboard: null,
+        dashboardLoading: false,
+        error: 'disk read failed',
+        loading: false,
+        snapshot: null,
+      }),
+    ).toEqual({ description: 'disk read failed', kind: 'read-error' })
+  })
+
   test('resolves archive-unavailable when bootstrap has no ready snapshot pair', () => {
     expect(
       resolveDashboardRouteFallback({

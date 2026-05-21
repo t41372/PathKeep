@@ -232,4 +232,47 @@ describe('PaperCalendarPopover', () => {
     expect(yearRow).not.toBeNull()
     expect(within(yearRow as HTMLElement).getByText('2026')).toBeVisible()
   })
+
+  test('year picker renders all the count-label format branches (zero / raw / 1.5k / 10k)', () => {
+    // We need years exercising:
+    //   count === 0          → renders '—'
+    //   1 ≤ count < 1000     → toLocaleString (e.g. "850")
+    //   1000 ≤ count < 10000 → "1.5k" via toFixed(1)
+    //   count ≥ 10000        → "12k" via toFixed(0)
+    // And density tiers 1/2/3 (not just 4) so opacityForTier walks every arm.
+    const densityByYear = new Map<number, number>([
+      [2026, 12_000], // ≥10k → "12k", tier 4
+      [2025, 1_500], // 1k–10k → "1.5k", tier 4 (capped at 500)
+      [2024, 200], // raw "200", tier 3
+      [2023, 80], // raw "80", tier 2
+      [2022, 5], // raw "5", tier 1
+      [2021, 0], // "—", tier 0
+    ])
+    render(
+      <PaperCalendarPopover
+        {...baseProps({
+          densityByYear,
+          bounds: { ...BOUNDS, firstYear: 2021, lastYear: 2026 },
+        })}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { expanded: false, name: /May 2026/ }),
+    )
+    expect(screen.getByText('12k')).toBeVisible()
+    expect(screen.getByText('1.5k')).toBeVisible()
+    expect(screen.getByText('200')).toBeVisible()
+    expect(screen.getByText('80')).toBeVisible()
+    expect(screen.getByText('5')).toBeVisible()
+    expect(screen.getByText('—')).toBeVisible()
+  })
+
+  test('1 year ago footer falls back to bounds.lastIso when value is empty', () => {
+    const onSelect = vi.fn()
+    render(
+      <PaperCalendarPopover {...baseProps({ value: '', onSelect })} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /1 year ago/ }))
+    expect(onSelect).toHaveBeenCalledWith('2025-05-17')
+  })
 })

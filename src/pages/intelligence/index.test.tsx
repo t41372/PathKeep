@@ -107,6 +107,7 @@ vi.mock('../../lib/i18n/hooks', () => ({
       }
       return key
     },
+    ns: (_namespace: string) => (key: string) => key,
   }),
 }))
 
@@ -213,6 +214,22 @@ vi.mock('./sections', () => ({
 
 vi.mock('./use-staged-intelligence-overview', () => ({
   useStagedIntelligenceOverview: useStagedIntelligenceOverviewMock,
+}))
+
+vi.mock('./paper-intelligence-panel', () => ({
+  PaperIntelligencePanel: (props: {
+    onSelectDomain: (domain: string) => void
+  }) => (
+    <div data-testid="paper-intelligence-panel-mock">
+      <button
+        type="button"
+        data-testid="paper-intel-select"
+        onClick={() => props.onSelectDomain('example.com')}
+      >
+        select-domain
+      </button>
+    </div>
+  ),
 }))
 
 describe('IntelligencePage', () => {
@@ -364,6 +381,34 @@ describe('IntelligencePage', () => {
         '#intelligence-domain-suggestions option[value="fallback.test"]',
       ),
     ).toHaveTextContent('fallback.test')
+  })
+
+  test('paper layout: clicking a domain in PaperIntelligencePanel navigates via scoped domainHref', async () => {
+    routeState.effectiveProfileId = 'chrome:Default'
+    routeState.preset = 'all'
+    useStagedIntelligenceOverviewMock.mockReturnValue({
+      scopeKey: '2026-04-01:2026-04-30:chrome:Default',
+      primaryReady: true,
+      primaryError: null,
+      secondaryReady: true,
+      secondaryLoading: false,
+      secondaryError: null,
+    })
+    peekIntelligencePrimaryOverviewMock.mockReturnValue({ topSites: { data: [] } })
+
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/intelligence?layout=paper']}>
+        <IntelligencePage />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByTestId('paper-intelligence-panel-mock')).toBeVisible()
+    await user.click(screen.getByTestId('paper-intel-select'))
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/intelligence/domain/example.com',
+    )
   })
 })
 
