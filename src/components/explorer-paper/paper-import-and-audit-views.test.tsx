@@ -249,4 +249,30 @@ describe('PaperAuditView', () => {
     expect(screen.queryByTestId('paper-audit-footer')).toBeNull()
     expect(screen.queryByText('earlier ↺')).toBeNull()
   })
+
+  test('omits the recentRuns / storage / snapshots badges when copy leaves them undefined', () => {
+    render(
+      <PaperAuditView
+        chain={CHAIN}
+        recentRunsSlot={null}
+        storageBreakdownSlot={null}
+        exportPanelSlot={null}
+        snapshotsSlot={null}
+        copy={{
+          ...AUDIT_COPY,
+          manifestBadge: undefined,
+          recentRunsBadge: undefined,
+          storageBadge: undefined,
+          snapshotsBadge: undefined,
+        }}
+      />,
+    )
+    // Each PaperCardHeader's `right` slot conditional (`copy.X ?
+    // <PaperCardBadge>X</PaperCardBadge> : undefined`) takes its falsy
+    // branch — covers lines 147-148 / 161-162 / equivalent snapshot
+    // branch of paper-audit-view.tsx.
+    expect(screen.queryByText('Last 7 of 1,847')).toBeNull()
+    expect(screen.queryByText('12.4 GB total')).toBeNull()
+    expect(screen.queryByText('4 kept')).toBeNull()
+  })
 })

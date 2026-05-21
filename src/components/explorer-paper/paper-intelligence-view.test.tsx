@@ -132,4 +132,26 @@ describe('PaperIntelligenceView', () => {
     expect(screen.getByText('Apr 17')).toBeVisible()
     expect(screen.getByText('May 17')).toBeVisible()
   })
+
+  test('omits each badge when copy leaves the field undefined', () => {
+    renderView({
+      copy: {
+        ...COPY,
+        topicsRangeBadge: 'TOPICS-BADGE-X',
+        domainsBadge: undefined,
+        sessionsBadge: undefined,
+        refindBadge: undefined,
+      },
+    })
+    // The conditional `: undefined` branches at lines 129/144-148/178-180
+    // of paper-intelligence-view.tsx fire when each *Badge field is
+    // undefined. The KPI "This week" text comes from the kpi.label data,
+    // not the badge slot, so we don't try to assert on it. Use unique
+    // sentinels for the badges that do render.
+    expect(screen.getByText('TOPICS-BADGE-X')).toBeVisible()
+    expect(
+      screen.queryByText('A session = pages in one sitting'),
+    ).toBeNull()
+    expect(screen.queryByText('3+ visits / 90d')).toBeNull()
+  })
 })
