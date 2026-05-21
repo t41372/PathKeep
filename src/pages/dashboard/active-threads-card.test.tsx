@@ -85,7 +85,7 @@ describe('DashboardActiveThreads', () => {
     expect(
       screen.getByTestId('dashboard-active-threads-loading'),
     ).toBeInTheDocument()
-    await act(async () => {
+    act(() => {
       resolveFlows([
         makeFlow({ flowId: 'flow-a' }),
         makeFlow({ flowId: 'flow-b' }),

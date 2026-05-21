@@ -20,6 +20,7 @@ import {
   type ShellDataContextValue,
 } from '@/app/shell-data-context'
 import { ProfileScopeProvider } from '@/lib/profile-scope'
+import type * as CoreIntelligenceApi from '@/lib/core-intelligence/api'
 import { DashboardPage } from './index'
 import type { AppSnapshot, DashboardSnapshot } from '@/lib/types'
 
@@ -64,9 +65,9 @@ describe('DashboardPage (paper redesign)', () => {
   })
 
   test('falls back to the translated on-this-day error key on non-Error rejection', async () => {
-    const api = await vi.importMock<
-      typeof import('@/lib/core-intelligence/api')
-    >('@/lib/core-intelligence/api')
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
     vi.mocked(api.getOnThisDay).mockRejectedValueOnce('string-rejection')
     renderDashboard({
       snapshot: makeSnapshot(),
