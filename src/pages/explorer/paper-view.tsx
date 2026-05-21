@@ -204,6 +204,14 @@ export interface PaperExplorerViewProps {
   onClearTarget?: () => void
   pagination?: PaperExplorerPagination
   infiniteScroll?: PaperExplorerInfiniteScroll
+  /**
+   * `true` while the route's history query is in flight with no usable rows
+   * yet — surfaces a placeholder day-card skeleton in the contact sheet so
+   * users get a visible loading signal instead of the "Memory is patient"
+   * empty copy. Routes flip it off as soon as data lands or a true empty
+   * result is confirmed.
+   */
+  loading?: boolean
   language?: string
   /** Today's anchor in local time. Tests inject; routes default to new Date(). */
   todayIso?: string
@@ -227,6 +235,7 @@ export function PaperExplorerView({
   onClearTarget,
   pagination,
   infiniteScroll,
+  loading = false,
   language = 'en',
   todayIso,
   initialViewMode = 'cards',
@@ -422,6 +431,7 @@ export function PaperExplorerView({
       onClearTarget={onClearTarget}
       selectedEntryId={selectedEntryId}
       onSelectEntry={onSelectEntry}
+      loading={loading}
       pagination={
         pagination
           ? {

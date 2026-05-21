@@ -339,6 +339,46 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('Nothing here yet.')).toBeVisible()
   })
 
+  test('swaps the empty copy for a skeleton while loading with no rows yet', () => {
+    const { container, rerender } = render(
+      <PaperContactSheet
+        days={[]}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        loading
+        testId="cs-loading"
+      />,
+    )
+
+    expect(
+      container.querySelector(
+        '[data-testid="paper-contact-sheet-loading-skeleton"]',
+      ),
+    ).not.toBeNull()
+    expect(screen.queryByText('Nothing here yet.')).toBeNull()
+
+    rerender(
+      <PaperContactSheet
+        days={[]}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        loading={false}
+        testId="cs-loading"
+      />,
+    )
+
+    expect(
+      container.querySelector(
+        '[data-testid="paper-contact-sheet-loading-skeleton"]',
+      ),
+    ).toBeNull()
+    expect(screen.getByText('Nothing here yet.')).toBeVisible()
+  })
+
   test('day nav prev/next/today buttons route through their handlers', () => {
     const onPrev = vi.fn()
     const onNext = vi.fn()

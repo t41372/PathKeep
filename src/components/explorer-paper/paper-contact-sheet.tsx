@@ -173,6 +173,14 @@ export interface PaperContactSheetProps {
   onClearTarget?: () => void
   selectedEntryId?: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
+  /**
+   * `true` while the route's history query is in flight with no usable rows
+   * yet — used to swap the "Memory is patient" empty copy for a placeholder
+   * day-card skeleton so the user gets a visible loading signal instead of
+   * staring at a deceptively empty page. Routes flip it to `false` again as
+   * soon as either real data or a genuine empty result arrives.
+   */
+  loading?: boolean
   /** Optional page-level navigation footer. Null disables the footer. */
   pagination?: PaperContactSheetPagination | null
   /** Optional infinite-scroll descriptor — mutually exclusive with pagination. */
@@ -200,6 +208,7 @@ export function PaperContactSheet({
   onClearTarget,
   selectedEntryId = null,
   onSelectEntry,
+  loading = false,
   pagination,
   infiniteScroll,
   dayInsightsCopy,
@@ -263,9 +272,13 @@ export function PaperContactSheet({
       ) : null}
 
       {days.length === 0 ? (
-        <div className="text-ink-faint mt-10 text-center font-serif text-[16px] italic">
-          {copy.empty}
-        </div>
+        loading ? (
+          <DayListSkeleton testId="paper-contact-sheet-loading-skeleton" />
+        ) : (
+          <div className="text-ink-faint mt-10 text-center font-serif text-[16px] italic">
+            {copy.empty}
+          </div>
+        )
       ) : (
         days.map((day, dayIndex) => (
           <div
@@ -358,6 +371,31 @@ export function PaperContactSheet({
       {pagination ? <PaginationFooter pagination={pagination} /> : null}
       {infiniteScroll ? <InfiniteScrollFooter scroll={infiniteScroll} /> : null}
     </section>
+  )
+}
+
+function DayListSkeleton({ testId }: { testId?: string }) {
+  return (
+    <div
+      data-testid={testId}
+      className="mt-6 flex w-full flex-col gap-3"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {[0, 1, 2].map((index) => (
+        <div
+          key={index}
+          className="flex animate-pulse items-stretch gap-3 rounded-paper border border-border-light bg-card-paper px-3 py-3"
+        >
+          <div className="h-14 w-14 shrink-0 rounded-paper bg-page" />
+          <div className="flex flex-1 flex-col gap-2 py-1">
+            <div className="h-3 w-2/3 rounded-[2px] bg-page" />
+            <div className="h-2.5 w-1/2 rounded-[2px] bg-page opacity-70" />
+            <div className="h-2 w-1/3 rounded-[2px] bg-page opacity-50" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

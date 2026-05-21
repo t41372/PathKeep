@@ -575,6 +575,7 @@ export function ExplorerPage() {
         ) : (
           <PaperExplorerView
             entries={renderedTimeResults?.items ?? []}
+            loading={loading}
             archiveBounds={archiveDensity.bounds ?? undefined}
             additionalDensity={{
               perDay: archiveDensity.perDay,
