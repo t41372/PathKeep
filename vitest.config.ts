@@ -61,22 +61,22 @@ export default defineConfig({
         'src/pages/intelligence/promoted-entity-routes.tsx',
         'src/pages/intelligence/sections/secondary-sections.tsx',
       ],
-      // Coverage floor — calibrated after Phase 4 / Phase 6 / inner-panel
-      // paper sweep + the Phase 7 dashboard / shell / paper-preferences
-      // test additions. Current global is 99.28 lines / 98.96 functions /
-      // 98.12 branches / 99.02 statements (2026-05-20). Threshold lifted
-      // from {99,98,98,98} → {99,98,98,99} to lock in the statement gain.
-      // The residual <1% sits in a stable set of pre-existing files that
-      // each need a targeted unit-test sweep: shell.tsx (handlePaletteSelect
-      // / handleManageSources / response-no-rows fallback), the various
-      // explorer-paper components with 1-line branch gaps, paper-intelligence-view,
-      // the shell topbar's `typeof navigator === 'undefined'` defensive
-      // guard (unreachable in jsdom). WORK-V03-COVERAGE-RESIDUAL tracks
-      // the restoration path back to 100. Do not lower thresholds without
-      // a matching backlog entry.
+      // Coverage floor — pushed up after the WORK-V03-COVERAGE-RESIDUAL
+      // second sweep (2026-05-20). Current global is 99.68 lines /
+      // 99.48 functions / 98.68 branches / 99.39 statements. Threshold
+      // lifted from {99,98,98,99} → {99,99,98,99} so the function-coverage
+      // gain is locked in and the branch / statement residual is the only
+      // remaining headroom.
+      //
+      // Residual sits in a stable set of pre-existing files. Each needs a
+      // targeted unit-test sweep but is bounded by defensive jsdom-unreachable
+      // code (SSR guards, locale toLocaleString try/catch fallbacks, dead-key
+      // ref initializers). The remaining work lives in
+      // WORK-V03-COVERAGE-RESIDUAL. Do not lower thresholds without a
+      // matching backlog entry.
       thresholds: {
         lines: 99,
-        functions: 98,
+        functions: 99,
         branches: 98,
         statements: 99,
       },
