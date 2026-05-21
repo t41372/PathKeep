@@ -161,7 +161,7 @@ describe('AppShell (paper redesign)', () => {
           visited_at_iso: '2026-04-17T10:30:00',
         },
       ],
-    } as unknown as Awaited<ReturnType<typeof invokeCommand>>)
+    } as never)
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
