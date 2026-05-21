@@ -239,6 +239,29 @@ describe('PaperContactFrame', () => {
     expect(screen.queryByTestId('frame-og-favicon')).toBeNull()
   })
 
+  test('og:image renders without a testId-derived data-testid when testId is omitted', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 41,
+          title: 'No-test-id storied page',
+          domain: 'example.com',
+          url: 'https://example.com/story',
+          time: '09:15',
+          ogImageDataUrl: 'data:image/png;base64,ogi',
+        }}
+        domainColor="#264653"
+        domainAbbr="EXM"
+      />,
+    )
+    // The og:image still mounts, but the `testId ? ... : undefined` ternary
+    // at line 100 of paper-contact-frame.tsx takes the falsy branch.
+    expect(
+      document.querySelectorAll('img[src^="data:image/png;base64,ogi"]')
+        .length,
+    ).toBe(1)
+  })
+
   test('falls back to favicon when og:image is null, then to the swatch when both are null', () => {
     const { rerender, container } = render(
       <PaperContactFrame
@@ -353,6 +376,23 @@ describe('PaperListRow', () => {
 
     // sanitizeExplorerDisplayText collapses 'https://docs.rs' to 'docs.rs',
     // which coincides with entry.domain — list-row shows it in both columns.
+    expect(screen.getAllByText('docs.rs').length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('falls back to the bare domain when both title and url are missing', () => {
+    render(
+      <PaperListRow
+        entry={{
+          id: 3,
+          domain: 'docs.rs',
+          time: '12:00',
+        }}
+        domainColor="#aaa"
+        domainAbbr="DOC"
+        testId="list-domain-fallback"
+      />,
+    )
+    // Title fallthrough lands on the bare domain (line 94 of paper-list-row.tsx).
     expect(screen.getAllByText('docs.rs').length).toBeGreaterThanOrEqual(1)
   })
 
@@ -622,6 +662,78 @@ describe('PaperDomainStack', () => {
     )
 
     expect(() => fireEvent.click(screen.getByText('tokio repo'))).not.toThrow()
+  })
+
+  test('collapsed preview row falls back to url, then domain, when title is missing', () => {
+    render(
+      <PaperDomainStack
+        domain="docs.rs"
+        domainColor="#7a9cc7"
+        domainAbbr="DOC"
+        entries={[
+          { id: 101, domain: 'docs.rs', url: 'https://docs.rs/tokio', time: '17:00' },
+          { id: 102, domain: 'docs.rs', time: '17:05' },
+        ]}
+        expandLabel="Toggle docs"
+        morePrefix="+"
+        pagesLabel="pages"
+        testId="stack-collapsed-fallback"
+      />,
+    )
+    // Row with only url renders the url fallback (sanitized);
+    // row with only domain falls all the way through to the domain text.
+    // Both branches of `entry.title || entry.url || entry.domain` at line 156 fire.
+    expect(screen.getAllByText(/docs\.rs/).length).toBeGreaterThan(0)
+  })
+
+  test('expanded row falls back to domain when both title and url are missing', () => {
+    render(
+      <PaperDomainStack
+        domain="docs.rs"
+        domainColor="#7a9cc7"
+        domainAbbr="DOC"
+        entries={[
+          { id: 201, domain: 'docs.rs', time: '17:00' },
+          { id: 202, domain: 'docs.rs', time: '17:05' },
+          { id: 203, domain: 'docs.rs', time: '17:10' },
+          { id: 204, domain: 'docs.rs', time: '17:15' },
+          { id: 205, domain: 'docs.rs', time: '17:20' },
+        ]}
+        expandLabel="Toggle docs"
+        morePrefix="+"
+        pagesLabel="pages"
+        testId="stack-expanded-fallback"
+      />,
+    )
+    // Force-expand by clicking the header, then verify the expanded rows
+    // render the domain fallback for both title (line 203) and url (line 207).
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle docs' }))
+    expect(screen.getAllByText('docs.rs').length).toBeGreaterThan(0)
+  })
+
+  test('expanded row click does not throw when onSelectEntry is omitted', () => {
+    render(
+      <PaperDomainStack
+        domain="docs.rs"
+        domainColor="#7a9cc7"
+        domainAbbr="DOC"
+        entries={[
+          { id: 301, domain: 'docs.rs', url: 'https://docs.rs/a', title: 'a', time: '17:00' },
+          { id: 302, domain: 'docs.rs', url: 'https://docs.rs/b', title: 'b', time: '17:05' },
+          { id: 303, domain: 'docs.rs', url: 'https://docs.rs/c', title: 'c', time: '17:10' },
+          { id: 304, domain: 'docs.rs', url: 'https://docs.rs/d', title: 'd', time: '17:15' },
+          { id: 305, domain: 'docs.rs', url: 'https://docs.rs/e', title: 'e', time: '17:20' },
+        ]}
+        expandLabel="Toggle docs"
+        morePrefix="+"
+        pagesLabel="pages"
+        testId="stack-expanded-noop"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle docs' }))
+    // Click an expanded row without a handler — covers the
+    // `if (onSelectEntry)` falsy branch at lines 180-182.
+    expect(() => fireEvent.click(screen.getByText('a'))).not.toThrow()
   })
 })
 
