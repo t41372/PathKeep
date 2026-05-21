@@ -81,7 +81,7 @@ describe('DashboardPage (paper redesign)', () => {
     ).toBeInTheDocument()
   })
 
-  test('clicking the On This Day entry fires the route-level openEntry handler', async () => {
+  test('clicking the On This Day entry fires the route-level openEntry + jumpToDate handlers', async () => {
     const api = await vi.importMock<typeof CoreIntelligenceApi>(
       '@/lib/core-intelligence/api',
     )
@@ -96,7 +96,7 @@ describe('DashboardPage (paper redesign)', () => {
           summary: 'A year ago summary',
         },
       ],
-    } as unknown as Awaited<ReturnType<typeof api.getOnThisDay>>)
+    } as never)
 
     renderDashboard({
       snapshot: makeSnapshot(),
@@ -107,6 +107,13 @@ describe('DashboardPage (paper redesign)', () => {
     // callback (line 156-160). The card displays the summary as its title.
     await screen.findByText('A year ago summary')
     await user.click(screen.getByText('A year ago summary'))
+    // The card's header right-slot button fires onJumpToDate (line 152-155);
+    // its label is the localised "month day" target string.
+    const headerButton = screen
+      .getByTestId('dashboard-on-this-day')
+      .querySelector('header button')
+    if (!headerButton) throw new Error('on-this-day jumpToDate trigger missing')
+    await user.click(headerButton)
   })
 
   test('"Insights" badge in year heatmap card navigates to /intelligence', async () => {
