@@ -167,10 +167,16 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "trigger_og_image_refetch" => {
             let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
-            json_value!(worker_bridge::refetch_og_images_impl(
-                payload.urls,
-                session_key(&state.session).as_deref()
-            )?)
+            let session_key = session_key(&state.session);
+            // refetch builds a reqwest::blocking::Client whose internal tokio runtime
+            // panics if dropped from inside another async runtime (Tauri commands wrap
+            // in spawn_blocking via run_blocking_command; the dev bridge must mirror it).
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::refetch_og_images_impl(payload.urls, session_key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("trigger_og_image_refetch join failed: {error}"))??;
+            json_value!(result)
         }
         "get_og_image_storage_stats" => {
             json_value!(worker_bridge::og_image_storage_stats_impl(

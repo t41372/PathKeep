@@ -28,11 +28,7 @@ use crate::test_support::{
 };
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::{
-    future::Future,
-    pin::pin,
-    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
-};
+use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderPurpose,
@@ -175,23 +171,16 @@ fn test_config() -> AppConfig {
     }
 }
 
+// Some dispatch arms intentionally yield (e.g. spawn_blocking for the
+// og:image refetch reqwest client). A current-thread tokio runtime
+// drives every arm to completion without bootstrapping archives or
+// intelligence rebuilds.
 fn ready_block_on<F: Future>(future: F) -> F::Output {
-    fn raw_waker() -> RawWaker {
-        fn clone(_: *const ()) -> RawWaker {
-            raw_waker()
-        }
-        fn wake(_: *const ()) {}
-        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, wake);
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-
-    let waker = unsafe { Waker::from_raw(raw_waker()) };
-    let mut context = Context::from_waker(&waker);
-    let mut future = pin!(future);
-    match future.as_mut().poll(&mut context) {
-        Poll::Ready(output) => output,
-        Poll::Pending => panic!("dispatch coverage command unexpectedly yielded"),
-    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("dispatch coverage tokio runtime")
+        .block_on(future)
 }
 
 fn dispatch_for_coverage(state: &DevIpcBridgeState, command: &str, payload: Value) {
