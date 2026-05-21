@@ -176,7 +176,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
       empty-query fallthrough to list_annotations).
     - **og_images.rs:730**: row mapper closure now exercised by changing
       the existing eviction test from `surviving_a == None` (closure
-      cold) to a COUNT(*) query_row that fires the closure on success.
+      cold) to a COUNT(\*) query_row that fires the closure on success.
     - **og_images_fetch.rs**: 11 → 7 lines closed (utf8 lossy decode
       fallback, absolutize_url base-parse failure, plus the
       `read_capped_bytes<R: Read>` extraction for Io / TooLarge / Ok
