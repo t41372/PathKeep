@@ -338,9 +338,7 @@ describe('PaperContactSheet', () => {
         testId="cs-list-swatch"
       />,
     )
-    expect(
-      container.querySelector('img[src^="data:image"]'),
-    ).toBeNull()
+    expect(container.querySelector('img[src^="data:image"]')).toBeNull()
     // Swatch span uses the inline background style and the truncated
     // initials block from getDomainAbbr.
     const swatch = container.querySelector<HTMLSpanElement>(
