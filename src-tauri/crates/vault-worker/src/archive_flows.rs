@@ -887,7 +887,7 @@ mod tests {
         append_core_refresh_import_result, append_og_image_cleanup_result,
         append_og_image_refetch_due_result, core_refresh_import_note, core_refresh_rebuild_scopes,
         drain_one_worker_url, finalize_refetch_run, host_throttle_wait, lock_or_recover,
-        record_refetch_outcome, try_refetch_due_og_images,
+        try_refetch_due_og_images,
     };
     use crate::tests::lock_env;
     use std::collections::HashMap;
