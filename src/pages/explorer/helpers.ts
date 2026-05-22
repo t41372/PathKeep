@@ -239,6 +239,58 @@ export function historyOgImageLookupKey(url: string) {
   return url
 }
 
+/**
+ * Hosts whose result pages serve a knowledge-panel `<meta og:image>` that
+ * does NOT identify the search page itself (Google shows the top entity's
+ * brand image, Bing shows the answer-card image, etc.). The Browse row
+ * must NOT show this as the page icon — that's where the "Google search
+ * for 吉野家 → Yoshinoya logo" cross-contamination came from.
+ *
+ * Kept in sync with `vault-core::visit_taxonomy::url::is_search_engine_host`.
+ */
+const SERP_REGISTRABLE_DOMAINS = new Set([
+  'baidu.com',
+  'bing.com',
+  'brave.com',
+  'duckduckgo.com',
+  'google.com',
+  'kagi.com',
+  'sogou.com',
+  'so.com',
+  'startpage.com',
+  'yahoo.com',
+  'yandex.com',
+  'yandex.ru',
+])
+
+/**
+ * Returns true when the URL is a search-engine result page (host on the
+ * SERP list AND a query parameter present). Callers use this to suppress
+ * the og:image-as-icon fallback for SERP rows, because the og:image on a
+ * SERP describes the top entity, not the search page itself.
+ */
+export function isSearchResultUrl(url: string | null | undefined): boolean {
+  if (typeof url !== 'string' || url.length === 0) return false
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    const registrable = host.split('.').slice(-2).join('.')
+    if (
+      !SERP_REGISTRABLE_DOMAINS.has(registrable) &&
+      !host.startsWith('www.google.') &&
+      host !== 'search.brave.com'
+    ) {
+      return false
+    }
+    if (parsed.searchParams.size === 0) return false
+    return ['q', 'p', 'query', 'wd', 'text'].some((key) =>
+      parsed.searchParams.has(key),
+    )
+  } catch {
+    return false
+  }
+}
+
 function compactMiddle(text: string, maxLength: number) {
   if (text.length <= maxLength) return text
 

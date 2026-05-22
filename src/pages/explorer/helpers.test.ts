@@ -12,6 +12,7 @@ import {
   endOfDayMs,
   explorerPageSizeStorageKey,
   historyFaviconLookupKey,
+  isSearchResultUrl,
   loadRecentSearches,
   loadStoredKeywordPageSize,
   parseKeywordPageSize,
@@ -197,5 +198,44 @@ describe('Explorer helper contracts', () => {
 
   test('returns null for malformed end-of-day dates', () => {
     expect(endOfDayMs('not-a-date')).toBeNull()
+  })
+})
+
+describe('isSearchResultUrl', () => {
+  test('matches Google / Bing / Baidu search-result pages', () => {
+    expect(isSearchResultUrl('https://www.google.com/search?q=吉野家')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://www.bing.com/search?q=pathkeep')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://www.baidu.com/s?wd=foo&rsv_idx=1')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://duckduckgo.com/?q=anything&ia=web')).toBe(
+      true,
+    )
+  })
+
+  test('does not match non-SERP URLs on the same hosts', () => {
+    expect(isSearchResultUrl('https://www.google.com/')).toBe(false)
+    expect(isSearchResultUrl('https://news.google.com/articles/abc')).toBe(
+      false,
+    )
+    expect(isSearchResultUrl('https://www.bing.com/news')).toBe(false)
+  })
+
+  test('does not match non-SERP hosts even with a `q=` parameter', () => {
+    expect(isSearchResultUrl('https://example.com/article?q=foo')).toBe(false)
+    expect(isSearchResultUrl('https://github.com/search?q=pathkeep')).toBe(
+      false,
+    )
+  })
+
+  test('returns false for null / undefined / unparseable input', () => {
+    expect(isSearchResultUrl(null)).toBe(false)
+    expect(isSearchResultUrl(undefined)).toBe(false)
+    expect(isSearchResultUrl('')).toBe(false)
+    expect(isSearchResultUrl('not a url')).toBe(false)
   })
 })

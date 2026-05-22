@@ -72,10 +72,21 @@ struct VisitCapabilityStats {
 }
 
 /// Incremental URL ingest query used by the archive pipeline.
+///
+/// Filters URLs by both watermarks intentionally:
+/// - `last_visit_time >= ?1` catches every URL whose most recent visit
+///   landed at or after the URL cursor (the common path).
+/// - `id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` widens the
+///   set to any URL referenced by a new visit beyond the visit cursor,
+///   even when Chrome didn't bump `urls.last_visit_time` for that URL.
+///   Without this OR, long-tail revisited pages (Zhihu answer pages are
+///   the canonical example) lost their new visits to `skipped_visits++`
+///   because the URL was absent from the in-memory `url_id_map`.
 pub const INGEST_URLS_SQL: &str =
     "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
      FROM urls
      WHERE last_visit_time >= ?1
+        OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)
      ORDER BY last_visit_time ASC";
 /// Incremental visit ingest query used by the archive pipeline.
 pub const INGEST_VISITS_SQL: &str =
@@ -188,6 +199,7 @@ where
     stream_url_batches(
         &history,
         cursor.after_url_last_visit_time,
+        cursor.after_visit_id,
         chunk_size,
         consumer,
         retain_source_evidence,
@@ -340,6 +352,7 @@ where
 fn stream_url_batches<C>(
     connection: &Connection,
     last_visit_time: i64,
+    last_visit_id: i64,
     chunk_size: usize,
     consumer: &mut C,
     retain_source_evidence: bool,
@@ -352,7 +365,7 @@ where
     let mut statement = stream_sql(connection.prepare(INGEST_URLS_SQL))?;
     let column_names =
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-    let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
+    let mut rows = stream_sql(statement.query(params![last_visit_time, last_visit_id]))?;
     let mut batch = Vec::with_capacity(chunk_size);
     let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
@@ -1019,6 +1032,88 @@ mod tests {
                 params![3_i64, 32_i64, 32_i64, 13_000_000_002_000_000_i64, vec![1_u8, 2, 3]],
             )
             .expect("insert partial bitmap");
+    }
+
+    #[test]
+    fn parse_history_includes_urls_whose_last_visit_time_is_below_cursor_when_new_visits_arrive() {
+        // Models the long-tail revisit case: a Zhihu-style answer page whose
+        // urls.last_visit_time was set in a previous import (so it's below
+        // the next URL cursor), but a fresh visit arrives whose id is above
+        // the visit cursor. The URL pass must still pick the URL up so the
+        // visit pass can attribute the visit to it instead of bumping
+        // skipped_visits++.
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE urls (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER NOT NULL,
+                   typed_count INTEGER NOT NULL,
+                   last_visit_time INTEGER NOT NULL,
+                   hidden INTEGER NOT NULL
+                 );
+                 CREATE TABLE visits (
+                   id INTEGER PRIMARY KEY,
+                   url INTEGER NOT NULL,
+                   visit_time INTEGER NOT NULL,
+                   from_visit INTEGER,
+                   transition INTEGER,
+                   visit_duration INTEGER,
+                   is_known_to_sync INTEGER,
+                   visited_link_id INTEGER,
+                   external_referrer_url TEXT,
+                   app_id TEXT
+                 );",
+            )
+            .expect("create minimal schema");
+        // URL's last_visit_time intentionally sits *below* the URL cursor
+        // we'll pass in. Pre-fix, this URL would not appear in the URL pass.
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    42_i64,
+                    "https://www.zhihu.com/question/12345/answer/67890",
+                    "如何理解...",
+                    3_i64,
+                    0_i64,
+                    13_000_000_000_000_000_i64,
+                    0_i64
+                ],
+            )
+            .expect("insert zhihu url");
+        // Visit id 99 lives ABOVE the visit cursor (50) we'll pass in.
+        connection
+            .execute(
+                "INSERT INTO visits (id, url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![99_i64, 42_i64, 13_000_000_000_900_000_i64, Option::<i64>::None, 0_i64, 1000_i64, 1_i64, 0_i64, Option::<&str>::None, Option::<&str>::None],
+            )
+            .expect("insert new visit");
+
+        // URL cursor at 13_000_000_001_000_000 (above the URL's last_visit_time),
+        // visit cursor at 50 (below the new visit id).
+        let parsed = parse_history(
+            &HistoryDatabaseSet { history_path, favicons_path: None },
+            ChromiumReadCursor {
+                after_url_last_visit_time: 13_000_000_001_000_000_i64,
+                after_visit_id: 50_i64,
+                after_download_id: 0,
+                after_favicon_last_updated: 0,
+            },
+        )
+        .expect("parse history with split cursors");
+
+        assert_eq!(parsed.urls.len(), 1, "url must be widened in via the visit cursor");
+        assert_eq!(parsed.urls[0].url, "https://www.zhihu.com/question/12345/answer/67890");
+        assert_eq!(parsed.visits.len(), 1, "new visit must land, not be skipped");
+        assert_eq!(parsed.visits[0].source_visit_id, 99);
+        assert_eq!(parsed.visits[0].source_url_id, 42);
     }
 
     #[test]

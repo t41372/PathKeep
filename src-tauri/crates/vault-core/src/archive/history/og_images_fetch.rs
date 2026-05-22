@@ -273,7 +273,34 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
             http_status: None,
         };
     }
+    // Search-engine result pages embed an `<meta og:image>` that points at the
+    // top knowledge-panel entity (e.g., a Google search for "吉野家" advertises
+    // Yoshinoya's brand image). Caching those bytes against the SERP URL gives
+    // the user a wrong-icon-on-search-page experience (the Browse row shows
+    // Yoshinoya's logo instead of Google's). Short-circuit before we issue any
+    // network requests so the cache stays accurate and the daily fetch budget
+    // goes to real content pages.
+    if is_search_results_url(page_url) {
+        return FetchedOgImage {
+            page_host: nonempty_host(page_url),
+            source_og_url: None,
+            image_bytes: None,
+            mime: None,
+            fetch_status: fetch_status::MISSING,
+            http_status: None,
+        };
+    }
     fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ true)
+}
+
+/// True when the page URL is a search-engine result page (Google, Bing,
+/// DuckDuckGo, Baidu, Yandex, etc. with a `q=…` style query parameter set).
+/// Wraps `normalize_visit_url` so the same definition the visit-taxonomy
+/// pipeline uses for `is_search_results` flags the og:image short-circuit.
+fn is_search_results_url(page_url: &str) -> bool {
+    crate::visit_taxonomy::normalize_visit_url(page_url)
+        .map(|normalized| normalized.is_search_results)
+        .unwrap_or(false)
 }
 
 /// Same pipeline as `fetch_og_image_for` minus the HTTPS guard, exposed so
@@ -615,6 +642,32 @@ mod tests {
         let outcome = fetch_og_image_for(&client, "http://insecure.example.com/");
         assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
         assert!(outcome.image_bytes.is_none());
+    }
+
+    #[test]
+    fn search_engine_result_pages_short_circuit_with_missing_status() {
+        // Google / Bing / Baidu SERPs advertise a knowledge-panel og:image
+        // that describes the top entity, not the SERP itself. Caching those
+        // bytes against the SERP URL caused wrong-icon-on-search cards
+        // (e.g., Yoshinoya's logo on a Google search row). The production
+        // entry must short-circuit before any network call so neither the
+        // cache nor the daily fetch budget is polluted.
+        let client = build_fetch_client().unwrap();
+        for serp in [
+            "https://www.google.com/search?q=吉野家",
+            "https://www.bing.com/search?q=pathkeep",
+            "https://www.baidu.com/s?wd=zhihu",
+            "https://duckduckgo.com/?q=anything",
+        ] {
+            let outcome = fetch_og_image_for(&client, serp);
+            assert_eq!(
+                outcome.fetch_status(),
+                fetch_status::MISSING,
+                "SERP {serp} must short-circuit to MISSING"
+            );
+            assert!(outcome.image_bytes.is_none());
+            assert!(outcome.source_og_url.is_none());
+        }
     }
 
     #[test]

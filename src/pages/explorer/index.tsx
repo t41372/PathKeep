@@ -30,7 +30,11 @@ import {
 } from '../../lib/intelligence-ai-presentation'
 import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
-import { historyFaviconLookupKey, historyOgImageLookupKey } from './helpers'
+import {
+  historyFaviconLookupKey,
+  historyOgImageLookupKey,
+  isSearchResultUrl,
+} from './helpers'
 import { useProfileScope } from '../../lib/profile-scope-context'
 import { useExplorerArchiveDensity } from './hooks/use-explorer-archive-density'
 import { useExplorerData } from './hooks/use-explorer-data'
@@ -302,19 +306,29 @@ export function ExplorerPage() {
     }
     return {
       ...combinedTimeResults,
-      items: combinedTimeResults.items.map((item) => ({
-        ...item,
-        favicon:
-          item.favicon ??
-          faviconCache.get(
-            historyFaviconLookupKey(item.profileId, item.url, item.visitTime),
-          ) ??
-          null,
-        ogImage:
-          item.ogImage ??
-          ogImageCache.get(historyOgImageLookupKey(item.url)) ??
-          null,
-      })),
+      items: combinedTimeResults.items.map((item) => {
+        // Search-engine result pages legitimately advertise a knowledge-
+        // panel `<meta og:image>` that describes the top entity, not the
+        // SERP itself. Suppressing the og:image for those rows keeps the
+        // Browse row's icon honest (Google's favicon or the swatch, never
+        // a wrong "Yoshinoya logo on a Google search" hand-off).
+        const suppressOgImage = isSearchResultUrl(item.url)
+        const hydratedOgImage = suppressOgImage
+          ? null
+          : (item.ogImage ??
+            ogImageCache.get(historyOgImageLookupKey(item.url)) ??
+            null)
+        return {
+          ...item,
+          favicon:
+            item.favicon ??
+            faviconCache.get(
+              historyFaviconLookupKey(item.profileId, item.url, item.visitTime),
+            ) ??
+            null,
+          ogImage: hydratedOgImage,
+        }
+      }),
     }
   }, [combinedTimeResults, faviconCache, ogImageCache])
   // Search the rendered (head + infinite-scroll-accumulated) item list,
