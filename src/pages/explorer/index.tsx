@@ -352,6 +352,20 @@ export function ExplorerPage() {
 
   const paperSearchSurface = searchParams.get('surface') === 'search'
 
+  // The full-page EmptyState below should only fire when the zero-result
+  // came from an active filter — a palette / hash search query, a domain
+  // facet, a browserKind filter, etc. For pure date browsing (Calendar,
+  // year rail, day-nav arrows) we want the contact-sheet shell to stay
+  // visible so users can keep navigating; the inner "Nothing here yet"
+  // copy already handles the "this day has no visits" case without
+  // hijacking the whole route.
+  const hasActiveQueryOrFilter =
+    paperSearchSurface ||
+    queryInput.trim() !== '' ||
+    (searchParams.get('q') ?? '').trim() !== '' ||
+    Boolean(searchParams.get('domain')) ||
+    Boolean(searchParams.get('browserKind'))
+
   if (shellLoading && !snapshot) {
     return <SkeletonExplorer label={t('common.loadingExplorer')} />
   }
@@ -512,7 +526,10 @@ export function ExplorerPage() {
         />
       ) : error ? (
         <ErrorState title={explorerT('queryFailedTitle')} description={error} />
-      ) : !loading && results && results.total === 0 ? (
+      ) : !loading &&
+        results &&
+        results.total === 0 &&
+        hasActiveQueryOrFilter ? (
         <EmptyState
           action={
             <button
@@ -527,7 +544,7 @@ export function ExplorerPage() {
           eyebrow={explorerT('noMatchesEyebrow')}
           title={explorerT('noMatchesTitle')}
         />
-      ) : view === 'time' && (loading || visibleTimeResults) ? (
+      ) : view === 'time' && (loading || visibleTimeResults || results) ? (
         paperSearchSurface ? (
           <PaperSearchPanel
             query={queryInput}

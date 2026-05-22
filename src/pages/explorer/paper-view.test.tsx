@@ -353,7 +353,7 @@ describe('PaperExplorerView', () => {
     expect(screen.getByText('2 pages archived')).toBeVisible()
   })
 
-  test('target banner falls back to a generic kicker when source is null', () => {
+  test('target banner is suppressed when targetSource is null (raw date jump)', () => {
     render(
       <PaperExplorerView
         entries={sampleEntries()}
@@ -364,7 +364,12 @@ describe('PaperExplorerView', () => {
       />,
     )
 
-    expect(screen.getByText("From 'On this day'")).toBeVisible()
+    // Year-rail / calendar / day-nav jumps set `targetDate` without a
+    // `targetSource`. The "From X" banner only makes sense when the
+    // user actually came from another surface, so it must stay hidden
+    // for a raw date jump — the day header already tells the user
+    // what day they are on.
+    expect(screen.queryByText("From 'On this day'")).toBeNull()
   })
 
   test('target banner status notes the missing day when archive has no record', () => {

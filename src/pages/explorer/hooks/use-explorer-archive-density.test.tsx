@@ -75,6 +75,13 @@ describe('useExplorerArchiveDensity', () => {
     expect(result.current.perYear.get(2024)).toBe(3)
     expect(result.current.bounds?.firstYear).toBe(2024)
     expect(result.current.bounds?.lastYear).toBe(2025)
+    // The year-rail jump helper reads `bounds.lastIso` and the calendar
+    // clamps prev/next-day on `firstIso`. Both must reflect the real
+    // earliest / latest visit days, otherwise clicking the topmost year
+    // on a partial-year archive jumps to Dec 31 of the future and falls
+    // into the empty state.
+    expect(result.current.bounds?.firstIso).toBe('2024-12-31')
+    expect(result.current.bounds?.lastIso).toBe('2025-06-16')
   })
 
   test('falls back to empty density when the backend rejects', async () => {

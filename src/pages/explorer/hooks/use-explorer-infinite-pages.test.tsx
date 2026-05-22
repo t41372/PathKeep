@@ -144,6 +144,73 @@ describe('useExplorerInfinitePages', () => {
     expect(result.current.extraItems).toEqual([])
   })
 
+  test('prefetches one page ahead so the next loadMore is instant', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [
+              {
+                id: (req.page ?? 1) * 10,
+                profileId: 'chrome:Default',
+                url: `https://example.com/page-${req.page ?? 1}`,
+                title: `page ${req.page ?? 1}`,
+                domain: 'example.com',
+                favicon: null,
+                visitedAt: '2025-12-01T10:00:00Z',
+                visitTime: 1733050800,
+                sourceVisitId: 0,
+              },
+            ],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 4, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+      }),
+    )
+    // First loadMore brings page 2 to the surface and warms page 3 in
+    // the background.
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/page-2',
+      ]),
+    )
+    await waitFor(() => {
+      const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
+      expect(queriedPages).toContain(2)
+      expect(queriedPages).toContain(3)
+    })
+    // Background prefetch must not advance the user-facing loadedPageCount
+    // — the contact sheet's "Loaded N of M" copy stays honest.
+    expect(result.current.loadedPageCount).toBe(2)
+    // Now the second loadMore should surface page 3 immediately without
+    // issuing a new query (it was already buffered).
+    const callsBeforeNextLoadMore = querySpy.mock.calls.length
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/page-2',
+        'https://example.com/page-3',
+      ]),
+    )
+    expect(result.current.loadedPageCount).toBe(3)
+    // The second loadMore must have used the prefetched buffer, not a
+    // fresh foreground query.
+    const newForegroundCalls = querySpy.mock.calls
+      .slice(callsBeforeNextLoadMore)
+      .filter((call) => call[0].page === 3)
+    expect(newForegroundCalls).toEqual([])
+  })
+
   test('does not load past the head pageCount', () => {
     const { result } = renderHook(() =>
       useExplorerInfinitePages({

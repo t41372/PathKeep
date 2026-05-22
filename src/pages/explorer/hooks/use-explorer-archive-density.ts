@@ -183,25 +183,20 @@ function buildBounds(
 ): ExplorerArchiveDensity['bounds'] {
   const firstYear = sortedYears[0]
   const lastYear = sortedYears[sortedYears.length - 1]
-  // Prefer the actual earliest / latest day that has a rollup row so the
-  // calendar can clamp to "first day with data" rather than Jan 1 of the
-  // first year (which might be barren for the first few months).
-  let firstIso = `${firstYear.toString().padStart(4, '0')}-01-01`
-  let lastIso = `${lastYear.toString().padStart(4, '0')}-12-31`
+  // Walk the real data once and pick the actual earliest / latest dates
+  // that have a rollup row. The previous tighten-toward-edges loop never
+  // assigned anything because its `dateKey < firstIso` / `dateKey > lastIso`
+  // gate was never satisfied against the Jan-1 / Dec-31 seed values, which
+  // is why clicking the topmost year on a partial-year archive used to
+  // jump to Dec 31 of a future year and trigger the empty state.
+  let earliest: string | null = null
+  let latest: string | null = null
   for (const dateKey of perDay.keys()) {
-    if (dateKey < firstIso || firstIso.startsWith(`${firstYear}-`)) {
-      // tighten only forward — keep the earliest known data day.
-      if (dateKey > firstIso) continue
-      if (dateKey.startsWith(`${firstYear}-`)) firstIso = dateKey
-    }
+    if (earliest === null || dateKey < earliest) earliest = dateKey
+    if (latest === null || dateKey > latest) latest = dateKey
   }
-  // Walk again for the latest day so we don't sit on Dec 31 of a future year.
-  for (const dateKey of perDay.keys()) {
-    if (dateKey > lastIso || lastIso.startsWith(`${lastYear}-`)) {
-      if (dateKey < lastIso) continue
-      if (dateKey.startsWith(`${lastYear}-`)) lastIso = dateKey
-    }
-  }
+  const firstIso = earliest ?? `${firstYear.toString().padStart(4, '0')}-01-01`
+  const lastIso = latest ?? `${lastYear.toString().padStart(4, '0')}-12-31`
   const totalDays =
     Math.max(
       1,

@@ -408,8 +408,12 @@ function InfiniteScrollFooter({
   const { canLoadMore, loadingMore, onLoadMore } = scroll
   // IntersectionObserver-driven lazy load. Triggers `onLoadMore` whenever
   // the sentinel scrolls into view AND there's more archive below.
-  // `rootMargin: 400px` pre-loads slightly before the bottom so the user
-  // never sees the skeleton pop in.
+  // `rootMargin: 1600px` is roughly two viewport heights of pre-load so a
+  // fast scroller stays ahead of the request waterfall on the encrypted
+  // 264k-row archive (a single `query_history` page can take 0.5-2s on a
+  // populated archive; 400px wasn't enough head-start). The contact sheet
+  // still pulls pages serially under the hood; pre-loading just hides the
+  // skeleton flash behind the visible window.
   useEffect(() => {
     const node = sentinelRef.current
     if (!node) return
@@ -426,7 +430,7 @@ function InfiniteScrollFooter({
           onLoadMore()
         }
       },
-      { root: null, rootMargin: '400px', threshold: 0 },
+      { root: null, rootMargin: '1600px', threshold: 0 },
     )
     observer.observe(node)
     return () => observer.disconnect()

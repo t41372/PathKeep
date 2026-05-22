@@ -521,21 +521,27 @@ function buildTarget(
   targetCopy: PaperExplorerCopy['target'],
 ): PaperContactSheetTarget | null {
   if (!targetDate) return null
+  // The "From X" banner only makes sense when the user actually landed
+  // here from another surface (Dashboard's On-this-day card, palette
+  // search, intelligence drill-down). For raw date jumps (calendar /
+  // year rail / day-nav arrows) there is no source, and pretending it
+  // was "On this day" creates a misleading 50-row filtered story —
+  // the day header itself already tells the user what day they are on.
+  if (!source) return null
   const targetDay = days.find((day) => day.date === targetDate)
-  const safeSource = source ?? 'on-this-day'
   const kicker =
-    safeSource === 'search'
+    source === 'search'
       ? query
         ? targetCopy.fromSearchWithQuery.replace('{query}', query)
         : targetCopy.fromSearch
-      : safeSource === 'intelligence'
+      : source === 'intelligence'
         ? targetCopy.fromIntelligence
         : targetCopy.fromOnThisDay
   const status = targetDay
     ? targetCopy.pagesArchived.replace('{count}', String(targetDay.visitCount))
     : targetCopy.noArchive
   return {
-    source: safeSource,
+    source,
     date: targetDate,
     kicker,
     prettyDate: prettyDay(targetDate, { language }),

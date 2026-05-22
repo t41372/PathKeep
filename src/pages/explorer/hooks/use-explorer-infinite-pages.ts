@@ -134,45 +134,67 @@ export function useExplorerInfinitePages({
   }, [signature, cacheToken])
 
   // Fetch any page in [2..accumulatedPages] that we don't have yet.
+  // Also opportunistically warm the next page so the IntersectionObserver
+  // sentinel only ever has to render an already-buffered slice — the
+  // visible skeleton stops popping in for fast scrollers on the
+  // populated 264k-row archive.
   useEffect(() => {
     if (disabled) return
     if (!headResults) return
     if (accumulatedPages <= 1) return
     const target = accumulatedPages
-    if (pageItems.has(target)) {
-      setLoadingMore(false)
-      return
-    }
-    if (inflightRef.current.has(target)) return
-    inflightRef.current.add(target)
-    setLoadingMore(true)
-    let cancelled = false
-    void backend
-      .queryHistory({ ...query, page: target, cursor: null })
-      .then((response) => {
-        if (cancelled) return
-        setPageItems((prev) => {
-          const next = new Map(prev)
-          next.set(target, response.items)
-          return next
+    const targetAlreadyBuffered = pageItems.has(target)
+    if (targetAlreadyBuffered) setLoadingMore(false)
+
+    const totalPages = headResults.pageCount ?? 0
+    const fetchPage = (page: number, options: { background: boolean }) => {
+      if (page <= 1) return
+      if (page > totalPages) return
+      if (pageItems.has(page)) return
+      if (inflightRef.current.has(page)) return
+      inflightRef.current.add(page)
+      if (!options.background) setLoadingMore(true)
+      void backend
+        .queryHistory({ ...query, page, cursor: null })
+        .then((response) => {
+          if (cancelled) return
+          setPageItems((prev) => {
+            const next = new Map(prev)
+            next.set(page, response.items)
+            return next
+          })
+          setError(null)
         })
-        setError(null)
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return
-        const message =
-          reason instanceof Error ? reason.message : String(reason)
-        setError(message)
-        // Roll the accumulated counter back so the next sentinel intersection
-        // retries cleanly instead of skipping the failed page.
-        setAccumulatedPages((current) =>
-          current === target ? current - 1 : current,
-        )
-      })
-      .finally(() => {
-        inflightRef.current.delete(target)
-        if (!cancelled) setLoadingMore(false)
-      })
+        .catch((reason: unknown) => {
+          if (cancelled) return
+          // Background prefetch failures stay silent — the user can still
+          // scroll, the foreground request will retry next time the
+          // sentinel re-fires. Foreground failures roll back the counter
+          // so the sentinel retries cleanly instead of skipping the page.
+          if (!options.background) {
+            const message =
+              reason instanceof Error ? reason.message : String(reason)
+            setError(message)
+            setAccumulatedPages((current) =>
+              current === page ? current - 1 : current,
+            )
+          }
+        })
+        .finally(() => {
+          inflightRef.current.delete(page)
+          if (!options.background && !cancelled) setLoadingMore(false)
+        })
+    }
+
+    let cancelled = false
+    if (!targetAlreadyBuffered) {
+      fetchPage(target, { background: false })
+    }
+    // Warm the next page in the background. We only warm one page ahead
+    // to stay polite to the worker pool — encrypted SQLite reads on the
+    // 264k-row archive are not free even when nobody is watching.
+    fetchPage(target + 1, { background: true })
+
     return () => {
       cancelled = true
     }

@@ -221,6 +221,44 @@ describe('useExplorerOgImages', () => {
     expect(enqueued).not.toContain('https://example.com/cached')
   })
 
+  test('rehydrates cache after triggerOgImageRefetch finishes so cards swap to social image', async () => {
+    const loadSpy = vi.spyOn(backend, 'loadHistoryOgImages')
+    // First load: only a negative-cache row exists. Cards would stay on
+    // the favicon fallback until the worker has fetched something.
+    loadSpy.mockResolvedValueOnce([
+      {
+        url: 'https://example.com/needs-social',
+        ogImage: null,
+        fetchStatus: 'missing',
+      },
+    ])
+    // Second load (after refetch resolves): the worker wrote real bytes.
+    loadSpy.mockResolvedValueOnce([
+      {
+        url: 'https://example.com/needs-social',
+        ogImage: { dataUrl: 'data:image/png;base64,ZZZ=' },
+        fetchStatus: 'ok',
+      },
+    ])
+    vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    vi.spyOn(backend, 'triggerOgImageRefetch').mockResolvedValue(1)
+
+    const results = historyResponse([
+      historyEntry(1, 'https://example.com/needs-social'),
+    ])
+    const { result } = renderHook(() =>
+      useExplorerOgImages({ cacheToken: 1, loading: false, results }),
+    )
+
+    await waitFor(() => {
+      const cached = result.current.ogImageCache.get(
+        historyOgImageLookupKey('https://example.com/needs-social'),
+      )
+      expect(cached?.dataUrl).toBe('data:image/png;base64,ZZZ=')
+    })
+    expect(loadSpy).toHaveBeenCalledTimes(2)
+  })
+
   test('swallows triggerOgImageRefetch rejections without poisoning the cache', async () => {
     vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
     vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()

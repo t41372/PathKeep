@@ -148,12 +148,38 @@ export function useExplorerOgImages({
         }
         if (enqueueCandidates.length > 0) {
           const batch = enqueueCandidates.slice(0, FETCH_ENQUEUE_BATCH_CAP)
-          void backend.triggerOgImageRefetch(batch).catch(() => {
-            // refetch is best-effort: rate-limit, network failure, or
-            // disabled-fetch settings all reject without poisoning the
-            // cache load. Surface nothing to the user — the worker
-            // persists a negative-cache row regardless.
-          })
+          // Refetch is async on the worker; without polling for completion,
+          // the cache stays on the favicon fallback even when the worker
+          // already wrote an `ok` row to the archive. Wait for the worker
+          // to finish, then re-read `loadHistoryOgImages` so the next
+          // setCacheState picks up the new bytes and the cards swap from
+          // favicon to social-card image without requiring a page refresh.
+          void backend
+            .triggerOgImageRefetch(batch)
+            .then(() => {
+              if (cancelled) return
+              return backend.loadHistoryOgImages(batch.map((url) => ({ url })))
+            })
+            .then((refreshed) => {
+              if (cancelled || !refreshed) return
+              setCacheState((current) => {
+                if (current.token !== cacheToken) return current
+                const next = new Map(current.entries)
+                for (const row of refreshed) {
+                  next.set(
+                    historyOgImageLookupKey(row.url),
+                    row.ogImage ?? null,
+                  )
+                }
+                return { token: cacheToken, entries: next }
+              })
+            })
+            .catch(() => {
+              // refetch is best-effort: rate-limit, network failure, or
+              // disabled-fetch settings all reject without poisoning the
+              // cache load. Surface nothing to the user — the worker
+              // persists a negative-cache row regardless.
+            })
         }
         setCacheState((current) => {
           const next = new Map(current.entries)
