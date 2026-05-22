@@ -39,6 +39,19 @@
     - 100% JS / Rust coverage 與 mutation gate 不放鬆；既有 quality-matrix.md 仍是權威。
     - 此 redesign 已獲使用者授權 override 之前 Accepted design docs（design-tokens / screens-and-nav / ux-principles / brutalist radius / typography memory）。
     - 後端只追加 url_annotations + url_tags table，現有 schema / commands 不破壞；migration 011 forward-only。
+  - 進度（2026-05-22 update — Browse UX second pass closed out）：
+    - ✅ **Year-rail removed**：`paper-year-rail*` files + `paper-contact-sheet-year-rail` testid + `yearRail*` i18n / `PaperExplorerCopy` keys all deleted. Day-nav pill + calendar popover are now the authoritative jump UI; global `::-webkit-scrollbar` bumped 6 → 12 px with 32 px min-thumb so the viewport scrollbar carries the fast-scroll role (`d36bf87`).
+    - ✅ **Browse infinite scroll**：`dateFiltered` no longer flips `infiniteDisabled`; both card and list mode infinite-scroll under `?date=YYYY-MM-DD` too. Search surface / grouped views still use pagination.
+    - ✅ **Day insights enriched**：collapsible "More details" disclosure adds first/last visit, peak hour, longest session, top-3 revisited URLs. `aggregateDayInsights` exposes the new fields; `localHourOf` now handles both ms-precision and second-precision `visitTime` so peak hour no longer spuriously lands on hour 0 (`8cf5c6f`).
+    - ✅ **List-row icon precedence**：`favicon → og:image (square crop) → swatch`. Pure render-time fallback over data the og:image hook already buffered (`feb6e6f`).
+    - ✅ **Detail panel slide-in**：`paper-detail-slide-in` keyframes + `paper-detail-backdrop-in` fade added; panel + scrim use `motion-safe:animate-[...]`. 220 ms cubic-bezier, GPU translate3d; respects `prefers-reduced-motion`.
+    - ✅ **12 h clock default + Settings toggle**：every non-chart time stamp now reads as `3:14 PM` / `上午 3:14`; `pathkeep.clockFormat` persists choice, `CLOCK_FORMAT_EVENT` flushes through live routes. Sparkline axes stay 24 h.
+    - ✅ **Day-nav pill localized**：`dow / monthDay / year` formats with the active i18n language instead of hard-coded `en-US`.
+    - ✅ **Browse view-mode persisted**：`pathkeep.explorerViewMode` localStorage; defaults to cards, survives reload.
+    - ✅ **Backup progress non-blocking**：new `BackgroundProgress` strip renders above the status bar gated by `BusyOverlayState.background = true`; archive unlock + truly-blocking actions keep the modal.
+    - ✅ **og:image fetcher headers**：real desktop Chrome User-Agent + `Accept-Language: en-US,en;q=0.9,zh;q=0.6`, follows up to 8 redirects (was 1), 15 s / 10 s timeouts. Privacy posture unchanged (no Referer / cookies / fingerprinting headers).
+    - ✅ **Authoritative gate**：`bun run check` (100 % JS / Rust coverage + desktop-contract mutation + e2e + desktop-bridge truth + release-check) green after this batch.
+
   - 進度（2026-05-19）：
     - ✅ **Foundation shipped**：Tailwind v4 + shadcn primitives + cn helper + paper tokens.css + fonts.css (bundled Newsreader / JetBrains Mono) + paper.css (noise / vignette / animations) + tailwind.css (@theme 對應 paper tokens 與 shadcn 變數)；@/ path alias 接入 tsconfig + vite。
     - ✅ **Shell shipped**：`src/components/shell/` 新增 PKBrandMark / PKGlyph / PKSidebar / PKTopbar / PKStatusBar / PKSearchPalette；`src/app/shell.tsx` 已重寫為新 shell；i18n shell namespace 新增 paper-redesign 鍵 (findAPage / archiving / sources* / palette* / epigraph1..6) 在三語齊備。
