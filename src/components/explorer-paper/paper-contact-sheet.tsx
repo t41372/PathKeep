@@ -1,8 +1,8 @@
 /**
  * PaperContactSheet — the composed Browse view shell.
  *
- * Wires the navigation chrome (toolbar + day-nav + calendar + year rail) to
- * the contact-sheet body (target banner + sticky day headers + sessions +
+ * Wires the navigation chrome (toolbar + day-nav + calendar) to the
+ * contact-sheet body (target banner + sticky day headers + sessions +
  * card/list rendering). Pure presentation — data + handlers come from props.
  *
  * ## Responsibilities
@@ -13,7 +13,6 @@
  * - For each PaperDay, emit a sticky PaperDayHeader followed by each
  *   PaperSession (header + either grid of ContactFrame/DomainStack or list
  *   rows depending on viewMode).
- * - Mount the YearRail on the right edge.
  *
  * ## Not responsible for
  * - Data fetching, paging, prefetch — the route owns useExplorerData/url.
@@ -23,7 +22,7 @@
  *   helper in `src/pages/explorer/paper/domain-color.ts`.
  *
  * ## Dependencies
- * - Paper Browse primitives + DayNavControl + CalendarPopover + YearRail.
+ * - Paper Browse primitives + DayNavControl + CalendarPopover.
  */
 
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
@@ -53,7 +52,6 @@ import {
   PaperDayNavControl,
   type PaperDayNavControlCopy,
 } from './paper-day-nav-control'
-import { PaperYearRail } from './paper-year-rail'
 
 export type PaperViewMode = 'cards' | 'list'
 
@@ -88,18 +86,6 @@ export interface PaperContactSheetDayNav {
   copy: PaperDayNavControlCopy
   /** Mounted calendar popover (PaperCalendarPopover) when calOpen is true. */
   calendarSlot?: ReactNode
-}
-
-export interface PaperContactSheetYearRail {
-  densityByYear: ReadonlyMap<number, number>
-  bounds: { firstYear: number; lastYear: number; lastIso: string }
-  currentDate: string
-  onJump: (iso: string) => void
-  ariaLabel?: string
-  /** Localised "now" caption under the newest-year footer. */
-  nowLabel?: string
-  /** Localised "first" caption under the oldest-year footer. */
-  firstLabel?: string
 }
 
 export interface PaperContactSheetCopy {
@@ -167,7 +153,6 @@ export interface PaperContactSheetProps {
   viewMode: PaperViewMode
   onViewModeChange: (next: PaperViewMode) => void
   dayNav: PaperContactSheetDayNav
-  yearRail?: PaperContactSheetYearRail
   /** Active target landed-on from another route; null when browsing freely. */
   target?: PaperContactSheetTarget | null
   onClearTarget?: () => void
@@ -203,7 +188,6 @@ export function PaperContactSheet({
   viewMode,
   onViewModeChange,
   dayNav,
-  yearRail,
   target,
   onClearTarget,
   selectedEntryId = null,
@@ -354,19 +338,6 @@ export function PaperContactSheet({
           </div>
         ))
       )}
-
-      {yearRail ? (
-        <PaperYearRail
-          densityByYear={yearRail.densityByYear}
-          bounds={yearRail.bounds}
-          currentDate={yearRail.currentDate}
-          onJump={yearRail.onJump}
-          ariaLabel={yearRail.ariaLabel}
-          nowLabel={yearRail.nowLabel}
-          firstLabel={yearRail.firstLabel}
-          testId="paper-contact-sheet-year-rail"
-        />
-      ) : null}
 
       {pagination ? <PaginationFooter pagination={pagination} /> : null}
       {infiniteScroll ? <InfiniteScrollFooter scroll={infiniteScroll} /> : null}

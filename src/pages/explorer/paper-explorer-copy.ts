@@ -90,10 +90,6 @@ export function buildPaperExplorerCopy(
       boundsMeta: t('paperBrowse.calendarBoundsMeta'),
       dialogLabel: t('paperBrowse.calendarDialogLabel'),
     },
-    yearRailTitle: t('paperBrowse.yearRailTitle'),
-    yearRailAria: t('paperBrowse.yearRailAria'),
-    yearRailNowLabel: t('paperBrowse.yearRailNowLabel'),
-    yearRailFirstLabel: t('paperBrowse.yearRailFirstLabel'),
     target: {
       fromOnThisDay: t('paperBrowse.targetFromOnThisDay'),
       fromSearch: t('paperBrowse.targetFromSearch'),

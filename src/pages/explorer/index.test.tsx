@@ -428,8 +428,8 @@ describe('ExplorerPage route shell', () => {
     )?.[0] as URLSearchParams
     expect(jumpedParams.get('date')).toBe('2026-04-15')
     // Sticky filters from earlier links (Dashboard's "On this day", palette
-    // search) must NOT survive a calendar/year-rail jump — the user expects
-    // the full day, not the 50-row filtered slice.
+    // search) must NOT survive a calendar jump — the user expects the full
+    // day, not the 50-row filtered slice.
     expect(jumpedParams.get('source')).toBeNull()
     expect(jumpedParams.get('q')).toBeNull()
 

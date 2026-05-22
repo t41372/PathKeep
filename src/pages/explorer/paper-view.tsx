@@ -31,7 +31,6 @@ import {
   type PaperContactSheetCopy,
   type PaperContactSheetDayNav,
   type PaperContactSheetTarget,
-  type PaperContactSheetYearRail,
   type PaperViewMode,
 } from '@/components/explorer-paper'
 import type { HistoryEntry } from '@/lib/types/archive'
@@ -84,14 +83,6 @@ export interface PaperExplorerCopy {
     boundsMeta: string
     dialogLabel: string
   }
-  /** Template for the year-rail tooltip: "{year} · {count} pages". */
-  yearRailTitle: string
-  /** ARIA label for the year-scrubber rail. */
-  yearRailAria: string
-  /** Caption under the newest-year footer of the year rail (e.g. "now"). */
-  yearRailNowLabel: string
-  /** Caption under the oldest-year footer of the year rail (e.g. "first"). */
-  yearRailFirstLabel: string
   /** Target-banner kicker copy for the four sources. */
   target: {
     fromOnThisDay: string
@@ -348,31 +339,6 @@ export function PaperExplorerView({
     return () => window.removeEventListener('keydown', handleKey)
   }, [calOpen])
 
-  const yearRail = useMemo<PaperContactSheetYearRail>(
-    () => ({
-      densityByYear: perYearDensity,
-      bounds: {
-        firstYear: bounds.firstYear,
-        lastYear: bounds.lastYear,
-        lastIso: bounds.lastIso,
-      },
-      currentDate: activeDate,
-      onJump: handleCalendarSelect,
-      ariaLabel: copy.yearRailAria,
-      nowLabel: copy.yearRailNowLabel,
-      firstLabel: copy.yearRailFirstLabel,
-    }),
-    [
-      perYearDensity,
-      bounds,
-      activeDate,
-      handleCalendarSelect,
-      copy.yearRailAria,
-      copy.yearRailNowLabel,
-      copy.yearRailFirstLabel,
-    ],
-  )
-
   const target = useMemo<PaperContactSheetTarget | null>(
     () =>
       buildTarget(
@@ -426,7 +392,6 @@ export function PaperExplorerView({
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       dayNav={{ ...dayNav, calendarSlot }}
-      yearRail={yearRail}
       target={target}
       onClearTarget={onClearTarget}
       selectedEntryId={selectedEntryId}

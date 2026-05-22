@@ -257,15 +257,30 @@
 }
 
 /* ═══ SCROLLBAR ═══ */
+/* Why this width: the paper Browse contact sheet routinely spans tens of
+ * thousands of rows, so the scrollbar is the only fast-jump affordance
+ * once we dropped the dedicated year rail. The thumb must be a real
+ * drag target, not a hairline. 12 px is the smallest width where macOS
+ * + Linux GTK + Chromium all surface a comfortable hover/grip area. */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  min-height: 32px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-faint);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:active {
+  background: var(--ink);
+  background-clip: padding-box;
 }

@@ -38,7 +38,6 @@ describe('buildPaperExplorerCopy', () => {
     expect(copy.calendar.months[0]).toBe('January')
     expect(copy.calendar.months[11]).toBe('December')
     expect(copy.calendar.dowLabels).toHaveLength(7)
-    expect(copy.yearRailTitle).toContain('{year}')
   })
 
   test('builds a complete copy bundle for Simplified Chinese', () => {
@@ -92,7 +91,6 @@ describe('buildPaperExplorerCopy', () => {
         copy.calendar.pagesArchived,
         copy.calendar.monthSummary,
         copy.calendar.boundsMeta,
-        copy.yearRailTitle,
       ]
       // When a key is missing, the translator returns the key itself
       // (e.g. "explorer.paperBrowse.contactSheetView"). Any value still

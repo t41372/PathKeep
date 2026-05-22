@@ -20,12 +20,12 @@
  *   for actual entries the user still pages through the history query.
  *
  * ## Why this hook exists
- * Without backend-side density, the calendar dot + year-rail tint were
- * derived from `groupEntriesByDay(entries)` — i.e. only the days that
- * appeared on page 1 of the active query. A 12-month archive that loaded
- * page 1 = today's visits would therefore show "no activity" on every
- * other day. This hook layers the real rollups on top so calendar /
- * year rail are honest about what's archived even before the user
+ * Without backend-side density, the calendar dot + per-year mini-map
+ * tint were derived from `groupEntriesByDay(entries)` — i.e. only the
+ * days that appeared on page 1 of the active query. A 12-month archive
+ * that loaded page 1 = today's visits would therefore show "no activity"
+ * on every other day. This hook layers the real rollups on top so the
+ * calendar popover is honest about what's archived even before the user
  * scrolls deeper into history.
  *
  * ## Performance notes

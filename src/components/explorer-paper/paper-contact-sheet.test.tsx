@@ -300,30 +300,6 @@ describe('PaperContactSheet', () => {
     expect(onClear).toHaveBeenCalledTimes(1)
   })
 
-  test('mounts the year rail when supplied and routes jumps to its handler', () => {
-    const onJump = vi.fn()
-    render(
-      <PaperContactSheet
-        days={baseDays()}
-        viewMode="cards"
-        onViewModeChange={() => {}}
-        dayNav={makeNav()}
-        yearRail={{
-          densityByYear: new Map([[2026, 100_000]]),
-          bounds: { firstYear: 2024, lastYear: 2026, lastIso: '2026-05-17' },
-          currentDate: '2026-05-16',
-          onJump,
-        }}
-        copy={COPY}
-        testId="cs-rail"
-      />,
-    )
-
-    const rail = screen.getByTestId('paper-contact-sheet-year-rail')
-    fireEvent.click(rail.querySelector('[data-year="2024"]') as HTMLElement)
-    expect(onJump).toHaveBeenCalledWith('2024-06-15')
-  })
-
   test('renders the empty state when no days are supplied', () => {
     render(
       <PaperContactSheet

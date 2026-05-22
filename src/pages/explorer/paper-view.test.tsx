@@ -71,10 +71,6 @@ const COPY: PaperExplorerCopy = {
     boundsMeta: '{firstYear}–{lastYear} · {totalDays} days',
     dialogLabel: 'Calendar',
   },
-  yearRailTitle: '{year} · {count} pages',
-  yearRailAria: 'Year scrubber',
-  yearRailNowLabel: 'now',
-  yearRailFirstLabel: 'first',
   target: {
     fromOnThisDay: "From 'On this day'",
     fromSearch: 'From search',
@@ -385,30 +381,6 @@ describe('PaperExplorerView', () => {
     )
 
     expect(screen.getByText('No archive for this exact day yet')).toBeVisible()
-  })
-
-  test('clicking a year on the rail jumps via onJumpToDate', () => {
-    const onJump = vi.fn()
-    render(
-      <PaperExplorerView
-        entries={sampleEntries()}
-        archiveBounds={{
-          firstIso: '2024-01-01',
-          lastIso: '2026-05-16',
-          firstYear: 2024,
-          lastYear: 2026,
-          totalDays: 900,
-        }}
-        copy={COPY}
-        todayIso="2026-05-17"
-        onJumpToDate={onJump}
-        testId="px-rail"
-      />,
-    )
-
-    const rail = screen.getByTestId('paper-contact-sheet-year-rail')
-    fireEvent.click(rail.querySelector('[data-year="2024"]') as HTMLElement)
-    expect(onJump).toHaveBeenCalledWith('2024-06-15')
   })
 
   test('selecting an entry surfaces the canonical HistoryEntry', () => {
