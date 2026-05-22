@@ -76,6 +76,17 @@ interface UseExplorerInfinitePagesOptions {
   cacheToken: number
 }
 
+/**
+ * Hard cap on how many pages we accumulate in memory before stopping
+ * infinite scroll. With the default 50 rows / page this lets the user
+ * stream ~5000 rows past the first page, which is roughly two screens
+ * of scroll on a 4K monitor in dense list mode — past that point the
+ * row count would balloon the DOM (no row virtualisation today) and
+ * make GC pressure visible on the target 4-core/8 GB box. The user can
+ * always jump deeper via the search palette or a date pill.
+ */
+const MAX_ACCUMULATED_PAGES = 100
+
 const SIGNATURE_FIELDS = [
   'q',
   'profileId',
@@ -119,19 +130,23 @@ export function useExplorerInfinitePages({
   const inflightRef = useRef<Set<number>>(new Set())
   const signatureRef = useRef<string>('')
 
-  // Reset whenever the query signature or cache token changes — that's the
-  // only honest moment to drop accumulated state without leaving stale
-  // rows on screen.
+  // Reset whenever the query signature OR the cache token changes — that's
+  // the only honest moment to drop accumulated state without leaving stale
+  // rows on screen. The cache-token bump is what fires after an import /
+  // backup / explicit refresh, so it must clear the buffer even when the
+  // query signature is unchanged; otherwise old page 2..N entries get
+  // concatenated onto a freshly reloaded page 1.
   const signature = useMemo(() => querySignature(query), [query])
+  const resetKey = `${signature}|${cacheToken}`
   useEffect(() => {
-    if (signature === signatureRef.current) return
-    signatureRef.current = signature
+    if (resetKey === signatureRef.current) return
+    signatureRef.current = resetKey
     setAccumulatedPages(1)
     setPageItems(new Map())
     setLoadingMore(false)
     setError(null)
     inflightRef.current.clear()
-  }, [signature, cacheToken])
+  }, [resetKey])
 
   // Fetch any page in [2..accumulatedPages] that we don't have yet.
   // Also opportunistically warm the next page so the IntersectionObserver
@@ -215,6 +230,7 @@ export function useExplorerInfinitePages({
 
   const canLoadMore = useMemo(() => {
     if (disabled || !headResults) return false
+    if (accumulatedPages >= MAX_ACCUMULATED_PAGES) return false
     if (accumulatedPages < (headResults.pageCount ?? 0)) return true
     return Boolean(headResults.hasNext) && accumulatedPages === 1
   }, [accumulatedPages, disabled, headResults])
@@ -224,6 +240,7 @@ export function useExplorerInfinitePages({
       if (disabled) return
       if (!headResults) return
       if (loadingMore) return
+      if (accumulatedPages >= MAX_ACCUMULATED_PAGES) return
       if (accumulatedPages >= (headResults.pageCount ?? 0)) return
       setAccumulatedPages((current) => current + 1)
     },

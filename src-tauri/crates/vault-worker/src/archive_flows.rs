@@ -501,8 +501,15 @@ fn record_refetch_outcome(
     if outcome.is_ok() {
         *successful += 1;
     }
-    if let Err(error) = vault_core::og_images::upsert_og_image(connection, &outcome.as_insert(url))
-    {
+    // Compute the negative-cache window from the outcome's terminal status
+    // so transient HTTP / parse / size failures get a real retry slot
+    // instead of going dormant forever with refetch_after = NULL.
+    let refetch_after =
+        vault_core::og_images_fetch::default_refetch_after_for_status(outcome.fetch_status());
+    if let Err(error) = vault_core::og_images::upsert_og_image(
+        connection,
+        &outcome.as_insert(url, refetch_after.as_deref()),
+    ) {
         *last_persist_error = Some(error);
     }
 }

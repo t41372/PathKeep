@@ -108,8 +108,14 @@ export function DashboardYearHeatmapCard({
   }, [activeProfileId, archiveReady, t])
 
   const startDate = useMemo(() => {
+    // `dashboardHeatmapRange` returns YYYY-MM-DD strings already in the
+    // user's local time. `new Date('YYYY-MM-DD')` would parse them as UTC,
+    // which in negative timezones (e.g. America/Phoenix UTC-7) becomes the
+    // previous local day — shifting every heatmap cell and click target by
+    // one. Parse the parts back as a local Date instead.
     const range = dashboardHeatmapRange(new Date())
-    return new Date(range.start)
+    const [year, month, day] = range.start.split('-').map(Number)
+    return new Date(year, month - 1, day)
   }, [])
   const cells = useMemo(
     () => buildYearHeatmapCells(points, startDate, HEATMAP_DAYS),

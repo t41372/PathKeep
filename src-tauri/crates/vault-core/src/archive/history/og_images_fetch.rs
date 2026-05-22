@@ -111,9 +111,20 @@ pub struct FetchedOgImage {
 
 impl FetchedOgImage {
     /// Borrows the owned fields into an `OgImageInsert` lifetime-tied
-    /// to `(self, page_url)`. The caller persists this directly via
-    /// `upsert_og_image`.
-    pub fn as_insert<'a>(&'a self, page_url: &'a str) -> OgImageInsert<'a> {
+    /// to `(self, page_url, refetch_after)`. The caller persists this
+    /// directly via `upsert_og_image`.
+    ///
+    /// `refetch_after` is an externally-owned ISO timestamp the caller
+    /// derived from this outcome's status via
+    /// `default_refetch_after_for_status`. Threading it as a borrowed
+    /// parameter keeps `OgImageInsert` purely borrowed without forcing
+    /// `FetchedOgImage` to allocate a `String` on every fetch (even the
+    /// success path, which gets `None`).
+    pub fn as_insert<'a>(
+        &'a self,
+        page_url: &'a str,
+        refetch_after: Option<&'a str>,
+    ) -> OgImageInsert<'a> {
         OgImageInsert {
             page_url,
             page_host: self.page_host.as_deref(),
@@ -124,7 +135,7 @@ impl FetchedOgImage {
             height: None,
             fetch_status: self.fetch_status,
             http_status: self.http_status,
-            refetch_after: None,
+            refetch_after,
             fetch_attempts: 1,
             created_by_run_id: None,
         }
@@ -140,6 +151,36 @@ impl FetchedOgImage {
     pub fn is_ok(&self) -> bool {
         self.fetch_status == fetch_status::OK
     }
+}
+
+/// Returns the ISO timestamp at which a failed-fetch row becomes eligible
+/// for the daily refetch scan. The cadence reflects how likely the next
+/// attempt is to succeed:
+///
+/// - `OK` / `BLOCKED`: no retry. Success rows don't need one; blocked hosts
+///   are an explicit user veto and must stay quiet.
+/// - `HTTP_ERROR`: 2 days. Transient: DNS, TLS, 5xx, rate-limit,
+///   stream-truncation. Fast enough that users see refreshes after a real
+///   outage without retry-storming flaky sites.
+/// - `PARSE_ERROR`: 7 days. Page returned but HTML was unparseable —
+///   usually a CDN error page or experimental SSR; less transient.
+/// - `MISSING`: 30 days. The page rendered fine but had no og:image tag.
+///   Most pages stay tag-less, but blogs / news sites do occasionally
+///   add social cards retroactively.
+/// - `TOO_LARGE`: 30 days. Same cadence as missing — sites swap social
+///   cards on redesigns, which can drop the byte size below our cap.
+/// - `UNSUPPORTED_MIME`: 60 days. Format swap is rarer than redesigns.
+pub fn default_refetch_after_for_status(status: &str) -> Option<String> {
+    let days: i64 = match status {
+        fetch_status::OK | fetch_status::BLOCKED => return None,
+        fetch_status::HTTP_ERROR => 2,
+        fetch_status::PARSE_ERROR => 7,
+        fetch_status::MISSING | fetch_status::TOO_LARGE => 30,
+        fetch_status::UNSUPPORTED_MIME => 60,
+        _ => return None,
+    };
+    let when = chrono::Utc::now() + chrono::Duration::days(days);
+    Some(when.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
 /// Convenience constructor for a host that was blocked by the user — no
@@ -567,11 +608,34 @@ mod tests {
     fn blocked_outcome_persists_block_state_without_bytes() {
         let outcome = blocked_outcome("https://github.com/foo");
         assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
-        let insert = outcome.as_insert("https://github.com/foo");
+        let insert = outcome.as_insert("https://github.com/foo", None);
         assert_eq!(insert.page_url, "https://github.com/foo");
         assert_eq!(insert.fetch_status, fetch_status::BLOCKED);
         assert!(insert.image_bytes.is_none());
         assert_eq!(insert.page_host, Some("github.com"));
+        // BLOCKED is a user veto — must never schedule a retry, even
+        // accidentally via the default_refetch_after helper.
+        assert!(default_refetch_after_for_status(fetch_status::BLOCKED).is_none());
+    }
+
+    #[test]
+    fn default_refetch_after_schedules_retry_windows_for_retryable_statuses() {
+        for status in [
+            fetch_status::HTTP_ERROR,
+            fetch_status::PARSE_ERROR,
+            fetch_status::MISSING,
+            fetch_status::TOO_LARGE,
+            fetch_status::UNSUPPORTED_MIME,
+        ] {
+            let when = default_refetch_after_for_status(status);
+            assert!(when.is_some(), "{status} must schedule a retry");
+            // ISO 3339 with seconds precision and Z suffix; cheaper than
+            // round-tripping through chrono in the assertion.
+            let value = when.unwrap();
+            assert!(value.ends_with('Z'), "{status} -> {value}");
+        }
+        assert!(default_refetch_after_for_status(fetch_status::OK).is_none());
+        assert!(default_refetch_after_for_status("unknown_status").is_none());
     }
 
     #[test]
@@ -601,7 +665,7 @@ mod tests {
         let outcome = fetch_og_image_for_unchecked(&client, &page_url);
         assert_eq!(outcome.fetch_status(), fetch_status::OK);
         assert!(outcome.is_ok());
-        let insert = outcome.as_insert(&page_url);
+        let insert = outcome.as_insert(&page_url, None);
         assert_eq!(insert.mime, Some("image/png"));
         assert_eq!(insert.image_bytes.unwrap().len(), png_bytes.len());
         assert_eq!(insert.fetch_status, fetch_status::OK);

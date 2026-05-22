@@ -27,7 +27,7 @@ use serde::Deserialize;
 use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
     ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
-    S3CredentialInput, SchedulePlan, TakeoutRequest,
+    ReplaceTagsRequest, S3CredentialInput, SchedulePlan, SetNotesRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -252,6 +252,28 @@ pub(super) struct PathPayload {
 pub(super) struct UrlPayload {
     pub(super) url: String,
 }
+
+/// Bridge envelope for the annotation-search command — the desktop signature
+/// takes both a non-optional query string and an optional row cap.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AnnotationSearchPayload {
+    pub(super) query: String,
+    pub(super) limit: Option<usize>,
+}
+
+/// Bridge envelope for the annotation-list command — mirrors the desktop
+/// signature's optional row cap.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AnnotationLimitPayload {
+    pub(super) limit: Option<usize>,
+}
+
+/// Bridge envelope for set_url_notes / replace_url_tags — both desktop
+/// commands group their typed input under a `request` field.
+pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
+pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
 
 /// Provides an optional human-readable reason for locking the app session.
 #[derive(Deserialize)]

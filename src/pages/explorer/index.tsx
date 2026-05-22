@@ -317,11 +317,13 @@ export function ExplorerPage() {
     ogImageCache,
     visibleTimeResults,
   ])
+  // Search the rendered (head + infinite-scroll-accumulated) item list,
+  // not just `visibleTimeResults` page 1 — otherwise selecting a row from
+  // page 2+ opens the detail panel against the first page-1 entry.
+  const selectedEntryPool = !loading ? renderedTimeResults : null
   const selectedEntry =
-    (!loading ? visibleTimeResults : null)?.items.find(
-      (item) => item.id === selectedId,
-    ) ??
-    (!loading ? visibleTimeResults : null)?.items[0] ??
+    selectedEntryPool?.items.find((item) => item.id === selectedId) ??
+    selectedEntryPool?.items[0] ??
     null
   const selectedGroupedVisit =
     selectedGroupedVisitState?.key === groupedSelectionKey

@@ -99,8 +99,16 @@ pub fn load_dashboard_snapshot(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    let totals = load_cached_archive_totals(&connection)?
-        .unwrap_or(count_visible_archive_totals(&connection)?);
+    // Dashboard "Span" reads `earliest_visit_at`/`latest_visit_at` so the
+    // user sees "1y 2m of archive" instead of the misleading "today" you
+    // used to get when the last backup completed minutes ago but the
+    // imported data spans a year. Both bounds live alongside the totals
+    // in the cached stats payload — at 14.4M visits, paying a fresh
+    // MIN/MAX scan on every dashboard render would dominate page load.
+    let totals = match load_cached_archive_totals(&connection)? {
+        Some(cached) => cached,
+        None => count_visible_archive_totals(&connection)?,
+    };
     let last_successful_backup_at = connection
         .query_row(
             "SELECT finished_at
@@ -113,25 +121,6 @@ pub fn load_dashboard_snapshot(
             |row| row.get(0),
         )
         .optional()?;
-
-    // Archive coverage bounds — the dashboard "Span" stat reads these so the
-    // user sees "1y 2m of archive" instead of the misleading "today" you used
-    // to get when the last backup completed minutes ago but the imported data
-    // spans a year. We use the same `reverted_at IS NULL` visible filter the
-    // totals query uses so rolled-back visits don't widen the displayed span.
-    // Both bounds are computed by the same statement to keep the read
-    // consistent (no torn snapshot across two queries).
-    let coverage_bounds: (Option<String>, Option<String>) = connection
-        .query_row(
-            "SELECT MIN(visit_time_iso), MAX(visit_time_iso)
-             FROM visits
-             WHERE reverted_at IS NULL",
-            [],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()?
-        .unwrap_or_default();
-    let (earliest_visit_at, latest_visit_at) = coverage_bounds;
 
     let next_action = if recent_runs.is_empty() {
         Some("Run a manual backup to create the first manifest and snapshot artifacts.".to_string())
@@ -146,8 +135,8 @@ pub fn load_dashboard_snapshot(
         total_visits: totals.total_visits,
         total_downloads: totals.total_downloads,
         last_successful_backup_at,
-        earliest_visit_at,
-        latest_visit_at,
+        earliest_visit_at: totals.earliest_visit_at,
+        latest_visit_at: totals.latest_visit_at,
         recent_runs,
         storage: storage_summary(paths),
         next_action,
@@ -402,5 +391,11 @@ fn archive_totals_from_stats(stats: &Value) -> Option<ArchiveVisibleTotals> {
         total_urls: stats.get("totalUrls")?.as_u64()? as usize,
         total_visits: stats.get("totalVisits")?.as_u64()? as usize,
         total_downloads: stats.get("totalDownloads")?.as_u64()? as usize,
+        earliest_visit_at: stats
+            .get("earliestVisitAt")
+            .and_then(|value| value.as_str().map(str::to_string)),
+        latest_visit_at: stats
+            .get("latestVisitAt")
+            .and_then(|value| value.as_str().map(str::to_string)),
     })
 }

@@ -193,6 +193,42 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "get_url_annotation" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(worker_bridge::get_annotation_impl(
+                session_key(&state.session).as_deref(),
+                &payload.url,
+            )?)
+        }
+        "set_url_notes" => {
+            let payload = parse_payload::<SetNotesPayload>(payload)?;
+            json_value!(worker_bridge::set_notes_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "replace_url_tags" => {
+            let payload = parse_payload::<ReplaceTagsPayload>(payload)?;
+            json_value!(worker_bridge::replace_tags_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "list_url_annotations" => {
+            let payload = parse_payload::<AnnotationLimitPayload>(payload)?;
+            json_value!(worker_bridge::list_annotations_impl(
+                session_key(&state.session).as_deref(),
+                payload.limit,
+            )?)
+        }
+        "search_url_annotations" => {
+            let payload = parse_payload::<AnnotationSearchPayload>(payload)?;
+            json_value!(worker_bridge::search_annotations_impl(
+                session_key(&state.session).as_deref(),
+                &payload.query,
+                payload.limit,
+            )?)
+        }
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(
                 session_key(&state.session).as_deref()

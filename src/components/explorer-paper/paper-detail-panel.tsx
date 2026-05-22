@@ -30,6 +30,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -167,6 +168,12 @@ export function PaperDetailPanel({
   const [notesValue, setNotesValue] = useState(notes)
   const [tagInput, setTagInput] = useState('')
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Holds the timeout callback so close/unmount/entry-switch can flush the
+  // still-debounced edit synchronously without losing the closure that
+  // captures the previous record's `onUpdateNotes` (which is bound to that
+  // record's url at the parent). Auto-save means auto-save: the panel has
+  // no explicit "discard" affordance, so closing should commit, not drop.
+  const pendingFlushRef = useRef<(() => void) | null>(null)
   const [savePending, setSavePending] = useState(false)
   // Track the prop values we synced from last so we can adjust state during
   // render when they change. This is the React 19-blessed alternative to
@@ -176,7 +183,10 @@ export function PaperDetailPanel({
 
   const nextEntryId = entry?.id ?? null
   if (nextEntryId !== trackedEntryId) {
-    // Panel switched to a different record — drop in the new record's notes.
+    // Swap in the new record's notes during render (React 19 supports
+    // setState during render to derive state from a prop change). The
+    // pending-flush ref is cleared in the layout effect below so we
+    // never mutate refs during render.
     setTrackedEntryId(nextEntryId)
     setNotesValue(notes)
     setLastSyncedNotes(notes)
@@ -186,9 +196,32 @@ export function PaperDetailPanel({
     setLastSyncedNotes(notes)
   }
 
+  // Flush any pending edit to the *previous* record's onUpdateNotes the
+  // moment trackedEntryId changes. Using useLayoutEffect keeps the flush
+  // synchronous with the swap so the new record never briefly shows the
+  // old text. The pending-flush closure captures the previous record's
+  // onUpdateNotes by reference, so it lands on the right entry.
+  useLayoutEffect(() => {
+    if (pendingFlushRef.current) {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = null
+      const flush = pendingFlushRef.current
+      pendingFlushRef.current = null
+      flush()
+    }
+  }, [trackedEntryId])
+
   useEffect(
     () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        saveTimer.current = null
+      }
+      if (pendingFlushRef.current) {
+        const flush = pendingFlushRef.current
+        pendingFlushRef.current = null
+        flush()
+      }
     },
     [],
   )
@@ -205,19 +238,24 @@ export function PaperDetailPanel({
     (next: string) => {
       setNotesValue(next)
       if (saveTimer.current) clearTimeout(saveTimer.current)
-      if (notesDebounceMs <= 0) {
+      // One closure shared between the debounce timer and the
+      // unmount/entry-switch flush path; both fire-paths capture the
+      // current `onUpdateNotes` so the edit always lands on the record
+      // the user was looking at when they typed.
+      const flush = () => {
+        saveTimer.current = null
+        pendingFlushRef.current = null
         setSavePending(false)
         setLastSyncedNotes(next)
         onUpdateNotes(next)
+      }
+      if (notesDebounceMs <= 0) {
+        flush()
         return
       }
+      pendingFlushRef.current = flush
       setSavePending(true)
-      saveTimer.current = setTimeout(() => {
-        saveTimer.current = null
-        setSavePending(false)
-        setLastSyncedNotes(next)
-        onUpdateNotes(next)
-      }, notesDebounceMs)
+      saveTimer.current = setTimeout(flush, notesDebounceMs)
     },
     [notesDebounceMs, onUpdateNotes],
   )

@@ -519,7 +519,9 @@ describe('PaperDetailPanel', () => {
     expect(onUpdateNotes).toHaveBeenCalledWith('final copy')
   })
 
-  test('unmount clears a pending debounced save timer', () => {
+  test('unmount flushes a pending debounced save before tearing down', () => {
+    // The panel has no explicit save button, so the user trusts auto-save.
+    // Closing / navigating away should commit pending text, not drop it.
     const onUpdateNotes = vi.fn()
     const { unmount } = render(
       <PaperDetailPanel
@@ -537,10 +539,54 @@ describe('PaperDetailPanel', () => {
       target: { value: 'unsent thoughts' },
     })
     unmount()
+    expect(onUpdateNotes).toHaveBeenCalledTimes(1)
+    expect(onUpdateNotes).toHaveBeenCalledWith('unsent thoughts')
+    // The timer should have been cancelled — advancing time afterwards
+    // must not double-fire the save.
     act(() => {
       vi.advanceTimersByTime(1000)
     })
-    expect(onUpdateNotes).not.toHaveBeenCalled()
+    expect(onUpdateNotes).toHaveBeenCalledTimes(1)
+  })
+
+  test('entry switch flushes the pending edit to the previous record', () => {
+    // A user types a note for record A, then clicks on record B before the
+    // debounce fires. The pending text belongs to A — the swap must not
+    // lose it (would be silent data loss) or carry it onto B (would write
+    // A's text to B's url).
+    const onUpdateNotesA = vi.fn()
+    const onUpdateNotesB = vi.fn()
+    const { rerender } = render(
+      <PaperDetailPanel
+        entry={makeEntry({ id: 1 })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotesA}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+    fireEvent.change(screen.getByTestId('paper-detail-notes'), {
+      target: { value: 'thought about record A' },
+    })
+    expect(onUpdateNotesA).not.toHaveBeenCalled()
+    rerender(
+      <PaperDetailPanel
+        entry={makeEntry({ id: 2 })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotesB}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+    expect(onUpdateNotesA).toHaveBeenCalledTimes(1)
+    expect(onUpdateNotesA).toHaveBeenCalledWith('thought about record A')
+    expect(onUpdateNotesB).not.toHaveBeenCalled()
   })
 
   test('resets the local notes buffer when entry id changes', () => {

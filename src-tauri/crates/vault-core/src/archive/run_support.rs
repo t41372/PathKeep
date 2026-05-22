@@ -37,13 +37,17 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Cheap visible-row counters cached for read models and run summaries.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Visible-row counters + coverage bounds cached for read models and run
+/// summaries. The bounds let the dashboard's "Span" stat avoid a per-render
+/// MIN/MAX scan of the visits table on large archives.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ArchiveVisibleTotals {
     pub(crate) total_profiles: usize,
     pub(crate) total_urls: usize,
     pub(crate) total_visits: usize,
     pub(crate) total_downloads: usize,
+    pub(crate) earliest_visit_at: Option<String>,
+    pub(crate) latest_visit_at: Option<String>,
 }
 
 /// Serialized manifest payload written to the audit repo after a successful run.
@@ -306,12 +310,17 @@ pub(crate) fn stats_with_archive_totals(connection: &Connection, stats: Value) -
     object.insert("totalUrls".to_string(), json!(totals.total_urls));
     object.insert("totalVisits".to_string(), json!(totals.total_visits));
     object.insert("totalDownloads".to_string(), json!(totals.total_downloads));
+    object.insert("earliestVisitAt".to_string(), json!(totals.earliest_visit_at));
+    object.insert("latestVisitAt".to_string(), json!(totals.latest_visit_at));
     Ok(Value::Object(object))
 }
 
-/// Counts visible archive totals without including reverted history rows.
+/// Counts visible archive totals (plus coverage bounds) without including
+/// reverted history rows.
 ///
-/// Read models use this as a fallback when cached totals are missing or stale.
+/// Read models use this as a fallback when cached totals are missing or
+/// stale. The bounds query is paid here once per backup-class run so the
+/// dashboard never has to scan every visit on render.
 pub(crate) fn count_visible_archive_totals(
     connection: &Connection,
 ) -> Result<ArchiveVisibleTotals> {
@@ -332,12 +341,24 @@ pub(crate) fn count_visible_archive_totals(
         [],
         |row| row.get(0),
     )?;
+    let bounds: (Option<String>, Option<String>) = connection
+        .query_row(
+            "SELECT MIN(visit_time_iso), MAX(visit_time_iso)
+             FROM visits
+             WHERE reverted_at IS NULL",
+            [],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?
+        .unwrap_or_default();
 
     Ok(ArchiveVisibleTotals {
         total_profiles: total_profiles.max(0) as usize,
         total_urls: total_urls.max(0) as usize,
         total_visits: total_visits.max(0) as usize,
         total_downloads: total_downloads.max(0) as usize,
+        earliest_visit_at: bounds.0,
+        latest_visit_at: bounds.1,
     })
 }
 

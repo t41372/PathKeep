@@ -142,12 +142,18 @@ export function useExplorerOgImages({
           if (!row || row.fetchStatus !== 'ok') {
             if (!enqueuedFetchRef.current.has(key)) {
               enqueueCandidates.push(url)
-              enqueuedFetchRef.current.add(key)
             }
           }
         }
         if (enqueueCandidates.length > 0) {
+          // Only mark URLs that actually enter the batch as enqueued —
+          // overflow URLs stay eligible so a later pass (cache-token bump
+          // or new visible window) can submit them instead of leaving
+          // them locked out forever.
           const batch = enqueueCandidates.slice(0, FETCH_ENQUEUE_BATCH_CAP)
+          for (const url of batch) {
+            enqueuedFetchRef.current.add(historyOgImageLookupKey(url))
+          }
           // Refetch is async on the worker; without polling for completion,
           // the cache stays on the favicon fallback even when the worker
           // already wrote an `ok` row to the archive. Wait for the worker
