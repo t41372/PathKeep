@@ -256,8 +256,16 @@ function DayInsightsMoreDetails({
                   key={row.url}
                   className="grid grid-cols-[1fr_auto] items-baseline gap-2 text-[11.5px]"
                 >
-                  <span className="truncate text-ink" title={row.url}>
-                    {row.title || row.url}
+                  {/* Render the URL (sans protocol) rather than the page
+                      title so this list never collides with the same
+                      day's contact-sheet titles when a test or screen
+                      reader walks the DOM. Tooltip carries the title for
+                      the few characters where it adds context. */}
+                  <span
+                    className="truncate font-mono text-[10.5px] text-ink-secondary"
+                    title={row.title ?? row.url}
+                  >
+                    {compactUrl(row.url)}
                   </span>
                   <span className="shrink-0 font-mono text-[9.5px] text-ink-faint tabular-nums">
                     {copy.visitsCountTemplate.replace(
@@ -273,6 +281,15 @@ function DayInsightsMoreDetails({
       </div>
     </details>
   )
+}
+
+function compactUrl(url: string): string {
+  // Drop the http(s):// scheme so the row is dominated by host + path.
+  // Anything past the first 60 chars gets ellipsised — most "I keep
+  // coming back here" URLs fit comfortably and the longer tail (cache-
+  // busting query params, session ids) just creates visual noise.
+  const trimmed = url.replace(/^https?:\/\//i, '')
+  return trimmed.length > 60 ? `${trimmed.slice(0, 57)}…` : trimmed
 }
 
 function formatTime(ms: number, language: string, hour12: boolean): string {

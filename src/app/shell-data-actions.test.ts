@@ -168,6 +168,11 @@ describe('createShellDataActions', () => {
       progressValue: null,
       steps: expect.any(Array),
       activeStep: 0,
+      // Manual backup is now a non-blocking action that renders as a
+      // bottom-bar BackgroundProgress strip; the shell uses this flag to
+      // pick the right surface. The other overlay snapshots inherit the
+      // same flag via buildBackupOverlay / inline payloads.
+      background: true,
     })
     expect(subscribeToBackupProgressMock).toHaveBeenCalledWith(
       expect.any(Function),

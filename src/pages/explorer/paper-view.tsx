@@ -244,17 +244,20 @@ export function PaperExplorerView({
   loading = false,
   language = 'en',
   todayIso,
-  initialViewMode = 'cards',
+  initialViewMode,
   copy,
   className,
   testId,
 }: PaperExplorerViewProps) {
-  // Prefer the last-used view mode (persisted in localStorage) over the
-  // ambient `initialViewMode` default so reopening Browse lands the user
-  // on the same surface they were reading from yesterday. Falls back to
-  // the explicit prop if the storage read fails (private mode, jsdom).
+  // Precedence: explicit `initialViewMode` prop (used by storybook fixtures
+  // and component tests that need a deterministic surface) wins over the
+  // persisted preference, which wins over the cards default. Only when no
+  // prop is passed do we fall through to localStorage — that keeps the
+  // route's normal "remember last toggle" behaviour intact without letting
+  // the previously-toggled value leak into tests that re-mount the view.
   const [viewMode, setViewMode] = useState<PaperViewMode>(() => {
-    if (typeof window === 'undefined') return initialViewMode
+    if (initialViewMode) return initialViewMode
+    if (typeof window === 'undefined') return 'cards'
     return readExplorerViewMode()
   })
   const handleViewModeChange = useCallback((next: PaperViewMode) => {
