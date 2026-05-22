@@ -256,11 +256,15 @@ function extractFallbackDomain(url: string | null | undefined): string {
 }
 
 function localHourOf(entry: HistoryEntry): number {
-  // Prefer the second-precision visitTime (Chrome epoch already converted),
-  // fall back to parsing visitedAt — both should land in the user's local
-  // timezone since we want to bucket by what the wall clock read.
+  // visitTime is sometimes seconds since epoch (legacy Chrome-style) and
+  // sometimes already ms (takeout / WebExtension API). Detect via the
+  // 1e12 threshold the rest of the helper already uses for `localMsOf`;
+  // otherwise we multiplied an ms value by 1,000 and got a fictional date
+  // ~50,000 years from now, which `getHours()` collapsed to 0 → "12 AM"
+  // showed up as a spurious peak hour even when no entry was at midnight.
   if (Number.isFinite(entry.visitTime) && entry.visitTime > 0) {
-    return new Date(entry.visitTime * 1000).getHours()
+    const ms = entry.visitTime > 1e12 ? entry.visitTime : entry.visitTime * 1000
+    return new Date(ms).getHours()
   }
   const parsed = Date.parse(entry.visitedAt)
   if (Number.isNaN(parsed)) return -1

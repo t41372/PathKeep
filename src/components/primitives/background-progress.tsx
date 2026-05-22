@@ -34,7 +34,8 @@ export function BackgroundProgress({
   const label = state.label || fallbackLabel || ''
   const detail = state.detail ?? null
   const progress =
-    typeof state.progressValue === 'number' && Number.isFinite(state.progressValue)
+    typeof state.progressValue === 'number' &&
+    Number.isFinite(state.progressValue)
       ? Math.max(0, Math.min(100, Math.round(state.progressValue)))
       : null
   const log = state.logLines?.[state.logLines.length - 1] ?? null
@@ -78,9 +79,15 @@ export function BackgroundProgress({
         <span
           className={cn(
             'block h-full bg-accent transition-[width] duration-200 ease-out',
-            progress === null ? 'animate-[background-progress-glide_1.4s_ease-in-out_infinite] w-1/3' : null,
+            progress === null
+              ? 'animate-[background-progress-glide_1.4s_ease-in-out_infinite] w-1/3'
+              : null,
           )}
-          style={progress === null ? undefined : { width: `${Math.max(progress, 2)}%` }}
+          style={
+            progress === null
+              ? undefined
+              : { width: `${Math.max(progress, 2)}%` }
+          }
         />
       </div>
       {detail || log ? (
