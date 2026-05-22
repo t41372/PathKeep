@@ -50,7 +50,7 @@
     - ✅ **Browse view-mode persisted**：`pathkeep.explorerViewMode` localStorage; defaults to cards, survives reload.
     - ✅ **Backup progress non-blocking**：new `BackgroundProgress` strip renders above the status bar gated by `BusyOverlayState.background = true`; archive unlock + truly-blocking actions keep the modal.
     - ✅ **og:image fetcher headers**：real desktop Chrome User-Agent + `Accept-Language: en-US,en;q=0.9,zh;q=0.6`, follows up to 8 redirects (was 1), 15 s / 10 s timeouts. Privacy posture unchanged (no Referer / cookies / fingerprinting headers).
-    - ✅ **Authoritative gate**：`bun run check` (100 % JS / Rust coverage + desktop-contract mutation + e2e + desktop-bridge truth + release-check) green after this batch.
+    - ✅ **Authoritative gate**：`bun run check` (100 % JS / Rust coverage + desktop-contract mutation + e2e + desktop-bridge truth + release-check) green after this batch — closeout commits add focused unit tests for `BackgroundProgress`, the new day-insights extras (first/last/peak/longest/topUrls), list-row favicon → og:image → swatch precedence, Browse view-mode persistence, and the `CLOCK_FORMAT_EVENT` reflow path so the 99 / 98 coverage gate stays satisfied without exclusions.
 
   - 進度（2026-05-19）：
     - ✅ **Foundation shipped**：Tailwind v4 + shadcn primitives + cn helper + paper tokens.css + fonts.css (bundled Newsreader / JetBrains Mono) + paper.css (noise / vignette / animations) + tailwind.css (@theme 對應 paper tokens 與 shadcn 變數)；@/ path alias 接入 tsconfig + vite。
