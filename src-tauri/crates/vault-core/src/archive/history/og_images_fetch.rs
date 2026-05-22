@@ -33,7 +33,10 @@ use crate::utils::url_domain;
 use anyhow::Result;
 use reqwest::{
     blocking::{Client, Response},
-    header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
+    header::{
+        ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue,
+        UPGRADE_INSECURE_REQUESTS, USER_AGENT,
+    },
 };
 use scraper::{Html, Selector};
 use std::time::Duration;
@@ -68,6 +71,26 @@ const ACCEPT_IMAGE: &str = "image/png,image/jpeg,image/webp,image/avif,image/gif
 // matches what every desktop browser sends and avoids 451-region quirks.
 const ACCEPT_LANGUAGE_VALUE: &str = "en-US,en;q=0.9,zh;q=0.6";
 
+// Fetch-metadata + UA client hints. Modern bot detection (Cloudflare,
+// Akamai, Vercel, Fastly bot manager) inspects `Sec-Fetch-*` and
+// `Sec-CH-UA*` and rejects requests that send a Chrome UA without these
+// headers because real Chrome always sends them. The previous UA-only
+// approach passed simple checks but still got 403/captcha on roughly a
+// third of the smoke set; sending the full fetch-metadata bundle lifts
+// the hit rate further without changing what we actually request.
+const SEC_FETCH_SITE: &str = "none";
+const SEC_FETCH_MODE_NAV: &str = "navigate";
+const SEC_FETCH_MODE_IMG: &str = "no-cors";
+const SEC_FETCH_USER: &str = "?1";
+const SEC_FETCH_DEST_DOC: &str = "document";
+const SEC_FETCH_DEST_IMG: &str = "image";
+// Chrome 127 client-hint trio. The exact brand list rotates each release
+// to limit fingerprinting but the shape is stable.
+const SEC_CH_UA: &str =
+    "\"Chromium\";v=\"127\", \"Not)A;Brand\";v=\"24\", \"Google Chrome\";v=\"127\"";
+const SEC_CH_UA_MOBILE: &str = "?0";
+const SEC_CH_UA_PLATFORM: &str = "\"Linux\"";
+
 /// Re-export of the reqwest blocking client type used across the fetch
 /// pipeline so other crates can name the same client without taking a
 /// direct dependency on reqwest. The og:image worker pool clones an
@@ -81,6 +104,18 @@ pub fn build_fetch_client() -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static(ACCEPT_LANGUAGE_VALUE));
+    headers.insert(UPGRADE_INSECURE_REQUESTS, HeaderValue::from_static("1"));
+    // The fetch-metadata and client-hint bundle is constant for our usage
+    // (always top-level navigation-style fetches from a Linux Chrome) so
+    // we set it once in the default headers; per-request code overrides
+    // `Sec-Fetch-Dest` and `Sec-Fetch-Mode` for the image-body fetch.
+    insert_static_header(&mut headers, "sec-fetch-site", SEC_FETCH_SITE);
+    insert_static_header(&mut headers, "sec-fetch-mode", SEC_FETCH_MODE_NAV);
+    insert_static_header(&mut headers, "sec-fetch-user", SEC_FETCH_USER);
+    insert_static_header(&mut headers, "sec-fetch-dest", SEC_FETCH_DEST_DOC);
+    insert_static_header(&mut headers, "sec-ch-ua", SEC_CH_UA);
+    insert_static_header(&mut headers, "sec-ch-ua-mobile", SEC_CH_UA_MOBILE);
+    insert_static_header(&mut headers, "sec-ch-ua-platform", SEC_CH_UA_PLATFORM);
     Client::builder()
         .default_headers(headers)
         // We enforce https on the page URL ourselves so http:// → parse_error.
@@ -95,6 +130,14 @@ pub fn build_fetch_client() -> Result<Client> {
         .redirect(reqwest::redirect::Policy::limited(8))
         .build()
         .map_err(Into::into)
+}
+
+fn insert_static_header(headers: &mut HeaderMap, name: &'static str, value: &'static str) {
+    // `from_static` panics on malformed input, but every callsite passes a
+    // module-private literal already validated by the constant above.
+    let name = HeaderName::from_static(name);
+    let value = HeaderValue::from_static(value);
+    headers.insert(name, value);
 }
 
 /// Owned fetch outcome. Always produced — even for failures — so the
@@ -297,7 +340,19 @@ fn fetch_og_image_for_pipeline(
         if upgrade_image_url { upgrade_http_to_https(&og_image_url) } else { og_image_url };
     outcome.source_og_url = Some(og_image_url.clone());
 
-    let image_response = match client.get(&og_image_url).header(ACCEPT, ACCEPT_IMAGE).send() {
+    // The image sub-resource fetch uses fetch-metadata that matches a
+    // real browser loading an <img> on the page: `Sec-Fetch-Dest: image`,
+    // `Sec-Fetch-Mode: no-cors`, `Sec-Fetch-Site: cross-site`. CDNs that
+    // hot-link-protect or bot-filter on Sec-Fetch-Site=none for image
+    // resources will then accept the request.
+    let image_response = match client
+        .get(&og_image_url)
+        .header(ACCEPT, ACCEPT_IMAGE)
+        .header("sec-fetch-dest", SEC_FETCH_DEST_IMG)
+        .header("sec-fetch-mode", SEC_FETCH_MODE_IMG)
+        .header("sec-fetch-site", "cross-site")
+        .send()
+    {
         Ok(response) => response,
         Err(error) => {
             outcome.fetch_status = fetch_status::HTTP_ERROR;

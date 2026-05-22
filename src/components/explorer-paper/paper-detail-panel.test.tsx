@@ -621,4 +621,43 @@ describe('PaperDetailPanel', () => {
       screen.getByTestId<HTMLTextAreaElement>('paper-detail-notes').value,
     ).toBe('second record notes')
   })
+
+  test('renders the favicon chip and og:image hero when both are provided', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry({
+          faviconDataUrl: 'data:image/png;base64,FAVICON',
+          ogImageDataUrl: 'data:image/png;base64,OGHERO',
+        })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        testId="paper-detail"
+      />,
+    )
+    const favicon = screen.getByTestId<HTMLImageElement>('paper-detail-favicon')
+    expect(favicon.src).toContain('FAVICON')
+    const hero = screen.getByTestId<HTMLImageElement>('paper-detail-og-hero')
+    expect(hero.src).toContain('OGHERO')
+  })
+
+  test('omits the favicon chip and og:image hero when neither is provided', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        testId="paper-detail"
+      />,
+    )
+    expect(screen.queryByTestId('paper-detail-favicon')).toBeNull()
+    expect(screen.queryByTestId('paper-detail-og-hero')).toBeNull()
+  })
 })

@@ -243,16 +243,6 @@ export function ExplorerPage() {
       ? queryState.results
       : null
   const visibleTimeResults = results ?? (loading ? stagedResults : null)
-  const { faviconCache } = useExplorerFavicons({
-    cacheToken: refreshKey,
-    loading,
-    results: visibleTimeResults,
-  })
-  const { ogImageCache } = useExplorerOgImages({
-    cacheToken: refreshKey,
-    loading,
-    results: visibleTimeResults,
-  })
   const archiveDensity = useExplorerArchiveDensity({
     archiveReady,
     profileId,
@@ -283,20 +273,36 @@ export function ExplorerPage() {
     disabled: infiniteDisabled,
     cacheToken: refreshKey,
   })
-  const renderedTimeResults = useMemo(() => {
-    if (!visibleTimeResults) {
-      return null
-    }
-    // When infinite scroll is active, prepend the head page items + every
-    // accumulated extra page so the contact sheet renders one continuous
-    // timeline. Date-filtered / search-surface views keep the head-only
-    // shape so their pagination footer still drives the visible window.
-    const combinedItems = infiniteDisabled
-      ? visibleTimeResults.items
-      : [...visibleTimeResults.items, ...infiniteExtraItems]
+  // Combine the head page + every accumulated infinite-scroll page into one
+  // synthetic `HistoryQueryResponse` so the lazy favicon / og:image hooks
+  // see every row the contact sheet is about to render, not just page 1.
+  // Without this, rows past page 1 never trigger an icon lookup and the
+  // list mode drowns in colored swatches.
+  const combinedTimeResults = useMemo(() => {
+    if (!visibleTimeResults) return null
+    if (infiniteDisabled) return visibleTimeResults
     return {
       ...visibleTimeResults,
-      items: combinedItems.map((item) => ({
+      items: [...visibleTimeResults.items, ...infiniteExtraItems],
+    }
+  }, [infiniteDisabled, infiniteExtraItems, visibleTimeResults])
+  const { faviconCache } = useExplorerFavicons({
+    cacheToken: refreshKey,
+    loading,
+    results: combinedTimeResults,
+  })
+  const { ogImageCache } = useExplorerOgImages({
+    cacheToken: refreshKey,
+    loading,
+    results: combinedTimeResults,
+  })
+  const renderedTimeResults = useMemo(() => {
+    if (!combinedTimeResults) {
+      return null
+    }
+    return {
+      ...combinedTimeResults,
+      items: combinedTimeResults.items.map((item) => ({
         ...item,
         favicon:
           item.favicon ??
@@ -310,13 +316,7 @@ export function ExplorerPage() {
           null,
       })),
     }
-  }, [
-    faviconCache,
-    infiniteDisabled,
-    infiniteExtraItems,
-    ogImageCache,
-    visibleTimeResults,
-  ])
+  }, [combinedTimeResults, faviconCache, ogImageCache])
   // Search the rendered (head + infinite-scroll-accumulated) item list,
   // not just `visibleTimeResults` page 1 — otherwise selecting a row from
   // page 2+ opens the detail panel against the first page-1 entry.

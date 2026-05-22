@@ -111,6 +111,19 @@ export interface PaperDetailPanelEntry {
   capturedIn?: string
   visitHistory?: PaperDetailPanelVisitHistoryRow[]
   titleVersions?: PaperDetailPanelTitleVersion[]
+  /**
+   * Optional cached favicon (data URL). Rendered as a 24-px chip next to
+   * the title so the panel reads at a glance instead of needing to parse
+   * the URL fragment to find the source site.
+   */
+  faviconDataUrl?: string | null
+  /**
+   * Optional cached og:image (data URL). Rendered as a 16:9 hero above
+   * the title when present. The card-mode contact sheet uses the same
+   * image, so the detail surface stays visually anchored to the row the
+   * user clicked.
+   */
+  ogImageDataUrl?: string | null
 }
 
 export interface PaperDetailPanelLookFurtherCounts {
@@ -348,12 +361,36 @@ export function PaperDetailPanel({
         </header>
 
         <div className="px-6 pb-8 pt-5">
-          <h2
-            id={`${entry.id}-detail-title`}
-            className="text-ink m-0 font-serif text-[20px] font-medium leading-[1.3] tracking-[-0.01em]"
-          >
-            {sanitizeExplorerDisplayText(entry.title || entry.url, 200)}
-          </h2>
+          {entry.ogImageDataUrl ? (
+            <img
+              src={entry.ogImageDataUrl}
+              alt=""
+              aria-hidden="true"
+              data-testid={
+                testId ? `${testId}-og-hero` : 'paper-detail-og-hero'
+              }
+              className="border-border-light bg-page mb-4 block aspect-[16/10] w-full rounded-paper border object-cover"
+            />
+          ) : null}
+          <div className="flex items-start gap-3">
+            {entry.faviconDataUrl ? (
+              <img
+                src={entry.faviconDataUrl}
+                alt=""
+                aria-hidden="true"
+                data-testid={
+                  testId ? `${testId}-favicon` : 'paper-detail-favicon'
+                }
+                className="border-border-light bg-page mt-1 h-6 w-6 shrink-0 rounded-[4px] border object-contain"
+              />
+            ) : null}
+            <h2
+              id={`${entry.id}-detail-title`}
+              className="text-ink m-0 flex-1 font-serif text-[20px] font-medium leading-[1.3] tracking-[-0.01em]"
+            >
+              {sanitizeExplorerDisplayText(entry.title || entry.url, 200)}
+            </h2>
+          </div>
           <a
             className="text-accent-text mt-2 block break-all font-mono text-[11.5px] leading-[1.4]"
             href={entry.url}

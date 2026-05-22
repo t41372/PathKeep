@@ -67,6 +67,8 @@ export function PaperDetailPanelMount({
         firstVisitAt: selectedEntry.visitedAt,
         lastVisitAt: selectedEntry.visitedAt,
         source: profileIdLabel(selectedEntry.profileId),
+        faviconDataUrl: selectedEntry.favicon?.dataUrl ?? null,
+        ogImageDataUrl: selectedEntry.ogImage?.dataUrl ?? null,
       }}
       notes={annotations.notesFor(selectedEntry.url)}
       tags={annotations.tagsFor(selectedEntry.url)}
