@@ -314,6 +314,48 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：第一階段只產出架構地圖、職責清單、拆分方案與 coverage gate 確認，不改產品碼；第二階段保持行為等價，不降低 `coverage:rust` 100% 與 `bun run check` gate。
   - 驗收：`cargo test --manifest-path src-tauri/Cargo.toml -p vault-core archive -- --test-threads=1`、`bun run coverage:rust`、`bun run check`，以及 `repo-baseline.md` / 本 BACKLOG 的 giant-file follow-up 回寫。
 
+- [!] **WORK-PERF-RUNTIME-LITE-A** — Intelligence Runtime Lite Read For Shell-Wide Sidebar Badges [!blocked: needs sidebar/intelligence contract design discussion]
+  - 讀先：
+    `docs/architecture/data-model.md`
+    `docs/plan/program/quality-matrix.md`
+    `src/app/shell-runtime-status.ts`
+    `src/components/sidebar/background-status.tsx`
+    `src/pages/intelligence/runtime-digest.tsx`
+    `src-tauri/crates/vault-core/src/intelligence_runtime/`
+    `src-tauri/crates/vault-core/src/models/core_intelligence/shared.rs`
+  - 觀察（2026-05-21）：`load_intelligence_runtime` 在已導入 264k 列 archive 上每次 shell mount 耗時約 2.9s（dev IPC，加密 SQLite）。原因是回應內嵌每個 recent job 的 `dirtyDateKeys`，單 job 可達 ~400 個 date string；shell sidebar / dashboard badge 其實只需 `queue.{queued,running,failed,lastActivityAt}` 與 running job 的少量欄位，並不消費 `dirtyDateKeys` 或完整 modules table。
+  - 目標：拆 `load_intelligence_runtime` 成兩條路徑：(1) `load_intelligence_runtime_digest`（lightweight，只回 queue counts、`lastActivityAt`、最 newest 一個 running job 的 `title`/`progressLabel`/`progressPercent`），(2) 既有的完整 `load_intelligence_runtime`（保留給 `/intelligence` route）。shell-runtime-status 改用 digest；intelligence runtime-digest panel 仍走完整 read。
+  - 契約：必須保留 100% coverage gate；不得在 digest 路徑遮蓋真實 failure（必須照常 surface error）；digest 與完整 read 對相同 queue counts 須一致（用單一 SQL 視角共享 SELECT）。
+  - 驗收：dashboard cold load 上 `runtime_digest` 響應 < 200ms（dev IPC、加密 archive、264k 列）；`bun run check`；新增 Rust + JS 測試覆蓋 digest path 並驗證跟完整 read 的 queue counts 一致。
+
+- [!] **WORK-PERF-OG-QUEUE-A** — Background OG Image Refetch Queue [!blocked: needs FE progress contract design discussion]
+  - 讀先：
+    `docs/features/explorer-browse.md`
+    `docs/architecture/data-model.md`
+    `src-tauri/crates/vault-core/src/archive/history/og_images.rs`
+    `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs`
+    `src-tauri/crates/vault-worker/src/archive_flows.rs`
+    `src-tauri/src/commands/archive.rs`
+    `src-tauri/src/dev_ipc_bridge/dispatch.rs`
+    `src/pages/explorer/hooks/use-explorer-og-images.ts`
+  - 觀察（2026-05-21）：`trigger_og_image_refetch` 是 fire-and-forget 從 FE 角度看是不阻塞 UI（commit cc93243 後 dev bridge 也包了 spawn_blocking），但 backend 端單次 batch 20 URL 仍會花 ~18s 把一條 dispatch 連線占住做網路+HTML 解析，背景成本不透明。
+  - 目標：把 refetch 拆成 enqueue + worker：command 立即返回 `{ enqueued, alreadyQueued }`，新 `og_image_fetch_jobs` 表（或 reuse 既有 intelligence queue）紀錄 pending URL 狀態；新 worker thread 處理 fetch，per-host rate limit 與 retry policy 集中在 worker；FE 改成 long-poll 或 SSE 觀察進度（沿用 import progress event 模式），UI 上 og:image cell 顯示骨架直到 worker 寫回。
+  - 契約：失敗仍要產 negative-cache row（既有合約不變）；UI 不得因 og:image 失敗轉成全頁錯誤；新 worker 要 honor user-agent / rate limit / timeout 既有設定；不得引入新依賴除非經審核。
+  - 驗收：batch 100+ URL 時 UI 維持 60fps；`bun run check`；新增 worker + FE polling 測試；docs/features/explorer-browse.md 更新 fetch lifecycle 圖。
+
+- [!] **WORK-PERF-VIRT-A** — Cards / List Virtualization For 14.4M-Row Goal [!blocked: needs measurement run on a 14M-row archive first to size the budget]
+  - 讀先：
+    `docs/architecture/data-model.md`
+    `docs/design/ui-review-guardrails.md`
+    `docs/features/explorer-browse.md`
+    `src/components/explorer-paper/paper-contact-sheet.tsx`
+    `src/components/explorer-paper/paper-list-row.tsx`
+    `src/pages/explorer/hooks/use-explorer-infinite-pages.ts`
+  - 觀察（2026-05-21）：目前 paper-contact-sheet 完整 render days/sessions/blocks。infinite scroll 每加載一頁 append 到 React tree。對 14.4M visit / 60 年中度使用者目標，單純依賴 infinite scroll 會在 1-2k DOM nodes 開始抖動；超過 5k 後 paint cost 不可接受。
+  - 目標：把 cards/list 的 visit row render path 換成 virtualization（探討 `react-virtuoso` / `@tanstack/react-virtual` / 自寫 windowing），保持 sticky day-header、per-day insights、infinite scroll sentinel 全部可用。先做 spike measurement（1M / 5M / 14M row preview fixture）建立 budget，再實作。
+  - 契約：必須評估依賴授權（依 AGENTS.md 紅線）；不得放棄既有 a11y/keyboard nav；不得拆掉 day header / 每日 insights / sessions grouping；列表/卡片切換時不得有 layout jank > 50ms；測試需含 jsdom + Playwright e2e。
+  - 驗收：14M-row preview fixture 上 scroll 維持 60fps（Chrome devtools performance trace 證明）；DOM node 上限不超過 viewport × 3；`bun run check` 與新增 e2e；docs/features/explorer-browse.md 更新。
+
 - [!] **WORK-QA-GATE-B** — Full Mutation Deep Sweep And Survivor Closeout [!blocked: schedule a dedicated multi-hour mutation hardening window]
   - 讀先：
     `docs/plan/program/quality-matrix.md`
