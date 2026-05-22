@@ -8,6 +8,17 @@ import { resolveDesktopBridgeEnv } from './scripts/pathkeep-dev-desktop-bridge.m
 const macosSandboxLaunchArgs =
   process.platform === 'darwin' ? ['--single-process'] : []
 
+// Mirror the escape hatch documented in `playwright.config.ts`: on Linux
+// 26.04 the Playwright-managed chrome-headless-shell binary is not yet
+// available, so `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` lets the dev box point
+// at a system-installed Chrome (`/usr/bin/google-chrome`) so the desktop
+// bridge truth gate can still run without waiting for upstream to bless the
+// OS version. Mac and CI continue to use the bundled binary.
+const linuxExecutableOverride =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+  process.env.PLAYWRIGHT_CHROME_EXECUTABLE_PATH ||
+  undefined
+
 function chromeTimestampMicros(timestampMs: number) {
   return Math.trunc(timestampMs * 1_000 + 11_644_473_600_000_000)
 }
@@ -269,6 +280,9 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         launchOptions: {
           args: macosSandboxLaunchArgs,
+          ...(linuxExecutableOverride
+            ? { executablePath: linuxExecutableOverride }
+            : {}),
         },
       },
     },
