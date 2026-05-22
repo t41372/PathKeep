@@ -37,6 +37,13 @@ use vault_core::{
 };
 use vault_platform::keyring_get_s3_credentials;
 
+use std::collections::HashMap;
+use std::ops::ControlFlow;
+use std::sync::mpsc::Sender;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, Instant};
+use vault_core::og_images_fetch::{FetchClient, FetchedOgImage};
+
 /// Previews replaying a saved browser-source checkpoint into the canonical archive.
 pub fn preview_snapshot_restore_plan(
     session_database_key: Option<&str>,
@@ -436,10 +443,7 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
 }
 
 /// Surfaces the last persist error from the worker drain if there was
-/// one, otherwise reports the success counter. Extracted so both arms
-/// have a direct unit-test path — the only way to reach the persist-error
-/// arm through `refetch_og_images` end-to-end is to corrupt the archive
-/// connection mid-run, which is harder to stage than the helper deserves.
+/// one, otherwise reports the success counter.
 fn finalize_refetch_run(successful: u32, last_persist_error: Option<anyhow::Error>) -> Result<u32> {
     if let Some(error) = last_persist_error {
         return Err(error);
@@ -450,26 +454,19 @@ fn finalize_refetch_run(successful: u32, last_persist_error: Option<anyhow::Erro
 /// Walks one work item through the per-worker pipeline. Returns
 /// `ControlFlow::Continue(())` while the worker should keep running, and
 /// `Break(())` when the queue is drained or the receiver has hung up.
-///
-/// Extracted so the inner pop-host-throttle-fetch-send sequence is unit
-/// testable end-to-end without spinning up the full worker pool / reqwest
-/// client. The `mutex_poison_recovers` and `sender_drop_breaks_loop`
-/// tests below drive each terminating path.
 fn drain_one_worker_url(
-    work: &std::sync::Mutex<Vec<String>>,
-    host_state: &std::sync::Arc<
-        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
-    >,
-    client: &vault_core::og_images_fetch::FetchClient,
+    work: &Mutex<Vec<String>>,
+    host_state: &Mutex<HashMap<String, Instant>>,
+    client: &FetchClient,
     blocked_hosts: &[String],
-    sender: &std::sync::mpsc::Sender<(String, vault_core::og_images_fetch::FetchedOgImage)>,
-    interval: std::time::Duration,
-) -> std::ops::ControlFlow<()> {
+    sender: &Sender<(String, FetchedOgImage)>,
+    interval: Duration,
+) -> ControlFlow<()> {
     let url = {
         let mut queue = lock_or_recover(work);
         match queue.pop() {
             Some(url) => url,
-            None => return std::ops::ControlFlow::Break(()),
+            None => return ControlFlow::Break(()),
         }
     };
 
@@ -484,22 +481,20 @@ fn drain_one_worker_url(
         vault_core::og_images_fetch::fetch_og_image_for(client, &url)
     };
     if sender.send((url, outcome)).is_err() {
-        return std::ops::ControlFlow::Break(());
+        return ControlFlow::Break(());
     }
-    std::ops::ControlFlow::Continue(())
+    ControlFlow::Continue(())
 }
 
 /// Receiver-side accumulator for one worker outcome. Bumps `successful`
 /// when the fetch produced bytes, persists the row regardless (so
 /// negative-cache outcomes still write their refetch_after window), and
 /// captures the *last* persist error so the parent function can surface
-/// it after the worker pool joins. Pulled out of the inline `while let`
-/// so all three branches — `is_ok` increment, upsert Ok, upsert Err —
-/// stay unit-testable without standing up a worker pool.
+/// it after the worker pool joins.
 fn record_refetch_outcome(
     connection: &rusqlite::Connection,
     url: &str,
-    outcome: &vault_core::og_images_fetch::FetchedOgImage,
+    outcome: &FetchedOgImage,
     successful: &mut u32,
     last_persist_error: &mut Option<anyhow::Error>,
 ) {
@@ -517,7 +512,7 @@ fn record_refetch_outcome(
 /// worker threads and the throttle book-keeping share `Arc<Mutex>` —
 /// if one worker panics, the rest must still finish their queue rather
 /// than poisoning the whole refetch run.
-fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -526,22 +521,17 @@ fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, 
 
 /// Computes how long the worker should sleep before issuing a request
 /// for `url`'s host, and records the next-allowed slot for that host.
-///
-/// Exposed at module scope so the rate-limit logic can be unit-tested
-/// directly without spinning up the full reqwest pipeline.
 fn host_throttle_wait(
-    host_state: &std::sync::Arc<
-        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
-    >,
+    host_state: &Mutex<HashMap<String, Instant>>,
     url: &str,
-    interval: std::time::Duration,
-) -> std::time::Duration {
+    interval: Duration,
+) -> Duration {
     let host = vault_core::utils::url_domain(url).to_ascii_lowercase();
     if host.is_empty() {
-        return std::time::Duration::ZERO;
+        return Duration::ZERO;
     }
     let mut state = lock_or_recover(host_state);
-    let now = std::time::Instant::now();
+    let now = Instant::now();
     let next_allowed = state.get(&host).copied().unwrap_or(now);
     let my_slot = if next_allowed > now { next_allowed } else { now };
     state.insert(host, my_slot + interval);
@@ -889,25 +879,14 @@ mod tests {
         drain_one_worker_url, finalize_refetch_run, host_throttle_wait, lock_or_recover,
         try_refetch_due_og_images,
     };
-    use crate::tests::lock_env;
+    use crate::tests::{
+        PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV, lock_env, restore_env_var,
+    };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
     use tempfile::tempdir;
     use vault_core::{AiQueueJob, AppConfig, ArchiveMode, OgImageCleanupReport};
-
-    const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
-    const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
-
-    fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
-        unsafe {
-            if let Some(value) = value {
-                std::env::set_var(name, value);
-            } else {
-                std::env::remove_var(name);
-            }
-        }
-    }
 
     fn fresh_host_state() -> Arc<Mutex<HashMap<String, Instant>>> {
         Arc::new(Mutex::new(HashMap::new()))

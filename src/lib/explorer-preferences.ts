@@ -79,6 +79,7 @@ export function readExplorerViewMode(): ExplorerViewMode {
 
 export function persistExplorerViewMode(mode: ExplorerViewMode): void {
   if (typeof window === 'undefined') return
+  if (readExplorerViewMode() === mode) return
   try {
     window.localStorage.setItem(EXPLORER_VIEW_MODE_STORAGE_KEY, mode)
   } catch {
@@ -112,6 +113,7 @@ export function readClockFormat(): ClockFormat {
 
 export function persistClockFormat(format: ClockFormat): void {
   if (typeof window === 'undefined') return
+  if (readClockFormat() === format) return
   try {
     window.localStorage.setItem(CLOCK_FORMAT_STORAGE_KEY, format)
   } catch {
@@ -139,19 +141,4 @@ export const CLOCK_FORMAT_EVENT = 'pathkeep.clockFormatChanged'
 
 export interface ClockFormatEventDetail {
   format: ClockFormat
-}
-
-/**
- * Returns `Intl.DateTimeFormatOptions` carrying the user's clock-format
- * preference. Call this everywhere we need to render an HH:MM stamp so
- * the format toggle takes effect uniformly.
- */
-export function clockFormatOptions(
-  format: ClockFormat,
-): Intl.DateTimeFormatOptions {
-  return {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: format === '12h',
-  }
 }

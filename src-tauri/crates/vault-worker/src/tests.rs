@@ -35,11 +35,11 @@ use vault_core::{
 };
 use vault_platform::keyring_set_provider_api_key;
 
-const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
+pub(crate) const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
 const FIREFOX_PROFILES_OVERRIDE_ENV: &str = "CHB_FIREFOX_PROFILES_DIR";
 const SAFARI_ROOT_OVERRIDE_ENV: &str = "CHB_SAFARI_ROOT";
-const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
+pub(crate) const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -50,7 +50,7 @@ pub(crate) fn lock_env() -> MutexGuard<'static, ()> {
     env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
+pub(crate) fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
     unsafe {
         if let Some(value) = value {
             std::env::set_var(name, value);

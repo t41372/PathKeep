@@ -180,11 +180,6 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     }
   }
 
-  const hourPeak = hourBuckets.reduce(
-    (peak, count) => (count > peak ? count : peak),
-    0,
-  )
-
   return {
     totalPages,
     typedCount,
@@ -194,7 +189,7 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     sessionCount: day.sessions.length,
     topDomains,
     hourBuckets,
-    hourPeak: Math.max(hourPeak, 1),
+    hourPeak: Math.max(peakCount, 1),
     firstVisitMs,
     lastVisitMs,
     peakHour,
@@ -256,17 +251,10 @@ function extractFallbackDomain(url: string | null | undefined): string {
 }
 
 function localHourOf(entry: HistoryEntry): number {
-  // visitTime is sometimes seconds since epoch (legacy Chrome-style) and
-  // sometimes already ms (takeout / WebExtension API). Detect via the
-  // 1e12 threshold the rest of the helper already uses for `localMsOf`;
-  // otherwise we multiplied an ms value by 1,000 and got a fictional date
-  // ~50,000 years from now, which `getHours()` collapsed to 0 → "12 AM"
-  // showed up as a spurious peak hour even when no entry was at midnight.
-  if (Number.isFinite(entry.visitTime) && entry.visitTime > 0) {
-    const ms = entry.visitTime > 1e12 ? entry.visitTime : entry.visitTime * 1000
-    return new Date(ms).getHours()
-  }
-  const parsed = Date.parse(entry.visitedAt)
-  if (Number.isNaN(parsed)) return -1
-  return new Date(parsed).getHours()
+  // visitTime carries seconds (legacy Chrome) or ms (takeout / WebExtension);
+  // delegate to localMsOf so the dual-format detection lives in one place.
+  // Otherwise an ms value gets multiplied by 1,000, producing a year ~50,000
+  // AD whose `getHours()` collapses to 0 and shows up as a phantom 12 AM peak.
+  const ms = localMsOf(entry)
+  return ms === null ? -1 : new Date(ms).getHours()
 }

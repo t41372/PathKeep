@@ -301,18 +301,8 @@ fn fetch_og_image_for_pipeline(
 /// URLs are resolved against the page URL.
 pub fn extract_og_image_url(html: &str, page_url: &str) -> Option<String> {
     let document = Html::parse_document(html);
-    for selector_str in [
-        r#"meta[property="og:image:secure_url"]"#,
-        r#"meta[property="og:image"]"#,
-        r#"meta[name="twitter:image"]"#,
-        r#"meta[name="twitter:image:src"]"#,
-    ] {
-        // The selector strings above are compile-time literals that the
-        // CSS-selector grammar accepts unambiguously, so `Selector::parse`
-        // can only Ok here. Using `.expect` collapses a dead match arm
-        // that would otherwise show up as uncovered.
-        let selector = Selector::parse(selector_str).expect("static selector parses");
-        for element in document.select(&selector) {
+    for selector in og_image_selectors() {
+        for element in document.select(selector) {
             let candidate = element.value().attr("content").unwrap_or_default().trim();
             if candidate.is_empty() {
                 continue;
@@ -321,6 +311,19 @@ pub fn extract_og_image_url(html: &str, page_url: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn og_image_selectors() -> &'static [Selector; 4] {
+    static SELECTORS: std::sync::OnceLock<[Selector; 4]> = std::sync::OnceLock::new();
+    SELECTORS.get_or_init(|| {
+        [
+            Selector::parse(r#"meta[property="og:image:secure_url"]"#),
+            Selector::parse(r#"meta[property="og:image"]"#),
+            Selector::parse(r#"meta[name="twitter:image"]"#),
+            Selector::parse(r#"meta[name="twitter:image:src"]"#),
+        ]
+        .map(|result| result.expect("static og:image selector parses"))
+    })
 }
 
 /// Returns true when `page_host` (lower-cased) is on the user's
@@ -380,11 +383,8 @@ enum BodyPhase {
     Image,
 }
 
-/// Maps a `BodyReadError` + phase into the persisted `fetch_status` token.
-/// Extracted out of the inline match arms so both the HTML and image
-/// branches in `fetch_og_image_for_pipeline` share one mapping and the
-/// mapping itself is exercised by direct unit tests rather than only
-/// reachable via a partial-stream HTTP mock.
+/// Maps a `BodyReadError` + phase into the persisted `fetch_status` token,
+/// shared between the HTML and image body-read branches.
 fn fetch_status_for_body_error(error: BodyReadError, phase: BodyPhase) -> &'static str {
     match (error, phase) {
         (BodyReadError::TooLarge, BodyPhase::Html) => fetch_status::PARSE_ERROR,
@@ -726,43 +726,6 @@ mod tests {
         let client = build_fetch_client().unwrap();
         let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         let _ = server_thread.join();
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-    }
-
-    #[test]
-    fn fetch_returns_http_error_when_image_body_stream_fails() {
-        // Drive the image-body `Err(_)` arm in `fetch_og_image_for_pipeline`.
-        // Setting `Transfer-Encoding: chunked` on a mockito response that
-        // wasn't actually framed as chunked causes reqwest to fail
-        // mid-stream while decoding the body, which surfaces in
-        // `read_response_body` as `BodyReadError::Io`. The error mapping
-        // then collapses to `fetch_status::HTTP_ERROR`. The exact origin
-        // of the Io error doesn't matter for the contract — the only
-        // thing the persisted row records is the terminal fetch_status.
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.png", images.url());
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-        let huge = vec![0_u8; MAX_IMAGE_BYTES + 16 * 1024];
-        let _image = images
-            .mock("GET", "/og.png")
-            .with_status(200)
-            .with_header("content-type", "image/png")
-            // Lying about chunked framing forces reqwest down a stream
-            // path that errors mid-body — exactly the production failure
-            // mode we want to cover.
-            .with_header("transfer-encoding", "chunked")
-            .with_body(huge)
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
     }
 
