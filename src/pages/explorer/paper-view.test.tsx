@@ -7,7 +7,7 @@
  * PaperContactSheet.
  */
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { HistoryEntry } from '@/lib/types/archive'
 import { PaperExplorerView, type PaperExplorerCopy } from './paper-view'
@@ -449,6 +449,96 @@ describe('PaperExplorerView', () => {
     )
 
     expect(screen.getByText('From intelligence')).toBeVisible()
+  })
+
+  test('reads the persisted view mode from localStorage when no initialViewMode is passed', () => {
+    window.localStorage.setItem('pathkeep.explorerViewMode', 'list')
+    try {
+      render(
+        <PaperExplorerView
+          entries={sampleEntries()}
+          copy={COPY}
+          todayIso="2026-05-17"
+          testId="px-persist-list"
+        />,
+      )
+      // List mode renders entries as rows rather than ContactFrame cards;
+      // the toggle button "☰ List" exists in both modes, so we look for
+      // a list-row entry-id button instead — it only renders in list mode.
+      const rowButtons = document.querySelectorAll(
+        'button[data-entry-id]:not([data-testid$="-frame"])',
+      )
+      expect(rowButtons.length).toBeGreaterThan(0)
+    } finally {
+      window.localStorage.removeItem('pathkeep.explorerViewMode')
+    }
+  })
+
+  test('explicit initialViewMode wins over persisted localStorage value', () => {
+    window.localStorage.setItem('pathkeep.explorerViewMode', 'list')
+    try {
+      render(
+        <PaperExplorerView
+          entries={sampleEntries()}
+          copy={COPY}
+          todayIso="2026-05-17"
+          initialViewMode="cards"
+          testId="px-prop-wins"
+        />,
+      )
+      // Cards mode renders card frames identified by the testid prefix.
+      const cardFrames = document.querySelectorAll(
+        'button[data-entry-id] .aspect-\\[16\\/10\\]',
+      )
+      expect(cardFrames.length).toBeGreaterThan(0)
+    } finally {
+      window.localStorage.removeItem('pathkeep.explorerViewMode')
+    }
+  })
+
+  test('toggling the view mode persists the new value via localStorage', () => {
+    window.localStorage.removeItem('pathkeep.explorerViewMode')
+    try {
+      render(
+        <PaperExplorerView
+          entries={sampleEntries()}
+          copy={COPY}
+          todayIso="2026-05-17"
+          initialViewMode="cards"
+          testId="px-toggle-persist"
+        />,
+      )
+      fireEvent.click(screen.getByRole('tab', { name: '☰ List' }))
+      expect(window.localStorage.getItem('pathkeep.explorerViewMode')).toBe(
+        'list',
+      )
+    } finally {
+      window.localStorage.removeItem('pathkeep.explorerViewMode')
+    }
+  })
+
+  test('reflows live when CLOCK_FORMAT_EVENT fires with a different format', () => {
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        testId="px-clock-event"
+      />,
+    )
+    // Default is 12h, so any rendered time stamp must read with AM/PM.
+    expect(document.body.textContent).toMatch(/AM|PM/)
+    // Now dispatch the live preference change to 24h and confirm the
+    // session header reflows without remounting the route. Wrap in act()
+    // so React commits the setState before we observe the new DOM text.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('pathkeep.clockFormatChanged', {
+          detail: { format: '24h' },
+        }),
+      )
+    })
+    expect(document.body.textContent).not.toMatch(/\bAM\b|\bPM\b/)
   })
 })
 

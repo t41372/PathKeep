@@ -257,6 +257,139 @@ describe('PaperContactSheet', () => {
     expect(icon?.src).toBe('data:image/png;base64,iVBORw0KG')
   })
 
+  test('list view falls back to og:image when favicon is missing, before the swatch', () => {
+    const dayWithOg: PaperDay = {
+      date: '2026-05-16',
+      visitCount: 1,
+      domains: 1,
+      sessions: [
+        {
+          id: 'og-session',
+          startMs: 0,
+          endMs: 0,
+          visitCount: 1,
+          blocks: [
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 1000,
+                title: 'A page with only og:image',
+                domain: 'no-favicon.test',
+                url: 'https://no-favicon.test/page',
+                favicon: null,
+                ogImage: { dataUrl: 'data:image/webp;base64,UklGR' },
+              }),
+            },
+          ],
+        },
+      ],
+    }
+    const { container } = render(
+      <PaperContactSheet
+        days={[dayWithOg]}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        testId="cs-list-og"
+      />,
+    )
+    const icon = container.querySelector<HTMLImageElement>(
+      'img[src^="data:image/webp;base64"]',
+    )
+    expect(icon).not.toBeNull()
+    expect(icon?.src).toBe('data:image/webp;base64,UklGR')
+  })
+
+  test('list view shows the domain-color swatch only when both favicon and og:image are missing', () => {
+    const dayWithSwatch: PaperDay = {
+      date: '2026-05-16',
+      visitCount: 1,
+      domains: 1,
+      sessions: [
+        {
+          id: 'swatch-session',
+          startMs: 0,
+          endMs: 0,
+          visitCount: 1,
+          blocks: [
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 1001,
+                title: 'A bare page',
+                domain: 'no-icons.test',
+                url: 'https://no-icons.test/page',
+                favicon: null,
+                ogImage: null,
+              }),
+            },
+          ],
+        },
+      ],
+    }
+    const { container } = render(
+      <PaperContactSheet
+        days={[dayWithSwatch]}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        testId="cs-list-swatch"
+      />,
+    )
+    expect(
+      container.querySelector('img[src^="data:image"]'),
+    ).toBeNull()
+    // Swatch span uses the inline background style and the truncated
+    // initials block from getDomainAbbr.
+    const swatch = container.querySelector<HTMLSpanElement>(
+      'span[aria-hidden="true"][style*="background"]',
+    )
+    expect(swatch).not.toBeNull()
+  })
+
+  test('forwards hour12=false through formatTimeFromVisitTime so session times are 24h', () => {
+    const dayWith24h: PaperDay = {
+      date: '2026-05-16',
+      visitCount: 1,
+      domains: 1,
+      sessions: [
+        {
+          id: '24h-session',
+          startMs: new Date('2026-05-16T13:14:00').getTime(),
+          endMs: new Date('2026-05-16T14:01:00').getTime(),
+          visitCount: 1,
+          blocks: [
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 1002,
+                title: 'A page',
+                domain: 'example.com',
+                url: 'https://example.com/page',
+                visitTime: new Date('2026-05-16T13:14:00').getTime() / 1000,
+              }),
+            },
+          ],
+        },
+      ],
+    }
+    render(
+      <PaperContactSheet
+        days={[dayWith24h]}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        hour12={false}
+        copy={COPY}
+        testId="cs-list-24h"
+      />,
+    )
+    // Session header reads the 24h range.
+    expect(screen.getByText(/13:14.*14:01/)).toBeVisible()
+  })
+
   test('view-toggle reports the new mode through onViewModeChange', () => {
     const onChange = vi.fn()
     render(
