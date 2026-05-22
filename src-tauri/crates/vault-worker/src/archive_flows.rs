@@ -404,33 +404,16 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
         let blocked_hosts = Arc::clone(&blocked_hosts);
         let sender = sender.clone();
         handles.push(std::thread::spawn(move || {
-            loop {
-                let url = {
-                    let mut queue = match work.lock() {
-                        Ok(guard) => guard,
-                        Err(poisoned) => poisoned.into_inner(),
-                    };
-                    match queue.pop() {
-                        Some(url) => url,
-                        None => break,
-                    }
-                };
-
-                let wait = host_throttle_wait(&host_state, &url, RATE_LIMIT_PER_HOST);
-                if !wait.is_zero() {
-                    std::thread::sleep(wait);
-                }
-
-                let outcome =
-                    if vault_core::og_images_fetch::is_host_blocked(blocked_hosts.as_ref(), &url) {
-                        vault_core::og_images_fetch::blocked_outcome(&url)
-                    } else {
-                        vault_core::og_images_fetch::fetch_og_image_for(&client, &url)
-                    };
-                if sender.send((url, outcome)).is_err() {
-                    break;
-                }
-            }
+            while drain_one_worker_url(
+                &work,
+                &host_state,
+                client.as_ref(),
+                blocked_hosts.as_ref(),
+                &sender,
+                RATE_LIMIT_PER_HOST,
+            )
+            .is_continue()
+            {}
         }));
     }
     drop(sender);
@@ -438,22 +421,109 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
     let mut successful = 0_u32;
     let mut last_persist_error: Option<anyhow::Error> = None;
     while let Ok((url, outcome)) = receiver.recv() {
-        if outcome.is_ok() {
-            successful += 1;
-        }
-        if let Err(error) =
-            vault_core::og_images::upsert_og_image(&connection, &outcome.as_insert(&url))
-        {
-            last_persist_error = Some(error);
-        }
+        record_refetch_outcome(
+            &connection,
+            &url,
+            &outcome,
+            &mut successful,
+            &mut last_persist_error,
+        );
     }
     for handle in handles {
         let _ = handle.join();
     }
+    finalize_refetch_run(successful, last_persist_error)
+}
+
+/// Surfaces the last persist error from the worker drain if there was
+/// one, otherwise reports the success counter. Extracted so both arms
+/// have a direct unit-test path — the only way to reach the persist-error
+/// arm through `refetch_og_images` end-to-end is to corrupt the archive
+/// connection mid-run, which is harder to stage than the helper deserves.
+fn finalize_refetch_run(
+    successful: u32,
+    last_persist_error: Option<anyhow::Error>,
+) -> Result<u32> {
     if let Some(error) = last_persist_error {
         return Err(error);
     }
     Ok(successful)
+}
+
+/// Walks one work item through the per-worker pipeline. Returns
+/// `ControlFlow::Continue(())` while the worker should keep running, and
+/// `Break(())` when the queue is drained or the receiver has hung up.
+///
+/// Extracted so the inner pop-host-throttle-fetch-send sequence is unit
+/// testable end-to-end without spinning up the full worker pool / reqwest
+/// client. The `mutex_poison_recovers` and `sender_drop_breaks_loop`
+/// tests below drive each terminating path.
+fn drain_one_worker_url(
+    work: &std::sync::Mutex<Vec<String>>,
+    host_state: &std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    >,
+    client: &vault_core::og_images_fetch::FetchClient,
+    blocked_hosts: &[String],
+    sender: &std::sync::mpsc::Sender<(String, vault_core::og_images_fetch::FetchedOgImage)>,
+    interval: std::time::Duration,
+) -> std::ops::ControlFlow<()> {
+    let url = {
+        let mut queue = lock_or_recover(work);
+        match queue.pop() {
+            Some(url) => url,
+            None => return std::ops::ControlFlow::Break(()),
+        }
+    };
+
+    let wait = host_throttle_wait(host_state, &url, interval);
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+
+    let outcome = if vault_core::og_images_fetch::is_host_blocked(blocked_hosts, &url) {
+        vault_core::og_images_fetch::blocked_outcome(&url)
+    } else {
+        vault_core::og_images_fetch::fetch_og_image_for(client, &url)
+    };
+    if sender.send((url, outcome)).is_err() {
+        return std::ops::ControlFlow::Break(());
+    }
+    std::ops::ControlFlow::Continue(())
+}
+
+/// Receiver-side accumulator for one worker outcome. Bumps `successful`
+/// when the fetch produced bytes, persists the row regardless (so
+/// negative-cache outcomes still write their refetch_after window), and
+/// captures the *last* persist error so the parent function can surface
+/// it after the worker pool joins. Pulled out of the inline `while let`
+/// so all three branches — `is_ok` increment, upsert Ok, upsert Err —
+/// stay unit-testable without standing up a worker pool.
+fn record_refetch_outcome(
+    connection: &rusqlite::Connection,
+    url: &str,
+    outcome: &vault_core::og_images_fetch::FetchedOgImage,
+    successful: &mut u32,
+    last_persist_error: &mut Option<anyhow::Error>,
+) {
+    if outcome.is_ok() {
+        *successful += 1;
+    }
+    if let Err(error) = vault_core::og_images::upsert_og_image(connection, &outcome.as_insert(url)) {
+        *last_persist_error = Some(error);
+    }
+}
+
+/// Locks a mutex and recovers the inner data when a previous holder
+/// panicked while holding it. The recovery path matters because both
+/// worker threads and the throttle book-keeping share `Arc<Mutex>` —
+/// if one worker panics, the rest must still finish their queue rather
+/// than poisoning the whole refetch run.
+fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 /// Computes how long the worker should sleep before issuing a request
@@ -472,10 +542,7 @@ fn host_throttle_wait(
     if host.is_empty() {
         return std::time::Duration::ZERO;
     }
-    let mut state = match host_state.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+    let mut state = lock_or_recover(host_state);
     let now = std::time::Instant::now();
     let next_allowed = state.get(&host).copied().unwrap_or(now);
     let my_slot = if next_allowed > now { next_allowed } else { now };
@@ -821,12 +888,28 @@ mod tests {
         append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
         append_core_refresh_import_result, append_og_image_cleanup_result,
         append_og_image_refetch_due_result, core_refresh_import_note, core_refresh_rebuild_scopes,
-        host_throttle_wait,
+        drain_one_worker_url, finalize_refetch_run, host_throttle_wait, lock_or_recover,
+        record_refetch_outcome, try_refetch_due_og_images,
     };
+    use crate::tests::lock_env;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
-    use vault_core::{AiQueueJob, OgImageCleanupReport};
+    use tempfile::tempdir;
+    use vault_core::{AiQueueJob, AppConfig, ArchiveMode, OgImageCleanupReport};
+
+    const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
+    const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
+
+    fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
+    }
 
     fn fresh_host_state() -> Arc<Mutex<HashMap<String, Instant>>> {
         Arc::new(Mutex::new(HashMap::new()))
@@ -938,6 +1021,343 @@ mod tests {
         let second =
             host_throttle_wait(&state, "https://example.com/b", Duration::from_millis(500));
         assert!(second > Duration::ZERO, "case variants must share a host slot");
+    }
+
+    #[test]
+    fn lock_or_recover_returns_inner_data_when_lock_is_clean() {
+        let mutex = Mutex::new(vec![1_u8, 2, 3]);
+        let guard = lock_or_recover(&mutex);
+        assert_eq!(*guard, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn lock_or_recover_recovers_poisoned_lock() {
+        // Poison the mutex on purpose, then verify lock_or_recover still
+        // hands the data back instead of bubbling the PoisonError. This is
+        // the contract the og:image worker pool relies on so one panicked
+        // worker can't take down the rest of the refetch run.
+        let mutex = Arc::new(Mutex::new(vec![10_u8]));
+        let mutex_clone = Arc::clone(&mutex);
+        let join = std::thread::spawn(move || {
+            let _guard = mutex_clone.lock().expect("first lock");
+            panic!("poisoning the mutex on purpose");
+        });
+        let _ = join.join(); // we expect the thread to have panicked
+        assert!(mutex.is_poisoned());
+        let guard = lock_or_recover(&mutex);
+        assert_eq!(*guard, vec![10_u8]);
+    }
+
+    #[test]
+    fn record_refetch_outcome_increments_successful_for_ok_outcomes() {
+        use crate::archive_flows::record_refetch_outcome as recorder;
+        let connection = rusqlite::Connection::open_in_memory().expect("memory db");
+        vault_core::archive::create_schema(&connection).expect("schema");
+
+        let png_bytes: [u8; 9] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF];
+        let ok_outcome = vault_core::og_images_fetch::ok_outcome_for_test(
+            "https://example.com/x",
+            "https://example.com/og.png",
+            &png_bytes,
+            "image/png",
+        );
+
+        let mut successful = 0_u32;
+        let mut last_error = None;
+        recorder(
+            &connection,
+            "https://example.com/x",
+            &ok_outcome,
+            &mut successful,
+            &mut last_error,
+        );
+        assert_eq!(successful, 1);
+        assert!(last_error.is_none());
+    }
+
+    #[test]
+    fn record_refetch_outcome_records_persist_error_when_schema_is_absent() {
+        use crate::archive_flows::record_refetch_outcome as recorder;
+        // A connection with no schema makes `upsert_og_image` fail with
+        // "no such table: og_images". This drives the
+        // `if let Err(error) = upsert_og_image(...) { last_persist_error = ... }`
+        // branch end-to-end with no network or worker pool involvement.
+        let connection = rusqlite::Connection::open_in_memory().expect("memory db");
+
+        let outcome = vault_core::og_images_fetch::blocked_outcome("https://example.com/blocked");
+        let mut successful = 0_u32;
+        let mut last_error = None;
+        recorder(
+            &connection,
+            "https://example.com/blocked",
+            &outcome,
+            &mut successful,
+            &mut last_error,
+        );
+        // outcome.is_ok() == false for blocked → success counter stays put
+        // and the persist call surfaces the missing-table error.
+        assert_eq!(successful, 0);
+        assert!(last_error.is_some(), "missing schema must surface as a persist error");
+    }
+
+    #[test]
+    fn drain_one_worker_url_returns_break_when_queue_is_empty() {
+        let work = Mutex::new(Vec::<String>::new());
+        let host_state = fresh_host_state();
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let blocked: Vec<String> = Vec::new();
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let flow = drain_one_worker_url(
+            &work,
+            &host_state,
+            &client,
+            &blocked,
+            &sender,
+            Duration::from_millis(0),
+        );
+        assert!(matches!(flow, std::ops::ControlFlow::Break(())));
+    }
+
+    #[test]
+    fn drain_one_worker_url_breaks_when_receiver_is_dropped() {
+        // Dropping the receiver causes `sender.send` to fail; the worker
+        // must observe that and break instead of spinning. We use a
+        // host-blocked URL so the inner branch returns a deterministic
+        // outcome with no network call.
+        let work = Mutex::new(vec!["https://blocked.test/a".to_string()]);
+        let host_state = fresh_host_state();
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let blocked: Vec<String> = vec!["blocked.test".to_string()];
+        let (sender, receiver) = std::sync::mpsc::channel();
+        drop(receiver);
+        let flow = drain_one_worker_url(
+            &work,
+            &host_state,
+            &client,
+            &blocked,
+            &sender,
+            Duration::from_millis(0),
+        );
+        assert!(matches!(flow, std::ops::ControlFlow::Break(())));
+    }
+
+    #[test]
+    fn drain_one_worker_url_processes_a_blocked_host_and_continues() {
+        let work = Mutex::new(vec!["https://blocked.test/a".to_string()]);
+        let host_state = fresh_host_state();
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let blocked: Vec<String> = vec!["blocked.test".to_string()];
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let flow = drain_one_worker_url(
+            &work,
+            &host_state,
+            &client,
+            &blocked,
+            &sender,
+            Duration::from_millis(0),
+        );
+        assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
+        let (url, outcome) = receiver.try_recv().expect("a forwarded outcome");
+        assert_eq!(url, "https://blocked.test/a");
+        assert!(!outcome.is_ok());
+    }
+
+    #[test]
+    fn drain_one_worker_url_observes_host_throttle_sleep_path() {
+        // Pre-poison the host_state so the throttle returns a non-zero
+        // wait, ensuring the `if !wait.is_zero() { std::thread::sleep }`
+        // arm fires inside the worker body. Use a 1 ms interval so the
+        // test still runs fast.
+        let host_state = fresh_host_state();
+        // Seed the state by walking a previous URL through the throttle.
+        let _ = host_throttle_wait(
+            &host_state,
+            "https://blocked.test/seed",
+            Duration::from_millis(20),
+        );
+
+        let work = Mutex::new(vec!["https://blocked.test/a".to_string()]);
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let blocked: Vec<String> = vec!["blocked.test".to_string()];
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let started = Instant::now();
+        let flow = drain_one_worker_url(
+            &work,
+            &host_state,
+            &client,
+            &blocked,
+            &sender,
+            Duration::from_millis(20),
+        );
+        let elapsed = started.elapsed();
+        assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
+        // Sleep arm ran — total elapsed should reflect the throttle wait.
+        // Loose bound to keep the test stable on a busy CI host.
+        assert!(elapsed >= Duration::from_millis(5), "throttle sleep should have fired");
+        assert!(receiver.try_recv().is_ok());
+    }
+
+    #[test]
+    fn drain_one_worker_url_calls_fetch_og_image_for_unblocked_hosts() {
+        // Force the !is_host_blocked branch by leaving the blocklist
+        // empty. Use an `http://127.0.0.1:0` URL so the production
+        // `fetch_og_image_for` short-circuits at its https-only guard
+        // without reaching the network. The arm we care about is the
+        // `vault_core::og_images_fetch::fetch_og_image_for(client, url)`
+        // call; the resulting outcome carries `parse_error` because
+        // http:// is rejected, which is fine — we only assert that the
+        // worker forwarded a message for the URL.
+        let work = Mutex::new(vec!["http://127.0.0.1:1/test".to_string()]);
+        let host_state = fresh_host_state();
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let blocked: Vec<String> = Vec::new();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let flow = drain_one_worker_url(
+            &work,
+            &host_state,
+            &client,
+            &blocked,
+            &sender,
+            Duration::from_millis(0),
+        );
+        assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
+        let (url, _outcome) = receiver.try_recv().expect("a forwarded outcome");
+        assert_eq!(url, "http://127.0.0.1:1/test");
+    }
+
+    #[test]
+    fn finalize_refetch_run_returns_success_when_no_persist_error_recorded() {
+        assert_eq!(finalize_refetch_run(3, None).unwrap(), 3);
+    }
+
+    #[test]
+    fn finalize_refetch_run_surfaces_last_persist_error_when_present() {
+        let result = finalize_refetch_run(2, Some(anyhow::anyhow!("write failed")));
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("write failed"));
+    }
+
+    fn write_test_config(paths: &vault_core::ProjectPaths, config: &AppConfig) {
+        if let Some(parent) = paths.archive_database_path.parent() {
+            std::fs::create_dir_all(parent).expect("archive db parent");
+        }
+        if let Some(parent) = paths.config_path.parent() {
+            std::fs::create_dir_all(parent).expect("config parent");
+        }
+        std::fs::write(&paths.config_path, serde_json::to_string(config).expect("config json"))
+            .expect("write config");
+    }
+
+    #[test]
+    fn try_refetch_due_og_images_short_circuits_when_fetch_disabled() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        config.og_image.fetch_enabled = false;
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let result = try_refetch_due_og_images(None, 10);
+        assert_eq!(result.expect("try_refetch returns"), (0, 0));
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn try_refetch_due_og_images_returns_zero_when_no_due_rows_exist() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        // Archive has no og:image rows, so the due list is empty and
+        // `try_refetch_due_og_images` returns (0, 0) without ever calling
+        // `refetch_og_images`.
+        let result = try_refetch_due_og_images(None, 10).expect("try_refetch returns");
+        assert_eq!(result, (0, 0));
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn try_refetch_due_og_images_drives_refetch_for_due_urls() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        // Block every host we'd otherwise hit so the worker pool returns
+        // a deterministic `blocked` outcome with no network touch and
+        // the drained tally still flows through the success-counter and
+        // upsert paths.
+        config.og_image.blocked_hosts = vec!["blocked.test".to_string()];
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        // Pre-seed a row whose refetch_after window is already in the
+        // past so `list_urls_due_for_refetch` returns it.
+        let connection =
+            vault_core::archive::open_archive_connection(&paths, &config, None).expect("connection");
+        let insert = vault_core::og_images::OgImageInsert {
+            page_url: "https://blocked.test/page",
+            page_host: Some("blocked.test"),
+            source_og_url: None,
+            image_bytes: None,
+            mime: None,
+            width: None,
+            height: None,
+            fetch_status: "missing",
+            http_status: Some(503),
+            refetch_after: Some("2000-01-01T00:00:00Z"),
+            fetch_attempts: 1,
+            created_by_run_id: None,
+        };
+        vault_core::og_images::upsert_og_image(&connection, &insert).expect("insert");
+        drop(connection);
+
+        let (due, _successful) = try_refetch_due_og_images(None, 10).expect("try_refetch");
+        assert_eq!(due, 1, "the seeded row must surface as the one due URL");
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
     }
 
     #[test]

@@ -121,7 +121,13 @@ pub fn load_dashboard_snapshot(
     // totals query uses so rolled-back visits don't widen the displayed span.
     // Both bounds are computed by the same statement to keep the read
     // consistent (no torn snapshot across two queries).
-    let coverage_bounds: Option<(Option<String>, Option<String>)> = connection
+    // `SELECT MIN()/MAX()` on a filtered aggregate always returns exactly
+    // one row (both columns NULL when no visits match), so `optional()?`
+    // collapses to the same outer shape every time. Use `unwrap_or_default`
+    // instead of `match` so the no-rows arm doesn't show up as an
+    // unreachable line in coverage — Tuple<Option<T>, Option<T>>::default()
+    // is (None, None), the same fallback we'd return from the missing arm.
+    let coverage_bounds: (Option<String>, Option<String>) = connection
         .query_row(
             "SELECT MIN(visit_time_iso), MAX(visit_time_iso)
              FROM visits
@@ -129,11 +135,9 @@ pub fn load_dashboard_snapshot(
             [],
             |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
         )
-        .optional()?;
-    let (earliest_visit_at, latest_visit_at) = match coverage_bounds {
-        Some((earliest, latest)) => (earliest, latest),
-        None => (None, None),
-    };
+        .optional()?
+        .unwrap_or_default();
+    let (earliest_visit_at, latest_visit_at) = coverage_bounds;
 
     let next_action = if recent_runs.is_empty() {
         Some("Run a manual backup to create the first manifest and snapshot artifacts.".to_string())

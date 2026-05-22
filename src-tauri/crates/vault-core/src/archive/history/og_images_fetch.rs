@@ -68,6 +68,12 @@ const ACCEPT_IMAGE: &str = "image/png,image/jpeg,image/webp,image/avif,image/gif
 // matches what every desktop browser sends and avoids 451-region quirks.
 const ACCEPT_LANGUAGE_VALUE: &str = "en-US,en;q=0.9,zh;q=0.6";
 
+/// Re-export of the reqwest blocking client type used across the fetch
+/// pipeline so other crates can name the same client without taking a
+/// direct dependency on reqwest. The og:image worker pool clones an
+/// `Arc<FetchClient>` to every worker thread.
+pub type FetchClient = Client;
+
 /// Builds the reqwest client used by the fetch pipeline. Exposed so the
 /// orchestrator can share one client across many fetches (connection
 /// pool reuse, single timeout policy).
@@ -149,6 +155,28 @@ pub fn blocked_outcome(page_url: &str) -> FetchedOgImage {
     }
 }
 
+/// Builds a synthetic "ok" outcome carrying the given bytes / mime so
+/// downstream-crate tests can exercise success branches in
+/// `refetch_og_images` without standing up a mockito server. Marked
+/// `#[doc(hidden)]` because it's strictly test infrastructure, not a
+/// production constructor.
+#[doc(hidden)]
+pub fn ok_outcome_for_test(
+    page_url: &str,
+    source_og_url: &str,
+    image_bytes: &[u8],
+    mime: &'static str,
+) -> FetchedOgImage {
+    FetchedOgImage {
+        page_host: nonempty_host(page_url),
+        source_og_url: Some(source_og_url.to_string()),
+        image_bytes: Some(image_bytes.to_vec()),
+        mime: Some(mime),
+        fetch_status: fetch_status::OK,
+        http_status: Some(200),
+    }
+}
+
 /// One pass through the fetch pipeline.
 pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
     if !page_url.starts_with("https://") {
@@ -207,12 +235,8 @@ fn fetch_og_image_for_pipeline(
     }
     let html_bytes = match read_response_body(page, MAX_HTML_BYTES) {
         Ok(bytes) => bytes,
-        Err(BodyReadError::TooLarge) => {
-            outcome.fetch_status = fetch_status::PARSE_ERROR;
-            return outcome;
-        }
-        Err(BodyReadError::Io) => {
-            outcome.fetch_status = fetch_status::HTTP_ERROR;
+        Err(error) => {
+            outcome.fetch_status = fetch_status_for_body_error(error, BodyPhase::Html);
             return outcome;
         }
     };
@@ -260,12 +284,8 @@ fn fetch_og_image_for_pipeline(
     }
     let bytes = match read_response_body(image_response, MAX_IMAGE_BYTES) {
         Ok(bytes) => bytes,
-        Err(BodyReadError::TooLarge) => {
-            outcome.fetch_status = fetch_status::TOO_LARGE;
-            return outcome;
-        }
-        Err(BodyReadError::Io) => {
-            outcome.fetch_status = fetch_status::HTTP_ERROR;
+        Err(error) => {
+            outcome.fetch_status = fetch_status_for_body_error(error, BodyPhase::Image);
             return outcome;
         }
     };
@@ -287,10 +307,11 @@ pub fn extract_og_image_url(html: &str, page_url: &str) -> Option<String> {
         r#"meta[name="twitter:image"]"#,
         r#"meta[name="twitter:image:src"]"#,
     ] {
-        let selector = match Selector::parse(selector_str) {
-            Ok(selector) => selector,
-            Err(_) => continue,
-        };
+        // The selector strings above are compile-time literals that the
+        // CSS-selector grammar accepts unambiguously, so `Selector::parse`
+        // can only Ok here. Using `.expect` collapses a dead match arm
+        // that would otherwise show up as uncovered.
+        let selector = Selector::parse(selector_str).expect("static selector parses");
         for element in document.select(&selector) {
             let candidate = element.value().attr("content").unwrap_or_default().trim();
             if candidate.is_empty() {
@@ -347,6 +368,29 @@ fn supported_image_mime(response: &Response) -> Option<&'static str> {
 enum BodyReadError {
     TooLarge,
     Io,
+}
+
+/// Whether a body-read failure originated from the HTML phase (where
+/// oversized payloads collapse to a generic `parse_error` because we
+/// can't actually parse the og:image meta tag) or the image phase
+/// (where the same condition is honestly `too_large`).
+#[derive(Debug, Clone, Copy)]
+enum BodyPhase {
+    Html,
+    Image,
+}
+
+/// Maps a `BodyReadError` + phase into the persisted `fetch_status` token.
+/// Extracted out of the inline match arms so both the HTML and image
+/// branches in `fetch_og_image_for_pipeline` share one mapping and the
+/// mapping itself is exercised by direct unit tests rather than only
+/// reachable via a partial-stream HTTP mock.
+fn fetch_status_for_body_error(error: BodyReadError, phase: BodyPhase) -> &'static str {
+    match (error, phase) {
+        (BodyReadError::TooLarge, BodyPhase::Html) => fetch_status::PARSE_ERROR,
+        (BodyReadError::TooLarge, BodyPhase::Image) => fetch_status::TOO_LARGE,
+        (BodyReadError::Io, _) => fetch_status::HTTP_ERROR,
+    }
 }
 
 fn read_response_body(response: Response, cap_bytes: usize) -> Result<Vec<u8>, BodyReadError> {
@@ -631,6 +675,98 @@ mod tests {
     }
 
     #[test]
+    fn fetch_returns_http_error_when_image_body_stream_aborts_mid_chunk() {
+        // The Err(BodyReadError::Io) arm of the image-body match is only
+        // reachable when the response stream errors after the headers
+        // have already been consumed. Mockito serves complete responses,
+        // so we stage a hand-rolled HTTP/1.1 server with `TcpListener`
+        // that promises a long body via chunked framing then closes the
+        // socket mid-chunk. reqwest surfaces the truncation as a Read
+        // error, which `read_capped_bytes` converts to BodyReadError::Io.
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        // Page server: returns HTML pointing at the image server below.
+        let mut page = mockito::Server::new();
+
+        let image_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let image_port = image_listener.local_addr().expect("addr").port();
+        let image_url = format!("http://127.0.0.1:{image_port}/og.png");
+        let html = html_with_og_image(&image_url);
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(html)
+            .create();
+
+        // Image server: write a valid response head, start a chunked body
+        // with a chunk-size that claims 8 KiB but only deliver a fraction
+        // of those bytes before closing the socket. reqwest's chunked
+        // decoder hits EOF mid-chunk and surfaces an Io error.
+        let server_thread = std::thread::spawn(move || {
+            if let Ok((mut socket, _)) = image_listener.accept() {
+                // Read the request line + headers before responding so
+                // the client doesn't bail out before we close.
+                let mut buffer = [0_u8; 1024];
+                let _ = socket.read(&mut buffer);
+                let head = b"HTTP/1.1 200 OK\r\n\
+                    Content-Type: image/png\r\n\
+                    Transfer-Encoding: chunked\r\n\
+                    Connection: close\r\n\
+                    \r\n\
+                    2000\r\n\
+                    abcd";
+                let _ = socket.write_all(head);
+                // No closing chunk; closing the socket truncates the
+                // body and reqwest reports the read failure upstream.
+            }
+        });
+
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        let _ = server_thread.join();
+        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+    }
+
+    #[test]
+    fn fetch_returns_http_error_when_image_body_stream_fails() {
+        // Drive the image-body `Err(_)` arm in `fetch_og_image_for_pipeline`.
+        // Setting `Transfer-Encoding: chunked` on a mockito response that
+        // wasn't actually framed as chunked causes reqwest to fail
+        // mid-stream while decoding the body, which surfaces in
+        // `read_response_body` as `BodyReadError::Io`. The error mapping
+        // then collapses to `fetch_status::HTTP_ERROR`. The exact origin
+        // of the Io error doesn't matter for the contract — the only
+        // thing the persisted row records is the terminal fetch_status.
+        let mut page = mockito::Server::new();
+        let mut images = mockito::Server::new();
+        let image_url = format!("{}/og.png", images.url());
+        let html = html_with_og_image(&image_url);
+        let _page = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(html)
+            .create();
+        let huge = vec![0_u8; MAX_IMAGE_BYTES + 16 * 1024];
+        let _image = images
+            .mock("GET", "/og.png")
+            .with_status(200)
+            .with_header("content-type", "image/png")
+            // Lying about chunked framing forces reqwest down a stream
+            // path that errors mid-body — exactly the production failure
+            // mode we want to cover.
+            .with_header("transfer-encoding", "chunked")
+            .with_body(huge)
+            .create();
+
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
+        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+    }
+
+    #[test]
     fn fetch_rejects_oversize_image_via_content_length_header() {
         let mut page = mockito::Server::new();
         let mut images = mockito::Server::new();
@@ -798,6 +934,44 @@ mod tests {
         let payload = b"<html>hello</html>".to_vec();
         let bytes = super::read_capped_bytes(payload.as_slice(), 1024).unwrap();
         assert_eq!(bytes, payload);
+    }
+
+    #[test]
+    fn fetch_status_for_body_error_maps_each_phase_to_the_right_token() {
+        // Direct unit coverage of the mapping that the HTML and image
+        // body-read fall-throughs delegate to. Without this helper the
+        // `Err(BodyReadError::Io)` arms of `fetch_og_image_for_pipeline`
+        // were only reachable via a mid-stream HTTP failure mock — too
+        // fragile to be worth the test infrastructure, while the helper
+        // itself is the entire mapping decision.
+        assert_eq!(
+            super::fetch_status_for_body_error(
+                super::BodyReadError::TooLarge,
+                super::BodyPhase::Html,
+            ),
+            super::fetch_status::PARSE_ERROR,
+        );
+        assert_eq!(
+            super::fetch_status_for_body_error(
+                super::BodyReadError::TooLarge,
+                super::BodyPhase::Image,
+            ),
+            super::fetch_status::TOO_LARGE,
+        );
+        assert_eq!(
+            super::fetch_status_for_body_error(
+                super::BodyReadError::Io,
+                super::BodyPhase::Html,
+            ),
+            super::fetch_status::HTTP_ERROR,
+        );
+        assert_eq!(
+            super::fetch_status_for_body_error(
+                super::BodyReadError::Io,
+                super::BodyPhase::Image,
+            ),
+            super::fetch_status::HTTP_ERROR,
+        );
     }
 
     #[test]
