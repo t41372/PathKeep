@@ -83,6 +83,11 @@ export const settingsCoreAndPlatformNamespace = {
       'Subtle paper noise overlay and the dark-mode darkroom vignette. Turn off for a flatter surface.',
     appearancePaperOn: 'Texture on',
     appearancePaperOff: 'Texture off',
+    appearanceClockLabel: 'Time format',
+    appearanceClockHelp:
+      'Used everywhere except sparkline / chart axes, which always show 24-hour for compactness.',
+    appearanceClock12h: '12-hour (3:14 PM)',
+    appearanceClock24h: '24-hour (15:14)',
     // ── Link previews (og:image cache) ──
     linkPreviewsTitle: 'Link previews',
     linkPreviewsIntro:
@@ -296,6 +301,11 @@ export const settingsCoreAndPlatformNamespace = {
       '极轻的纸纹遮罩和深色模式下的暗房光晕。关闭即可得到纯平表面。',
     appearancePaperOn: '已开启',
     appearancePaperOff: '已关闭',
+    appearanceClockLabel: '时间格式',
+    appearanceClockHelp:
+      '除了图表轴线之外，所有时间均按此格式显示。图表始终用 24 小时制以保持紧凑。',
+    appearanceClock12h: '12 小时制（下午 3:14）',
+    appearanceClock24h: '24 小时制（15:14）',
     // ── 链接预览（og:image 缓存）──
     linkPreviewsTitle: '链接预览',
     linkPreviewsIntro:
@@ -506,6 +516,11 @@ export const settingsCoreAndPlatformNamespace = {
       '極輕的紙紋遮罩與深色模式下的暗房光暈。關閉即可得到純平表面。',
     appearancePaperOn: '已開啟',
     appearancePaperOff: '已關閉',
+    appearanceClockLabel: '時間格式',
+    appearanceClockHelp:
+      '除了圖表軸線之外，所有時間均依此格式顯示。圖表保留 24 小時制以維持緊湊。',
+    appearanceClock12h: '12 小時制（下午 3:14）',
+    appearanceClock24h: '24 小時制（15:14）',
     // ── 連結預覽（og:image 快取）──
     linkPreviewsTitle: '連結預覽',
     linkPreviewsIntro:

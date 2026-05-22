@@ -42,6 +42,20 @@ export interface PaperDayInsightsCopy {
   sessionsTemplate: string
   /** Template for the distinct-domains caption, e.g. "{count} domains". */
   domainsTemplate: string
+  /** Disclosure label for the expandable extra-detail section. */
+  moreDetailsLabel: string
+  /** Label preceding the day's first visit time. */
+  firstVisitLabel: string
+  /** Label preceding the day's last visit time. */
+  lastVisitLabel: string
+  /** Label preceding the peak hour cell (formatted like "3 PM"). */
+  peakHourLabel: string
+  /** Label preceding the longest-session duration cell. */
+  longestSessionLabel: string
+  /** Eyebrow for the most-revisited URLs list. */
+  topUrlsTitle: string
+  /** Plural-aware "{count} visits" template for top-URL rows. */
+  visitsCountTemplate: string
 }
 
 export interface PaperDayInsightsProps {
@@ -49,6 +63,8 @@ export interface PaperDayInsightsProps {
   copy: PaperDayInsightsCopy
   /** Optional language tag for compact-number formatting. */
   language?: string
+  /** True (default) to render time stamps in 12h AM/PM. */
+  hour12?: boolean
   className?: string
   testId?: string
 }
@@ -57,6 +73,7 @@ export function PaperDayInsights({
   insights,
   copy,
   language = 'en',
+  hour12 = true,
   className,
   testId,
 }: PaperDayInsightsProps) {
@@ -152,8 +169,171 @@ export function PaperDayInsights({
           </span>
         </div>
       </DayInsightsColumn>
+
+      <DayInsightsMoreDetails
+        insights={insights}
+        copy={copy}
+        language={language}
+        hour12={hour12}
+      />
     </div>
   )
+}
+
+function DayInsightsMoreDetails({
+  insights,
+  copy,
+  language,
+  hour12,
+}: {
+  insights: DayInsights
+  copy: PaperDayInsightsCopy
+  language: string
+  hour12: boolean
+}) {
+  // Why <details>: zero-JS disclosure that respects user agent styling
+  // (keyboard, screen reader, search-in-page). The Browse list is
+  // scroll-heavy; we don't want a third-party disclosure dependency or
+  // a controlled state holder when the platform primitive already does
+  // the job and persists open state per page-life.
+  const hasExtras =
+    insights.firstVisitMs !== null ||
+    insights.peakHour !== null ||
+    insights.longestSessionMs > 0 ||
+    insights.topUrls.length > 0
+  if (!hasExtras) return null
+  return (
+    <details className="col-span-full mt-1 border-t border-border-light pt-2 font-sans text-[11.5px] text-ink-secondary">
+      <summary
+        data-testid="paper-day-insights-more-summary"
+        className="cursor-pointer select-none list-none font-mono text-[10px] uppercase tracking-[0.08em] text-ink-faint hover:text-ink-muted"
+      >
+        {copy.moreDetailsLabel}
+      </summary>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-[3px] p-0 font-mono text-[10.5px]">
+          {insights.firstVisitMs !== null ? (
+            <>
+              <dt className="text-ink-faint">{copy.firstVisitLabel}</dt>
+              <dd className="m-0 text-ink-secondary tabular-nums">
+                {formatTime(insights.firstVisitMs, language, hour12)}
+              </dd>
+            </>
+          ) : null}
+          {insights.lastVisitMs !== null ? (
+            <>
+              <dt className="text-ink-faint">{copy.lastVisitLabel}</dt>
+              <dd className="m-0 text-ink-secondary tabular-nums">
+                {formatTime(insights.lastVisitMs, language, hour12)}
+              </dd>
+            </>
+          ) : null}
+          {insights.peakHour !== null ? (
+            <>
+              <dt className="text-ink-faint">{copy.peakHourLabel}</dt>
+              <dd className="m-0 text-ink-secondary tabular-nums">
+                {formatHourOfDay(insights.peakHour, language, hour12)}
+              </dd>
+            </>
+          ) : null}
+          {insights.longestSessionMs > 0 ? (
+            <>
+              <dt className="text-ink-faint">{copy.longestSessionLabel}</dt>
+              <dd className="m-0 text-ink-secondary tabular-nums">
+                {formatDuration(insights.longestSessionMs, language)}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+        {insights.topUrls.length > 0 ? (
+          <div>
+            <div className="mb-[6px] font-mono text-[9px] uppercase tracking-[0.08em] text-ink-faint">
+              {copy.topUrlsTitle}
+            </div>
+            <ul className="m-0 flex flex-col gap-[3px] p-0">
+              {insights.topUrls.map((row) => (
+                <li
+                  key={row.url}
+                  className="grid grid-cols-[1fr_auto] items-baseline gap-2 text-[11.5px]"
+                >
+                  <span className="truncate text-ink" title={row.url}>
+                    {row.title || row.url}
+                  </span>
+                  <span className="shrink-0 font-mono text-[9.5px] text-ink-faint tabular-nums">
+                    {copy.visitsCountTemplate.replace(
+                      '{count}',
+                      row.visits.toLocaleString(language),
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  )
+}
+
+function formatTime(ms: number, language: string, hour12: boolean): string {
+  try {
+    return new Date(ms).toLocaleTimeString(language, {
+      hour: hour12 ? 'numeric' : '2-digit',
+      minute: '2-digit',
+      hour12,
+    })
+  } catch {
+    return '--:--'
+  }
+}
+
+function formatHourOfDay(
+  hour: number,
+  language: string,
+  hour12: boolean,
+): string {
+  try {
+    const today = new Date()
+    today.setHours(hour, 0, 0, 0)
+    return today.toLocaleTimeString(language, {
+      hour: hour12 ? 'numeric' : '2-digit',
+      hour12,
+    })
+  } catch {
+    return String(hour)
+  }
+}
+
+function formatDuration(ms: number, language: string): string {
+  // Compact human duration; sub-hour shown as "Nm", multi-hour as "Hh Mm".
+  // Uses the user's locale for the unit suffix via Intl.RelativeTimeFormat
+  // best-effort, falling back to en if unsupported.
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  if (minutes < 60) {
+    return formatUnitWithLocale(minutes, 'minute', language)
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  const hourLabel = formatUnitWithLocale(hours, 'hour', language)
+  if (remainder === 0) return hourLabel
+  const minuteLabel = formatUnitWithLocale(remainder, 'minute', language)
+  return `${hourLabel} ${minuteLabel}`
+}
+
+function formatUnitWithLocale(
+  value: number,
+  unit: 'minute' | 'hour',
+  language: string,
+): string {
+  try {
+    return new Intl.NumberFormat(language, {
+      style: 'unit',
+      unit,
+      unitDisplay: 'narrow',
+    }).format(value)
+  } catch {
+    return `${value}${unit === 'hour' ? 'h' : 'm'}`
+  }
 }
 
 function DayInsightsColumn({

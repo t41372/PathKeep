@@ -221,6 +221,7 @@ export function buildBackupOverlay(
         steps: backupSteps,
         activeStep: 1,
         logLines: recordLogLines.length > 0 ? recordLogLines : [detail],
+        background: true,
       }
     }
     case 'finalize': {
@@ -243,6 +244,7 @@ export function buildBackupOverlay(
         steps: backupSteps,
         activeStep: 2,
         logLines: [detail],
+        background: true,
       }
     }
     default: {
@@ -255,6 +257,7 @@ export function buildBackupOverlay(
         steps: backupSteps,
         activeStep: 0,
         logLines: [detail],
+        background: true,
       }
     }
   }

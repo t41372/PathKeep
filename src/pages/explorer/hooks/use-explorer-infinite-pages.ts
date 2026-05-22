@@ -17,9 +17,9 @@
  * - Fetching page 1 — the existing `useExplorerData` query state is the
  *   authoritative first-page source. This hook composes pages 2+ onto
  *   that head.
- * - Date-narrowed views (`?date=YYYY-MM-DD`). Those skip accumulation
- *   and pagination handles the rare case where a single day overflows
- *   the page size.
+ * - Search-surface or grouped (session / trail) views. Those have their
+ *   own pagination grammar and the route flips `disabled = true` to keep
+ *   this hook dormant.
  *
  * ## Why this hook exists
  * The previous paper Browse fetched a single page and rendered nothing

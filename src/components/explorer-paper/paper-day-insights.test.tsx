@@ -13,6 +13,13 @@ const COPY = {
   searchesLabel: 'Searches',
   sessionsTemplate: '{count} sessions',
   domainsTemplate: '{count} domains',
+  moreDetailsLabel: 'More details',
+  firstVisitLabel: 'First visit',
+  lastVisitLabel: 'Last visit',
+  peakHourLabel: 'Peak hour',
+  longestSessionLabel: 'Longest session',
+  topUrlsTitle: 'Most revisited',
+  visitsCountTemplate: '{count} visits',
 }
 
 function makeInsights(overrides: Partial<DayInsights> = {}): DayInsights {
@@ -31,6 +38,11 @@ function makeInsights(overrides: Partial<DayInsights> = {}): DayInsights {
       .fill(0)
       .map((_, idx) => (idx === 10 ? 4 : 0)),
     hourPeak: 4,
+    firstVisitMs: null,
+    lastVisitMs: null,
+    peakHour: null,
+    longestSessionMs: 0,
+    topUrls: [],
     ...overrides,
   }
 }

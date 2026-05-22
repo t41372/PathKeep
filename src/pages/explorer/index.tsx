@@ -258,19 +258,18 @@ export function ExplorerPage() {
     profileId,
     refreshKey,
   })
-  // Infinite scroll: accumulate pages 2..N when there's no date filter and
-  // we're in the default paper Browse surface. A date-narrowed view, search
-  // surface, or grouped (session/trail) view bypasses accumulation so the
-  // existing pagination footer handles those edge cases honestly. The
-  // `surface=search` check resolves below at line ~340, so we replicate the
-  // same predicate here without forward-referencing.
-  const dateFiltered = Boolean(searchParams.get('date'))
+  // Infinite scroll is the default for the paper Browse time view in both
+  // card and list mode, with or without a `?date=` filter — landing on a
+  // single day should still keep scrolling through that day's pages
+  // without forcing the user to discover the "Older" footer button. Search
+  // surface, grouped views, and an invalid-regex block still fall back to
+  // pagination because they have a fundamentally different shape (one-off
+  // filtered set / pre-grouped panels / blocked-with-error).
   const surfaceIsSearch = searchParams.get('surface') === 'search'
   const infiniteDisabled =
     !archiveReady ||
     view !== 'time' ||
     surfaceIsSearch ||
-    dateFiltered ||
     historyBlockedByInvalidRegex
   const {
     extraItems: infiniteExtraItems,

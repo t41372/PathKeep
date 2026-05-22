@@ -33,6 +33,14 @@ import {
   type PaperContactSheetTarget,
   type PaperViewMode,
 } from '@/components/explorer-paper'
+import {
+  CLOCK_FORMAT_EVENT,
+  persistExplorerViewMode,
+  readClockFormat,
+  readExplorerViewMode,
+  type ClockFormat,
+  type ClockFormatEventDetail,
+} from '@/lib/explorer-preferences'
 import type { HistoryEntry } from '@/lib/types/archive'
 import {
   groupEntriesByDay,
@@ -126,6 +134,13 @@ export interface PaperExplorerCopy {
     sessionsTemplate: string
     /** `{count}` placeholder for distinct domain count. */
     domainsTemplate: string
+    moreDetailsLabel: string
+    firstVisitLabel: string
+    lastVisitLabel: string
+    peakHourLabel: string
+    longestSessionLabel: string
+    topUrlsTitle: string
+    visitsCountTemplate: string
   }
 }
 
@@ -234,7 +249,33 @@ export function PaperExplorerView({
   className,
   testId,
 }: PaperExplorerViewProps) {
-  const [viewMode, setViewMode] = useState<PaperViewMode>(initialViewMode)
+  // Prefer the last-used view mode (persisted in localStorage) over the
+  // ambient `initialViewMode` default so reopening Browse lands the user
+  // on the same surface they were reading from yesterday. Falls back to
+  // the explicit prop if the storage read fails (private mode, jsdom).
+  const [viewMode, setViewMode] = useState<PaperViewMode>(() => {
+    if (typeof window === 'undefined') return initialViewMode
+    return readExplorerViewMode()
+  })
+  const handleViewModeChange = useCallback((next: PaperViewMode) => {
+    setViewMode(next)
+    persistExplorerViewMode(next)
+  }, [])
+  // Subscribe to the live clock-format preference so toggling 12h ↔ 24h in
+  // Settings is reflected on the open Browse view without forcing a route
+  // remount. Defaults to 12h (see explorer-preferences.ts for the rationale).
+  const [clockFormat, setClockFormat] = useState<ClockFormat>(() =>
+    readClockFormat(),
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<ClockFormatEventDetail>).detail
+      if (detail?.format) setClockFormat(detail.format)
+    }
+    window.addEventListener(CLOCK_FORMAT_EVENT, handle)
+    return () => window.removeEventListener(CLOCK_FORMAT_EVENT, handle)
+  }, [])
   const [calOpen, setCalOpen] = useState(false)
   const calAnchorRef = useRef<HTMLDivElement | null>(null)
 
@@ -292,6 +333,7 @@ export function PaperExplorerView({
         relative: copy.relative,
         navCopy: copy.dayNav,
         calOpen,
+        language,
         onPrev: () => stepDay(-1),
         onNext: () => stepDay(1),
         onToday: () => {
@@ -310,6 +352,7 @@ export function PaperExplorerView({
       calOpen,
       copy.dayNav,
       copy.relative,
+      language,
     ],
   )
 
@@ -390,7 +433,7 @@ export function PaperExplorerView({
       testId={testId}
       days={days}
       viewMode={viewMode}
-      onViewModeChange={setViewMode}
+      onViewModeChange={handleViewModeChange}
       dayNav={{ ...dayNav, calendarSlot }}
       target={target}
       onClearTarget={onClearTarget}
@@ -415,6 +458,7 @@ export function PaperExplorerView({
       }
       dayInsightsCopy={copy.dayInsights}
       language={language}
+      hour12={clockFormat === '12h'}
       copy={copy.contactSheet}
     />
   )
@@ -428,6 +472,7 @@ function buildDayNav({
   relative,
   navCopy,
   calOpen,
+  language,
   onPrev,
   onNext,
   onToday,
@@ -440,6 +485,7 @@ function buildDayNav({
   relative: RelativeDayCopy
   navCopy: PaperContactSheetDayNav['copy']
   calOpen: boolean
+  language: string
   onPrev: () => void
   onNext: () => void
   onToday: () => void
@@ -450,11 +496,15 @@ function buildDayNav({
   const ago = relativeDayLabel(activeDate, today, relative)
   const date = dateFromIso(activeDate)
   const valid = !Number.isNaN(date.getTime())
+  // Use the active UI language so the pill reads as "周四 5月 21" in
+  // zh-CN / "週四 5月 21" in zh-TW / "THU MAY 21" in en. JavaScript's
+  // Intl.DateTimeFormat returns CJK locales without the trailing "."
+  // English uses, and we still uppercase for the small-caps mono treatment.
   const dow = valid
-    ? date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
+    ? safeFormatDate(date, language, { weekday: 'short' }).toUpperCase()
     : ''
   const monthDay = valid
-    ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    ? safeFormatDate(date, language, { month: 'short', day: 'numeric' })
     : activeDate
   const year = valid ? String(date.getFullYear()) : ''
   return {
@@ -473,6 +523,27 @@ function buildDayNav({
     onToggleCal,
     calOpen,
     copy: navCopy,
+  }
+}
+
+/**
+ * Wraps `Intl.DateTimeFormat` with a try/catch so an exotic locale
+ * (e.g. browser launched with `LANG=C`) can never tear down the route.
+ * Falls back to `en-US`, then to the ISO string the caller already had.
+ */
+function safeFormatDate(
+  date: Date,
+  language: string,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  try {
+    return date.toLocaleDateString(language, options)
+  } catch {
+    try {
+      return date.toLocaleDateString('en-US', options)
+    } catch {
+      return ''
+    }
   }
 }
 

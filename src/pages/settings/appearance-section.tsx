@@ -20,6 +20,13 @@ import { useEffect, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import {
+  CLOCK_FORMAT_EVENT,
+  persistClockFormat,
+  readClockFormat,
+  type ClockFormat,
+  type ClockFormatEventDetail,
+} from '@/lib/explorer-preferences'
+import {
   PAPER_PREFERENCES_EVENT,
   applyPaperPreferences,
   type PaperPreferences,
@@ -64,12 +71,23 @@ const THEME_OPTIONS: Array<{
   { id: 'dark', labelKey: 'settings.appearanceThemeDark' },
 ]
 
+const CLOCK_OPTIONS: Array<{
+  id: ClockFormat
+  labelKey: string
+}> = [
+  { id: '12h', labelKey: 'settings.appearanceClock12h' },
+  { id: '24h', labelKey: 'settings.appearanceClock24h' },
+]
+
 export function AppearanceSection({
   anchorId = 'appearance',
 }: AppearanceSectionProps) {
   const { t } = useI18n()
   const [prefs, setPrefs] = useState<PaperPreferences>(() =>
     applyPaperPreferences(null),
+  )
+  const [clockFormat, setClockFormat] = useState<ClockFormat>(() =>
+    readClockFormat(),
   )
 
   // Listen for preference mutations from peers (e.g. the shell's theme
@@ -84,8 +102,24 @@ export function AppearanceSection({
     return () => window.removeEventListener(PAPER_PREFERENCES_EVENT, handle)
   }, [])
 
+  // Keep the local clock-format mirror in sync if a different surface (a
+  // future palette command, an embedded settings widget) flips the format.
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent<ClockFormatEventDetail>).detail
+      if (detail?.format) setClockFormat(detail.format)
+    }
+    window.addEventListener(CLOCK_FORMAT_EVENT, handle)
+    return () => window.removeEventListener(CLOCK_FORMAT_EVENT, handle)
+  }, [])
+
   const update = (patch: Partial<PaperPreferences>) => {
     setPrefs((current) => applyPaperPreferences({ ...current, ...patch }))
+  }
+
+  const updateClockFormat = (next: ClockFormat) => {
+    setClockFormat(next)
+    persistClockFormat(next)
   }
 
   return (
@@ -143,6 +177,20 @@ export function AppearanceSection({
             onChange={(paperTexture) => update({ paperTexture })}
             onLabel={t('settings.appearancePaperOn')}
             offLabel={t('settings.appearancePaperOff')}
+          />
+        </Field>
+
+        <Field
+          label={t('settings.appearanceClockLabel')}
+          help={t('settings.appearanceClockHelp')}
+        >
+          <SegmentedControl
+            options={CLOCK_OPTIONS.map((option) => ({
+              id: option.id,
+              label: t(option.labelKey),
+            }))}
+            value={clockFormat}
+            onChange={updateClockFormat}
           />
         </Field>
       </PaperCardBody>

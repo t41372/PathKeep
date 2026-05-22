@@ -178,6 +178,8 @@ export interface PaperContactSheetProps {
   dayInsightsCopy?: PaperDayInsightsCopy
   /** Language tag used for time/labels in headers. */
   language?: string
+  /** True when the user has chosen the 12h clock (default). */
+  hour12?: boolean
   copy: PaperContactSheetCopy
   className?: string
   testId?: string
@@ -197,6 +199,7 @@ export function PaperContactSheet({
   infiniteScroll,
   dayInsightsCopy,
   language = 'en',
+  hour12 = true,
   copy,
   className,
   testId,
@@ -287,6 +290,7 @@ export function PaperContactSheet({
                 insights={aggregateDayInsights(day)}
                 copy={dayInsightsCopy}
                 language={language}
+                hour12={hour12}
                 testId={`paper-day-insights-${day.date}`}
               />
             ) : null}
@@ -298,6 +302,7 @@ export function PaperContactSheet({
                     session.startMs,
                     session.endMs,
                     language,
+                    hour12,
                   )}
                   label={`${session.visitCount} ${copy.pagesLabel}`}
                 />
@@ -313,6 +318,8 @@ export function PaperContactSheet({
                           globalFrameIndex += n
                         },
                         copy,
+                        language,
+                        hour12,
                         target: target ?? null,
                         selectedEntryId,
                         onSelectEntry,
@@ -324,7 +331,7 @@ export function PaperContactSheet({
                     {flattenBlocks(session.blocks).map((entry) => (
                       <PaperListRow
                         key={entry.id}
-                        entry={toListEntry(entry, language)}
+                        entry={toListEntry(entry, language, hour12)}
                         domainColor={getDomainColor(entry.domain)}
                         domainAbbr={getDomainAbbr(entry.domain)}
                         selected={selectedEntryId === entry.id}
@@ -539,6 +546,8 @@ interface CardBlockArgs {
   baseIndex: number
   increment: (n: number) => void
   copy: PaperContactSheetCopy
+  language: string
+  hour12: boolean
   target: PaperContactSheetTarget | null
   selectedEntryId: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
@@ -550,6 +559,8 @@ function renderCardBlock({
   baseIndex,
   increment,
   copy,
+  language,
+  hour12,
   target,
   selectedEntryId,
   onSelectEntry,
@@ -568,7 +579,7 @@ function renderCardBlock({
           title: entry.title ?? null,
           domain: entry.domain,
           url: entry.url,
-          time: formatTimeFromVisitTime(entry.visitTime),
+          time: formatTimeFromVisitTime(entry.visitTime, language, hour12),
         }))}
         targetEntryId={targetId}
         onSelectEntry={(entry) => {
@@ -595,7 +606,7 @@ function renderCardBlock({
         title: entry.title ?? null,
         domain: entry.domain,
         url: entry.url,
-        time: formatTimeFromVisitTime(entry.visitTime),
+        time: formatTimeFromVisitTime(entry.visitTime, language, hour12),
         faviconDataUrl: entry.favicon?.dataUrl ?? null,
         ogImageDataUrl: entry.ogImage?.dataUrl ?? null,
       }}
@@ -617,13 +628,13 @@ function flattenBlocks(blocks: PaperBlock[]): HistoryEntry[] {
   return out
 }
 
-function toListEntry(entry: HistoryEntry, language: string) {
+function toListEntry(entry: HistoryEntry, language: string, hour12: boolean) {
   return {
     id: entry.id,
     title: entry.title ?? null,
     domain: entry.domain,
     url: entry.url,
-    time: formatTimeFromVisitTime(entry.visitTime, language),
+    time: formatTimeFromVisitTime(entry.visitTime, language, hour12),
     faviconDataUrl: entry.favicon?.dataUrl ?? null,
   }
 }
@@ -631,31 +642,37 @@ function toListEntry(entry: HistoryEntry, language: string) {
 function formatTimeFromVisitTime(
   visitTime: number,
   language: string = 'en',
+  hour12: boolean = true,
 ): string {
   const ms = visitTime > 1e12 ? visitTime : visitTime * 1000
   const date = new Date(ms)
   if (Number.isNaN(date.getTime())) return '--:--'
   try {
     return date.toLocaleTimeString(language, {
-      hour: '2-digit',
+      hour: hour12 ? 'numeric' : '2-digit',
       minute: '2-digit',
-      hour12: false,
+      hour12,
     })
   } catch {
     return '--:--'
   }
 }
 
-function formatRange(startMs: number, endMs: number, language: string): string {
+function formatRange(
+  startMs: number,
+  endMs: number,
+  language: string,
+  hour12: boolean = true,
+): string {
   const start = new Date(startMs)
   const end = new Date(endMs)
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return '--:-- — --:--'
   }
   const opts: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
+    hour: hour12 ? 'numeric' : '2-digit',
     minute: '2-digit',
-    hour12: false,
+    hour12,
   }
   try {
     return `${start.toLocaleTimeString(language, opts)} — ${end.toLocaleTimeString(language, opts)}`

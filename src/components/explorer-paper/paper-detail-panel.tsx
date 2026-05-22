@@ -282,6 +282,7 @@ export function PaperDetailPanel({
         className={cn(
           'absolute inset-0 bg-[rgba(28,24,20,0.16)] cursor-default',
           'dark:bg-[rgba(0,0,0,0.4)]',
+          'motion-safe:animate-[paper-detail-backdrop-in_180ms_ease-out]',
         )}
       />
 
@@ -289,10 +290,9 @@ export function PaperDetailPanel({
         className={cn(
           'relative h-full w-[460px] max-w-[90vw] overflow-y-auto',
           'bg-paper border-border-default border-l',
-          'animate-[slide-in_200ms_ease]',
+          'motion-safe:animate-[paper-detail-slide-in_220ms_cubic-bezier(0.22,0.61,0.36,1)]',
           className,
         )}
-        style={{ animationName: 'paper-detail-slide-in' }}
       >
         <header className="border-border-light flex items-start justify-between border-b px-6 pb-4 pt-5">
           <span className="text-ink-faint font-mono text-[9.5px] uppercase tracking-[0.08em]">

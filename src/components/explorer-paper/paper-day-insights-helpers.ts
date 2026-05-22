@@ -62,6 +62,12 @@ export interface DayInsightsTopDomain {
   visits: number
 }
 
+export interface DayInsightsTopUrl {
+  url: string
+  title: string | null
+  visits: number
+}
+
 export interface DayInsights {
   totalPages: number
   typedCount: number
@@ -74,6 +80,16 @@ export interface DayInsights {
   hourBuckets: number[]
   /** Highest single-hour count; ≥ 1 so callers can divide safely. */
   hourPeak: number
+  /** First visit time in ms (local), null when the day has no visits. */
+  firstVisitMs: number | null
+  /** Last visit time in ms (local), null when the day has no visits. */
+  lastVisitMs: number | null
+  /** Peak hour of the day (0..23) — local time bucket with the most visits. */
+  peakHour: number | null
+  /** Longest single session's duration in ms (start → end of that session). */
+  longestSessionMs: number
+  /** Three most-revisited individual URLs on the day. */
+  topUrls: DayInsightsTopUrl[]
 }
 
 /**
@@ -84,15 +100,48 @@ export interface DayInsights {
  */
 export function aggregateDayInsights(day: PaperDay): DayInsights {
   const domainCounts = new Map<string, number>()
+  const urlCounts = new Map<
+    string,
+    { url: string; title: string | null; visits: number }
+  >()
   const hourBuckets = new Array<number>(24).fill(0)
   let totalPages = 0
   let typedCount = 0
   let linkCount = 0
   let searchCount = 0
+  let firstVisitMs: number | null = null
+  let lastVisitMs: number | null = null
+  let longestSessionMs = 0
+
+  const trackEntry = (entry: HistoryEntry) => {
+    const url = entry.url
+    if (url) {
+      const existing = urlCounts.get(url)
+      if (existing) {
+        existing.visits += 1
+        // Keep the most informative title we've seen so far for this URL.
+        if (!existing.title && entry.title) existing.title = entry.title
+      } else {
+        urlCounts.set(url, {
+          url,
+          title: entry.title ?? null,
+          visits: 1,
+        })
+      }
+    }
+    const ms = localMsOf(entry)
+    if (ms !== null) {
+      if (firstVisitMs === null || ms < firstVisitMs) firstVisitMs = ms
+      if (lastVisitMs === null || ms > lastVisitMs) lastVisitMs = ms
+    }
+  }
 
   for (const session of day.sessions) {
+    const sessionSpan = Math.max(0, session.endMs - session.startMs)
+    if (sessionSpan > longestSessionMs) longestSessionMs = sessionSpan
     for (const block of session.blocks) {
       if (block.type === 'single') {
+        trackEntry(block.entry)
         accumulate(block.entry, domainCounts, hourBuckets, (deltas) => {
           totalPages += deltas.page
           typedCount += deltas.typed
@@ -101,6 +150,7 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
         })
       } else {
         for (const entry of block.entries) {
+          trackEntry(entry)
           accumulate(entry, domainCounts, hourBuckets, (deltas) => {
             totalPages += deltas.page
             typedCount += deltas.typed
@@ -117,6 +167,19 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     .sort((a, b) => b.visits - a.visits)
     .slice(0, 4)
 
+  const topUrls: DayInsightsTopUrl[] = [...urlCounts.values()]
+    .sort((a, b) => b.visits - a.visits)
+    .slice(0, 3)
+
+  let peakHour: number | null = null
+  let peakCount = 0
+  for (let hour = 0; hour < 24; hour += 1) {
+    if (hourBuckets[hour] > peakCount) {
+      peakCount = hourBuckets[hour]
+      peakHour = hour
+    }
+  }
+
   const hourPeak = hourBuckets.reduce(
     (peak, count) => (count > peak ? count : peak),
     0,
@@ -132,7 +195,21 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     topDomains,
     hourBuckets,
     hourPeak: Math.max(hourPeak, 1),
+    firstVisitMs,
+    lastVisitMs,
+    peakHour,
+    longestSessionMs,
+    topUrls,
   }
+}
+
+function localMsOf(entry: HistoryEntry): number | null {
+  if (Number.isFinite(entry.visitTime) && entry.visitTime > 0) {
+    return entry.visitTime > 1e12 ? entry.visitTime : entry.visitTime * 1000
+  }
+  const parsed = Date.parse(entry.visitedAt)
+  if (Number.isNaN(parsed)) return null
+  return parsed
 }
 
 function accumulate(

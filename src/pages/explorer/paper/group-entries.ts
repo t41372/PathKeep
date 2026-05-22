@@ -162,14 +162,18 @@ export function describeDay(date: string, language: string): string {
   }
 }
 
-export function formatHourMinute(ms: number, language: string): string {
+export function formatHourMinute(
+  ms: number,
+  language: string,
+  options: { hour12?: boolean } = {},
+): string {
   try {
     const date = new Date(ms)
     if (Number.isNaN(date.getTime())) return '--:--'
     return date.toLocaleTimeString(language, {
-      hour: '2-digit',
+      hour: options.hour12 ? 'numeric' : '2-digit',
       minute: '2-digit',
-      hour12: false,
+      hour12: options.hour12 ?? false,
     })
   } catch {
     return '--:--'

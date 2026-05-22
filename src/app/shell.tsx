@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useMatches, useNavigate } from 'react-router-dom'
+import { BackgroundProgress } from '@/components/primitives/background-progress'
 import { BusyOverlay } from '@/components/primitives/busy-overlay'
 import {
   PKSearchPalette,
@@ -318,15 +319,22 @@ export function AppShell() {
       />
 
       {shell.busyAction ? (
-        <BusyOverlay
-          label={shell.busyOverlay?.label ?? shell.busyAction}
-          detail={shell.busyOverlay?.detail}
-          progressLabel={shell.busyOverlay?.progressLabel}
-          progressValue={shell.busyOverlay?.progressValue}
-          steps={shell.busyOverlay?.steps}
-          activeStep={shell.busyOverlay?.activeStep}
-          logLines={shell.busyOverlay?.logLines}
-        />
+        shell.busyOverlay?.background ? (
+          <BackgroundProgress
+            state={shell.busyOverlay}
+            fallbackLabel={shell.busyAction}
+          />
+        ) : (
+          <BusyOverlay
+            label={shell.busyOverlay?.label ?? shell.busyAction}
+            detail={shell.busyOverlay?.detail}
+            progressLabel={shell.busyOverlay?.progressLabel}
+            progressValue={shell.busyOverlay?.progressValue}
+            steps={shell.busyOverlay?.steps}
+            activeStep={shell.busyOverlay?.activeStep}
+            logLines={shell.busyOverlay?.logLines}
+          />
+        )
       ) : null}
     </div>
   )

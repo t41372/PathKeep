@@ -120,6 +120,13 @@ export function buildPaperExplorerCopy(
       searchesLabel: t('paperBrowse.dayInsightsSearches'),
       sessionsTemplate: t('paperBrowse.dayInsightsSessionsTemplate'),
       domainsTemplate: t('paperBrowse.dayInsightsDomainsTemplate'),
+      moreDetailsLabel: t('paperBrowse.dayInsightsMoreDetailsLabel'),
+      firstVisitLabel: t('paperBrowse.dayInsightsFirstVisitLabel'),
+      lastVisitLabel: t('paperBrowse.dayInsightsLastVisitLabel'),
+      peakHourLabel: t('paperBrowse.dayInsightsPeakHourLabel'),
+      longestSessionLabel: t('paperBrowse.dayInsightsLongestSessionLabel'),
+      topUrlsTitle: t('paperBrowse.dayInsightsTopUrlsTitle'),
+      visitsCountTemplate: t('paperBrowse.dayInsightsVisitsCountTemplate'),
     },
   }
 }

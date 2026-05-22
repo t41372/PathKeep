@@ -98,6 +98,48 @@
   }
 }
 
+/* The Browse detail panel slides in from the right edge of the viewport.
+ * Distance is the full panel width (~460 px), capped via translate3d so the
+ * GPU compositor handles the motion — easing matches the design tool's
+ * "paper drawer" pull, slower than a generic pop-in. */
+@keyframes paper-detail-slide-in {
+  from {
+    transform: translate3d(28px, 0, 0);
+    opacity: 0;
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+}
+
+/* The backdrop fades up to its 0.16 ink tint over the same window so the
+ * panel + scrim feel like one motion. */
+@keyframes paper-detail-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Indeterminate "glide" used by the bottom-bar background progress strip
+ * when the worker hasn't reported a numeric percentage yet. A subtle
+ * 0% → 100% sweep tells the user something is happening without
+ * promising specific progress. */
+@keyframes background-progress-glide {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(180%);
+  }
+  100% {
+    transform: translateX(180%);
+  }
+}
+
 @keyframes pk-fade-in {
   from {
     opacity: 0;

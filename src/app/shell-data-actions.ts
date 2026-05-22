@@ -223,6 +223,7 @@ export function createShellDataActions({
         progressValue: null,
         steps: backupSteps,
         activeStep: 0,
+        background: true,
       })
       setNotice(null)
       setError(null)
@@ -251,6 +252,7 @@ export function createShellDataActions({
           progressValue: null,
           steps: backupSteps,
           activeStep: 1,
+          background: true,
         })
         const report = await backend.runBackupNow(false)
         if (taskId) {
@@ -263,6 +265,7 @@ export function createShellDataActions({
           progressValue: 100,
           steps: backupSteps,
           activeStep: 2,
+          background: true,
         })
         void refreshAppData(false)
         setNotice(backupCompletionNotice(report, t))
