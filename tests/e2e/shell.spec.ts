@@ -5,7 +5,9 @@ test.describe.configure({ mode: 'parallel' })
 async function completePreviewOnboarding(page: Page) {
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Dashboard', exact: true }),
+  ).toBeVisible()
   await expect(
     page.getByRole('heading', {
       name: 'Ready to back up your browsing history',
