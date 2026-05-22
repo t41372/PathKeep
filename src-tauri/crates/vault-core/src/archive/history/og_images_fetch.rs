@@ -959,17 +959,11 @@ mod tests {
             super::fetch_status::TOO_LARGE,
         );
         assert_eq!(
-            super::fetch_status_for_body_error(
-                super::BodyReadError::Io,
-                super::BodyPhase::Html,
-            ),
+            super::fetch_status_for_body_error(super::BodyReadError::Io, super::BodyPhase::Html,),
             super::fetch_status::HTTP_ERROR,
         );
         assert_eq!(
-            super::fetch_status_for_body_error(
-                super::BodyReadError::Io,
-                super::BodyPhase::Image,
-            ),
+            super::fetch_status_for_body_error(super::BodyReadError::Io, super::BodyPhase::Image,),
             super::fetch_status::HTTP_ERROR,
         );
     }

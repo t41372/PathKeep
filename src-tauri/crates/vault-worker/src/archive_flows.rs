@@ -440,10 +440,7 @@ pub fn refetch_og_images(session_database_key: Option<&str>, urls: Vec<String>) 
 /// have a direct unit-test path — the only way to reach the persist-error
 /// arm through `refetch_og_images` end-to-end is to corrupt the archive
 /// connection mid-run, which is harder to stage than the helper deserves.
-fn finalize_refetch_run(
-    successful: u32,
-    last_persist_error: Option<anyhow::Error>,
-) -> Result<u32> {
+fn finalize_refetch_run(successful: u32, last_persist_error: Option<anyhow::Error>) -> Result<u32> {
     if let Some(error) = last_persist_error {
         return Err(error);
     }
@@ -509,7 +506,8 @@ fn record_refetch_outcome(
     if outcome.is_ok() {
         *successful += 1;
     }
-    if let Err(error) = vault_core::og_images::upsert_og_image(connection, &outcome.as_insert(url)) {
+    if let Err(error) = vault_core::og_images::upsert_og_image(connection, &outcome.as_insert(url))
+    {
         *last_persist_error = Some(error);
     }
 }
@@ -1170,11 +1168,8 @@ mod tests {
         // test still runs fast.
         let host_state = fresh_host_state();
         // Seed the state by walking a previous URL through the throttle.
-        let _ = host_throttle_wait(
-            &host_state,
-            "https://blocked.test/seed",
-            Duration::from_millis(20),
-        );
+        let _ =
+            host_throttle_wait(&host_state, "https://blocked.test/seed", Duration::from_millis(20));
 
         let work = Mutex::new(vec!["https://blocked.test/a".to_string()]);
         let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
@@ -1334,8 +1329,8 @@ mod tests {
 
         // Pre-seed a row whose refetch_after window is already in the
         // past so `list_urls_due_for_refetch` returns it.
-        let connection =
-            vault_core::archive::open_archive_connection(&paths, &config, None).expect("connection");
+        let connection = vault_core::archive::open_archive_connection(&paths, &config, None)
+            .expect("connection");
         let insert = vault_core::og_images::OgImageInsert {
             page_url: "https://blocked.test/page",
             page_host: Some("blocked.test"),
