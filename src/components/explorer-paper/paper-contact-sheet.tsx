@@ -636,6 +636,7 @@ function toListEntry(entry: HistoryEntry, language: string, hour12: boolean) {
     url: entry.url,
     time: formatTimeFromVisitTime(entry.visitTime, language, hour12),
     faviconDataUrl: entry.favicon?.dataUrl ?? null,
+    ogImageDataUrl: entry.ogImage?.dataUrl ?? null,
   }
 }
 

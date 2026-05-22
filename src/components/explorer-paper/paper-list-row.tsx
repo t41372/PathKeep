@@ -24,10 +24,19 @@ export interface PaperListRowEntry {
   time: string
   /**
    * Optional cached favicon, already hydrated to a data URL. When present
-   * the row replaces the domain swatch with a real icon; otherwise the
-   * coloured abbreviation block remains the fallback.
+   * the row replaces the domain swatch with a real icon; otherwise we
+   * fall through to the cached og:image cropped as a square icon, and
+   * only the swatch + initials remains as a final fallback.
+   *
+   * Why we accept og:image here: Chrome takeout JSON imports carry no
+   * favicons, so the favicons table for fresh archives is largely empty.
+   * The og:image worker already fetches the page; reusing those bytes
+   * as a hint icon means list mode doesn't drown in colored swatches
+   * for the common "fresh takeout import" archive shape, while keeping
+   * the favicon path authoritative whenever an archive actually has one.
    */
   faviconDataUrl?: string | null
+  ogImageDataUrl?: string | null
 }
 
 export interface PaperListRowProps {
@@ -74,6 +83,14 @@ export function PaperListRow({
           aria-hidden="true"
           data-testid={testId ? `${testId}-favicon` : undefined}
           className="border-border-light h-4 w-4 self-center justify-self-center rounded-[3px] border bg-page object-contain"
+        />
+      ) : entry.ogImageDataUrl ? (
+        <img
+          src={entry.ogImageDataUrl}
+          alt=""
+          aria-hidden="true"
+          data-testid={testId ? `${testId}-og-icon` : undefined}
+          className="border-border-light h-5 w-5 self-center justify-self-center rounded-[3px] border bg-page object-cover"
         />
       ) : (
         <span
