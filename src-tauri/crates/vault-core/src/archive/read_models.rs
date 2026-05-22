@@ -114,6 +114,27 @@ pub fn load_dashboard_snapshot(
         )
         .optional()?;
 
+    // Archive coverage bounds — the dashboard "Span" stat reads these so the
+    // user sees "1y 2m of archive" instead of the misleading "today" you used
+    // to get when the last backup completed minutes ago but the imported data
+    // spans a year. We use the same `reverted_at IS NULL` visible filter the
+    // totals query uses so rolled-back visits don't widen the displayed span.
+    // Both bounds are computed by the same statement to keep the read
+    // consistent (no torn snapshot across two queries).
+    let coverage_bounds: Option<(Option<String>, Option<String>)> = connection
+        .query_row(
+            "SELECT MIN(visit_time_iso), MAX(visit_time_iso)
+             FROM visits
+             WHERE reverted_at IS NULL",
+            [],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?;
+    let (earliest_visit_at, latest_visit_at) = match coverage_bounds {
+        Some((earliest, latest)) => (earliest, latest),
+        None => (None, None),
+    };
+
     let next_action = if recent_runs.is_empty() {
         Some("Run a manual backup to create the first manifest and snapshot artifacts.".to_string())
     } else {
@@ -127,6 +148,8 @@ pub fn load_dashboard_snapshot(
         total_visits: totals.total_visits,
         total_downloads: totals.total_downloads,
         last_successful_backup_at,
+        earliest_visit_at,
+        latest_visit_at,
         recent_runs,
         storage: storage_summary(paths),
         next_action,

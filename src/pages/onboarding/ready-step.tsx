@@ -140,9 +140,11 @@ export function ReadyStep({
                 <div className="init-info">
                   <span className="init-action">{t('initStep3Action')}</span>
                   <span className="init-detail">
-                    {t('initStep3Detail')
-                      .replace('{count}', String(selectedCount))
-                      .replace('{plural}', selectedCount !== 1 ? 's' : '')}
+                    {t(
+                      selectedCount === 1
+                        ? 'initStep3DetailSingular'
+                        : 'initStep3DetailPlural',
+                    ).replace('{count}', String(selectedCount))}
                   </span>
                 </div>
               </div>

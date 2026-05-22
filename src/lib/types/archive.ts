@@ -187,6 +187,14 @@ export interface DashboardSnapshot {
   totalVisits: number
   totalDownloads: number
   lastSuccessfulBackupAt?: string | null
+  /**
+   * Earliest visible visit_time across the archive. Populated together with
+   * `latestVisitAt`; both `null` when the archive has zero rows. The dashboard
+   * "Span" stat uses these to label archive coverage rather than the time
+   * since last backup.
+   */
+  earliestVisitAt?: string | null
+  latestVisitAt?: string | null
   recentRuns: BackupRunOverview[]
   storage: StorageSummary
   nextAction?: string | null

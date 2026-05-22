@@ -95,7 +95,12 @@ export function PKStatusBar({
     : null
   const sourceTriggerLabel = activeSource
     ? `${activeSource.label}${activeSource.profile ? ` · ${activeSource.profile}` : ''}`
-    : t('shell.sourcesCount', { count: sources.length })
+    : t(
+        sources.length === 1
+          ? 'shell.sourcesCountSingular'
+          : 'shell.sourcesCountPlural',
+        { count: sources.length },
+      )
 
   return (
     <footer

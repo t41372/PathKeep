@@ -119,8 +119,12 @@ export function DashboardPage() {
 
   const totalStorageBytes = sumStorageBytes(readyDashboard.storage)
   const totalSizeLabel = humanizeBytes(totalStorageBytes)
-  const spanLabel = readyDashboard.lastSuccessfulBackupAt
-    ? formatSpan(readyDashboard.lastSuccessfulBackupAt, t)
+  const spanLabel = readyDashboard.earliestVisitAt
+    ? formatSpan(
+        readyDashboard.earliestVisitAt,
+        t,
+        readyDashboard.latestVisitAt ?? null,
+      )
     : '—'
   const sourcesCount = readySnapshot.browserProfiles.length
 

@@ -171,6 +171,14 @@ pub struct DashboardSnapshot {
     pub total_visits: usize,
     pub total_downloads: usize,
     pub last_successful_backup_at: Option<String>,
+    /// Earliest visit_time_iso across every visible visit, or `None` when the
+    /// archive has zero rows. The dashboard "Span" stat reads this to label
+    /// archive coverage (e.g. "1y 2m") instead of the time since last backup,
+    /// which was confusing for users with imported historical data.
+    pub earliest_visit_at: Option<String>,
+    /// Latest visit_time_iso across every visible visit. Pairs with
+    /// `earliest_visit_at`; both are populated together or both are `None`.
+    pub latest_visit_at: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
     pub storage: StorageSummary,
     pub next_action: Option<String>,

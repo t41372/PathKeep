@@ -1807,6 +1807,91 @@ fn dashboard_read_models_cover_uninitialized_storage_and_cached_totals_edges() {
 }
 
 #[test]
+fn dashboard_snapshot_reports_archive_coverage_bounds_for_imported_visits() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Empty archive → both bounds are None and the FE renders an em-dash.
+    let empty = load_dashboard_snapshot(&paths, &config, None).expect("empty snapshot");
+    assert_eq!(empty.earliest_visit_at, None);
+    assert_eq!(empty.latest_visit_at, None);
+
+    // Seed two real-ish visits a year apart; mark one as reverted to prove
+    // we use the same visible filter the totals query uses (rolled-back
+    // visits must not widen the span).
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO runs (id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+              VALUES (1, 'backup', 'manual', '2026-04-14T00:00:00Z', '2026-04-14T00:00:01Z', 'UTC', 'success', '[]', '[]', '{}', 0);
+            INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+              VALUES (1, 'chrome', 'Default', '/tmp', '2026-04-14T00:00:00Z', 1, 'chrome:Default', '2026-04-14T00:00:00Z');
+            INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, recorded_at)
+              VALUES (1, 'https://example.com', 'Example', 1, 0, 0, '2025-04-22T00:00:00Z', 0, '2025-04-22T00:00:00Z', 1, 1, '2026-04-14T00:00:00Z');
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
+              VALUES (1, 1, 1745280000000, '2025-04-22T00:00:00Z', 1, 1);
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
+              VALUES (2, 1, 1776816000000, '2026-04-22T00:00:00Z', 1, 1);
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id, reverted_at)
+              VALUES (3, 1, 2208988800000, '2040-01-01T00:00:00Z', 1, 1, '2026-04-23T00:00:00Z');
+            "#,
+        )
+        .expect("seed archive");
+    drop(connection);
+
+    let populated = load_dashboard_snapshot(&paths, &config, None).expect("populated snapshot");
+    assert_eq!(populated.earliest_visit_at.as_deref(), Some("2025-04-22T00:00:00Z"));
+    assert_eq!(populated.latest_visit_at.as_deref(), Some("2026-04-22T00:00:00Z"));
+}
+
+#[test]
+fn load_recent_runs_excludes_compat_seed_baseline_row() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // The 002 migration seeds id=0/run_type='system'/trigger='compat'. It
+    // must exist on disk (legacy foreign keys depend on it) but never appear
+    // in the dashboard or audit ledger.
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    let seed_exists: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM runs WHERE id = 0 AND run_type = 'system' AND trigger = 'compat'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count seed");
+    assert_eq!(seed_exists, 1, "002 migration should seed the compat baseline");
+    drop(connection);
+
+    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
+    assert!(
+        recent_runs.iter().all(|run| run.id != 0),
+        "compat seed must be filtered from the recent-runs read model"
+    );
+
+    // A real backup row (even id=1) must still appear in the ledger so the
+    // user can see their actual runs.
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [],
+        )
+        .expect("insert real run");
+    drop(connection);
+
+    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after backup");
+    assert!(recent_runs.iter().any(|run| run.id == 1));
+    assert!(recent_runs.iter().all(|run| run.id != 0));
+}
+
+#[test]
 fn backup_guards_initialization_selection_and_due_skip_before_profile_work() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());

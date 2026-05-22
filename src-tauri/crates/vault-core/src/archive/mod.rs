@@ -219,6 +219,11 @@ SELECT
   ) AS manifest_hash,
   runs.stats_json
 FROM runs
+-- The 002 migration seeds a synthetic id=0/run_type='system'/trigger='compat'
+-- run so legacy foreign keys can resolve. It has a 1970-01-01 timestamp and
+-- never represents real backup activity, so the audit ledger and dashboard
+-- must not surface it as if a user triggered it.
+WHERE NOT (runs.id = 0 AND runs.run_type = 'system' AND runs.trigger = 'compat')
 ORDER BY runs.id DESC
 LIMIT 12
 "#;

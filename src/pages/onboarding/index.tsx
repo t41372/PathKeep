@@ -290,7 +290,17 @@ export function OnboardingPage() {
           encrypted ? securityDraft.masterPassword : null,
         )
         if (encrypted && securityDraft.rememberKey) {
-          await backend.keyringStoreDatabaseKey(securityDraft.masterPassword)
+          // Keyring writes can fail on locked / unavailable Secret Service
+          // even after the mount-time probe said "available" (race, sudden
+          // logout, etc). Translate the generic error into the keychain-
+          // specific message so the user knows the archive itself is fine
+          // and they just need to retry, uncheck the option, or use Settings.
+          try {
+            await backend.keyringStoreDatabaseKey(securityDraft.masterPassword)
+          } catch {
+            setLocalError(t('storeInKeyringFailed'))
+            return
+          }
         }
       }
       if (scheduleSetupMode === 'install') {

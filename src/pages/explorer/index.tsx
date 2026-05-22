@@ -598,6 +598,12 @@ export function ExplorerPage() {
             onJumpToDate={(iso) => {
               const next = new URLSearchParams(searchParams)
               next.set('date', iso)
+              // Picking a date inline (calendar, year rail, day-nav arrows) is
+              // an unfiltered jump — drop any sticky `source` (and the search
+              // query that pinned it) so the user sees the full day, not the
+              // 50-row "On this day" filter that an earlier deep link set.
+              next.delete('source')
+              next.delete('q')
               setSearchParams(next)
             }}
             onClearTarget={() => {

@@ -107,7 +107,7 @@ describe('dashboard-helpers', () => {
     test('renders years and remainder months when more than a year passed', () => {
       const last = new Date('2024-01-01T00:00:00Z').toISOString()
       const now = new Date('2026-05-20T00:00:00Z')
-      expect(formatSpan(last, t, now)).toBe(
+      expect(formatSpan(last, t, null, now)).toBe(
         'dashboard.spanYearsAndMonths years=2,months=4',
       )
     })
@@ -115,19 +115,21 @@ describe('dashboard-helpers', () => {
     test('renders months when less than a year passed', () => {
       const last = new Date('2026-01-15T00:00:00Z').toISOString()
       const now = new Date('2026-05-20T00:00:00Z')
-      expect(formatSpan(last, t, now)).toBe('dashboard.spanMonths months=4')
+      expect(formatSpan(last, t, null, now)).toBe(
+        'dashboard.spanMonths months=4',
+      )
     })
 
     test('renders days when less than a month passed', () => {
       const last = new Date('2026-05-15T00:00:00Z').toISOString()
       const now = new Date('2026-05-20T00:00:00Z')
-      expect(formatSpan(last, t, now)).toBe('dashboard.spanDays days=5')
+      expect(formatSpan(last, t, null, now)).toBe('dashboard.spanDays days=5')
     })
 
     test('renders the today label when less than a day passed', () => {
       const last = new Date('2026-05-20T08:00:00Z').toISOString()
       const now = new Date('2026-05-20T20:00:00Z')
-      expect(formatSpan(last, t, now)).toBe('dashboard.spanToday')
+      expect(formatSpan(last, t, null, now)).toBe('dashboard.spanToday')
     })
 
     test('returns em-dash for malformed timestamps', () => {
@@ -143,7 +145,36 @@ describe('dashboard-helpers', () => {
       }
       const last = new Date('2025-12-20T08:00:00Z').toISOString()
       const now = new Date('2026-05-20T08:00:00Z')
-      expect(formatSpan(last, throwingT, now)).toBe('—')
+      expect(formatSpan(last, throwingT, null, now)).toBe('—')
+    })
+
+    test('uses explicit end bound when archive has a fixed latest visit', () => {
+      // Imported takeout that spans roughly a year and a half — start is
+      // the earliest visit, end is the latest. The hero strip should label
+      // archive coverage, not wall-clock gap to now.
+      const start = new Date('2024-10-01T00:00:00Z').toISOString()
+      const end = new Date('2026-04-22T00:00:00Z').toISOString()
+      const now = new Date('2027-01-01T00:00:00Z')
+      expect(formatSpan(start, t, end, now)).toBe(
+        'dashboard.spanYearsAndMonths years=1,months=6',
+      )
+    })
+
+    test('returns em-dash when the start bound is null/empty', () => {
+      expect(formatSpan(null, t)).toBe('—')
+      expect(formatSpan(undefined, t)).toBe('—')
+      expect(formatSpan('', t)).toBe('—')
+    })
+
+    test('returns em-dash when the explicit end bound is malformed', () => {
+      const start = new Date('2025-04-22T00:00:00Z').toISOString()
+      expect(formatSpan(start, t, 'not-a-date')).toBe('—')
+    })
+
+    test('clamps to today when end is somehow earlier than start', () => {
+      const start = new Date('2026-05-20T00:00:00Z').toISOString()
+      const end = new Date('2026-05-19T00:00:00Z').toISOString()
+      expect(formatSpan(start, t, end)).toBe('dashboard.spanToday')
     })
   })
 })

@@ -322,6 +322,19 @@ export function buildMockDashboardSnapshot(
       showcaseTotals?.modeledTotalVisits ?? state.history.items.length,
     totalDownloads: state.snapshot.recentRuns[0]?.newDownloads ?? 1,
     lastSuccessfulBackupAt: state.snapshot.archiveStatus.lastSuccessfulBackupAt,
+    earliestVisitAt: state.history.items.reduce<string | null>(
+      (earliest, item) => {
+        const iso = item.visitedAt
+        if (!earliest || iso < earliest) return iso
+        return earliest
+      },
+      null,
+    ),
+    latestVisitAt: state.history.items.reduce<string | null>((latest, item) => {
+      const iso = item.visitedAt
+      if (!latest || iso > latest) return iso
+      return latest
+    }, null),
     recentRuns: state.snapshot.recentRuns,
     storage: {
       archiveDatabaseBytes: showcaseTotals ? 777_990_144 : 146_800_640,

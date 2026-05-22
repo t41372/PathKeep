@@ -121,20 +121,30 @@ type Translator = (
 ) => string
 
 /**
- * Formats an archive span — the elapsed time between the last successful
- * backup and `now` — as the compact `2y 4m` / `5m` / `12d` / today label the
- * hero strip uses. Returns the em-dash placeholder on bad input rather than
- * throwing, so a corrupt ISO timestamp does not blank the hero strip.
+ * Formats an archive coverage span — the elapsed time between the earliest
+ * and latest visit in the archive — as the compact `2y 4m` / `5m` / `12d` /
+ * today label the hero strip uses. Pre-import users see "today" because every
+ * visit landed within the same calendar day; users with imported takeout data
+ * see the real range. Returns the em-dash placeholder when either bound is
+ * missing or malformed, so corrupt ISO timestamps do not blank the hero strip.
+ *
+ * Pass the latest bound as `endIso` (defaults to `now`) so a stale archive
+ * still measures its own coverage instead of the wall-clock gap to "now".
  */
 export function formatSpan(
-  isoTimestamp: string,
+  startIso: string | null | undefined,
   t: Translator,
+  endIso: string | null | undefined = null,
   now: Date = new Date(),
 ): string {
+  if (!startIso) return '—'
   try {
-    const last = new Date(isoTimestamp)
-    if (Number.isNaN(last.getTime())) return '—'
-    const diffMs = now.getTime() - last.getTime()
+    const start = new Date(startIso)
+    if (Number.isNaN(start.getTime())) return '—'
+    const end = endIso ? new Date(endIso) : now
+    if (Number.isNaN(end.getTime())) return '—'
+    const diffMs = end.getTime() - start.getTime()
+    if (diffMs < 0) return t('dashboard.spanToday')
     const years = diffMs / (365.25 * 24 * 60 * 60 * 1000)
     const months = diffMs / (30 * 24 * 60 * 60 * 1000)
     const days = diffMs / (24 * 60 * 60 * 1000)

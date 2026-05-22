@@ -18,13 +18,18 @@
  * - Pure render and click/change coverage only.
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { backend } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { SecurityStep } from './security-step'
 
 describe('SecurityStep', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   test('forwards encrypted draft field changes and card selections', async () => {
     const user = userEvent.setup()
     const onSecurityCardClick = vi.fn()
@@ -67,5 +72,77 @@ describe('SecurityStep', () => {
 
     await user.click(screen.getByRole('checkbox'))
     expect(onUpdateSecurityDraft).toHaveBeenCalledWith({ rememberKey: true })
+  })
+
+  test('disables remember-in-keychain when the probe reports no backend', async () => {
+    vi.spyOn(backend, 'keyringStatus').mockResolvedValue({
+      available: false,
+      backend: 'Linux Secret Service / keyutils',
+      storedSecret: false,
+      message: 'A native keyring backend is not available on this machine.',
+    })
+    const onUpdateSecurityDraft = vi.fn()
+
+    render(
+      <I18nProvider>
+        <SecurityStep
+          archiveMode="Encrypted"
+          busyAction={null}
+          localError={null}
+          onBack={vi.fn()}
+          onContinue={vi.fn()}
+          onSecurityCardClick={vi.fn()}
+          onSelectArchiveMode={vi.fn()}
+          onUpdateSecurityDraft={onUpdateSecurityDraft}
+          securityDraft={{
+            confirmPassword: '',
+            masterPassword: '',
+            rememberKey: true,
+          }}
+        />
+      </I18nProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox')).toBeDisabled()
+    })
+    expect(
+      screen.getByTestId('onboarding-keyring-unavailable'),
+    ).toBeInTheDocument()
+    // Stale rememberKey draft must be cleared so the create-archive call
+    // does not try to write to a backend we know is unavailable.
+    expect(onUpdateSecurityDraft).toHaveBeenCalledWith({ rememberKey: false })
+  })
+
+  test('treats a probe rejection as no keyring backend', async () => {
+    vi.spyOn(backend, 'keyringStatus').mockRejectedValue(
+      new Error('bridge offline'),
+    )
+    const onUpdateSecurityDraft = vi.fn()
+
+    render(
+      <I18nProvider>
+        <SecurityStep
+          archiveMode="Encrypted"
+          busyAction={null}
+          localError={null}
+          onBack={vi.fn()}
+          onContinue={vi.fn()}
+          onSecurityCardClick={vi.fn()}
+          onSelectArchiveMode={vi.fn()}
+          onUpdateSecurityDraft={onUpdateSecurityDraft}
+          securityDraft={{
+            confirmPassword: '',
+            masterPassword: '',
+            rememberKey: true,
+          }}
+        />
+      </I18nProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox')).toBeDisabled()
+    })
+    expect(onUpdateSecurityDraft).toHaveBeenCalledWith({ rememberKey: false })
   })
 })
