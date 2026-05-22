@@ -59,8 +59,15 @@ export function localDayKey(visitedAt: string | null | undefined): string {
 }
 
 function visitTimeMs(entry: HistoryEntry): number {
+  // The archive backend returns `visit_time` already in milliseconds
+  // (visits.visit_time_ms). Legacy fixtures + tests historically passed
+  // a 10-digit seconds-since-epoch value here, so detect by magnitude:
+  // values > 1e12 are already ms, anything smaller is seconds. Blindly
+  // multiplying by 1000 on a ms value pushed the time into year ~57000
+  // and made every session divider show a garbage clock (e.g., a "下午
+  // 8:14" header above entries that actually happened at 下午 1:11).
   if (Number.isFinite(entry.visitTime) && entry.visitTime > 0) {
-    return entry.visitTime * 1000
+    return entry.visitTime > 1e12 ? entry.visitTime : entry.visitTime * 1000
   }
   const parsed = Date.parse(entry.visitedAt)
   return Number.isNaN(parsed) ? 0 : parsed

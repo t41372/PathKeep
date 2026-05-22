@@ -118,6 +118,31 @@ describe('groupEntriesByDay', () => {
     expect(days[0].sessions.length).toBe(2)
   })
 
+  test('treats 13-digit visitTime as already-ms (production backend shape)', () => {
+    // The archive backend ships visit_time_ms directly, so a real
+    // HistoryEntry.visitTime is on the order of 1.7e12. The session
+    // start/end stored on the produced PaperSession must reflect that
+    // exact ms value — multiplying it again would push the time into
+    // year ~57000 and surface as a wrong divider clock in Browse.
+    const baseMs = new Date('2026-05-17T08:00:00Z').getTime()
+    const days = groupEntriesByDay([
+      makeEntry({
+        id: 1,
+        visitedAt: '2026-05-17T08:00:00.000Z',
+        visitTime: baseMs,
+      }),
+      makeEntry({
+        id: 2,
+        visitedAt: '2026-05-17T08:05:00.000Z',
+        visitTime: baseMs + 5 * 60 * 1000,
+      }),
+    ])
+    expect(days).toHaveLength(1)
+    expect(days[0].sessions).toHaveLength(1)
+    expect(days[0].sessions[0].startMs).toBe(baseMs)
+    expect(days[0].sessions[0].endMs).toBe(baseMs + 5 * 60 * 1000)
+  })
+
   test('keeps entries in the same session when the gap is under 30 minutes', () => {
     const days = groupEntriesByDay([
       makeEntry({
