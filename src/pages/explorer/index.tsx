@@ -843,6 +843,18 @@ export function ExplorerPage() {
           explorerT={explorerT}
           onClose={() => setPaperDetailOpen(false)}
           onOpen={(url) => void handleVisit(url)}
+          onOpenDomain={(domain) => {
+            // "All of {domain}" → swap to a domain-filtered Browse view.
+            // Replicates the same URL contract the filter chip would
+            // write so the chip strip picks the filter up on next render.
+            const next = new URLSearchParams(searchParams)
+            next.set('domain', domain)
+            next.delete('date')
+            next.delete('source')
+            next.delete('q')
+            next.delete('page')
+            setSearchParams(next)
+          }}
         />
       ) : null}
     </section>

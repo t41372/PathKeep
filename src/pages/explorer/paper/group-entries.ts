@@ -20,13 +20,15 @@ export interface PaperSingleBlock {
   entry: HistoryEntry
 }
 
-export interface PaperStackBlock {
-  type: 'stack'
-  domain: string
-  entries: HistoryEntry[]
-}
-
-export type PaperBlock = PaperSingleBlock | PaperStackBlock
+/**
+ * The domain-stack feature (3+ consecutive same-domain visits collapsing
+ * into a "stack" card) shipped with the paper redesign but was retired in
+ * 2026-05-22 — it merged unrelated visits whose only commonality was the
+ * host, making the contact sheet harder to scan rather than easier. Every
+ * block is now a single. Kept the union type so downstream callers that
+ * still pattern-match on `block.type === 'single'` stay compile-safe.
+ */
+export type PaperBlock = PaperSingleBlock
 
 export interface PaperSession {
   id: string
@@ -44,7 +46,6 @@ export interface PaperDay {
 }
 
 const SESSION_GAP_MINUTES = 30
-const STACK_THRESHOLD = 3
 
 export function localDayKey(visitedAt: string | null | undefined): string {
   if (typeof visitedAt !== 'string' || visitedAt.length === 0) {
@@ -73,29 +74,8 @@ function visitTimeMs(entry: HistoryEntry): number {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-function groupConsecutiveDomains(entries: HistoryEntry[]): PaperBlock[] {
-  const blocks: PaperBlock[] = []
-  let index = 0
-  while (index < entries.length) {
-    const head = entries[index]
-    const run = [head]
-    let next = index + 1
-    while (
-      next < entries.length &&
-      entries[next].domain === head.domain &&
-      head.domain.length > 0
-    ) {
-      run.push(entries[next])
-      next += 1
-    }
-    if (run.length >= STACK_THRESHOLD) {
-      blocks.push({ type: 'stack', domain: head.domain, entries: run })
-    } else {
-      run.forEach((entry) => blocks.push({ type: 'single', entry }))
-    }
-    index = next
-  }
-  return blocks
+function toSingleBlocks(entries: HistoryEntry[]): PaperBlock[] {
+  return entries.map((entry) => ({ type: 'single', entry }))
 }
 
 function splitIntoSessions(entries: HistoryEntry[]): PaperSession[] {
@@ -123,7 +103,7 @@ function splitIntoSessions(entries: HistoryEntry[]): PaperSession[] {
       startMs,
       endMs,
       visitCount: sessionEntries.length,
-      blocks: groupConsecutiveDomains(sessionEntries),
+      blocks: toSingleBlocks(sessionEntries),
     }
   })
 }

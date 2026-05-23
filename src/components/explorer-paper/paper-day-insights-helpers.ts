@@ -140,25 +140,13 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     const sessionSpan = Math.max(0, session.endMs - session.startMs)
     if (sessionSpan > longestSessionMs) longestSessionMs = sessionSpan
     for (const block of session.blocks) {
-      if (block.type === 'single') {
-        trackEntry(block.entry)
-        accumulate(block.entry, domainCounts, hourBuckets, (deltas) => {
-          totalPages += deltas.page
-          typedCount += deltas.typed
-          linkCount += deltas.link
-          searchCount += deltas.search
-        })
-      } else {
-        for (const entry of block.entries) {
-          trackEntry(entry)
-          accumulate(entry, domainCounts, hourBuckets, (deltas) => {
-            totalPages += deltas.page
-            typedCount += deltas.typed
-            linkCount += deltas.link
-            searchCount += deltas.search
-          })
-        }
-      }
+      trackEntry(block.entry)
+      accumulate(block.entry, domainCounts, hourBuckets, (deltas) => {
+        totalPages += deltas.page
+        typedCount += deltas.typed
+        linkCount += deltas.link
+        searchCount += deltas.search
+      })
     }
   }
 

@@ -580,31 +580,67 @@ export function PaperDetailPanel({
             />
           </div>
 
-          <Divider />
-
-          <SectionTitle>{copy.lookFurtherHeading}</SectionTitle>
-          <div className="mt-[4px] flex flex-col">
-            <LookFurtherRow
-              label={copy.pageLevelInsights}
-              hint={lookFurtherCounts?.visitsLabel}
-              onClick={onOpenInsights ? () => onOpenInsights(entry) : undefined}
-            />
-            <LookFurtherRow
-              label={copy.allOfDomain.replace('{domain}', entry.domain)}
-              hint={lookFurtherCounts?.domainPagesLabel}
-              onClick={onOpenDomain ? () => onOpenDomain(entry) : undefined}
-            />
-            <LookFurtherRow
-              label={copy.threadLabel}
-              hint={lookFurtherCounts?.threadLabel}
-              onClick={onOpenThread ? () => onOpenThread(entry) : undefined}
-            />
-            <LookFurtherRow
-              label={copy.sessionLabel}
-              hint={lookFurtherCounts?.sessionLabel}
-              onClick={onOpenSession ? () => onOpenSession(entry) : undefined}
-            />
-          </div>
+          {/*
+            Look-further rows only render when the route actually wires a
+            click handler for them — otherwise they're inert placeholders
+            and confuse the reader (the user reported the whole section
+            looking like dead labels). When no handler is wired for any
+            row, the entire section is suppressed so the panel doesn't
+            ship a phantom heading.
+          */}
+          {(() => {
+            const rows = [
+              onOpenInsights
+                ? {
+                    key: 'insights',
+                    label: copy.pageLevelInsights,
+                    hint: lookFurtherCounts?.visitsLabel,
+                    onClick: () => onOpenInsights(entry),
+                  }
+                : null,
+              onOpenDomain
+                ? {
+                    key: 'domain',
+                    label: copy.allOfDomain.replace('{domain}', entry.domain),
+                    hint: lookFurtherCounts?.domainPagesLabel,
+                    onClick: () => onOpenDomain(entry),
+                  }
+                : null,
+              onOpenThread
+                ? {
+                    key: 'thread',
+                    label: copy.threadLabel,
+                    hint: lookFurtherCounts?.threadLabel,
+                    onClick: () => onOpenThread(entry),
+                  }
+                : null,
+              onOpenSession
+                ? {
+                    key: 'session',
+                    label: copy.sessionLabel,
+                    hint: lookFurtherCounts?.sessionLabel,
+                    onClick: () => onOpenSession(entry),
+                  }
+                : null,
+            ].filter((row): row is NonNullable<typeof row> => row !== null)
+            if (rows.length === 0) return null
+            return (
+              <>
+                <Divider />
+                <SectionTitle>{copy.lookFurtherHeading}</SectionTitle>
+                <div className="mt-[4px] flex flex-col">
+                  {rows.map((row) => (
+                    <LookFurtherRow
+                      key={row.key}
+                      label={row.label}
+                      hint={row.hint}
+                      onClick={row.onClick}
+                    />
+                  ))}
+                </div>
+              </>
+            )
+          })()}
         </div>
       </aside>
     </div>

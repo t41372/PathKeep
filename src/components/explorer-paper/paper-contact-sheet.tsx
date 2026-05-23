@@ -40,7 +40,6 @@ import {
   type PaperDayInsightsCopy,
 } from './paper-day-insights'
 import { aggregateDayInsights } from './paper-day-insights-helpers'
-import { PaperDomainStack } from './paper-domain-stack'
 import { PaperListRow } from './paper-list-row'
 import { PaperSessionGap } from './paper-session-gap'
 import { PaperSessionHeader } from './paper-session-header'
@@ -335,18 +334,15 @@ export function PaperContactSheet({
 
                   {viewMode === 'cards' ? (
                     <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
-                      {session.blocks.map((block, blockIdx) =>
+                      {session.blocks.map((block) =>
                         renderCardBlock({
                           block,
-                          blockIdx,
                           baseIndex: globalFrameIndex,
                           increment: (n) => {
                             globalFrameIndex += n
                           },
-                          copy,
                           language,
                           hour12,
-                          target: target ?? null,
                           selectedEntryId,
                           onSelectEntry,
                         }),
@@ -569,59 +565,23 @@ function PaginationFooter({
 
 interface CardBlockArgs {
   block: PaperBlock
-  blockIdx: number
   baseIndex: number
   increment: (n: number) => void
-  copy: PaperContactSheetCopy
   language: string
   hour12: boolean
-  target: PaperContactSheetTarget | null
   selectedEntryId: number | string | null
   onSelectEntry?: (entry: HistoryEntry) => void
 }
 
 function renderCardBlock({
   block,
-  blockIdx,
   baseIndex,
   increment,
-  copy,
   language,
   hour12,
-  target,
   selectedEntryId,
   onSelectEntry,
 }: CardBlockArgs) {
-  if (block.type === 'stack') {
-    const targetId =
-      target && target.entryId !== undefined ? target.entryId : null
-    const node = (
-      <PaperDomainStack
-        key={`stack-${blockIdx}`}
-        domain={block.domain}
-        domainColor={getDomainColor(block.domain)}
-        domainAbbr={getDomainAbbr(block.domain)}
-        entries={block.entries.map((entry) => ({
-          id: entry.id,
-          title: entry.title ?? null,
-          domain: entry.domain,
-          url: entry.url,
-          time: formatTimeFromVisitTime(entry.visitTime, language, hour12),
-        }))}
-        targetEntryId={targetId}
-        onSelectEntry={(entry) => {
-          const real = block.entries.find((e) => e.id === entry.id)
-          if (real) onSelectEntry?.(real)
-        }}
-        expandLabel={copy.expandStack}
-        morePrefix={copy.moreInStack}
-        pagesLabel={copy.pagesLabel}
-      />
-    )
-    increment(block.entries.length)
-    return node
-  }
-
   const idx = baseIndex
   const entry = block.entry
   increment(1)
@@ -649,8 +609,7 @@ function renderCardBlock({
 function flattenBlocks(blocks: PaperBlock[]): HistoryEntry[] {
   const out: HistoryEntry[] = []
   for (const block of blocks) {
-    if (block.type === 'single') out.push(block.entry)
-    else out.push(...block.entries)
+    out.push(block.entry)
   }
   return out
 }

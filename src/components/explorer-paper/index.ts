@@ -43,12 +43,6 @@ export type {
 export { PaperListRow } from './paper-list-row'
 export type { PaperListRowEntry, PaperListRowProps } from './paper-list-row'
 
-export { PaperDomainStack } from './paper-domain-stack'
-export type {
-  PaperDomainStackEntry,
-  PaperDomainStackProps,
-} from './paper-domain-stack'
-
 export { PaperViewToggle } from './paper-view-toggle'
 export type {
   PaperViewToggleOption,

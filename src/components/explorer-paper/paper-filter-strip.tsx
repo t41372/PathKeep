@@ -200,7 +200,11 @@ export function PaperFilterStrip({
         <div
           role="dialog"
           aria-label={copy.popoverTitle}
-          className="border-border-default rounded-paper absolute left-0 top-full z-10 mt-2 w-[320px] border bg-paper p-4 shadow-paper-soft"
+          // z-50 wins over the sticky `PaperContactSheet` toolbar
+          // (`top-0 z-[11]`) so the popover sits above the day-nav pill
+          // instead of being clipped by it. max-w-[calc(100vw-2rem)]
+          // keeps the form inside the viewport on narrow windows.
+          className="border-border-default rounded-paper absolute left-0 top-full z-50 mt-2 w-[320px] max-w-[calc(100vw-2rem)] border bg-paper p-4 shadow-paper-soft"
           data-testid={testId ? `${testId}-popover` : 'paper-filter-popover'}
         >
           <div className="mb-3 flex items-center justify-between">

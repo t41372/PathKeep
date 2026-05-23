@@ -160,7 +160,10 @@ describe('groupEntriesByDay', () => {
     expect(days[0].sessions[0].visitCount).toBe(2)
   })
 
-  test('folds 3+ consecutive same-domain visits into a stack block', () => {
+  test('emits a single block per visit (no domain stacking)', () => {
+    // The 2026-05-22 paper-redesign retirement of the "domain stack"
+    // feature means consecutive same-host visits stay as individual
+    // single blocks instead of being collapsed into a stack card.
     const days = groupEntriesByDay([
       makeEntry({
         id: 1,
@@ -183,8 +186,10 @@ describe('groupEntriesByDay', () => {
     ])
     expect(days).toHaveLength(1)
     expect(days[0].sessions).toHaveLength(1)
-    expect(days[0].sessions[0].blocks).toHaveLength(1)
-    expect(days[0].sessions[0].blocks[0].type).toBe('stack')
+    expect(days[0].sessions[0].blocks).toHaveLength(3)
+    expect(days[0].sessions[0].blocks.every((b) => b.type === 'single')).toBe(
+      true,
+    )
   })
 
   test('counts unique domains per day', () => {

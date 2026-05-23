@@ -45,13 +45,7 @@ function dayFromEntries(
             ? (entries.at(-1)?.visitTime ?? 0) * 1000
             : 0),
         visitCount: entries.length,
-        blocks: [
-          {
-            type: 'stack',
-            domain: entries[0]?.domain ?? '',
-            entries,
-          },
-        ],
+        blocks: entries.map((entry) => ({ type: 'single' as const, entry })),
       },
     ],
   }
@@ -146,22 +140,22 @@ describe('aggregateDayInsights', () => {
           blocks: [
             { type: 'single', entry: e1 },
             {
-              type: 'stack',
-              domain: 'github.com',
-              entries: [
-                entry({
-                  id: 11,
-                  url: 'https://github.com/a',
-                  domain: 'github.com',
-                  visitedAt: '2026-05-21T08:30:00Z',
-                }),
-                entry({
-                  id: 12,
-                  url: 'https://github.com/b',
-                  domain: 'github.com',
-                  visitedAt: '2026-05-21T08:31:00Z',
-                }),
-              ],
+              type: 'single',
+              entry: entry({
+                id: 11,
+                url: 'https://github.com/a',
+                domain: 'github.com',
+                visitedAt: '2026-05-21T08:30:00Z',
+              }),
+            },
+            {
+              type: 'single',
+              entry: entry({
+                id: 12,
+                url: 'https://github.com/b',
+                domain: 'github.com',
+                visitedAt: '2026-05-21T08:31:00Z',
+              }),
             },
           ],
         },

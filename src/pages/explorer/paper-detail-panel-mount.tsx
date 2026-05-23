@@ -46,6 +46,13 @@ export interface PaperDetailPanelMountProps {
   onOpen: (url: string) => void
   /** Copy-URL action handler; falls back to the global clipboard when undefined. */
   onCopyUrl?: (url: string) => void
+  /**
+   * "All of {domain}" action handler. Lives at the route because
+   * `useNavigate` requires a Router context — the mount tests render
+   * without one. When omitted the panel suppresses the
+   * Look-further row entirely (the rest are still unwired placeholders).
+   */
+  onOpenDomain?: (domain: string) => void
 }
 
 export function PaperDetailPanelMount({
@@ -55,6 +62,7 @@ export function PaperDetailPanelMount({
   onClose,
   onOpen,
   onCopyUrl,
+  onOpenDomain,
 }: PaperDetailPanelMountProps) {
   if (!selectedEntry) return null
   return (
@@ -83,6 +91,14 @@ export function PaperDetailPanelMount({
       }}
       onUpdateNotes={(next) => annotations.updateNotes(selectedEntry.url, next)}
       onUpdateTags={(next) => annotations.updateTags(selectedEntry.url, next)}
+      onOpenDomain={
+        onOpenDomain
+          ? (entry) => {
+              onOpenDomain(entry.domain)
+              onClose()
+            }
+          : undefined
+      }
       copy={buildPaperDetailPanelCopy(explorerT)}
       testId="explorer-paper-detail-panel"
     />

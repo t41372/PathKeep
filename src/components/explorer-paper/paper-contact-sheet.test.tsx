@@ -71,28 +71,31 @@ function baseDays(): PaperDay[] {
           visitCount: 4,
           blocks: [
             {
-              type: 'stack',
-              domain: 'github.com',
-              entries: [
-                makeEntry({
-                  id: 11,
-                  title: 'tokio',
-                  domain: 'github.com',
-                  url: 'g1',
-                }),
-                makeEntry({
-                  id: 12,
-                  title: 'tokio sched',
-                  domain: 'github.com',
-                  url: 'g2',
-                }),
-                makeEntry({
-                  id: 13,
-                  title: 'tokio issues',
-                  domain: 'github.com',
-                  url: 'g3',
-                }),
-              ],
+              type: 'single',
+              entry: makeEntry({
+                id: 11,
+                title: 'tokio',
+                domain: 'github.com',
+                url: 'g1',
+              }),
+            },
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 12,
+                title: 'tokio sched',
+                domain: 'github.com',
+                url: 'g2',
+              }),
+            },
+            {
+              type: 'single',
+              entry: makeEntry({
+                id: 13,
+                title: 'tokio issues',
+                domain: 'github.com',
+                url: 'g3',
+              }),
             },
             {
               type: 'single',
@@ -176,7 +179,7 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('Day 1')).toBeVisible()
   })
 
-  test('cards view renders DomainStack for runs and ContactFrame for singles', () => {
+  test('cards view renders one ContactFrame per visit (no domain-stack collapsing)', () => {
     render(
       <PaperContactSheet
         days={baseDays()}
@@ -188,9 +191,10 @@ describe('PaperContactSheet', () => {
       />,
     )
 
-    // Stack header shows the domain
-    expect(screen.getByText('github.com')).toBeVisible()
-    // Single entry's title from arxiv
+    // All four visits get their own card; no "stack" header collapses them.
+    expect(screen.getByText('tokio')).toBeVisible()
+    expect(screen.getByText('tokio sched')).toBeVisible()
+    expect(screen.getByText('tokio issues')).toBeVisible()
     expect(screen.getByText('Attention Is All You Need')).toBeVisible()
   })
 
