@@ -144,4 +144,182 @@ describe('PaperFilterStrip', () => {
     expect(screen.queryByTestId('paper-filter-input-browser')).toBeNull()
     expect(screen.queryByTestId('paper-filter-input-profile')).toBeNull()
   })
+
+  test('edits every popover field and ships the diff to onApply', () => {
+    const onApply = vi.fn()
+    render(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={EMPTY_FORM}
+        browserOptions={[
+          { value: 'chrome', label: 'Chrome' },
+          { value: 'firefox', label: 'Firefox' },
+        ]}
+        profileOptions={[
+          { value: 'chrome:Default', label: 'Chrome · Default' },
+          { value: 'firefox:dev', label: 'Firefox · dev' },
+        ]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={onApply}
+      />,
+    )
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.change(screen.getByTestId('paper-filter-input-browser'), {
+      target: { value: 'firefox' },
+    })
+    fireEvent.change(screen.getByTestId('paper-filter-input-profile'), {
+      target: { value: 'firefox:dev' },
+    })
+    fireEvent.change(screen.getByTestId('paper-filter-input-start'), {
+      target: { value: '2026-05-01' },
+    })
+    fireEvent.change(screen.getByTestId('paper-filter-input-end'), {
+      target: { value: '2026-05-22' },
+    })
+    fireEvent.click(screen.getByTestId('paper-filter-input-regex'))
+    fireEvent.click(screen.getByTestId('paper-filter-apply'))
+    expect(onApply).toHaveBeenCalledWith({
+      domain: '',
+      browserKind: 'firefox',
+      profileId: 'firefox:dev',
+      start: '2026-05-01',
+      end: '2026-05-22',
+      regexMode: true,
+    })
+  })
+
+  test('closes the popover via the close button, Escape, and outside click', () => {
+    render(
+      <>
+        <div data-testid="outside" />
+        <PaperFilterStrip
+          chips={[]}
+          copy={COPY}
+          formState={EMPTY_FORM}
+          browserOptions={[]}
+          profileOptions={[]}
+          onRemove={() => {}}
+          onClearAll={() => {}}
+          onApply={() => {}}
+        />
+      </>,
+    )
+    // 1. Close button.
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.click(screen.getByLabelText('Close filter form'))
+    expect(screen.queryByText('Refine the view')).toBeNull()
+    // 2. Escape key.
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText('Refine the view')).toBeNull()
+    // 3. Outside click.
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.mouseDown(screen.getByTestId('outside'))
+    expect(screen.queryByText('Refine the view')).toBeNull()
+  })
+
+  test('ignores non-Escape keys while the popover is open', () => {
+    render(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={EMPTY_FORM}
+        browserOptions={[]}
+        profileOptions={[]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.keyDown(document, { key: 'Tab' })
+    fireEvent.keyDown(document, { key: 'a' })
+    expect(screen.getByText('Refine the view')).toBeVisible()
+  })
+
+  test('keeps the popover open when the user clicks inside the form', () => {
+    render(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={EMPTY_FORM}
+        browserOptions={[]}
+        profileOptions={[]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('+ Filter'))
+    fireEvent.mouseDown(screen.getByTestId('paper-filter-input-domain'))
+    expect(screen.getByText('Refine the view')).toBeVisible()
+  })
+
+  test('honours an explicit testId across chip, trigger, popover, and form inputs', () => {
+    render(
+      <PaperFilterStrip
+        chips={[{ id: 'domain', label: 'Domain', value: 'github.com' }]}
+        copy={COPY}
+        formState={EMPTY_FORM}
+        browserOptions={[
+          { value: 'chrome', label: 'Chrome' },
+          { value: 'firefox', label: 'Firefox' },
+        ]}
+        profileOptions={[
+          { value: 'chrome:Default', label: 'Chrome · Default' },
+          { value: 'firefox:dev', label: 'Firefox · dev' },
+        ]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+        testId="my-strip"
+      />,
+    )
+    expect(screen.getByTestId('my-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-chip-domain')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-add')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-clear-all')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('my-strip-add'))
+    expect(screen.getByTestId('my-strip-popover')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-domain')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-browser')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-profile')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-start')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-end')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-input-regex')).toBeInTheDocument()
+    expect(screen.getByTestId('my-strip-apply')).toBeInTheDocument()
+  })
+
+  test('resets the draft when formState prop changes (URL state moved underneath)', () => {
+    const { rerender } = render(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={EMPTY_FORM}
+        browserOptions={[]}
+        profileOptions={[]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByText('+ Filter'))
+    rerender(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={{ ...EMPTY_FORM, domain: 'github.com' }}
+        browserOptions={[]}
+        profileOptions={[]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId<HTMLInputElement>('paper-filter-input-domain').value,
+    ).toBe('github.com')
+  })
 })

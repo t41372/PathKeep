@@ -597,4 +597,17 @@ describe('helpers', () => {
     expect(pickInitialDate(null, days, '2026-05-17')).toBe('2026-05-16')
     expect(pickInitialDate(null, [], '2026-05-17')).toBe('2026-05-17')
   })
+
+  test('mounts the optional filter strip slot above the contact sheet', () => {
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        filterStripSlot={<div data-testid="px-filter-slot">FILTER STRIP</div>}
+      />,
+    )
+    expect(screen.getByTestId('px-filter-slot')).toBeInTheDocument()
+    expect(screen.getByText('FILTER STRIP')).toBeVisible()
+  })
 })

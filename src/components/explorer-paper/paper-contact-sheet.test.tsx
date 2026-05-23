@@ -530,6 +530,63 @@ describe('PaperContactSheet', () => {
     expect(onSelect.mock.calls[0][0].id).toBe(14)
   })
 
+  test('clicking a list-mode row surfaces the real history entry', () => {
+    const onSelect = vi.fn()
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        onSelectEntry={onSelect}
+        copy={COPY}
+        testId="cs-list-select"
+      />,
+    )
+
+    fireEvent.click(screen.getByText('docs.rs / sqlx'))
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onSelect.mock.calls[0][0].id).toBe(21)
+  })
+
+  test('formatRange returns the --:-- fallback when start/end ms are NaN', () => {
+    const days: PaperDay[] = [
+      {
+        date: '2026-05-16',
+        visitCount: 1,
+        domains: 1,
+        sessions: [
+          {
+            id: 'nan-session',
+            startMs: Number.NaN,
+            endMs: Number.NaN,
+            visitCount: 1,
+            blocks: [
+              {
+                type: 'single',
+                entry: makeEntry({
+                  id: 401,
+                  title: 'Visit with broken timestamps',
+                  url: 'broken',
+                }),
+              },
+            ],
+          },
+        ],
+      },
+    ]
+    render(
+      <PaperContactSheet
+        days={days}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+      />,
+    )
+    expect(screen.getByText('--:-- — --:--')).toBeInTheDocument()
+  })
+
   test('selecting an entry inside a DomainStack maps back to the real history row', () => {
     const onSelect = vi.fn()
     render(
