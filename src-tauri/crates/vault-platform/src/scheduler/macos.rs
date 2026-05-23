@@ -58,25 +58,31 @@ pub(super) fn macos_schedule_plan(
 ) -> Result<SchedulePlan> {
     let check_interval_minutes = interval_minutes_from_hours(params.check_interval_hours);
     let check_interval_label = format_interval_label(check_interval_minutes);
+    let stdout_log = log_dir.join("worker.stdout.log").display().to_string();
+    let stderr_log = log_dir.join("worker.stderr.log").display().to_string();
+    let program_arguments =
+        macos_program_arguments(executable_path, worker_args, &stdout_log, &stderr_log);
     let plist = plist::Value::Dictionary(plist::Dictionary::from_iter([
         ("Label".to_string(), plist::Value::String(label.to_string())),
         (
             "ProgramArguments".to_string(),
-            plist::Value::Array(worker_args.iter().cloned().map(plist::Value::String).collect()),
+            plist::Value::Array(
+                program_arguments.iter().cloned().map(plist::Value::String).collect(),
+            ),
         ),
         ("RunAtLoad".to_string(), plist::Value::Boolean(true)),
         (
             "StartInterval".to_string(),
             plist::Value::Integer(interval_seconds_from_hours(params.check_interval_hours).into()),
         ),
-        (
-            "StandardOutPath".to_string(),
-            plist::Value::String(log_dir.join("worker.stdout.log").display().to_string()),
-        ),
-        (
-            "StandardErrorPath".to_string(),
-            plist::Value::String(log_dir.join("worker.stderr.log").display().to_string()),
-        ),
+        // launchd's own StandardOutPath/StandardErrorPath captures the
+        // bootstrap process's output (which is `/usr/bin/open` when the
+        // binary lives in a .app bundle — see `macos_program_arguments`).
+        // The actual worker logs are redirected by `open --stdout/--stderr`
+        // to the same files so neither path ends up empty regardless of
+        // which launch shape is in use.
+        ("StandardOutPath".to_string(), plist::Value::String(stdout_log.clone())),
+        ("StandardErrorPath".to_string(), plist::Value::String(stderr_log.clone())),
     ]));
     let mut buffer = Vec::new();
     plist::to_writer_xml(&mut buffer, &plist)?;
@@ -152,6 +158,92 @@ pub(super) fn macos_schedule_plan(
         ]],
         apply_supported: true,
     })
+}
+
+/// Builds the LaunchAgent's `ProgramArguments` array, routing through
+/// `/usr/bin/open` when the worker binary lives inside a `.app` bundle.
+///
+/// macOS 14+ enforces launch constraints on app-bundled GUI binaries:
+/// `launchd` directly `execve`-ing `<App>.app/Contents/MacOS/<binary>`
+/// is rejected with `SIGKILL (Code Signature Invalid)` /
+/// `Launch Constraint Violation` because Apple expects bundled apps to
+/// be launched through Launch Services (Finder, Dock, `open`,
+/// `LSOpenApplication`). The macOS 26 enforcement is strict enough that
+/// even ad-hoc-signed builds get killed.
+///
+/// Routing through `/usr/bin/open -n -W -g -a <bundle> --stdout … --stderr
+/// … --args …` makes Launch Services the launch context, which bypasses
+/// the constraint while keeping `launchd` happy:
+/// - `-n` forces a new instance so a foreground user session isn't
+///   reused for the scheduled backup.
+/// - `-W` waits for the launched app to exit, so launchd keeps tracking
+///   the worker's lifecycle and `StartInterval` throttling still works.
+/// - `-g` keeps the app in the background (no Dock bounce, no window
+///   focus steal).
+/// - `--stdout` / `--stderr` redirect the launched app's output to the
+///   same files launchd already monitors, so log capture stays intact.
+///
+/// Dev/CI/Linux/Windows builds where the binary lives outside a `.app`
+/// (or `executable_path` doesn't include a bundle ancestor) fall back
+/// to the direct-exec shape — they don't trip the constraint and benefit
+/// from the simpler launchd contract.
+///
+/// The proper long-term architecture is a dedicated `pathkeep-worker`
+/// CLI binary shipped as a Tauri `externalBin` sidecar inside the
+/// bundle's `Contents/MacOS/` (no GUI deps, no launch constraint, full
+/// launchd lifecycle), tracked under WORK-V03-WORKER-BIN-SIDECAR.
+pub(super) fn macos_program_arguments(
+    executable_path: &Path,
+    worker_args: &[String],
+    stdout_log: &str,
+    stderr_log: &str,
+) -> Vec<String> {
+    // `worker_args[0]` is conventionally a copy of `executable_path` from
+    // the scheduler builder; everything from index 1 onwards is the real
+    // CLI tail (`--worker backup --due-only`). Slice past the binary so we
+    // don't double-pass it through `open --args`.
+    let worker_tail = if !worker_args.is_empty() && Path::new(&worker_args[0]) == executable_path {
+        &worker_args[1..]
+    } else {
+        worker_args
+    };
+    match enclosing_app_bundle(executable_path) {
+        Some(bundle) => {
+            let mut argv = vec![
+                "/usr/bin/open".to_string(),
+                "-n".to_string(),
+                "-W".to_string(),
+                "-g".to_string(),
+                "-a".to_string(),
+                bundle.display().to_string(),
+                "--stdout".to_string(),
+                stdout_log.to_string(),
+                "--stderr".to_string(),
+                stderr_log.to_string(),
+                "--args".to_string(),
+            ];
+            argv.extend(worker_tail.iter().cloned());
+            argv
+        }
+        None => {
+            let mut argv = vec![executable_path.display().to_string()];
+            argv.extend(worker_tail.iter().cloned());
+            argv
+        }
+    }
+}
+
+/// Returns the nearest ancestor of `executable_path` whose directory
+/// name ends in `.app`. Used to detect bundled GUI binaries for the
+/// `open -a` launch-services route.
+fn enclosing_app_bundle(executable_path: &Path) -> Option<PathBuf> {
+    let mut current = executable_path.parent()?;
+    loop {
+        if current.extension().and_then(|s| s.to_str()) == Some("app") {
+            return Some(current.to_path_buf());
+        }
+        current = current.parent()?;
+    }
 }
 
 pub(super) fn apply_macos_schedule(
@@ -653,4 +745,114 @@ fn verification_check(
 #[cfg(test)]
 pub(super) fn loaded_labels_env_name() -> &'static str {
     TEST_LAUNCHCTL_LOADED_LABELS_ENV
+}
+
+#[cfg(test)]
+mod program_arguments_tests {
+    use super::macos_program_arguments;
+    use std::path::Path;
+
+    #[test]
+    fn bundled_binary_is_launched_via_open_to_bypass_launch_constraints() {
+        // The user-reported macOS 26 crash:
+        // EXC_CRASH (SIGKILL (Code Signature Invalid)) +
+        // Termination Reason: Namespace CODESIGNING, Code 4,
+        // Launch Constraint Violation
+        // happens when launchd execs the bundled GUI binary directly.
+        // Routing through `/usr/bin/open -n -W -g -a <bundle>` makes
+        // Launch Services the launch context, which bypasses the
+        // constraint.
+        let exe = Path::new("/Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop");
+        let argv = macos_program_arguments(
+            exe,
+            &[
+                exe.display().to_string(),
+                "--worker".to_string(),
+                "backup".to_string(),
+                "--due-only".to_string(),
+            ],
+            "/tmp/worker.stdout.log",
+            "/tmp/worker.stderr.log",
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "/usr/bin/open",
+                "-n",
+                "-W",
+                "-g",
+                "-a",
+                "/Applications/PathKeep.app",
+                "--stdout",
+                "/tmp/worker.stdout.log",
+                "--stderr",
+                "/tmp/worker.stderr.log",
+                "--args",
+                "--worker",
+                "backup",
+                "--due-only",
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_bundle_picks_the_innermost_app_ancestor() {
+        // Some macOS bundles are nested (helper.app inside Parent.app).
+        // The innermost `.app` ancestor is the one Launch Services
+        // expects to launch.
+        let exe =
+            Path::new("/Applications/Parent.app/Contents/Helpers/Helper.app/Contents/MacOS/helper");
+        let argv = macos_program_arguments(
+            exe,
+            &[exe.display().to_string(), "--worker".to_string()],
+            "/tmp/out.log",
+            "/tmp/err.log",
+        );
+        assert!(argv.contains(&"/usr/bin/open".to_string()));
+        assert!(argv.contains(&"/Applications/Parent.app/Contents/Helpers/Helper.app".to_string()));
+    }
+
+    #[test]
+    fn dev_or_cli_binary_outside_a_bundle_is_exec_directly() {
+        // Dev builds (target/debug/pathkeep-desktop) and CLI-only
+        // binaries don't live inside a .app, so the constraint doesn't
+        // apply — exec them directly.
+        let exe = Path::new("/home/dev/pathkeep/target/debug/pathkeep-desktop");
+        let argv = macos_program_arguments(
+            exe,
+            &[
+                exe.display().to_string(),
+                "--worker".to_string(),
+                "backup".to_string(),
+                "--due-only".to_string(),
+            ],
+            "/tmp/out.log",
+            "/tmp/err.log",
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "/home/dev/pathkeep/target/debug/pathkeep-desktop",
+                "--worker",
+                "backup",
+                "--due-only",
+            ]
+        );
+    }
+
+    #[test]
+    fn worker_args_without_a_leading_exe_copy_are_passed_through_intact() {
+        // Defensive: if a future caller stops prepending the exe path,
+        // the helper must not drop the first real argument.
+        let exe = Path::new("/Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop");
+        let argv = macos_program_arguments(
+            exe,
+            &["--worker".to_string(), "backup".to_string()],
+            "/tmp/out.log",
+            "/tmp/err.log",
+        );
+        // First arg is `/usr/bin/open`, last args include `--worker backup`.
+        assert_eq!(argv[0], "/usr/bin/open");
+        assert_eq!(argv[argv.len() - 2..], ["--worker", "backup"]);
+    }
 }
