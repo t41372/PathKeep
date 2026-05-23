@@ -814,7 +814,15 @@ describe('PaperContactSheet', () => {
         sessions: [sessionA, sessionB],
       },
     ]
-    render(<PaperContactSheet days={days} copy={COPY} dayNav={makeNav()} />)
+    render(
+      <PaperContactSheet
+        days={days}
+        copy={COPY}
+        dayNav={makeNav()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+      />,
+    )
     // The gap label is rendered above sessionB only.
     expect(
       screen.getByTestId('paper-session-gap-2026-05-16-1'),

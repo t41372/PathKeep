@@ -24,7 +24,14 @@
  *   for the data-shaping helpers.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   PaperCalendarPopover,
   PaperContactSheet,
@@ -223,6 +230,13 @@ export interface PaperExplorerViewProps {
   todayIso?: string
   initialViewMode?: PaperViewMode
   copy: PaperExplorerCopy
+  /**
+   * Optional filter chip strip rendered between the day-nav and the
+   * contact sheet. The route builds it from `useExplorerUrlState`'s
+   * `activeFilters` / `clearAllFilters` / `updateParam`, then hands the
+   * mounted node here so paper-view stays presentation-only.
+   */
+  filterStripSlot?: ReactNode
   className?: string
   testId?: string
 }
@@ -246,6 +260,7 @@ export function PaperExplorerView({
   todayIso,
   initialViewMode,
   copy,
+  filterStripSlot,
   className,
   testId,
 }: PaperExplorerViewProps) {
@@ -431,39 +446,44 @@ export function PaperExplorerView({
   ) : null
 
   return (
-    <PaperContactSheet
-      className={className}
-      testId={testId}
-      days={days}
-      viewMode={viewMode}
-      onViewModeChange={handleViewModeChange}
-      dayNav={{ ...dayNav, calendarSlot }}
-      target={target}
-      onClearTarget={onClearTarget}
-      selectedEntryId={selectedEntryId}
-      onSelectEntry={onSelectEntry}
-      loading={loading}
-      pagination={
-        pagination
-          ? {
-              ...pagination,
-              copy: copy.pagination,
-            }
-          : null
-      }
-      infiniteScroll={
-        infiniteScroll
-          ? {
-              ...infiniteScroll,
-              copy: copy.infiniteScroll,
-            }
-          : null
-      }
-      dayInsightsCopy={copy.dayInsights}
-      language={language}
-      hour12={clockFormat === '12h'}
-      copy={copy.contactSheet}
-    />
+    <>
+      {filterStripSlot ? (
+        <div className="mt-3 px-2">{filterStripSlot}</div>
+      ) : null}
+      <PaperContactSheet
+        className={className}
+        testId={testId}
+        days={days}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+        dayNav={{ ...dayNav, calendarSlot }}
+        target={target}
+        onClearTarget={onClearTarget}
+        selectedEntryId={selectedEntryId}
+        onSelectEntry={onSelectEntry}
+        loading={loading}
+        pagination={
+          pagination
+            ? {
+                ...pagination,
+                copy: copy.pagination,
+              }
+            : null
+        }
+        infiniteScroll={
+          infiniteScroll
+            ? {
+                ...infiniteScroll,
+                copy: copy.infiniteScroll,
+              }
+            : null
+        }
+        dayInsightsCopy={copy.dayInsights}
+        language={language}
+        hour12={clockFormat === '12h'}
+        copy={copy.contactSheet}
+      />
+    </>
   )
 }
 

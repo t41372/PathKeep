@@ -31,11 +31,15 @@ import {
 import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import {
+  browserLabel,
   historyFaviconLookupKey,
   historyOgImageLookupKey,
   isSearchResultUrl,
 } from './helpers'
-import { useProfileScope } from '../../lib/profile-scope-context'
+import {
+  profileIdLabel,
+  useProfileScope,
+} from '../../lib/profile-scope-context'
 import { useExplorerArchiveDensity } from './hooks/use-explorer-archive-density'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
@@ -48,6 +52,10 @@ import { ExplorerSemanticPanel } from './panels/semantic-panel'
 import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
 import { buildPaperExplorerCopy } from './paper-explorer-copy'
+import {
+  PaperFilterStrip,
+  type PaperFilterStripFormState,
+} from '../../components/explorer-paper'
 import { PaperExplorerView } from './paper-view'
 import { PaperSearchPanel } from './paper-search-panel'
 import { PaperDetailPanelMount } from './paper-detail-panel-mount'
@@ -83,6 +91,8 @@ export function ExplorerPage() {
   const intelligenceT = ns('intelligence')
 
   const {
+    activeFilters,
+    browserKinds,
     clearAllFilters,
     currentQuery,
     end,
@@ -331,6 +341,95 @@ export function ExplorerPage() {
       }),
     }
   }, [combinedTimeResults, faviconCache, ogImageCache])
+  // Build the paper Browse filter strip from the URL state. The chip list
+  // and `clearAllFilters` already exist on the hook; the popover form
+  // mirrors the active URL params so the strip + chips edit the same
+  // dimensions the route already understands. Snapshot-derived browser /
+  // profile dropdowns let the user pick from the same scope as the rest
+  // of the route, not free-text.
+  const filterStripFormState = useMemo<PaperFilterStripFormState>(
+    () => ({
+      domain: searchParams.get('domain') ?? '',
+      browserKind: searchParams.get('browserKind') ?? '',
+      profileId: searchParams.get('profileId') ?? '',
+      start: searchParams.get('start') ?? '',
+      end: searchParams.get('end') ?? '',
+      regexMode,
+    }),
+    [regexMode, searchParams],
+  )
+  const browserOptions = useMemo(
+    () =>
+      browserKinds.map((kind: string) => ({
+        value: kind,
+        label: browserLabel(kind),
+      })),
+    [browserKinds],
+  )
+  const profileOptions = useMemo(
+    () =>
+      (snapshot?.config.selectedProfileIds ?? []).map((id) => ({
+        value: id,
+        label: `${browserLabel(id.split(':')[0])} · ${profileIdLabel(id)}`,
+      })),
+    [snapshot?.config.selectedProfileIds],
+  )
+  const filterStripCopy = useMemo(
+    () => ({
+      addFilter: explorerT('paperBrowse.filterStripAdd'),
+      clearAll: explorerT('paperBrowse.filterStripClearAll'),
+      emptyHint: explorerT('paperBrowse.filterStripEmptyHint'),
+      removeFilterAria: explorerT('paperBrowse.filterStripRemoveAria'),
+      popoverTitle: explorerT('paperBrowse.filterPopoverTitle'),
+      fieldDomain: explorerT('paperBrowse.filterPopoverFieldDomain'),
+      fieldBrowser: explorerT('paperBrowse.filterPopoverFieldBrowser'),
+      fieldProfile: explorerT('paperBrowse.filterPopoverFieldProfile'),
+      fieldStart: explorerT('paperBrowse.filterPopoverFieldStart'),
+      fieldEnd: explorerT('paperBrowse.filterPopoverFieldEnd'),
+      fieldRegex: explorerT('paperBrowse.filterPopoverFieldRegex'),
+      selectAllBrowsers: explorerT(
+        'paperBrowse.filterPopoverSelectAllBrowsers',
+      ),
+      selectAllProfiles: explorerT(
+        'paperBrowse.filterPopoverSelectAllProfiles',
+      ),
+      applyLabel: explorerT('paperBrowse.filterPopoverApply'),
+      closeLabel: explorerT('paperBrowse.filterPopoverClose'),
+    }),
+    [explorerT],
+  )
+  const paperFilterStrip = (
+    <PaperFilterStrip
+      chips={activeFilters.filter((f): f is NonNullable<typeof f> =>
+        Boolean(f),
+      )}
+      copy={filterStripCopy}
+      formState={filterStripFormState}
+      browserOptions={browserOptions}
+      profileOptions={profileOptions}
+      onRemove={(id) => updateParam(id, null)}
+      onClearAll={clearAllFilters}
+      onApply={(next) => {
+        const params = new URLSearchParams(searchParams)
+        const setOrDelete = (key: string, value: string) => {
+          const trimmed = value.trim()
+          if (trimmed.length === 0) params.delete(key)
+          else params.set(key, trimmed)
+        }
+        setOrDelete('domain', next.domain)
+        setOrDelete('browserKind', next.browserKind)
+        setOrDelete('profileId', next.profileId)
+        setOrDelete('start', next.start)
+        setOrDelete('end', next.end)
+        if (next.regexMode) params.set('regex', '1')
+        else params.delete('regex')
+        params.delete('page')
+        setSearchParams(params)
+      }}
+      testId="paper-filter-strip"
+    />
+  )
+
   // Search the rendered (head + infinite-scroll-accumulated) item list,
   // not just `visibleTimeResults` page 1 — otherwise selecting a row from
   // page 2+ opens the detail panel against the first page-1 entry.
@@ -679,6 +778,7 @@ export function ExplorerPage() {
             }
             language={language}
             copy={buildPaperExplorerCopy(explorerT)}
+            filterStripSlot={paperFilterStrip}
             testId="explorer-paper-view"
           />
         )

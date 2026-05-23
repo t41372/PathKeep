@@ -19,6 +19,15 @@ export type { PaperSessionHeaderProps } from './paper-session-header'
 export { PaperSessionGap } from './paper-session-gap'
 export type { PaperSessionGapProps } from './paper-session-gap'
 
+export { PaperFilterStrip } from './paper-filter-strip'
+export type {
+  PaperFilterChip,
+  PaperFilterStripCopy,
+  PaperFilterStripFormState,
+  PaperFilterStripOption,
+  PaperFilterStripProps,
+} from './paper-filter-strip'
+
 export { PaperTargetBanner } from './paper-target-banner'
 export type {
   PaperTargetBannerProps,
