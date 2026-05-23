@@ -42,6 +42,7 @@ export function buildPaperExplorerCopy(
       moreInStack: t('paperBrowse.contactSheetMoreInStack'),
       pagesLabel: t('paperBrowse.contactSheetPagesLabel'),
       empty: t('paperBrowse.contactSheetEmpty'),
+      sessionGapLabel: t('paperBrowse.contactSheetSessionGap'),
     },
     dayNav: {
       prev: t('paperBrowse.dayNavPrev'),

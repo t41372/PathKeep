@@ -42,7 +42,9 @@ import {
 import { aggregateDayInsights } from './paper-day-insights-helpers'
 import { PaperDomainStack } from './paper-domain-stack'
 import { PaperListRow } from './paper-list-row'
+import { PaperSessionGap } from './paper-session-gap'
 import { PaperSessionHeader } from './paper-session-header'
+import { formatDuration } from './paper-day-insights-helpers'
 import { PaperTargetBanner } from './paper-target-banner'
 import {
   PaperViewToggle,
@@ -101,6 +103,13 @@ export interface PaperContactSheetCopy {
   moreInStack: string
   pagesLabel: string
   empty: string
+  /**
+   * Template for the inter-session gap indicator, e.g. "{duration} away" /
+   * "间隔 {duration} 无活动". Caller supplies `{duration}` via
+   * `formatDuration`; the contact sheet only renders this between same-day
+   * sessions whose break exceeds the session-split threshold.
+   */
+  sessionGapLabel: string
 }
 
 /**
@@ -295,53 +304,71 @@ export function PaperContactSheet({
               />
             ) : null}
 
-            {day.sessions.map((session) => (
-              <div key={session.id} className="mt-4">
-                <PaperSessionHeader
-                  timeRange={formatRange(
-                    session.startMs,
-                    session.endMs,
-                    language,
-                    hour12,
-                  )}
-                  label={`${session.visitCount} ${copy.pagesLabel}`}
-                />
-
-                {viewMode === 'cards' ? (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
-                    {session.blocks.map((block, blockIdx) =>
-                      renderCardBlock({
-                        block,
-                        blockIdx,
-                        baseIndex: globalFrameIndex,
-                        increment: (n) => {
-                          globalFrameIndex += n
-                        },
-                        copy,
-                        language,
-                        hour12,
-                        target: target ?? null,
-                        selectedEntryId,
-                        onSelectEntry,
-                      }),
+            {day.sessions.map((session, sessionIdx) => {
+              // Sessions are ordered newest → oldest. The gap between the
+              // previous session in the array and this one is therefore the
+              // ms from the older session's end to the newer session's
+              // start — i.e. how long the user was away from the browser
+              // before opening it again.
+              const previous = day.sessions[sessionIdx - 1]
+              const gapMs = previous ? previous.startMs - session.endMs : 0
+              return (
+                <div key={session.id} className="mt-4">
+                  {gapMs > 0 ? (
+                    <PaperSessionGap
+                      label={copy.sessionGapLabel.replace(
+                        '{duration}',
+                        formatDuration(gapMs, language),
+                      )}
+                      testId={`paper-session-gap-${day.date}-${sessionIdx}`}
+                    />
+                  ) : null}
+                  <PaperSessionHeader
+                    timeRange={formatRange(
+                      session.startMs,
+                      session.endMs,
+                      language,
+                      hour12,
                     )}
-                  </div>
-                ) : (
-                  <div className="flex flex-col">
-                    {flattenBlocks(session.blocks).map((entry) => (
-                      <PaperListRow
-                        key={entry.id}
-                        entry={toListEntry(entry, language, hour12)}
-                        domainColor={getDomainColor(entry.domain)}
-                        domainAbbr={getDomainAbbr(entry.domain)}
-                        selected={selectedEntryId === entry.id}
-                        onClick={() => onSelectEntry?.(entry)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+                    label={`${session.visitCount} ${copy.pagesLabel}`}
+                  />
+
+                  {viewMode === 'cards' ? (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
+                      {session.blocks.map((block, blockIdx) =>
+                        renderCardBlock({
+                          block,
+                          blockIdx,
+                          baseIndex: globalFrameIndex,
+                          increment: (n) => {
+                            globalFrameIndex += n
+                          },
+                          copy,
+                          language,
+                          hour12,
+                          target: target ?? null,
+                          selectedEntryId,
+                          onSelectEntry,
+                        }),
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      {flattenBlocks(session.blocks).map((entry) => (
+                        <PaperListRow
+                          key={entry.id}
+                          entry={toListEntry(entry, language, hour12)}
+                          domainColor={getDomainColor(entry.domain)}
+                          domainAbbr={getDomainAbbr(entry.domain)}
+                          selected={selectedEntryId === entry.id}
+                          onClick={() => onSelectEntry?.(entry)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ))
       )}

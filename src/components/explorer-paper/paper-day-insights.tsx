@@ -24,7 +24,7 @@
  */
 
 import { cn } from '@/lib/cn'
-import type { DayInsights } from './paper-day-insights-helpers'
+import { formatDuration, type DayInsights } from './paper-day-insights-helpers'
 
 export interface PaperDayInsightsCopy {
   /** Eyebrow for the top-domains column. */
@@ -318,38 +318,6 @@ function formatHourOfDay(
     })
   } catch {
     return String(hour)
-  }
-}
-
-function formatDuration(ms: number, language: string): string {
-  // Compact human duration; sub-hour shown as "Nm", multi-hour as "Hh Mm".
-  // Uses the user's locale for the unit suffix via Intl.RelativeTimeFormat
-  // best-effort, falling back to en if unsupported.
-  const minutes = Math.max(1, Math.round(ms / 60_000))
-  if (minutes < 60) {
-    return formatUnitWithLocale(minutes, 'minute', language)
-  }
-  const hours = Math.floor(minutes / 60)
-  const remainder = minutes % 60
-  const hourLabel = formatUnitWithLocale(hours, 'hour', language)
-  if (remainder === 0) return hourLabel
-  const minuteLabel = formatUnitWithLocale(remainder, 'minute', language)
-  return `${hourLabel} ${minuteLabel}`
-}
-
-function formatUnitWithLocale(
-  value: number,
-  unit: 'minute' | 'hour',
-  language: string,
-): string {
-  try {
-    return new Intl.NumberFormat(language, {
-      style: 'unit',
-      unit,
-      unitDisplay: 'narrow',
-    }).format(value)
-  } catch {
-    return `${value}${unit === 'hour' ? 'h' : 'm'}`
   }
 }
 

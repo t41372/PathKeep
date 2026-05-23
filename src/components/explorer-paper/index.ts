@@ -16,6 +16,9 @@ export type { PaperDayHeaderProps } from './paper-day-header'
 export { PaperSessionHeader } from './paper-session-header'
 export type { PaperSessionHeaderProps } from './paper-session-header'
 
+export { PaperSessionGap } from './paper-session-gap'
+export type { PaperSessionGapProps } from './paper-session-gap'
+
 export { PaperTargetBanner } from './paper-target-banner'
 export type {
   PaperTargetBannerProps,

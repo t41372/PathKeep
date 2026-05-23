@@ -29,6 +29,7 @@ const COPY: PaperContactSheetCopy = {
   moreInStack: '+',
   pagesLabel: 'pages',
   empty: 'Nothing here yet.',
+  sessionGapLabel: '{duration} away',
 }
 
 const NAV_COPY = {
@@ -774,5 +775,54 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('Loading more pages…')).toBeVisible()
     // pageSize selector omitted when onChangePageSize is undefined.
     expect(screen.queryByTestId('paper-contact-sheet-page-size')).toBeNull()
+  })
+
+  test('renders a session-gap indicator between two same-day sessions and skips it for the first', () => {
+    // Two sessions on the same day. Session A (newer) ran 21:00 → 22:00,
+    // session B (older) ran 18:00 → 18:30, so the gap is 2.5 hours of no
+    // activity. The component must render the gap above session B (the
+    // older one) and not above session A.
+    const sessionA: PaperDay['sessions'][number] = {
+      id: 'a',
+      startMs: new Date('2026-05-16T21:00:00Z').getTime(),
+      endMs: new Date('2026-05-16T22:00:00Z').getTime(),
+      visitCount: 1,
+      blocks: [
+        {
+          type: 'single',
+          entry: makeEntry({ id: 91, title: 'A', url: 'a' }),
+        },
+      ],
+    }
+    const sessionB: PaperDay['sessions'][number] = {
+      id: 'b',
+      startMs: new Date('2026-05-16T18:00:00Z').getTime(),
+      endMs: new Date('2026-05-16T18:30:00Z').getTime(),
+      visitCount: 1,
+      blocks: [
+        {
+          type: 'single',
+          entry: makeEntry({ id: 92, title: 'B', url: 'b' }),
+        },
+      ],
+    }
+    const days: PaperDay[] = [
+      {
+        date: '2026-05-16',
+        visitCount: 2,
+        domains: 1,
+        sessions: [sessionA, sessionB],
+      },
+    ]
+    render(<PaperContactSheet days={days} copy={COPY} dayNav={makeNav()} />)
+    // The gap label is rendered above sessionB only.
+    expect(
+      screen.getByTestId('paper-session-gap-2026-05-16-1'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('paper-session-gap-2026-05-16-0'),
+    ).not.toBeInTheDocument()
+    // Label substitutes the formatted duration into the template.
+    expect(screen.getByText(/away$/)).toBeInTheDocument()
   })
 })

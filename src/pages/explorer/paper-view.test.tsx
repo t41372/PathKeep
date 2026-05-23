@@ -31,6 +31,7 @@ const COPY: PaperExplorerCopy = {
     moreInStack: '+',
     pagesLabel: 'pages',
     empty: 'Nothing here yet.',
+    sessionGapLabel: '{duration} away',
   },
   dayNav: {
     prev: 'Previous day',

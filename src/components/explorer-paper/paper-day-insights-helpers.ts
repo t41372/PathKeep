@@ -258,3 +258,38 @@ function localHourOf(entry: HistoryEntry): number {
   const ms = localMsOf(entry)
   return ms === null ? -1 : new Date(ms).getHours()
 }
+
+/**
+ * Compact human duration; sub-hour shown as "Nm", multi-hour as "Hh Mm".
+ * Uses `Intl.NumberFormat` with `style: 'unit'` for locale-correct unit
+ * spelling, falling back to the bare token + `h`/`m` when a runtime
+ * lacks unit-style support.
+ */
+export function formatDuration(ms: number, language: string): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  if (minutes < 60) {
+    return formatUnitWithLocale(minutes, 'minute', language)
+  }
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  const hourLabel = formatUnitWithLocale(hours, 'hour', language)
+  if (remainder === 0) return hourLabel
+  const minuteLabel = formatUnitWithLocale(remainder, 'minute', language)
+  return `${hourLabel} ${minuteLabel}`
+}
+
+function formatUnitWithLocale(
+  value: number,
+  unit: 'minute' | 'hour',
+  language: string,
+): string {
+  try {
+    return new Intl.NumberFormat(language, {
+      style: 'unit',
+      unit,
+      unitDisplay: 'narrow',
+    }).format(value)
+  } catch {
+    return `${value}${unit === 'hour' ? 'h' : 'm'}`
+  }
+}
