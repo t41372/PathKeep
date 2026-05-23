@@ -700,6 +700,63 @@ describe('PaperContactSheet', () => {
     expect(onChangePageSize).toHaveBeenCalledWith(100)
   })
 
+  test('infinite-scroll wires IntersectionObserver and fires onLoadMore when the sentinel is visible', () => {
+    // jsdom omits IntersectionObserver by default, which leaves the
+    // "observer.observe(node)" arm uncovered. Inject a tiny fake that
+    // immediately invokes the callback with an `isIntersecting: true`
+    // entry so we hit the `onLoadMore()` branch + the unsubscribe
+    // return path.
+    const observed: Element[] = []
+    const disconnect = vi.fn()
+    type ObserverFn = (entries: { isIntersecting: boolean }[]) => void
+    class FakeObserver {
+      callback: ObserverFn
+      constructor(callback: ObserverFn) {
+        this.callback = callback
+      }
+      observe(target: Element) {
+        observed.push(target)
+        this.callback([{ isIntersecting: true }])
+      }
+      disconnect() {
+        disconnect()
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    const onLoadMore = vi.fn()
+    try {
+      const { unmount } = render(
+        <PaperContactSheet
+          days={baseDays()}
+          viewMode="cards"
+          onViewModeChange={() => {}}
+          dayNav={makeNav()}
+          copy={COPY}
+          infiniteScroll={{
+            loadingMore: false,
+            canLoadMore: true,
+            onLoadMore,
+            loadedPageCount: 1,
+            totalPages: 8,
+            totalRows: 50,
+            copy: {
+              loadingMore: 'Loading',
+              endOfArchive: 'End',
+              loadedSummary: '{loaded}/{total}',
+            },
+          }}
+          testId="cs-io"
+        />,
+      )
+      expect(observed.length).toBeGreaterThanOrEqual(1)
+      expect(onLoadMore).toHaveBeenCalled()
+      unmount()
+      expect(disconnect).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   test('infinite-scroll footer renders sentinel + summary when canLoadMore', () => {
     const onLoadMore = vi.fn()
     render(
@@ -836,6 +893,65 @@ describe('PaperContactSheet', () => {
     expect(screen.getByText('Loading more pages…')).toBeVisible()
     // pageSize selector omitted when onChangePageSize is undefined.
     expect(screen.queryByTestId('paper-contact-sheet-page-size')).toBeNull()
+  })
+
+  test('renders a session-header band for EVERY session of a multi-session day (incl. the first/newest)', () => {
+    // Two sessions on the same day; both must surface their own time
+    // range + page count even though only the second has a preceding
+    // gap label. Regression for the user-reported "first session has no
+    // header above its rows" bug.
+    const sessionA: PaperDay['sessions'][number] = {
+      id: 'a',
+      startMs: new Date('2026-05-16T01:44:00Z').getTime(),
+      endMs: new Date('2026-05-16T01:44:00Z').getTime(),
+      visitCount: 3,
+      blocks: [
+        {
+          type: 'single',
+          entry: makeEntry({ id: 71, title: 'A1', url: 'a1' }),
+        },
+        {
+          type: 'single',
+          entry: makeEntry({ id: 72, title: 'A2', url: 'a2' }),
+        },
+        {
+          type: 'single',
+          entry: makeEntry({ id: 73, title: 'A3', url: 'a3' }),
+        },
+      ],
+    }
+    const sessionB: PaperDay['sessions'][number] = {
+      id: 'b',
+      startMs: new Date('2026-05-16T00:00:00Z').getTime(),
+      endMs: new Date('2026-05-16T00:13:00Z').getTime(),
+      visitCount: 12,
+      blocks: [
+        {
+          type: 'single',
+          entry: makeEntry({ id: 81, title: 'B1', url: 'b1' }),
+        },
+      ],
+    }
+    const days: PaperDay[] = [
+      {
+        date: '2026-05-16',
+        visitCount: 15,
+        domains: 2,
+        sessions: [sessionA, sessionB],
+      },
+    ]
+    render(
+      <PaperContactSheet
+        days={days}
+        viewMode="list"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={{ ...COPY, pagesLabel: 'pages' }}
+      />,
+    )
+    // Both session headers' label strings must be present.
+    expect(screen.getByText('3 pages')).toBeVisible()
+    expect(screen.getByText('12 pages')).toBeVisible()
   })
 
   test('renders a session-gap indicator between two same-day sessions and skips it for the first', () => {
