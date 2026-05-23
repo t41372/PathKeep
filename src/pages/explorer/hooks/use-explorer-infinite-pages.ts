@@ -211,7 +211,16 @@ export function useExplorerInfinitePages({
     fetchPage(target + 1, { background: true })
 
     return () => {
+      // Cancellation clears `loadingMore` explicitly. The .finally below
+      // skips its `setLoadingMore(false)` when `cancelled === true`
+      // (to avoid racing the next effect's `setLoadingMore(true)`), so
+      // without this line the loading flag stays stuck whenever a
+      // foreground fetch is cancelled mid-flight by a filter / query /
+      // cache-token change. Symptom: applying a Browse filter while a
+      // page-N fetch is in flight makes the bottom sentinel spin forever
+      // even though every subsequent effect run early-returns.
       cancelled = true
+      setLoadingMore(false)
     }
     // signature is in the dep list so a switch resets the buffer above
     // before this effect runs; pageItems is intentionally absent so we

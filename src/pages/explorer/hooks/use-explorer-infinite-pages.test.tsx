@@ -123,6 +123,43 @@ describe('useExplorerInfinitePages', () => {
     expect(result.current.canLoadMore).toBe(true)
   })
 
+  test('clears loadingMore when a filter change cancels an in-flight fetch', async () => {
+    // Regression: user reported "filter on Browse, scroll to bottom →
+    // loading animation spins forever". Reset effect ran setLoadingMore
+    // (false) and the same render's fetch effect then queued
+    // setLoadingMore(true) for the now-cancelled fetch; the .finally
+    // skipped its clear because cancelled=true, so the flag stuck.
+    let resolveFetch: (response: ReturnType<typeof makeHeadResponse>) => void
+    const slow = new Promise<ReturnType<typeof makeHeadResponse>>(
+      (resolve) => {
+        resolveFetch = resolve
+      },
+    )
+    vi.spyOn(backend, 'queryHistory').mockReturnValue(slow)
+    // Stable headResults so the fetch effect doesn't re-run on every
+    // render of the test wrapper.
+    const head = makeHeadResponse()
+    const { result, rerender } = renderHook(
+      ({ q }: { q: string | null }) =>
+        useExplorerInfinitePages({
+          query: { ...baseQuery, q },
+          headResults: head,
+          disabled: false,
+          cacheToken: 1,
+        }),
+      { initialProps: { q: null as string | null } },
+    )
+    act(() => result.current.loadMore())
+    // The foreground fetch is in flight; loadingMore should be true.
+    await waitFor(() => expect(result.current.loadingMore).toBe(true))
+    // Filter change → query signature changes → reset + cancellation.
+    rerender({ q: 'github.com' })
+    expect(result.current.loadingMore).toBe(false)
+    // Resolve the now-cancelled fetch; it must not flip loadingMore back.
+    resolveFetch!(makeHeadResponse({ page: 2, items: [] }))
+    await waitFor(() => expect(result.current.loadingMore).toBe(false))
+  })
+
   test('resets accumulated state when the query signature changes', async () => {
     vi.spyOn(backend, 'queryHistory').mockResolvedValue(
       makeHeadResponse({ page: 2, items: [] }),
