@@ -246,6 +246,9 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="notification-count">
         {shell.notifications?.length.toString() ?? '0'}
       </div>
+      <div data-testid="notification-titles">
+        {shell.notifications?.map((entry) => entry.title).join('|') ?? ''}
+      </div>
       <button
         type="button"
         onClick={() => {

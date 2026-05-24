@@ -57,6 +57,9 @@ export const shellNamespaceCatalog = {
       'PathKeep could not load the latest archive state.',
     runtimeCrashNotice:
       'PathKeep found a recent crash report. Review the logs and crash diagnostics in Settings.',
+    scheduleStaleAfterUpgradeTitle: 'Backup schedule needs re-applying',
+    scheduleStaleAfterUpgradeBody:
+      'Your existing macOS LaunchAgent was installed by an earlier PathKeep build that the current macOS no longer permits to launch directly. Open Settings → Backup → Schedule and re-apply the schedule once to update the launcher.',
     savingSettingsFailed:
       'PathKeep could not save the updated archive settings.',
     initializeArchiveFailed: 'PathKeep could not initialize the archive.',
@@ -173,6 +176,9 @@ export const shellNamespaceCatalog = {
     loadingLatestArchiveState: 'PathKeep 无法加载最新的归档状态。',
     runtimeCrashNotice:
       'PathKeep 发现了最近一次崩溃报告。请到设置里查看日志和崩溃诊断。',
+    scheduleStaleAfterUpgradeTitle: '备份计划需要重新套用',
+    scheduleStaleAfterUpgradeBody:
+      '当前安装的 macOS LaunchAgent 由旧版 PathKeep 写入，新版 macOS 已不再允许它直接启动。请到「设置 → 备份 → 计划」重新套用一次，新的启动方式才会生效。',
     savingSettingsFailed: 'PathKeep 无法保存更新后的设置。',
     initializeArchiveFailed: 'PathKeep 无法初始化归档。',
     initializedNotice: '归档已初始化。请在开启自动化前先检查第一次备份。',
@@ -281,6 +287,9 @@ export const shellNamespaceCatalog = {
     loadingLatestArchiveState: 'PathKeep 無法載入最新的歸檔狀態。',
     runtimeCrashNotice:
       'PathKeep 發現了最近一次崩潰報告。請到設定裡查看日誌與崩潰診斷。',
+    scheduleStaleAfterUpgradeTitle: '備份排程需要重新套用',
+    scheduleStaleAfterUpgradeBody:
+      '目前安裝的 macOS LaunchAgent 是由舊版 PathKeep 寫入，新版 macOS 已不再允許它直接啟動。請到「設定 → 備份 → 排程」重新套用一次，新的啟動方式才會生效。',
     savingSettingsFailed: 'PathKeep 無法儲存更新後的設定。',
     initializeArchiveFailed: 'PathKeep 無法初始化歸檔。',
     initializedNotice: '歸檔已初始化。請在開啟自動化前先檢查第一次備份。',

@@ -96,6 +96,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const archiveTasksRef = useRef<ShellTask[]>([])
   const attemptedKeyringAutoUnlockRef = useRef(false)
   const surfacedCrashReportPathRef = useRef<string | null>(null)
+  // Guards the once-per-session macOS schedule health probe so the post-upgrade
+  // notification doesn't re-fire every render. The ref stores the snapshot
+  // build sha we last probed against so a fresh boot of a newer build can
+  // retry — useful when a user updates to a build that adds new health
+  // signals.
+  const surfacedScheduleHealthRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
   const activeRuntimeJobsRef = useRef(0)
   const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
@@ -499,6 +505,43 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setNotice(t('shell.runtimeCrashNotice'))
   }, [notice, snapshot?.runtimeDiagnostics.latestCrashReport?.path, t])
 
+  // Stale-plist startup probe. The macOS 26 LaunchService changes broke any
+  // v0.2.0 schedule that launched the binary directly; users upgrading into
+  // this build need to re-apply once so the new plist (which routes through
+  // `/usr/bin/open`) takes over. The Schedule status command already returns
+  // `installState: "mismatch"` for that case; we surface it proactively as
+  // a shell notification so users don't have to discover it themselves by
+  // wondering why backups stopped firing.
+  //
+  // `useEffectEvent` wraps the publish call so the effect doesn't need to
+  // re-run every render just to capture a fresh `publishNotification`
+  // closure — which would also defeat the ref guard.
+  const publishStaleScheduleNotice = useEffectEvent(() => {
+    publishNotification({
+      title: t('shell.scheduleStaleAfterUpgradeTitle'),
+      body: t('shell.scheduleStaleAfterUpgradeBody'),
+      tone: 'warning',
+      href: '/settings#schedule',
+    })
+  })
+  useEffect(() => {
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+      return
+    }
+    const guardKey = snapshot.archiveStatus.databasePath
+    if (surfacedScheduleHealthRef.current === guardKey) return
+    surfacedScheduleHealthRef.current = guardKey
+    const cancelToken = { cancelled: false }
+    void runScheduleHealthProbe(cancelToken, publishStaleScheduleNotice)
+    return () => {
+      cancelToken.cancelled = true
+    }
+  }, [
+    snapshot?.archiveStatus.databasePath,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+  ])
+
   useEffect(() => {
     if (
       !appLockStatus?.enabled ||
@@ -748,4 +791,27 @@ function isSafariAccessIssueMessage(message: string) {
     message.includes('Safari History.db is not readable yet') ||
     message.includes('Full Disk Access')
   )
+}
+
+/**
+ * Runs the macOS schedule-status probe and fires the "re-apply schedule"
+ * notification when the installed plist no longer matches the current PathKeep
+ * build's plan. Pulled out of the inline IIFE so v8 coverage can see each
+ * branch (the inline `async () => {}` form was reporting the whole body as
+ * uncovered even when exercised by tests).
+ */
+async function runScheduleHealthProbe(
+  cancelToken: { cancelled: boolean },
+  publishStaleScheduleNotice: () => void,
+) {
+  try {
+    const status = await backend.scheduleStatus('macos')
+    if (cancelToken.cancelled) return
+    if (status.installState !== 'mismatch') return
+    publishStaleScheduleNotice()
+  } catch {
+    // Schedule probes are best-effort — non-macOS hosts and devices without
+    // a configured schedule are expected to no-op here. We don't want a
+    // startup failure path that blocks the rest of the shell.
+  }
 }
