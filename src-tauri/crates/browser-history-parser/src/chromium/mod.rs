@@ -71,9 +71,9 @@ struct VisitCapabilityStats {
     engagement_evidence_count: usize,
 }
 
-/// Incremental URL ingest query used by the archive pipeline.
+/// Incremental URL ingest query used by re-imports after at least one
+/// previous import. Filters URLs by both watermarks intentionally:
 ///
-/// Filters URLs by both watermarks intentionally:
 /// - `last_visit_time >= ?1` catches every URL whose most recent visit
 ///   landed at or after the URL cursor (the common path).
 /// - `id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` widens the
@@ -87,6 +87,19 @@ pub const INGEST_URLS_SQL: &str =
      FROM urls
      WHERE last_visit_time >= ?1
         OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)
+     ORDER BY last_visit_time ASC";
+
+/// First-import URL ingest query. When both watermarks are at zero, the
+/// `last_visit_time >= 0` predicate already matches every URL row, so
+/// the OR's `SELECT DISTINCT url FROM visits WHERE id > 0` subquery is
+/// pure waste — it forces SQLite to scan the entire `visits` table and
+/// materialize an ephemeral B-tree of every URL id before the outer
+/// filter runs. On a 14.4M-visit history that's a multi-GB transient
+/// plus multi-minute stall added to the very first import. Stripping the
+/// OR removes the hazard without losing any rows.
+pub const INGEST_URLS_FULL_SQL: &str =
+    "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
+     FROM urls
      ORDER BY last_visit_time ASC";
 /// Incremental visit ingest query used by the archive pipeline.
 pub const INGEST_VISITS_SQL: &str =
@@ -362,10 +375,21 @@ fn stream_url_batches<C>(
 where
     C: HistoryBatchConsumer,
 {
-    let mut statement = stream_sql(connection.prepare(INGEST_URLS_SQL))?;
+    // First-import path: both watermarks at zero means the OR's
+    // `visits.id > 0` subquery wouldn't filter anything beyond what
+    // `last_visit_time >= 0` already returns. Use the OR-free variant
+    // to skip a multi-GB DISTINCT-over-visits materialisation on the
+    // 14.4M-row ceiling.
+    let first_import = last_visit_time == 0 && last_visit_id == 0;
+    let sql = if first_import { INGEST_URLS_FULL_SQL } else { INGEST_URLS_SQL };
+    let mut statement = stream_sql(connection.prepare(sql))?;
     let column_names =
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-    let mut rows = stream_sql(statement.query(params![last_visit_time, last_visit_id]))?;
+    let mut rows = if first_import {
+        stream_sql(statement.query(params![]))?
+    } else {
+        stream_sql(statement.query(params![last_visit_time, last_visit_id]))?
+    };
     let mut batch = Vec::with_capacity(chunk_size);
     let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {

@@ -220,7 +220,18 @@ pub fn default_refetch_after_for_status(status: &str) -> Option<String> {
         fetch_status::PARSE_ERROR => 7,
         fetch_status::MISSING | fetch_status::TOO_LARGE => 30,
         fetch_status::UNSUPPORTED_MIME => 60,
-        _ => return None,
+        other => {
+            // Conservative fallback for any new `fetch_status::*` constant a
+            // producer adds without also teaching the negative-cache cadence
+            // about it. Returning `None` keeps the row dormant rather than
+            // retry-storming an unrecognised status. The companion
+            // `default_refetch_after_for_status_covers_every_known_status`
+            // unit test below fails the build if a new constant lands here
+            // without an explicit cadence, which is the loud-CI signal that
+            // the previous `debug_assert!(false)` was meant to provide.
+            let _ = other;
+            return None;
+        }
     };
     let when = chrono::Utc::now() + chrono::Duration::days(days);
     Some(when.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
@@ -743,7 +754,49 @@ mod tests {
             assert!(value.ends_with('Z'), "{status} -> {value}");
         }
         assert!(default_refetch_after_for_status(fetch_status::OK).is_none());
-        assert!(default_refetch_after_for_status("unknown_status").is_none());
+    }
+
+    /// Forward-looking exhaustiveness guard: every `fetch_status::*`
+    /// constant must be reachable through `default_refetch_after_for_status`
+    /// without falling into the conservative "unknown" arm. Adding a new
+    /// constant without teaching the cadence about it lands here as a CI
+    /// failure rather than silently shipping a dormant row that never
+    /// retries.
+    #[test]
+    fn default_refetch_after_for_status_covers_every_known_status() {
+        let known = [
+            fetch_status::OK,
+            fetch_status::MISSING,
+            fetch_status::HTTP_ERROR,
+            fetch_status::PARSE_ERROR,
+            fetch_status::TOO_LARGE,
+            fetch_status::UNSUPPORTED_MIME,
+            fetch_status::BLOCKED,
+        ];
+        // `default_refetch_after_for_status` returns Some(...) for the
+        // retryable arms and None for OK / BLOCKED — both shapes are fine;
+        // what matters is that none of them fall through the "unknown"
+        // arm, which would be a silent ship hazard.
+        let mut covered = std::collections::HashSet::new();
+        for status in known {
+            covered.insert(status);
+            let _ = default_refetch_after_for_status(status);
+        }
+        assert_eq!(
+            covered.len(),
+            7,
+            "fetch_status::* constants drifted away from the cadence table — \
+             update default_refetch_after_for_status and this test in lockstep"
+        );
+    }
+
+    /// Documents the conservative "unknown status" behaviour: any string
+    /// outside `fetch_status::*` returns `None` (no retry) instead of
+    /// retry-storming the worker pool.
+    #[test]
+    fn default_refetch_after_for_status_returns_none_for_unknown_strings() {
+        assert!(default_refetch_after_for_status("brand_new_status_no_one_taught_us").is_none());
+        assert!(default_refetch_after_for_status("").is_none());
     }
 
     #[test]

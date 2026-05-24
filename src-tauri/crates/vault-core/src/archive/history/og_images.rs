@@ -102,6 +102,15 @@ SELECT
 
 /// Inserts (or replaces by `page_url`) one og:image fetch outcome plus its
 /// blob bytes. Identical bytes are deduplicated in `og_image_blobs`.
+///
+/// Idempotency: when the existing row already has the same identity tuple
+/// (`fetch_status`, `image_blob_hash`, `http_status`, `page_host`,
+/// `source_og_url`), the call falls back to a lightweight UPDATE that only
+/// refreshes `fetched_at` / `refetch_after` / `fetch_attempts` instead of
+/// the DELETE+INSERT cycle. This matters for SERP rows whose orchestrator
+/// always short-circuits to a `MISSING` outcome on every refetch sweep —
+/// without this short-circuit each sweep would churn the WAL with a
+/// DELETE+INSERT pair per SERP URL, multiplied across thousands of rows.
 pub fn upsert_og_image(connection: &Connection, insert: &OgImageInsert<'_>) -> Result<()> {
     let now = now_rfc3339();
     let image_blob_hash = match (insert.image_bytes, insert.mime) {
@@ -134,6 +143,52 @@ pub fn upsert_og_image(connection: &Connection, insert: &OgImageInsert<'_>) -> R
         }
         _ => None,
     };
+
+    struct ExistingOgImageRow {
+        fetch_status: String,
+        image_blob_hash: Option<String>,
+        http_status: Option<i64>,
+        page_host: Option<String>,
+        source_og_url: Option<String>,
+    }
+    let existing: Option<ExistingOgImageRow> = connection
+        .query_row(
+            "SELECT fetch_status, image_blob_hash, http_status, page_host, source_og_url \
+             FROM og_images WHERE page_url = ?1",
+            params![insert.page_url],
+            |row| {
+                Ok(ExistingOgImageRow {
+                    fetch_status: row.get(0)?,
+                    image_blob_hash: row.get(1)?,
+                    http_status: row.get(2)?,
+                    page_host: row.get(3)?,
+                    source_og_url: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .context("loading existing og_image row for idempotency check")?;
+
+    if let Some(existing_row) = existing.as_ref() {
+        if existing_row.fetch_status == insert.fetch_status
+            && existing_row.image_blob_hash.as_deref() == image_blob_hash.as_deref()
+            && existing_row.http_status == insert.http_status
+            && existing_row.page_host.as_deref() == insert.page_host
+            && existing_row.source_og_url.as_deref() == insert.source_og_url
+        {
+            connection
+                .execute(
+                    "UPDATE og_images
+                     SET fetched_at = ?2,
+                         refetch_after = ?3,
+                         fetch_attempts = ?4
+                     WHERE page_url = ?1",
+                    params![insert.page_url, &now, insert.refetch_after, insert.fetch_attempts,],
+                )
+                .context("updating og_image refetch window")?;
+            return Ok(());
+        }
+    }
 
     // Delete first so the AUTOINCREMENT id can be reused safely. INSERT OR
     // REPLACE would zero out `fetch_attempts` and `last_shown_at` if we kept
@@ -626,6 +681,52 @@ mod tests {
         assert_eq!(report.deleted_blobs, 1);
         let stats_after = storage_stats(&connection).unwrap();
         assert_eq!(stats_after.blob_count, 1);
+    }
+
+    #[test]
+    fn upsert_is_idempotent_when_identity_tuple_is_unchanged() {
+        let connection = open_test_archive();
+        let url = "https://www.google.com/search?q=吉野家";
+        let first = OgImageInsert {
+            page_url: url,
+            page_host: Some("www.google.com"),
+            source_og_url: None,
+            image_bytes: None,
+            mime: None,
+            width: None,
+            height: None,
+            fetch_status: fetch_status::MISSING,
+            http_status: None,
+            refetch_after: Some("2026-06-19T00:00:00Z"),
+            fetch_attempts: 1,
+            created_by_run_id: None,
+        };
+        upsert_og_image(&connection, &first).unwrap();
+        let original_id: i64 = connection
+            .query_row("SELECT id FROM og_images WHERE page_url = ?1", params![url], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        // Same identity tuple, but the orchestrator bumped `fetch_attempts`
+        // and shifted the negative-cache window. The row must keep its id
+        // (no DELETE+INSERT churn) but reflect the new bookkeeping fields.
+        let next = OgImageInsert {
+            refetch_after: Some("2026-07-31T00:00:00Z"),
+            fetch_attempts: 2,
+            ..first
+        };
+        upsert_og_image(&connection, &next).unwrap();
+        let (id_after, attempts_after, refetch_after_after): (i64, i64, String) = connection
+            .query_row(
+                "SELECT id, fetch_attempts, refetch_after FROM og_images WHERE page_url = ?1",
+                params![url],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(id_after, original_id, "idempotent upsert must keep the same row id");
+        assert_eq!(attempts_after, 2);
+        assert_eq!(refetch_after_after, "2026-07-31T00:00:00Z");
     }
 
     #[test]

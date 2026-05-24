@@ -105,9 +105,17 @@ pub fn load_dashboard_snapshot(
     // imported data spans a year. Both bounds live alongside the totals
     // in the cached stats payload — at 14.4M visits, paying a fresh
     // MIN/MAX scan on every dashboard render would dominate page load.
+    //
+    // Backfill defence: pre-bounds-cache backups wrote stats_json with
+    // counts but no `earliestVisitAt` / `latestVisitAt`. Upgrading users
+    // would otherwise see a blank Span on every dashboard load until the
+    // next backup overwrites the cache. When the cached totals say
+    // "visits exist but bounds are None", treat it as an incomplete
+    // cache hit and fall through to the live MIN/MAX (one-time cost
+    // until the next backup writes the new shape).
     let totals = match load_cached_archive_totals(&connection)? {
-        Some(cached) => cached,
-        None => count_visible_archive_totals(&connection)?,
+        Some(cached) if cache_bounds_present_or_archive_empty(&cached) => cached,
+        _ => count_visible_archive_totals(&connection)?,
     };
     let last_successful_backup_at = connection
         .query_row(
@@ -382,6 +390,22 @@ pub(super) fn load_cached_archive_totals(
         }
     }
     Ok(None)
+}
+
+/// Returns `true` when the cached totals can stand in for a live
+/// `count_visible_archive_totals` call. The visible-row counts are
+/// stable across `count_visible_archive_totals` and the cached stats
+/// shape, but the coverage bounds were added later — a pre-bounds-cache
+/// payload reports `Some(totals)` with `None` bounds, and using that as-is
+/// would silently blank the dashboard's Span stat for every upgrading
+/// user until their next backup overwrites the cache. Falling through to
+/// the live read in that case repairs the display at the cost of one
+/// MIN/MAX scan per dashboard load until the cache is repopulated.
+fn cache_bounds_present_or_archive_empty(cached: &ArchiveVisibleTotals) -> bool {
+    if cached.total_visits == 0 {
+        return true;
+    }
+    cached.earliest_visit_at.is_some() && cached.latest_visit_at.is_some()
 }
 
 /// Rebuilds cached visible totals from a stored stats payload when possible.
