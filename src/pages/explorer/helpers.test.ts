@@ -238,4 +238,36 @@ describe('isSearchResultUrl', () => {
     expect(isSearchResultUrl('')).toBe(false)
     expect(isSearchResultUrl('not a url')).toBe(false)
   })
+
+  test('returns false for URLs with an empty hostname (e.g. file://)', () => {
+    // `new URL('file:///etc/hosts').hostname` is the empty string;
+    // without the empty-host guard the SERP check would happily run on
+    // a zero-length registrable and silently mis-bucket.
+    expect(isSearchResultUrl('file:///etc/hosts?q=foo')).toBe(false)
+  })
+
+  test('uses public-suffix-aware registrable-domain detection for ccTLDs', () => {
+    // Naive `slice(-2)` would yield `co.uk` and miss the SERP entirely;
+    // the public-suffix-aware path collapses to `google.co.uk` and matches
+    // via the `www.google.` prefix.
+    expect(
+      isSearchResultUrl('https://www.google.co.uk/search?q=pathkeep'),
+    ).toBe(true)
+    // ditto for a fake brand that LOOKS like google.co.uk but isn't a SERP
+    expect(isSearchResultUrl('https://nope.co.uk/?q=foo')).toBe(false)
+  })
+
+  test('matches the broader Rust SEARCH_QUERY_KEYS list', () => {
+    expect(isSearchResultUrl('https://www.baidu.com/s?word=sqlite')).toBe(true)
+    expect(isSearchResultUrl('https://www.so.com/s?keyword=pathkeep')).toBe(
+      true,
+    )
+  })
+
+  test('does not match retired allowlist hosts (kagi/startpage) — Rust would say false', () => {
+    expect(isSearchResultUrl('https://kagi.com/search?q=foo')).toBe(false)
+    expect(isSearchResultUrl('https://startpage.com/do/search?q=foo')).toBe(
+      false,
+    )
+  })
 })

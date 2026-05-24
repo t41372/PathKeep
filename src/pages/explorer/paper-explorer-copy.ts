@@ -38,8 +38,6 @@ export function buildPaperExplorerCopy(
       dayMeta: t('paperBrowse.contactSheetDayMeta'),
       dayIndex: t('paperBrowse.contactSheetDayIndex'),
       clearTarget: t('paperBrowse.contactSheetClearTarget'),
-      expandStack: t('paperBrowse.contactSheetExpandStack'),
-      moreInStack: t('paperBrowse.contactSheetMoreInStack'),
       pagesLabel: t('paperBrowse.contactSheetPagesLabel'),
       empty: t('paperBrowse.contactSheetEmpty'),
       sessionGapLabel: t('paperBrowse.contactSheetSessionGap'),
@@ -110,6 +108,8 @@ export function buildPaperExplorerCopy(
       loadingMore: t('paperBrowse.infiniteLoadingMore'),
       endOfArchive: t('paperBrowse.infiniteEndOfArchive'),
       loadedSummary: t('paperBrowse.infiniteLoadedSummary'),
+      capReached: t('paperBrowse.infiniteCapReached'),
+      error: t('paperBrowse.infiniteError'),
     },
     dayInsights: {
       topDomainsTitle: t('paperBrowse.dayInsightsTopDomains'),

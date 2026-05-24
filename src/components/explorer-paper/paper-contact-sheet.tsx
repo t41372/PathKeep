@@ -98,8 +98,6 @@ export interface PaperContactSheetCopy {
   /** Template, e.g. "Day {n}". */
   dayIndex: string
   clearTarget: string
-  expandStack: string
-  moreInStack: string
   pagesLabel: string
   empty: string
   /**
@@ -144,6 +142,14 @@ export interface PaperContactSheetPagination {
 export interface PaperContactSheetInfiniteScroll {
   loadingMore: boolean
   canLoadMore: boolean
+  /**
+   * True when `canLoadMore` is false specifically because the in-memory
+   * page cap was hit. Used to render a "jump deeper via search /
+   * calendar" hint instead of the "end of archive" caption.
+   */
+  capReached?: boolean
+  /** Last page-load error (null on success). Surfaced in the footer. */
+  error?: string | null
   onLoadMore: () => void
   loadedPageCount: number
   totalPages: number
@@ -152,6 +158,10 @@ export interface PaperContactSheetInfiniteScroll {
     loadingMore: string
     endOfArchive: string
     loadedSummary: string
+    /** Shown when `capReached === true`. `{loaded}` substitutes the loaded-rows count. */
+    capReached?: string
+    /** Shown when `error` is non-null. `{message}` substitutes the error. */
+    error?: string
   }
 }
 
@@ -483,8 +493,24 @@ function InfiniteScrollFooter({
         />
       ) : null}
       <span className="text-ink-faint">
-        {canLoadMore ? loadedSummary : scroll.copy.endOfArchive}
+        {canLoadMore
+          ? loadedSummary
+          : scroll.capReached && scroll.copy.capReached
+            ? scroll.copy.capReached.replace(
+                '{loaded}',
+                rowsInView.toLocaleString(),
+              )
+            : scroll.copy.endOfArchive}
       </span>
+      {scroll.error && scroll.copy.error ? (
+        <span
+          role="alert"
+          className="text-status-warning"
+          data-testid="paper-contact-sheet-infinite-error"
+        >
+          {scroll.copy.error.replace('{message}', scroll.error)}
+        </span>
+      ) : null}
     </footer>
   )
 }

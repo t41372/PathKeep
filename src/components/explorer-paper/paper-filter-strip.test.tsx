@@ -292,7 +292,13 @@ describe('PaperFilterStrip', () => {
     expect(screen.getByTestId('my-strip-apply')).toBeInTheDocument()
   })
 
-  test('resets the draft when formState prop changes (URL state moved underneath)', () => {
+  test('syncs the draft from formState while the popover is closed but protects the user from a mid-edit URL clobber while open', () => {
+    // Regression coverage for the popover-clobber bug: a chip removal (or
+    // any other parent-driven URL update) fires while the user is still
+    // typing inside the popover form. Re-syncing the draft on every
+    // formState change would silently throw away the in-flight edit; the
+    // contract is to only sync while the popover is closed, then reseed
+    // on the closed→open transition.
     const { rerender } = render(
       <PaperFilterStrip
         chips={[]}
@@ -305,7 +311,9 @@ describe('PaperFilterStrip', () => {
         onApply={() => {}}
       />,
     )
-    fireEvent.click(screen.getByText('+ Filter'))
+
+    // While closed: formState change must sync into the draft so opening
+    // the popover surfaces the latest URL-derived values.
     rerender(
       <PaperFilterStrip
         chips={[]}
@@ -318,8 +326,31 @@ describe('PaperFilterStrip', () => {
         onApply={() => {}}
       />,
     )
+    fireEvent.click(screen.getByText('+ Filter'))
     expect(
       screen.getByTestId<HTMLInputElement>('paper-filter-input-domain').value,
     ).toBe('github.com')
+
+    // User starts typing inside the popover…
+    fireEvent.change(screen.getByTestId('paper-filter-input-domain'), {
+      target: { value: 'github.com/issues' },
+    })
+    // …then the parent re-renders with a new formState (chip removal, etc).
+    // The in-flight draft must NOT be clobbered.
+    rerender(
+      <PaperFilterStrip
+        chips={[]}
+        copy={COPY}
+        formState={{ ...EMPTY_FORM, domain: '' }}
+        browserOptions={[]}
+        profileOptions={[]}
+        onRemove={() => {}}
+        onClearAll={() => {}}
+        onApply={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId<HTMLInputElement>('paper-filter-input-domain').value,
+    ).toBe('github.com/issues')
   })
 })

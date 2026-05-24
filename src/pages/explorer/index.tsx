@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -280,6 +280,8 @@ export function ExplorerPage() {
     loadedPageCount: infiniteLoadedPageCount,
     loadingMore: infiniteLoadingMore,
     canLoadMore: infiniteCanLoadMore,
+    capReached: infiniteCapReached,
+    error: infiniteError,
     loadMore: infiniteLoadMore,
   } = useExplorerInfinitePages({
     query: currentQuery,
@@ -398,50 +400,92 @@ export function ExplorerPage() {
     }),
     [explorerT],
   )
-  const paperFilterStrip = (
-    <PaperFilterStrip
-      chips={activeFilters.filter((f): f is NonNullable<typeof f> =>
-        Boolean(f),
-      )}
-      copy={filterStripCopy}
-      formState={filterStripFormState}
-      browserOptions={browserOptions}
-      profileOptions={profileOptions}
-      onRemove={(id) => updateParam(id, null)}
-      onClearAll={clearAllFilters}
-      onApply={(next) => {
-        const params = new URLSearchParams(searchParams)
-        const setOrDelete = (key: string, value: string) => {
-          const trimmed = value.trim()
-          if (trimmed.length === 0) params.delete(key)
-          else params.set(key, trimmed)
-        }
-        setOrDelete('domain', next.domain)
-        setOrDelete('browserKind', next.browserKind)
-        setOrDelete('profileId', next.profileId)
-        setOrDelete('start', next.start)
-        setOrDelete('end', next.end)
-        if (next.regexMode) params.set('regex', '1')
-        else params.delete('regex')
-        params.delete('page')
-        setSearchParams(params)
-      }}
-      testId="paper-filter-strip"
-    />
+  const filterStripChips = useMemo(
+    () => activeFilters.filter((f): f is NonNullable<typeof f> => Boolean(f)),
+    [activeFilters],
+  )
+  const handleFilterStripApply = useCallback(
+    (next: PaperFilterStripFormState) => {
+      const params = new URLSearchParams(searchParams)
+      const setOrDelete = (key: string, value: string) => {
+        const trimmed = value.trim()
+        if (trimmed.length === 0) params.delete(key)
+        else params.set(key, trimmed)
+      }
+      setOrDelete('domain', next.domain)
+      setOrDelete('browserKind', next.browserKind)
+      setOrDelete('profileId', next.profileId)
+      setOrDelete('start', next.start)
+      setOrDelete('end', next.end)
+      if (next.regexMode) params.set('regex', '1')
+      else params.delete('regex')
+      params.delete('page')
+      setSearchParams(params)
+    },
+    [searchParams, setSearchParams],
+  )
+  const handleFilterStripRemove = useCallback(
+    (id: string) => updateParam(id, null),
+    [updateParam],
+  )
+  const paperFilterStrip = useMemo(
+    () => (
+      <PaperFilterStrip
+        chips={filterStripChips}
+        copy={filterStripCopy}
+        formState={filterStripFormState}
+        browserOptions={browserOptions}
+        profileOptions={profileOptions}
+        onRemove={handleFilterStripRemove}
+        onClearAll={clearAllFilters}
+        onApply={handleFilterStripApply}
+        testId="paper-filter-strip"
+      />
+    ),
+    [
+      browserOptions,
+      clearAllFilters,
+      filterStripChips,
+      filterStripCopy,
+      filterStripFormState,
+      handleFilterStripApply,
+      handleFilterStripRemove,
+      profileOptions,
+    ],
   )
 
   // Search the rendered (head + infinite-scroll-accumulated) item list,
   // not just `visibleTimeResults` page 1 — otherwise selecting a row from
   // page 2+ opens the detail panel against the first page-1 entry.
+  //
+  // Returns `null` when the previously-selected id no longer exists in
+  // the rendered pool (e.g. the user just applied a filter that dropped
+  // the row). Falling back to `items[0]` would silently rebind the open
+  // detail panel to a DIFFERENT record under the same `paperDetailOpen`,
+  // and the mount's `onUpdateNotes` would then write any in-flight
+  // debounce flush against the wrong URL.
   const selectedEntryPool = !loading ? renderedTimeResults : null
   const selectedEntry =
-    selectedEntryPool?.items.find((item) => item.id === selectedId) ??
-    selectedEntryPool?.items[0] ??
-    null
+    selectedEntryPool?.items.find((item) => item.id === selectedId) ?? null
   const selectedGroupedVisit =
     selectedGroupedVisitState?.key === groupedSelectionKey
       ? selectedGroupedVisitState.visit
       : null
+
+  // Auto-close the detail panel when the selected entry vanishes from
+  // the rendered pool (e.g. a filter dropped the row). Without this,
+  // `paperDetailOpen` stays true while `selectedEntry` is null and the
+  // mount renders nothing — the user sees the backdrop / overlay shell
+  // with no content.
+  //
+  // Done as a render-time setState (React 19's blessed derived-state
+  // pattern) rather than an effect so we don't pay an extra commit cycle
+  // for what's a pure synchronous derivation; the guard ensures it never
+  // loops because the second render observes `paperDetailOpen === false`
+  // and skips the branch.
+  if (paperDetailOpen && !selectedEntry && !loading) {
+    setPaperDetailOpen(false)
+  }
   const optionalAiReason = optionalAiAvailability.reason
   const optionalAiFixableReason =
     optionalAiReason === 'ai-disabled' ||
@@ -774,6 +818,8 @@ export function ExplorerPage() {
                     loadedPageCount: infiniteLoadedPageCount,
                     totalPages: visibleTimeResults?.pageCount ?? 0,
                     totalRows: visibleTimeResults?.total ?? 0,
+                    capReached: infiniteCapReached,
+                    error: infiniteError,
                   }
             }
             language={language}
@@ -844,15 +890,16 @@ export function ExplorerPage() {
           onClose={() => setPaperDetailOpen(false)}
           onOpen={(url) => void handleVisit(url)}
           onOpenDomain={(domain) => {
-            // "All of {domain}" → swap to a domain-filtered Browse view.
-            // Replicates the same URL contract the filter chip would
-            // write so the chip strip picks the filter up on next render.
-            const next = new URLSearchParams(searchParams)
+            // "All of {domain}" → drop into a domain-only Browse view.
+            // The user is asking to see EVERYTHING from this domain, so
+            // strip every contextual filter that the previous surface
+            // accumulated (search surface, search query, semantic mode,
+            // regex, date window, start/end pin, profile / browser
+            // scope, paginator cursors) and write only the domain. This
+            // matches what `clearAllFilters` would have written, plus
+            // the new `domain=` chip.
+            const next = new URLSearchParams()
             next.set('domain', domain)
-            next.delete('date')
-            next.delete('source')
-            next.delete('q')
-            next.delete('page')
             setSearchParams(next)
           }}
         />

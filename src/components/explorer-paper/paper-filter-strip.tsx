@@ -106,9 +106,24 @@ export function PaperFilterStrip({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState(formState)
 
+  // Sync the draft from the URL-derived formState ONLY when the popover
+  // is closed. Otherwise a chip removal (or any external URL update)
+  // would clobber whatever the user has half-typed into the popover form
+  // — silent data loss. When the popover reopens, the draft is re-seeded
+  // from the latest formState below.
   useEffect(() => {
+    if (open) return
     setDraft(formState)
-  }, [formState])
+  }, [formState, open])
+  // Reseed the draft on each open so the form reflects the current URL
+  // state (in case it shifted while the popover was closed).
+  useEffect(() => {
+    if (open) setDraft(formState)
+    // formState intentionally excluded — we only want to reseed on the
+    // transition from closed → open, not on every formState change while
+    // the popover is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   useEffect(() => {
     if (!open) return

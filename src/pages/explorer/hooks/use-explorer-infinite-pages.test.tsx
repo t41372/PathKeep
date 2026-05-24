@@ -130,11 +130,9 @@ describe('useExplorerInfinitePages', () => {
     // setLoadingMore(true) for the now-cancelled fetch; the .finally
     // skipped its clear because cancelled=true, so the flag stuck.
     let resolveFetch: (response: ReturnType<typeof makeHeadResponse>) => void
-    const slow = new Promise<ReturnType<typeof makeHeadResponse>>(
-      (resolve) => {
-        resolveFetch = resolve
-      },
-    )
+    const slow = new Promise<ReturnType<typeof makeHeadResponse>>((resolve) => {
+      resolveFetch = resolve
+    })
     vi.spyOn(backend, 'queryHistory').mockReturnValue(slow)
     // Stable headResults so the fetch effect doesn't re-run on every
     // render of the test wrapper.

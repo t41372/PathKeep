@@ -229,6 +229,68 @@ describe('PaperDetailPanelMount', () => {
     expect(screen.getByText('sqlite')).toBeInTheDocument()
   })
 
+  test('mid-debounce entry switch flushes the in-flight note to the PREVIOUS entry, not the new one', async () => {
+    // Regression coverage for the onUpdateNotes entry-switch race: if the
+    // user types into entry A and the route swaps selectedEntry to B before
+    // the 400 ms debounce fires, the pending edit must still land on A's
+    // URL (because that's what the user was looking at when they typed),
+    // not B's. A naive implementation that re-reads `selectedEntry` at
+    // flush time would silently overwrite B's notes with A's draft.
+    vi.useFakeTimers()
+    const updateNotes = vi.fn()
+    try {
+      const { rerender } = render(
+        <PaperDetailPanelMount
+          selectedEntry={makeEntry({
+            id: 1,
+            url: 'https://example.com/a',
+            title: 'Entry A',
+          })}
+          annotations={emptyAnnotations({ updateNotes })}
+          explorerT={explorerT}
+          onClose={() => {}}
+          onOpen={() => {}}
+        />,
+      )
+      const textarea = screen.getByPlaceholderText(
+        'paperBrowse.detailNotesPlaceholder',
+      )
+      fireEvent.change(textarea, { target: { value: 'draft for A' } })
+
+      // Switch the selectedEntry BEFORE the debounce fires.
+      rerender(
+        <PaperDetailPanelMount
+          selectedEntry={makeEntry({
+            id: 2,
+            url: 'https://example.com/b',
+            title: 'Entry B',
+          })}
+          annotations={emptyAnnotations({ updateNotes })}
+          explorerT={explorerT}
+          onClose={() => {}}
+          onOpen={() => {}}
+        />,
+      )
+
+      // The layout-effect flush path commits the pending draft synchronously
+      // against the *previous* entry's URL during the re-render. Advancing
+      // timers covers the alternate flush path too (in case the layout
+      // effect ever stops being the primary commit site).
+      await vi.advanceTimersByTimeAsync(450)
+      expect(updateNotes).toHaveBeenCalledWith(
+        'https://example.com/a',
+        'draft for A',
+      )
+      // Crucially: never against B's URL.
+      expect(updateNotes).not.toHaveBeenCalledWith(
+        'https://example.com/b',
+        'draft for A',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('adding a tag in the input writes the merged list back via updateTags', () => {
     const updateTags = vi.fn()
     render(

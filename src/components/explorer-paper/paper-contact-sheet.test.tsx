@@ -25,8 +25,6 @@ const COPY: PaperContactSheetCopy = {
   dayMeta: '{count} pages · {sessions} sessions',
   dayIndex: 'Day {n}',
   clearTarget: 'Clear',
-  expandStack: 'Toggle stack',
-  moreInStack: '+',
   pagesLabel: 'pages',
   empty: 'Nothing here yet.',
   sessionGapLabel: '{duration} away',

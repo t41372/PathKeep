@@ -68,8 +68,6 @@ describe('buildPaperExplorerCopy', () => {
         copy.contactSheet.dayMeta,
         copy.contactSheet.dayIndex,
         copy.contactSheet.clearTarget,
-        copy.contactSheet.expandStack,
-        copy.contactSheet.moreInStack,
         copy.contactSheet.pagesLabel,
         copy.contactSheet.empty,
         copy.dayNav.prev,

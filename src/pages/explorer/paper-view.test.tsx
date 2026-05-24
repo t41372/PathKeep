@@ -27,8 +27,6 @@ const COPY: PaperExplorerCopy = {
     dayMeta: '{count} pages · {sessions} sessions',
     dayIndex: 'Day {n}',
     clearTarget: 'Clear',
-    expandStack: 'Toggle stack',
-    moreInStack: '+',
     pagesLabel: 'pages',
     empty: 'Nothing here yet.',
     sessionGapLabel: '{duration} away',
@@ -91,6 +89,8 @@ const COPY: PaperExplorerCopy = {
     loadingMore: 'Loading earlier days…',
     endOfArchive: 'You’ve reached the start of the archive.',
     loadedSummary: 'Loaded {loaded} of {total} pages · {rows} rows in view',
+    capReached: 'Showing the first {loaded} rows · search to jump deeper.',
+    error: 'Couldn’t load the next page · {message}',
   },
   dayInsights: {
     topDomainsTitle: 'Top domains',

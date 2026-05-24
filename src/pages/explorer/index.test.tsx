@@ -446,6 +446,13 @@ describe('ExplorerPage route shell', () => {
       (options: Parameters<typeof defaultExplorerData>[0]) =>
         defaultExplorerData(options, {
           handleVisit,
+          // The route now refuses to bind the detail panel to a row that
+          // isn't in the rendered pool (the `?? items[0]` fallback was
+          // dropped on purpose so a filter mid-edit can't silently rebind
+          // notes to the wrong URL). Preseed `selectedId` so the click on
+          // the mock paper-view-select button actually opens the mount
+          // against a real entry rather than getting auto-closed.
+          selectedId: 42,
         }),
     )
 
@@ -643,7 +650,12 @@ function defaultExplorerData(
         items: [
           {
             favicon: null,
-            id: 'visit-1',
+            // Matches the id the mock paper-view emits via
+            // `onSelectEntry({ id: 42 })` — without this, the route's
+            // strict "entry must be in the rendered pool" lookup (no more
+            // `?? items[0]` fallback) leaves `selectedEntry` null and the
+            // auto-close guard immediately drops the detail mount.
+            id: 42,
             profileId: 'chrome:Default',
             title: 'SQLite notes',
             url: 'https://example.test/sqlite',

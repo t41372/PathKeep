@@ -128,6 +128,10 @@ export interface PaperExplorerCopy {
     endOfArchive: string
     /** Caption template for the "loaded P/T pages · R rows" footer. */
     loadedSummary: string
+    /** Shown when the in-memory cap is hit but the archive has more pages. */
+    capReached: string
+    /** Shown when the last page fetch errored; `{message}` substitutes the error. */
+    error: string
   }
   dayInsights: {
     topDomainsTitle: string
@@ -183,6 +187,10 @@ export interface PaperExplorerPagination {
 export interface PaperExplorerInfiniteScroll {
   loadingMore: boolean
   canLoadMore: boolean
+  /** True when canLoadMore is false because the in-memory page cap was hit. */
+  capReached?: boolean
+  /** Last page-load error; null on success. */
+  error?: string | null
   onLoadMore: () => void
   /** Pages currently merged into the timeline, including the head page. */
   loadedPageCount: number

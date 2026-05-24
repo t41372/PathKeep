@@ -52,6 +52,13 @@ export interface ExplorerInfinitePagesState {
   loadingMore: boolean
   /** True when the head response signalled more pages and the buffer hasn't reached the end yet. */
   canLoadMore: boolean
+  /**
+   * True when `canLoadMore` is false specifically because the in-memory
+   * page cap was hit and the archive still has more pages to load.
+   * Lets the footer render a "jump deeper via search / calendar" hint
+   * instead of the misleading "end of archive" copy.
+   */
+  capReached: boolean
   /** Last error from a page-N fetch, surfaced for the UI to render. */
   error: string | null
   /** Bumps the accumulated page count by one (advances the timeline). */
@@ -244,6 +251,17 @@ export function useExplorerInfinitePages({
     return Boolean(headResults.hasNext) && accumulatedPages === 1
   }, [accumulatedPages, disabled, headResults])
 
+  // Distinguishes the hard cap from a genuine end-of-archive. The
+  // contact-sheet footer uses this to render "Showing first N rows · use
+  // search / a date pill to jump deeper" instead of the misleading "End
+  // of archive" copy when the user has merely hit the in-memory cap on a
+  // truly large archive.
+  const capReached = useMemo(() => {
+    if (disabled || !headResults) return false
+    if (accumulatedPages < MAX_ACCUMULATED_PAGES) return false
+    return accumulatedPages < (headResults.pageCount ?? 0)
+  }, [accumulatedPages, disabled, headResults])
+
   const loadMore = useMemo(
     () => () => {
       if (disabled) return
@@ -261,6 +279,7 @@ export function useExplorerInfinitePages({
     loadedPageCount: accumulatedPages,
     loadingMore,
     canLoadMore,
+    capReached,
     error,
     loadMore,
   }
