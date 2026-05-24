@@ -51,6 +51,18 @@ export interface DashboardYearHeatmapCardProps {
 
 const HEATMAP_DAYS = 365
 
+/**
+ * Stable per-day token in the user's local timezone. Used as a dependency
+ * key so memos / fetches re-run exactly when midnight crosses, regardless
+ * of how long the dashboard has been mounted.
+ */
+function localDayKey(now: Date): string {
+  const year = now.getFullYear()
+  const month = `${now.getMonth() + 1}`.padStart(2, '0')
+  const day = `${now.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function DashboardYearHeatmapCard({
   archiveReady,
   onOpenInsights,
@@ -62,6 +74,36 @@ export function DashboardYearHeatmapCard({
   const [points, setPoints] = useState<DailyVisitPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Local-day token that the fetch effect and `startDate` memo depend on
+  // so the heatmap window rolls over to "today" the moment midnight
+  // passes. Without this, a dashboard left mounted overnight kept showing
+  // yesterday as the rightmost cell, and any visit recorded after midnight
+  // would land off-grid until the user navigated away and back.
+  const [todayKey, setTodayKey] = useState(() => localDayKey(new Date()))
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    function schedule() {
+      const now = new Date()
+      // +1s grace so the wake-up lands on the new day.
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+        0,
+        0,
+        1,
+      )
+      timer = setTimeout(() => {
+        setTodayKey(localDayKey(new Date()))
+        schedule()
+      }, nextMidnight.getTime() - now.getTime())
+    }
+    schedule()
+    // Cleanup always has a timer to clear (the effect calls `schedule()`
+    // synchronously, which assigns `timer`), so no `if (timer)` guard is
+    // needed — a guard here would be defensive dead code.
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (!archiveReady) {
@@ -105,7 +147,7 @@ export function DashboardYearHeatmapCard({
     return () => {
       cancelled = true
     }
-  }, [activeProfileId, archiveReady, t])
+  }, [activeProfileId, archiveReady, t, todayKey])
 
   const startDate = useMemo(() => {
     // `dashboardHeatmapRange` returns YYYY-MM-DD strings already in the
@@ -116,7 +158,10 @@ export function DashboardYearHeatmapCard({
     const range = dashboardHeatmapRange(new Date())
     const [year, month, day] = range.start.split('-').map(Number)
     return new Date(year, month - 1, day)
-  }, [])
+    // `todayKey` ticks at local midnight so the window slides forward
+    // without needing the user to reload the dashboard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayKey])
   const cells = useMemo(
     () => buildYearHeatmapCells(points, startDate, HEATMAP_DAYS),
     [points, startDate],

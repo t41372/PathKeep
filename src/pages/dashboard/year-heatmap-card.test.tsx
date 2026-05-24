@@ -174,6 +174,35 @@ describe('DashboardYearHeatmapCard', () => {
     ).toBeInTheDocument()
   })
 
+  test('rolls the heatmap window when local midnight passes', async () => {
+    // Pin the clock just before midnight so the timer rolls within the
+    // configured `vi.advanceTimersByTime` budget. The midnight effect
+    // schedules a single setTimeout that fires at the next local midnight
+    // and re-derives `todayKey`, which re-triggers the fetch effect.
+    vi.useFakeTimers()
+    try {
+      const justBeforeMidnight = new Date(2026, 4, 22, 23, 59, 58)
+      vi.setSystemTime(justBeforeMidnight)
+      const trendSpy = vi
+        .spyOn(coreIntelligenceApi, 'getDiscoveryTrend')
+        .mockResolvedValue(
+          makeTrendResult([{ dateKey: '2026-05-22', totalVisits: 1 }]),
+        )
+
+      renderCard()
+      // Cross the date boundary: the timer is scheduled for the next
+      // local midnight + 1s, so advancing 4s passes through it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000)
+      })
+      // Initial fetch + midnight rollover fetch: the heatmap re-derived
+      // its range and the fetch effect re-ran with the new local day.
+      expect(trendSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('renders the heatmap in a zh-CN locale (covers the language ternary)', async () => {
     window.localStorage.setItem('pathkeep-language-preference', 'zh-CN')
     try {
