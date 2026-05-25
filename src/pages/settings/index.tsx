@@ -29,6 +29,7 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
+import { DataMigrationSection } from './data-migration-section'
 import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
@@ -88,6 +89,7 @@ export function SettingsPage() {
     'applock',
     'ai',
     'remote',
+    'migration',
     'linkPreviews',
   ])
   const settingsSection = (key: SettingsSectionKey) =>
@@ -229,6 +231,7 @@ export function SettingsPage() {
           navItem={settingsSection('remote')}
           state={routeState.remote}
         />
+        <DataMigrationSection navItem={settingsSection('migration')} />
         <LinkPreviewsSection anchorId={settingsSection('linkPreviews').id} />
       </div>
     </section>

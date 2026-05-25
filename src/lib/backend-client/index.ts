@@ -21,6 +21,7 @@ export * from './dashboard'
 export * from './explorer'
 export * from './import'
 export * from './intelligence'
+export * from './migration'
 export * from './remote'
 export * from './schedule'
 export * from './security'
@@ -36,6 +37,7 @@ import { dashboardClient } from './dashboard'
 import { explorerClient } from './explorer'
 import { importClient } from './import'
 import { intelligenceClient } from './intelligence'
+import { migrationClient } from './migration'
 import { remoteClient } from './remote'
 import { scheduleClient } from './schedule'
 import { securityClient } from './security'
@@ -82,6 +84,9 @@ export const backend = {
   replaceUrlTags: annotationsClient.replaceUrlTags,
   listUrlAnnotations: annotationsClient.listUrlAnnotations,
   searchUrlAnnotations: annotationsClient.searchUrlAnnotations,
+  exportAppData: migrationClient.exportAppData,
+  previewAppDataImport: migrationClient.previewAppDataImport,
+  applyAppDataImport: migrationClient.applyAppDataImport,
   loadDashboardSnapshot: dashboardClient.getSnapshot,
   loadAuditRunDetail: auditClient.getRunDetail,
   exportHistory: archiveClient.exportHistory,
