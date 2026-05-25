@@ -19,6 +19,16 @@ use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+/// Incremental URL ingest query used by re-imports after at least one
+/// previous import. Mirrors the Chromium `INGEST_URLS_SQL` pattern:
+///
+/// - `last_visit_date >= ?1` catches every place whose most recent visit
+///   landed at or after the URL cursor (the common path).
+/// - `id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)`
+///   widens the set to any place referenced by a new visit beyond the visit
+///   cursor, even when Firefox didn't bump `moz_places.last_visit_date`.
+///   Without this OR, long-tail revisited pages lose their new visits to
+///   `skipped_visits++` because the URL is absent from `url_id_map` (B2).
 const URLS_SQL: &str = r#"
 SELECT
   moz_places.id,
@@ -29,6 +39,7 @@ SELECT
   COALESCE(moz_places.last_visit_date, 0)
 FROM moz_places
 WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1
+   OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)
 ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
 "#;
 const VISITS_SQL: &str = r#"
@@ -183,8 +194,10 @@ where
         let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows =
-            stream_sql(statement.query(params![unix_ms_to_firefox_time(after_url_last_visit_ms)]))?;
+        let mut rows = stream_sql(
+            statement
+                .query(params![unix_ms_to_firefox_time(after_url_last_visit_ms), after_visit_id]),
+        )?;
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             batch.push(stream_sql(parsed_url_from_row(row))?);

@@ -122,10 +122,16 @@ pub(super) fn upsert_url(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
            url = excluded.url,
-           title = excluded.title,
-           visit_count = excluded.visit_count,
-           typed_count = excluded.typed_count,
-           hidden = excluded.hidden,
+           title = CASE
+             WHEN excluded.last_visit_ms >= urls.last_visit_ms THEN excluded.title
+             ELSE urls.title
+           END,
+           visit_count = MAX(urls.visit_count, excluded.visit_count),
+           typed_count = MAX(urls.typed_count, excluded.typed_count),
+           hidden = CASE
+             WHEN excluded.last_visit_ms >= urls.last_visit_ms THEN excluded.hidden
+             ELSE urls.hidden
+           END,
            payload_hash = excluded.payload_hash,
            recorded_at = excluded.recorded_at,
            last_visit_ms = CASE

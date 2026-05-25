@@ -307,7 +307,7 @@ impl<'a> BrowserHistoryAccumulator<'a> {
 
 fn parse_browser_record(
     source_path: &str,
-    ordinal: i64,
+    _ordinal: i64,
     record: Value,
 ) -> Result<BrowserRecordOutcome, ParseError> {
     let url = record
@@ -336,7 +336,7 @@ fn parse_browser_record(
     Ok(BrowserRecordOutcome::Parsed(ParsedBrowserRecord {
         source_path: source_path.to_string(),
         source_url_id: stable_key_i64(format!("url::{url}").as_bytes()),
-        source_visit_id: stable_key_i64(format!("{source_path}:{ordinal}:{url}").as_bytes()),
+        source_visit_id: stable_key_i64(format!("{url}:{visit_time_micros}").as_bytes()),
         url,
         title,
         visit_time_micros,

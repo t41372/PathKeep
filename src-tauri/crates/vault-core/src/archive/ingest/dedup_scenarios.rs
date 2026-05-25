@@ -599,7 +599,6 @@ fn t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index() {
 /// is stable across re-imports regardless of path or fingerprint input
 /// drift). Today the count grows to 6 and the assertion fires.
 #[test]
-#[should_panic(expected = "B3 fix required")]
 fn t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges() {
     let env = ScenarioEnv::new();
 
@@ -691,7 +690,6 @@ fn takeout_record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBro
 /// to plain `#[test]` once each affected field is gated on
 /// `excluded.last_visit_ms >= urls.last_visit_ms`.
 #[test]
-#[should_panic(expected = "B1 fix required")]
 fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
     let env = ScenarioEnv::new();
     let visit_two_ms = 1_777_809_600_000_i64;
@@ -766,7 +764,6 @@ fn stored_visit_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) 
 /// silently dropped by `ArchiveChunkConsumer::visits`. `#[should_panic]`
 /// today; flip to plain `#[test]` after Firefox grows the OR fallback.
 #[test]
-#[should_panic(expected = "B2 fix required for Firefox")]
 fn f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2() {
     let env = ScenarioEnv::new();
     // Long-tail URL (T1) + anchor URL (T2) so the URL watermark
