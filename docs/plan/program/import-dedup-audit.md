@@ -95,7 +95,7 @@ The chromium fix exists because it was discovered in real Zhihu-style
 long-tail revisit data; the same pattern almost certainly affects Firefox &
 Safari but has not been hit yet.
 
-### B3 — Takeout `source_visit_id` is bound to file path
+### B3 — Takeout `source_visit_id` is bound to file path (degraded defense)
 
 [takeout/browser_history.rs:339](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
 
@@ -103,17 +103,33 @@ Safari but has not been hit yet.
 source_visit_id: stable_key_i64(format!("{source_path}:{ordinal}:{url}").as_bytes()),
 ```
 
-`source_path` is the absolute path to the Takeout JSON file. Re-import effects:
+`source_path` is the absolute path to the Takeout JSON file. **Earlier
+draft of this audit overstated B3's blast radius** as "renaming the file
+produces a full duplicate set"; the harness scenario
+[`t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)
+proved that in the *all-fingerprint-inputs-identical* case the
+`(source_profile_id, event_fingerprint)` partial unique index catches the
+duplicates even though every `source_visit_id` changes. So the actual
+behaviors are:
 
-- Same file, same path → same hash → INSERT OR IGNORE works → ✅ dedup
-- User renames `BrowserHistory.json` → completely different `source_visit_id` for
-  every record → full duplicate set ❌
-- User downloads Takeout twice (different quarter), each saved to a different
-  folder → identical visit records get different `source_visit_id`s → full
-  duplicate set ❌
-- Fingerprint fallback also fails to rescue because `app_id` is hardcoded to
-  `"takeout"` and `transition` is `None`, so the fingerprint of a Takeout
-  visit can never match a local-Chrome visit of the same instant.
+- Same file, same path → same hash → primary key dedup → ✅
+- Renamed/moved file, **identical record content** → primary key fails to
+  dedup, but fingerprint partial index catches it → ✅ in practice
+- Renamed/moved file, **fingerprint input drift** (Google captured a new
+  page title in the intervening export window, or transition / app_id is
+  somehow different) → both indexes miss → ❌ full duplicate set
+  ([`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)
+  reproduces this; the test is `#[should_panic]` until the fix lands)
+
+The design concern stands: the path-bound `source_visit_id` provides
+zero useful dedup signal — the system survives only because the
+fingerprint partial index is doing double duty. Any change that
+narrows the fingerprint inputs (e.g. tightening normalization,
+dropping `title` from the hash) would re-expose the user to the full
+duplicate set the original B3 claim warned about. Fix shape:
+derive `source_visit_id` from `(url, visit_time_micros)` so the
+primary key stays stable across re-imports regardless of on-disk path
+or downstream fingerprint changes.
 
 ### B4 — Takeout × local-Chrome same-period overlap always double-counts
 
@@ -327,9 +343,12 @@ Maps to scenarios that will be enumerated in
 
 | Scenario | Location | Asserts |
 | --- | --- | --- |
-| C1 — Chromium baseline import | [archive/ingest/dedup_scenarios.rs `c1_chromium_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | One profile, one ingest pass produces exactly the fixture URL + visit rows; `source_visit_id` values flow through unmodified. |
-| C2 — Chromium incremental no-new-data | [archive/ingest/dedup_scenarios.rs `c2_chromium_incremental_no_new_data`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Re-running the same fixture with `use_watermark = true` returns `new_urls = 0`, `new_visits = 0`, and archive row counts stay constant. |
-| C3 — Chromium incremental revisit of an old URL | [archive/ingest/dedup_scenarios.rs `c3_chromium_incremental_revisit_of_old_url`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Adversarial pass-2 fixture: visit cursor moves past 10, URL `last_visit_time` deliberately left at the old value. Validates the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback in `INGEST_URLS_SQL` is intact. |
+| C1 — Chromium baseline import | [`c1_chromium_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | One profile, one ingest pass produces exactly the fixture URL + visit rows; `source_visit_id` values flow through unmodified. |
+| C2 — Chromium incremental no-new-data | [`c2_chromium_incremental_no_new_data`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Re-running the same fixture with `use_watermark = true` returns `new_urls = 0`, `new_visits = 0`, and archive row counts stay constant. |
+| C3 — Chromium incremental revisit of an old URL | [`c3_chromium_incremental_revisit_of_old_url`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Adversarial pass-2 fixture: visit cursor moves past 10, URL `last_visit_time` deliberately left at the old value. Validates the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback in `INGEST_URLS_SQL` is intact. |
+| T1 — Takeout baseline import | [`t1_takeout_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | `crate::takeout::import_takeout` ingests a synthetic `BrowserHistory.json` into `profile_key = "takeout::browser-history"` with `app_id = "takeout"` on every visit. |
+| T2 — Takeout file rename, identical records | [`t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Refutes the original B3 framing: the fingerprint partial unique index catches the duplicate set even though every `source_visit_id` differs. |
+| X1 — Edge imports Chrome history then diverges | [`x1_edge_imports_chrome_then_both_diverge`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Per-source-profile architecture preserved: a URL visited in both browsers keeps two `urls` rows; Edge's `browser_product` stays `"Microsoft Edge"` (playbook §107). |
 
 ### Bugs with failing tests
 
@@ -338,7 +357,7 @@ Maps to scenarios that will be enumerated in
 | B1 URL upsert regresses counts | C4 (planned) | not yet implemented |
 | B2 Firefox long-tail revisit drop | F2 (planned) | not yet implemented |
 | B2 Safari long-tail revisit drop | S2 (planned) | not yet implemented |
-| B3 Takeout path-bound source_visit_id | T2 (planned) | not yet implemented |
+| B3 Takeout path-bound source_visit_id (narrow case — fingerprint drift) | [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | `#[should_panic]` — flip to plain `#[test]` when fix lands |
 | B4 Takeout × local Chrome double-count | T3 (planned) | not yet implemented |
 | B5 Takeout hash collision at scale | T4 (planned) | not yet implemented |
 | B6 Takeout time unit ambiguity | T5 (planned) | not yet implemented |

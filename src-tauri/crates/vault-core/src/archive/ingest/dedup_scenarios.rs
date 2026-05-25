@@ -12,7 +12,10 @@
 //! `docs/plan/program/import-test-harness-spec.md`.
 
 use super::*;
-use browser_history_fixtures::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
+use browser_history_fixtures::{
+    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, TakeoutBrowserHistoryFixture,
+    TakeoutBrowserRecord,
+};
 use rusqlite::Connection;
 use tempfile::{TempDir, tempdir};
 
@@ -357,4 +360,315 @@ fn c3_chromium_incremental_revisit_of_old_url() {
         "long-tail revisit captured by the OR fallback in INGEST_URLS_SQL"
     );
     assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 2);
+}
+
+// ----------------------------------------------------------------------
+// X1: Edge imports Chrome history, then both diverge
+// ----------------------------------------------------------------------
+
+/// X1 — Per-source-profile contract: even when Edge and Chrome share visit
+/// records (because Edge was installed and imported the Chrome history at
+/// setup time), the archive must keep them as independent rows under
+/// distinct `source_profiles` rows, and Edge's `browser_product` must
+/// remain "Microsoft Edge" rather than collapsing to "Google Chrome"
+/// (browser-support-and-adapter-playbook.md:107).
+#[test]
+fn x1_edge_imports_chrome_then_both_diverge() {
+    let env = ScenarioEnv::new();
+
+    let day_one_ms = 1_777_680_000_000_i64;
+    let day_two_ms = 1_777_809_600_000_i64;
+    let day_three_ms = 1_777_872_930_000_i64;
+    let day_four_ms = 1_777_900_000_000_i64;
+
+    // Chrome: 3 visits across 3 URLs.
+    let chrome_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/shared".to_string(),
+            title: Some("Shared Article".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/chrome-only".to_string(),
+            title: Some("Chrome-only Article".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 3,
+            url: "https://example.com/chrome-late".to_string(),
+            title: Some("Chrome Late".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_four_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, day_one_ms))
+        .add_visit(visit_row(11, 2, day_two_ms))
+        .add_visit(visit_row(12, 3, day_four_ms));
+
+    // Edge: imported the shared visit from Chrome (same URL + same time),
+    // then made its own visit to the same URL on day three, and finally
+    // landed an Edge-only URL on day four.
+    let edge_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 100,
+            url: "https://example.com/shared".to_string(),
+            title: Some("Shared Article".to_string()),
+            visit_count: 2,
+            typed_count: 0,
+            last_visit_unix_ms: day_three_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 101,
+            url: "https://example.com/edge-only".to_string(),
+            title: Some("Edge-only Article".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_four_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(200, 100, day_one_ms)) // imported from Chrome
+        .add_visit(visit_row(201, 100, day_three_ms)) // genuine Edge visit
+        .add_visit(visit_row(202, 101, day_four_ms));
+
+    let chrome_snapshot =
+        snapshot_for_fixture(&chrome_fixture, chromium_profile("chrome:Default", "Google Chrome"));
+    let edge_snapshot =
+        snapshot_for_fixture(&edge_fixture, chromium_profile("edge:Default", "Microsoft Edge"));
+
+    run_one_ingest(&env, 1, &chrome_snapshot, false);
+    run_one_ingest(&env, 2, &edge_snapshot, false);
+
+    // Per-profile counts: each browser sees its own truth without merging.
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 3);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 3);
+    assert_eq!(count_urls_for_profile(&env, "edge:Default"), 2);
+    assert_eq!(count_visits_for_profile(&env, "edge:Default"), 3);
+
+    // Total archive rows: 3 + 2 url rows = 5; 3 + 3 visit rows = 6.
+    // The shared URL exists once per profile (= 2 rows) by design.
+    assert_eq!(count_archive_rows(&env, "urls"), 5);
+    assert_eq!(count_archive_rows(&env, "visits"), 6);
+
+    // Provenance contract: Edge profile must keep its product identity.
+    let archive = env.open_archive();
+    let edge_product: String = archive
+        .query_row(
+            "SELECT browser_product FROM source_profiles WHERE profile_key = ?1",
+            ["edge:Default"],
+            |row| row.get(0),
+        )
+        .expect("edge product");
+    assert_eq!(
+        edge_product, "Microsoft Edge",
+        "Edge profile must not collapse to Google Chrome (playbook §107)"
+    );
+
+    let chrome_product: String = archive
+        .query_row(
+            "SELECT browser_product FROM source_profiles WHERE profile_key = ?1",
+            ["chrome:Default"],
+            |row| row.get(0),
+        )
+        .expect("chrome product");
+    assert_eq!(chrome_product, "Google Chrome");
+}
+
+// ----------------------------------------------------------------------
+// T1: Takeout baseline import — happy path through import_takeout
+// ----------------------------------------------------------------------
+
+/// T1 — A Takeout BrowserHistory JSON gets imported via the public
+/// `import_takeout` flow. Asserts row counts under the synthetic profile
+/// the Takeout flow upserts (`takeout::browser-history`) and that visit
+/// `app_id` lands as `"takeout"`.
+#[test]
+fn t1_takeout_baseline_import() {
+    let env = ScenarioEnv::new();
+    let source_root = tempdir().expect("takeout source root");
+    let payload_path = source_root.path().join("Chrome/BrowserHistory.json");
+
+    TakeoutBrowserHistoryFixture::new()
+        .add_record(takeout_record("https://example.com/page-one", "Page One", 1_777_680_000_000))
+        .add_record(takeout_record("https://example.com/page-two", "Page Two", 1_777_809_600_000))
+        .add_record(takeout_record("https://example.org/page-three", "Page Three", 1_777_872_930_000))
+        .write(&payload_path)
+        .expect("write takeout fixture");
+
+    let request = crate::models::TakeoutRequest {
+        source_path: source_root.path().display().to_string(),
+        dry_run: false,
+    };
+
+    let inspection = crate::takeout::import_takeout(&env.paths, &env.config, None, &request)
+        .expect("import takeout");
+
+    assert!(!inspection.dry_run);
+    assert_eq!(inspection.imported_items + inspection.duplicate_items, 3);
+
+    let profile_key = "takeout::browser-history";
+    assert_eq!(count_urls_for_profile(&env, profile_key), 3);
+    assert_eq!(count_visits_for_profile(&env, profile_key), 3);
+
+    // Takeout-sourced visits must carry app_id="takeout"; this is the same
+    // hardcoded marker that contributes to B4's fingerprint mismatch.
+    let archive = env.open_archive();
+    let takeout_visit_count: i64 = archive
+        .query_row(
+            "SELECT COUNT(*) FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = ?1 AND visits.app_id = 'takeout'",
+            [profile_key],
+            |row| row.get(0),
+        )
+        .expect("takeout app_id count");
+    assert_eq!(takeout_visit_count, 3);
+}
+
+// ----------------------------------------------------------------------
+// T2: Takeout file rename re-import — refines B3 framing
+// ----------------------------------------------------------------------
+
+/// T2 — Re-importing the same Takeout records from a different on-disk
+/// path. The audit's first cut of **B3** ("path-bound source_visit_id
+/// causes a full duplicate set on every re-import") turned out to overstate
+/// the practical risk: while it is true that the path change does produce
+/// completely different `source_visit_id` values for every record, the
+/// `(source_profile_id, event_fingerprint)` partial unique index catches
+/// the duplicates because the fingerprint inputs (url, visit_time_ms,
+/// title, transition=None, app_id="takeout") are identical across the two
+/// imports.
+///
+/// This scenario pins the **actual current behavior**: rename-only
+/// re-import of unchanged Takeout records is correctly de-duplicated by
+/// the fingerprint partial index, ending at 3 visit rows. The B3 design
+/// concern (poor robustness — the path-bound id provides zero useful
+/// signal, so the system relies on the fingerprint as a single layer)
+/// stays documented in the audit; [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`]
+/// covers the case where the fingerprint can't save B3 anymore.
+#[test]
+fn t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index() {
+    let env = ScenarioEnv::new();
+
+    let records: Vec<TakeoutBrowserRecord> = (0..3)
+        .map(|index| {
+            let visit_time = 1_777_680_000_000 + (index as i64 * 86_400_000);
+            takeout_record(
+                &format!("https://example.com/article-{index}"),
+                &format!("Article {index}"),
+                visit_time,
+            )
+        })
+        .collect();
+
+    import_takeout_fixture(&env, &records, "first");
+    let profile_key = "takeout::browser-history";
+    assert_eq!(count_visits_for_profile(&env, profile_key), 3);
+
+    import_takeout_fixture(&env, &records, "second");
+
+    // The fingerprint partial index catches the duplicates even though
+    // every source_visit_id differs from the first pass.
+    assert_eq!(
+        count_visits_for_profile(&env, profile_key),
+        3,
+        "fingerprint partial index dedups the renamed-source re-import"
+    );
+}
+
+/// T2b — When the fingerprint cannot rescue B3, the path-bound
+/// `source_visit_id` produces a real duplicate set. Two re-imports of the
+/// "same" record but with even one fingerprint input changed (title
+/// here) defeat the fingerprint partial index, leaving the broken
+/// path-bound primary key as the only defense. The result is the full
+/// duplicate set the audit warned about.
+///
+/// This is a `should_panic` failing test today: the assertion below is
+/// what the system should provide after B3 is fixed (e.g. by deriving
+/// `source_visit_id` from `(url, visit_time_micros)` so the primary key
+/// is stable across re-imports regardless of path or fingerprint input
+/// drift). Today the count grows to 6 and the assertion fires.
+#[test]
+#[should_panic(expected = "B3 fix required")]
+fn t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges() {
+    let env = ScenarioEnv::new();
+
+    let first_records: Vec<TakeoutBrowserRecord> = (0..3)
+        .map(|index| {
+            let visit_time = 1_777_680_000_000 + (index as i64 * 86_400_000);
+            takeout_record(
+                &format!("https://example.com/article-{index}"),
+                &format!("Original title {index}"),
+                visit_time,
+            )
+        })
+        .collect();
+    import_takeout_fixture(&env, &first_records, "first");
+
+    // Real-world equivalent: user re-exports Takeout months later; Google
+    // captured an updated page title in the meantime. Same URL, same
+    // visit time, different title → fingerprint differs.
+    let second_records: Vec<TakeoutBrowserRecord> = first_records
+        .iter()
+        .map(|record| {
+            let mut next = record.clone();
+            next.title = Some(format!(
+                "Updated title for {}",
+                record.url.rsplit('/').next().unwrap_or("page")
+            ));
+            next
+        })
+        .collect();
+    import_takeout_fixture(&env, &second_records, "second");
+
+    let profile_key = "takeout::browser-history";
+    let visit_count = count_visits_for_profile(&env, profile_key);
+
+    // Expected post-fix: 3 visits (treated as the same logical event with
+    // an updated title). Today: 6 (because both source_visit_id and
+    // event_fingerprint differ across the two imports).
+    assert_eq!(visit_count, 3, "B3 fix required: rename + title drift duplicates rows (got {visit_count})");
+}
+
+fn import_takeout_fixture(env: &ScenarioEnv, records: &[TakeoutBrowserRecord], label: &str) {
+    let root = tempdir().unwrap_or_else(|_| panic!("{label} takeout root"));
+    let payload = root.path().join("Chrome/BrowserHistory.json");
+    let mut fixture = TakeoutBrowserHistoryFixture::new();
+    for record in records {
+        fixture = fixture.add_record(record.clone());
+    }
+    fixture.write(&payload).expect("write takeout fixture");
+    crate::takeout::import_takeout(
+        &env.paths,
+        &env.config,
+        None,
+        &crate::models::TakeoutRequest {
+            source_path: root.path().display().to_string(),
+            dry_run: false,
+        },
+    )
+    .unwrap_or_else(|err| panic!("{label} import_takeout failed: {err}"));
+    // Keep root alive until the import returns; drops here once import has
+    // finished walking the directory.
+    drop(root);
+}
+
+fn takeout_record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBrowserRecord {
+    TakeoutBrowserRecord {
+        url: url.to_string(),
+        title: Some(title.to_string()),
+        visit_time_unix_ms,
+        page_transition: Some("LINK".to_string()),
+        client_id: None,
+        favicon_url: None,
+    }
 }
