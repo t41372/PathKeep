@@ -36,6 +36,7 @@ import type { GlyphIconName } from '../components/ui'
 export type AppRouteId =
   | 'dashboard'
   | 'explorer'
+  | 'search'
   | 'intelligence'
   | 'assistant'
   | 'import'
@@ -100,8 +101,17 @@ const appShellScreens: AppScreen[] = [
     labelKey: 'navigation.explorerLabel',
     titleKey: 'navigation.explorerTitle',
     subtitleKey: 'navigation.explorerSubtitle',
-    icon: 'search',
+    icon: 'auto_stories',
     href: '/explorer',
+    section: 'CORE',
+  },
+  {
+    id: 'search',
+    labelKey: 'navigation.searchLabel',
+    titleKey: 'navigation.searchTitle',
+    subtitleKey: 'navigation.searchSubtitle',
+    icon: 'search',
+    href: '/search',
     section: 'CORE',
   },
   {
@@ -219,6 +229,20 @@ export const onboardingScreen: AppScreen = {
 export const appScreens = [...appShellScreens, onboardingScreen]
 
 /**
+ * Looks up an `AppScreen` by its stable id. Use this from the router so
+ * inserting / reordering entries in `appShellScreens` doesn't silently
+ * desync `appShellScreens[N]` callsites — the bug pattern that bit us
+ * when the `search` entry landed between `explorer` and `intelligence`.
+ */
+function screen(id: AppRouteId): AppScreen {
+  const match = appScreens.find((entry) => entry.id === id)
+  if (!match) {
+    throw new Error(`Unknown app screen id: ${id}`)
+  }
+  return match
+}
+
+/**
  * Groups navigation metadata into the sidebar sections shown by the shell.
  *
  * The shell layer owns routing, app-lock boundaries, shared scope, and bootstrap read-model logic, so small named declarations here prevent the shell from turning into a single opaque blob.
@@ -257,7 +281,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/dashboard')
       return { Component: module.DashboardPage }
     },
-    handle: withHandle(appShellScreens[0]),
+    handle: withHandle(screen('dashboard')),
   },
   {
     path: 'explorer',
@@ -266,11 +290,25 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/explorer')
       return { Component: module.ExplorerPage }
     },
-    handle: withHandle(appShellScreens[1]),
+    handle: withHandle(screen('explorer')),
+  },
+  {
+    // The search surface currently lives as a `?surface=search` mode
+    // inside the Explorer page; the dedicated /search route is the
+    // sidebar-grade entry that lifts it out without duplicating the
+    // page tree. Future work: extract PaperSearchView into its own
+    // standalone page (the design handoff has `pk-search.jsx` as a
+    // first-class surface) so this route does not need the query-param
+    // bounce. Mirror handle from the search nav screen so the topbar
+    // title reads "Search" rather than "History Explorer".
+    path: 'search',
+    ErrorBoundary: ShellRouteErrorBoundary,
+    element: <Navigate replace to="/explorer?surface=search" />,
+    handle: withHandle(screen('search')),
   },
   {
     path: 'intelligence',
-    handle: withHandle(appShellScreens[2]),
+    handle: withHandle(screen('intelligence')),
     ErrorBoundary: ShellRouteErrorBoundary,
     children: [
       {
@@ -345,7 +383,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/assistant')
       return { Component: module.AssistantPage }
     },
-    handle: withHandle(appShellScreens[3]),
+    handle: withHandle(screen('assistant')),
   },
   {
     path: 'import',
@@ -353,7 +391,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/import')
       return { Component: module.ImportPage }
     },
-    handle: withHandle(appShellScreens[4]),
+    handle: withHandle(screen('import')),
   },
   {
     path: 'audit',
@@ -361,7 +399,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/audit')
       return { Component: module.AuditPage }
     },
-    handle: withHandle(appShellScreens[5]),
+    handle: withHandle(screen('audit')),
   },
   {
     path: 'jobs',
@@ -370,7 +408,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/jobs')
       return { Component: module.JobsPage }
     },
-    handle: withHandle(appShellScreens[6]),
+    handle: withHandle(screen('jobs')),
   },
   {
     path: 'schedule',
@@ -378,7 +416,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/schedule')
       return { Component: module.SchedulePage }
     },
-    handle: withHandle(appShellScreens[7]),
+    handle: withHandle(screen('schedule')),
   },
   {
     path: 'integrations',
@@ -386,7 +424,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/integrations')
       return { Component: module.IntegrationsPage }
     },
-    handle: withHandle(appShellScreens[10]),
+    handle: withHandle(screen('integrations')),
   },
   {
     path: 'security',
@@ -394,7 +432,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/security')
       return { Component: module.SecurityPage }
     },
-    handle: withHandle(appShellScreens[8]),
+    handle: withHandle(screen('security')),
   },
   {
     path: 'maintenance',
@@ -402,7 +440,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/maintenance')
       return { Component: module.MaintenancePage }
     },
-    handle: withHandle(appShellScreens[11]),
+    handle: withHandle(screen('maintenance')),
   },
   {
     path: 'settings',
@@ -410,7 +448,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/settings')
       return { Component: module.SettingsPage }
     },
-    handle: withHandle(appShellScreens[9]),
+    handle: withHandle(screen('settings')),
   },
 ]
 

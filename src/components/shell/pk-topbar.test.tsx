@@ -6,10 +6,14 @@
  *   plus the typeof navigator === 'undefined' guard.
  * - Cover the backup-running label swap and disabled-state when archive is
  *   not initialized.
+ * - Cover the back/forward route-history nav chrome — buttons render
+ *   with the proper i18n aria-labels and start in the correct
+ *   disabled state.
  */
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from '@/lib/i18n'
 import { PKTopbar } from './pk-topbar'
 import type { AppScreen } from '@/app/router'
@@ -30,7 +34,9 @@ function renderTopbar(overrides: Partial<Parameters<typeof PKTopbar>[0]> = {}) {
   }
   return render(
     <I18nProvider>
-      <PKTopbar {...props} />
+      <MemoryRouter>
+        <PKTopbar {...props} />
+      </MemoryRouter>
     </I18nProvider>,
   )
 }
@@ -76,5 +82,18 @@ describe('PKTopbar', () => {
     renderTopbar({ archiveInitialized: false })
     const backupButton = screen.getAllByRole('button').at(-1)
     expect(backupButton).toHaveAttribute('disabled')
+  })
+
+  test('renders back and forward nav buttons disabled at history root', () => {
+    renderTopbar()
+    const back = screen.getByTestId('pk-topbar-back')
+    const forward = screen.getByTestId('pk-topbar-forward')
+    expect(back).toBeInTheDocument()
+    expect(forward).toBeInTheDocument()
+    // MemoryRouter starts at index 0 with no forward branch, so both
+    // controls should be disabled until the user navigates somewhere
+    // and then back.
+    expect(back).toHaveAttribute('disabled')
+    expect(forward).toHaveAttribute('disabled')
   })
 })
