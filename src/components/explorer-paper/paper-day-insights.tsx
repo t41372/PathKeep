@@ -17,6 +17,17 @@
  *   DOM.
  * - Localization of the visit-history detail panel (separate copy bag).
  *
+ * ## Design history
+ * A search-queries + most-revisited hero row was attempted briefly in
+ * 2026-05-24 to surface "memory-jog" signals more prominently; the user
+ * rejected the visual outcome as worse than the original three-column
+ * strip and asked to roll back. The aggregator still extracts
+ * `topSearchQueries` / `topUrls` so a future, more carefully art-directed
+ * surface can pick them up without re-deriving — they just don't render
+ * in the primary panel any more. The `Most revisited` block in the
+ * folded More-details disclosure still surfaces `topUrls`, since that
+ * was the pre-rollback baseline behaviour.
+ *
  * ## Performance notes
  * - The component is a leaf node so React can skip subtree reconciliation
  *   when the parent re-renders without changing `insights`. Callers

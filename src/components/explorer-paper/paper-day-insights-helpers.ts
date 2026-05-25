@@ -68,6 +68,13 @@ export interface DayInsightsTopUrl {
   visits: number
 }
 
+export interface DayInsightsSearchQuery {
+  /** The cleaned, human-readable query string the user typed. */
+  query: string
+  /** How many times this query appeared on the day (case + whitespace folded). */
+  count: number
+}
+
 export interface DayInsights {
   totalPages: number
   typedCount: number
@@ -90,6 +97,13 @@ export interface DayInsights {
   longestSessionMs: number
   /** Three most-revisited individual URLs on the day. */
   topUrls: DayInsightsTopUrl[]
+  /**
+   * Top search queries the user typed today, deduplicated by lower-cased
+   * trimmed form. Limited to 6 entries — beyond that the strip stops being
+   * a memory jog and becomes a haystack. Extracted heuristically from
+   * known search-engine hosts; sites we don't recognise contribute nothing.
+   */
+  topSearchQueries: DayInsightsSearchQuery[]
 }
 
 /**
@@ -103,6 +117,10 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
   const urlCounts = new Map<
     string,
     { url: string; title: string | null; visits: number }
+  >()
+  const searchQueryCounts = new Map<
+    string,
+    { query: string; count: number }
   >()
   const hourBuckets = new Array<number>(24).fill(0)
   let totalPages = 0
@@ -127,6 +145,16 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
           title: entry.title ?? null,
           visits: 1,
         })
+      }
+      const query = extractSearchQuery(url)
+      if (query) {
+        const key = query.toLowerCase()
+        const existingQuery = searchQueryCounts.get(key)
+        if (existingQuery) {
+          existingQuery.count += 1
+        } else {
+          searchQueryCounts.set(key, { query, count: 1 })
+        }
       }
     }
     const ms = localMsOf(entry)
@@ -159,6 +187,12 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     .sort((a, b) => b.visits - a.visits)
     .slice(0, 3)
 
+  const topSearchQueries: DayInsightsSearchQuery[] = [
+    ...searchQueryCounts.values(),
+  ]
+    .sort((a, b) => b.count - a.count || a.query.localeCompare(b.query))
+    .slice(0, 6)
+
   let peakHour: number | null = null
   let peakCount = 0
   for (let hour = 0; hour < 24; hour += 1) {
@@ -183,8 +217,73 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     peakHour,
     longestSessionMs,
     topUrls,
+    topSearchQueries,
   }
 }
+
+/**
+ * Best-effort extraction of the user's search query from a URL on a
+ * recognised search engine. Returns the trimmed query string or null
+ * when the URL is not a search-engine result page.
+ *
+ * Why we extract client-side instead of relying on the Rust intelligence
+ * `get_query_families` route: that backend pipe is rich (engine bucketing,
+ * dedup across families, normalization) but expensive and requires a
+ * round-trip per day rendered. The Browse day-insights strip needs an
+ * immediate "what did I search for today" jog at render time, so the
+ * heuristic here trades exhaustiveness for zero-latency.
+ */
+function extractSearchQuery(rawUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  const param = SEARCH_QUERY_PARAMS_BY_HOST.get(host)
+  if (!param) return null
+  // Some engines (Baidu mainly) require the query path to be a search
+  // page rather than a static asset; the param check + non-empty value
+  // gate is sufficient for the common cases we care about.
+  const value = url.searchParams.get(param)
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  // Drop pathological lengths so a stray paste of an entire essay
+  // doesn't bloat the panel.
+  if (trimmed.length > 120) return null
+  return trimmed
+}
+
+/**
+ * Per-host search-engine query parameter map. Keys are normalised hosts
+ * (lower-case, `www.` stripped); values are the URL search param that
+ * carries the user's typed query.
+ *
+ * Kept inline here rather than imported from the visit-taxonomy crate
+ * because (1) the frontend doesn't have access to that pack and (2) the
+ * day-insights strip wants to render immediately at scroll time, not
+ * after a round-trip. The list is intentionally short: only engines we
+ * see regularly in real archives.
+ */
+const SEARCH_QUERY_PARAMS_BY_HOST: ReadonlyMap<string, string> = new Map([
+  ['google.com', 'q'],
+  ['bing.com', 'q'],
+  ['duckduckgo.com', 'q'],
+  ['kagi.com', 'q'],
+  ['startpage.com', 'query'],
+  ['ecosia.com', 'q'],
+  ['brave.com', 'q'],
+  ['search.brave.com', 'q'],
+  ['baidu.com', 'wd'],
+  ['yandex.com', 'text'],
+  ['yandex.ru', 'text'],
+  ['yahoo.com', 'p'],
+  ['search.yahoo.com', 'p'],
+  ['so.com', 'q'],
+  ['sogou.com', 'query'],
+])
 
 function localMsOf(entry: HistoryEntry): number | null {
   if (Number.isFinite(entry.visitTime) && entry.visitTime > 0) {

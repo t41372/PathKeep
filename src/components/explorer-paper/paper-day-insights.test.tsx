@@ -51,6 +51,7 @@ function makeInsights(overrides: Partial<DayInsights> = {}): DayInsights {
     peakHour: null,
     longestSessionMs: 0,
     topUrls: [],
+    topSearchQueries: [],
     ...overrides,
   }
 }
