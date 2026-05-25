@@ -316,7 +316,36 @@ Maps to scenarios that will be enumerated in
 
 ---
 
-## 6. Out of Scope For This Audit
+## 6. Scenarios Now Backed By Tests
+
+> Living section — updated as scenarios land. The expectation is that every
+> bug from §2 eventually has a named `#[should_panic]` regression test that
+> flips to a plain `#[test]` once the fix ships, and every architectural
+> contract from §5 has a contract test that defends it against drift.
+
+### Contract scenarios (pass today, guard against regression)
+
+| Scenario | Location | Asserts |
+| --- | --- | --- |
+| C1 — Chromium baseline import | [archive/ingest/dedup_scenarios.rs `c1_chromium_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | One profile, one ingest pass produces exactly the fixture URL + visit rows; `source_visit_id` values flow through unmodified. |
+| C2 — Chromium incremental no-new-data | [archive/ingest/dedup_scenarios.rs `c2_chromium_incremental_no_new_data`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Re-running the same fixture with `use_watermark = true` returns `new_urls = 0`, `new_visits = 0`, and archive row counts stay constant. |
+| C3 — Chromium incremental revisit of an old URL | [archive/ingest/dedup_scenarios.rs `c3_chromium_incremental_revisit_of_old_url`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Adversarial pass-2 fixture: visit cursor moves past 10, URL `last_visit_time` deliberately left at the old value. Validates the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback in `INGEST_URLS_SQL` is intact. |
+
+### Bugs with failing tests
+
+| Bug | Scenario | Status |
+| --- | --- | --- |
+| B1 URL upsert regresses counts | C4 (planned) | not yet implemented |
+| B2 Firefox long-tail revisit drop | F2 (planned) | not yet implemented |
+| B2 Safari long-tail revisit drop | S2 (planned) | not yet implemented |
+| B3 Takeout path-bound source_visit_id | T2 (planned) | not yet implemented |
+| B4 Takeout × local Chrome double-count | T3 (planned) | not yet implemented |
+| B5 Takeout hash collision at scale | T4 (planned) | not yet implemented |
+| B6 Takeout time unit ambiguity | T5 (planned) | not yet implemented |
+
+---
+
+## 7. Out of Scope For This Audit
 
 - **View-layer cross-browser aggregation** — separate user-flow work, decided
   in the planning conversation but not yet a BACKLOG block.
@@ -332,6 +361,7 @@ Maps to scenarios that will be enumerated in
 ---
 
 _End of audit. The companion spec doc
-(`docs/plan/program/import-test-harness-spec.md`, written next) translates the
-above bugs and gaps into concrete scenarios, fixture generator API, and
-acceptance criteria for `WORK-IMPORT-TEST-HARNESS-A`._
+(`docs/plan/program/import-test-harness-spec.md`) translates the above bugs
+and gaps into concrete scenarios, fixture generator API, and acceptance
+criteria for `WORK-IMPORT-TEST-HARNESS-A`. Section 6 above tracks which
+scenarios have shipped against the harness._
