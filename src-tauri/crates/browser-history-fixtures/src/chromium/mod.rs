@@ -206,3 +206,41 @@ CREATE INDEX urls_url_index ON urls(url);
 CREATE INDEX visits_url_index ON visits(url);
 CREATE INDEX visits_time_index ON visits(visit_time);
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_overwrites_existing_file_at_same_path() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("History");
+        let fixture = ChromiumHistoryFixture::new()
+            .add_url(ChromiumUrlRow {
+                id: 1,
+                url: "https://a.test".to_string(),
+                title: Some("A".to_string()),
+                visit_count: 1,
+                typed_count: 0,
+                last_visit_unix_ms: 1_700_000_000_000,
+                hidden: false,
+            })
+            .add_visit(ChromiumVisitRow {
+                id: 1,
+                url_id: 1,
+                visit_time_unix_ms: 1_700_000_000_000,
+                from_visit: None,
+                transition: Some(1),
+                visit_duration_micros: None,
+                is_known_to_sync: false,
+                visited_link_id: None,
+                external_referrer_url: None,
+                app_id: None,
+            });
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+    }
+}

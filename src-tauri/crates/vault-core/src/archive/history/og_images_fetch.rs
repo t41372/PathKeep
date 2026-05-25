@@ -30,7 +30,8 @@
 
 use super::og_images::{OgImageInsert, fetch_status};
 use super::og_images_synth::{
-    host_requires_synthesis, resolve_image_url_via_api, synthesize_image_url_from_url,
+    host_requires_synthesis, resolve_image_url_via_api, resolve_image_url_via_api_with_base,
+    synthesize_image_url_from_url,
 };
 use crate::utils::url_domain;
 use anyhow::Result;
@@ -304,7 +305,7 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
             http_status: None,
         };
     }
-    fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ true)
+    fetch_og_image_for_pipeline(client, page_url, true, None)
 }
 
 /// True when the page URL is a search-engine result page (Google, Bing,
@@ -324,13 +325,26 @@ fn is_search_results_url(page_url: &str) -> bool {
 /// `upgrade_image_url = false` so mockito's http URLs survive intact.
 #[cfg(test)]
 pub(crate) fn fetch_og_image_for_unchecked(client: &Client, page_url: &str) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, /* upgrade_image_url = */ false)
+    fetch_og_image_for_pipeline(client, page_url, false, None)
+}
+
+/// Variant that lets tests inject a mockito base URL for the Bilibili
+/// API so the `resolve_image_url_via_api` → `finish_image_fetch` branch
+/// is coverable without hitting the real API.
+#[cfg(test)]
+pub(crate) fn fetch_og_image_for_with_api_base(
+    client: &Client,
+    page_url: &str,
+    bilibili_api_base: &str,
+) -> FetchedOgImage {
+    fetch_og_image_for_pipeline(client, page_url, false, Some(bilibili_api_base))
 }
 
 fn fetch_og_image_for_pipeline(
     client: &Client,
     page_url: &str,
     upgrade_image_url: bool,
+    bilibili_api_base: Option<&str>,
 ) -> FetchedOgImage {
     let mut outcome = FetchedOgImage {
         page_host: nonempty_host(page_url),
@@ -354,7 +368,10 @@ fn fetch_og_image_for_pipeline(
             if upgrade_image_url { upgrade_http_to_https(&synth_url) } else { synth_url };
         outcome.source_og_url = Some(synth_url.clone());
         finish_image_fetch(client, synth_url, outcome)
-    } else if let Some(api_url) = resolve_image_url_via_api(client, page_url) {
+    } else if let Some(api_url) = match bilibili_api_base {
+        Some(base) => resolve_image_url_via_api_with_base(client, page_url, base),
+        None => resolve_image_url_via_api(client, page_url),
+    } {
         let api_url = if upgrade_image_url { upgrade_http_to_https(&api_url) } else { api_url };
         outcome.source_og_url = Some(api_url.clone());
         finish_image_fetch(client, api_url, outcome)
@@ -1205,6 +1222,57 @@ mod tests {
             super::fetch_status_for_body_error(super::BodyReadError::Io, super::BodyPhase::Image,),
             super::fetch_status::HTTP_ERROR,
         );
+    }
+
+    #[test]
+    fn synth_host_with_invalid_id_returns_missing_without_network() {
+        let client = build_fetch_client().unwrap();
+        let outcome =
+            fetch_og_image_for_unchecked(&client, "https://www.youtube.com/watch?v=short");
+        assert_eq!(outcome.fetch_status(), fetch_status::MISSING);
+        assert!(outcome.image_bytes.is_none());
+    }
+
+    #[test]
+    fn youtube_synth_path_enters_finish_image_fetch_without_html_scrape() {
+        let client = build_fetch_client().unwrap();
+        let outcome =
+            fetch_og_image_for_unchecked(&client, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert!(outcome.source_og_url.is_some());
+        let og = outcome.source_og_url.as_ref().unwrap();
+        assert!(og.contains("i.ytimg.com"), "synth should produce ytimg URL, got {og}");
+    }
+
+    #[test]
+    fn bilibili_api_path_enters_finish_image_fetch_via_mockito() {
+        let mut api = mockito::Server::new();
+        let mut images = mockito::Server::new();
+        let pic_url = format!("{}/cover.jpg", images.url());
+        let api_body = format!(r#"{{"code":0,"data":{{"pic":"{pic_url}"}}}}"#);
+        let _api_mock = api
+            .mock("GET", "/x/web-interface/view")
+            .match_query(mockito::Matcher::UrlEncoded("bvid".into(), "BV1xx411c7m1".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(api_body)
+            .create();
+        let _img_mock = images
+            .mock("GET", "/cover.jpg")
+            .with_status(200)
+            .with_header("content-type", "image/jpeg")
+            .with_body(b"\xFF\xD8\xFF\xE0bilibili-cover-test")
+            .create();
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_with_api_base(
+            &client,
+            "https://www.bilibili.com/video/BV1xx411c7m1",
+            &api.url(),
+        );
+        assert!(outcome.source_og_url.is_some());
+        let og = outcome.source_og_url.as_ref().unwrap();
+        assert!(og.contains("cover.jpg"), "API path should produce the pic URL, got {og}");
+        assert_eq!(outcome.fetch_status(), fetch_status::OK);
+        assert!(outcome.image_bytes.is_some());
     }
 
     #[test]

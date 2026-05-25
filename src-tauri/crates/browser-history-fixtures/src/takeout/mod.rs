@@ -190,6 +190,18 @@ mod tests {
     }
 
     #[test]
+    fn default_creates_empty_fixture() {
+        let fixture = TakeoutBrowserHistoryFixture::default();
+        assert_eq!(fixture.records.len(), 0);
+    }
+
+    #[test]
+    fn json_string_escapes_tab_and_carriage_return() {
+        assert_eq!(json_string("col1\tcol2"), "\"col1\\tcol2\"");
+        assert_eq!(json_string("line\rend"), "\"line\\rend\"");
+    }
+
+    #[test]
     fn serialize_record_emits_field_order_the_parser_can_read() {
         let record = TakeoutBrowserRecord {
             url: "https://example.com".to_string(),

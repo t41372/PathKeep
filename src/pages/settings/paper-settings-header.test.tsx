@@ -85,6 +85,30 @@ describe('PaperSettingsHeader', () => {
     rafSpy.mockRestore()
   })
 
+  test('scrolls without overwriting tabindex when the target already has one', () => {
+    document.body.innerHTML = '<div id="settings-applock" tabindex="0"></div>'
+    const target = document.getElementById('settings-applock')
+    if (!(target instanceof HTMLElement)) throw new Error('target missing')
+    const scrollSpy = vi.fn()
+    Object.defineProperty(target, 'scrollIntoView', {
+      value: scrollSpy,
+      configurable: true,
+    })
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+    renderHeader()
+    fireEvent.click(
+      screen.getByRole<HTMLAnchorElement>('link', { name: 'App Lock' }),
+    )
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'start' })
+    expect(target.getAttribute('tabindex')).toBe('0')
+    rafSpy.mockRestore()
+  })
+
   test('uses the provided testId', () => {
     renderHeader({ testId: 'paper-settings-header-x' })
     expect(screen.getByTestId('paper-settings-header-x')).toBeInTheDocument()

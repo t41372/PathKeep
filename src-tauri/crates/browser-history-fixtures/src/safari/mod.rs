@@ -229,3 +229,36 @@ CREATE TABLE history_visits (
 CREATE INDEX history_visits_item_index ON history_visits(history_item);
 CREATE INDEX history_visits_time_index ON history_visits(visit_time);
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_overwrites_existing_file_at_same_path() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("History.db");
+        let fixture = SafariHistoryFixture::new()
+            .add_item(SafariHistoryItemRow { id: 1, url: "https://a.test".to_string() })
+            .add_visit(SafariHistoryVisitRow {
+                id: 1,
+                history_item: 1,
+                title: Some("A".to_string()),
+                visit_time_unix_ms: 1_700_000_000_000,
+                load_successful: None,
+                http_non_get: None,
+                synthesized: None,
+                redirect_source: None,
+                redirect_destination: None,
+                origin: None,
+                generation: None,
+                attributes: None,
+                score: None,
+            });
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+    }
+}

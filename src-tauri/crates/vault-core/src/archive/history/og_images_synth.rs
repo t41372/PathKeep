@@ -339,8 +339,10 @@ mod tests {
         assert!(bilibili_video_id("https://www.bilibili.com/").is_none());
         assert!(bilibili_video_id("https://example.com/video/BV1xx411c7m1").is_none());
         assert!(parse_bilibili_bv("BV1xx411c7m!").is_none());
+        assert!(parse_bilibili_bv("XX1234567890").is_none());
         assert!(parse_bilibili_av("av").is_none());
         assert!(parse_bilibili_av("foo123").is_none());
+        assert!(parse_bilibili_av("avABC").is_none());
     }
 
     #[test]

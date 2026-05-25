@@ -999,6 +999,16 @@ mod tests {
         .expect("refetch with fetch_enabled=false");
         assert_eq!(disabled, 0);
 
+        // Re-enable fetch for prefetch_og_images_impl coverage —
+        // budget=0 short-circuits before any network IO.
+        let re_enabled = initialized_config();
+        save_config_impl(re_enabled, session_key(&session).as_deref())
+            .expect("re-enable og config");
+        let (enqueued, _succeeded) =
+            super::prefetch_og_images_impl(0, session_key(&session).as_deref())
+                .expect("prefetch with zero budget");
+        assert_eq!(enqueued, 0);
+
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
             std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);

@@ -1576,6 +1576,39 @@ mod tests {
         let result = prefetch_og_images_on_demand(None, 100);
         assert_eq!(result.expect("on-demand prefetch empty"), (0, 0));
 
+        // Seed one URL so the non-empty path (enqueue + refetch) runs.
+        {
+            let connection =
+                vault_core::archive::open_archive_connection(&paths, &config, None).expect("conn");
+            connection
+                .execute(
+                    "INSERT INTO runs \
+                     (id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only) \
+                     VALUES (1, 'backup', 'manual', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
+                    [],
+                )
+                .expect("seed run");
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO source_profiles \
+                     (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key, browser_family, browser_product) \
+                     VALUES (1, 'chrome', 'Default', '/tmp', '2026-01-01T00:00:00Z', 1, 'chrome:Default', 'chromium', 'chrome')",
+                    [],
+                )
+                .expect("seed profile");
+            connection
+                .execute(
+                    "INSERT INTO urls \
+                     (id, url, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id) \
+                     VALUES (1, 'https://127.0.0.1:1/nonexistent', 1, 0, 1700000000000, '2023-11-14T22:13:20Z', 1700000000000, '2023-11-14T22:13:20Z', 1, 1)",
+                    [],
+                )
+                .expect("seed url");
+        }
+        let result = prefetch_og_images_on_demand(None, 10);
+        let (enqueued, _succeeded) = result.expect("on-demand prefetch with url");
+        assert_eq!(enqueued, 1);
+
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
         restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
     }

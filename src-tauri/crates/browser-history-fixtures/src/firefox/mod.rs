@@ -165,3 +165,35 @@ CREATE INDEX moz_places_url_index ON moz_places(url);
 CREATE INDEX moz_historyvisits_place_index ON moz_historyvisits(place_id);
 CREATE INDEX moz_historyvisits_date_index ON moz_historyvisits(visit_date);
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_overwrites_existing_file_at_same_path() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("places.sqlite");
+        let fixture = FirefoxPlacesFixture::new()
+            .add_place(FirefoxPlaceRow {
+                id: 1,
+                url: "https://a.test".to_string(),
+                title: Some("A".to_string()),
+                visit_count: 1,
+                hidden: false,
+                last_visit_unix_ms: 1_700_000_000_000,
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 1,
+                place_id: 1,
+                visit_time_unix_ms: 1_700_000_000_000,
+                from_visit: None,
+                visit_type: Some(1),
+            });
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+        fixture.write(&path).unwrap();
+        assert!(path.exists());
+    }
+}
