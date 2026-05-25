@@ -42,6 +42,19 @@ pub(super) struct ParsedHistorySearchQuery {
     pub excluded_sites: Vec<String>,
     pub required_filetypes: Vec<String>,
     pub excluded_filetypes: Vec<String>,
+    /// User-authored tags (`tag:foo`, `-tag:foo`) — matched exactly
+    /// against `url_tags.tag` after lowercase + trim normalisation.
+    /// Multiple `tag:` operators require ALL listed tags (AND join);
+    /// `-tag:` excludes any URL that carries that tag.
+    pub required_tags: Vec<String>,
+    pub excluded_tags: Vec<String>,
+    /// User-authored notes (`note:bar`, `-note:bar`) — matched as a
+    /// case-insensitive substring against `url_annotations.notes`.
+    /// Multiple `note:` operators require ALL listed substrings to
+    /// appear in the same URL's notes; `-note:` excludes any URL
+    /// whose notes contain the substring.
+    pub required_notes: Vec<String>,
+    pub excluded_notes: Vec<String>,
     pub after_ms: Option<i64>,
     pub before_ms: Option<i64>,
 }
@@ -95,6 +108,18 @@ pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
                         &mut parsed.required_filetypes
                     },
                     normalized_filetype_filter(operand),
+                );
+            }
+            Some("tag") => {
+                push_filter_values(
+                    if negated { &mut parsed.excluded_tags } else { &mut parsed.required_tags },
+                    normalized_tag_filter(operand),
+                );
+            }
+            Some("note") => {
+                push_filter_values(
+                    if negated { &mut parsed.excluded_notes } else { &mut parsed.required_notes },
+                    normalized_note_filter(operand),
                 );
             }
             Some("after") if !negated => {
@@ -208,6 +233,27 @@ fn normalized_filetype_filter(raw: &str) -> Vec<String> {
     (!normalized.is_empty()).then_some(vec![normalized]).unwrap_or_default()
 }
 
+/// Normalises a `tag:` operand for exact-match against `url_tags.tag`.
+/// Tags are stored case-sensitively in the schema, but the Browse
+/// detail panel persists them as the user typed them — so a search
+/// for `tag:rust` should still match a stored `rust` or `Rust`. We
+/// lowercase + trim and let the SQL clause apply `LOWER(url_tags.tag)`
+/// on the join side.
+fn normalized_tag_filter(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim().to_lowercase();
+    (!trimmed.is_empty()).then_some(vec![trimmed]).unwrap_or_default()
+}
+
+/// Normalises a `note:` operand for case-insensitive substring match
+/// against `url_annotations.notes`. The substring path matches the
+/// existing `searchAnnotations` backend behaviour the detail panel
+/// already exposes, so users get consistent results whether they reach
+/// the note via Browse search or via the dedicated annotations API.
+fn normalized_note_filter(raw: &str) -> Vec<String> {
+    let trimmed = raw.trim().to_lowercase();
+    (!trimmed.is_empty()).then_some(vec![trimmed]).unwrap_or_default()
+}
+
 fn push_normalized_filter_values(target: &mut Vec<String>, raw: &str) {
     push_filter_values(target, normalized_filter_terms(raw));
 }
@@ -296,6 +342,36 @@ mod tests {
         assert_eq!(parsed.excluded_filetypes, vec!["doc"]);
         assert!(parsed.after_ms.is_some());
         assert!(parsed.before_ms.is_some());
+    }
+
+    #[test]
+    fn parses_tag_and_note_operators_with_normalization_and_negation() {
+        let parsed = parse_history_search_query(
+            r#"tag:Rust tag:"async runtime" -tag:archived note:"design doc" -note:legacy"#,
+        );
+
+        // Tags lowercase + trim, multi-token quoted operand stays as
+        // a single phrase so it can match `url_tags.tag` exactly.
+        assert!(parsed.required_tags.iter().any(|tag| tag == "rust"));
+        assert!(parsed.required_tags.iter().any(|tag| tag == "async runtime"));
+        assert!(parsed.excluded_tags.iter().any(|tag| tag == "archived"));
+        // Notes: substring match payload, lowercase + trim, quoted
+        // phrases preserved.
+        assert!(parsed.required_notes.iter().any(|note| note == "design doc"));
+        assert!(parsed.excluded_notes.iter().any(|note| note == "legacy"));
+        // tag:/note: operators do not leak into the keyword text.
+        assert!(parsed.keyword_text.is_none());
+    }
+
+    #[test]
+    fn empty_tag_and_note_operands_are_dropped() {
+        let parsed = parse_history_search_query(r#"tag: note: -tag: rust"#);
+        // Empty operands produce no filter values…
+        assert!(parsed.required_tags.is_empty());
+        assert!(parsed.required_notes.is_empty());
+        assert!(parsed.excluded_tags.is_empty());
+        // …but the unbracketed "rust" still lands as a keyword.
+        assert_eq!(parsed.keyword_text.as_deref(), Some("rust"));
     }
 
     #[test]

@@ -809,6 +809,124 @@ fn history_keyword_query_supports_google_like_local_operators() {
     );
 }
 
+#[test]
+fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
+    // feedback-2026-05-25 §3.3 A — annotations existed but the search
+    // surface only saw title / URL. This pins the new `tag:` /
+    // `note:` operators end-to-end: parser → SQL → archive results.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    // Two extra URLs that only differ by their annotations — neither
+    // mentions "rust" or "design" in title or URL, so any match must
+    // come from the new tag/note filters.
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        20,
+        "https://example.test/page-with-rust-tag",
+        "Generic page A",
+        20_000,
+        "2026-05-01T00:00:20+00:00",
+    );
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        21,
+        "https://example.test/page-with-design-note",
+        "Generic page B",
+        21_000,
+        "2026-05-01T00:00:21+00:00",
+    );
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        22,
+        "https://example.test/page-with-no-annotations",
+        "Generic page C",
+        22_000,
+        "2026-05-01T00:00:22+00:00",
+    );
+
+    // Seed annotations via the public surface so we exercise the same
+    // schema the detail panel writes to.
+    crate::annotations::replace_tags(
+        &paths,
+        &config,
+        None,
+        crate::ReplaceTagsRequest {
+            url: "https://example.test/page-with-rust-tag".to_string(),
+            tags: vec!["Rust".to_string()],
+            source_profile: None,
+        },
+    )
+    .expect("replace tags");
+    crate::annotations::set_notes(
+        &paths,
+        &config,
+        None,
+        crate::SetNotesRequest {
+            url: "https://example.test/page-with-design-note".to_string(),
+            notes: "Initial design doc for the cache layer".to_string(),
+            source_profile: None,
+        },
+    )
+    .expect("set notes");
+
+    // `tag:rust` — only the page tagged Rust matches (and the case is
+    // folded so the user can type either `tag:Rust` or `tag:rust`).
+    let tag_hit = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("tag:rust".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("tag query");
+    assert_eq!(tag_hit.total, 1);
+    assert_eq!(tag_hit.items[0].url, "https://example.test/page-with-rust-tag",);
+
+    // `note:design` — substring match on `url_annotations.notes`,
+    // case-insensitive.
+    let note_hit = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("note:\"design doc\"".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("note query");
+    assert_eq!(note_hit.total, 1);
+    assert_eq!(note_hit.items[0].url, "https://example.test/page-with-design-note",);
+
+    // `-tag:rust` — exclude any URL tagged Rust. Both Generic page B
+    // and Generic page C survive (along with every other seed row).
+    let tag_negated = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("-tag:rust".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("negated tag query");
+    assert!(
+        !tag_negated
+            .items
+            .iter()
+            .any(|entry| entry.url == "https://example.test/page-with-rust-tag"),
+        "expected -tag:rust to exclude the Rust-tagged row",
+    );
+    // And the un-tagged Generic page C is still in the result set,
+    // pinning that the exclusion is a soft filter (not "only show
+    // rows that have any tag").
+    assert!(
+        tag_negated
+            .items
+            .iter()
+            .any(|entry| { entry.url == "https://example.test/page-with-no-annotations" }),
+        "expected -tag:rust to keep un-tagged rows",
+    );
+}
+
 fn seed_firefox_fixture(root: &Path) -> PathBuf {
     let firefox_root = root.join("firefox");
     let profiles_dir = firefox_root.join("Profiles");

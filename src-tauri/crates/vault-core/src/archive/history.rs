@@ -101,6 +101,10 @@ WHERE visits.reverted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
   AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_tags AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
   AND (
@@ -158,6 +162,10 @@ const ADVANCED_FILTER_TABLES: &[&str] = &[
     "history_excluded_sites",
     "history_required_filetypes",
     "history_excluded_filetypes",
+    "history_required_tags",
+    "history_excluded_tags",
+    "history_required_notes",
+    "history_excluded_notes",
 ];
 
 const LIST_HISTORY_FUZZY_CANDIDATES_SQL: &str = r#"
@@ -208,6 +216,10 @@ WHERE visits.reverted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
   AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_tags AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 ORDER BY
@@ -256,6 +268,10 @@ WHERE visits.reverted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_title_terms AS advanced_filter WHERE LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND search_documents.normalized_title LIKE '%' || advanced_filter.value || '%'))
   AND NOT EXISTS (SELECT 1 FROM temp.history_exact_terms AS advanced_filter WHERE NOT (LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%'))))
   AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_terms AS advanced_filter WHERE LOWER(urls.url) LIKE '%' || advanced_filter.value || '%' OR LOWER(IFNULL(urls.title, '')) LIKE '%' || advanced_filter.value || '%' OR EXISTS (SELECT 1 FROM search.search_documents WHERE search_documents.url_id = urls.id AND (search_documents.normalized_url LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_title LIKE '%' || advanced_filter.value || '%' OR search_documents.normalized_search_terms LIKE '%' || advanced_filter.value || '%' OR search_documents.compact_text LIKE '%' || advanced_filter.value || '%')))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_tags AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_tags AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_tags WHERE url_tags.url = urls.url AND LOWER(url_tags.tag) = advanced_filter.value))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_required_notes AS advanced_filter WHERE NOT EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
+  AND NOT EXISTS (SELECT 1 FROM temp.history_excluded_notes AS advanced_filter WHERE EXISTS (SELECT 1 FROM url_annotations WHERE url_annotations.url = urls.url AND LOWER(url_annotations.notes) LIKE '%' || advanced_filter.value || '%'))
   AND (:startTimeMs IS NULL OR visits.visit_time_ms >= :startTimeMs)
   AND (:endTimeMs IS NULL OR visits.visit_time_ms <= :endTimeMs)
 "#;
@@ -424,6 +440,10 @@ fn prepare_advanced_search_filters(
         "history_excluded_filetypes",
         &parsed_query.excluded_filetypes,
     )?;
+    insert_filter_values(connection, "history_required_tags", &parsed_query.required_tags)?;
+    insert_filter_values(connection, "history_excluded_tags", &parsed_query.excluded_tags)?;
+    insert_filter_values(connection, "history_required_notes", &parsed_query.required_notes)?;
+    insert_filter_values(connection, "history_excluded_notes", &parsed_query.excluded_notes)?;
     Ok(())
 }
 
