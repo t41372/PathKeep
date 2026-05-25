@@ -28,7 +28,19 @@
 //!   per-row Rust overhead.
 
 pub mod chromium;
+pub mod firefox;
+pub mod safari;
+pub mod takeout;
 pub mod time;
 
 pub use chromium::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
+pub use firefox::{
+    FirefoxPlaceRow, FirefoxPlacesFixture, FirefoxVisitRow, firefox_time_to_unix_ms,
+    unix_ms_to_firefox_time,
+};
+pub use safari::{
+    SafariHistoryFixture, SafariHistoryItemRow, SafariHistoryVisitRow, SafariSchemaVariant,
+    safari_time_to_unix_ms, unix_ms_to_safari_time,
+};
+pub use takeout::{TakeoutBrowserHistoryFixture, TakeoutBrowserRecord, TakeoutPayloadFormat};
 pub use time::{chrome_time_to_unix_ms, unix_ms_to_chrome_time};
