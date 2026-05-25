@@ -38,24 +38,6 @@
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 
-- [ ] **WORK-FEEDBACK-0525-EXPORT-IMPORT** — Full app data Export/Import (feedback-2026-05-25 §2.1)
-  - 讀先：
-    `docs/features/archive.md`
-    `docs/architecture/data-model.md`
-    `src-tauri/crates/vault-core/src/archive/backup.rs`
-    `src-tauri/crates/vault-core/src/archive/maintenance.rs`
-    `src-tauri/crates/vault-core/src/config.rs` (schema version constants)
-    `src/pages/settings/index.tsx`
-  - 觀察：使用者明確說「等你把數據遷移功能做完我才能從我的筆記本把 pathkeep 的數據遷移到開發機」— 這是 user-blocking task。沒這功能無法用大量真實 archive 驗證效能修復。
-  - 目標：Settings 介面新增 Export 與 Import 動作；Export 打包整個 PathKeep app data (archive sqlite、og:image 快取、annotations、config、derived state — 但要把 derived 標記成 derived，import 時可選擇重建還是直接 restore)。Export 檔含 schema 版本；Import 走 forward migration apply，向後相容舊匯出檔。
-  - 契約：
-    - Export 不得讓 main thread 阻塞（用 spawn_blocking + 背景任務 progress strip）。
-    - Import 要先 dry-run preview（PME），列出 schema migration steps、覆蓋風險、磁碟空間需求，再讓使用者確認 execute。
-    - Schema version 不相符時 Import 仍要能 apply 既有 migration chain；如果舊匯出檔的 schema 比當前更新，明確拒絕並列出原因。
-    - 三語 i18n parity 在 commit 時齊全。
-    - 100% JS + Rust coverage 維持。
-  - 驗收：使用者能在 macOS dev 機 import 從筆記本匯出的 PathKeep 資料、看見預覽、確認執行、看到 archive 全 row 復活；`bun run check` + 新測試。
-
 - [ ] **WORK-FEEDBACK-0525-S3-REMOVE** — Remove S3 cloud backup entirely (feedback-2026-05-25 §2.2)
   - 讀先：
     `src-tauri/crates/vault-core/src/remote/` (整個目錄)
