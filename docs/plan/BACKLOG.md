@@ -38,6 +38,106 @@
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 
+- [ ] **WORK-FEEDBACK-0525-EXPORT-IMPORT** — Full app data Export/Import (feedback-2026-05-25 §2.1)
+  - 讀先：
+    `docs/features/archive.md`
+    `docs/architecture/data-model.md`
+    `src-tauri/crates/vault-core/src/archive/backup.rs`
+    `src-tauri/crates/vault-core/src/archive/maintenance.rs`
+    `src-tauri/crates/vault-core/src/config.rs` (schema version constants)
+    `src/pages/settings/index.tsx`
+  - 觀察：使用者明確說「等你把數據遷移功能做完我才能從我的筆記本把 pathkeep 的數據遷移到開發機」— 這是 user-blocking task。沒這功能無法用大量真實 archive 驗證效能修復。
+  - 目標：Settings 介面新增 Export 與 Import 動作；Export 打包整個 PathKeep app data (archive sqlite、og:image 快取、annotations、config、derived state — 但要把 derived 標記成 derived，import 時可選擇重建還是直接 restore)。Export 檔含 schema 版本；Import 走 forward migration apply，向後相容舊匯出檔。
+  - 契約：
+    - Export 不得讓 main thread 阻塞（用 spawn_blocking + 背景任務 progress strip）。
+    - Import 要先 dry-run preview（PME），列出 schema migration steps、覆蓋風險、磁碟空間需求，再讓使用者確認 execute。
+    - Schema version 不相符時 Import 仍要能 apply 既有 migration chain；如果舊匯出檔的 schema 比當前更新，明確拒絕並列出原因。
+    - 三語 i18n parity 在 commit 時齊全。
+    - 100% JS + Rust coverage 維持。
+  - 驗收：使用者能在 macOS dev 機 import 從筆記本匯出的 PathKeep 資料、看見預覽、確認執行、看到 archive 全 row 復活；`bun run check` + 新測試。
+
+- [ ] **WORK-FEEDBACK-0525-S3-REMOVE** — Remove S3 cloud backup entirely (feedback-2026-05-25 §2.2)
+  - 讀先：
+    `src-tauri/crates/vault-core/src/remote/` (整個目錄)
+    `src-tauri/src/commands/remote.rs`
+    `src-tauri/src/worker_bridge/remote.rs`
+    `src/pages/settings/remote-backup-section.tsx`
+    `src/pages/settings/remote-backup-preferences-section.tsx`
+    `src/pages/settings/use-settings-remote-state.ts`
+    `src/lib/backend-client/remote.ts`
+    `src/lib/types/remote.ts`
+    `src/lib/i18n/catalog/settings-remote-and-outputs.ts`
+    `docs/features/` (任何提 S3 雲端備份的子文檔)
+    `docs/architecture/` (data-model、tech-stack 中提 remote backup 的段落)
+    `docs/design/` (screens-and-nav 等)
+  - 觀察：91 個檔案 reference S3 / remote backup 路徑。使用者說「越來越覺得超出 PathKeep 的 scope（PathKeep 是 local-first，把備份外包到 S3 與產品定位相衝）」。
+  - 目標：徹底刪除 S3 雲端備份功能 — 前端、後端、所有相關測試、所有相關文檔。新增的 Export/Import（§2.1）才是 local-first 的遷移路徑。
+  - 契約：
+    - 刪完之後 `bun run check` 仍綠（100% JS + Rust coverage 不能因刪 production code 反而暴露未測 fallback 路徑）。
+    - dev_ipc_bridge dispatch arms、payloads、worker_bridge 對應命令一併刪。
+    - vault-core::config / models::AppConfig 移除 remote backup 欄位；既有 config.json 載入時要靜默忽略遺留欄位，不能 panic。
+    - i18n catalog 刪除 remote backup 鍵；剩餘 keys 三語 parity 100%。
+    - docs sweep 同步移除任何「S3 / 雲端備份」段落；BACKLOG.md / STATUS.md / CHANGELOG.md / features / architecture / design / research-and-decisions 都要更新。
+  - 驗收：grep `s3|S3|aws|cloud_backup|remoteBackup` 在 production code (排除 tests fixture 與本 BACKLOG entry) 後完全沒命中；`bun run check` 綠。
+
+- [ ] **WORK-FEEDBACK-0525-DAY-INSIGHTS** — Backend per-day aggregate for Browse day insights (feedback-2026-05-25 §3.1)
+  - 讀先：
+    `src/components/explorer-paper/paper-day-insights-helpers.ts` (`aggregateDayInsights`)
+    `src/components/explorer-paper/paper-day-insights.tsx`
+    `src/components/explorer-paper/paper-contact-sheet.tsx` (每個 day render `aggregateDayInsights(day)`)
+    `src-tauri/crates/vault-core/src/intelligence/day_insights.rs` (existing intelligence-side)
+    `src/lib/backend-client/intelligence.ts` (`getDayInsights`)
+    `src/lib/core-intelligence/types-overview.ts` (`DayInsights` backend shape)
+  - 觀察 (feedback-2026-05-25 §3.1)：使用者滑動沒滾完整天時，sparkline 與 top-domain bars 看起來是空的；滑動載入完整天才會「變對」。根因：`aggregateDayInsights(day)` 只走當前已載入 `PaperDay` 內的 entries，跟前端滾動進度耦合，違反 Trust & Transparency。
+  - 目標：新增 backend 命令 `get_browse_day_insights(date, profileId)` 直接回傳 paper-day-insights shape（hourBuckets、totalPages、typedCount、linkCount、searchCount、topDomains、topUrls、topSearchQueries、sessionCount、distinctDomains、firstVisitMs、lastVisitMs、peakHour、longestSessionMs），全部由 SQLite 對完整當日資料計算。前端新增 `useBrowseDayInsightsCache(date, profileId)` 依可見 days 取資料、cache per (date, profileId, refreshKey)。PaperContactSheet 改用 hook 結果；載入中 fallback 到 client-side aggregate（標記 stale）。
+  - 契約：
+    - 新 Rust 命令必須 off-main-thread（既有 spawn_blocking pattern）。
+    - 命令對 1440 萬行 archive 上單日（典型上千 visits）回應 < 200ms（dev IPC、加密 SQLite）。
+    - Session 邊界判定要跟前端 group-entries 的 split threshold 一致，否則 sessionCount / longestSessionMs 對不上 contact sheet。
+    - 三語 i18n 不需新增（rendered copy 已存在）。
+    - 100% JS + Rust coverage 維持。
+  - 驗收：新測試覆蓋 backend aggregator + frontend hook 整合；UI 在只載一頁時 sparkline 已經跟全天一致；`bun run check`。
+
+- [ ] **WORK-FEEDBACK-0525-TAG-NOTE-SEARCH** — Tag/note search dimensions (feedback-2026-05-25 §3.3 A)
+  - 讀先：
+    `src-tauri/crates/vault-core/src/archive/search_query.rs` (現有 site:/intitle:/inurl: parser)
+    `src-tauri/crates/vault-core/src/annotations.rs` (notes + tags backend)
+    `docs/features/annotations.md`
+    `src/components/explorer-paper/paper-search-hero.tsx`
+    `src/components/explorer-paper/paper-advanced-search-help.tsx`
+    `src/lib/i18n/catalog/explorer.ts`
+  - 觀察 (feedback-2026-05-25 §3.3 A)：annotations backend 已存在但 search query 只看 title / URL — 使用者無法搜 tag 或 note 文字。
+  - 目標：(1) 擴充 `search_query.rs` 解析 `tag:foo` 與 `note:"bar baz"` operator，SQL join url_tags / url_annotations。(2) `PaperAdvancedSearchHelp` 多兩條 `tag:` `note:` 範例 + 對應三語 copy。(3) PaperSearchHero 多 `+ tag` `+ note` add-filter chip，開啟 popover 從 `listUrlAnnotations` 撈現有 tag list 讓使用者勾選；chip 對應到 URL `?tag=foo,bar` `?note=hello world` params。(4) Explorer route 把 params 轉成 `tag:` / `note:` operators 注入 query。
+  - 契約：
+    - operator 解析要跟既有 site:/intitle: 一致，並支援 negation (`-tag:foo`) 與多值 (`tag:foo tag:bar`)。
+    - join 不得讓無 annotation 的列消失 — 沒 tag/note operator 時 query 走原 path、效能不退步。
+    - 三語 i18n parity 100%。
+    - 100% JS + Rust coverage 維持。
+  - 驗收：能搜到只附 tag 沒在 title 出現的 URL；advanced help popover 列出新 operator；`bun run check`。
+
+- [ ] **WORK-FEEDBACK-0525-BROWSE-VIRT** — Browse sliding-window DOM recycling + directional prefetch (feedback-2026-05-25 §1.1 + §1.2)
+  - 讀先：
+    `docs/features/explorer-browse.md`
+    `src/components/explorer-paper/paper-contact-sheet.tsx`
+    `src/components/explorer-paper/paper-list-row.tsx`
+    `src/pages/explorer/hooks/use-explorer-infinite-pages.ts`
+    `src/pages/explorer/hooks/use-explorer-data.ts`
+    `WORK-PERF-VIRT-A` 的既有 backlog entry（已 superseded by this entry）
+  - 觀察 (feedback-2026-05-25 §1.1)：滑動久了 UI 卡，是前端問題。目前 infinite scroll 把每頁 append 到 React tree 不回收，DOM node 累積 > 2-3k 就抖動。使用者明確拒絕「禁止再往下滑」糊弄方案，要求 sliding-window 回收 + 後端/快取保留。§1.2 進一步要求主動 prefetch 讓滑動近乎零等待。
+  - 目標：
+    1. PaperContactSheet 改為以 viewport 為中心的 sliding window：DOM 只渲染 viewport 上下各 N 個 days/blocks（探討 react-virtuoso / @tanstack/react-virtual / 自寫）。窗口外 days 從 DOM 移除但保留在 frontend memory cache。
+    2. 用戶往回滑時直接從 cache 拿，不打資料庫。
+    3. 窗口前後預留 buffer，邊界不卡。
+    4. 主動 prefetch：根據 scroll 方向多載 K 頁進後端 memory，前端按窗口取，目標近乎零等待。
+    5. 上限要算（4 核 3GHz / 8GB RAM、目標 1440 萬 row 60 年）：cache cap、LRU 淘汰、prefetch budget。
+  - 契約：
+    - 不准放棄既有 a11y / 鍵盤 nav、day sticky header、per-day insights、sessions grouping、infinite scroll sentinel。
+    - 切換 cards / list 時不可 layout jank > 50ms。
+    - 依賴授權（react-virtuoso 等若引入）需先過 AGENTS.md 紅線。
+    - 100% JS coverage 維持；新增 Playwright e2e 用大型 preview fixture 驗 60fps。
+  - 驗收：14M-row preview fixture（或 chrome takeout import）上 scroll 維持 60fps（Chrome devtools performance trace 證明）；DOM node 上限不超過 viewport × 3；`bun run check` 與新 e2e；docs/features/explorer-browse.md 更新 sliding-window 圖。
+  - 備註：與 `WORK-PERF-VIRT-A`（之前 blocked）功能重疊；該舊條目可在這條啟動時 inline 標 superseded。
+
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：
     `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
