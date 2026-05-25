@@ -1318,9 +1318,14 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         }],
     )
     .expect("same-profile registrable favicon lookup");
+    // The registrable-domain fallback used to fire here; it was removed
+    // because it leaked icons across unrelated sites that share a public
+    // suffix (e.g. `*.github.io`). The exact page URL and same FQDN are
+    // the only safe sources, so a different host on the same registrable
+    // domain must now resolve to `None`.
     assert!(
-        same_profile_registrable_lookup[0].favicon.is_some(),
-        "expected registrable-domain fallback when the exact host differs inside the same profile"
+        same_profile_registrable_lookup[0].favicon.is_none(),
+        "registrable-domain fallback is disabled — different hosts on the same registrable domain must not borrow each other's icons"
     );
     connection
         .execute(
@@ -1443,9 +1448,11 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         }],
     )
     .expect("cross-profile registrable favicon lookup");
+    // Same rationale as the same-profile case above: cross-host borrowing
+    // at the registrable-domain level was removed to stop icon bleed.
     assert!(
-        cross_profile_registrable_lookup[0].favicon.is_some(),
-        "expected registrable-domain fallback to cross profiles after same-profile misses"
+        cross_profile_registrable_lookup[0].favicon.is_none(),
+        "registrable-domain fallback is disabled across profiles too"
     );
     connection
         .execute("UPDATE visits SET source_profile_id = 2 WHERE id = 2", [])
@@ -1727,18 +1734,9 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         "idx_favicons_host_lookup",
         params![1_i64, "example.com", "https://example.com/archive", visit_time],
     );
-    assert_favicon_plan_uses(
-        &connection,
-        super::history::LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL,
-        "idx_favicons_registrable_profile_lookup",
-        params![1_i64, "example.org", "https://example.com/archive", visit_time],
-    );
-    assert_favicon_plan_uses(
-        &connection,
-        super::history::LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL,
-        "idx_favicons_registrable_lookup",
-        params![1_i64, "example.org", "https://example.com/archive", visit_time],
-    );
+    // Registrable-domain fallback queries were removed; their dormant
+    // indexes still exist in the schema but are no longer reached by the
+    // lookup pipeline. See favicons.rs for rationale (icon-bleed guard).
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
 }

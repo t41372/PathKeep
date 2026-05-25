@@ -20,6 +20,7 @@ mod export;
 mod favicons;
 pub mod og_images;
 pub mod og_images_fetch;
+pub mod og_images_synth;
 mod pagination;
 
 pub use self::export::export_history;
@@ -30,8 +31,7 @@ pub use self::favicons::load_history_favicons;
 #[cfg(test)]
 pub(super) use self::favicons::{
     LOAD_FAVICON_CROSS_PROFILE_HOST_SQL, LOAD_FAVICON_CROSS_PROFILE_PAGE_SQL,
-    LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL, LOAD_FAVICON_SAME_PROFILE_HOST_SQL,
-    LOAD_FAVICON_SAME_PROFILE_PAGE_SQL, LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL,
+    LOAD_FAVICON_SAME_PROFILE_HOST_SQL, LOAD_FAVICON_SAME_PROFILE_PAGE_SQL,
 };
 #[allow(unused_imports)]
 pub use self::og_images::{
