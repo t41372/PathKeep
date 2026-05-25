@@ -38,8 +38,8 @@ pub use self::{
         save_user_config,
     },
     archive_flows::{
-        audit_run_detail, clear_derived_intelligence, clear_og_image_cache, dashboard_snapshot,
-        doctor_report, export_query, import_browser_history_source,
+        audit_run_detail, browse_day_insights, clear_derived_intelligence, clear_og_image_cache,
+        dashboard_snapshot, doctor_report, export_query, import_browser_history_source,
         import_browser_history_source_with_progress, import_takeout_source,
         import_takeout_source_with_progress, inspect_browser_history_source,
         inspect_takeout_source, load_history_favicons, load_history_og_images,

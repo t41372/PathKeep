@@ -25,9 +25,10 @@
 
 use serde::Deserialize;
 use vault_core::{
-    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
-    ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
-    ReplaceTagsRequest, SchedulePlan, SetNotesRequest, TakeoutRequest,
+    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
+    BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
+    HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
+    TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -266,6 +267,10 @@ pub(super) struct AnnotationLimitPayload {
 /// commands group their typed input under a `request` field.
 pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
 pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
+
+/// Bridge envelope for get_browse_day_insights — the desktop command
+/// groups its typed input under `request`.
+pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsRequest>;
 
 /// Bridge envelope for export_app_data — the desktop command takes the
 /// user-chosen target path as a single string field.

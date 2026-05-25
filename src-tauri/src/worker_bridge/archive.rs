@@ -179,6 +179,15 @@ pub(crate) fn dashboard_snapshot_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Aggregates one local-day Browse insights panel from the full archive.
+pub(crate) fn browse_day_insights_impl(
+    session_database_key: Option<&str>,
+    request: vault_core::BrowseDayInsightsRequest,
+) -> Result<vault_core::BrowseDayInsights, String> {
+    worker_result(vault_worker::browse_day_insights(session_database_key, request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the full audit detail for one run ID.
 pub(crate) fn audit_run_detail_impl(
     run_id: i64,

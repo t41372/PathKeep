@@ -255,6 +255,13 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "get_browse_day_insights" => {
+            let payload = parse_payload::<BrowseDayInsightsPayload>(payload)?;
+            json_value!(worker_bridge::browse_day_insights_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
         "load_audit_run_detail" => {
             let payload = parse_payload::<RunIdPayload>(payload)?;
             json_value!(worker_bridge::audit_run_detail_impl(

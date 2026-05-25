@@ -17,12 +17,13 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use vault_core::{
-    AiIndexRequest, AiQueueJob, BackupProgressEvent, BrowserHistoryImportRequest,
-    ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest, DashboardSnapshot,
-    ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
-    ImportBatchDetail, ImportProgressEvent, TakeoutInspection, TakeoutRequest, ai_queue,
-    clear_derived_intelligence_state, doctor, export_history, import_browser_history_with_progress,
-    import_takeout_with_progress, inspect_browser_history, inspect_takeout,
+    AiIndexRequest, AiQueueJob, BackupProgressEvent, BrowseDayInsights, BrowseDayInsightsRequest,
+    BrowserHistoryImportRequest, ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest,
+    DashboardSnapshot, ExportRequest, HealthRepairReport, HealthReport, HistoryQuery,
+    HistoryQueryResponse, ImportBatchDetail, ImportProgressEvent, TakeoutInspection,
+    TakeoutRequest, ai_queue, clear_derived_intelligence_state, doctor, export_history,
+    get_browse_day_insights, import_browser_history_with_progress, import_takeout_with_progress,
+    inspect_browser_history, inspect_takeout,
     intelligence_runtime::{
         DAILY_ROLLUP_JOB_TYPE, STRUCTURAL_REBUILD_JOB_TYPE, VISIT_DERIVE_JOB_TYPE,
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
@@ -638,6 +639,20 @@ pub fn dashboard_snapshot(session_database_key: Option<&str>) -> Result<Dashboar
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     load_dashboard_snapshot(&paths, &config, session_database_key)
+}
+
+/// Aggregates one local-calendar day's Browse-side insights (sparkline,
+/// top domains, top URLs, search queries, activity tallies, session
+/// stats) from the canonical archive. Replaces the previous client-side
+/// `aggregateDayInsights` which only ever saw the cards already loaded
+/// into the contact sheet — see feedback-2026-05-25 §3.1.
+pub fn browse_day_insights(
+    session_database_key: Option<&str>,
+    request: BrowseDayInsightsRequest,
+) -> Result<BrowseDayInsights> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    get_browse_day_insights(&paths, &config, session_database_key, &request)
 }
 
 /// Loads audit detail for a specific run id.

@@ -240,6 +240,19 @@ pub(crate) fn load_dashboard_snapshot(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Aggregates one local-day Browse insights panel from the full archive
+/// (sparkline, top domains, top URLs, search queries, activity tallies,
+/// session stats). Replaces the previous scroll-coupled client-side
+/// `aggregateDayInsights` — see feedback-2026-05-25 §3.1.
+pub(crate) fn get_browse_day_insights(
+    request: vault_core::BrowseDayInsightsRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::BrowseDayInsights, String> {
+    worker_bridge::browse_day_insights_impl(state.get_key().as_deref(), request)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the full audit detail for one archived run.
 pub(crate) fn load_audit_run_detail(
     run_id: i64,

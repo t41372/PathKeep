@@ -77,7 +77,11 @@ pub(crate) use self::source_evidence_builder::{
 };
 pub use self::{
     doctor::{doctor, repair_health_issues},
-    history::{export_history, list_history, load_history_favicons, og_images, og_images_fetch},
+    history::{
+        BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
+        BrowseDayTopUrl, export_history, get_browse_day_insights, list_history,
+        load_history_favicons, og_images, og_images_fetch,
+    },
     maintenance::{
         preview_retention, preview_snapshot_restore, rekey_archive, run_retention_prune,
         run_snapshot_restore,

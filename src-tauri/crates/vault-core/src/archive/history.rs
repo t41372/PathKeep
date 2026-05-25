@@ -16,6 +16,7 @@ use super::search_lexical::{FuzzyDocument, FuzzyQuery, LexicalQuery, analyze_que
 use super::search_query::{ParsedHistorySearchQuery, parse_history_search_query};
 use super::*;
 
+pub mod day_insights;
 mod export;
 mod favicons;
 pub mod og_images;
@@ -23,6 +24,10 @@ pub mod og_images_fetch;
 pub mod og_images_synth;
 mod pagination;
 
+pub use self::day_insights::{
+    BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
+    BrowseDayTopUrl, get_browse_day_insights,
+};
 pub use self::export::export_history;
 pub use self::favicons::load_history_favicons;
 // og_images functions are re-exported via the `og_images` module path so the
