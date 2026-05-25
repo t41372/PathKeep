@@ -1477,3 +1477,41 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
     （見後續 Phase 0 close-out commit 的 verification）。- **後續 backlog**（保留在 `docs/features/og-images.md` §6）：image
     dimension probe（depends on pure-Rust image crate, 純資訊性低
     價值）、readable-content 對齊的批量 import 抓取。
+
+## Import Data Integrity
+
+- [x] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
+  - 2026-05-25 closeout:
+    - **Architecture audit** (`docs/plan/program/import-dedup-audit.md`): full
+      code-level audit of the ingest dedup pipeline — dedup keys, per-family
+      watermark strategies, fingerprint partial index, 6 bugs identified
+      (B1–B6). Three audit claims corrected by empirical test findings:
+      B2 Safari refuted (MAX on-the-fly, no cached column), B3 simple-case
+      refuted (fingerprint partial index catches renamed-file identical
+      records), B4 reframed from "bug" to "design constraint."
+    - **Fixture crate** (`src-tauri/crates/browser-history-fixtures`): four
+      family writers (Chromium, Firefox, Safari, Takeout) that produce
+      schema-correct SQLite / JSON fixtures from deterministic seeds.
+      Time helpers (`unix_ms_to_chrome_time`, etc.) encapsulate each
+      family's epoch convention. 15 parser round-trip self-validation tests
+      across 4 files prove every generated fixture parses correctly through
+      the real PathKeep parser.
+    - **Scenario library** (`vault-core::archive::ingest::dedup_scenarios`):
+      12 end-to-end scenarios driving `process_profile_snapshot` and
+      `import_takeout` against the real archive DB:
+      - Contract (pass today, guard against regression): C1, C2, C3, S2,
+        T1, T2, T3, T5, X1.
+      - Bugs with `#[should_panic]` (flip to `#[test]` when fix lands):
+        C4 (B1), F2 (B2), T2b (B3 narrow case).
+    - **TODO markers**: sub-millisecond Chrome visit collision (C_SUB_MS)
+      flagged in both audit doc §4 and dedup_scenarios.rs for follow-up.
+    - **Spec doc** (`docs/plan/program/import-test-harness-spec.md`):
+      32 scenarios across 6 priority tiers, fixture generator API,
+      acceptance criteria. Section 6 "Scenarios Now Backed By Tests"
+      tracks coverage.
+    - **Not done (by design)**: B5 scale test deferred to dedicated
+      `WORK-IMPORT-SCALE-TEST-A` block (needs million-record fixture
+      infrastructure). No product code fixes — harness only exposes bugs.
+    - **Verification**: `bun run check` green (format + lint + typecheck +
+      i18n + unit tests + coverage + build + e2e + desktop-bridge truth +
+      desktop-contract mutation).

@@ -1,9 +1,9 @@
 # Import Test Harness Spec
 
 > Companion to [`import-dedup-audit.md`](import-dedup-audit.md).
-> The audit answers *what is the current behavior*. This spec answers
-> *what tests would prove or disprove that behavior at every supported
-> source and edge case*, so the user can be confident that a re-import
+> The audit answers _what is the current behavior_. This spec answers
+> _what tests would prove or disprove that behavior at every supported
+> source and edge case_, so the user can be confident that a re-import
 > of any combination of browsers will not silently lose, duplicate, or
 > corrupt visit records.
 
@@ -207,7 +207,7 @@ All URLs and titles are **synthesized from public-domain corpora**:
   article titles (article titles themselves are PD; the corpus file is
   checked in at `browser-history-fixtures/src/catalog/wikipedia_titles.txt`).
 - **Search terms**: a fixed set of obviously-non-real queries (`brown
-  fox jumps`, `lorem ipsum dolor`, etc.).
+fox jumps`, `lorem ipsum dolor`, etc.).
 
 **No fixture URL or title is ever sampled from a real user DB.** The
 catalog is committed once and reused; PRs that touch the catalog must
@@ -241,7 +241,7 @@ generator output:
 3. Assert the parser saw exactly the records the generator promised.
 
 If a generator bug exists (wrong schema, wrong epoch, missing column),
-the round-trip test fails *before* any scenario can pretend a product
+the round-trip test fails _before_ any scenario can pretend a product
 bug exists. **Without this guard, the harness is worse than useless** —
 it can give false confidence.
 
@@ -290,7 +290,7 @@ re-run it locally.
 ### Bug-targeted assertions
 
 For each known bug, the spec defines a named assertion that fails
-*now* and passes after the fix:
+_now_ and passes after the fix:
 
 - `expect_url_count_monotonic_under_repeated_imports` → catches **B1**
 - `expect_firefox_long_tail_revisit_not_dropped` → catches **B2**
@@ -314,65 +314,65 @@ order in the work block; everything is in scope before the block closes.
 
 ### Priority 1 — Highest ROI (lay this in the scaffold commit)
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| C1 | `chromium_baseline_import` | happy path, source_visit_id uniqueness, run ledger correctness |
-| C2 | `chromium_incremental_no_new_data` | watermark works; second import = 0 new rows |
-| C3 | `chromium_incremental_revisit_of_old_url` | regression for the OR clause fix; would fail without [chromium/mod.rs:85-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs) |
-| T1 | `takeout_baseline_import` | happy path; no source_visit_id from browser, full fingerprint reliance |
-| T2 | `takeout_rename_file_reimport` | **B3 failing test** — same data, different path, expect dedup, assert duplicates appear |
-| X1 | `edge_imports_chrome_then_diverges` | per-profile contract preserved, no cross-browser dedup |
+| ID  | Scenario                                  | Targets                                                                                                                                            |
+| --- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | `chromium_baseline_import`                | happy path, source_visit_id uniqueness, run ledger correctness                                                                                     |
+| C2  | `chromium_incremental_no_new_data`        | watermark works; second import = 0 new rows                                                                                                        |
+| C3  | `chromium_incremental_revisit_of_old_url` | regression for the OR clause fix; would fail without [chromium/mod.rs:85-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs) |
+| T1  | `takeout_baseline_import`                 | happy path; no source_visit_id from browser, full fingerprint reliance                                                                             |
+| T2  | `takeout_rename_file_reimport`            | **B3 failing test** — same data, different path, expect dedup, assert duplicates appear                                                            |
+| X1  | `edge_imports_chrome_then_diverges`       | per-profile contract preserved, no cross-browser dedup                                                                                             |
 
 ### Priority 2 — Bug coverage
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| C4 | `chromium_reimport_older_snapshot_does_not_regress_counts` | **B1 failing test** |
-| F1 | `firefox_baseline_import` | happy path for places.sqlite |
-| F2 | `firefox_incremental_revisit_of_old_url` | **B2 failing test** for Firefox |
-| S1 | `safari_baseline_import` | happy path for History.db |
-| S2 | `safari_incremental_revisit_of_old_url` | **B2 failing test** for Safari |
-| T3 | `takeout_then_local_chrome_same_period` | **B4 failing test** — assert systematic doubling |
-| T4 | `takeout_million_record_hash_distribution` | **B5 failing test** — stress `stable_key_i64` |
-| T5 | `takeout_time_unit_contract` | **B6 failing/passing test** — pins format-of-record |
+| ID  | Scenario                                                   | Targets                                             |
+| --- | ---------------------------------------------------------- | --------------------------------------------------- |
+| C4  | `chromium_reimport_older_snapshot_does_not_regress_counts` | **B1 failing test**                                 |
+| F1  | `firefox_baseline_import`                                  | happy path for places.sqlite                        |
+| F2  | `firefox_incremental_revisit_of_old_url`                   | **B2 failing test** for Firefox                     |
+| S1  | `safari_baseline_import`                                   | happy path for History.db                           |
+| S2  | `safari_incremental_revisit_of_old_url`                    | **B2 failing test** for Safari                      |
+| T3  | `takeout_then_local_chrome_same_period`                    | **B4 failing test** — assert systematic doubling    |
+| T4  | `takeout_million_record_hash_distribution`                 | **B5 failing test** — stress `stable_key_i64`       |
+| T5  | `takeout_time_unit_contract`                               | **B6 failing/passing test** — pins format-of-record |
 
 ### Priority 3 — Cross-source robustness
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| X2 | `chrome_brave_vivaldi_three_way_overlap` | three Chromium-family profiles, partial overlap, all preserved |
-| X3 | `firefox_places_with_safari_history_overlap` | mixed family time conversions correct |
-| X4 | `takeout_and_browser_direct_same_profile_same_period` | end-to-end version of T3 with real ingest commands |
-| X5 | `microsoft_edge_not_collapsed_to_chrome` | provenance — Edge must not be tagged as Google Chrome |
+| ID  | Scenario                                              | Targets                                                        |
+| --- | ----------------------------------------------------- | -------------------------------------------------------------- |
+| X2  | `chrome_brave_vivaldi_three_way_overlap`              | three Chromium-family profiles, partial overlap, all preserved |
+| X3  | `firefox_places_with_safari_history_overlap`          | mixed family time conversions correct                          |
+| X4  | `takeout_and_browser_direct_same_profile_same_period` | end-to-end version of T3 with real ingest commands             |
+| X5  | `microsoft_edge_not_collapsed_to_chrome`              | provenance — Edge must not be tagged as Google Chrome          |
 
 ### Priority 4 — Time / URL / encoding edge cases
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| E1 | `chrome_time_extreme_far_future` | `unix_micros_to_chrome_time` saturation |
-| E2 | `safari_cfabsolute_time_pre_2001` | negative CFAbsoluteTime handling |
-| E3 | `firefox_microseconds_vs_chrome_microseconds` | family misrouting test |
-| E4 | `dst_transition_visit` | hour-boundary visit during DST transition |
-| E5 | `same_millisecond_two_visits` | two visits at literally identical ms, different source_visit_ids |
-| E6 | `url_with_fragment_and_trailing_slash` | document current behavior: separate rows |
-| E7 | `url_with_idn_punycode_mix` | document current behavior |
-| E8 | `url_very_long_8kb_plus` | SQLite TEXT column accepts; no truncation |
+| ID  | Scenario                                      | Targets                                                          |
+| --- | --------------------------------------------- | ---------------------------------------------------------------- |
+| E1  | `chrome_time_extreme_far_future`              | `unix_micros_to_chrome_time` saturation                          |
+| E2  | `safari_cfabsolute_time_pre_2001`             | negative CFAbsoluteTime handling                                 |
+| E3  | `firefox_microseconds_vs_chrome_microseconds` | family misrouting test                                           |
+| E4  | `dst_transition_visit`                        | hour-boundary visit during DST transition                        |
+| E5  | `same_millisecond_two_visits`                 | two visits at literally identical ms, different source_visit_ids |
+| E6  | `url_with_fragment_and_trailing_slash`        | document current behavior: separate rows                         |
+| E7  | `url_with_idn_punycode_mix`                   | document current behavior                                        |
+| E8  | `url_very_long_8kb_plus`                      | SQLite TEXT column accepts; no truncation                        |
 
 ### Priority 5 — Corruption / recovery / concurrency
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| R1 | `corrupt_history_db_quick_check_fails` | preview honestly fails, no partial rows |
-| R2 | `mid_import_crash_rollback` | transaction rolls back, watermark unchanged |
-| R3 | `import_batch_revert_clears_visits_only_for_that_batch` | revert isolation |
-| R4 | `staging_lock_contention` | History file held by browser, staging snapshot succeeds |
-| R5 | `concurrent_import_same_profile_serialization` | SQLite write lock serializes; no torn state |
+| ID  | Scenario                                                | Targets                                                 |
+| --- | ------------------------------------------------------- | ------------------------------------------------------- |
+| R1  | `corrupt_history_db_quick_check_fails`                  | preview honestly fails, no partial rows                 |
+| R2  | `mid_import_crash_rollback`                             | transaction rolls back, watermark unchanged             |
+| R3  | `import_batch_revert_clears_visits_only_for_that_batch` | revert isolation                                        |
+| R4  | `staging_lock_contention`                               | History file held by browser, staging snapshot succeeds |
+| R5  | `concurrent_import_same_profile_serialization`          | SQLite write lock serializes; no torn state             |
 
 ### Priority 6 — Performance / memory bounds (optional `#[ignore]` until opted in)
 
-| ID | Scenario | Targets |
-| --- | --- | --- |
-| M1 | `chromium_1_44_million_visits_under_memory_ceiling` | the AGENTS.md design point: 8 GB / 4 core machine, 60 years of moderate use; assert peak RSS < N MB |
+| ID  | Scenario                                            | Targets                                                                                             |
+| --- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| M1  | `chromium_1_44_million_visits_under_memory_ceiling` | the AGENTS.md design point: 8 GB / 4 core machine, 60 years of moderate use; assert peak RSS < N MB |
 
 ---
 

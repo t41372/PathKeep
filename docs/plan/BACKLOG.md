@@ -39,7 +39,8 @@
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 > 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
 
-- [ ] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
+- [x] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
+  - 2026-05-25 closeout: audit + fixture crate + 12 e2e scenarios (9 contract, 3 `#[should_panic]` bug repros) + TODO for sub-ms Chrome collision. B5 scale test deferred to WORK-IMPORT-SCALE-TEST-A. See CHANGELOG for full details.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md`
     `docs/plan/program/import-test-harness-spec.md`
@@ -71,6 +72,15 @@
     - `docs/plan/program/import-dedup-audit.md` 新增「Bugs with failing tests」章節，列出每個 bug 對應的 scenario function。
     - CHANGELOG 紀錄哪些 audit bugs 已有 failing tests、哪些尚待 follow-up。
     - 三語 i18n 不適用（test infra 內部 ID 用 ASCII）。
+
+- [!] **WORK-IMPORT-SCALE-TEST-A** — B5 Takeout `stable_key_i64` Collision At Scale [!blocked: needs million-record fixture infrastructure + benchmark tooling]
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md` (§B5)
+    `docs/plan/program/import-test-harness-spec.md` (T4 scenario)
+    `src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs` (`stable_key_i64`)
+    `src-tauri/crates/browser-history-fixtures/src/takeout/mod.rs`
+  - 目標：驗證 B5 hash collision probability — 用 1M+ record Takeout fixture 觀察 `stable_key_i64` 的實際碰撞率，確認是否在 14.4M design ceiling 下需要更換 hash function。
+  - 契約：不修 product code；只產出 benchmark + collision statistics。
 
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：

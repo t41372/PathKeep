@@ -323,10 +323,8 @@ fn c3_chromium_incremental_revisit_of_old_url() {
         })
         .add_visit(visit_row(10, 1, visit_one_ms));
 
-    let first_snapshot = snapshot_for_fixture(
-        &first_fixture,
-        chromium_profile("chrome:Default", "Google Chrome"),
-    );
+    let first_snapshot =
+        snapshot_for_fixture(&first_fixture, chromium_profile("chrome:Default", "Google Chrome"));
     let first_summary = run_one_ingest(&env, 1, &first_snapshot, false);
     assert_eq!(first_summary.new_urls, 1);
     assert_eq!(first_summary.new_visits, 1);
@@ -350,10 +348,8 @@ fn c3_chromium_incremental_revisit_of_old_url() {
         .add_visit(visit_row(10, 1, visit_one_ms))
         .add_visit(visit_row(11, 1, visit_two_ms));
 
-    let second_snapshot = snapshot_for_fixture(
-        &second_fixture,
-        chromium_profile("chrome:Default", "Google Chrome"),
-    );
+    let second_snapshot =
+        snapshot_for_fixture(&second_fixture, chromium_profile("chrome:Default", "Google Chrome"));
     let second_summary = run_one_ingest(&env, 2, &second_snapshot, true);
 
     assert_eq!(
@@ -501,7 +497,11 @@ fn t1_takeout_baseline_import() {
     TakeoutBrowserHistoryFixture::new()
         .add_record(takeout_record("https://example.com/page-one", "Page One", 1_777_680_000_000))
         .add_record(takeout_record("https://example.com/page-two", "Page Two", 1_777_809_600_000))
-        .add_record(takeout_record("https://example.org/page-three", "Page Three", 1_777_872_930_000))
+        .add_record(takeout_record(
+            "https://example.org/page-three",
+            "Page Three",
+            1_777_872_930_000,
+        ))
         .write(&payload_path)
         .expect("write takeout fixture");
 
@@ -637,7 +637,10 @@ fn t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverge
     // Expected post-fix: 3 visits (treated as the same logical event with
     // an updated title). Today: 6 (because both source_visit_id and
     // event_fingerprint differ across the two imports).
-    assert_eq!(visit_count, 3, "B3 fix required: rename + title drift duplicates rows (got {visit_count})");
+    assert_eq!(
+        visit_count, 3,
+        "B3 fix required: rename + title drift duplicates rows (got {visit_count})"
+    );
 }
 
 fn import_takeout_fixture(env: &ScenarioEnv, records: &[TakeoutBrowserRecord], label: &str) {
@@ -705,10 +708,8 @@ fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
             hidden: false,
         })
         .add_visit(visit_row(10, 1, visit_two_ms));
-    let first_snapshot = snapshot_for_fixture(
-        &first_fixture,
-        chromium_profile("chrome:Default", "Google Chrome"),
-    );
+    let first_snapshot =
+        snapshot_for_fixture(&first_fixture, chromium_profile("chrome:Default", "Google Chrome"));
     run_one_ingest(&env, 1, &first_snapshot, false);
     drop(first_snapshot);
     assert_eq!(stored_visit_count(&env, "chrome:Default", 1), 10);
@@ -727,10 +728,8 @@ fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
             hidden: false,
         })
         .add_visit(visit_row(10, 1, visit_two_ms));
-    let second_snapshot = snapshot_for_fixture(
-        &second_fixture,
-        chromium_profile("chrome:Default", "Google Chrome"),
-    );
+    let second_snapshot =
+        snapshot_for_fixture(&second_fixture, chromium_profile("chrome:Default", "Google Chrome"));
     run_one_ingest(&env, 2, &second_snapshot, false);
 
     let final_count = stored_visit_count(&env, "chrome:Default", 1);
@@ -965,7 +964,12 @@ fn s2_safari_long_tail_revisit_captured_without_or_fallback() {
     );
 }
 
-fn safari_visit(id: i64, history_item: i64, title: &str, visit_time_unix_ms: i64) -> SafariHistoryVisitRow {
+fn safari_visit(
+    id: i64,
+    history_item: i64,
+    title: &str,
+    visit_time_unix_ms: i64,
+) -> SafariHistoryVisitRow {
     SafariHistoryVisitRow {
         id,
         history_item,
@@ -1072,10 +1076,8 @@ fn t3_takeout_and_local_chrome_same_period_b4_contract() {
         .add_visit(visit_row(10, 1, day_one))
         .add_visit(visit_row(11, 2, day_two))
         .add_visit(visit_row(12, 3, day_three));
-    let chrome_snapshot = snapshot_for_fixture(
-        &chrome_fixture,
-        chromium_profile("chrome:Default", "Google Chrome"),
-    );
+    let chrome_snapshot =
+        snapshot_for_fixture(&chrome_fixture, chromium_profile("chrome:Default", "Google Chrome"));
     run_one_ingest(&env, 1, &chrome_snapshot, false);
 
     let takeout_source = tempdir().expect("takeout source root");
@@ -1083,11 +1085,7 @@ fn t3_takeout_and_local_chrome_same_period_b4_contract() {
     TakeoutBrowserHistoryFixture::new()
         .add_record(takeout_record("https://example.com/shared-one", "Shared One", day_one))
         .add_record(takeout_record("https://example.com/shared-two", "Shared Two", day_two))
-        .add_record(takeout_record(
-            "https://example.com/shared-three",
-            "Shared Three",
-            day_three,
-        ))
+        .add_record(takeout_record("https://example.com/shared-three", "Shared Three", day_three))
         .write(&takeout_payload)
         .expect("write takeout fixture");
     crate::takeout::import_takeout(
@@ -1197,3 +1195,11 @@ fn t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract() {
         "Takeout ISO must reflect 2026-05-02, got {visit_time_iso}"
     );
 }
+
+// TODO: C_SUB_MS — Sub-millisecond Chrome visit collision scenario.
+// Chrome stores visit times at microsecond precision; ingest truncates to
+// milliseconds. Two visits to the same URL within the same ms produce
+// identical fingerprints. The primary index (source_visit_id) keeps them
+// apart, but any fingerprint-only dedup path (e.g. Takeout) would drop
+// the second visit. Write a scenario with two Chrome visits 500μs apart
+// to the same URL and assert both survive.
