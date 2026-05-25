@@ -38,24 +38,6 @@
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 
-- [ ] **WORK-FEEDBACK-0525-DAY-INSIGHTS** — Backend per-day aggregate for Browse day insights (feedback-2026-05-25 §3.1)
-  - 讀先：
-    `src/components/explorer-paper/paper-day-insights-helpers.ts` (`aggregateDayInsights`)
-    `src/components/explorer-paper/paper-day-insights.tsx`
-    `src/components/explorer-paper/paper-contact-sheet.tsx` (每個 day render `aggregateDayInsights(day)`)
-    `src-tauri/crates/vault-core/src/intelligence/day_insights.rs` (existing intelligence-side)
-    `src/lib/backend-client/intelligence.ts` (`getDayInsights`)
-    `src/lib/core-intelligence/types-overview.ts` (`DayInsights` backend shape)
-  - 觀察 (feedback-2026-05-25 §3.1)：使用者滑動沒滾完整天時，sparkline 與 top-domain bars 看起來是空的；滑動載入完整天才會「變對」。根因：`aggregateDayInsights(day)` 只走當前已載入 `PaperDay` 內的 entries，跟前端滾動進度耦合，違反 Trust & Transparency。
-  - 目標：新增 backend 命令 `get_browse_day_insights(date, profileId)` 直接回傳 paper-day-insights shape（hourBuckets、totalPages、typedCount、linkCount、searchCount、topDomains、topUrls、topSearchQueries、sessionCount、distinctDomains、firstVisitMs、lastVisitMs、peakHour、longestSessionMs），全部由 SQLite 對完整當日資料計算。前端新增 `useBrowseDayInsightsCache(date, profileId)` 依可見 days 取資料、cache per (date, profileId, refreshKey)。PaperContactSheet 改用 hook 結果；載入中 fallback 到 client-side aggregate（標記 stale）。
-  - 契約：
-    - 新 Rust 命令必須 off-main-thread（既有 spawn_blocking pattern）。
-    - 命令對 1440 萬行 archive 上單日（典型上千 visits）回應 < 200ms（dev IPC、加密 SQLite）。
-    - Session 邊界判定要跟前端 group-entries 的 split threshold 一致，否則 sessionCount / longestSessionMs 對不上 contact sheet。
-    - 三語 i18n 不需新增（rendered copy 已存在）。
-    - 100% JS + Rust coverage 維持。
-  - 驗收：新測試覆蓋 backend aggregator + frontend hook 整合；UI 在只載一頁時 sparkline 已經跟全天一致；`bun run check`。
-
 - [ ] **WORK-FEEDBACK-0525-TAG-NOTE-SEARCH** — Tag/note search dimensions (feedback-2026-05-25 §3.3 A)
   - 讀先：
     `src-tauri/crates/vault-core/src/archive/search_query.rs` (現有 site:/intitle:/inurl: parser)
