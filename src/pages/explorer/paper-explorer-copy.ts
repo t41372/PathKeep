@@ -219,6 +219,17 @@ export function buildPaperSearchViewCopy(
       addFilterDomain: t('paperSearchView.heroAddFilterDomain'),
       addFilterVisitCount: t('paperSearchView.heroAddFilterVisitCount'),
       removeChipLabel: t('paperSearchView.heroRemoveChipLabel'),
+      advancedSyntaxHelp: {
+        ariaLabel: t('advancedSearchHelpAria'),
+        title: t('advancedSearchHelpTitle'),
+        intro: t('advancedSearchHelpIntro'),
+        siteExclude: t('advancedSearchHelpSiteExclude'),
+        exactPhrase: t('advancedSearchHelpExactPhrase'),
+        or: t('advancedSearchHelpOr'),
+        field: t('advancedSearchHelpField'),
+        fileDate: t('advancedSearchHelpFileDate'),
+        regexNote: t('advancedSearchHelpRegexNote'),
+      },
     },
     empty: {
       tryAskingHeading: t('paperSearchView.emptyTryAskingHeading'),

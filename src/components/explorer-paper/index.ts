@@ -89,6 +89,12 @@ export type {
   PaperSearchMode,
 } from './paper-search-hero'
 
+export { PaperAdvancedSearchHelp } from './paper-advanced-search-help'
+export type {
+  PaperAdvancedSearchHelpCopy,
+  PaperAdvancedSearchHelpProps,
+} from './paper-advanced-search-help'
+
 export { PaperSearchResult } from './paper-search-result'
 export type {
   PaperSearchResultEntry,

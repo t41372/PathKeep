@@ -27,6 +27,17 @@ const COPY: PaperSearchViewCopy = {
     addFilterDomain: '+ Domain',
     addFilterVisitCount: '+ Visit count',
     removeChipLabel: 'Remove {label}',
+    advancedSyntaxHelp: {
+      ariaLabel: 'Show advanced keyword syntax',
+      title: 'Advanced keyword syntax',
+      intro: 'Use these operators in Keyword mode.',
+      siteExclude: 'site:github.com -pathkeep example',
+      exactPhrase: 'Require this exact phrase.',
+      or: 'Match either side of OR.',
+      field: 'Limit terms to title or URL.',
+      fileDate: 'Filter by URL extension and visit date.',
+      regexNote: 'Regex mode uses Rust regex.',
+    },
   },
   empty: {
     tryAskingHeading: 'Try asking',

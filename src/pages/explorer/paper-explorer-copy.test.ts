@@ -188,6 +188,8 @@ describe('buildPaperSearchViewCopy', () => {
     expect(copy.hero.modeKeyword).toBe('Keyword')
     expect(copy.hero.modeSemantic).toBe('Semantic')
     expect(copy.hero.removeChipLabel).toContain('{label}')
+    expect(copy.hero.advancedSyntaxHelp.title).toBe('Advanced keyword syntax')
+    expect(copy.hero.advancedSyntaxHelp.siteExclude).toContain('github.com')
     expect(copy.empty.tryAskingHeading).toBe('Try asking')
     expect(copy.empty.recentMeta).toContain('{mode}')
     expect(copy.resultsCount).toContain('{count}')
@@ -219,8 +221,14 @@ describe('buildPaperSearchViewCopy', () => {
   test('Search view copy has no missing-key leakage across locales', () => {
     for (const language of ['en', 'zh-CN', 'zh-TW'] as const) {
       const copy = buildPaperSearchViewCopy(tFor(language))
+      // Strip the nested `advancedSyntaxHelp` object out before flattening
+      // so the leakage check only walks strings — its members are also
+      // explicitly checked below since they live in a different namespace
+      // (`explorer.advancedSearchHelp*`).
+      const { advancedSyntaxHelp, ...heroStrings } = copy.hero
       const all: string[] = [
-        ...Object.values(copy.hero),
+        ...Object.values(heroStrings),
+        ...Object.values(advancedSyntaxHelp),
         ...Object.values(copy.empty),
         copy.resultsCount,
         copy.resultsRange,
@@ -233,6 +241,7 @@ describe('buildPaperSearchViewCopy', () => {
       ]
       for (const value of all) {
         expect(value).not.toMatch(/explorer\.paperSearchView\./)
+        expect(value).not.toMatch(/explorer\.advancedSearchHelp/)
       }
     }
   })

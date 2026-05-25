@@ -29,6 +29,10 @@
 
 import { forwardRef, useCallback, type KeyboardEvent, type Ref } from 'react'
 import { cn } from '@/lib/cn'
+import {
+  PaperAdvancedSearchHelp,
+  type PaperAdvancedSearchHelpCopy,
+} from './paper-advanced-search-help'
 
 export type PaperSearchMode = 'keyword' | 'regex' | 'semantic'
 
@@ -51,6 +55,14 @@ export interface PaperSearchHeroCopy {
   addFilterVisitCount: string
   /** Aria label template for the chip remove button, e.g. "Remove {label}". */
   removeChipLabel: string
+  /**
+   * Copy bag for the advanced-syntax popover (`?` chip next to the mode
+   * toggle). Documents the supported `site:` / `intitle:` / `OR` /
+   * `filetype:` / date operators that the local keyword parser accepts —
+   * the popover existed in v0.2 and was inadvertently dropped during the
+   * paper redesign, see feedback-2026-05-25 §3.3 B.
+   */
+  advancedSyntaxHelp: PaperAdvancedSearchHelpCopy
 }
 
 export interface PaperSearchHeroFilter {
@@ -188,6 +200,10 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
         >
           {modeHint}
         </span>
+        <PaperAdvancedSearchHelp
+          copy={copy.advancedSyntaxHelp}
+          testId="paper-search-advanced-help"
+        />
       </div>
 
       <div className="mt-[14px] flex flex-wrap items-center gap-[6px]">

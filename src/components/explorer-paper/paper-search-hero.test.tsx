@@ -23,6 +23,17 @@ const COPY: PaperSearchHeroCopy = {
   addFilterDomain: '+ Domain',
   addFilterVisitCount: '+ Visit count',
   removeChipLabel: 'Remove {label}',
+  advancedSyntaxHelp: {
+    ariaLabel: 'Show advanced keyword syntax',
+    title: 'Advanced keyword syntax',
+    intro: 'Use these operators in Keyword mode.',
+    siteExclude: 'Only github.com results, excluding pathkeep.',
+    exactPhrase: 'Require this exact phrase.',
+    or: 'Match either side of OR.',
+    field: 'Limit terms to title or URL.',
+    fileDate: 'Filter by URL extension and visit date.',
+    regexNote: 'Regex mode uses Rust regex.',
+  },
 }
 
 describe('PaperSearchHero', () => {
@@ -267,6 +278,38 @@ describe('PaperSearchHero', () => {
     expect(onAddSource).toHaveBeenCalledTimes(1)
     expect(onAddDomain).toHaveBeenCalledTimes(1)
     expect(onAddVisitCount).toHaveBeenCalledTimes(1)
+  })
+
+  test('renders the advanced-syntax help trigger and reveals the popover on hover', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    const trigger = screen.getByTestId('paper-search-advanced-help')
+    expect(trigger).toBeVisible()
+    // Popover hidden until hover/focus opens it.
+    expect(
+      screen.queryByTestId('paper-advanced-search-help-panel'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(trigger)
+    const panel = screen.getByTestId('paper-advanced-search-help-panel')
+    expect(panel).toBeVisible()
+    expect(panel).toHaveTextContent('site:github.com -pathkeep')
+    expect(panel).toHaveTextContent('Advanced keyword syntax')
+
+    fireEvent.mouseLeave(trigger)
+    expect(
+      screen.queryByTestId('paper-advanced-search-help-panel'),
+    ).not.toBeInTheDocument()
   })
 
   test('forwards ref to the input for parent-managed focus', () => {
