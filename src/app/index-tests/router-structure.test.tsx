@@ -234,9 +234,9 @@ describe('App shell', () => {
           {
             path: 'search',
             index: false,
-            lazy: false,
+            lazy: true,
             errorBoundary: true,
-            element: 'Navigate(to=/explorer?surface=search,replace=true)',
+            element: null,
             hydrateFallback: null,
             handleId: 'search',
             children: [],
@@ -492,6 +492,7 @@ describe('App shell', () => {
     expect(lazyRoutes.map((route) => route.path ?? 'index')).toEqual([
       'index',
       'explorer',
+      'search',
       'index',
       'domain/:domain',
       'query-family/:familyId',

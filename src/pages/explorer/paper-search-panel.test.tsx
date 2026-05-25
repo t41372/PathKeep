@@ -107,6 +107,57 @@ describe('PaperSearchPanel', () => {
     })
   })
 
+  test('aboveResultsCallout renders a StatusCallout below the hero', () => {
+    render(
+      <PaperSearchPanel
+        query="boom"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        aboveResultsCallout={{
+          tone: 'blocked',
+          eyebrow: 'NO RESULTS',
+          title: 'Query failed',
+          body: 'sqlite returned an error',
+        }}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    const callout = screen.getByTestId('paper-search-above-results-callout')
+    expect(callout).toBeInTheDocument()
+    expect(callout).toHaveTextContent('Query failed')
+    expect(callout).toHaveTextContent('sqlite returned an error')
+  })
+
+  test('omitting aboveResultsCallout does not render the slot', () => {
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[makeEntry({ id: 1, title: 'rust lang' })]}
+        totalResults={1}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    expect(
+      screen.queryByTestId('paper-search-above-results-callout'),
+    ).not.toBeInTheDocument()
+  })
+
   test('selecting a result coerces the entry id to a number', () => {
     const onSelectEntry = vi.fn()
     render(

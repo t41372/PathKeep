@@ -182,8 +182,27 @@ vi.mock('./paper-search-panel', () => ({
     onSubmit: (query: string) => void
     onSelectEntry: (id: number) => void
     onSeeInContext: (entry: { id: string }, dayDate: string) => void
+    aboveResultsCallout?: {
+      tone: string
+      eyebrow: string
+      title: string
+      body: string
+    } | null
   }) => (
     <div data-testid="paper-search-panel">
+      {props.aboveResultsCallout ? (
+        <div data-testid="paper-search-above-results-callout">
+          <span data-testid="paper-search-callout-title">
+            {props.aboveResultsCallout.title}
+          </span>
+          <span data-testid="paper-search-callout-body">
+            {props.aboveResultsCallout.body}
+          </span>
+          <span data-testid="paper-search-callout-tone">
+            {props.aboveResultsCallout.tone}
+          </span>
+        </div>
+      ) : null}
       <button
         type="button"
         data-testid="paper-search-change"
@@ -344,6 +363,97 @@ describe('ExplorerPage route shell', () => {
     // of the contact-sheet Browse layout.
     expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
     expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+  })
+
+  test('mounts the paper Search panel at /search even without ?surface=search', () => {
+    // `/search` should mount the same ExplorerPage component but treat
+    // the route pathname as the search-surface signal — without this,
+    // clicking the sidebar Search item silently fell back to the
+    // contact-sheet Browse layout.
+    renderExplorer({ initialPath: '/search' })
+
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+  })
+
+  test('zero-result search keeps the composer mounted (no full-screen EmptyState hijack)', () => {
+    // feedback-2026-05-25 §3.2 B — previously the empty-result branch
+    // unmounted PaperSearchPanel and replaced it with a full-screen
+    // EmptyState that trapped the user (they could not edit the
+    // misspelt query because the composer was gone).
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=missspelled'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: null,
+            requestKey: options.requestKey,
+            results: {
+              items: [],
+              page: 1,
+              pageCount: 1,
+              total: 0,
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(
+      screen.queryByText('explorer.noMatchesTitle'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('query error on the search surface renders an in-place callout, not a full-screen ErrorState', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=boom'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: 'query exploded',
+            requestKey: options.requestKey,
+            results: null,
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-search-callout-body')).toHaveTextContent(
+      'query exploded',
+    )
+    expect(screen.getByTestId('paper-search-callout-tone')).toHaveTextContent(
+      'blocked',
+    )
+  })
+
+  test('invalid regex on the search surface renders an in-place callout, not a full-screen StatusCallout', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: '(',
+        regexMode: true,
+        regexValid: false,
+        searchParams: new URLSearchParams('surface=search&q=('),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-search-callout-title')).toHaveTextContent(
+      'explorer.regexInvalid',
+    )
   })
 
   test('PaperSearchPanel callbacks drive the route url-state + selection setters', async () => {
@@ -533,13 +643,13 @@ describe('ExplorerPage route shell', () => {
   })
 })
 
-function renderExplorer() {
-  return render(<ExplorerWrapper />)
+function renderExplorer(options: { initialPath?: string } = {}) {
+  return render(<ExplorerWrapper initialPath={options.initialPath} />)
 }
 
-function ExplorerWrapper() {
+function ExplorerWrapper({ initialPath }: { initialPath?: string }) {
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath ?? '/']}>
       <ExplorerPage />
     </MemoryRouter>
   )

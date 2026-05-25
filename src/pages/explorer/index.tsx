@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
@@ -89,6 +89,11 @@ export function ExplorerPage() {
   const commonT = ns('common')
   const explorerT = ns('explorer')
   const intelligenceT = ns('intelligence')
+  // `/search` mounts the same ExplorerPage component as `/explorer`, but
+  // we want it to land on the paper Search surface by default without
+  // requiring the URL to carry `?surface=search`. The two should be
+  // interchangeable signals: the route pathname or the explicit param.
+  const routeIsSearchPath = useLocation().pathname === '/search'
 
   const {
     activeFilters,
@@ -269,7 +274,8 @@ export function ExplorerPage() {
   // surface, grouped views, and an invalid-regex block still fall back to
   // pagination because they have a fundamentally different shape (one-off
   // filtered set / pre-grouped panels / blocked-with-error).
-  const surfaceIsSearch = searchParams.get('surface') === 'search'
+  const surfaceIsSearch =
+    routeIsSearchPath || searchParams.get('surface') === 'search'
   const infiniteDisabled =
     !archiveReady ||
     view !== 'time' ||
@@ -508,21 +514,28 @@ export function ExplorerPage() {
           ? explorerT('optionalAiProviderErrorBody')
           : explorerT('optionalAiDeferredBody')
 
-  const paperSearchSurface = searchParams.get('surface') === 'search'
+  const paperSearchSurface =
+    routeIsSearchPath || searchParams.get('surface') === 'search'
 
   // The full-page EmptyState below should only fire when the zero-result
-  // came from an active filter — a palette / hash search query, a domain
-  // facet, a browserKind filter, etc. For pure date browsing (Calendar,
-  // year rail, day-nav arrows) we want the contact-sheet shell to stay
-  // visible so users can keep navigating; the inner "Nothing here yet"
-  // copy already handles the "this day has no visits" case without
-  // hijacking the whole route.
+  // came from an active filter on the *Browse* surface — a palette / hash
+  // search query, a domain facet, a browserKind filter, etc. For pure
+  // date browsing (Calendar, year rail, day-nav arrows) we want the
+  // contact-sheet shell to stay visible so users can keep navigating;
+  // the inner "Nothing here yet" copy already handles the "this day has
+  // no visits" case without hijacking the whole route.
+  //
+  // The Search surface is excluded entirely: PaperSearchView owns its
+  // own in-place "no matches" state (italic-serif "memory is patient")
+  // and an editable hero composer. Letting the full-page EmptyState fire
+  // there would unmount the composer and trap the user — exactly the
+  // bug captured in feedback-2026-05-25 §3.2 B.
   const hasActiveQueryOrFilter =
-    paperSearchSurface ||
-    queryInput.trim() !== '' ||
-    (searchParams.get('q') ?? '').trim() !== '' ||
-    Boolean(searchParams.get('domain')) ||
-    Boolean(searchParams.get('browserKind'))
+    !paperSearchSurface &&
+    (queryInput.trim() !== '' ||
+      (searchParams.get('q') ?? '').trim() !== '' ||
+      Boolean(searchParams.get('domain')) ||
+      Boolean(searchParams.get('browserKind')))
 
   if (shellLoading && !snapshot) {
     return <SkeletonExplorer label={t('common.loadingExplorer')} />
@@ -675,7 +688,73 @@ export function ExplorerPage() {
         />
       )}
 
-      {historyBlockedByInvalidRegex ? (
+      {paperSearchSurface ? (
+        // Search surface: the composer must always remain mounted so a
+        // user who typed a misspelt query can keep editing. Render any
+        // regex-block / backend-error / empty-result state as a
+        // StatusCallout above the composer (via `belowHeroSlot`),
+        // never as a full-screen takeover.
+        <PaperSearchPanel
+          query={queryInput}
+          mode={mode}
+          regexMode={regexMode}
+          entries={renderedTimeResults?.items ?? []}
+          totalResults={renderedTimeResults?.total ?? 0}
+          language={language}
+          explorerT={explorerT}
+          aboveResultsCallout={
+            historyBlockedByInvalidRegex
+              ? {
+                  tone: 'blocked',
+                  eyebrow: explorerT('regexEyebrow'),
+                  title: explorerT('regexInvalid'),
+                  body: explorerT('regexInvalidDetail'),
+                }
+              : error
+                ? {
+                    tone: 'blocked',
+                    eyebrow: explorerT('noMatchesEyebrow'),
+                    title: explorerT('queryFailedTitle'),
+                    body: error,
+                  }
+                : null
+          }
+          onQueryChange={(next) => {
+            setQueryInput(next)
+            updateParam('q', next)
+          }}
+          onModeChange={(next) => {
+            updateParam('mode', next.mode === 'keyword' ? null : next.mode)
+            updateParam('regex', next.regexMode ? '1' : null)
+          }}
+          onSubmit={(query) => {
+            setQueryInput(query)
+            updateParam('q', query)
+          }}
+          onSelectEntry={(id) => {
+            setSelectedId(id)
+            setPaperDetailOpen(true)
+          }}
+          onSeeInContext={(entry, dayDate) => {
+            const next = new URLSearchParams(searchParams)
+            next.set('date', dayDate)
+            next.set('source', 'search')
+            // Drop the search-mode params so the user actually lands in
+            // the Browse day-context view instead of "search results
+            // within that day". Keeping `q` / `mode` / `regex` here
+            // would leave the user staring at the same filtered list
+            // and call the jump a no-op.
+            next.delete('surface')
+            next.delete('q')
+            next.delete('mode')
+            next.delete('regex')
+            next.delete('page')
+            setQueryInput('')
+            setSearchParams(next)
+            setSelectedId(Number(entry.id))
+          }}
+        />
+      ) : historyBlockedByInvalidRegex ? (
         <StatusCallout
           tone="blocked"
           eyebrow={explorerT('regexEyebrow')}
@@ -703,131 +782,85 @@ export function ExplorerPage() {
           title={explorerT('noMatchesTitle')}
         />
       ) : view === 'time' && (loading || visibleTimeResults || results) ? (
-        paperSearchSurface ? (
-          <PaperSearchPanel
-            query={queryInput}
-            mode={mode}
-            regexMode={regexMode}
-            entries={renderedTimeResults?.items ?? []}
-            totalResults={renderedTimeResults?.total ?? 0}
-            language={language}
-            explorerT={explorerT}
-            onQueryChange={(next) => {
-              setQueryInput(next)
-              updateParam('q', next)
-            }}
-            onModeChange={(next) => {
-              updateParam('mode', next.mode === 'keyword' ? null : next.mode)
-              updateParam('regex', next.regexMode ? '1' : null)
-            }}
-            onSubmit={(query) => {
-              setQueryInput(query)
-              updateParam('q', query)
-            }}
-            onSelectEntry={(id) => {
-              setSelectedId(id)
-              setPaperDetailOpen(true)
-            }}
-            onSeeInContext={(entry, dayDate) => {
-              const next = new URLSearchParams(searchParams)
-              next.set('date', dayDate)
-              next.set('source', 'search')
-              // Drop the search-mode params so the user actually lands in the
-              // Browse day-context view instead of "search results within
-              // that day". Keeping `q` / `mode` / `regex` here would leave
-              // the user staring at the same filtered list and call the
-              // jump a no-op.
-              next.delete('surface')
-              next.delete('q')
-              next.delete('mode')
-              next.delete('regex')
-              next.delete('page')
-              setQueryInput('')
-              setSearchParams(next)
-              setSelectedId(Number(entry.id))
-            }}
-          />
-        ) : (
-          <PaperExplorerView
-            entries={renderedTimeResults?.items ?? []}
-            loading={loading}
-            archiveBounds={archiveDensity.bounds ?? undefined}
-            additionalDensity={{
-              perDay: archiveDensity.perDay,
-              perYear: archiveDensity.perYear,
-            }}
-            targetDate={searchParams.get('date')}
-            targetSource={
-              (searchParams.get('source') as
-                | 'on-this-day'
-                | 'search'
-                | 'intelligence'
-                | null) ?? null
-            }
-            targetQuery={searchParams.get('q') ?? null}
-            selectedEntryId={selectedEntry?.id ?? null}
-            onSelectEntry={(entry) => {
-              setSelectedId(entry.id)
-              setPaperDetailOpen(true)
-            }}
-            onJumpToDate={(iso) => {
-              const next = new URLSearchParams(searchParams)
-              next.set('date', iso)
-              // Picking a date inline (calendar, year rail, day-nav arrows) is
-              // an unfiltered jump — drop any sticky `source` (and the search
-              // query that pinned it) so the user sees the full day, not the
-              // 50-row "On this day" filter that an earlier deep link set.
-              next.delete('source')
-              next.delete('q')
-              setSearchParams(next)
-            }}
-            onClearTarget={() => {
-              const next = new URLSearchParams(searchParams)
-              next.delete('date')
-              next.delete('source')
-              setSearchParams(next)
-            }}
-            pagination={
-              infiniteDisabled
-                ? {
-                    page: explicitPage,
-                    pageSize,
-                    total: visibleTimeResults?.total ?? 0,
-                    pageCount: visibleTimeResults?.pageCount ?? 0,
-                    hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
-                    hasNext: Boolean(visibleTimeResults?.hasNext),
-                    onPrevious: () =>
-                      handlePreviousHistoryPage(
-                        visibleTimeResults?.page ?? explicitPage ?? 1,
-                      ),
-                    onNext: () =>
-                      handleNextHistoryPage(
-                        visibleTimeResults?.page ?? explicitPage ?? 1,
-                      ),
-                    onChangePageSize: setHistoryPageSize,
-                  }
-                : undefined
-            }
-            infiniteScroll={
-              infiniteDisabled
-                ? undefined
-                : {
-                    loadingMore: infiniteLoadingMore,
-                    canLoadMore: infiniteCanLoadMore,
-                    onLoadMore: infiniteLoadMore,
-                    loadedPageCount: infiniteLoadedPageCount,
-                    totalPages: visibleTimeResults?.pageCount ?? 0,
-                    totalRows: visibleTimeResults?.total ?? 0,
-                    capReached: infiniteCapReached,
-                    error: infiniteError,
-                  }
-            }
-            language={language}
-            copy={buildPaperExplorerCopy(explorerT)}
-            filterStripSlot={paperFilterStrip}
-            testId="explorer-paper-view"
-          />
-        )
+        <PaperExplorerView
+          entries={renderedTimeResults?.items ?? []}
+          loading={loading}
+          archiveBounds={archiveDensity.bounds ?? undefined}
+          additionalDensity={{
+            perDay: archiveDensity.perDay,
+            perYear: archiveDensity.perYear,
+          }}
+          targetDate={searchParams.get('date')}
+          targetSource={
+            (searchParams.get('source') as
+              | 'on-this-day'
+              | 'search'
+              | 'intelligence'
+              | null) ?? null
+          }
+          targetQuery={searchParams.get('q') ?? null}
+          selectedEntryId={selectedEntry?.id ?? null}
+          onSelectEntry={(entry) => {
+            setSelectedId(entry.id)
+            setPaperDetailOpen(true)
+          }}
+          onJumpToDate={(iso) => {
+            const next = new URLSearchParams(searchParams)
+            next.set('date', iso)
+            // Picking a date inline (calendar, year rail, day-nav arrows) is
+            // an unfiltered jump — drop any sticky `source` (and the search
+            // query that pinned it) so the user sees the full day, not the
+            // 50-row "On this day" filter that an earlier deep link set.
+            next.delete('source')
+            next.delete('q')
+            setSearchParams(next)
+          }}
+          onClearTarget={() => {
+            const next = new URLSearchParams(searchParams)
+            next.delete('date')
+            next.delete('source')
+            setSearchParams(next)
+          }}
+          pagination={
+            infiniteDisabled
+              ? {
+                  page: explicitPage,
+                  pageSize,
+                  total: visibleTimeResults?.total ?? 0,
+                  pageCount: visibleTimeResults?.pageCount ?? 0,
+                  hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
+                  hasNext: Boolean(visibleTimeResults?.hasNext),
+                  onPrevious: () =>
+                    handlePreviousHistoryPage(
+                      visibleTimeResults?.page ?? explicitPage ?? 1,
+                    ),
+                  onNext: () =>
+                    handleNextHistoryPage(
+                      visibleTimeResults?.page ?? explicitPage ?? 1,
+                    ),
+                  onChangePageSize: setHistoryPageSize,
+                }
+              : undefined
+          }
+          infiniteScroll={
+            infiniteDisabled
+              ? undefined
+              : {
+                  loadingMore: infiniteLoadingMore,
+                  canLoadMore: infiniteCanLoadMore,
+                  onLoadMore: infiniteLoadMore,
+                  loadedPageCount: infiniteLoadedPageCount,
+                  totalPages: visibleTimeResults?.pageCount ?? 0,
+                  totalRows: visibleTimeResults?.total ?? 0,
+                  capReached: infiniteCapReached,
+                  error: infiniteError,
+                }
+          }
+          language={language}
+          copy={buildPaperExplorerCopy(explorerT)}
+          filterStripSlot={paperFilterStrip}
+          testId="explorer-paper-view"
+        />
       ) : view === 'session' ? (
         <div className="explorer-grid">
           <div className="record-list">

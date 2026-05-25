@@ -20,6 +20,7 @@ import {
   PaperSearchView,
   type PaperSearchResultEntry,
 } from '@/components/explorer-paper'
+import { StatusCallout } from '@/components/primitives/status-callout'
 import { buildPaperSearchViewCopy } from './paper-explorer-copy'
 import {
   buildPaperSearchDayGroups,
@@ -28,6 +29,13 @@ import {
 } from './paper-search-helpers'
 import { getDomainAbbr, getDomainColor } from './paper/domain-color'
 import type { ExplorerMode } from './types'
+
+export interface PaperSearchPanelAboveResultsCallout {
+  tone: 'info' | 'blocked' | 'warning'
+  eyebrow: string
+  title: string
+  body: string
+}
 
 export interface PaperSearchPanelProps {
   /** Active query text. */
@@ -40,6 +48,14 @@ export interface PaperSearchPanelProps {
   totalResults: number
   language: string
   explorerT: (key: string, vars?: Record<string, string | number>) => string
+  /**
+   * Optional StatusCallout rendered below the hero composer, above the
+   * results list. Lets the route surface query-blocking errors (invalid
+   * regex, backend failure) without unmounting the composer — see
+   * feedback-2026-05-25 §3.2 B for why this is mandatory on the search
+   * surface.
+   */
+  aboveResultsCallout?: PaperSearchPanelAboveResultsCallout | null
   /** Apply text input changes to URL + local state. */
   onQueryChange: (next: string) => void
   /** Apply explorer mode + regex flag from the paper hero. */
@@ -60,6 +76,7 @@ export function PaperSearchPanel({
   totalResults,
   language,
   explorerT,
+  aboveResultsCallout,
   onQueryChange,
   onModeChange,
   onSubmit,
@@ -85,6 +102,21 @@ export function PaperSearchPanel({
       onSubmit={onSubmit}
       onSelectEntry={(entry) => onSelectEntry(Number(entry.id))}
       onSeeInContext={onSeeInContext}
+      belowHeroSlot={
+        aboveResultsCallout ? (
+          <div
+            className="mx-auto w-full max-w-[920px] py-3"
+            data-testid="paper-search-above-results-callout"
+          >
+            <StatusCallout
+              tone={aboveResultsCallout.tone}
+              eyebrow={aboveResultsCallout.eyebrow}
+              title={aboveResultsCallout.title}
+              body={aboveResultsCallout.body}
+            />
+          </div>
+        ) : null
+      }
       copy={buildPaperSearchViewCopy(explorerT)}
       testId="explorer-paper-search-view"
     />

@@ -293,17 +293,21 @@ const appRouteChildren: RouteObject[] = [
     handle: withHandle(screen('explorer')),
   },
   {
-    // The search surface currently lives as a `?surface=search` mode
-    // inside the Explorer page; the dedicated /search route is the
-    // sidebar-grade entry that lifts it out without duplicating the
-    // page tree. Future work: extract PaperSearchView into its own
-    // standalone page (the design handoff has `pk-search.jsx` as a
-    // first-class surface) so this route does not need the query-param
-    // bounce. Mirror handle from the search nav screen so the topbar
-    // title reads "Search" rather than "History Explorer".
+    // `/search` mounts the same ExplorerPage component as `/explorer`, but
+    // keeps its own URL + route handle so the sidebar highlights "Search"
+    // and the topbar title reads "Search" instead of "History Explorer".
+    // The earlier `<Navigate to="/explorer?surface=search" />` redirect
+    // lost the route handle (useMatches resolved to the explorer route
+    // after the redirect), so the active-screen indicator silently flipped
+    // back to Browse. ExplorerPage detects `pathname === '/search'` and
+    // treats it as the search surface — see `paperSearchSurface` /
+    // `surfaceIsSearch` in src/pages/explorer/index.tsx.
     path: 'search',
     ErrorBoundary: ShellRouteErrorBoundary,
-    element: <Navigate replace to="/explorer?surface=search" />,
+    lazy: async () => {
+      const module = await import('../pages/explorer')
+      return { Component: module.ExplorerPage }
+    },
     handle: withHandle(screen('search')),
   },
   {
