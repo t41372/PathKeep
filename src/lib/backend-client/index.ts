@@ -77,6 +77,7 @@ export const backend = {
   getOgImageStorageStats: explorerClient.getOgImageStorageStats,
   clearOgImageCache: explorerClient.clearOgImageCache,
   runOgImageCleanup: explorerClient.runOgImageCleanup,
+  getBrowseDayInsights: explorerClient.getBrowseDayInsights,
   getUrlAnnotation: annotationsClient.getUrlAnnotation,
   setUrlNotes: annotationsClient.setUrlNotes,
   replaceUrlTags: annotationsClient.replaceUrlTags,

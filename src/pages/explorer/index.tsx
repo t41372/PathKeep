@@ -40,6 +40,7 @@ import {
   profileIdLabel,
   useProfileScope,
 } from '../../lib/profile-scope-context'
+import { useBrowseDayInsightsCache } from './hooks/use-browse-day-insights-cache'
 import { useExplorerArchiveDensity } from './hooks/use-explorer-archive-density'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
@@ -264,6 +265,18 @@ export function ExplorerPage() {
   const visibleTimeResults = results ?? (loading ? stagedResults : null)
   const archiveDensity = useExplorerArchiveDensity({
     archiveReady,
+    profileId,
+    refreshKey,
+  })
+  // Backend-backed per-day insights cache. Replaces the previous
+  // scroll-coupled `aggregateDayInsights(day)` client aggregation —
+  // see feedback-2026-05-25 §3.1. Each visible day in the contact
+  // sheet triggers a single backend fetch (deduped per refreshKey +
+  // profile) so the sparkline / top-domains / top-URLs strip reflects
+  // the FULL day rather than just the cards already scrolled into
+  // view. The contact sheet keeps the client-side aggregator as a
+  // fallback while the backend reply is in flight.
+  const browseDayInsightsCache = useBrowseDayInsightsCache({
     profileId,
     refreshKey,
   })
@@ -859,6 +872,7 @@ export function ExplorerPage() {
           language={language}
           copy={buildPaperExplorerCopy(explorerT)}
           filterStripSlot={paperFilterStrip}
+          resolveDayInsights={browseDayInsightsCache.resolve}
           testId="explorer-paper-view"
         />
       ) : view === 'session' ? (

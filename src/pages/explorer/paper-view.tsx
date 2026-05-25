@@ -40,6 +40,7 @@ import {
   type PaperContactSheetTarget,
   type PaperViewMode,
 } from '@/components/explorer-paper'
+import type { DayInsights } from '@/components/explorer-paper/paper-day-insights-helpers'
 import {
   CLOCK_FORMAT_EVENT,
   persistExplorerViewMode,
@@ -245,6 +246,15 @@ export interface PaperExplorerViewProps {
    * mounted node here so paper-view stays presentation-only.
    */
   filterStripSlot?: ReactNode
+  /**
+   * Optional per-day insights resolver. The route plugs in a backend-
+   * backed cache (`useBrowseDayInsightsCache`) so the day-insights
+   * strip aggregates over the full archive day instead of the
+   * scroll-loaded subset — see feedback-2026-05-25 §3.1 for the bug.
+   * When omitted, PaperContactSheet falls back to the client-side
+   * aggregator and the strip stays scroll-coupled.
+   */
+  resolveDayInsights?: (date: string) => DayInsights | null
   className?: string
   testId?: string
 }
@@ -269,6 +279,7 @@ export function PaperExplorerView({
   initialViewMode,
   copy,
   filterStripSlot,
+  resolveDayInsights,
   className,
   testId,
 }: PaperExplorerViewProps) {
@@ -483,6 +494,7 @@ export function PaperExplorerView({
           : null
       }
       dayInsightsCopy={copy.dayInsights}
+      resolveDayInsights={resolveDayInsights}
       language={language}
       hour12={clockFormat === '12h'}
       copy={copy.contactSheet}

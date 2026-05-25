@@ -1008,4 +1008,114 @@ describe('PaperContactSheet', () => {
     // Label substitutes the formatted duration into the template.
     expect(screen.getByText(/away$/)).toBeInTheDocument()
   })
+
+  test('resolveDayInsights overrides the client aggregator when it returns a value', () => {
+    // The day fixture only carries 5 visit blocks (the contact sheet
+    // is scroll-bound), but the backend aggregate sees the FULL day —
+    // 1247 visits, with a different top domain than what the scroll-
+    // loaded blocks would suggest. This pins the contract that the
+    // resolver wins whenever it returns non-null.
+    const dayInsightsCopy = {
+      topDomainsTitle: 'Top domains',
+      activityTitle: 'Activity',
+      hourlyTitle: '24-hour activity',
+      pagesLabel: 'Pages',
+      typedLabel: 'Typed',
+      linksLabel: 'Links',
+      searchesLabel: 'Searches',
+      sessionsTemplate: '{count} sessions',
+      domainsTemplate: '{count} domains',
+      moreDetailsLabel: 'More details',
+      firstVisitLabel: 'First visit',
+      lastVisitLabel: 'Last visit',
+      peakHourLabel: 'Peak hour',
+      longestSessionLabel: 'Longest session',
+      topUrlsTitle: 'Most revisited',
+      visitsCountTemplate: '{count} visits',
+    }
+    const resolveDayInsights = vi.fn(() => ({
+      totalPages: 1247,
+      typedCount: 12,
+      linkCount: 900,
+      searchCount: 8,
+      distinctDomains: 41,
+      sessionCount: 7,
+      topDomains: [
+        { domain: 'news.example.test', visits: 312 },
+        { domain: 'docs.example.test', visits: 84 },
+      ],
+      hourBuckets: new Array<number>(24)
+        .fill(0)
+        .map((_, hour) => (hour === 14 ? 312 : 0)),
+      hourPeak: 312,
+      firstVisitMs: null,
+      lastVisitMs: null,
+      peakHour: 14,
+      longestSessionMs: 0,
+      topUrls: [],
+      topSearchQueries: [],
+    }))
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={dayInsightsCopy}
+        resolveDayInsights={resolveDayInsights}
+      />,
+    )
+    // Both days fire the resolver. React StrictMode may double-invoke
+    // render functions, so we only assert that both dates were queried
+    // rather than pinning the exact call count.
+    expect(resolveDayInsights).toHaveBeenCalledWith('2026-05-16')
+    expect(resolveDayInsights).toHaveBeenCalledWith('2026-05-15')
+    // The full-archive top domain "news.example.test" wins over the
+    // scroll-loaded "github.com" / "arxiv.org" / "docs.rs" client
+    // aggregation. Scope the check to the day-insights strip mounts
+    // (the surrounding contact frame / list row chrome legitimately
+    // surfaces "docs.rs" because that day still carries a docs.rs
+    // visit card).
+    const strip1 = screen.getByTestId('paper-day-insights-2026-05-16')
+    const strip2 = screen.getByTestId('paper-day-insights-2026-05-15')
+    expect(within(strip1).getByText('news.example.test')).toBeVisible()
+    expect(within(strip2).getByText('news.example.test')).toBeVisible()
+    expect(within(strip1).queryByText('docs.rs')).not.toBeInTheDocument()
+  })
+
+  test('resolveDayInsights returning null falls back to the client-side aggregator', () => {
+    const dayInsightsCopy = {
+      topDomainsTitle: 'Top domains',
+      activityTitle: 'Activity',
+      hourlyTitle: '24-hour activity',
+      pagesLabel: 'Pages',
+      typedLabel: 'Typed',
+      linksLabel: 'Links',
+      searchesLabel: 'Searches',
+      sessionsTemplate: '{count} sessions',
+      domainsTemplate: '{count} domains',
+      moreDetailsLabel: 'More details',
+      firstVisitLabel: 'First visit',
+      lastVisitLabel: 'Last visit',
+      peakHourLabel: 'Peak hour',
+      longestSessionLabel: 'Longest session',
+      topUrlsTitle: 'Most revisited',
+      visitsCountTemplate: '{count} visits',
+    }
+    render(
+      <PaperContactSheet
+        days={baseDays()}
+        viewMode="cards"
+        onViewModeChange={() => {}}
+        dayNav={makeNav()}
+        copy={COPY}
+        dayInsightsCopy={dayInsightsCopy}
+        resolveDayInsights={() => null}
+      />,
+    )
+    // Falls back to the client-side aggregate computed from the
+    // scroll-loaded blocks; github.com leads with 3 visits.
+    expect(screen.getAllByText('github.com').length).toBeGreaterThan(0)
+  })
 })

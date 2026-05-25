@@ -25,13 +25,7 @@
  * - Paper Browse primitives + DayNavControl + CalendarPopover.
  */
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperBlock, PaperDay } from '@/pages/explorer/paper/group-entries'
@@ -45,7 +39,10 @@ import {
   PaperDayInsights,
   type PaperDayInsightsCopy,
 } from './paper-day-insights'
-import { aggregateDayInsights } from './paper-day-insights-helpers'
+import {
+  aggregateDayInsights,
+  type DayInsights,
+} from './paper-day-insights-helpers'
 import { PaperListRow } from './paper-list-row'
 import { PaperSessionGap } from './paper-session-gap'
 import { PaperSessionHeader } from './paper-session-header'
@@ -200,6 +197,15 @@ export interface PaperContactSheetProps {
    * routes that want the editorial Browse layout must supply this.
    */
   dayInsightsCopy?: PaperDayInsightsCopy
+  /**
+   * Optional override for per-day insights. When the callback returns a
+   * value, the strip uses the supplied aggregate (which the route fetches
+   * from the backend over the full day, not just scroll-loaded cards).
+   * When it returns `null` the strip falls back to the client-side
+   * `aggregateDayInsights(day)` so the panel never renders empty while
+   * the backend reply is in flight — see feedback-2026-05-25 §3.1.
+   */
+  resolveDayInsights?: (date: string) => DayInsights | null
   /** Language tag used for time/labels in headers. */
   language?: string
   /** True when the user has chosen the 12h clock (default). */
@@ -230,6 +236,7 @@ export function PaperContactSheet({
   pagination,
   infiniteScroll,
   dayInsightsCopy,
+  resolveDayInsights,
   language = 'en',
   hour12 = true,
   copy,
@@ -357,7 +364,9 @@ export function PaperContactSheet({
 
             {dayInsightsCopy ? (
               <PaperDayInsights
-                insights={aggregateDayInsights(day)}
+                insights={
+                  resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)
+                }
                 copy={dayInsightsCopy}
                 language={language}
                 hour12={hour12}
