@@ -44,17 +44,14 @@ fn takeout_standard_json_round_trips_through_production_parser() {
 
     let urls_by_url: std::collections::HashMap<_, _> =
         parsed.urls.iter().map(|url| (url.url.clone(), url)).collect();
-    let url_one = urls_by_url
-        .get("https://example.com/page-one")
-        .expect("page-one parsed url");
+    let url_one = urls_by_url.get("https://example.com/page-one").expect("page-one parsed url");
     assert_eq!(url_one.title.as_deref(), Some("Example Page One"));
     assert_eq!(url_one.last_visit_ms, visit_one);
 
     let visits_by_url: std::collections::HashMap<_, _> =
         parsed.visits.iter().map(|visit| (visit.url.clone(), visit)).collect();
-    let visit_two_record = visits_by_url
-        .get("https://example.org/page-two")
-        .expect("page-two parsed visit");
+    let visit_two_record =
+        visits_by_url.get("https://example.org/page-two").expect("page-two parsed visit");
     assert_eq!(visit_two_record.visit_time_ms, visit_two);
     assert_eq!(visit_two_record.app_id.as_deref(), Some("takeout"));
     assert_eq!(visit_two_record.transition, None);

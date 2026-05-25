@@ -114,9 +114,8 @@ impl ChromiumHistoryFixture {
     /// PathKeep's parser accepts any path it's given.
     pub fn write(&self, path: &Path) -> Result<(), rusqlite::Error> {
         if path.exists() {
-            std::fs::remove_file(path).map_err(|err| {
-                rusqlite::Error::ToSqlConversionFailure(Box::new(err))
-            })?;
+            std::fs::remove_file(path)
+                .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         }
 
         let mut connection = Connection::open(path)?;

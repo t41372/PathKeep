@@ -56,10 +56,7 @@ const isMacLike = (): boolean => {
 
 const modifierLabelForPlatform = (): string => (isMacLike() ? '⌘' : 'Ctrl+')
 
-const shortcutMatches = (
-  event: KeyboardEvent,
-  key: '[' | ']',
-): boolean => {
+const shortcutMatches = (event: KeyboardEvent, key: '[' | ']'): boolean => {
   if (event.key !== key) return false
   // Avoid hijacking shortcuts the OS / browser owns (e.g. window switch
   // shortcuts on Linux use Alt/Super). Match either Meta (Cmd) on macOS
@@ -121,12 +118,23 @@ export function useRouteHistoryNav(): RouteHistoryNav {
     }
     lastKeyRef.current = location.key
     if (navigationType === NavigationType.Push) {
+      // Synchronizing React state with an external system (the router's
+      // navigation events) is exactly what useEffect is for, even
+      // though react-hooks/set-state-in-effect cannot distinguish this
+      // case from the antipattern it targets (derive-on-render leaks).
+      // The setState is gated on `lastKeyRef.current` changing, so it
+      // runs at most once per actual navigation, not per render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStackIndex((index) => index + 1)
       // A Push wipes any in-flight forward branch, mirroring browser
       // behaviour. Otherwise a back-then-link-click would still leave
       // the forward arrow lit.
       setForwardAvailable(false)
     } else if (navigationType === NavigationType.Pop) {
+      // Same justification as the Push branch above — Pop is also a
+      // router-driven external event we forward into local stack
+      // state. The rule only fires once per effect body, so no extra
+      // eslint-disable is needed here.
       setStackIndex((index) => Math.max(0, index - 1))
     }
     // NavigationType.Replace intentionally does not move the counter —

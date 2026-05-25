@@ -349,9 +349,9 @@ describe('PaperContactFrame', () => {
     )
     // sanitizeExplorerDisplayText / strip-www is case-insensitive on
     // the prefix only; the rest stays untouched.
-    expect(
-      screen.getByTestId('frame-case-fallback').textContent,
-    ).toContain('GitHub.com')
+    expect(screen.getByTestId('frame-case-fallback').textContent).toContain(
+      'GitHub.com',
+    )
   })
 
   test('fallback panel renders the time chip even when title is absent', () => {

@@ -404,9 +404,7 @@ export function LinkPreviewsSection({
                 max={PREFETCH_BUDGET_MAX}
                 step={1}
                 value={settings.newVisitPrefetchBudget}
-                disabled={
-                  !fetchEnabled || settings.fetchMode !== 'background'
-                }
+                disabled={!fetchEnabled || settings.fetchMode !== 'background'}
                 onChange={(event) =>
                   void onChangePrefetchBudget(event.target.value)
                 }

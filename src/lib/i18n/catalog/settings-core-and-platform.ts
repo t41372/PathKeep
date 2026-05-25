@@ -116,8 +116,7 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsRebuildAction: 'Rebuild now ({budget})',
     linkPreviewsRebuildHint:
       'Sweeps up to {budget} of the most recently visited URLs without a cached preview (worker hard-caps any single pass at {cap}).',
-    linkPreviewsRebuildSummary:
-      'Enqueued {enqueued}, succeeded {succeeded}.',
+    linkPreviewsRebuildSummary: 'Enqueued {enqueued}, succeeded {succeeded}.',
     linkPreviewsStatsLabel: 'Cache footprint',
     linkPreviewsStatsRows: '{rows} rows · {blobs} blobs · {bytes}',
     linkPreviewsStatsEmpty: 'No previews cached yet.',
@@ -344,7 +343,8 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsFetchModeOnDemand: '按需',
     linkPreviewsFetchModeOnDemandHint: '只在卡片滚入视口时抓取。',
     linkPreviewsFetchModeBackground: '后台',
-    linkPreviewsFetchModeBackgroundHint: '按需 + 每次备份预抓 + 每日重试。推荐。',
+    linkPreviewsFetchModeBackgroundHint:
+      '按需 + 每次备份预抓 + 每日重试。推荐。',
     linkPreviewsBudgetsLabel: '每次备份预算',
     linkPreviewsBudgetsHint:
       '限制每日重试和新访问预抓单次入队的 URL 数量上限，避免短时间内大量对外请求。设为 0 即停用该项。',

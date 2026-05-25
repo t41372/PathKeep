@@ -121,9 +121,8 @@ impl SafariHistoryFixture {
         })?;
 
         {
-            let mut item_stmt = transaction.prepare(
-                "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
-            )?;
+            let mut item_stmt =
+                transaction.prepare("INSERT INTO history_items (id, url) VALUES (?1, ?2)")?;
             for item in &self.items {
                 item_stmt.execute(params![item.id, item.url])?;
             }

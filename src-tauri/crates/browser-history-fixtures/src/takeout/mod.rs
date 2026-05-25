@@ -64,10 +64,7 @@ pub struct TakeoutBrowserHistoryFixture {
 impl TakeoutBrowserHistoryFixture {
     /// Creates an empty builder using the standard `Browser History` key.
     pub fn new() -> Self {
-        Self {
-            format: TakeoutPayloadFormat::StandardBrowserHistoryJson,
-            records: Vec::new(),
-        }
+        Self { format: TakeoutPayloadFormat::StandardBrowserHistoryJson, records: Vec::new() }
     }
 
     /// Switches the writer to a different payload format.

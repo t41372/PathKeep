@@ -124,10 +124,7 @@ fn chromium_fixture_round_trips_through_production_parser() {
     let visit_two =
         parsed.visits.iter().find(|visit| visit.source_visit_id == 11).expect("visit id 11");
     assert_eq!(visit_two.from_visit, Some(10));
-    assert_eq!(
-        visit_two.external_referrer_url.as_deref(),
-        Some("https://referrer.example.net/")
-    );
+    assert_eq!(visit_two.external_referrer_url.as_deref(), Some("https://referrer.example.net/"));
 
     let visit_three =
         parsed.visits.iter().find(|visit| visit.source_visit_id == 12).expect("visit id 12");

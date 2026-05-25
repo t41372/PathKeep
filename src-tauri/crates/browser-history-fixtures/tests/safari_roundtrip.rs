@@ -21,10 +21,7 @@ fn safari_minimal_fixture_round_trips_through_production_parser() {
 
     SafariHistoryFixture::new()
         .with_variant(SafariSchemaVariant::Minimal)
-        .add_item(SafariHistoryItemRow {
-            id: 5,
-            url: "https://example.com/safari".to_string(),
-        })
+        .add_item(SafariHistoryItemRow { id: 5, url: "https://example.com/safari".to_string() })
         .add_visit(SafariHistoryVisitRow {
             id: 9,
             history_item: 5,

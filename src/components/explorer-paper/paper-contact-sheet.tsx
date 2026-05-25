@@ -25,13 +25,7 @@
  * - Paper Browse primitives + DayNavControl + CalendarPopover.
  */
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperBlock, PaperDay } from '@/pages/explorer/paper/group-entries'

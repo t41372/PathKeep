@@ -763,12 +763,7 @@ mod tests {
     fn list_urls_for_prefetch_honors_the_limit() {
         let connection = open_test_archive();
         for id in 1..=5 {
-            seed_url(
-                &connection,
-                id,
-                &format!("https://example.com/page/{id}"),
-                (id * 1000) as i64,
-            );
+            seed_url(&connection, id, &format!("https://example.com/page/{id}"), id * 1000);
         }
 
         let two = list_urls_for_prefetch(&connection, 2).unwrap();
@@ -799,10 +794,8 @@ mod tests {
         seed_url(&connection, 2, "https://example.com/uncached-new", 5_000);
         seed_url(&connection, 3, "https://example.com/uncached-mid", 3_000);
         seed_url(&connection, 4, "https://example.com/cached-mid", 2_000);
-        upsert_og_image(&connection, &ok_insert("https://example.com/cached-old", b"x"))
-            .unwrap();
-        upsert_og_image(&connection, &ok_insert("https://example.com/cached-mid", b"y"))
-            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-old", b"x")).unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-mid", b"y")).unwrap();
 
         let urls = list_urls_for_prefetch(&connection, 10).unwrap();
         assert_eq!(

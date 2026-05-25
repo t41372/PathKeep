@@ -142,7 +142,9 @@ describe('AppShell (paper redesign)', () => {
     const user = userEvent.setup()
     renderShell({}, '/')
     const topbar = screen.getByTestId('pk-topbar')
-    const paletteTrigger = topbar.querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+    const paletteTrigger = topbar.querySelector<HTMLButtonElement>(
+      'button[data-testid="pk-topbar-palette"]',
+    )
     expect(paletteTrigger).not.toBeNull()
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
@@ -189,7 +191,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
@@ -220,7 +224,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
@@ -258,7 +264,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
@@ -297,7 +305,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
@@ -338,7 +348,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
@@ -413,7 +425,9 @@ describe('AppShell (paper redesign)', () => {
     renderShell({}, '/')
     const paletteTrigger = screen
       .getByTestId('pk-topbar')
-      .querySelector<HTMLButtonElement>('button[data-testid="pk-topbar-palette"]')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     await screen.findByPlaceholderText(/Find a page/i)

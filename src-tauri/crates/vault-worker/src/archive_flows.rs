@@ -314,10 +314,7 @@ fn try_prefetch_new_visit_og_images(
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     use vault_core::OgImageFetchMode;
-    if !matches!(
-        config.og_image.effective_mode(),
-        OgImageFetchMode::Background
-    ) {
+    if !matches!(config.og_image.effective_mode(), OgImageFetchMode::Background) {
         return Ok((0, 0));
     }
     if budget == 0 {
@@ -1285,14 +1282,7 @@ mod tests {
         let blocked: Vec<String> = vec!["blocked.test".to_string()];
         let (sender, receiver) = std::sync::mpsc::channel();
         let started = Instant::now();
-        let flow = drain_one_worker_url(
-            &work,
-            &host_state,
-            &client,
-            &blocked,
-            &sender,
-            interval,
-        );
+        let flow = drain_one_worker_url(&work, &host_state, &client, &blocked, &sender, interval);
         let elapsed = started.elapsed();
         assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
         // Sleep arm ran — total elapsed should reflect the throttle wait.
@@ -1603,10 +1593,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("4 succeeded")));
 
         // Error case surfaces a warning with the message text.
-        append_og_image_prefetch_result(
-            &mut warnings,
-            Err(anyhow::anyhow!("network outage")),
-        );
+        append_og_image_prefetch_result(&mut warnings, Err(anyhow::anyhow!("network outage")));
         assert!(warnings.iter().any(|w| w.contains("network outage")));
     }
 
@@ -1616,10 +1603,7 @@ mod tests {
         assert_eq!(clamp_budget(100), 100);
         assert_eq!(clamp_budget(PER_TICK_BUDGET_HARD_CAP), PER_TICK_BUDGET_HARD_CAP as usize);
         // Above the cap: clamps down.
-        assert_eq!(
-            clamp_budget(PER_TICK_BUDGET_HARD_CAP + 1),
-            PER_TICK_BUDGET_HARD_CAP as usize,
-        );
+        assert_eq!(clamp_budget(PER_TICK_BUDGET_HARD_CAP + 1), PER_TICK_BUDGET_HARD_CAP as usize,);
         // Arbitrarily large value still caps.
         assert_eq!(clamp_budget(u32::MAX), PER_TICK_BUDGET_HARD_CAP as usize);
     }
@@ -1630,10 +1614,7 @@ mod tests {
         let default = OgImageSettings::default();
         assert_eq!(default.effective_mode(), OgImageFetchMode::Background);
 
-        let mut off = OgImageSettings {
-            fetch_enabled: false,
-            ..OgImageSettings::default()
-        };
+        let mut off = OgImageSettings { fetch_enabled: false, ..OgImageSettings::default() };
         assert_eq!(off.effective_mode(), OgImageFetchMode::Off);
 
         // Even when fetch_mode is explicitly Background, the kill switch

@@ -143,7 +143,8 @@ export function SegmentedControl<Id extends string>({
             option.id === value
               ? 'border-accent bg-accent-soft text-accent-text'
               : 'text-ink hover:border-ink-muted hover:bg-hover',
-            disabled && 'cursor-not-allowed opacity-60 hover:border-border-default hover:bg-transparent',
+            disabled &&
+              'cursor-not-allowed opacity-60 hover:border-border-default hover:bg-transparent',
           )}
         >
           <span className="flex flex-col">
