@@ -304,6 +304,11 @@ describe('backend client', () => {
         args: { urls: ['https://example.test'] },
       },
       {
+        run: () => backend.prefetchOgImages(500),
+        command: 'prefetch_og_images',
+        args: { budget: 500 },
+      },
+      {
         run: () => backend.getOgImageStorageStats(),
         command: 'get_og_image_storage_stats',
         args: {},

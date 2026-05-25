@@ -73,6 +73,7 @@ export const backend = {
   loadHistoryOgImages: explorerClient.loadHistoryOgImages,
   markOgImagesShown: explorerClient.markOgImagesShown,
   triggerOgImageRefetch: explorerClient.triggerOgImageRefetch,
+  prefetchOgImages: explorerClient.prefetchOgImages,
   getOgImageStorageStats: explorerClient.getOgImageStorageStats,
   clearOgImageCache: explorerClient.clearOgImageCache,
   runOgImageCleanup: explorerClient.runOgImageCleanup,

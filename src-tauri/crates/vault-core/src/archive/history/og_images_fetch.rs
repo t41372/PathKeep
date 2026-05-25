@@ -29,6 +29,9 @@
 //!   has disabled fetching. This module always tries when called.
 
 use super::og_images::{OgImageInsert, fetch_status};
+use super::og_images_synth::{
+    host_requires_synthesis, resolve_image_url_via_api, synthesize_image_url_from_url,
+};
 use crate::utils::url_domain;
 use anyhow::Result;
 use reqwest::{
@@ -338,6 +341,51 @@ fn fetch_og_image_for_pipeline(
         http_status: None,
     };
 
+    // Video hosts (YouTube, Bilibili) bypass the generic HTML scraper.
+    // YouTube's og:image meta tag is dropped by edge variants of the
+    // Chrome UA we send; Bilibili rewrites it into JS for most pages.
+    // For both we can recover the canonical cover image deterministically
+    // (URL template for YouTube, view-API JSON for Bilibili) so the
+    // Browse card stays accurate. Falling through to the generic scraper
+    // for these hosts is intentionally avoided — it just wastes the
+    // daily fetch budget on responses we know will return MISSING.
+    if let Some(synth_url) = synthesize_image_url_from_url(page_url) {
+        let synth_url = if upgrade_image_url {
+            upgrade_http_to_https(&synth_url)
+        } else {
+            synth_url
+        };
+        outcome.source_og_url = Some(synth_url.clone());
+        finish_image_fetch(client, synth_url, outcome)
+    } else if let Some(api_url) = resolve_image_url_via_api(client, page_url) {
+        let api_url = if upgrade_image_url {
+            upgrade_http_to_https(&api_url)
+        } else {
+            api_url
+        };
+        outcome.source_og_url = Some(api_url.clone());
+        finish_image_fetch(client, api_url, outcome)
+    } else if host_requires_synthesis(page_url) {
+        // Recognised video host but neither synth path succeeded (e.g.
+        // YouTube id failed validation or Bilibili API rejected the
+        // request). Mark MISSING so the negative cache cools down without
+        // burning the budget on the page-html path that we know will
+        // also miss.
+        outcome.fetch_status = fetch_status::MISSING;
+        outcome
+    } else {
+        fetch_og_image_via_html(client, page_url, upgrade_image_url, outcome)
+    }
+}
+
+/// Generic page → og:image → image-bytes pipeline. Used when neither the
+/// URL-template nor the API synth paths recognise the host.
+fn fetch_og_image_via_html(
+    client: &Client,
+    page_url: &str,
+    upgrade_image_url: bool,
+    mut outcome: FetchedOgImage,
+) -> FetchedOgImage {
     let page = match client.get(page_url).header(ACCEPT, ACCEPT_HTML).send() {
         Ok(response) => response,
         Err(error) => {
@@ -377,7 +425,17 @@ fn fetch_og_image_for_pipeline(
     let og_image_url =
         if upgrade_image_url { upgrade_http_to_https(&og_image_url) } else { og_image_url };
     outcome.source_og_url = Some(og_image_url.clone());
+    finish_image_fetch(client, og_image_url, outcome)
+}
 
+/// Common image sub-resource fetch — shared by the generic-HTML path and
+/// the per-host synthesis paths so all callers apply the same CDN
+/// fetch-metadata, size caps, and outcome bookkeeping.
+fn finish_image_fetch(
+    client: &Client,
+    og_image_url: String,
+    mut outcome: FetchedOgImage,
+) -> FetchedOgImage {
     // The image sub-resource fetch uses fetch-metadata that matches a
     // real browser loading an <img> on the page: `Sec-Fetch-Dest: image`,
     // `Sec-Fetch-Mode: no-cors`, `Sec-Fetch-Site: cross-site`. CDNs that

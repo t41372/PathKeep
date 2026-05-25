@@ -41,6 +41,12 @@ export const explorerClient = {
     call<void>('mark_og_images_shown', { urls }),
   triggerOgImageRefetch: (urls: string[]) =>
     call<number>('trigger_og_image_refetch', { urls }),
+  /**
+   * User-initiated prefetch sweep — enqueues visited URLs without an
+   * `og_images` row, capped at `budget`. Returns `[enqueued, succeeded]`.
+   */
+  prefetchOgImages: (budget: number) =>
+    call<[number, number]>('prefetch_og_images', { budget }),
   getOgImageStorageStats: () =>
     call<OgImageStorageStats>('get_og_image_storage_stats', {}),
   clearOgImageCache: () =>

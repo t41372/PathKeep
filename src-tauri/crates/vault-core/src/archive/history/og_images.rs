@@ -316,6 +316,33 @@ pub fn list_urls_due_for_refetch(connection: &Connection, limit: usize) -> Resul
     Ok(rows)
 }
 
+/// Returns up to `limit` HTTPS page URLs from the archive that do not
+/// yet have an `og_images` row at all. Ordered by `last_visit_ms DESC`
+/// so the worker tackles the URLs most likely to be looked at next —
+/// the user just visited them, they are probably the next thing to
+/// scroll into a cards-mode viewport. http:// URLs are excluded at the
+/// query layer because `fetch_og_image_for` would short-circuit them
+/// to `parse_error` anyway; pruning here avoids burning fetch budget
+/// on guaranteed misses.
+pub fn list_urls_for_prefetch(connection: &Connection, limit: usize) -> Result<Vec<String>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut statement = connection.prepare(
+        "SELECT u.url \
+         FROM urls u \
+         LEFT JOIN og_images o ON o.page_url = u.url \
+         WHERE o.id IS NULL AND u.url LIKE 'https://%' \
+         ORDER BY u.last_visit_ms DESC \
+         LIMIT ?1",
+    )?;
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let rows = statement
+        .query_map(params![limit], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 pub fn storage_stats(connection: &Connection) -> Result<OgImageStorageStats> {
     let stats = connection
         .query_row(STATS_SQL, [], |row| {
@@ -607,6 +634,194 @@ mod tests {
         .unwrap();
         let none = list_urls_due_for_refetch(&connection, 0).unwrap();
         assert!(none.is_empty());
+    }
+
+    /// Seeds a single `urls` row with `last_visit_ms` and a synthetic
+    /// `first_visit_iso` derived from the same value. Used by the
+    /// prefetch-sweep tests below — they only care about (url,
+    /// last_visit_ms) so the rest of the columns are filled with
+    /// minimum-valid defaults.
+    ///
+    /// Also lazily seeds a `source_profiles` row id=1 and a `runs` row
+    /// id=1 the first time it's called — both columns are FKs and the
+    /// connection has `PRAGMA foreign_keys = ON`.
+    fn seed_url(connection: &Connection, id: i64, url: &str, last_visit_ms: i64) {
+        ensure_url_seed_parents(connection);
+        let iso = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(last_visit_ms)
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        connection
+            .execute(
+                "INSERT INTO urls (
+                   id, url, title, visit_count, typed_count,
+                   first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                   source_profile_id, created_by_run_id
+                 ) VALUES (?1, ?2, NULL, 1, 0, ?3, ?4, ?3, ?4, 1, 1)",
+                params![id, url, last_visit_ms, iso],
+            )
+            .expect("seed url");
+    }
+
+    fn ensure_url_seed_parents(connection: &Connection) {
+        let existing: i64 = connection
+            .query_row("SELECT COUNT(*) FROM source_profiles WHERE id = 1", [], |row| row.get(0))
+            .unwrap_or(0);
+        if existing > 0 {
+            return;
+        }
+        connection
+            .execute(
+                "INSERT INTO source_profiles (
+                   id, browser_kind, browser_version, profile_name, profile_path,
+                   discovered_at, enabled, profile_key, user_name, updated_at,
+                   browser_family, browser_product
+                 ) VALUES (1, 'chrome', NULL, 'Default', '/tmp/profile',
+                           '2026-01-01T00:00:00Z', 1, 'chrome:Default', NULL,
+                           '2026-01-01T00:00:00Z', 'chromium', 'Chrome')",
+                [],
+            )
+            .expect("seed source profile");
+        connection
+            .execute(
+                "INSERT INTO runs (
+                   id, run_type, trigger, started_at, timezone, status,
+                   profile_scope_json, warnings_json, stats_json, due_only
+                 ) VALUES (1, 'backup', 'manual', '2026-01-01T00:00:00Z', 'UTC',
+                           'success', '[]', '[]', '{}', 0)",
+                [],
+            )
+            .expect("seed run");
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_returns_empty_when_archive_has_no_urls() {
+        let connection = open_test_archive();
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert!(urls.is_empty());
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_returns_empty_when_every_url_is_already_cached() {
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/a", 1_000);
+        upsert_og_image(&connection, &ok_insert("https://example.com/a", b"x")).unwrap();
+
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert!(urls.is_empty());
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_treats_negative_cache_rows_as_cached_too() {
+        // Negative-cache rows (missing / parse_error etc.) still count
+        // as "the worker has seen this URL" — the daily refetch sweep
+        // owns retries for those, not the prefetch sweep.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/a", 1_000);
+        upsert_og_image(&connection, &miss_insert("https://example.com/a")).unwrap();
+
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert!(
+            urls.is_empty(),
+            "URLs with any og_images row (even MISSING) must be excluded from prefetch",
+        );
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_skips_http_urls() {
+        // The prefetch query explicitly filters `url LIKE 'https://%'`
+        // because `fetch_og_image_for` would short-circuit any http://
+        // URL to `parse_error`, wasting fetch budget.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "http://insecure.example.com/page", 1_000);
+        seed_url(&connection, 2, "https://example.com/safe", 2_000);
+
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert_eq!(urls, vec!["https://example.com/safe".to_string()]);
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_orders_by_last_visit_descending() {
+        // Newest visit first: the user is most likely to scroll there
+        // next, so the worker should warm those covers first.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/old", 1_000);
+        seed_url(&connection, 2, "https://example.com/new", 9_000);
+        seed_url(&connection, 3, "https://example.com/mid", 5_000);
+
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/new".to_string(),
+                "https://example.com/mid".to_string(),
+                "https://example.com/old".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_honors_the_limit() {
+        let connection = open_test_archive();
+        for id in 1..=5 {
+            seed_url(
+                &connection,
+                id,
+                &format!("https://example.com/page/{id}"),
+                (id * 1000) as i64,
+            );
+        }
+
+        let two = list_urls_for_prefetch(&connection, 2).unwrap();
+        assert_eq!(two.len(), 2);
+        // Newest two: ids 5 and 4 (last_visit_ms 5000 and 4000).
+        assert_eq!(two[0], "https://example.com/page/5");
+        assert_eq!(two[1], "https://example.com/page/4");
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_returns_empty_when_limit_is_zero() {
+        // 0 must short-circuit at the rust level — passing 0 to the
+        // SQLite `LIMIT` would actually return 0 rows too, but the
+        // early-return keeps the prepared-statement cost off the
+        // hot path on `Off`-mode tick.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/a", 1_000);
+        let urls = list_urls_for_prefetch(&connection, 0).unwrap();
+        assert!(urls.is_empty());
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_handles_mixed_cached_and_uncached_set() {
+        // Realistic mix: some URLs cached, some not. Only the uncached
+        // ones surface, in newest-first order.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/cached-old", 1_000);
+        seed_url(&connection, 2, "https://example.com/uncached-new", 5_000);
+        seed_url(&connection, 3, "https://example.com/uncached-mid", 3_000);
+        seed_url(&connection, 4, "https://example.com/cached-mid", 2_000);
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-old", b"x"))
+            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-mid", b"y"))
+            .unwrap();
+
+        let urls = list_urls_for_prefetch(&connection, 10).unwrap();
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/uncached-new".to_string(),
+                "https://example.com/uncached-mid".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn list_urls_for_prefetch_tolerates_extremely_large_limits() {
+        // Make sure the `i64::try_from(limit)` saturating-cast path
+        // does not panic on a huge usize.
+        let connection = open_test_archive();
+        seed_url(&connection, 1, "https://example.com/a", 1_000);
+        let urls = list_urls_for_prefetch(&connection, usize::MAX).unwrap();
+        assert_eq!(urls, vec!["https://example.com/a".to_string()]);
     }
 
     #[test]

@@ -97,6 +97,27 @@ export const settingsCoreAndPlatformNamespace = {
       'When off, card mode falls back to the favicon or the domain swatch. Already-cached previews still render.',
     linkPreviewsFetchOn: 'Fetching on',
     linkPreviewsFetchOff: 'Fetching off',
+    linkPreviewsFetchModeLabel: 'Fetch policy',
+    linkPreviewsFetchModeHint:
+      'Background uses the per-backup tick to pre-warm new visits + retry transient failures. On-demand only fetches when you scroll a card into view. Off disables all fetching while keeping the cache intact.',
+    linkPreviewsFetchModeOff: 'Off',
+    linkPreviewsFetchModeOffHint: 'No fetching anywhere.',
+    linkPreviewsFetchModeOnDemand: 'On demand',
+    linkPreviewsFetchModeOnDemandHint:
+      'Fetches only when a card scrolls into view.',
+    linkPreviewsFetchModeBackground: 'Background',
+    linkPreviewsFetchModeBackgroundHint:
+      'On-demand + per-backup pre-warm + daily retry. Recommended.',
+    linkPreviewsBudgetsLabel: 'Per-backup budgets',
+    linkPreviewsBudgetsHint:
+      'Caps how many URLs the daily retry pass and the new-visit pre-warm sweep enqueue at most. Lower values keep outbound HTTP bounded; zero disables that pass.',
+    linkPreviewsDailyRefetchBudgetLabel: 'Retry budget / day',
+    linkPreviewsPrefetchBudgetLabel: 'Pre-warm budget / backup',
+    linkPreviewsRebuildAction: 'Rebuild now ({budget})',
+    linkPreviewsRebuildHint:
+      'Sweeps up to {budget} of the most recently visited URLs without a cached preview (worker hard-caps any single pass at {cap}).',
+    linkPreviewsRebuildSummary:
+      'Enqueued {enqueued}, succeeded {succeeded}.',
     linkPreviewsStatsLabel: 'Cache footprint',
     linkPreviewsStatsRows: '{rows} rows · {blobs} blobs · {bytes}',
     linkPreviewsStatsEmpty: 'No previews cached yet.',
@@ -315,6 +336,24 @@ export const settingsCoreAndPlatformNamespace = {
       '关闭后，卡片模式会退回 favicon 或域名色块；已经缓存的预览依然会显示。',
     linkPreviewsFetchOn: '抓取已开启',
     linkPreviewsFetchOff: '抓取已关闭',
+    linkPreviewsFetchModeLabel: '抓取策略',
+    linkPreviewsFetchModeHint:
+      '"后台" 模式：每次备份后扫描新访问 URL 预抓 + 重试暂时性失败。"按需" 仅在你滚到卡片时才抓。"关闭" 暂停抓取但保留缓存。',
+    linkPreviewsFetchModeOff: '关闭',
+    linkPreviewsFetchModeOffHint: '完全不抓取。',
+    linkPreviewsFetchModeOnDemand: '按需',
+    linkPreviewsFetchModeOnDemandHint: '只在卡片滚入视口时抓取。',
+    linkPreviewsFetchModeBackground: '后台',
+    linkPreviewsFetchModeBackgroundHint: '按需 + 每次备份预抓 + 每日重试。推荐。',
+    linkPreviewsBudgetsLabel: '每次备份预算',
+    linkPreviewsBudgetsHint:
+      '限制每日重试和新访问预抓单次入队的 URL 数量上限，避免短时间内大量对外请求。设为 0 即停用该项。',
+    linkPreviewsDailyRefetchBudgetLabel: '每日重试上限',
+    linkPreviewsPrefetchBudgetLabel: '每次备份预抓上限',
+    linkPreviewsRebuildAction: '立即重建 ({budget})',
+    linkPreviewsRebuildHint:
+      '扫描最近访问且尚未有预览的 URL，最多 {budget} 条（worker 单次硬上限 {cap}）。',
+    linkPreviewsRebuildSummary: '入队 {enqueued} 条，成功 {succeeded} 条。',
     linkPreviewsStatsLabel: '缓存大小',
     linkPreviewsStatsRows: '{rows} 行 · {blobs} 个文件 · {bytes}',
     linkPreviewsStatsEmpty: '尚未缓存任何预览。',
@@ -530,6 +569,25 @@ export const settingsCoreAndPlatformNamespace = {
       '關閉之後，卡片模式會退回 favicon 或網域色塊；已經快取的預覽仍會顯示。',
     linkPreviewsFetchOn: '擷取已開啟',
     linkPreviewsFetchOff: '擷取已關閉',
+    linkPreviewsFetchModeLabel: '擷取策略',
+    linkPreviewsFetchModeHint:
+      '「背景」模式：每次備份完掃描新訪問 URL 預抓 + 重試暫時性失敗。「按需」只在你滑到卡片時才抓。「關閉」暫停擷取但保留快取。',
+    linkPreviewsFetchModeOff: '關閉',
+    linkPreviewsFetchModeOffHint: '完全不擷取。',
+    linkPreviewsFetchModeOnDemand: '按需',
+    linkPreviewsFetchModeOnDemandHint: '只在卡片滑入視口時擷取。',
+    linkPreviewsFetchModeBackground: '背景',
+    linkPreviewsFetchModeBackgroundHint:
+      '按需 + 每次備份預抓 + 每日重試。推薦。',
+    linkPreviewsBudgetsLabel: '每次備份預算',
+    linkPreviewsBudgetsHint:
+      '限制每日重試和新訪問預抓單次入佇列的 URL 數量上限，避免短時間內大量對外請求。設為 0 即停用該項。',
+    linkPreviewsDailyRefetchBudgetLabel: '每日重試上限',
+    linkPreviewsPrefetchBudgetLabel: '每次備份預抓上限',
+    linkPreviewsRebuildAction: '立即重建 ({budget})',
+    linkPreviewsRebuildHint:
+      '掃描最近訪問且尚未有預覽的 URL，最多 {budget} 條（worker 單次硬上限 {cap}）。',
+    linkPreviewsRebuildSummary: '入佇列 {enqueued} 條，成功 {succeeded} 條。',
     linkPreviewsStatsLabel: '快取大小',
     linkPreviewsStatsRows: '{rows} 列 · {blobs} 個檔案 · {bytes}',
     linkPreviewsStatsEmpty: '尚未快取任何預覽。',

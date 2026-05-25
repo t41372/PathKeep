@@ -43,12 +43,23 @@ export interface LinkPreviewsSectionProps {
 }
 
 type CleanupModeId = OgImageCleanupMode['mode']
+type FetchModeId = OgImageSettings['fetchMode']
 
 const DEFAULT_OG_IMAGE_SETTINGS: OgImageSettings = {
   fetchEnabled: true,
+  fetchMode: 'background',
+  dailyRefetchBudget: 50,
+  newVisitPrefetchBudget: 100,
   blockedHosts: [],
   cleanup: { mode: 'off' },
 }
+
+const REFETCH_BUDGET_MIN = 0
+const REFETCH_BUDGET_MAX = 5000
+const PREFETCH_BUDGET_MIN = 0
+const PREFETCH_BUDGET_MAX = 5000
+const REBUILD_DEFAULT_BUDGET = 500
+const REBUILD_MAX_BUDGET = 5000
 
 const MAX_AGE_DAYS_DEFAULT = 60
 const MAX_AGE_DAYS_MIN = 1
@@ -83,7 +94,7 @@ export function LinkPreviewsSection({
   const { snapshot, saveConfig } = useShellData()
   const [stats, setStats] = useState<OgImageStorageStats | null>(null)
   const [pendingAction, setPendingAction] = useState<
-    'cleanup' | 'clear' | null
+    'cleanup' | 'clear' | 'rebuild' | null
   >(null)
   const [summary, setSummary] = useState<string | null>(null)
 
@@ -130,6 +141,68 @@ export function LinkPreviewsSection({
 
   const onToggleFetch = (next: boolean) =>
     persistSettings({ ...settings, fetchEnabled: next })
+
+  const onSelectFetchMode = async (next: FetchModeId) => {
+    if (next === settings.fetchMode) return
+    await persistSettings({ ...settings, fetchMode: next })
+  }
+
+  const onChangeRefetchBudget = async (raw: string) => {
+    const next = clampNumber(
+      raw,
+      REFETCH_BUDGET_MIN,
+      REFETCH_BUDGET_MAX,
+      settings.dailyRefetchBudget,
+    )
+    if (next === settings.dailyRefetchBudget) return
+    await persistSettings({ ...settings, dailyRefetchBudget: next })
+  }
+
+  const onChangePrefetchBudget = async (raw: string) => {
+    const next = clampNumber(
+      raw,
+      PREFETCH_BUDGET_MIN,
+      PREFETCH_BUDGET_MAX,
+      settings.newVisitPrefetchBudget,
+    )
+    if (next === settings.newVisitPrefetchBudget) return
+    await persistSettings({ ...settings, newVisitPrefetchBudget: next })
+  }
+
+  const onRebuildNow = async () => {
+    setPendingAction('rebuild')
+    try {
+      const [enqueued, succeeded] = await backend.prefetchOgImages(
+        REBUILD_DEFAULT_BUDGET,
+      )
+      setSummary(
+        t('settings.linkPreviewsRebuildSummary', {
+          enqueued: String(enqueued),
+          succeeded: String(succeeded),
+        }),
+      )
+      await refreshStats()
+    } catch (error) {
+      // Swallow the worker error and surface a short summary instead of
+      // letting an unhandled rejection escape the click handler. The
+      // worker still persists negative-cache rows for whatever it could
+      // process, and the user can retry by clicking the button again
+      // (the finally re-enables it).
+      setSummary(
+        error instanceof Error
+          ? `${t('settings.linkPreviewsRebuildSummary', {
+              enqueued: '0',
+              succeeded: '0',
+            })} (${error.message})`
+          : t('settings.linkPreviewsRebuildSummary', {
+              enqueued: '0',
+              succeeded: '0',
+            }),
+      )
+    } finally {
+      setPendingAction(null)
+    }
+  }
 
   const onBlocklistSave = async () => {
     await persistSettings({
@@ -271,6 +344,80 @@ export function LinkPreviewsSection({
         </Field>
 
         <Field
+          label={t('settings.linkPreviewsFetchModeLabel')}
+          help={t('settings.linkPreviewsFetchModeHint')}
+        >
+          <SegmentedControl<FetchModeId>
+            options={[
+              {
+                id: 'off',
+                label: t('settings.linkPreviewsFetchModeOff'),
+                hint: t('settings.linkPreviewsFetchModeOffHint'),
+              },
+              {
+                id: 'on_demand',
+                label: t('settings.linkPreviewsFetchModeOnDemand'),
+                hint: t('settings.linkPreviewsFetchModeOnDemandHint'),
+              },
+              {
+                id: 'background',
+                label: t('settings.linkPreviewsFetchModeBackground'),
+                hint: t('settings.linkPreviewsFetchModeBackgroundHint'),
+              },
+            ]}
+            value={settings.fetchMode}
+            onChange={(id) => void onSelectFetchMode(id)}
+            stacked
+            disabled={!fetchEnabled}
+            testId="link-previews-fetch-mode"
+          />
+        </Field>
+
+        <Field
+          label={t('settings.linkPreviewsBudgetsLabel')}
+          help={t('settings.linkPreviewsBudgetsHint')}
+        >
+          <div className="flex flex-wrap items-center gap-4 font-mono text-[11px] text-ink-muted">
+            <label className="flex items-center gap-2">
+              <span>{t('settings.linkPreviewsDailyRefetchBudgetLabel')}</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={REFETCH_BUDGET_MIN}
+                max={REFETCH_BUDGET_MAX}
+                step={1}
+                value={settings.dailyRefetchBudget}
+                disabled={!fetchEnabled}
+                onChange={(event) =>
+                  void onChangeRefetchBudget(event.target.value)
+                }
+                data-testid="link-previews-daily-refetch-budget"
+                className="border-border-default rounded-paper bg-paper w-24 border px-2 py-1 text-right disabled:opacity-60"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <span>{t('settings.linkPreviewsPrefetchBudgetLabel')}</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={PREFETCH_BUDGET_MIN}
+                max={PREFETCH_BUDGET_MAX}
+                step={1}
+                value={settings.newVisitPrefetchBudget}
+                disabled={
+                  !fetchEnabled || settings.fetchMode !== 'background'
+                }
+                onChange={(event) =>
+                  void onChangePrefetchBudget(event.target.value)
+                }
+                data-testid="link-previews-prefetch-budget"
+                className="border-border-default rounded-paper bg-paper w-24 border px-2 py-1 text-right disabled:opacity-60"
+              />
+            </label>
+          </div>
+        </Field>
+
+        <Field
           label={t('settings.linkPreviewsBlocklistLabel')}
           help={t('settings.linkPreviewsBlocklistHint')}
         >
@@ -380,6 +527,26 @@ export function LinkPreviewsSection({
 
         <Field label={t('settings.linkPreviewsCleanupLabel')}>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={cn(
+                'border-accent text-accent-text bg-paper rounded-paper border px-3 py-1.5 font-sans text-[12px] transition-colors',
+                pendingAction || !fetchEnabled
+                  ? 'opacity-60'
+                  : 'hover:bg-accent-soft',
+              )}
+              disabled={pendingAction !== null || !fetchEnabled}
+              onClick={() => void onRebuildNow()}
+              data-testid="link-previews-rebuild-now"
+              title={t('settings.linkPreviewsRebuildHint', {
+                budget: String(REBUILD_DEFAULT_BUDGET),
+                cap: String(REBUILD_MAX_BUDGET),
+              })}
+            >
+              {t('settings.linkPreviewsRebuildAction', {
+                budget: String(REBUILD_DEFAULT_BUDGET),
+              })}
+            </button>
             <button
               type="button"
               className={cn(

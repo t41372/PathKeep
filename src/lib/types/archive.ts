@@ -397,9 +397,25 @@ export type OgImageCleanupMode =
   | { mode: 'sizeCap'; maxBytes: number }
   | { mode: 'lru'; maxBytes: number }
 
+/**
+ * How aggressively the og:image worker fetches link-preview bytes.
+ * Mirrors `vault_core::OgImageFetchMode`.
+ *
+ * - `off`        — no fetching anywhere.
+ * - `on_demand`  — fetch only when a card-mode row scrolls into view.
+ * - `background` — `on_demand` + per-backup new-visit prefetch + the
+ *                  daily negative-cache retry. (Default.)
+ */
+export type OgImageFetchMode = 'off' | 'on_demand' | 'background'
+
 /** Persisted Settings → Storage → Link previews block. */
 export interface OgImageSettings {
   fetchEnabled: boolean
+  fetchMode: OgImageFetchMode
+  /** Per-day cap on negative-cache retry sweeps. Default 50. */
+  dailyRefetchBudget: number
+  /** Per-backup cap on the new-visit prefetch sweep. Default 100; 0 disables. */
+  newVisitPrefetchBudget: number
   blockedHosts: string[]
   cleanup: OgImageCleanupMode
 }

@@ -42,6 +42,8 @@ const MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL: &str =
     include_str!("../migrations/010_favicon_domain_fallback.sql");
 const MIGRATION_011_NOTES_TAGS_SQL: &str = include_str!("../migrations/011_notes_tags.sql");
 const MIGRATION_012_OG_IMAGES_SQL: &str = include_str!("../migrations/012_og_images.sql");
+const MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL: &str =
+    include_str!("../migrations/013_urls_last_visit_index.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -82,6 +84,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 10, sql: MIGRATION_010_FAVICON_DOMAIN_FALLBACK_SQL },
     MigrationSpec { version: 11, sql: MIGRATION_011_NOTES_TAGS_SQL },
     MigrationSpec { version: 12, sql: MIGRATION_012_OG_IMAGES_SQL },
+    MigrationSpec { version: 13, sql: MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -362,7 +365,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 12);
+        assert_eq!(current_version(&connection).expect("schema version"), 13);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -406,7 +409,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 12);
+        assert_eq!(count, 13);
     }
 
     #[test]
@@ -490,7 +493,7 @@ mod tests {
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 12);
+        assert_eq!(current_version(&connection).expect("migrated version"), 13);
     }
 
     #[test]
@@ -541,7 +544,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 12);
+                assert_eq!(join.join().expect("thread join"), 13);
             }
         });
 

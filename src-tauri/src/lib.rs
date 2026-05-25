@@ -119,6 +119,7 @@ fn run_app() -> Result<()> {
             load_history_og_images,
             mark_og_images_shown,
             trigger_og_image_refetch,
+            prefetch_og_images,
             get_og_image_storage_stats,
             clear_og_image_cache,
             run_og_image_cleanup,

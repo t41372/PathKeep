@@ -143,12 +143,22 @@ export interface AppConfig {
 }
 
 /**
+ * How aggressively the og:image worker fetches link-preview bytes.
+ * Mirror of the same enum in archive.ts and `vault_core::OgImageFetchMode`.
+ */
+export type OgImageFetchModeConfig = 'off' | 'on_demand' | 'background'
+
+/**
  * og:image fetch + cache settings persisted as part of AppConfig. Defaults:
- * fetch_enabled = true, blocked_hosts = [], cleanup mode = off. Surfaced in
- * Settings → Link previews.
+ * fetch_enabled = true, fetch_mode = background, daily_refetch_budget = 50,
+ * new_visit_prefetch_budget = 100, blocked_hosts = [], cleanup mode = off.
+ * Surfaced in Settings → Link previews.
  */
 export interface OgImageSettingsConfig {
   fetchEnabled: boolean
+  fetchMode: OgImageFetchModeConfig
+  dailyRefetchBudget: number
+  newVisitPrefetchBudget: number
   blockedHosts: string[]
   cleanup:
     | { mode: 'off' }

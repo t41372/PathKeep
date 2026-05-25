@@ -102,6 +102,13 @@ export interface SegmentedControlProps<Id extends string> {
   onChange: (id: Id) => void
   /** Stack the radio buttons vertically (used by the link-previews eviction picker). */
   stacked?: boolean
+  /**
+   * Disables every option so the control reads as inert. Used when a
+   * gating field (e.g. the master fetch toggle) is off — the picker
+   * still renders so the user can see what's available, but no choice
+   * fires until the gate flips back on.
+   */
+  disabled?: boolean
   testId?: string
 }
 
@@ -110,6 +117,7 @@ export function SegmentedControl<Id extends string>({
   value,
   onChange,
   stacked = false,
+  disabled = false,
   testId,
 }: SegmentedControlProps<Id>) {
   return (
@@ -127,6 +135,7 @@ export function SegmentedControl<Id extends string>({
           type="button"
           role="radio"
           aria-checked={option.id === value}
+          disabled={disabled}
           onClick={() => onChange(option.id)}
           data-testid={testId ? `${testId}-${option.id}` : undefined}
           className={cn(
@@ -134,6 +143,7 @@ export function SegmentedControl<Id extends string>({
             option.id === value
               ? 'border-accent bg-accent-soft text-accent-text'
               : 'text-ink hover:border-ink-muted hover:bg-hover',
+            disabled && 'cursor-not-allowed opacity-60 hover:border-border-default hover:bg-transparent',
           )}
         >
           <span className="flex flex-col">

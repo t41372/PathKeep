@@ -191,21 +191,49 @@ where
         // so a single overnight backlog can't burst-fire hundreds of
         // outbound requests; remaining URLs roll into the next daily
         // tick. Same warning channel as the cleanup pass.
+        // Load config once and reuse — both budget reads + the wrapped
+        // worker calls would otherwise hit disk three times per backup
+        // tick. `load_unlocked_config` does parse the on-disk JSON, so
+        // the saving is non-trivial on a hot post-backup path.
+        // The two helpers will still re-load internally (they need it
+        // for `effective_mode`); the dedupe here is for the budget
+        // lookups + future readers that want to extend this block.
+        let (refetch_budget, prefetch_budget) = vault_core::project_paths()
+            .ok()
+            .and_then(|paths| load_unlocked_config(&paths).ok())
+            .map(|config| {
+                (
+                    clamp_budget(config.og_image.daily_refetch_budget),
+                    clamp_budget(config.og_image.new_visit_prefetch_budget),
+                )
+            })
+            .unwrap_or((clamp_budget(50), clamp_budget(100)));
         append_og_image_refetch_due_result(
             &mut report.warnings,
-            try_refetch_due_og_images(session_database_key, NEGATIVE_CACHE_DAILY_BUDGET),
+            try_refetch_due_og_images(session_database_key, refetch_budget),
+        );
+        // Background-mode prefetch: warm the cache for URLs the user
+        // visited but the worker hasn't seen yet. OnDemand / Off
+        // short-circuit inside `try_prefetch_new_visit_og_images`.
+        append_og_image_prefetch_result(
+            &mut report.warnings,
+            try_prefetch_new_visit_og_images(session_database_key, prefetch_budget),
         );
     }
     Ok(report)
 }
 
-/// Per-day ceiling on negative-cache retries. The number lands between
-/// "enough to cover a normal user's daily transient-failure backlog" and
-/// "low enough that a single misconfigured backup can't spam an upstream
-/// in concert with the per-host rate limit". 50 keeps both invariants
-/// honest at ≤ 25s total wall-clock under the worst-case same-host
-/// distribution (50 × 500ms / 2 workers).
-const NEGATIVE_CACHE_DAILY_BUDGET: usize = 50;
+/// Hard ceiling on each per-tick worker pass — a safety net against a
+/// misconfigured user-supplied budget (e.g. someone sets the per-backup
+/// new-visit budget to 1,000,000 hoping to rebuild overnight). The
+/// per-host rate limit + worker pool still apply, but we refuse to even
+/// enqueue more than this number in one shot so a single backup cannot
+/// monopolise the worker for hours.
+const PER_TICK_BUDGET_HARD_CAP: u32 = 5000;
+
+fn clamp_budget(configured: u32) -> usize {
+    configured.min(PER_TICK_BUDGET_HARD_CAP) as usize
+}
 
 /// Looks up URLs whose `refetch_after` window has elapsed and hands
 /// them back to `refetch_og_images` for a second attempt. Returns the
@@ -217,7 +245,12 @@ fn try_refetch_due_og_images(
 ) -> Result<(usize, u32)> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    if !config.og_image.fetch_enabled {
+    use vault_core::OgImageFetchMode;
+    // `effective_mode` folds in the legacy `fetch_enabled` kill switch;
+    // OnDemand intentionally also runs the daily refetch because the
+    // negative-cache cooldown is what keeps the on-demand path from
+    // re-asking flaky hosts every viewport scroll. Off skips entirely.
+    if matches!(config.og_image.effective_mode(), OgImageFetchMode::Off) {
         return Ok((0, 0));
     }
     let due_urls = {
@@ -233,6 +266,76 @@ fn try_refetch_due_og_images(
     Ok((due_count, successful))
 }
 
+/// User-initiated prefetch sweep. Same query as the post-backup pass
+/// but ignores `fetch_mode` (you clicked Rebuild — that's an explicit
+/// override of the policy) while still respecting `fetch_enabled` as a
+/// hard kill switch and the per-tick budget hard cap. Returns
+/// `(enqueued, succeeded)`. Lives on the worker so the UI command in
+/// `worker_bridge/archive.rs` has a typed entry point.
+pub fn prefetch_og_images_on_demand(
+    session_database_key: Option<&str>,
+    budget: u32,
+) -> Result<(u32, u32)> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    if !config.og_image.fetch_enabled {
+        return Ok((0, 0));
+    }
+    let budget = clamp_budget(budget);
+    if budget == 0 {
+        return Ok((0, 0));
+    }
+    let urls = {
+        let connection =
+            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+        vault_core::og_images::list_urls_for_prefetch(&connection, budget)?
+    };
+    if urls.is_empty() {
+        return Ok((0, 0));
+    }
+    let enqueued = u32::try_from(urls.len()).unwrap_or(u32::MAX);
+    let successful = refetch_og_images(session_database_key, urls)?;
+    Ok((enqueued, successful))
+}
+
+/// Per-backup "warm new visits" pass. Picks URLs whose page has been
+/// visited but never had an og:image fetch attempt, ordered by most-
+/// recent visit, and runs them through the same `refetch_og_images`
+/// worker pool. Only runs when `OgImageFetchMode::Background` is the
+/// effective mode — `OnDemand` and `Off` short-circuit.
+///
+/// Returns the (count_enqueued, count_succeeded) pair so the caller
+/// can surface it in the backup warnings channel alongside the
+/// existing refetch + cleanup outcomes.
+fn try_prefetch_new_visit_og_images(
+    session_database_key: Option<&str>,
+    budget: usize,
+) -> Result<(usize, u32)> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    use vault_core::OgImageFetchMode;
+    if !matches!(
+        config.og_image.effective_mode(),
+        OgImageFetchMode::Background
+    ) {
+        return Ok((0, 0));
+    }
+    if budget == 0 {
+        return Ok((0, 0));
+    }
+    let urls = {
+        let connection =
+            vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+        vault_core::og_images::list_urls_for_prefetch(&connection, budget)?
+    };
+    if urls.is_empty() {
+        return Ok((0, 0));
+    }
+    let enqueued = urls.len();
+    let successful = refetch_og_images(session_database_key, urls)?;
+    Ok((enqueued, successful))
+}
+
 /// Pushes a non-fatal refetch-due result onto a backup report's warning
 /// list. Same shape as `append_og_image_cleanup_result` so the formatting
 /// stays auditable without spinning up a real worker.
@@ -245,6 +348,19 @@ fn append_og_image_refetch_due_result(warnings: &mut Vec<String>, result: Result
         Err(error) => {
             warnings.push(format!("Link previews negative-cache retry failed: {error:#}",))
         }
+    }
+}
+
+/// Pushes a non-fatal prefetch outcome onto a backup report's warning
+/// list. Mirrors `append_og_image_refetch_due_result` so the backup
+/// audit log treats both passes the same way.
+fn append_og_image_prefetch_result(warnings: &mut Vec<String>, result: Result<(usize, u32)>) {
+    match result {
+        Ok((0, _)) => {}
+        Ok((enqueued, successful)) => warnings.push(format!(
+            "Link previews prefetch: enqueued {enqueued} new-visit URLs, {successful} succeeded.",
+        )),
+        Err(error) => warnings.push(format!("Link previews prefetch failed: {error:#}")),
     }
 }
 
@@ -879,12 +995,14 @@ fn core_refresh_rebuild_scopes(dirty_profiles: &[String]) -> Vec<CoreIntelligenc
 #[cfg(test)]
 mod tests {
     use super::{
-        append_ai_auto_index_archive_result, append_ai_auto_index_enqueue_result,
-        append_ai_auto_index_provider_warning, append_core_refresh_backup_result,
-        append_core_refresh_import_result, append_og_image_cleanup_result,
-        append_og_image_refetch_due_result, core_refresh_import_note, core_refresh_rebuild_scopes,
-        drain_one_worker_url, finalize_refetch_run, host_throttle_wait, lock_or_recover,
-        try_refetch_due_og_images,
+        PER_TICK_BUDGET_HARD_CAP, append_ai_auto_index_archive_result,
+        append_ai_auto_index_enqueue_result, append_ai_auto_index_provider_warning,
+        append_core_refresh_backup_result, append_core_refresh_import_result,
+        append_og_image_cleanup_result, append_og_image_prefetch_result,
+        append_og_image_refetch_due_result, clamp_budget, core_refresh_import_note,
+        core_refresh_rebuild_scopes, drain_one_worker_url, finalize_refetch_run,
+        host_throttle_wait, lock_or_recover, prefetch_og_images_on_demand,
+        try_prefetch_new_visit_og_images, try_refetch_due_og_images,
     };
     use crate::tests::{
         PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV, lock_env, restore_env_var,
@@ -1150,15 +1268,20 @@ mod tests {
     fn drain_one_worker_url_observes_host_throttle_sleep_path() {
         // Pre-poison the host_state so the throttle returns a non-zero
         // wait, ensuring the `if !wait.is_zero() { std::thread::sleep }`
-        // arm fires inside the worker body. Use a 1 ms interval so the
-        // test still runs fast.
+        // arm fires inside the worker body. We use a 250 ms interval so
+        // even on a CI host where `build_fetch_client` itself takes
+        // ~150 ms (TLS setup, root-cert load) the seeded slot is still
+        // in the future when `drain_one_worker_url` reads it — the
+        // earlier 20 ms interval flaked once the client build slipped
+        // past it and the throttle returned `Duration::ZERO`.
         let host_state = fresh_host_state();
-        // Seed the state by walking a previous URL through the throttle.
-        let _ =
-            host_throttle_wait(&host_state, "https://blocked.test/seed", Duration::from_millis(20));
+        let interval = Duration::from_millis(250);
+        // Build the client BEFORE seeding so the throttle clock starts
+        // after the TLS warm-up that used to push us out of the window.
+        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
+        let _ = host_throttle_wait(&host_state, "https://blocked.test/seed", interval);
 
         let work = Mutex::new(vec!["https://blocked.test/a".to_string()]);
-        let client = vault_core::og_images_fetch::build_fetch_client().expect("client");
         let blocked: Vec<String> = vec!["blocked.test".to_string()];
         let (sender, receiver) = std::sync::mpsc::channel();
         let started = Instant::now();
@@ -1168,13 +1291,16 @@ mod tests {
             &client,
             &blocked,
             &sender,
-            Duration::from_millis(20),
+            interval,
         );
         let elapsed = started.elapsed();
         assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
         // Sleep arm ran — total elapsed should reflect the throttle wait.
         // Loose bound to keep the test stable on a busy CI host.
-        assert!(elapsed >= Duration::from_millis(5), "throttle sleep should have fired");
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "throttle sleep should have fired (elapsed {elapsed:?})",
+        );
         assert!(receiver.try_recv().is_ok());
     }
 
@@ -1339,6 +1465,188 @@ mod tests {
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
         restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn try_prefetch_new_visit_short_circuits_when_mode_is_not_background() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        // `fetch_enabled` is the kill switch; once it's off, `effective_mode`
+        // returns `Off` regardless of `fetch_mode` and the prefetch pass
+        // must short-circuit.
+        config.og_image.fetch_enabled = false;
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let result = try_prefetch_new_visit_og_images(None, 100);
+        assert_eq!(result.expect("prefetch returns"), (0, 0));
+
+        // Re-enable but pick OnDemand — prefetch should still skip
+        // because the docstring restricts that pass to Background mode.
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        config.og_image.fetch_mode = vault_core::OgImageFetchMode::OnDemand;
+        write_test_config(&paths, &config);
+        let result = try_prefetch_new_visit_og_images(None, 100);
+        assert_eq!(result.expect("prefetch returns"), (0, 0));
+
+        // Zero budget short-circuits even when mode is Background.
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        write_test_config(&paths, &config);
+        let result = try_prefetch_new_visit_og_images(None, 0);
+        assert_eq!(result.expect("prefetch returns"), (0, 0));
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn try_prefetch_new_visit_returns_zero_when_archive_has_no_visited_urls() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        // No visits + no og_images rows → empty due list → (0, 0).
+        let result = try_prefetch_new_visit_og_images(None, 100).expect("prefetch");
+        assert_eq!(result, (0, 0));
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn prefetch_og_images_on_demand_respects_kill_switch_and_zero_budget() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        // fetch_enabled = false → command always returns (0, 0).
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        config.og_image.fetch_enabled = false;
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let result = prefetch_og_images_on_demand(None, 100);
+        assert_eq!(result.expect("on-demand prefetch"), (0, 0));
+
+        // Re-enable but pass budget = 0 → short-circuit at the budget
+        // clamp before any IO.
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        write_test_config(&paths, &config);
+        let result = prefetch_og_images_on_demand(None, 0);
+        assert_eq!(result.expect("on-demand prefetch zero"), (0, 0));
+
+        // Default config with non-zero budget but empty archive → (0, 0).
+        let result = prefetch_og_images_on_demand(None, 100);
+        assert_eq!(result.expect("on-demand prefetch empty"), (0, 0));
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn append_og_image_prefetch_result_formats_each_case() {
+        let mut warnings: Vec<String> = Vec::new();
+        // (0, _) silently drops — most backups have nothing to enqueue.
+        append_og_image_prefetch_result(&mut warnings, Ok((0, 0)));
+        assert!(warnings.is_empty());
+
+        // Success case formats both counts.
+        append_og_image_prefetch_result(&mut warnings, Ok((7, 4)));
+        assert!(warnings.iter().any(|w| w.contains("enqueued 7")));
+        assert!(warnings.iter().any(|w| w.contains("4 succeeded")));
+
+        // Error case surfaces a warning with the message text.
+        append_og_image_prefetch_result(
+            &mut warnings,
+            Err(anyhow::anyhow!("network outage")),
+        );
+        assert!(warnings.iter().any(|w| w.contains("network outage")));
+    }
+
+    #[test]
+    fn clamp_budget_floors_zero_and_caps_at_hard_ceiling() {
+        assert_eq!(clamp_budget(0), 0);
+        assert_eq!(clamp_budget(100), 100);
+        assert_eq!(clamp_budget(PER_TICK_BUDGET_HARD_CAP), PER_TICK_BUDGET_HARD_CAP as usize);
+        // Above the cap: clamps down.
+        assert_eq!(
+            clamp_budget(PER_TICK_BUDGET_HARD_CAP + 1),
+            PER_TICK_BUDGET_HARD_CAP as usize,
+        );
+        // Arbitrarily large value still caps.
+        assert_eq!(clamp_budget(u32::MAX), PER_TICK_BUDGET_HARD_CAP as usize);
+    }
+
+    #[test]
+    fn og_image_settings_effective_mode_folds_in_kill_switch() {
+        use vault_core::{OgImageFetchMode, OgImageSettings};
+        let default = OgImageSettings::default();
+        assert_eq!(default.effective_mode(), OgImageFetchMode::Background);
+
+        let mut off = OgImageSettings {
+            fetch_enabled: false,
+            ..OgImageSettings::default()
+        };
+        assert_eq!(off.effective_mode(), OgImageFetchMode::Off);
+
+        // Even when fetch_mode is explicitly Background, the kill switch
+        // wins.
+        off.fetch_mode = OgImageFetchMode::Background;
+        assert_eq!(off.effective_mode(), OgImageFetchMode::Off);
+
+        let on_demand = OgImageSettings {
+            fetch_enabled: true,
+            fetch_mode: OgImageFetchMode::OnDemand,
+            ..OgImageSettings::default()
+        };
+        assert_eq!(on_demand.effective_mode(), OgImageFetchMode::OnDemand);
     }
 
     #[test]

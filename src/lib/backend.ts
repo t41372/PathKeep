@@ -238,6 +238,8 @@ export const backend = {
     call<void>('mark_og_images_shown', { urls }),
   triggerOgImageRefetch: (urls: string[]) =>
     call<number>('trigger_og_image_refetch', { urls }),
+  prefetchOgImages: (budget: number) =>
+    call<[number, number]>('prefetch_og_images', { budget }),
   getOgImageStorageStats: () =>
     call<{
       rowCount: number

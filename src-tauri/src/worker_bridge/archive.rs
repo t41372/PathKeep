@@ -135,6 +135,21 @@ pub(crate) fn refetch_og_images_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Powers the "Rebuild now" affordance in Settings → Link Previews by
+/// enqueuing visited URLs that have no `og_images` row yet, capped at
+/// `budget`. Returns the `(enqueued, succeeded)` pair so the UI can
+/// report progress honestly.
+pub(crate) fn prefetch_og_images_impl(
+    budget: u32,
+    session_database_key: Option<&str>,
+) -> Result<(u32, u32), String> {
+    worker_result(vault_worker::prefetch_og_images_on_demand(
+        session_database_key,
+        budget,
+    ))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Reports the current og:image cache footprint to Settings → Storage.
 pub(crate) fn og_image_storage_stats_impl(
     session_database_key: Option<&str>,

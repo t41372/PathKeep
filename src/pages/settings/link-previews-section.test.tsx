@@ -18,7 +18,11 @@ import {
   type ShellDataContextValue,
 } from '@/app/shell-data-context'
 import { backend } from '@/lib/backend-client'
-import type { AppSnapshot, OgImageCleanupMode } from '@/lib/types'
+import type {
+  AppSnapshot,
+  OgImageCleanupMode,
+  OgImageFetchMode,
+} from '@/lib/types'
 import { LinkPreviewsSection } from './link-previews-section'
 import { clampNumber, parseBlocklist } from './link-previews-helpers'
 
@@ -259,6 +263,416 @@ describe('LinkPreviewsSection', () => {
     expect(last.maxBytes).toBe(512 * 1024 * 1024)
   })
 
+  // ── Fetch mode + budgets + Rebuild now coverage ──────────────────
+
+  test('renders the fetch-mode segmented control with snapshot value selected', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }),
+    )
+    expect(
+      screen
+        .getByTestId('link-previews-fetch-mode-on_demand')
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(
+      screen
+        .getByTestId('link-previews-fetch-mode-background')
+        .getAttribute('aria-checked'),
+    ).toBe('false')
+  })
+
+  test('selecting a different fetch mode persists it via saveConfig', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        fetchMode: 'background',
+        saveConfig,
+      }),
+    )
+    await userEvent.click(screen.getByTestId('link-previews-fetch-mode-off'))
+    const written = saveConfig.mock.calls.at(-1)?.[0].ogImage
+    expect(written.fetchMode).toBe('off')
+    // Other fields preserved unchanged.
+    expect(written.fetchEnabled).toBe(true)
+    expect(written.dailyRefetchBudget).toBe(50)
+    expect(written.newVisitPrefetchBudget).toBe(100)
+  })
+
+  test('clicking the currently-selected fetch mode is a no-op (skips saveConfig)', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        fetchMode: 'background',
+        saveConfig,
+      }),
+    )
+    await userEvent.click(
+      screen.getByTestId('link-previews-fetch-mode-background'),
+    )
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  test('fetch-mode buttons are disabled when fetchEnabled is off', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({ ogImageFetchEnabled: false, fetchMode: 'background' }),
+    )
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-fetch-mode-off',
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-fetch-mode-background',
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  test('daily refetch budget renders the snapshot value', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        dailyRefetchBudget: 123,
+      }),
+    )
+    const input = screen.getByTestId<HTMLInputElement>(
+      'link-previews-daily-refetch-budget',
+    )
+    expect(input.value).toBe('123')
+  })
+
+  test('daily refetch budget persists in-range value via saveConfig', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    fireEvent.change(
+      screen.getByTestId('link-previews-daily-refetch-budget'),
+      { target: { value: '250' } },
+    )
+    expect(
+      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
+    ).toBe(250)
+  })
+
+  test('daily refetch budget clamps above the maximum (5000)', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    fireEvent.change(
+      screen.getByTestId('link-previews-daily-refetch-budget'),
+      { target: { value: '999999' } },
+    )
+    expect(
+      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
+    ).toBe(5000)
+  })
+
+  test('daily refetch budget clamps to 0 for negative values', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    fireEvent.change(
+      screen.getByTestId('link-previews-daily-refetch-budget'),
+      { target: { value: '-9' } },
+    )
+    expect(
+      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
+    ).toBe(0)
+  })
+
+  test('daily refetch budget skips saveConfig when value is unchanged', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        dailyRefetchBudget: 50,
+        saveConfig,
+      }),
+    )
+    fireEvent.change(
+      screen.getByTestId('link-previews-daily-refetch-budget'),
+      { target: { value: '50' } },
+    )
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  test('daily refetch input is disabled when fetchEnabled is off', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(withShell({ ogImageFetchEnabled: false }))
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-daily-refetch-budget',
+        ) as HTMLInputElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  test('prefetch budget input persists in-range value', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    fireEvent.change(screen.getByTestId('link-previews-prefetch-budget'), {
+      target: { value: '777' },
+    })
+    expect(
+      saveConfig.mock.calls.at(-1)?.[0].ogImage.newVisitPrefetchBudget,
+    ).toBe(777)
+  })
+
+  test('prefetch budget clamps above the maximum (5000)', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withShell({ ogImageFetchEnabled: true, saveConfig }))
+    fireEvent.change(screen.getByTestId('link-previews-prefetch-budget'), {
+      target: { value: '60000' },
+    })
+    expect(
+      saveConfig.mock.calls.at(-1)?.[0].ogImage.newVisitPrefetchBudget,
+    ).toBe(5000)
+  })
+
+  test('prefetch budget skips saveConfig when value is unchanged', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        newVisitPrefetchBudget: 100,
+        saveConfig,
+      }),
+    )
+    fireEvent.change(screen.getByTestId('link-previews-prefetch-budget'), {
+      target: { value: '100' },
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  test('prefetch budget disabled when fetchEnabled is off', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(withShell({ ogImageFetchEnabled: false }))
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-prefetch-budget',
+        ) as HTMLInputElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  test('prefetch budget disabled when fetch mode is not Background', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }),
+    )
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-prefetch-budget',
+        ) as HTMLInputElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  test('prefetch budget remains enabled when mode is Background + fetchEnabled', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(
+      withShell({ ogImageFetchEnabled: true, fetchMode: 'background' }),
+    )
+    expect(
+      (
+        screen.getByTestId(
+          'link-previews-prefetch-budget',
+        ) as HTMLInputElement
+      ).disabled,
+    ).toBe(false)
+  })
+
+  test('Rebuild now calls backend.prefetchOgImages with the default budget', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const prefetchSpy = vi
+      .spyOn(backend, 'prefetchOgImages')
+      .mockResolvedValue([12, 9])
+    render(withShell({ ogImageFetchEnabled: true }))
+    await userEvent.click(screen.getByTestId('link-previews-rebuild-now'))
+    expect(prefetchSpy).toHaveBeenCalledTimes(1)
+    expect(prefetchSpy).toHaveBeenCalledWith(500)
+  })
+
+  test('Rebuild now surfaces enqueued/succeeded counts in the summary', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'prefetchOgImages').mockResolvedValue([42, 30])
+    render(withShell({ ogImageFetchEnabled: true }))
+    await userEvent.click(screen.getByTestId('link-previews-rebuild-now'))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-summary')).toHaveTextContent(
+        'Enqueued 42, succeeded 30.',
+      ),
+    )
+  })
+
+  test('Rebuild now refreshes stats after the worker call resolves', async () => {
+    const statsSpy = vi.spyOn(backend, 'getOgImageStorageStats')
+    statsSpy.mockResolvedValueOnce({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    statsSpy.mockResolvedValueOnce({
+      rowCount: 42,
+      blobCount: 30,
+      totalBytes: 1024,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'prefetchOgImages').mockResolvedValue([42, 30])
+    render(withShell({ ogImageFetchEnabled: true }))
+    await userEvent.click(screen.getByTestId('link-previews-rebuild-now'))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-stats')).toHaveTextContent(
+        '42',
+      ),
+    )
+  })
+
+  test('Rebuild now button is disabled when fetchEnabled is off', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(withShell({ ogImageFetchEnabled: false }))
+    expect(
+      (
+        screen.getByTestId('link-previews-rebuild-now') as HTMLButtonElement
+      ).disabled,
+    ).toBe(true)
+  })
+
+  test('Rebuild now clears the pending state even when the worker throws', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'prefetchOgImages').mockRejectedValue(
+      new Error('worker offline'),
+    )
+    render(withShell({ ogImageFetchEnabled: true }))
+    const button = screen.getByTestId(
+      'link-previews-rebuild-now',
+    ) as HTMLButtonElement
+    await userEvent.click(button).catch(() => undefined)
+    // After the promise rejects, the button must re-enable so the user
+    // can retry — otherwise a transient error permanently locks the
+    // affordance until reload.
+    await waitFor(() => expect(button.disabled).toBe(false))
+  })
+
   test('Clear all is guarded by window.confirm', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 10,
@@ -288,15 +702,21 @@ function withShell(overrides: {
   saveConfig?: ShellDataContextValue['saveConfig']
   blockedHosts?: string[]
   cleanup?: OgImageCleanupMode
+  fetchMode?: OgImageFetchMode
+  dailyRefetchBudget?: number
+  newVisitPrefetchBudget?: number
 }) {
   const value: ShellDataContextValue = {
     buildInfo: null,
     appLockStatus: null,
-    snapshot: makeSnapshot(
-      overrides.ogImageFetchEnabled,
-      overrides.blockedHosts ?? [],
-      overrides.cleanup ?? { mode: 'off' as const },
-    ),
+    snapshot: makeSnapshot({
+      ogImageFetchEnabled: overrides.ogImageFetchEnabled,
+      blockedHosts: overrides.blockedHosts ?? [],
+      cleanup: overrides.cleanup ?? { mode: 'off' as const },
+      fetchMode: overrides.fetchMode ?? 'background',
+      dailyRefetchBudget: overrides.dailyRefetchBudget ?? 50,
+      newVisitPrefetchBudget: overrides.newVisitPrefetchBudget ?? 100,
+    }),
     dashboard: null,
     loading: false,
     busyAction: null,
@@ -325,11 +745,14 @@ function withShell(overrides: {
   )
 }
 
-function makeSnapshot(
-  ogImageFetchEnabled: boolean,
-  blockedHosts: string[],
-  cleanup: OgImageCleanupMode,
-): AppSnapshot {
+function makeSnapshot(options: {
+  ogImageFetchEnabled: boolean
+  blockedHosts: string[]
+  cleanup: OgImageCleanupMode
+  fetchMode: OgImageFetchMode
+  dailyRefetchBudget: number
+  newVisitPrefetchBudget: number
+}): AppSnapshot {
   return {
     config: {
       initialized: true,
@@ -353,9 +776,12 @@ function makeSnapshot(
       deterministic: {} as never,
       ai: {} as never,
       ogImage: {
-        fetchEnabled: ogImageFetchEnabled,
-        blockedHosts,
-        cleanup,
+        fetchEnabled: options.ogImageFetchEnabled,
+        fetchMode: options.fetchMode,
+        dailyRefetchBudget: options.dailyRefetchBudget,
+        newVisitPrefetchBudget: options.newVisitPrefetchBudget,
+        blockedHosts: options.blockedHosts,
+        cleanup: options.cleanup,
       },
     },
     archiveStatus: {} as never,

@@ -173,6 +173,25 @@ pub(crate) async fn trigger_og_image_refetch(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Sweeps `urls` minus their existing og:image rows and runs the
+/// difference through the worker pool, capped at `budget`. Powers the
+/// Settings → Link Previews → "Rebuild now" button so the user can warm
+/// the cache for the whole archive without waiting for the daily
+/// post-backup pass. `budget` lands behind the worker's hard cap so a
+/// pathological request can't tie up the pool.
+pub(crate) async fn prefetch_og_images(
+    budget: u32,
+    state: State<'_, SessionState>,
+) -> Result<(u32, u32), String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("prefetch_og_images", move || {
+        worker_bridge::prefetch_og_images_impl(budget, session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Reports the current og:image cache footprint to the Settings panel.
 pub(crate) async fn get_og_image_storage_stats(
     state: State<'_, SessionState>,
