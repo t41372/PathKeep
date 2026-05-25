@@ -25,7 +25,13 @@
  * - Paper Browse primitives + DayNavControl + CalendarPopover.
  */
 
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { cn } from '@/lib/cn'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperBlock, PaperDay } from '@/pages/explorer/paper/group-entries'
@@ -199,6 +205,14 @@ export interface PaperContactSheetProps {
   /** True when the user has chosen the 12h clock (default). */
   hour12?: boolean
   copy: PaperContactSheetCopy
+  /**
+   * Optional filter chip strip (PaperFilterStrip). When supplied it
+   * renders inside the same sticky container as the toolbar so it stays
+   * pinned to the top of the viewport while the user scrolls. Routes
+   * pass `null` to omit the filter row entirely (e.g. surfaces that do
+   * not own URL filter state).
+   */
+  filterStripSlot?: ReactNode
   className?: string
   testId?: string
 }
@@ -219,10 +233,32 @@ export function PaperContactSheet({
   language = 'en',
   hour12 = true,
   copy,
+  filterStripSlot,
   className,
   testId,
 }: PaperContactSheetProps) {
   const toolbarRef = useRef<HTMLDivElement | null>(null)
+  // Day separator sticks below the sticky toolbar. The toolbar height
+  // is no longer the legacy hard-coded 44 px — once the filter strip
+  // landed inside the sticky container, the toolbar grew to ~80 px
+  // (and varies as chips wrap onto a second line). The day header was
+  // briefly hiding behind the filter strip because its `top` was still
+  // pinned at 44. We observe the actual rendered height with a
+  // ResizeObserver and forward the value to every PaperDayHeader.
+  // Memory `feedback-explorer-sticky-day-header` traces the user
+  // requirement: day separator MUST stay pinned, multiple regressions
+  // ago. Don't revert.
+  const [toolbarHeight, setToolbarHeight] = useState(44)
+  useEffect(() => {
+    const node = toolbarRef.current
+    if (!node) return
+    const update = () => setToolbarHeight(node.getBoundingClientRect().height)
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   const viewOptions = useMemo<PaperViewToggleOption<PaperViewMode>[]>(
     () => [
       { value: 'cards', label: `⊞ ${copy.cards}` },
@@ -241,26 +277,41 @@ export function PaperContactSheet({
       <div
         ref={toolbarRef}
         className={cn(
-          'sticky top-0 z-[11] -mx-7 flex h-[44px] items-center justify-between gap-4 px-7',
-          'bg-paper border-b border-transparent',
+          'sticky top-0 z-[11] -mx-7 flex flex-col gap-1.5 px-7',
+          'bg-paper border-b border-transparent pb-1',
         )}
       >
-        <PaperDayNavControl
-          {...dayNav}
-          calendarSlot={dayNav.calendarSlot}
-          testId="paper-contact-sheet-day-nav"
-        />
-        <div className="flex items-center gap-2">
-          <span className="text-ink-faint mr-1 font-mono text-[9.5px] uppercase tracking-[0.08em]">
-            {copy.view}
-          </span>
-          <PaperViewToggle
-            value={viewMode}
-            options={viewOptions}
-            onChange={onViewModeChange}
-            ariaLabel={copy.view}
+        <div className="flex h-[44px] items-center justify-between gap-4">
+          <PaperDayNavControl
+            {...dayNav}
+            calendarSlot={dayNav.calendarSlot}
+            testId="paper-contact-sheet-day-nav"
           />
+          <div className="flex items-center gap-2">
+            <span className="text-ink-faint mr-1 font-mono text-[9.5px] uppercase tracking-[0.08em]">
+              {copy.view}
+            </span>
+            <PaperViewToggle
+              value={viewMode}
+              options={viewOptions}
+              onChange={onViewModeChange}
+              ariaLabel={copy.view}
+            />
+          </div>
         </div>
+        {filterStripSlot ? (
+          // Filter chips live inside the same sticky container as the
+          // day-nav so they stay pinned to the viewport top — a long
+          // archive day previously hid the filter UI off-screen as the
+          // user scrolled, forcing them back to the top to add or remove
+          // a filter.
+          <div
+            data-testid="paper-contact-sheet-filter-strip"
+            className="pb-1 pt-0.5"
+          >
+            {filterStripSlot}
+          </div>
+        ) : null}
       </div>
 
       {target ? (
@@ -301,6 +352,7 @@ export function PaperContactSheet({
                 String(days.length - dayIndex),
               )}
               active={target?.date === day.date}
+              toolbarOffsetPx={toolbarHeight}
             />
 
             {dayInsightsCopy ? (

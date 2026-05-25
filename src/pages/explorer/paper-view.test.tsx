@@ -403,7 +403,14 @@ describe('PaperExplorerView', () => {
       />,
     )
 
-    fireEvent.click(screen.getByText('docs.rs / sqlx'))
+    // The caption + revisits column may both surface the same URL text
+    // now that day insights promotes "Pages you kept opening" to the
+    // primary read. Click the entry button by id rather than via text.
+    const entryButton = document.querySelector(
+      'button[data-entry-id="3"]',
+    ) as HTMLButtonElement
+    expect(entryButton).not.toBeNull()
+    fireEvent.click(entryButton)
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onSelect.mock.calls[0][0].id).toBe(3)
   })
@@ -420,8 +427,23 @@ describe('PaperExplorerView', () => {
     )
 
     fireEvent.click(screen.getByRole('tab', { name: '☰ List' }))
-    expect(screen.getByText('docs.rs / sqlx')).toBeVisible()
-    expect(screen.getByText('arxiv paper')).toBeVisible()
+    // In list mode the entry renders as a single dense row with the URL
+    // in the secondary column. The day-insights "Pages you kept opening"
+    // column also references the URL, so target the list-row button
+    // explicitly via its data-entry-id rather than the bare text — the
+    // text now appears in multiple places.
+    const rows = document.querySelectorAll('button[data-entry-id]')
+    expect(rows.length).toBeGreaterThan(0)
+    expect(
+      Array.from(rows).some((row) =>
+        row.textContent?.includes('docs.rs / sqlx'),
+      ),
+    ).toBe(true)
+    expect(
+      Array.from(rows).some((row) =>
+        row.textContent?.includes('arxiv paper'),
+      ),
+    ).toBe(true)
   })
 
   test('respects an external targetDate change and rebuilds the banner', () => {
@@ -488,8 +510,10 @@ describe('PaperExplorerView', () => {
         />,
       )
       // Cards mode renders card frames identified by the testid prefix.
+      // Aspect ratio is 1.91:1 (Open Graph standard) so the og:image
+      // social-card preview fills the frame without cropping.
       const cardFrames = document.querySelectorAll(
-        'button[data-entry-id] .aspect-\\[16\\/10\\]',
+        'button[data-entry-id] .aspect-\\[1\\.91\\/1\\]',
       )
       expect(cardFrames.length).toBeGreaterThan(0)
     } finally {

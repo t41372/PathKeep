@@ -3,13 +3,17 @@
  * card mode (the default Browse layout).
  *
  * ## Responsibilities
- * - Render the 16:10 image area filled with the domain colour, the favicon (if
+ * - Render the 1.91:1 image area (Open Graph standard so social cards
+ *   are not cropped) filled with the domain colour, the favicon (if
  *   provided), and the domain abbreviation as a fallback overlay.
  * - Render the caption block: serif title (2-line clamp), mono domain, mono time.
  * - Render the optional filmstrip frame number (top-right) and transition-type
  *   token (bottom-left).
  * - Apply a selected/hover treatment that matches `.cs-frame--selected` and
  *   `.cs-frame:hover` — accent border + soft shadow, not a fill change.
+ * - When neither favicon nor og:image is available, render a first-class
+ *   fallback panel (domain word-mark, time, title) instead of a bare
+ *   abbreviation glyph — see `FallbackPanel` below.
  *
  * ## Not responsible for
  * - Domain colour resolution — caller passes `domainColor` (use
@@ -86,7 +90,7 @@ export function PaperContactFrame({
       )}
     >
       <div
-        className="relative flex aspect-[16/10] items-center justify-center overflow-hidden"
+        className="relative flex aspect-[1.91/1] items-center justify-center overflow-hidden"
         style={{
           background: entry.ogImageDataUrl ? '#000' : domainColor,
         }}
@@ -117,15 +121,14 @@ export function PaperContactFrame({
             alt=""
             aria-hidden="true"
             data-testid={testId ? `${testId}-favicon` : undefined}
-            className="h-[40%] w-auto opacity-90"
+            className="h-[44%] w-auto opacity-95"
           />
         ) : (
-          <span
-            className="font-mono text-[15px] font-medium uppercase tracking-[0.08em]"
-            style={{ color: 'rgba(255,255,255,0.65)' }}
-          >
-            {domainAbbr}
-          </span>
+          <FallbackPanel
+            entry={entry}
+            domainAbbr={domainAbbr}
+            testId={testId}
+          />
         )}
         <span
           aria-hidden="true"
@@ -166,5 +169,62 @@ export function PaperContactFrame({
       </div>
       {children}
     </button>
+  )
+}
+
+/**
+ * First-class fallback panel for cards with neither favicon nor og:image.
+ *
+ * Why: the old fallback rendered just the domain abbreviation glyph
+ * centred in the hero area — the card scanned as empty even though the
+ * caption row below carried title / domain / time. With ~half the
+ * archive falling into this state on Chrome takeout imports (no favicons
+ * captured) and on long-tail / personal sites (no og:image authored),
+ * the image area has to earn its space without a hero image.
+ *
+ * We deliberately do not duplicate the title here — the caption row
+ * already does that. Instead the image area becomes a serif "title
+ * page": full-width italic domain word-mark (book-spine style) plus a
+ * mono ledger row with the abbreviation token and visit time. A glance
+ * answers "which site, which moment"; the caption answers "which page".
+ */
+function FallbackPanel({
+  entry,
+  domainAbbr,
+  testId,
+}: {
+  entry: PaperContactFrameEntry
+  domainAbbr: string
+  testId?: string
+}) {
+  const cleanDomain = entry.domain.replace(/^www\./i, '')
+  return (
+    <div
+      data-testid={testId ? `${testId}-fallback` : 'paper-frame-fallback'}
+      className="absolute inset-0 flex flex-col justify-between px-[12px] pt-[9px] pb-[10px]"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span
+          aria-hidden="true"
+          className="font-mono text-[9px] uppercase leading-none tracking-[0.1em]"
+          style={{ color: 'rgba(255,255,255,0.45)' }}
+        >
+          {domainAbbr}
+        </span>
+        <span
+          className="font-mono text-[9.5px] leading-none tabular-nums"
+          style={{ color: 'rgba(255,255,255,0.7)' }}
+        >
+          {entry.time}
+        </span>
+      </div>
+      <div
+        className="truncate font-serif text-[19px] italic leading-[1.1]"
+        style={{ color: 'rgba(255,255,255,0.92)' }}
+        title={cleanDomain}
+      >
+        {cleanDomain}
+      </div>
+    </div>
   )
 }

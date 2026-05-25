@@ -454,44 +454,40 @@ export function PaperExplorerView({
   ) : null
 
   return (
-    <>
-      {filterStripSlot ? (
-        <div className="mt-3 px-2">{filterStripSlot}</div>
-      ) : null}
-      <PaperContactSheet
-        className={className}
-        testId={testId}
-        days={days}
-        viewMode={viewMode}
-        onViewModeChange={handleViewModeChange}
-        dayNav={{ ...dayNav, calendarSlot }}
-        target={target}
-        onClearTarget={onClearTarget}
-        selectedEntryId={selectedEntryId}
-        onSelectEntry={onSelectEntry}
-        loading={loading}
-        pagination={
-          pagination
-            ? {
-                ...pagination,
-                copy: copy.pagination,
-              }
-            : null
-        }
-        infiniteScroll={
-          infiniteScroll
-            ? {
-                ...infiniteScroll,
-                copy: copy.infiniteScroll,
-              }
-            : null
-        }
-        dayInsightsCopy={copy.dayInsights}
-        language={language}
-        hour12={clockFormat === '12h'}
-        copy={copy.contactSheet}
-      />
-    </>
+    <PaperContactSheet
+      className={className}
+      testId={testId}
+      days={days}
+      viewMode={viewMode}
+      onViewModeChange={handleViewModeChange}
+      dayNav={{ ...dayNav, calendarSlot }}
+      target={target}
+      onClearTarget={onClearTarget}
+      selectedEntryId={selectedEntryId}
+      onSelectEntry={onSelectEntry}
+      loading={loading}
+      pagination={
+        pagination
+          ? {
+              ...pagination,
+              copy: copy.pagination,
+            }
+          : null
+      }
+      infiniteScroll={
+        infiniteScroll
+          ? {
+              ...infiniteScroll,
+              copy: copy.infiniteScroll,
+            }
+          : null
+      }
+      dayInsightsCopy={copy.dayInsights}
+      language={language}
+      hour12={clockFormat === '12h'}
+      copy={copy.contactSheet}
+      filterStripSlot={filterStripSlot}
+    />
   )
 }
 

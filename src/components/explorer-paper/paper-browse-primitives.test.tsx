@@ -154,10 +154,18 @@ describe('PaperContactFrame', () => {
     )
 
     expect(screen.getByText('tokio-rs/tokio')).toBeVisible()
-    expect(screen.getByText('github.com')).toBeVisible()
-    expect(screen.getByText('21:42')).toBeVisible()
+    // The card has no favicon and no og:image → the fallback panel
+    // renders a domain word-mark + ABBR token + time chip on top of the
+    // domain colour. That intentionally repeats the caption's domain and
+    // time so the image area carries information at a glance; assert via
+    // getAllByText to confirm BOTH the fallback and caption surface them.
+    expect(screen.getAllByText('github.com').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('21:42').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('GIT')).toBeVisible()
     expect(screen.getByText('05')).toBeVisible()
     expect(screen.getByText('link')).toBeVisible()
+    // The fallback panel renders explicitly under the testId-scoped data slot.
+    expect(screen.getByTestId('frame-card-fallback')).toBeInTheDocument()
   })
 
   test('forwards the entry on click and reflects selected state', () => {
@@ -297,6 +305,111 @@ describe('PaperContactFrame', () => {
       />,
     )
     expect(screen.getByText('DOC')).toBeVisible()
+  })
+
+  test('fallback panel strips a leading www. prefix from the domain word-mark', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 90,
+          domain: 'www.example.com',
+          url: 'https://www.example.com/page',
+          time: '14:00',
+          ogImageDataUrl: null,
+          faviconDataUrl: null,
+        }}
+        domainColor="#888"
+        domainAbbr="EXM"
+        testId="frame-www"
+      />,
+    )
+    // The word-mark in the fallback panel drops `www.` so the visual
+    // identity is the canonical brand label; the caption row below
+    // shows the raw `entry.domain` (still `www.example.com`).
+    const fallback = screen.getByTestId('frame-www-fallback')
+    expect(fallback.textContent).toContain('example.com')
+    expect(fallback.textContent).not.toContain('www.example.com')
+  })
+
+  test('fallback panel preserves the case of mixed-case domains', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 91,
+          domain: 'GitHub.com',
+          url: null,
+          time: '09:00',
+          ogImageDataUrl: null,
+          faviconDataUrl: null,
+        }}
+        domainColor="#444"
+        domainAbbr="GIT"
+        testId="frame-case"
+      />,
+    )
+    // sanitizeExplorerDisplayText / strip-www is case-insensitive on
+    // the prefix only; the rest stays untouched.
+    expect(
+      screen.getByTestId('frame-case-fallback').textContent,
+    ).toContain('GitHub.com')
+  })
+
+  test('fallback panel renders the time chip even when title is absent', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 92,
+          domain: 'example.com',
+          time: '23:59',
+          ogImageDataUrl: null,
+          faviconDataUrl: null,
+        }}
+        domainColor="#222"
+        domainAbbr="EXM"
+        testId="frame-time"
+      />,
+    )
+    const fallback = screen.getByTestId('frame-time-fallback')
+    expect(fallback.textContent).toContain('23:59')
+    expect(fallback.textContent).toContain('EXM')
+  })
+
+  test('fallback panel renders without testId-scoped data-testid when testId is undefined', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 93,
+          domain: 'example.com',
+          time: '01:23',
+          ogImageDataUrl: null,
+          faviconDataUrl: null,
+        }}
+        domainColor="#222"
+        domainAbbr="EXM"
+      />,
+    )
+    // The default testid `paper-frame-fallback` is the fallback
+    // identifier when no `testId` is provided.
+    expect(screen.getByTestId('paper-frame-fallback')).toBeInTheDocument()
+  })
+
+  test('og:image branch suppresses the FallbackPanel even when domain has no www', () => {
+    render(
+      <PaperContactFrame
+        entry={{
+          id: 94,
+          domain: 'example.com',
+          time: '03:21',
+          ogImageDataUrl: 'data:image/png;base64,xyz',
+          faviconDataUrl: null,
+        }}
+        domainColor="#222"
+        domainAbbr="EXM"
+        testId="frame-og-only"
+      />,
+    )
+    // FallbackPanel must not render when og:image is present.
+    expect(screen.queryByTestId('frame-og-only-fallback')).toBeNull()
   })
 
   test('is safe to click without an onClick handler', () => {
