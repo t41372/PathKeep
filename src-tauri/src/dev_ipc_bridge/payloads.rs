@@ -275,6 +275,31 @@ pub(super) struct AnnotationLimitPayload {
 pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
 pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
 
+/// Bridge envelope for export_app_data — the desktop command takes the
+/// user-chosen target path as a single string field.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportAppDataPayload {
+    pub(super) target_path: String,
+}
+
+/// Bridge envelope for preview_app_data_import — carries the bundle path
+/// the user picked from the OS file picker.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PreviewAppDataImportPayload {
+    pub(super) bundle_path: String,
+}
+
+/// Bridge envelope for apply_app_data_import — carries the bundle path
+/// plus the confirm-overwrite acknowledgement the Settings PME captured.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ApplyAppDataImportPayload {
+    pub(super) bundle_path: String,
+    pub(super) options: vault_core::ApplyImportOptions,
+}
+
 /// Provides an optional human-readable reason for locking the app session.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

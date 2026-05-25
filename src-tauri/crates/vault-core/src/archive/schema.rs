@@ -173,6 +173,16 @@ fn finish_archive_bootstrap_transaction(connection: &Connection, result: Result<
     }
 }
 
+/// Returns the highest schema migration version this binary knows how to
+/// apply. The Export/Import flow uses this to decide whether a bundle from
+/// an *older* PathKeep build can be safely upgraded forward (the bundle's
+/// recorded version must be ≤ this value), or whether a bundle from a
+/// *newer* build must be rejected because the local binary lacks the
+/// migration to project the new schema down.
+pub fn max_schema_version() -> i64 {
+    MIGRATIONS.last().map(|spec| spec.version).unwrap_or(0)
+}
+
 /// Returns the schema version currently recorded in the archive metadata.
 pub fn current_version(connection: &Connection) -> Result<i64> {
     if !table_exists(connection, "schema_migrations")? {

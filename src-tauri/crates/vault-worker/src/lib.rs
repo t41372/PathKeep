@@ -21,6 +21,7 @@ mod context;
 mod intelligence;
 mod job_runtime;
 mod mcp;
+mod migration;
 mod schedule;
 mod security;
 
@@ -29,6 +30,7 @@ pub(crate) use self::intelligence::{
     complete_claimed_assistant_job, complete_claimed_index_job, execute_core_intelligence_job,
     maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain, start_ai_job_control,
 };
+pub use self::migration::{apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{

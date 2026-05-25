@@ -10,6 +10,7 @@ mod app;
 mod archive;
 mod import;
 mod intelligence;
+mod migration;
 mod remote;
 mod schedule;
 mod security;
@@ -21,6 +22,13 @@ mod security;
 // #[cfg_attr(test, allow(dead_code))] on the definition.
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use self::annotations::*;
+// `migration::*` follows the same cfg-cleanliness pattern as annotations:
+// the worker_bridge test block does not yet drive Export/Import (the
+// integration tests live in `vault_core::migration::tests`), so each
+// `_impl` already carries its own #[cfg_attr(test, allow(dead_code))]
+// and the glob is only loaded for production builds.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::migration::*;
 pub(crate) use self::{
     app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
 };

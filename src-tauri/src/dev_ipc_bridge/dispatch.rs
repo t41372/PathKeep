@@ -229,6 +229,27 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.limit,
             )?)
         }
+        "export_app_data" => {
+            let payload = parse_payload::<ExportAppDataPayload>(payload)?;
+            json_value!(worker_bridge::export_app_data_impl(
+                session_key(&state.session).as_deref(),
+                std::path::PathBuf::from(payload.target_path),
+            )?)
+        }
+        "preview_app_data_import" => {
+            let payload = parse_payload::<PreviewAppDataImportPayload>(payload)?;
+            json_value!(worker_bridge::preview_app_data_import_impl(std::path::PathBuf::from(
+                payload.bundle_path
+            ),)?)
+        }
+        "apply_app_data_import" => {
+            let payload = parse_payload::<ApplyAppDataImportPayload>(payload)?;
+            json_value!(worker_bridge::apply_app_data_import_impl(
+                session_key(&state.session).as_deref(),
+                std::path::PathBuf::from(payload.bundle_path),
+                payload.options,
+            )?)
+        }
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(
                 session_key(&state.session).as_deref()

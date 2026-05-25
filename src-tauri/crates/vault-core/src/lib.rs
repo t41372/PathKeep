@@ -29,6 +29,7 @@ mod intelligence_blobs;
 mod intelligence_catalog;
 pub mod intelligence_runtime;
 mod intelligence_sections;
+pub mod migration;
 pub mod models;
 pub mod remote;
 pub mod takeout;
@@ -83,6 +84,11 @@ pub use intelligence_runtime::{
     retry_intelligence_job, update_intelligence_job_artifact,
 };
 pub use intelligence_sections::build_core_intelligence_section_meta;
+pub use migration::{
+    ApplyImportOptions, EXPORT_FORMAT_VERSION, ExportManifest, ExportManifestFile,
+    ExportedBundle, ImportExclusionNote, ImportPreview, ImportResult, apply_import,
+    export_app_data, preview_import,
+};
 pub use models::*;
 pub use remote::{preview_remote_backup, run_remote_backup, verify_remote_backup};
 pub use takeout::{
