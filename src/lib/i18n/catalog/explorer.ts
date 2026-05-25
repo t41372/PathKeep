@@ -82,6 +82,8 @@ export const explorerNamespaceCatalog = {
     advancedSearchHelpOr: 'Match either side of OR.',
     advancedSearchHelpField: 'Limit terms to title or URL fields.',
     advancedSearchHelpFileDate: 'Filter by URL extension and visit date.',
+    advancedSearchHelpTag: 'Match user-applied tags. Negate with `-tag:`.',
+    advancedSearchHelpNote: 'Substring match against your own notes on a page.',
     advancedSearchHelpRegexNote:
       'Regex mode uses Rust regex; look-around and backreferences are not supported.',
     recentSearchesEyebrow: 'RECENT',
@@ -452,6 +454,8 @@ export const explorerNamespaceCatalog = {
     advancedSearchHelpOr: '匹配 OR 任意一侧。',
     advancedSearchHelpField: '把关键词限制在标题或 URL 字段。',
     advancedSearchHelpFileDate: '按 URL 后缀和访问日期筛选。',
+    advancedSearchHelpTag: '按用户添加的标签匹配，使用 `-tag:` 排除。',
+    advancedSearchHelpNote: '对页面笔记内容做子串匹配。',
     advancedSearchHelpRegexNote:
       '正则模式使用 Rust regex，不支持前后瞻和反向引用。',
     recentSearchesEyebrow: '最近搜索',
@@ -815,6 +819,8 @@ export const explorerNamespaceCatalog = {
     advancedSearchHelpOr: '匹配 OR 任一側。',
     advancedSearchHelpField: '把關鍵字限制在標題或 URL 欄位。',
     advancedSearchHelpFileDate: '依 URL 副檔名和瀏覽日期篩選。',
+    advancedSearchHelpTag: '依使用者標籤匹配，使用 `-tag:` 排除。',
+    advancedSearchHelpNote: '對頁面筆記內容做子字串匹配。',
     advancedSearchHelpRegexNote:
       '正則模式使用 Rust regex，不支援前後瞻和反向引用。',
     recentSearchesEyebrow: '最近搜尋',

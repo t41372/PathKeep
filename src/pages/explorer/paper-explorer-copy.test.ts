@@ -190,6 +190,8 @@ describe('buildPaperSearchViewCopy', () => {
     expect(copy.hero.removeChipLabel).toContain('{label}')
     expect(copy.hero.advancedSyntaxHelp.title).toBe('Advanced keyword syntax')
     expect(copy.hero.advancedSyntaxHelp.siteExclude).toContain('github.com')
+    expect(copy.hero.advancedSyntaxHelp.tag).toContain('tag')
+    expect(copy.hero.advancedSyntaxHelp.note).toContain('note')
     expect(copy.empty.tryAskingHeading).toBe('Try asking')
     expect(copy.empty.recentMeta).toContain('{mode}')
     expect(copy.resultsCount).toContain('{count}')

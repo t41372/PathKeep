@@ -32,6 +32,8 @@ const COPY: PaperSearchHeroCopy = {
     or: 'Match either side of OR.',
     field: 'Limit terms to title or URL.',
     fileDate: 'Filter by URL extension and visit date.',
+    tag: 'Match user-applied tags.',
+    note: 'Substring match against your own notes.',
     regexNote: 'Regex mode uses Rust regex.',
   },
 }
@@ -305,6 +307,10 @@ describe('PaperSearchHero', () => {
     expect(panel).toBeVisible()
     expect(panel).toHaveTextContent('site:github.com -pathkeep')
     expect(panel).toHaveTextContent('Advanced keyword syntax')
+    // Confirms the §3.3 A tag/note operators surface in the popover so
+    // users discover them via the same hover affordance.
+    expect(panel).toHaveTextContent('tag:rust -tag:archived')
+    expect(panel).toHaveTextContent('note:"design doc"')
 
     fireEvent.mouseLeave(trigger)
     expect(

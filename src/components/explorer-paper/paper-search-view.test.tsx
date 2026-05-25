@@ -36,6 +36,8 @@ const COPY: PaperSearchViewCopy = {
       or: 'Match either side of OR.',
       field: 'Limit terms to title or URL.',
       fileDate: 'Filter by URL extension and visit date.',
+      tag: 'Match user-applied tags.',
+      note: 'Substring match against your own notes.',
       regexNote: 'Regex mode uses Rust regex.',
     },
   },

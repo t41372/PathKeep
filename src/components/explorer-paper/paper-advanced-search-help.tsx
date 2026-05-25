@@ -35,6 +35,8 @@ const ADVANCED_SEARCH_EXAMPLES = [
     code: 'filetype:pdf after:2026-05-01 before:2026-05-07',
     labelKey: 'fileDate',
   },
+  { code: 'tag:rust -tag:archived', labelKey: 'tag' },
+  { code: 'note:"design doc"', labelKey: 'note' },
 ] as const
 
 export interface PaperAdvancedSearchHelpCopy {
@@ -46,6 +48,8 @@ export interface PaperAdvancedSearchHelpCopy {
   or: string
   field: string
   fileDate: string
+  tag: string
+  note: string
   regexNote: string
 }
 

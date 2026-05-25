@@ -228,6 +228,8 @@ export function buildPaperSearchViewCopy(
         or: t('advancedSearchHelpOr'),
         field: t('advancedSearchHelpField'),
         fileDate: t('advancedSearchHelpFileDate'),
+        tag: t('advancedSearchHelpTag'),
+        note: t('advancedSearchHelpNote'),
         regexNote: t('advancedSearchHelpRegexNote'),
       },
     },
