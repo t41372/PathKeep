@@ -13,8 +13,9 @@
 
 use super::*;
 use browser_history_fixtures::{
-    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, TakeoutBrowserHistoryFixture,
-    TakeoutBrowserRecord,
+    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, FirefoxPlaceRow,
+    FirefoxPlacesFixture, FirefoxVisitRow, SafariHistoryFixture, SafariHistoryItemRow,
+    SafariHistoryVisitRow, TakeoutBrowserHistoryFixture, TakeoutBrowserRecord,
 };
 use rusqlite::Connection;
 use tempfile::{TempDir, tempdir};
@@ -671,4 +672,528 @@ fn takeout_record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBro
         client_id: None,
         favicon_url: None,
     }
+}
+
+// ----------------------------------------------------------------------
+// C4: URL upsert silently regresses counts on re-import (B1)
+// ----------------------------------------------------------------------
+
+/// C4 — Demonstrates audit bug **B1**. The URL upsert in
+/// `writes.rs:123-138` unconditionally overwrites `visit_count`, `title`,
+/// `typed_count`, and `hidden`; only `last_visit_ms` has a "keep newer"
+/// guard. Re-importing an older snapshot (e.g. restoring a checkpoint or
+/// re-ingesting an older Takeout export through the chromium adapter)
+/// therefore rolls archive counts BACKWARDS even though no visit row was
+/// deleted. This `#[should_panic]` test pins the broken behavior — flip
+/// to plain `#[test]` once each affected field is gated on
+/// `excluded.last_visit_ms >= urls.last_visit_ms`.
+#[test]
+#[should_panic(expected = "B1 fix required")]
+fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
+    let env = ScenarioEnv::new();
+    let visit_two_ms = 1_777_809_600_000_i64;
+
+    // Snapshot 1: URL with lifetime visit_count=10.
+    let first_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/long-tracked".to_string(),
+            title: Some("Long Tracked Page".to_string()),
+            visit_count: 10,
+            typed_count: 4,
+            last_visit_unix_ms: visit_two_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, visit_two_ms));
+    let first_snapshot = snapshot_for_fixture(
+        &first_fixture,
+        chromium_profile("chrome:Default", "Google Chrome"),
+    );
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+    assert_eq!(stored_visit_count(&env, "chrome:Default", 1), 10);
+
+    // Snapshot 2: same URL but visit_count=5 (the older snapshot regression).
+    // last_visit_ms is identical, so the existing guard does not fire and
+    // the unconditional overwrite path runs.
+    let second_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/long-tracked".to_string(),
+            title: Some("Regressed Title".to_string()),
+            visit_count: 5,
+            typed_count: 1,
+            last_visit_unix_ms: visit_two_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, visit_two_ms));
+    let second_snapshot = snapshot_for_fixture(
+        &second_fixture,
+        chromium_profile("chrome:Default", "Google Chrome"),
+    );
+    run_one_ingest(&env, 2, &second_snapshot, false);
+
+    let final_count = stored_visit_count(&env, "chrome:Default", 1);
+    assert!(
+        final_count >= 10,
+        "B1 fix required: urls.visit_count must not regress on re-import (got {final_count}, was 10)"
+    );
+}
+
+fn stored_visit_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> i64 {
+    let archive = env.open_archive();
+    archive
+        .query_row(
+            "SELECT visit_count FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = ?1 AND urls.source_url_id = ?2",
+            rusqlite::params![profile_key, source_url_id],
+            |row| row.get(0),
+        )
+        .expect("query visit_count")
+}
+
+// ----------------------------------------------------------------------
+// F2: Firefox incremental revisit of an old URL drops the new visit (B2)
+// ----------------------------------------------------------------------
+
+/// F2 — Firefox equivalent of C3. The Chromium parser's
+/// `INGEST_URLS_SQL` has an `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
+/// fallback to catch URLs whose `last_visit_time` is below the watermark
+/// but which received a new visit anyway. The Firefox parser at
+/// `firefox/mod.rs:22-33` lacks that fallback: its URL stream uses
+/// `WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1` only. A
+/// long-tail revisit therefore falls through `url_id_map` and is
+/// silently dropped by `ArchiveChunkConsumer::visits`. `#[should_panic]`
+/// today; flip to plain `#[test]` after Firefox grows the OR fallback.
+#[test]
+#[should_panic(expected = "B2 fix required for Firefox")]
+fn f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2() {
+    let env = ScenarioEnv::new();
+    // Long-tail URL (T1) + anchor URL (T2) so the URL watermark
+    // advances past T1 after the first import; the second-pass URL
+    // query then excludes the long-tail URL.
+    let visit_long_tail_ms = 1_777_680_000_000_i64;
+    let visit_anchor_ms = 1_777_809_600_000_i64;
+    let visit_revisit_ms = 1_777_872_930_000_i64;
+
+    let first_fixture = FirefoxPlacesFixture::new()
+        .add_place(FirefoxPlaceRow {
+            id: 1,
+            url: "https://example.com/firefox-long-tail".to_string(),
+            title: Some("Firefox Long Tail".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_long_tail_ms,
+        })
+        .add_place(FirefoxPlaceRow {
+            id: 2,
+            url: "https://example.com/firefox-anchor".to_string(),
+            title: Some("Firefox Anchor".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_anchor_ms,
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 10,
+            place_id: 1,
+            visit_time_unix_ms: visit_long_tail_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 20,
+            place_id: 2,
+            visit_time_unix_ms: visit_anchor_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        });
+    let first_snapshot = firefox_snapshot(&first_fixture, "firefox:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    // Pass 2: URL 1's last_visit_date stays at T1 (below the watermark);
+    // its new visit (id=30, time > T2) only appears in moz_historyvisits.
+    // Without the OR fallback the URL is filtered out and the visit's
+    // url_id_map lookup fails.
+    let second_fixture = FirefoxPlacesFixture::new()
+        .add_place(FirefoxPlaceRow {
+            id: 1,
+            url: "https://example.com/firefox-long-tail".to_string(),
+            title: Some("Firefox Long Tail".to_string()),
+            visit_count: 2,
+            hidden: false,
+            last_visit_unix_ms: visit_long_tail_ms,
+        })
+        .add_place(FirefoxPlaceRow {
+            id: 2,
+            url: "https://example.com/firefox-anchor".to_string(),
+            title: Some("Firefox Anchor".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_anchor_ms,
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 10,
+            place_id: 1,
+            visit_time_unix_ms: visit_long_tail_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 20,
+            place_id: 2,
+            visit_time_unix_ms: visit_anchor_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 30,
+            place_id: 1,
+            visit_time_unix_ms: visit_revisit_ms,
+            from_visit: Some(20),
+            visit_type: Some(1),
+        });
+    let second_snapshot = firefox_snapshot(&second_fixture, "firefox:Default");
+    run_one_ingest(&env, 2, &second_snapshot, true);
+
+    let visits = count_visits_for_profile(&env, "firefox:Default");
+    assert_eq!(
+        visits, 3,
+        "B2 fix required for Firefox: long-tail revisit silently dropped (got {visits})"
+    );
+}
+
+fn firefox_snapshot(fixture: &FirefoxPlacesFixture, profile_id: &str) -> ProfileSnapshot {
+    let temp_dir = tempdir().expect("firefox snapshot tempdir");
+    let history_path = temp_dir.path().join("places.sqlite");
+    fixture.write(&history_path).expect("write firefox fixture");
+    let history_bytes = std::fs::metadata(&history_path).map(|meta| meta.len()).unwrap_or(0);
+    let mut profile = crate::models::BrowserProfile {
+        profile_id: profile_id.to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "firefox".to_string(),
+        browser_name: "Firefox".to_string(),
+        user_name: Some("synthetic-user".to_string()),
+        profile_path: format!("/synthetic/{profile_id}"),
+        history_path: Some(format!("/synthetic/{profile_id}/places.sqlite")),
+        favicons_path: None,
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: Some("125.0".to_string()),
+        history_file_name: "places.sqlite".to_string(),
+        history_bytes,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: crate::models::BrowserRetentionBoundary::default(),
+    };
+    profile.history_bytes = history_bytes;
+    ProfileSnapshot {
+        profile,
+        temp_dir,
+        history_path,
+        favicons_path: None,
+        source_hashes: vec![FileFingerprint {
+            path: "places.sqlite".to_string(),
+            sha256: "synthetic-firefox-hash".to_string(),
+        }],
+    }
+}
+
+// ----------------------------------------------------------------------
+// S2: Safari long-tail revisit correctly handled — refutes B2 for Safari
+// ----------------------------------------------------------------------
+
+/// S2 — Audit **B2** lumped Firefox and Safari together as both missing
+/// the Chromium OR-fallback. The harness proved that Safari does not
+/// actually have the bug: the Safari URL query at `safari/mod.rs:42-56`
+/// computes `MAX(history_visits.visit_time)` *on the fly* from the
+/// visits table (Safari's `history_items` table has no cached
+/// `last_visit_time` column), so any new visit row immediately raises
+/// the item's effective last-visit time and the URL gets re-streamed
+/// without needing an OR fallback. This contract scenario pins that
+/// correct behavior — if a future refactor introduces a stored
+/// `last_visit_time` cache on `history_items` without the OR fallback,
+/// the same long-tail revisit bug would emerge and this test would
+/// flip from passing to failing.
+#[test]
+fn s2_safari_long_tail_revisit_captured_without_or_fallback() {
+    let env = ScenarioEnv::new();
+    // Long-tail item (T1) + anchor item (T2). The anchor pushes the URL
+    // watermark past T1; the second-pass Safari URL query (which
+    // computes per-item MAX(visit_time) on the fly) excludes the
+    // long-tail item; the new visit references it and gets dropped.
+    let visit_long_tail_ms = 1_777_680_000_000_i64;
+    let visit_anchor_ms = 1_777_809_600_000_i64;
+    let visit_revisit_ms = 1_777_872_930_000_i64;
+
+    let first_fixture = SafariHistoryFixture::new()
+        .add_item(SafariHistoryItemRow {
+            id: 1,
+            url: "https://example.com/safari-long-tail".to_string(),
+        })
+        .add_item(SafariHistoryItemRow {
+            id: 2,
+            url: "https://example.com/safari-anchor".to_string(),
+        })
+        .add_visit(safari_visit(9, 1, "Safari Long Tail", visit_long_tail_ms))
+        .add_visit(safari_visit(19, 2, "Safari Anchor", visit_anchor_ms));
+    let first_snapshot = safari_snapshot(&first_fixture, "safari:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    let second_fixture = SafariHistoryFixture::new()
+        .add_item(SafariHistoryItemRow {
+            id: 1,
+            url: "https://example.com/safari-long-tail".to_string(),
+        })
+        .add_item(SafariHistoryItemRow {
+            id: 2,
+            url: "https://example.com/safari-anchor".to_string(),
+        })
+        .add_visit(safari_visit(9, 1, "Safari Long Tail", visit_long_tail_ms))
+        .add_visit(safari_visit(19, 2, "Safari Anchor", visit_anchor_ms))
+        .add_visit(safari_visit(29, 1, "Safari Long Tail Revisited", visit_revisit_ms));
+    let second_snapshot = safari_snapshot(&second_fixture, "safari:Default");
+    run_one_ingest(&env, 2, &second_snapshot, true);
+
+    let visits = count_visits_for_profile(&env, "safari:Default");
+    assert_eq!(
+        visits, 3,
+        "Safari MAX(visit_time)-computed URL query already handles long-tail revisits without an OR fallback"
+    );
+}
+
+fn safari_visit(id: i64, history_item: i64, title: &str, visit_time_unix_ms: i64) -> SafariHistoryVisitRow {
+    SafariHistoryVisitRow {
+        id,
+        history_item,
+        title: Some(title.to_string()),
+        visit_time_unix_ms,
+        load_successful: Some(true),
+        http_non_get: Some(false),
+        synthesized: Some(false),
+        redirect_source: None,
+        redirect_destination: None,
+        origin: Some(0),
+        generation: Some(1),
+        attributes: Some(0),
+        score: Some(0.5),
+    }
+}
+
+fn safari_snapshot(fixture: &SafariHistoryFixture, profile_id: &str) -> ProfileSnapshot {
+    let temp_dir = tempdir().expect("safari snapshot tempdir");
+    let history_path = temp_dir.path().join("History.db");
+    fixture.write(&history_path).expect("write safari fixture");
+    let history_bytes = std::fs::metadata(&history_path).map(|meta| meta.len()).unwrap_or(0);
+    let profile = crate::models::BrowserProfile {
+        profile_id: profile_id.to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "safari".to_string(),
+        browser_name: "Safari".to_string(),
+        user_name: Some("synthetic-user".to_string()),
+        profile_path: format!("/synthetic/{profile_id}"),
+        history_path: Some(format!("/synthetic/{profile_id}/History.db")),
+        favicons_path: None,
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: Some("18.4".to_string()),
+        history_file_name: "History.db".to_string(),
+        history_bytes,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: crate::models::BrowserRetentionBoundary::default(),
+    };
+    ProfileSnapshot {
+        profile,
+        temp_dir,
+        history_path,
+        favicons_path: None,
+        source_hashes: vec![FileFingerprint {
+            path: "History.db".to_string(),
+            sha256: "synthetic-safari-hash".to_string(),
+        }],
+    }
+}
+
+// ----------------------------------------------------------------------
+// T3: Takeout × local Chrome same-period overlap — B4 contract
+// ----------------------------------------------------------------------
+
+/// T3 — Same-period overlap between a local Chrome profile and the
+/// Takeout JSON of the same Chrome installation. The audit's **B4**
+/// observation: even when records describe literally the same browsing
+/// event, the fingerprint inputs differ between the two source paths
+/// (local Chrome has a real `transition` and the browser's real
+/// `app_id`; Takeout hardcodes `app_id = "takeout"` and `transition =
+/// None`), so even a hypothetical cross-source-profile fingerprint
+/// dedup would not match. This contract scenario pins the current
+/// storage truth — 3 + 3 = 6 visits across two profiles — and
+/// documents the input divergence so any future "merge across sources"
+/// proposal must address the fingerprint normalization gap first.
+#[test]
+fn t3_takeout_and_local_chrome_same_period_b4_contract() {
+    let env = ScenarioEnv::new();
+    let day_one = 1_777_680_000_000_i64;
+    let day_two = 1_777_809_600_000_i64;
+    let day_three = 1_777_872_930_000_i64;
+
+    let chrome_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/shared-one".to_string(),
+            title: Some("Shared One".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/shared-two".to_string(),
+            title: Some("Shared Two".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 3,
+            url: "https://example.com/shared-three".to_string(),
+            title: Some("Shared Three".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_three,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, day_one))
+        .add_visit(visit_row(11, 2, day_two))
+        .add_visit(visit_row(12, 3, day_three));
+    let chrome_snapshot = snapshot_for_fixture(
+        &chrome_fixture,
+        chromium_profile("chrome:Default", "Google Chrome"),
+    );
+    run_one_ingest(&env, 1, &chrome_snapshot, false);
+
+    let takeout_source = tempdir().expect("takeout source root");
+    let takeout_payload = takeout_source.path().join("Chrome/BrowserHistory.json");
+    TakeoutBrowserHistoryFixture::new()
+        .add_record(takeout_record("https://example.com/shared-one", "Shared One", day_one))
+        .add_record(takeout_record("https://example.com/shared-two", "Shared Two", day_two))
+        .add_record(takeout_record(
+            "https://example.com/shared-three",
+            "Shared Three",
+            day_three,
+        ))
+        .write(&takeout_payload)
+        .expect("write takeout fixture");
+    crate::takeout::import_takeout(
+        &env.paths,
+        &env.config,
+        None,
+        &crate::models::TakeoutRequest {
+            source_path: takeout_source.path().display().to_string(),
+            dry_run: false,
+        },
+    )
+    .expect("import takeout");
+
+    // Each source kept independent rows under its own source_profile.
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 3);
+    assert_eq!(count_visits_for_profile(&env, "takeout::browser-history"), 3);
+    assert_eq!(count_archive_rows(&env, "visits"), 6);
+
+    // Fingerprint divergence: a future cross-source dedup design has to
+    // normalize app_id (and likely also project transition to None) before
+    // any pair of these visits could share a fingerprint.
+    let archive = env.open_archive();
+    let chrome_app_ids: Vec<Option<String>> = archive
+        .prepare(
+            "SELECT app_id FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = 'chrome:Default'",
+        )
+        .expect("prepare chrome")
+        .query_map([], |row| row.get(0))
+        .expect("query chrome")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect chrome");
+    let takeout_app_ids: Vec<Option<String>> = archive
+        .prepare(
+            "SELECT app_id FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = 'takeout::browser-history'",
+        )
+        .expect("prepare takeout")
+        .query_map([], |row| row.get(0))
+        .expect("query takeout")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect takeout");
+    assert!(chrome_app_ids.iter().all(|app_id| app_id.is_none()));
+    assert!(takeout_app_ids.iter().all(|app_id| app_id.as_deref() == Some("takeout")));
+}
+
+// ----------------------------------------------------------------------
+// T5: Takeout time_usec unit contract — B6 pinning
+// ----------------------------------------------------------------------
+
+/// T5 — Pins the current interpretation of Takeout's `time_usec` field
+/// as **Unix-epoch microseconds**. The audit raised **B6** because the
+/// helper `micros_to_unix_ms` (parser side) name asserts Unix
+/// microseconds but Google's Takeout dumps historically used Chrome
+/// epoch microseconds (since 1601). The harness writer emits Unix
+/// microseconds; the parser reads Unix microseconds; this test pins
+/// that contract end-to-end. If anyone later flips the parser to assume
+/// Chrome epoch, T5 fails immediately. If a future real-world Takeout
+/// sample disagrees with this interpretation, the writer + this test
+/// must be updated together — the audit B6 note documents the open
+/// question.
+#[test]
+fn t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract() {
+    let env = ScenarioEnv::new();
+    let source_root = tempdir().expect("takeout source root");
+    let payload_path = source_root.path().join("Chrome/BrowserHistory.json");
+
+    // 2026-05-02T00:00:00Z = 1_777_680_000_000 Unix ms = 1_777_680_000_000_000 Unix μs.
+    // If the parser treated this as Chrome μs the resulting Unix ms would
+    // be (1_777_680_000_000_000 - 11_644_473_600_000_000) / 1000, which
+    // produces a negative or wildly different timestamp the assertion
+    // below catches.
+    let visit_one = 1_777_680_000_000_i64;
+
+    TakeoutBrowserHistoryFixture::new()
+        .add_record(takeout_record("https://example.com/time-pin", "Time Pin", visit_one))
+        .write(&payload_path)
+        .expect("write takeout fixture");
+
+    crate::takeout::import_takeout(
+        &env.paths,
+        &env.config,
+        None,
+        &crate::models::TakeoutRequest {
+            source_path: source_root.path().display().to_string(),
+            dry_run: false,
+        },
+    )
+    .expect("import takeout");
+
+    let archive = env.open_archive();
+    let (visit_time_ms, visit_time_iso): (i64, String) = archive
+        .query_row(
+            "SELECT visits.visit_time_ms, visits.visit_time_iso FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = 'takeout::browser-history'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("query takeout visit time");
+
+    assert_eq!(visit_time_ms, visit_one, "Takeout time_usec must round-trip as Unix milliseconds");
+    assert!(
+        visit_time_iso.starts_with("2026-05-02"),
+        "Takeout ISO must reflect 2026-05-02, got {visit_time_iso}"
+    );
 }
