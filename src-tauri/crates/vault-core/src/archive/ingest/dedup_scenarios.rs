@@ -677,18 +677,15 @@ fn takeout_record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBro
 }
 
 // ----------------------------------------------------------------------
-// C4: URL upsert silently regresses counts on re-import (B1)
+// C4: URL upsert must not regress metadata on re-import (B1 — FIXED)
 // ----------------------------------------------------------------------
 
-/// C4 — Demonstrates audit bug **B1**. The URL upsert in
-/// `writes.rs:123-138` unconditionally overwrites `visit_count`, `title`,
-/// `typed_count`, and `hidden`; only `last_visit_ms` has a "keep newer"
-/// guard. Re-importing an older snapshot (e.g. restoring a checkpoint or
-/// re-ingesting an older Takeout export through the chromium adapter)
-/// therefore rolls archive counts BACKWARDS even though no visit row was
-/// deleted. This `#[should_panic]` test pins the broken behavior — flip
-/// to plain `#[test]` once each affected field is gated on
-/// `excluded.last_visit_ms >= urls.last_visit_ms`.
+/// C4 — Regression test for audit bug **B1** (fixed in 6884c10d). The URL
+/// upsert in `writes.rs` now uses `MAX()` for `visit_count` / `typed_count`
+/// and `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for `title`
+/// / `hidden`, preventing older snapshots from overwriting newer metadata.
+/// This test asserts all four fields survive a re-import of an older
+/// snapshot without regression.
 #[test]
 fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
     let env = ScenarioEnv::new();
@@ -735,6 +732,45 @@ fn c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1() {
         final_count >= 10,
         "B1 fix required: urls.visit_count must not regress on re-import (got {final_count}, was 10)"
     );
+
+    // B1 fix: typed_count uses MAX semantics — must keep the higher value.
+    let final_typed = stored_typed_count(&env, "chrome:Default", 1);
+    assert!(
+        final_typed >= 4,
+        "B1 fix: typed_count must use MAX semantics (got {final_typed}, was 4)"
+    );
+
+    // B1 fix: title and hidden use CASE WHEN excluded.last_visit_ms >=
+    // urls.last_visit_ms — at equal timestamps the second import "wins",
+    // which is acceptable. The important contract: a strictly OLDER
+    // snapshot cannot overwrite. Re-import with an older last_visit_ms
+    // to verify.
+    drop(second_snapshot);
+    let visit_one_ms = 1_777_680_000_000_i64; // strictly older
+    let third_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/long-tracked".to_string(),
+            title: Some("Ancient Title".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_one_ms,
+            hidden: true,
+        })
+        .add_visit(visit_row(10, 1, visit_one_ms));
+    let third_snapshot =
+        snapshot_for_fixture(&third_fixture, chromium_profile("chrome:Default", "Google Chrome"));
+    run_one_ingest(&env, 3, &third_snapshot, false);
+
+    let final_title = stored_title(&env, "chrome:Default", 1);
+    assert_ne!(
+        final_title.as_deref(),
+        Some("Ancient Title"),
+        "B1 fix: title from strictly older snapshot must not overwrite newer"
+    );
+
+    let final_hidden = stored_hidden(&env, "chrome:Default", 1);
+    assert!(!final_hidden, "B1 fix: hidden must not regress to older snapshot's value");
 }
 
 fn stored_visit_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> i64 {
@@ -748,6 +784,46 @@ fn stored_visit_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) 
             |row| row.get(0),
         )
         .expect("query visit_count")
+}
+
+fn stored_title(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> Option<String> {
+    let archive = env.open_archive();
+    archive
+        .query_row(
+            "SELECT title FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = ?1 AND urls.source_url_id = ?2",
+            rusqlite::params![profile_key, source_url_id],
+            |row| row.get(0),
+        )
+        .expect("query title")
+}
+
+fn stored_typed_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> i64 {
+    let archive = env.open_archive();
+    archive
+        .query_row(
+            "SELECT typed_count FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = ?1 AND urls.source_url_id = ?2",
+            rusqlite::params![profile_key, source_url_id],
+            |row| row.get(0),
+        )
+        .expect("query typed_count")
+}
+
+fn stored_hidden(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> bool {
+    let archive = env.open_archive();
+    let hidden_int: i64 = archive
+        .query_row(
+            "SELECT hidden FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = ?1 AND urls.source_url_id = ?2",
+            rusqlite::params![profile_key, source_url_id],
+            |row| row.get(0),
+        )
+        .expect("query hidden");
+    hidden_int != 0
 }
 
 // ----------------------------------------------------------------------

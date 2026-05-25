@@ -49,37 +49,26 @@ key. The schema **cannot** merge two records that come from different
 
 ## 2. Confirmed Bugs (ranked by likely user impact)
 
-### B1 — URL upsert silently overwrites counts with older data
+### B1 — URL upsert silently overwrites counts with older data — FIXED
 
-[writes.rs:123-138](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs):
+**Fixed in commit 6884c10d.** The URL upsert at
+[writes.rs:123-145](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs)
+now uses:
 
-```sql
-ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-  url = excluded.url,
-  title = excluded.title,
-  visit_count = excluded.visit_count,       -- unconditional
-  typed_count = excluded.typed_count,       -- unconditional
-  hidden = excluded.hidden,                 -- unconditional
-  payload_hash = excluded.payload_hash,
-  recorded_at = excluded.recorded_at,
-  last_visit_ms = CASE WHEN excluded.last_visit_ms > urls.last_visit_ms ...
-```
+- `MAX(urls.visit_count, excluded.visit_count)` for `visit_count`
+- `MAX(urls.typed_count, excluded.typed_count)` for `typed_count`
+- `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for `title` and `hidden`
 
-Only `last_visit_ms` / `last_visit_iso` have a "keep newer" guard. `title`,
-`visit_count`, `typed_count`, `hidden` are always overwritten. Symptoms:
+The same commit also fixed B2 (Firefox long-tail revisit) and B3 (Takeout
+path-bound source_visit_id). The C4 scenario
+[`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)
+is now a plain `#[test]` (no longer `#[should_panic]`) and asserts all four
+fields (`visit_count`, `typed_count`, `title`, `hidden`) survive re-import
+without regression.
 
-- Restore an older snapshot of the same DB → counts get rolled back to the
-  older snapshot's numbers even though no visits were deleted.
-- Re-import an older Takeout export covering an earlier window → URL rows that
-  also exist in Chrome history get `visit_count` clamped to the Takeout payload's
-  in-export count (which is `1 + dup_count_within_payload`, not the lifetime
-  visit count).
+### B2 — Firefox incremental re-import drops long-tail revisits (Safari unaffected) — FIXED
 
-**Fix shape (out of scope for this audit, but for the spec doc)**: gate every
-field on `excluded.last_visit_ms >= urls.last_visit_ms`, the same way
-`last_visit_ms` already is.
-
-### B2 — Firefox incremental re-import drops long-tail revisits (Safari unaffected)
+**Fixed in commit 6884c10d** (same commit as B1).
 
 Chromium fixed this via the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
 clause at [chromium/mod.rs:74-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs).
@@ -112,7 +101,9 @@ The chromium fix exists because it was discovered in real Zhihu-style
 long-tail revisit data; the harness now demonstrates Firefox is exposed
 to the identical pattern.
 
-### B3 — Takeout `source_visit_id` is bound to file path (degraded defense)
+### B3 — Takeout `source_visit_id` is bound to file path (degraded defense) — FIXED
+
+**Fixed in commit 6884c10d** (same commit as B1 and B2).
 
 [takeout/browser_history.rs:339](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
 
@@ -369,26 +360,29 @@ Maps to scenarios that will be enumerated in
 
 ### Contract scenarios (pass today, guard against regression)
 
-| Scenario                                           | Location                                                                                                                                          | Asserts                                                                                                                                                                                                                             |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1 — Chromium baseline import                      | [`c1_chromium_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                          | One profile, one ingest pass produces exactly the fixture URL + visit rows; `source_visit_id` values flow through unmodified.                                                                                                       |
-| C2 — Chromium incremental no-new-data              | [`c2_chromium_incremental_no_new_data`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                  | Re-running the same fixture with `use_watermark = true` returns `new_urls = 0`, `new_visits = 0`, and archive row counts stay constant.                                                                                             |
-| C3 — Chromium incremental revisit of an old URL    | [`c3_chromium_incremental_revisit_of_old_url`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                           | Adversarial pass-2 fixture: visit cursor moves past 10, URL `last_visit_time` deliberately left at the old value. Validates the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback in `INGEST_URLS_SQL` is intact. |
-| S2 — Safari long-tail revisit (NOT affected by B2) | [`s2_safari_long_tail_revisit_captured_without_or_fallback`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)             | Safari's URL query computes MAX(visit_time) on the fly; no cached `last_visit_time` column to lag behind, so the OR fallback isn't needed. Test flips if a future refactor adds a cache.                                            |
-| T1 — Takeout baseline import                       | [`t1_takeout_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                           | `crate::takeout::import_takeout` ingests a synthetic `BrowserHistory.json` into `profile_key = "takeout::browser-history"` with `app_id = "takeout"` on every visit.                                                                |
-| T2 — Takeout file rename, identical records        | [`t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | Refutes the original B3 framing: the fingerprint partial unique index catches the duplicate set even though every `source_visit_id` differs.                                                                                        |
-| T3 — Takeout × local Chrome same-period            | [`t3_takeout_and_local_chrome_same_period_b4_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                  | B4 contract: per-source-profile dedup truly keeps Chrome and Takeout independent; fingerprint inputs differ (real app_id vs `"takeout"`, real transition vs `None`) so any future cross-source dedup must normalize first.          |
-| T5 — Takeout time_usec interpretation              | [`t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)         | B6 contract: parser interprets `time_usec` as Unix-epoch microseconds. If real Google Takeout disagrees the writer + this test update together; if anyone changes the parser to Chrome epoch this test fails immediately.           |
-| X1 — Edge imports Chrome history then diverges     | [`x1_edge_imports_chrome_then_both_diverge`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                             | Per-source-profile architecture preserved: a URL visited in both browsers keeps two `urls` rows; Edge's `browser_product` stays `"Microsoft Edge"` (playbook §107).                                                                 |
+| Scenario                                           | Location                                                                                                                                                        | Asserts                                                                                                                                                                                                                             |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1 — Chromium baseline import                      | [`c1_chromium_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                        | One profile, one ingest pass produces exactly the fixture URL + visit rows; `source_visit_id` values flow through unmodified.                                                                                                       |
+| C2 — Chromium incremental no-new-data              | [`c2_chromium_incremental_no_new_data`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                | Re-running the same fixture with `use_watermark = true` returns `new_urls = 0`, `new_visits = 0`, and archive row counts stay constant.                                                                                             |
+| C3 — Chromium incremental revisit of an old URL    | [`c3_chromium_incremental_revisit_of_old_url`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                         | Adversarial pass-2 fixture: visit cursor moves past 10, URL `last_visit_time` deliberately left at the old value. Validates the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback in `INGEST_URLS_SQL` is intact. |
+| S2 — Safari long-tail revisit (NOT affected by B2) | [`s2_safari_long_tail_revisit_captured_without_or_fallback`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                           | Safari's URL query computes MAX(visit_time) on the fly; no cached `last_visit_time` column to lag behind, so the OR fallback isn't needed. Test flips if a future refactor adds a cache.                                            |
+| T1 — Takeout baseline import                       | [`t1_takeout_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                         | `crate::takeout::import_takeout` ingests a synthetic `BrowserHistory.json` into `profile_key = "takeout::browser-history"` with `app_id = "takeout"` on every visit.                                                                |
+| T2 — Takeout file rename, identical records        | [`t2_takeout_rename_file_reimport_dedups_via_fingerprint_partial_index`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)               | Refutes the original B3 framing: the fingerprint partial unique index catches the duplicate set even though every `source_visit_id` differs.                                                                                        |
+| T3 — Takeout × local Chrome same-period            | [`t3_takeout_and_local_chrome_same_period_b4_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                | B4 contract: per-source-profile dedup truly keeps Chrome and Takeout independent; fingerprint inputs differ (real app_id vs `"takeout"`, real transition vs `None`) so any future cross-source dedup must normalize first.          |
+| T5 — Takeout time_usec interpretation              | [`t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                       | B6 contract: parser interprets `time_usec` as Unix-epoch microseconds. If real Google Takeout disagrees the writer + this test update together; if anyone changes the parser to Chrome epoch this test fails immediately.           |
+| X1 — Edge imports Chrome history then diverges     | [`x1_edge_imports_chrome_then_both_diverge`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                           | Per-source-profile architecture preserved: a URL visited in both browsers keeps two `urls` rows; Edge's `browser_product` stays `"Microsoft Edge"` (playbook §107).                                                                 |
+| F1 — Firefox baseline import                       | [`f1_firefox_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs)                                               | Firefox single-import happy path: 3 URLs, 5 visits all land with correct counts, timestamps, and field values.                                                                                                                      |
+| S1 — Safari baseline import                        | [`s1_safari_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs)                                                | Safari single-import happy path: 3 URLs, 5 visits all land with correct counts, timestamps, and field values.                                                                                                                       |
+| Chromium fingerprint dedup                         | [`chromium_fingerprint_dedup_catches_same_visits_with_different_source_ids`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs) | Re-import same visits with different `source_visit_id` values — the `event_fingerprint` partial index catches them as duplicates, no extra rows created.                                                                            |
 
 ### Bugs with failing tests
 
 | Bug                                                                     | Scenario                                                                                                                                                    | Status                                                                                                                                                                                    |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B1 URL upsert regresses counts                                          | [`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)      | `#[should_panic]` — flip to `#[test]` when each affected field gets the `excluded.last_visit_ms >= urls.last_visit_ms` guard                                                              |
-| B2 Firefox long-tail revisit drop                                       | [`f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)          | `#[should_panic]` — flip to `#[test]` when Firefox URL stream grows the OR fallback                                                                                                       |
+| B1 URL upsert regresses counts                                          | [`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)      | **FIXED** (6884c10d) — now a plain `#[test]` asserting `visit_count`, `typed_count`, `title`, and `hidden` all survive re-import without regression                                       |
+| B2 Firefox long-tail revisit drop                                       | [`f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)          | **FIXED** (6884c10d) — Firefox URL stream now has the OR fallback                                                                                                                         |
 | B2 Safari long-tail revisit drop                                        | n/a — refuted                                                                                                                                               | Original audit claim corrected. Safari has no cached last-visit column to lag; see [`s2_...`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) contract scenario. |
-| B3 Takeout path-bound source_visit_id (narrow case — fingerprint drift) | [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | `#[should_panic]` — flip to plain `#[test]` when fix lands                                                                                                                                |
+| B3 Takeout path-bound source_visit_id (narrow case — fingerprint drift) | [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs) | **FIXED** (6884c10d) — fix landed in same commit as B1 and B2                                                                                                                             |
 | B4 Takeout × local Chrome double-count                                  | [`t3_takeout_and_local_chrome_same_period_b4_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                            | Contract test — by-design per-profile storage; reframed from "bug" to "design constraint for any future cross-source dedup proposal"                                                      |
 | B5 Takeout hash collision at scale                                      | T4 (deferred to a dedicated scale-test slice)                                                                                                               | needs million-record fixture infrastructure separate from per-scenario harness                                                                                                            |
 | B6 Takeout time unit ambiguity                                          | [`t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                   | Contract test pins current Unix-microseconds interpretation; the audit's "what does Google really ship" question stays open until a real-world sample lands                               |

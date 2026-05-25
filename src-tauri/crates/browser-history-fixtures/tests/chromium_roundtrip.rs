@@ -134,6 +134,63 @@ fn chromium_fixture_round_trips_through_production_parser() {
 }
 
 #[test]
+fn chromium_fixture_preserves_cjk_url_and_title() {
+    let temp = TempDir::new().expect("tempdir");
+    let history_path = temp.path().join("History");
+
+    let visit_ms = 1_777_680_000_000;
+    // URL with percent-encoded CJK path segment and raw CJK query parameter.
+    let cjk_url = "https://example.com/test-unicode/%E6%B8%AC%E8%A9%A6?q=\u{691C}\u{7D22}";
+    let cjk_title = "\u{65E5}\u{672C}\u{8A9E}\u{30C6}\u{30B9}\u{30C8} \u{2014} \u{6E2C}\u{8A66}\u{9801}\u{9762}";
+
+    ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 100,
+            url: cjk_url.to_string(),
+            title: Some(cjk_title.to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_ms,
+            hidden: false,
+        })
+        .add_visit(ChromiumVisitRow {
+            id: 200,
+            url_id: 100,
+            visit_time_unix_ms: visit_ms,
+            from_visit: None,
+            transition: Some(1),
+            visit_duration_micros: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        })
+        .write(&history_path)
+        .expect("write CJK fixture");
+
+    let parsed = chromium::parse_history(
+        &HistoryDatabaseSet { history_path: history_path.clone(), favicons_path: None },
+        ChromiumReadCursor::default(),
+    )
+    .expect("parse CJK fixture");
+
+    assert_eq!(parsed.urls.len(), 1);
+    assert_eq!(parsed.visits.len(), 1);
+
+    let url = &parsed.urls[0];
+    assert_eq!(url.url, cjk_url, "percent-encoded CJK URL path should round-trip exactly");
+    assert_eq!(
+        url.title.as_deref(),
+        Some(cjk_title),
+        "CJK title with kanji, katakana, and traditional characters should round-trip exactly"
+    );
+
+    let visit = &parsed.visits[0];
+    assert_eq!(visit.url, cjk_url, "visit-level URL should match the CJK URL");
+    assert_eq!(visit.visit_time_ms, visit_ms);
+}
+
+#[test]
 fn time_helpers_match_production_offset() {
     let unix_ms = 1_777_809_600_000;
     let chrome = unix_ms_to_chrome_time(unix_ms);
