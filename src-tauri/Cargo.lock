@@ -497,6 +497,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-history-fixtures"
+version = "0.1.0"
+dependencies = [
+ "browser-history-parser",
+ "chrono",
+ "rusqlite",
+ "tempfile",
+]
+
+[[package]]
 name = "browser-history-parser"
 version = "0.1.0"
 dependencies = [
