@@ -37,6 +37,40 @@
 > 2026-05-03 history maintainability note：使用者以「繼續開展工作」授權打開 dedicated backend maintainability window。`WORK-HISTORY-MAINT-A` review 已完成並從 BACKLOG 移除；`WORK-HISTORY-MAINT-B` 已完成第一個 behavior-preserving extraction slice，把 history pagination / favicon / export owners 拆到 `archive/history/` 子模組。BACKLOG 目前只剩 blocked work blocks，沒有可提升的未阻塞 current-focus block。
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
+> 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
+
+- [ ] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md`
+    `docs/plan/program/import-test-harness-spec.md`
+    `docs/architecture/browser-support-and-adapter-playbook.md`
+    `src-tauri/crates/vault-core/src/migrations/001_initial.sql`
+    `src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql`
+    `src-tauri/crates/vault-core/src/archive/ingest/writes.rs`
+    `src-tauri/crates/vault-core/src/archive/ingest/mod.rs`
+    `src-tauri/crates/vault-core/src/archive/ingest/parser.rs`
+    `src-tauri/crates/vault-core/src/archive/mod.rs`
+    `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`
+    `src-tauri/crates/browser-history-parser/src/firefox/mod.rs`
+    `src-tauri/crates/browser-history-parser/src/safari/mod.rs`
+    `src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs`
+    `src-tauri/crates/browser-history-parser/src/takeout/source.rs`
+  - 目標：建立 `src-tauri/crates/browser-history-fixtures` crate，內含：(1) 真實 schema 的 Chromium History / Firefox places.sqlite / Safari History.db / Takeout JSON/JSONL/zip fixture generator；(2) Scenario DSL 與 deterministic seed；(3) 跑通 ingest pipeline 後讀回 canonical archive 的 assertion API；(4) Priority 1 scenarios（C1/C2/C3/T1/T2/X1）與 fixture round-trip self-validation；(5) 為 audit 列的 6 個 bug 各寫一個 failing `#[should_panic]` 測試並在 spec doc 加上 traceability。
+  - 契約：
+    - **絕對不讀取使用者真實瀏覽資料**。fixture 全部由 deterministic seed 程序化生成；URL / title 只用 checked-in public-domain corpus（Wikipedia article titles、`example.com` / `synthetic.test` 偽 hosts）。
+    - 新 crate 進 Cargo workspace、納入 `bun run check`，所有現有 100% JS/Rust coverage gate 不放鬆。
+    - 不修任何 product code bug —— harness 只負責 expose；fixes 由獨立 follow-up block 處理，merge 時把對應 scenario 從 `#[should_panic]` flip 成 `#[test]`。
+    - 不新增 third-party dependency 除非經審核（目前計畫使用 `rusqlite` / `serde_json` / `chrono` / `rand` / `rand_chacha` / `tempfile` / `zip`，全部已在 workspace）。
+    - 不在這個 block 內 cover view-layer cross-browser aggregation（另立 block）。
+    - 生成 SQLite 必須通過真實 PathKeep parser 的 round-trip 測試（self-validation gate），否則 scenario 是無效保證。
+    - 不在 STATUS.md 同時運行 paper redesign + harness 兩條軌道前需使用者授權（per AGENTS.md「計劃外大工作 → 進 BACKLOG.md，不直接做」）。
+  - 驗收：
+    - `browser-history-fixtures` crate builds clean、在 `bun run check` 通過。
+    - `tests/fixture_roundtrip.rs` 全綠 —— 每個 generator output 都被真實 parser 正確讀回。
+    - Priority 1 scenarios（C1/C2/C3/T1/T2/X1）實作完成，contract scenarios pass、bug scenarios `#[should_panic]` with doc comment 連到 audit bug ID。
+    - `docs/plan/program/import-dedup-audit.md` 新增「Bugs with failing tests」章節，列出每個 bug 對應的 scenario function。
+    - CHANGELOG 紀錄哪些 audit bugs 已有 failing tests、哪些尚待 follow-up。
+    - 三語 i18n 不適用（test infra 內部 ID 用 ASCII）。
 
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：

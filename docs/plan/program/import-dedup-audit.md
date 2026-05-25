@@ -1,0 +1,337 @@
+# Import & Dedup Architecture Audit
+
+> Written 2026-05-25 as the foundation for `WORK-IMPORT-TEST-HARNESS-A`.
+> Source of truth: the code at the commits referenced below. Scenarios cited
+> here are observable behaviors, not speculation — every claim has a file:line.
+
+This audit answers one question: **when a user imports browser history into
+PathKeep — once, twice, from multiple browsers, from Takeout, from a re-stage of
+the same DB — what does the canonical archive actually end up holding, and
+where does that diverge from naive user expectations?**
+
+The audit deliberately keeps product UX out of scope (the cross-browser "looks
+duplicated" experience is being addressed by a separate view-layer aggregation
+work block). Here we cover only storage-layer truth.
+
+---
+
+## 1. Dedup Keys at a Glance
+
+| Surface | Unique constraint | Fallback | Implementation |
+| --- | --- | --- | --- |
+| `source_profiles` | `profile_key` (UNIQUE) | none | `(browser_kind || ':' || profile_name)` populated by [002_archive_runtime_foundation.sql:7](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql) |
+| `urls` | `(source_profile_id, source_url_id)` | none | [002:16-17](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql), upsert at [writes.rs:95-157](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs) |
+| `visits` | `(source_profile_id, source_visit_id)` | `(source_profile_id, event_fingerprint)` partial index | [002:28-32](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql), insert at [writes.rs:160-218](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs) |
+| `downloads` | `(source_profile_id, source_download_id)` | none | [002:38-39](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql) |
+| `search_terms` | `(source_profile_id, url_id, normalized_term)` | none | [002:44-45](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql) |
+| `favicons` | `(source_profile_id, page_url, icon_url, payload_hash)` | none | [002:49-51](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql) |
+
+`event_fingerprint` = `sha256(json({sourceKind, url, visitTime, title, transition, appId}))`,
+where `sourceKind` is **hardcoded to `"chromium-history"`** for every family
+([writes.rs:206](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs)) and
+`visitTime` is converted to Chrome-format (microseconds since 1601) regardless
+of source family ([writes.rs:208](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs)).
+Implementation at [archive/mod.rs:348-365](../../../src-tauri/crates/vault-core/src/archive/mod.rs).
+
+**Architectural invariant**: `source_profile_id` is present in every dedup
+key. The schema **cannot** merge two records that come from different
+`source_profiles` rows. Cross-browser aggregation must happen at read time
+(view layer), not at ingest.
+
+---
+
+## 2. Confirmed Bugs (ranked by likely user impact)
+
+### B1 — URL upsert silently overwrites counts with older data
+
+[writes.rs:123-138](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs):
+
+```sql
+ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
+  url = excluded.url,
+  title = excluded.title,
+  visit_count = excluded.visit_count,       -- unconditional
+  typed_count = excluded.typed_count,       -- unconditional
+  hidden = excluded.hidden,                 -- unconditional
+  payload_hash = excluded.payload_hash,
+  recorded_at = excluded.recorded_at,
+  last_visit_ms = CASE WHEN excluded.last_visit_ms > urls.last_visit_ms ...
+```
+
+Only `last_visit_ms` / `last_visit_iso` have a "keep newer" guard. `title`,
+`visit_count`, `typed_count`, `hidden` are always overwritten. Symptoms:
+
+- Restore an older snapshot of the same DB → counts get rolled back to the
+  older snapshot's numbers even though no visits were deleted.
+- Re-import an older Takeout export covering an earlier window → URL rows that
+  also exist in Chrome history get `visit_count` clamped to the Takeout payload's
+  in-export count (which is `1 + dup_count_within_payload`, not the lifetime
+  visit count).
+
+**Fix shape (out of scope for this audit, but for the spec doc)**: gate every
+field on `excluded.last_visit_ms >= urls.last_visit_ms`, the same way
+`last_visit_ms` already is.
+
+### B2 — Firefox & Safari incremental re-import drop long-tail revisits
+
+Chromium fixed this via the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
+clause at [chromium/mod.rs:74-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs).
+The fix is missing from:
+
+- Firefox URL stream — [firefox/mod.rs:22-33](../../../src-tauri/crates/browser-history-parser/src/firefox/mod.rs):
+  `WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1` only.
+- Safari URL stream — [safari/mod.rs:42-56](../../../src-tauri/crates/browser-history-parser/src/safari/mod.rs):
+  `WHERE (SELECT MAX(visit_time) ...) >= ?1` only.
+
+Failure mode: a URL whose `last_visit_date` falls before the URL watermark but
+whose visit id falls after the visit watermark gets streamed in the `visits`
+batch only. `ArchiveChunkConsumer::visits()` fails the
+`url_id_map.get(&visit.source_url_id)` lookup
+([ingest/mod.rs:155-158](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs))
+and increments `skipped_visits` silently. The visit is lost forever (next
+re-import's watermark moves past it).
+
+The chromium fix exists because it was discovered in real Zhihu-style
+long-tail revisit data; the same pattern almost certainly affects Firefox &
+Safari but has not been hit yet.
+
+### B3 — Takeout `source_visit_id` is bound to file path
+
+[takeout/browser_history.rs:339](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
+
+```rust
+source_visit_id: stable_key_i64(format!("{source_path}:{ordinal}:{url}").as_bytes()),
+```
+
+`source_path` is the absolute path to the Takeout JSON file. Re-import effects:
+
+- Same file, same path → same hash → INSERT OR IGNORE works → ✅ dedup
+- User renames `BrowserHistory.json` → completely different `source_visit_id` for
+  every record → full duplicate set ❌
+- User downloads Takeout twice (different quarter), each saved to a different
+  folder → identical visit records get different `source_visit_id`s → full
+  duplicate set ❌
+- Fingerprint fallback also fails to rescue because `app_id` is hardcoded to
+  `"takeout"` and `transition` is `None`, so the fingerprint of a Takeout
+  visit can never match a local-Chrome visit of the same instant.
+
+### B4 — Takeout × local-Chrome same-period overlap always double-counts
+
+Even with **identical** `(url, visit_time_ms)` pairs, the fingerprint differs
+because the inputs differ:
+
+| Field | Local Chrome | Takeout |
+| --- | --- | --- |
+| `app_id` | real Chrome app id | hardcoded `"takeout"` ([browser_history.rs:386](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs)) |
+| `transition` | actual transition int | `None` ([browser_history.rs:381](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs)) |
+| `from_visit` | actual from_visit | `None` |
+| `source_visit_id` | Chrome visits.id (i64) | path-derived hash |
+
+Hash inputs differ → fingerprint differs → both unique indexes pass → two
+rows. **Net effect: a user who exports Chrome → Takeout once a month and
+also imports their local Chrome will see every visit recorded twice**, even
+within the same source_profile.
+
+### B5 — Takeout `stable_key_i64` is collision-prone at scale
+
+[takeout/browser_history.rs:442-445](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
+
+```rust
+fn stable_key_i64(bytes: &[u8]) -> i64 {
+    let hex = hex::encode(bytes);
+    hex.bytes().fold(0_i64, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as i64)).abs()
+}
+```
+
+Java-style polynomial hash, folded over hex-encoded bytes, modded by
+`abs()`. Theoretical space ≈ 2^63 but the low bits dominate due to
+`wrapping_mul(31)` and similar URL prefixes produce similar hash prefixes.
+For a 14.4M-record Takeout import (the AGENTS.md design ceiling), birthday
+collisions on a degenerate 31-bit-effective hash will hit before
+2^15.5 ≈ 47k records.
+
+Collision effects:
+- Two distinct URLs map to the same `source_url_id` → the second visit's
+  `url_id_map` lookup returns the first URL's canonical id, and its visit
+  rows attach to the wrong URL.
+- Two distinct visits map to the same `source_visit_id` → second visit
+  silently dropped by INSERT OR IGNORE.
+
+### B6 — Takeout time unit ambiguity (potentially silent)
+
+[takeout/browser_history.rs:432-434](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
+
+```rust
+fn micros_to_unix_ms(value: i64) -> i64 {
+    value.div_euclid(1_000)
+}
+```
+
+The function name asserts the input is Unix microseconds. Inputs come from:
+
+1. `visitTime` JSON field — provenance unclear; could be either Chrome or Unix.
+2. `time_usec` / `timeUsec` — **historically Chrome epoch (microseconds since 1601)** in Google's Takeout dump.
+3. `visitedAt` ISO string → `chrono::DateTime::timestamp_micros()` — definitely Unix epoch microseconds.
+
+If the real Takeout files give Chrome-epoch `time_usec`, the resulting
+`last_visit_ms` is ~11.6 quadrillion ms in the future. The companion ISO
+formatter [chrome_time_to_rfc3339:436](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs)
+calls `DateTime::from_timestamp_micros(value)` which is **Unix-epoch
+microseconds**, confirming the code path assumes Unix. Either the runtime
+input is in fact Unix (in which case the function names are fine but the
+public-facing JSON contract is non-obvious and needs a fixture-pinned
+assertion), or the input is Chrome-epoch (in which case all Takeout
+timestamps are catastrophically wrong and someone would have noticed). The
+audit cannot decide which without a fixture pinned to a real Takeout export
+shape — **scenario T-TIME-PIN** in the spec doc resolves this.
+
+---
+
+## 3. Per-Source Behavior Summary
+
+### Chromium (Chrome, Edge, Brave, Vivaldi, Arc, Opera, Opera GX, ChatGPT Atlas, Perplexity Comet, Chromium-proper)
+
+- Time format: microseconds since 1601 → Unix ms via subtract `11_644_473_600_000_000` then `÷ 1000` ([utils.rs:131](../../../src-tauri/crates/vault-core/src/utils.rs)).
+- Incremental cursor: `last_visit_id`, `last_url_last_visit_time` (stored as Chrome time).
+- URL re-fetch correctness: ✅ has long-tail revisit OR clause ([chromium/mod.rs:85-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs)).
+- Full-import path strips the OR for performance ([chromium/mod.rs:100-103](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs)).
+- Downloads / search_terms / favicons all supported.
+
+### Firefox (also LibreWolf, Floorp, Waterfox)
+
+- Time format: microseconds since Unix epoch → stored directly as `visit_time_ms` (no conversion — but the field name says `ms`, not `μs`; the actual unit needs fixture verification).
+- Incremental cursor: `last_visit_id` (monotonic ✅), `last_url_last_visit_time`.
+- URL re-fetch correctness: ❌ **B2** — no long-tail revisit fallback.
+- No downloads, no search_terms, no favicons (documented intentional gap per [browser-support-and-adapter-playbook.md:23](../../architecture/browser-support-and-adapter-playbook.md)).
+
+### Safari
+
+- Time format: CFAbsoluteTime (seconds since 2001-01-01 as f64) → Unix ms via `(value - 978_307_200) * 1000` ([safari/mod.rs:59](../../../src-tauri/crates/browser-history-parser/src/safari/mod.rs)).
+- URL re-fetch correctness: ❌ **B2** — no long-tail revisit fallback.
+- Safari has `synthesized` flag (redirect-generated phantom visits) — currently captured but not de-emphasized in visit_count, may inflate counts vs Chrome's UI numbers.
+- No downloads, no search_terms, no favicons.
+
+### Google Takeout
+
+- Goes through a **completely separate ingest path** from Browser Direct ([takeout/mod.rs](../../../src-tauri/crates/browser-history-parser/src/takeout/mod.rs)). The archive `process_profile_snapshot` switch only handles `"chromium" | "firefox" | "safari"` ([ingest/mod.rs:492-493](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs)); Takeout-specific Tauri commands wire into different machinery.
+- No watermark / cursor support — every re-import replays the whole payload, relying entirely on per-source-profile uniqueness for dedup.
+- `source_url_id` = `hash("url::" + url)` — deterministic ✅ from URL alone.
+- `source_visit_id` = `hash(path + ordinal + url)` — **B3 path-bound**.
+- All Takeout records get `app_id = "takeout"` and `transition = None` → fingerprint can never match local-browser visits.
+
+---
+
+## 4. Areas the Schema Cannot Help With (test-harness must prove behavior)
+
+### URL canonicalization
+
+No URL normalization runs before dedup. From real Chromium exports:
+
+| Surface | Distinct rows possible? |
+| --- | --- |
+| `https://example.com` vs `https://example.com/` | yes, separate URLs |
+| `https://Example.com/` vs `https://example.com/` | yes if Chrome stored them mixed-case |
+| `https://example.com/path` vs `https://example.com/path#section` | yes if Chrome kept fragments |
+| `https://example.com/?a=1&b=2` vs `https://example.com/?b=2&a=1` | yes |
+| `https://例子.中国/` vs `https://xn--fsqu00a.xn--fiqs8s/` | depends on what Chrome wrote |
+
+The visit_taxonomy/url.rs surface normalizes for search/taxonomy but
+**not** for dedup. Tests must pin the contract.
+
+### Time precision
+
+- Visit times stored at **exact ms** — no fuzzing for "this is probably the
+  same visit." Two browsers visiting the same URL within 50ms of each other →
+  two rows; same browser firing two navigations at the same ms → second one
+  caught by source_visit_id uniqueness ✅.
+- DST transitions, system clock changes, and NTP corrections all change
+  `visit_time_ms` but not `source_visit_id`, so they're safe at the
+  primary index level. Fingerprint fallback would diverge — test required.
+
+### Cross-source cannot merge
+
+Already covered in §1. Even the fingerprint partial index is scoped by
+`source_profile_id` ([002:30-32](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)):
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS idx_visits_profile_event_fingerprint
+  ON visits(source_profile_id, event_fingerprint)
+  WHERE event_fingerprint IS NOT NULL AND event_fingerprint != '';
+```
+
+### profile_key collisions
+
+`profile_key` = `browser_kind || ':' || profile_name`. Two distinct profiles
+with the same name on different paths would collide (e.g. two `Default`
+profiles in different OS user accounts on a shared machine). Discovery
+should disambiguate via path but is not under audit here.
+
+### Watermark race
+
+[ingest/mod.rs:411-437](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs)
+saves the watermark inside the same transaction as the canonical writes, so
+a crash mid-import rolls everything back together — no torn writes.
+However, **concurrent imports of the same profile_id** would both load the
+same `last_visit_id` watermark, attempt overlapping writes, and the second
+commit would silently re-process records the first already imported. SQLite
+prevents simultaneous write transactions on the same DB, but the in-app
+queue serialization is not under audit here — flag for harness coverage.
+
+### Visit→URL ordering dependency
+
+[ingest/mod.rs:155-158](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs)
+silently drops any visit whose `source_url_id` is not already in
+`url_id_map`. The parser is expected to emit `urls()` batches before
+`visits()` batches for the same URL. Any future refactor that changes
+batching order will cause silent data loss — must be pinned by test.
+
+---
+
+## 5. What the Test Harness Must Prove
+
+Maps to scenarios that will be enumerated in
+`import-test-harness-spec.md`. Listed here only at the assertion level:
+
+1. **Within one source_profile, no visit is ever stored twice across re-imports**, regardless of which fixture features collide:
+   - re-import same file
+   - re-import after appending new rows
+   - re-import after schema migration in the source DB
+   - re-import where some old URLs got revisited but no new URLs added
+2. **Cross-source-profile keeps independent rows** (the by-design contract); test must encode this so a future refactor that "tidies it up" gets caught.
+3. **No visit is silently dropped**:
+   - parser emits visit before URL → must be caught
+   - URL last_visit older than watermark but visit newer → must be caught
+   - corrupt source DB → revert leaves vault unchanged
+4. **B1 / B2 / B3 / B4 / B5 / B6 each have a failing test before the fix lands.**
+5. **Time conversions round-trip**:
+   - Chromium ms → Chrome time → fingerprint → re-parse same row → same fingerprint
+   - Firefox `visit_date` (μs Unix) → ms Unix → ISO → same
+   - Safari CFAbsoluteTime → ms Unix → ISO → same
+   - Takeout `time_usec` shape pinned by fixture
+6. **URL canonicalization contract pinned** — every variant in §4 has a test that documents the *current* behavior. Changes to URL normalization later require updating the tests, making the change visible in review.
+7. **Provenance preserved**:
+   - Edge profile imports stay tagged Edge, not collapsed to Chrome (per [browser-support-and-adapter-playbook.md:107](../../architecture/browser-support-and-adapter-playbook.md))
+   - ChatGPT Atlas / Perplexity Comet keep their product identity
+8. **Memory bounds**: streaming chunks of 10,000 records ([ingest/mod.rs:61](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs)) actually limit RAM. A 1.44M-record fixture must import without RSS exceeding a bounded ceiling (the harness target the user gave: 8 GB / 4 core).
+
+---
+
+## 6. Out of Scope For This Audit
+
+- **View-layer cross-browser aggregation** — separate user-flow work, decided
+  in the planning conversation but not yet a BACKLOG block.
+- **`vault-platform` staging and live-file copy** — concerns file system
+  semantics, not dedup correctness.
+- **Recall / search projection** — derived from the canonical archive after
+  ingest commits; will inherit ingest's truth.
+- **Backup vs Browser Direct command-surface differences** — the canonical
+  ingest path is the same; differences are in staging and source provenance
+  metadata, both of which are validated by separate acceptance tests in the
+  m3/m4 milestones.
+
+---
+
+_End of audit. The companion spec doc
+(`docs/plan/program/import-test-harness-spec.md`, written next) translates the
+above bugs and gaps into concrete scenarios, fixture generator API, and
+acceptance criteria for `WORK-IMPORT-TEST-HARNESS-A`._
