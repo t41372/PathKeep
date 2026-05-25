@@ -35,7 +35,6 @@ import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
 import { PaperSettingsHeader } from './paper-settings-header'
 import { ProfileSelectionSection } from './profile-selection-section'
-import { RemoteBackupPreferencesSection } from './remote-backup-preferences-section'
 import {
   createSettingsSectionNavItems,
   getSettingsSectionNavItem,
@@ -88,7 +87,6 @@ export function SettingsPage() {
     'profiles',
     'applock',
     'ai',
-    'remote',
     'migration',
     'linkPreviews',
   ])
@@ -221,16 +219,6 @@ export function SettingsPage() {
         <div className="settings-group__label">
           {t('settings.groupBackupSync')}
         </div>
-        <RemoteBackupPreferencesSection
-          credentialsSaved={snapshot.config.remoteBackup.credentialsSaved}
-          lastError={snapshot.config.remoteBackup.lastError ?? null}
-          lastUploadedAt={snapshot.config.remoteBackup.lastUploadedAt ?? null}
-          lastUploadedObjectKey={
-            snapshot.config.remoteBackup.lastUploadedObjectKey ?? null
-          }
-          navItem={settingsSection('remote')}
-          state={routeState.remote}
-        />
         <DataMigrationSection navItem={settingsSection('migration')} />
         <LinkPreviewsSection anchorId={settingsSection('linkPreviews').id} />
       </div>

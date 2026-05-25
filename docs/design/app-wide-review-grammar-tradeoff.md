@@ -101,7 +101,7 @@ M6–M10 已把 shared insights entity、route grammar、shared composition、�
 
 **M11-B 立即抽取**
 
-- Settings remote backup PME tabs / verify rows
+- Settings Data migration Export / Import preview surface (replaced the earlier S3-backed remote-backup PME, retired 2026-05-25)
 - Settings AI integration preview generated files / review rows
 - Integrations external-output local host generated artifact viewer
 - Schedule PME tab chrome、generated file preview、verify result rows

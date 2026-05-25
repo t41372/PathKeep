@@ -14,7 +14,7 @@ describe('settings section nav item helpers', () => {
   test('builds translated descriptors and throws on missing section lookups', () => {
     const items = createSettingsSectionNavItems(
       (key) => `translated:${key}`,
-      ['general', 'remote'],
+      ['general', 'migration'],
     )
 
     expect(items).toEqual([
@@ -25,14 +25,14 @@ describe('settings section nav item helpers', () => {
         label: 'translated:settings.general',
       },
       {
-        id: 'settings-remote',
-        icon: 'cloud_upload',
-        key: 'remote',
-        label: 'translated:settings.remoteBackup',
+        id: 'settings-migration',
+        icon: 'download',
+        key: 'migration',
+        label: 'translated:settings.migrationTitle',
       },
     ])
-    expect(getSettingsSectionNavItem(items, 'remote').id).toBe(
-      'settings-remote',
+    expect(getSettingsSectionNavItem(items, 'migration').id).toBe(
+      'settings-migration',
     )
     expect(() => getSettingsSectionNavItem(items, 'derived')).toThrow(
       'Missing settings section nav item: derived',

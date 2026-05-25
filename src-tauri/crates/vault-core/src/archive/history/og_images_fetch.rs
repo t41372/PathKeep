@@ -350,19 +350,12 @@ fn fetch_og_image_for_pipeline(
     // for these hosts is intentionally avoided — it just wastes the
     // daily fetch budget on responses we know will return MISSING.
     if let Some(synth_url) = synthesize_image_url_from_url(page_url) {
-        let synth_url = if upgrade_image_url {
-            upgrade_http_to_https(&synth_url)
-        } else {
-            synth_url
-        };
+        let synth_url =
+            if upgrade_image_url { upgrade_http_to_https(&synth_url) } else { synth_url };
         outcome.source_og_url = Some(synth_url.clone());
         finish_image_fetch(client, synth_url, outcome)
     } else if let Some(api_url) = resolve_image_url_via_api(client, page_url) {
-        let api_url = if upgrade_image_url {
-            upgrade_http_to_https(&api_url)
-        } else {
-            api_url
-        };
+        let api_url = if upgrade_image_url { upgrade_http_to_https(&api_url) } else { api_url };
         outcome.source_og_url = Some(api_url.clone());
         finish_image_fetch(client, api_url, outcome)
     } else if host_requires_synthesis(page_url) {

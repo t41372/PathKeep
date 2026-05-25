@@ -269,19 +269,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
-        "preview_remote_backup" => json_value!(worker_bridge::preview_remote_backup_impl()?),
-        "run_remote_backup" => {
-            json_value!(worker_bridge::run_remote_backup_impl(
-                session_key(&state.session).as_deref()
-            )?)
-        }
-        "verify_remote_backup" => {
-            let payload = parse_payload::<BundlePathPayload>(payload)?;
-            json_value!(worker_bridge::verify_remote_backup_impl(
-                payload.bundle_path,
-                session_key(&state.session).as_deref()
-            )?)
-        }
         "inspect_takeout" => {
             let payload = parse_payload::<TakeoutPayload>(payload)?;
             json_value!(worker_bridge::inspect_takeout_impl(payload.request)?)
@@ -372,15 +359,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "keyring_clear_database_key" => {
             json_value!(worker_bridge::keyring_clear_database_key_impl()?)
-        }
-        "store_s3_credentials" => {
-            let payload = parse_payload::<CredentialsPayload>(payload)?;
-            worker_bridge::store_s3_credentials_impl(payload.credentials)?;
-            Ok(Value::Null)
-        }
-        "clear_s3_credentials" => {
-            worker_bridge::clear_s3_credentials_impl()?;
-            Ok(Value::Null)
         }
         "store_ai_provider_api_key" => {
             let payload = parse_payload::<AiProviderSecretPayload>(payload)?;

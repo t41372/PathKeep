@@ -48,7 +48,7 @@ const NAV_ITEM = {
 
 function renderSection() {
   return render(
-    <I18nProvider initialLanguage="en">
+    <I18nProvider>
       <DataMigrationSection navItem={NAV_ITEM} />
     </I18nProvider>,
   )

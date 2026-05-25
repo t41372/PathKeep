@@ -27,7 +27,6 @@ use vault_core::{
 };
 use vault_platform::{
     app_lock_biometric_state, keyring_get_provider_api_key, provider_api_key_saved,
-    s3_credentials_saved,
 };
 
 /// Builds the short-lived Tokio runtime used by blocking worker entrypoints.
@@ -53,7 +52,6 @@ pub(crate) fn hydrate_provider_collection(providers: &mut [AiProviderConfig]) {
 
 /// Fills the config fields that are derived from native stores instead of JSON.
 pub(crate) fn hydrate_derived_config_state(config: &mut AppConfig) {
-    config.remote_backup.credentials_saved = s3_credentials_saved();
     hydrate_provider_collection(&mut config.ai.llm_providers);
     hydrate_provider_collection(&mut config.ai.embedding_providers);
 }

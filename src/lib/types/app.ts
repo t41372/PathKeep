@@ -35,7 +35,6 @@ import type {
   EnrichmentSettings,
   IntelligenceStatus,
 } from './intelligence'
-import type { RemoteBackupConfig } from './remote'
 import type { KeyringStatusReport } from './security'
 
 /**
@@ -130,7 +129,6 @@ export interface AppConfig {
   appAutostart: boolean
   explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
-  remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
   deterministic: DeterministicSettings
   ai: AiSettings

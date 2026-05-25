@@ -143,10 +143,7 @@ pub(crate) fn prefetch_og_images_impl(
     budget: u32,
     session_database_key: Option<&str>,
 ) -> Result<(u32, u32), String> {
-    worker_result(vault_worker::prefetch_og_images_on_demand(
-        session_database_key,
-        budget,
-    ))
+    worker_result(vault_worker::prefetch_og_images_on_demand(session_database_key, budget))
 }
 
 #[cfg_attr(test, allow(dead_code))]

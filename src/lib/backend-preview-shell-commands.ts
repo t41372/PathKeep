@@ -73,7 +73,6 @@ export function handlePreviewShellCommand<T>(
     case 'save_config': {
       const nextConfig = normalizeMockConfig(
         structuredClone(args?.config as AppConfig),
-        state.s3Credentials,
       )
       validateMockAppLockConfig(state, nextConfig)
       state.snapshot.config = nextConfig
@@ -86,7 +85,6 @@ export function handlePreviewShellCommand<T>(
     case 'initialize_archive': {
       const nextConfig = normalizeMockConfig(
         structuredClone(args?.config as AppConfig),
-        state.s3Credentials,
       )
       validateMockAppLockConfig(state, nextConfig)
       const databaseKey =
@@ -280,7 +278,6 @@ export function handlePreviewShellCommand<T>(
             notes: [],
           })),
         warnings: [],
-        remoteBackup: null,
       } as T
     }
     case 'query_history':

@@ -72,9 +72,6 @@ import type {
   KeyringStatusReport,
   RekeyPreview,
   RekeyRequest,
-  RemoteBackupPreview,
-  RemoteBackupResult,
-  RemoteBackupVerification,
   RetentionPreview,
   RetentionPruneRequest,
   RetentionPruneResult,
@@ -82,7 +79,6 @@ import type {
   ScheduleStatus,
   SecurityStatus,
   SetAppLockPasscodeRequest,
-  S3CredentialInput,
   SnapshotRestorePreview,
   SnapshotRestoreRequest,
   TakeoutInspection,
@@ -111,10 +107,7 @@ async function call<T>(
     return invoke<T>(command, args)
   }
 
-  mockState.snapshot.config = normalizeMockConfig(
-    mockState.snapshot.config,
-    mockState.s3Credentials,
-  )
+  mockState.snapshot.config = normalizeMockConfig(mockState.snapshot.config)
   syncMockAppLockState(mockState)
   ensureMockUnlocked(command, mockState)
 
@@ -161,10 +154,7 @@ export const backendTestHarness = {
   },
   mutateState: (mutator: (state: MockBackendState) => void) => {
     mutator(mockState)
-    mockState.snapshot.config = normalizeMockConfig(
-      mockState.snapshot.config,
-      mockState.s3Credentials,
-    )
+    mockState.snapshot.config = normalizeMockConfig(mockState.snapshot.config)
     syncMockAppLockState(mockState)
     syncMockAiStatus(mockState)
     syncMockIntelligenceRuntime(mockState)
@@ -263,10 +253,6 @@ export const backend = {
     call<AuditRunDetail>('load_audit_run_detail', { runId }),
   exportHistory: (request: ExportRequest) =>
     call<ExportResult>('export_history', { request }),
-  previewRemoteBackup: () => call<RemoteBackupPreview>('preview_remote_backup'),
-  runRemoteBackup: () => call<RemoteBackupResult>('run_remote_backup'),
-  verifyRemoteBackup: (bundlePath: string) =>
-    call<RemoteBackupVerification>('verify_remote_backup', { bundlePath }),
   inspectTakeout: (request: TakeoutRequest) =>
     call<TakeoutInspection>('inspect_takeout', { request }),
   importTakeout: (request: TakeoutRequest) =>
@@ -300,9 +286,6 @@ export const backend = {
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
   keyringClearDatabaseKey: () =>
     call<KeyringStatusReport>('keyring_clear_database_key'),
-  storeS3Credentials: (credentials: S3CredentialInput) =>
-    call<void>('store_s3_credentials', { credentials }),
-  clearS3Credentials: () => call<void>('clear_s3_credentials'),
   storeAiProviderApiKey: (input: AiProviderSecretInput) =>
     call<AppSnapshot>('store_ai_provider_api_key', { input }),
   clearAiProviderApiKey: (providerId: string) =>

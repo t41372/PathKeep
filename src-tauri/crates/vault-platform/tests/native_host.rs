@@ -5,15 +5,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tempfile::tempdir;
-use vault_core::{AppLockBiometricState, ProjectPaths, S3CredentialInput};
+use vault_core::{AppLockBiometricState, ProjectPaths};
 #[cfg(target_os = "macos")]
 use vault_platform::test_support::TEST_LAUNCH_AGENTS_DIR_ENV;
 use vault_platform::test_support::{TEST_KEYRING_SERVICE_ENV, TEST_SCHEDULE_LABEL_ENV};
 use vault_platform::{
     ScheduleParameters, app_lock_biometric_state, discover_browser_profiles,
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
-    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
-    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
+    keyring_get_provider_api_key, keyring_set_database_key, keyring_set_provider_api_key,
     keyring_status, open_external_url, open_path_in_file_manager, preview_schedule,
 };
 #[cfg(target_os = "macos")]
@@ -196,7 +195,6 @@ fn run_keyring_body_with_timeout(budget: std::time::Duration) -> Option<anyhow::
 
 fn keyring_roundtrip_body() -> anyhow::Result<()> {
     keyring_clear_database_key()?;
-    keyring_clear_s3_credentials()?;
     keyring_clear_provider_api_key("integration-openai")?;
 
     let status = keyring_status();
@@ -207,13 +205,6 @@ fn keyring_roundtrip_body() -> anyhow::Result<()> {
     keyring_set_database_key("native-db-secret")?;
     assert_eq!(keyring_get_database_key()?, Some("native-db-secret".to_string()));
 
-    let credentials = S3CredentialInput {
-        access_key_id: "access".to_string(),
-        secret_access_key: "secret".to_string(),
-    };
-    keyring_set_s3_credentials(&credentials)?;
-    assert_eq!(keyring_get_s3_credentials()?, Some(credentials));
-
     keyring_set_provider_api_key("integration-openai", "provider-secret")?;
     assert_eq!(
         keyring_get_provider_api_key("integration-openai")?,
@@ -221,7 +212,6 @@ fn keyring_roundtrip_body() -> anyhow::Result<()> {
     );
 
     keyring_clear_database_key()?;
-    keyring_clear_s3_credentials()?;
     keyring_clear_provider_api_key("integration-openai")?;
     assert_eq!(keyring_get_database_key()?, None);
     Ok(())

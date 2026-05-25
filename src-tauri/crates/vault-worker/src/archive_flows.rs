@@ -12,10 +12,7 @@
 //! payloads.
 
 use crate::{
-    context::{
-        ai_archive_connection, load_unlocked_config, resolved_app_lock_status,
-        selected_embedding_provider_runtime,
-    },
+    context::{ai_archive_connection, load_unlocked_config, selected_embedding_provider_runtime},
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
 };
 use anyhow::{Context, Result};
@@ -23,8 +20,7 @@ use vault_core::{
     AiIndexRequest, AiQueueJob, BackupProgressEvent, BrowserHistoryImportRequest,
     ClearDerivedIntelligenceReport, CoreIntelligenceRebuildRequest, DashboardSnapshot,
     ExportRequest, HealthRepairReport, HealthReport, HistoryQuery, HistoryQueryResponse,
-    ImportBatchDetail, ImportProgressEvent, RemoteBackupPreview, RemoteBackupResult,
-    RemoteBackupVerification, TakeoutInspection, TakeoutRequest, ai_queue,
+    ImportBatchDetail, ImportProgressEvent, TakeoutInspection, TakeoutRequest, ai_queue,
     clear_derived_intelligence_state, doctor, export_history, import_browser_history_with_progress,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout,
     intelligence_runtime::{
@@ -32,10 +28,8 @@ use vault_core::{
         enqueue_core_intelligence_job, mark_all_deterministic_modules_stale,
     },
     list_history, load_audit_run_detail, load_dashboard_snapshot, preview_import_batch,
-    preview_remote_backup, repair_health_issues, restore_import_batch, revert_import_batch,
-    run_backup_with_progress, run_remote_backup, verify_remote_backup,
+    repair_health_issues, restore_import_batch, revert_import_batch, run_backup_with_progress,
 };
-use vault_platform::keyring_get_s3_credentials;
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -111,25 +105,6 @@ where
         run_backup_with_progress(&paths, &config, session_database_key, due_only, |event| {
             report_progress(event);
         })?;
-    if !report.due_skipped
-        && config.remote_backup.enabled
-        && config.remote_backup.upload_after_backup
-    {
-        match keyring_get_s3_credentials()? {
-            Some(credentials) => {
-                let remote = run_remote_backup(&paths, &config, session_database_key, &credentials)?;
-                if remote.uploaded {
-                    report.remote_backup = Some(remote);
-                } else {
-                    report.warnings.push(remote.message.clone());
-                    report.remote_backup = Some(remote);
-                }
-            }
-            None => report
-                .warnings
-                .push("Remote backup is enabled, but S3 credentials are not stored in the system keyring.".to_string()),
-        }
-    }
     if !report.due_skipped
         && config.ai.enabled
         && config.ai.semantic_index_enabled
@@ -314,10 +289,7 @@ fn try_prefetch_new_visit_og_images(
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     use vault_core::OgImageFetchMode;
-    if !matches!(
-        config.og_image.effective_mode(),
-        OgImageFetchMode::Background
-    ) {
+    if !matches!(config.og_image.effective_mode(), OgImageFetchMode::Background) {
         return Ok((0, 0));
     }
     if budget == 0 {
@@ -686,35 +658,6 @@ pub fn export_query(
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     export_history(&paths, &config, session_database_key, request)
-}
-
-/// Builds the remote-backup preview bundle metadata without uploading anything.
-pub fn preview_remote_backup_bundle() -> Result<RemoteBackupPreview> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    preview_remote_backup(&paths, &config)
-}
-
-/// Uploads the latest remote-backup bundle with the stored S3 credentials.
-pub fn upload_remote_backup_bundle(
-    session_database_key: Option<&str>,
-) -> Result<RemoteBackupResult> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let credentials = keyring_get_s3_credentials()?
-        .context("store S3 credentials in Settings before running a remote backup")?;
-    run_remote_backup(&paths, &config, session_database_key, &credentials)
-}
-
-/// Verifies a built remote-backup bundle against the v1 restore contract.
-pub fn verify_remote_backup_bundle(
-    session_database_key: Option<&str>,
-    bundle_path: &str,
-) -> Result<RemoteBackupVerification> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let _ = resolved_app_lock_status(&paths, &config)?;
-    verify_remote_backup(std::path::Path::new(bundle_path), session_database_key)
 }
 
 /// Clears rebuildable intelligence state while leaving canonical archive facts intact.
@@ -1285,14 +1228,7 @@ mod tests {
         let blocked: Vec<String> = vec!["blocked.test".to_string()];
         let (sender, receiver) = std::sync::mpsc::channel();
         let started = Instant::now();
-        let flow = drain_one_worker_url(
-            &work,
-            &host_state,
-            &client,
-            &blocked,
-            &sender,
-            interval,
-        );
+        let flow = drain_one_worker_url(&work, &host_state, &client, &blocked, &sender, interval);
         let elapsed = started.elapsed();
         assert!(matches!(flow, std::ops::ControlFlow::Continue(())));
         // Sleep arm ran — total elapsed should reflect the throttle wait.
@@ -1603,10 +1539,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("4 succeeded")));
 
         // Error case surfaces a warning with the message text.
-        append_og_image_prefetch_result(
-            &mut warnings,
-            Err(anyhow::anyhow!("network outage")),
-        );
+        append_og_image_prefetch_result(&mut warnings, Err(anyhow::anyhow!("network outage")));
         assert!(warnings.iter().any(|w| w.contains("network outage")));
     }
 
@@ -1616,10 +1549,7 @@ mod tests {
         assert_eq!(clamp_budget(100), 100);
         assert_eq!(clamp_budget(PER_TICK_BUDGET_HARD_CAP), PER_TICK_BUDGET_HARD_CAP as usize);
         // Above the cap: clamps down.
-        assert_eq!(
-            clamp_budget(PER_TICK_BUDGET_HARD_CAP + 1),
-            PER_TICK_BUDGET_HARD_CAP as usize,
-        );
+        assert_eq!(clamp_budget(PER_TICK_BUDGET_HARD_CAP + 1), PER_TICK_BUDGET_HARD_CAP as usize,);
         // Arbitrarily large value still caps.
         assert_eq!(clamp_budget(u32::MAX), PER_TICK_BUDGET_HARD_CAP as usize);
     }
@@ -1630,10 +1560,7 @@ mod tests {
         let default = OgImageSettings::default();
         assert_eq!(default.effective_mode(), OgImageFetchMode::Background);
 
-        let mut off = OgImageSettings {
-            fetch_enabled: false,
-            ..OgImageSettings::default()
-        };
+        let mut off = OgImageSettings { fetch_enabled: false, ..OgImageSettings::default() };
         assert_eq!(off.effective_mode(), OgImageFetchMode::Off);
 
         // Even when fetch_mode is explicitly Background, the kill switch

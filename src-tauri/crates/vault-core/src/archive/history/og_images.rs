@@ -799,10 +799,8 @@ mod tests {
         seed_url(&connection, 2, "https://example.com/uncached-new", 5_000);
         seed_url(&connection, 3, "https://example.com/uncached-mid", 3_000);
         seed_url(&connection, 4, "https://example.com/cached-mid", 2_000);
-        upsert_og_image(&connection, &ok_insert("https://example.com/cached-old", b"x"))
-            .unwrap();
-        upsert_og_image(&connection, &ok_insert("https://example.com/cached-mid", b"y"))
-            .unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-old", b"x")).unwrap();
+        upsert_og_image(&connection, &ok_insert("https://example.com/cached-mid", b"y")).unwrap();
 
         let urls = list_urls_for_prefetch(&connection, 10).unwrap();
         assert_eq!(

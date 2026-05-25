@@ -1,6 +1,6 @@
 //! Canonical archive read/write models.
 
-use super::{ProgressLogEvent, RemoteBackupResult};
+use super::ProgressLogEvent;
 use serde::{Deserialize, Serialize};
 
 /// Storage mode for the canonical archive database.
@@ -97,7 +97,6 @@ pub struct BackupReport {
     pub manifest_path: Option<String>,
     pub git_commit: Option<String>,
     pub warnings: Vec<String>,
-    pub remote_backup: Option<RemoteBackupResult>,
 }
 
 /// Progress event streamed during a running backup.

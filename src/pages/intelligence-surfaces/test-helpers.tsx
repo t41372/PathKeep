@@ -75,19 +75,6 @@ const baseConfig: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
-  remoteBackup: {
-    enabled: false,
-    bucket: '',
-    region: 'us-east-1',
-    endpoint: null,
-    prefix: 'pathkeep',
-    pathStyle: true,
-    uploadAfterBackup: false,
-    credentialsSaved: false,
-    lastUploadedAt: null,
-    lastUploadedObjectKey: null,
-    lastError: null,
-  },
   enrichment: {
     plugins: [
       {
@@ -239,7 +226,6 @@ export function createShellValue(
       run: null,
       profiles: [],
       warnings: [],
-      remoteBackup: null,
     }),
     setAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearAppLockPasscode: vi.fn().mockResolvedValue(snapshot.appLockStatus),

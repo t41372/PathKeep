@@ -22,7 +22,6 @@ export * from './explorer'
 export * from './import'
 export * from './intelligence'
 export * from './migration'
-export * from './remote'
 export * from './schedule'
 export * from './security'
 export * from './shared'
@@ -38,7 +37,6 @@ import { explorerClient } from './explorer'
 import { importClient } from './import'
 import { intelligenceClient } from './intelligence'
 import { migrationClient } from './migration'
-import { remoteClient } from './remote'
 import { scheduleClient } from './schedule'
 import { securityClient } from './security'
 import { supportClient } from './support'
@@ -90,9 +88,6 @@ export const backend = {
   loadDashboardSnapshot: dashboardClient.getSnapshot,
   loadAuditRunDetail: auditClient.getRunDetail,
   exportHistory: archiveClient.exportHistory,
-  previewRemoteBackup: remoteClient.previewBackup,
-  runRemoteBackup: remoteClient.runBackup,
-  verifyRemoteBackup: remoteClient.verifyBackup,
   inspectTakeout: importClient.inspectTakeout,
   importTakeout: importClient.importTakeout,
   inspectBrowserHistory: importClient.inspectBrowserHistory,
@@ -112,8 +107,6 @@ export const backend = {
   keyringGetDatabaseKey: securityClient.getDatabaseKey,
   keyringStoreDatabaseKey: securityClient.storeDatabaseKey,
   keyringClearDatabaseKey: securityClient.clearDatabaseKey,
-  storeS3Credentials: remoteClient.storeCredentials,
-  clearS3Credentials: remoteClient.clearCredentials,
   storeAiProviderApiKey: intelligenceClient.storeProviderApiKey,
   clearAiProviderApiKey: intelligenceClient.clearProviderApiKey,
   testAiProviderConnection: intelligenceClient.testProviderConnection,

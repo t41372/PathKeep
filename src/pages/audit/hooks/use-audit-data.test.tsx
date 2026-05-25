@@ -790,6 +790,5 @@ function backupReportFixture(run: BackupRunOverview): BackupReport {
     manifestPath: `/audit/run-${run.id}.json`,
     gitCommit: null,
     warnings: [],
-    remoteBackup: null,
   }
 }

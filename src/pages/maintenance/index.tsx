@@ -29,7 +29,6 @@ import { useI18n } from '../../lib/i18n'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { DerivedStateSection } from '../settings/derived-state-section'
 import { PlatformSection } from '../settings/platform-section'
-import { RemoteBackupSection } from '../settings/remote-backup-section'
 import { RetentionSection } from '../settings/retention-section'
 import {
   createSettingsSectionNavItems,
@@ -84,7 +83,6 @@ export function MaintenancePage() {
     'updater',
     'retention',
     'derived',
-    'remote',
     'platform',
   ])
   const maintenanceSection = (key: SettingsSectionKey) =>
@@ -193,22 +191,6 @@ export function MaintenancePage() {
             navItem={maintenanceSection('derived')}
             snapshot={snapshot}
             state={routeState.derived}
-          />
-        </PaperCardBody>
-      </PaperCard>
-
-      <PaperCard>
-        <PaperCardHeader title={t('settings.groupBackupSync')} />
-        <PaperCardBody>
-          <RemoteBackupSection
-            credentialsSaved={snapshot.config.remoteBackup.credentialsSaved}
-            lastError={snapshot.config.remoteBackup.lastError ?? null}
-            lastUploadedAt={snapshot.config.remoteBackup.lastUploadedAt ?? null}
-            lastUploadedObjectKey={
-              snapshot.config.remoteBackup.lastUploadedObjectKey ?? null
-            }
-            navItem={maintenanceSection('remote')}
-            state={routeState.remote}
           />
         </PaperCardBody>
       </PaperCard>

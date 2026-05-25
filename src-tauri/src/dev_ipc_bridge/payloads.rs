@@ -27,7 +27,7 @@ use serde::Deserialize;
 use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
     ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
-    ReplaceTagsRequest, S3CredentialInput, SchedulePlan, SetNotesRequest, TakeoutRequest,
+    ReplaceTagsRequest, SchedulePlan, SetNotesRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -152,14 +152,6 @@ pub(super) struct PlatformPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct PlanPayload {
     pub(super) plan: SchedulePlan,
-}
-
-/// Carries remote backup credentials only for the command invocation that stores
-/// them in the configured local secret backend.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct CredentialsPayload {
-    pub(super) credentials: S3CredentialInput,
 }
 
 /// Carries an AI provider secret update without leaking provider-specific fields

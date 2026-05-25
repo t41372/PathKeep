@@ -212,7 +212,6 @@ pub fn run_snapshot_restore(
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
         warnings,
-        remote_backup: None,
     })
 }
 

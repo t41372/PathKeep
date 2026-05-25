@@ -55,10 +55,6 @@ describe('backend facade preview workflows', () => {
     const baseConfig = createPreviewConfig()
     const aiEnabledConfig: AppConfig = {
       ...baseConfig,
-      remoteBackup: {
-        ...baseConfig.remoteBackup,
-        bucket: 'example-bucket',
-      },
       ai: {
         ...baseConfig.ai,
         enabled: true,
@@ -112,18 +108,6 @@ describe('backend facade preview workflows', () => {
     const clearedProviders = await backend.clearAiProviderApiKey('llm-primary')
     expect(clearedProviders.config.ai.llmProviders[0].apiKeySaved).toBe(false)
 
-    const preview = await backend.previewRemoteBackup()
-    expect(preview).toMatchObject({
-      bundlePath: expect.stringMatching(/^\/tmp\/pathkeep-remote-.*\.zip$/),
-      objectKey: expect.stringMatching(/^pathkeep\/pathkeep-remote-.*\.zip$/),
-    })
-    expect(preview.uploadUrl).toContain('example-bucket')
-    expect(preview.manualSteps).toEqual([
-      'Review the bundle path, object key, and upload URL before you trust the destination.',
-      'Store S3 credentials in Settings or copy the preview command into your own terminal session.',
-      'After execute finishes, run Verify to confirm checksums and restore readiness on the generated bundle.',
-    ])
-
     const imported = await backend.importTakeout({
       sourcePath: '/tmp/takeout',
       dryRun: false,
@@ -176,74 +160,6 @@ describe('backend facade preview workflows', () => {
     expect(cancelled.state).toBe('cancelled')
   })
 
-  test('builds remote backup preview URLs for custom endpoints and AWS host styles', async () => {
-    const baseConfig = createPreviewConfig()
-    await backend.initializeArchive(
-      {
-        ...baseConfig,
-        archiveMode: 'Plaintext',
-        remoteBackup: {
-          ...baseConfig.remoteBackup,
-          bucket: 'example-bucket',
-          region: 'us-west-2',
-          endpoint: 'minio.example.test/',
-          pathStyle: false,
-        },
-      },
-      null,
-    )
-
-    const customVirtualHost = await backend.previewRemoteBackup()
-    expect(customVirtualHost.uploadUrl).toMatch(
-      /^https:\/\/example-bucket\.minio\.example\.test\/pathkeep\/pathkeep-remote-.*\.zip$/,
-    )
-    expect(customVirtualHost.warnings).toContain(
-      'A custom S3-compatible endpoint is configured. Verify TLS, bucket policy, and path-style compatibility before trusting automatic upload.',
-    )
-
-    await backend.saveConfig({
-      ...(await backend.getAppSnapshot()).config,
-      remoteBackup: {
-        ...(await backend.getAppSnapshot()).config.remoteBackup,
-        endpoint: 'https://storage.example.test/',
-        pathStyle: true,
-      },
-    })
-
-    const customPathStyle = await backend.previewRemoteBackup()
-    expect(customPathStyle.uploadUrl).toMatch(
-      /^https:\/\/storage\.example\.test\/example-bucket\/pathkeep\/pathkeep-remote-.*\.zip$/,
-    )
-
-    await backend.saveConfig({
-      ...(await backend.getAppSnapshot()).config,
-      remoteBackup: {
-        ...(await backend.getAppSnapshot()).config.remoteBackup,
-        endpoint: null,
-        pathStyle: false,
-      },
-    })
-
-    const awsVirtualHost = await backend.previewRemoteBackup()
-    expect(awsVirtualHost.uploadUrl).toMatch(
-      /^https:\/\/example-bucket\.s3\.us-west-2\.amazonaws\.com\/pathkeep\/pathkeep-remote-.*\.zip$/,
-    )
-
-    await backend.saveConfig({
-      ...(await backend.getAppSnapshot()).config,
-      remoteBackup: {
-        ...(await backend.getAppSnapshot()).config.remoteBackup,
-        prefix: '   ',
-      },
-    })
-
-    const awsWithoutPrefix = await backend.previewRemoteBackup()
-    expect(awsWithoutPrefix.objectKey).toMatch(/^pathkeep-remote-.*\.zip$/)
-    expect(awsWithoutPrefix.uploadUrl).toMatch(
-      /^https:\/\/example-bucket\.s3\.us-west-2\.amazonaws\.com\/pathkeep-remote-.*\.zip$/,
-    )
-  })
-
   test('reflects disabled readable-content refetch notes and falls back when verify bundle path is missing', async () => {
     const baseConfig = createPreviewConfig()
     await backend.initializeArchive(
@@ -284,13 +200,6 @@ describe('backend facade preview workflows', () => {
         regexMode: true,
       }),
     ).resolves.toMatchObject({ total: 0 })
-
-    await expect(
-      backendTestHarness.call('verify_remote_backup', { bundlePath: 42 }),
-    ).resolves.toMatchObject({
-      bundlePath: expect.stringMatching(/^\/tmp\/pathkeep-remote-.*\.zip$/),
-      restoreReady: true,
-    })
   })
 
   test('covers preview dashboard, history, schedule, and export edge cases through the mock harness', async () => {

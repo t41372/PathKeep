@@ -240,7 +240,6 @@ describe('ShellDataProvider archive tasks and notifications', () => {
       manifestPath: null,
       gitCommit: null,
       warnings: [],
-      remoteBackup: null,
     })
 
     renderShellProbe()

@@ -5,7 +5,7 @@
 //! uses, so this module only dispatches commands and serializes the result.
 
 use crate::{
-    archive_flows::{doctor_report, run_backup_now, upload_remote_backup_bundle},
+    archive_flows::{doctor_report, run_backup_now},
     intelligence::{build_ai_index_now, run_ai_queue_jobs},
     mcp::run_mcp_stdio_server,
     security::read_database_key_from_keyring,
@@ -26,11 +26,6 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
         "doctor" => {
             let key = read_database_key_from_keyring()?;
             let report = doctor_report(key.as_deref())?;
-            Ok(serde_json::to_string_pretty(&report)?)
-        }
-        "remote-backup" => {
-            let key = read_database_key_from_keyring()?;
-            let report = upload_remote_backup_bundle(key.as_deref())?;
             Ok(serde_json::to_string_pretty(&report)?)
         }
         "ai-index" => {

@@ -23,7 +23,6 @@
  */
 
 import type { ProgressLogEvent } from './import'
-import type { RemoteBackupResult } from './remote'
 
 /**
  * Enumerates the supported archive modes.
@@ -126,7 +125,6 @@ export interface BackupReport {
   manifestPath?: string | null
   gitCommit?: string | null
   warnings: string[]
-  remoteBackup?: RemoteBackupResult | null
 }
 
 /**

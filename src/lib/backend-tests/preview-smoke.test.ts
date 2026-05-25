@@ -265,21 +265,6 @@ describe('backend facade preview smoke', () => {
     await expect(
       backend.openExternalUrl('https://example.com/pathkeep'),
     ).resolves.toBe('https://example.com/pathkeep')
-    const remotePreview = await backend.previewRemoteBackup()
-    expect(remotePreview).toMatchObject({
-      bundlePath: expect.stringMatching(/pathkeep-remote-.*\.zip$/),
-    })
-    await expect(
-      backend.verifyRemoteBackup(remotePreview.bundlePath),
-    ).resolves.toMatchObject({
-      bundlePath: remotePreview.bundlePath,
-      objectKey: remotePreview.objectKey,
-      bundleVersion: 'pathkeep.remote-backup.v1',
-      restoreReady: true,
-    })
-    await expect(backend.runRemoteBackup()).resolves.toMatchObject({
-      uploaded: false,
-    })
     await expect(
       backend.inspectTakeout({ sourcePath: '/tmp/takeout', dryRun: true }),
     ).resolves.toMatchObject({
@@ -383,22 +368,6 @@ describe('backend facade preview smoke', () => {
     })
     await expect(backend.keyringClearDatabaseKey()).resolves.toMatchObject({
       storedSecret: false,
-    })
-    await expect(
-      backend.storeS3Credentials({
-        accessKeyId: 'key',
-        secretAccessKey: 'secret',
-      }),
-    ).resolves.toBeUndefined()
-    expect((await backend.getAppSnapshot()).config.remoteBackup).toMatchObject({
-      credentialsSaved: true,
-    })
-    await expect(backend.runRemoteBackup()).resolves.toMatchObject({
-      uploaded: true,
-    })
-    await expect(backend.clearS3Credentials()).resolves.toBeUndefined()
-    expect((await backend.getAppSnapshot()).config.remoteBackup).toMatchObject({
-      credentialsSaved: false,
     })
     await expect(
       backend.storeAiProviderApiKey({

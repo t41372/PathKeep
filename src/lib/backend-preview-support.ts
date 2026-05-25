@@ -22,16 +22,12 @@
  * - The mock state mutations here are intentionally narrow so preview consumers can reuse them without extra recomputation.
  */
 
-import { mockBuildInfo } from './backend-preview-fixtures'
 import type { MockBackendState } from './backend-preview-state'
 import type {
-  AppConfig,
   AuditRunDetail,
   BackupRunOverview,
   ClearDerivedIntelligenceReport,
   DashboardSnapshot,
-  RemoteBackupPreview,
-  RemoteBackupVerification,
 } from './types'
 
 /**
@@ -42,182 +38,6 @@ import type {
  */
 function uniqueUrlCount(items: Array<{ url: string }>) {
   return new Set(items.map((item: { url: string }) => item.url)).size
-}
-
-/**
- * Derives a deterministic remote bundle path for preview-mode remote backup flows.
- *
- * The returned path is used in both the preview command string and the verification
- * fixture so the two outputs stay in sync.
- */
-export function remoteBundlePath() {
-  const timestamp = new Date().toISOString().replaceAll(':', '-')
-  return `/tmp/pathkeep-remote-${timestamp}.zip`
-}
-
-/**
- * Derives the S3 object key used by preview remote backup fixtures.
- *
- * The key respects the configured prefix while preserving the bundle file name
- * so the mocked upload target matches the desktop contract.
- */
-export function remoteObjectKey(config: AppConfig, bundlePath: string) {
-  const prefix = config.remoteBackup.prefix.trim().replace(/^\/+|\/+$/g, '')
-  const fileName = bundlePath.split('/').pop()!
-  return prefix ? `${prefix}/${fileName}` : fileName
-}
-
-/**
- * Derives the upload URL for the preview remote backup command.
- *
- * The behavior mirrors the browser-preview logic for custom endpoints, path-style
- * addressing, and default AWS S3 endpoint construction.
- */
-export function remoteUploadUrl(config: AppConfig, objectKey: string) {
-  const trimmedObjectKey = objectKey.replace(/^\/+/, '')
-  const endpoint = config.remoteBackup.endpoint?.trim()
-
-  if (endpoint) {
-    const normalized =
-      endpoint.startsWith('http://') || endpoint.startsWith('https://')
-        ? endpoint.replace(/\/+$/g, '')
-        : `https://${endpoint.replace(/\/+$/g, '')}`
-    if (config.remoteBackup.pathStyle) {
-      return `${normalized}/${config.remoteBackup.bucket}/${trimmedObjectKey}`
-    }
-
-    const url = new URL(normalized)
-    url.hostname = `${config.remoteBackup.bucket}.${url.hostname}`
-    return `${url.toString().replace(/\/+$/g, '')}/${trimmedObjectKey}`
-  }
-
-  if (config.remoteBackup.pathStyle) {
-    return `https://s3.${config.remoteBackup.region}.amazonaws.com/${config.remoteBackup.bucket}/${trimmedObjectKey}`
-  }
-
-  return `https://${config.remoteBackup.bucket}.s3.${config.remoteBackup.region}.amazonaws.com/${trimmedObjectKey}`
-}
-
-/**
- * Builds the preview remote backup fixture payload.
- *
- * The helper also records the bundle path on mock state so a later verify call can
- * reuse the same deterministic path instead of inventing a different one.
- */
-export function previewRemoteBackupFixture(
-  state: MockBackendState,
-): RemoteBackupPreview {
-  const config = state.snapshot.config
-  const bundlePath = remoteBundlePath()
-  const objectKey = remoteObjectKey(config, bundlePath)
-  const uploadUrl = remoteUploadUrl(config, objectKey)
-  const warnings = []
-
-  if (config.archiveMode === 'Plaintext') {
-    warnings.push(
-      'The remote bundle will contain a plaintext archive because local encryption is currently disabled.',
-    )
-  }
-  if (!state.snapshot.config.remoteBackup.credentialsSaved) {
-    warnings.push(
-      'Remote credentials are not stored yet. Save the access key and secret before using Execute.',
-    )
-  }
-  if (config.remoteBackup.endpoint) {
-    warnings.push(
-      'A custom S3-compatible endpoint is configured. Verify TLS, bucket policy, and path-style compatibility before trusting automatic upload.',
-    )
-  }
-
-  state.lastRemoteBundlePath = bundlePath
-
-  return {
-    bundlePath,
-    objectKey,
-    uploadUrl,
-    previewCommand: `curl --fail --show-error --aws-sigv4 "aws:amz:${config.remoteBackup.region}:s3" --user "$S3_ACCESS_KEY_ID:$S3_SECRET_ACCESS_KEY" -T '${bundlePath}' '${uploadUrl}'`,
-    manualSteps: [
-      'Review the bundle path, object key, and upload URL before you trust the destination.',
-      'Store S3 credentials in Settings or copy the preview command into your own terminal session.',
-      'After execute finishes, run Verify to confirm checksums and restore readiness on the generated bundle.',
-    ],
-    warnings,
-  }
-}
-
-/**
- * Builds the preview verification fixture for a remote backup bundle.
- *
- * The helper prefers the last preview-generated bundle path when available so the
- * mock verification story stays coherent across preview and verify actions.
- */
-export function verifyRemoteBackupFixture(
-  state: MockBackendState,
-  bundlePath?: string,
-): RemoteBackupVerification {
-  const resolvedBundlePath =
-    bundlePath ?? state.lastRemoteBundlePath ?? remoteBundlePath()
-  const objectKey = remoteObjectKey(state.snapshot.config, resolvedBundlePath)
-  return {
-    bundlePath: resolvedBundlePath,
-    bundleVersion: 'pathkeep.remote-backup.v1',
-    appVersion: mockBuildInfo.version,
-    createdAt: new Date().toISOString(),
-    archiveMode:
-      state.snapshot.config.archiveMode === 'Encrypted'
-        ? 'encrypted'
-        : 'plaintext',
-    objectKey,
-    restoreReady: true,
-    checks: [
-      {
-        name: 'bundle-manifest',
-        status: 'ok',
-        message:
-          'Bundle manifest exists and declares a supported PathKeep remote bundle version.',
-      },
-      {
-        name: 'checksums',
-        status: 'ok',
-        message:
-          'Preview verification recalculated bundle checksums and found no drift.',
-      },
-      {
-        name: 'restore-validation',
-        status: 'ok',
-        message:
-          'Required archive/config entries are present, so the bundle is restorable in the desktop app.',
-      },
-    ],
-    warnings:
-      state.snapshot.config.archiveMode === 'Plaintext'
-        ? [
-            'Restore validation passed, but the archive inside this bundle stays plaintext at rest.',
-          ]
-        : [],
-    restoreSteps: [
-      'Download the bundle to a local disk before attempting restore.',
-      'Verify the manifest and archive entries before replacing a live PathKeep archive.',
-      'If the archive is encrypted, unlock PathKeep with the current database key before restore.',
-    ],
-    manifestFiles: [
-      {
-        relativePath: 'archive/history-vault.sqlite',
-        sha256: 'preview-archive-sha256',
-        sizeBytes: 146_800_640,
-      },
-      {
-        relativePath: 'config/config.json',
-        sha256: 'preview-config-sha256',
-        sizeBytes: 4_096,
-      },
-      {
-        relativePath: 'metadata/bundle-manifest.json',
-        sha256: 'preview-manifest-sha256',
-        sizeBytes: 1_024,
-      },
-    ],
-  }
 }
 
 /**

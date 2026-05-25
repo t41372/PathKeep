@@ -35,7 +35,6 @@ export type SettingsSectionKey =
   | 'profiles'
   | 'ai'
   | 'derived'
-  | 'remote'
   | 'migration'
   | 'linkPreviews'
   | 'platform'
@@ -82,11 +81,6 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     icon: 'memory',
     labelKey: 'settings.enrichmentDerivedState',
   },
-  remote: {
-    id: 'settings-remote',
-    icon: 'cloud_upload',
-    labelKey: 'settings.remoteBackup',
-  },
   migration: {
     id: 'settings-migration',
     icon: 'download',
@@ -112,7 +106,6 @@ const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'profiles',
   'ai',
   'derived',
-  'remote',
   'migration',
   'linkPreviews',
   'platform',

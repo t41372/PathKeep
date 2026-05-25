@@ -380,16 +380,6 @@ describe('backend client', () => {
         args: { request },
       },
       {
-        run: () => backend.previewRemoteBackup(),
-        command: 'preview_remote_backup',
-      },
-      { run: () => backend.runRemoteBackup(), command: 'run_remote_backup' },
-      {
-        run: () => backend.verifyRemoteBackup('/tmp/bundle.zip'),
-        command: 'verify_remote_backup',
-        args: { bundlePath: '/tmp/bundle.zip' },
-      },
-      {
         run: () => backend.inspectTakeout(request),
         command: 'inspect_takeout',
         args: { request },
@@ -465,15 +455,6 @@ describe('backend client', () => {
       {
         run: () => backend.keyringClearDatabaseKey(),
         command: 'keyring_clear_database_key',
-      },
-      {
-        run: () => backend.storeS3Credentials(request),
-        command: 'store_s3_credentials',
-        args: { credentials: request },
-      },
-      {
-        run: () => backend.clearS3Credentials(),
-        command: 'clear_s3_credentials',
       },
       {
         run: () => backend.storeAiProviderApiKey(request),

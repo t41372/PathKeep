@@ -38,30 +38,6 @@
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 
-- [ ] **WORK-FEEDBACK-0525-S3-REMOVE** — Remove S3 cloud backup entirely (feedback-2026-05-25 §2.2)
-  - 讀先：
-    `src-tauri/crates/vault-core/src/remote/` (整個目錄)
-    `src-tauri/src/commands/remote.rs`
-    `src-tauri/src/worker_bridge/remote.rs`
-    `src/pages/settings/remote-backup-section.tsx`
-    `src/pages/settings/remote-backup-preferences-section.tsx`
-    `src/pages/settings/use-settings-remote-state.ts`
-    `src/lib/backend-client/remote.ts`
-    `src/lib/types/remote.ts`
-    `src/lib/i18n/catalog/settings-remote-and-outputs.ts`
-    `docs/features/` (任何提 S3 雲端備份的子文檔)
-    `docs/architecture/` (data-model、tech-stack 中提 remote backup 的段落)
-    `docs/design/` (screens-and-nav 等)
-  - 觀察：91 個檔案 reference S3 / remote backup 路徑。使用者說「越來越覺得超出 PathKeep 的 scope（PathKeep 是 local-first，把備份外包到 S3 與產品定位相衝）」。
-  - 目標：徹底刪除 S3 雲端備份功能 — 前端、後端、所有相關測試、所有相關文檔。新增的 Export/Import（§2.1）才是 local-first 的遷移路徑。
-  - 契約：
-    - 刪完之後 `bun run check` 仍綠（100% JS + Rust coverage 不能因刪 production code 反而暴露未測 fallback 路徑）。
-    - dev_ipc_bridge dispatch arms、payloads、worker_bridge 對應命令一併刪。
-    - vault-core::config / models::AppConfig 移除 remote backup 欄位；既有 config.json 載入時要靜默忽略遺留欄位，不能 panic。
-    - i18n catalog 刪除 remote backup 鍵；剩餘 keys 三語 parity 100%。
-    - docs sweep 同步移除任何「S3 / 雲端備份」段落；BACKLOG.md / STATUS.md / CHANGELOG.md / features / architecture / design / research-and-decisions 都要更新。
-  - 驗收：grep `s3|S3|aws|cloud_backup|remoteBackup` 在 production code (排除 tests fixture 與本 BACKLOG entry) 後完全沒命中；`bun run check` 綠。
-
 - [ ] **WORK-FEEDBACK-0525-DAY-INSIGHTS** — Backend per-day aggregate for Browse day insights (feedback-2026-05-25 §3.1)
   - 讀先：
     `src/components/explorer-paper/paper-day-insights-helpers.ts` (`aggregateDayInsights`)

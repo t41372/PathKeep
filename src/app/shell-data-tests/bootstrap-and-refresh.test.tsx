@@ -124,7 +124,6 @@ describe('ShellDataProvider', () => {
       },
       profiles: [],
       warnings: [],
-      remoteBackup: null,
     })
 
     renderShellProbe({ setLanguagePreference: languageSpy })
@@ -286,7 +285,6 @@ describe('ShellDataProvider', () => {
       run: null,
       profiles: [],
       warnings: [],
-      remoteBackup: null,
     })
 
     renderShellProbe()

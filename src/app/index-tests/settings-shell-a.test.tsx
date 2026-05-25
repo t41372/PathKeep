@@ -28,17 +28,13 @@ import App from '../index'
 import { appRoutes } from '../router'
 import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
-import { createNamespaceTranslator } from '../../lib/i18n'
 import {
-  commonT,
   expectHtmlElement,
   resetAppShellHarness,
   seedAiProviders,
   seedArchiveRun,
   settingsT,
 } from './test-helpers'
-
-const navigationT = createNamespaceTranslator('en', 'navigation')
 
 describe('App shell', () => {
   beforeEach(() => {
@@ -76,21 +72,8 @@ describe('App shell', () => {
     ).toBeVisible()
   })
 
-  test('walks the maintenance remote backup PME and derived-state controls', async () => {
+  test('walks the maintenance derived-state controls', async () => {
     await seedArchiveRun()
-    const seededSnapshot = await backend.getAppSnapshot()
-    await backend.saveConfig({
-      ...seededSnapshot.config,
-      remoteBackup: {
-        ...seededSnapshot.config.remoteBackup,
-        enabled: true,
-        bucket: 'example-bucket',
-      },
-    })
-    await backend.storeS3Credentials({
-      accessKeyId: 'preview-key',
-      secretAccessKey: 'preview-secret',
-    })
     const user = userEvent.setup()
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/maintenance'],
@@ -99,32 +82,6 @@ describe('App shell', () => {
     render(<App router={router} />)
 
     const maintenancePage = await screen.findByTestId('maintenance-page')
-    const nav = within(maintenancePage).getByRole('navigation', {
-      name: navigationT('maintenanceLabel'),
-    })
-    const remoteNavLink = within(nav).getByRole('link', {
-      name: settingsT('remoteBackup'),
-    })
-    expect(remoteNavLink).toHaveAttribute(
-      'href',
-      '#/maintenance#settings-remote',
-    )
-    const remotePanel = expectHtmlElement(
-      document.getElementById('settings-remote'),
-    )
-    const scrollDoubles = installImmediateSectionScrollDoubles()
-    try {
-      await user.click(remoteNavLink)
-      await waitFor(() =>
-        expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
-          block: 'start',
-        }),
-      )
-      expect(remotePanel).toHaveAttribute('tabindex', '-1')
-      expect(scrollDoubles.focus).toHaveBeenCalled()
-    } finally {
-      scrollDoubles.restore()
-    }
     const derivedPanel = expectHtmlElement(
       document.getElementById('settings-derived'),
     )
@@ -140,90 +97,6 @@ describe('App shell', () => {
     expect(
       within(maintenancePage).getAllByText(settingsT('gitCommit')).length,
     ).toBeGreaterThan(0)
-    expect(
-      within(remotePanel).getByText(commonT('common.previewTab')),
-    ).toBeVisible()
-    expect(
-      within(remotePanel).getByText(settingsT('remoteMaintenanceConfigTitle')),
-    ).toBeVisible()
-    expect(within(remotePanel).getByText('example-bucket')).toBeVisible()
-    expect(
-      within(remotePanel).getByRole('link', {
-        name: settingsT('remoteMaintenanceEditSettings'),
-      }),
-    ).toHaveAttribute('href', '/settings#settings-remote')
-    expect(
-      within(remotePanel).queryByLabelText(settingsT('bucketLabel')),
-    ).not.toBeInTheDocument()
-    expect(
-      within(remotePanel).queryByLabelText(settingsT('accessKeyId')),
-    ).not.toBeInTheDocument()
-    expect(
-      within(remotePanel).queryByLabelText(settingsT('secretAccessKey')),
-    ).not.toBeInTheDocument()
-    expect(
-      within(remotePanel).queryByRole('button', {
-        name: settingsT('saveRemoteSettings'),
-      }),
-    ).not.toBeInTheDocument()
-
-    await waitFor(() => {
-      expect(
-        within(remotePanel).getByText(settingsT('credentialsSaved')),
-      ).toBeVisible()
-    })
-
-    await user.click(
-      within(remotePanel).getByRole('button', {
-        name: settingsT('previewRemoteBackup'),
-      }),
-    )
-
-    await waitFor(() => {
-      expect(
-        within(remotePanel).getByText(settingsT('bundlePath')),
-      ).toBeVisible()
-      expect(
-        within(remotePanel).getAllByText(/pathkeep-remote-.*\.zip/).length,
-      ).toBeGreaterThan(0)
-    })
-
-    await user.click(
-      within(remotePanel).getByRole('button', {
-        name: settingsT('executeRemoteBackup'),
-      }),
-    )
-
-    await waitFor(() => {
-      expect(
-        within(remotePanel).getByText(
-          'Browser preview mode simulated the upload and produced a local bundle for verification.',
-        ),
-      ).toBeVisible()
-    })
-
-    await waitFor(() => {
-      expect(
-        within(remotePanel).getByRole('button', {
-          name: settingsT('verifyRemoteBackup'),
-        }),
-      ).toBeEnabled()
-    })
-
-    await user.click(
-      within(remotePanel).getByRole('button', {
-        name: settingsT('verifyRemoteBackup'),
-      }),
-    )
-
-    await waitFor(() => {
-      expect(
-        within(remotePanel).getByText(settingsT('bundleVersion')),
-      ).toBeVisible()
-      expect(
-        within(remotePanel).getByText('pathkeep.remote-backup.v1'),
-      ).toBeVisible()
-    })
 
     const readableContentCard = screen
       .getAllByText(settingsT('readableContentPlugin'))[0]

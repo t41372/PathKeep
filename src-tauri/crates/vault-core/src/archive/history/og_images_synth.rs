@@ -278,9 +278,7 @@ mod tests {
     #[test]
     fn youtube_music_url_resolves_to_max_res_thumbnail() {
         assert_eq!(
-            synthesize_image_url_from_url(
-                "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RD1"
-            ),
+            synthesize_image_url_from_url("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RD1"),
             Some("https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg".into()),
         );
     }
@@ -296,10 +294,7 @@ mod tests {
     #[test]
     fn youtube_id_must_be_eleven_characters_from_canonical_alphabet() {
         // Wrong length.
-        assert_eq!(
-            synthesize_image_url_from_url("https://www.youtube.com/watch?v=tooShort"),
-            None,
-        );
+        assert_eq!(synthesize_image_url_from_url("https://www.youtube.com/watch?v=tooShort"), None,);
         // Forbidden character (`.`) in the id segment.
         assert_eq!(
             synthesize_image_url_from_url("https://www.youtube.com/watch?v=dQw4w9WgX.Q"),
@@ -309,18 +304,12 @@ mod tests {
 
     #[test]
     fn youtube_watch_url_without_v_param_falls_through() {
-        assert_eq!(
-            synthesize_image_url_from_url("https://www.youtube.com/watch?list=PLfoo"),
-            None,
-        );
+        assert_eq!(synthesize_image_url_from_url("https://www.youtube.com/watch?list=PLfoo"), None,);
     }
 
     #[test]
     fn unrelated_url_returns_none() {
-        assert_eq!(
-            synthesize_image_url_from_url("https://example.com/article"),
-            None,
-        );
+        assert_eq!(synthesize_image_url_from_url("https://example.com/article"), None,);
     }
 
     #[test]
@@ -365,26 +354,11 @@ mod tests {
 
     #[test]
     fn extract_bilibili_pic_rejects_missing_or_blank_fields() {
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"code":-1,"data":{}}"#),
-            None,
-        );
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"code":0,"data":{"pic":"  "}}"#),
-            None,
-        );
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"code":0,"data":{"pic":42}}"#),
-            None,
-        );
-        assert_eq!(
-            extract_bilibili_pic_field(b"not json"),
-            None,
-        );
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"code":0}"#),
-            None,
-        );
+        assert_eq!(extract_bilibili_pic_field(br#"{"code":-1,"data":{}}"#), None,);
+        assert_eq!(extract_bilibili_pic_field(br#"{"code":0,"data":{"pic":"  "}}"#), None,);
+        assert_eq!(extract_bilibili_pic_field(br#"{"code":0,"data":{"pic":42}}"#), None,);
+        assert_eq!(extract_bilibili_pic_field(b"not json"), None,);
+        assert_eq!(extract_bilibili_pic_field(br#"{"code":0}"#), None,);
     }
 
     #[test]
@@ -538,10 +512,7 @@ mod tests {
         let id = synthesize_image_url_from_url(
             "https://www.youtube.com/watch?v=aaaaaaaaaaa&v=bbbbbbbbbbb",
         );
-        assert_eq!(
-            id,
-            Some("https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg".into()),
-        );
+        assert_eq!(id, Some("https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg".into()),);
     }
 
     #[test]
@@ -563,11 +534,7 @@ mod tests {
         // a broken image URL.
         for id in ["abc def0123", "abc+def0123"] {
             let url = format!("https://www.youtube.com/watch?v={id}");
-            assert_eq!(
-                synthesize_image_url_from_url(&url),
-                None,
-                "id {id} must be rejected",
-            );
+            assert_eq!(synthesize_image_url_from_url(&url), None, "id {id} must be rejected",);
         }
     }
 
@@ -590,10 +557,7 @@ mod tests {
     #[test]
     fn youtube_shorts_with_trailing_slash_or_query_is_handled() {
         assert!(
-            synthesize_image_url_from_url(
-                "https://www.youtube.com/shorts/dQw4w9WgXcQ/",
-            )
-            .is_some(),
+            synthesize_image_url_from_url("https://www.youtube.com/shorts/dQw4w9WgXcQ/",).is_some(),
         );
         assert!(
             synthesize_image_url_from_url(
@@ -612,11 +576,7 @@ mod tests {
             "https://www.youtube.com/@somecreator",
             "https://www.youtube.com/playlist?list=PLfoo",
         ] {
-            assert_eq!(
-                synthesize_image_url_from_url(url),
-                None,
-                "URL {url} should not synthesize",
-            );
+            assert_eq!(synthesize_image_url_from_url(url), None, "URL {url} should not synthesize",);
         }
     }
 
@@ -701,27 +661,16 @@ mod tests {
 
     #[test]
     fn extract_bilibili_pic_field_rejects_arrays_and_nulls() {
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"data":{"pic":null}}"#),
-            None,
-        );
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"data":{"pic":[]}}"#),
-            None,
-        );
+        assert_eq!(extract_bilibili_pic_field(br#"{"data":{"pic":null}}"#), None,);
+        assert_eq!(extract_bilibili_pic_field(br#"{"data":{"pic":[]}}"#), None,);
         // data itself missing
-        assert_eq!(
-            extract_bilibili_pic_field(br#"{"code":0,"message":"ok"}"#),
-            None,
-        );
+        assert_eq!(extract_bilibili_pic_field(br#"{"code":0,"message":"ok"}"#), None,);
     }
 
     #[test]
     fn host_requires_synthesis_is_case_insensitive() {
         assert!(host_requires_synthesis("HTTPS://WWW.YOUTUBE.COM/watch?v=abc"));
-        assert!(host_requires_synthesis(
-            "https://M.bilibili.com/video/BV1xx411c7m1",
-        ));
+        assert!(host_requires_synthesis("https://M.bilibili.com/video/BV1xx411c7m1",));
     }
 
     #[test]

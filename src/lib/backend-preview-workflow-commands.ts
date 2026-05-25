@@ -26,17 +26,12 @@ import {
   type PreviewCommandResult,
 } from './backend-preview-command-result'
 import type { MockBackendState } from './backend-preview-state'
-import { normalizeMockConfig } from './backend-preview-state'
 import {
   buildMockSchedulePlan,
   buildMockScheduleStatus,
   normalizeMockPlatform,
 } from './backend-preview-schedule'
-import {
-  prependMockRun,
-  previewRemoteBackupFixture,
-  verifyRemoteBackupFixture,
-} from './backend-preview-support'
+import { prependMockRun } from './backend-preview-support'
 import {
   buildMockRekeyPreview,
   buildMockRetentionPreview,
@@ -50,7 +45,6 @@ import type {
   BrowserHistoryImportRequest,
   RekeyRequest,
   RetentionPruneRequest,
-  S3CredentialInput,
   SnapshotRestoreRequest,
   TakeoutRequest,
 } from './types'
@@ -147,7 +141,6 @@ export function handlePreviewWorkflowCommand<T>(
         manifestPath: `${state.snapshot.directories.manifestsDir}/2026-04-09/run-${run.id}-snapshot-restore.json`,
         gitCommit: null,
         warnings: [],
-        remoteBackup: null,
       } as T
     }
     case 'preview_retention_prune':
@@ -302,39 +295,6 @@ export function handlePreviewWorkflowCommand<T>(
         notes: ['Browser preview mode simulates a targeted doctor repair run.'],
       } as T
     }
-    case 'preview_remote_backup':
-      return previewRemoteBackupFixture(state) as T
-    case 'run_remote_backup': {
-      const preview = previewRemoteBackupFixture(state)
-      const uploaded = Boolean(state.s3Credentials)
-      const finishedAt = new Date().toISOString()
-      state.snapshot.config.remoteBackup.lastError = uploaded
-        ? null
-        : 'Store S3 credentials before executing the remote backup.'
-      if (uploaded) {
-        state.snapshot.config.remoteBackup.lastUploadedAt = finishedAt
-        state.snapshot.config.remoteBackup.lastUploadedObjectKey =
-          preview.objectKey
-      }
-      state.snapshot.config = normalizeMockConfig(
-        state.snapshot.config,
-        state.s3Credentials,
-      )
-      return {
-        uploaded,
-        bundlePath: preview.bundlePath,
-        objectKey: preview.objectKey,
-        uploadUrl: preview.uploadUrl,
-        message: uploaded
-          ? 'Browser preview mode simulated the upload and produced a local bundle for verification.'
-          : 'Store S3 credentials before executing the remote backup.',
-      } as T
-    }
-    case 'verify_remote_backup':
-      return verifyRemoteBackupFixture(
-        state,
-        typeof args?.bundlePath === 'string' ? args.bundlePath : undefined,
-      ) as T
     case 'keyring_status':
       return structuredClone(state.snapshot.keyringStatus) as T
     case 'security_status':
@@ -350,23 +310,6 @@ export function handlePreviewWorkflowCommand<T>(
       state.keyringSecret = null
       state.snapshot.keyringStatus.storedSecret = false
       return structuredClone(state.snapshot.keyringStatus) as T
-    case 'store_s3_credentials':
-      state.s3Credentials = structuredClone(
-        args?.credentials as S3CredentialInput,
-      )
-      state.snapshot.config = normalizeMockConfig(
-        state.snapshot.config,
-        state.s3Credentials,
-      )
-      return undefined as T
-    case 'clear_s3_credentials':
-      state.s3Credentials = null
-      state.snapshot.config.remoteBackup.lastError = null
-      state.snapshot.config = normalizeMockConfig(
-        state.snapshot.config,
-        state.s3Credentials,
-      )
-      return undefined as T
     case 'apply_schedule':
       return {
         applied: false,

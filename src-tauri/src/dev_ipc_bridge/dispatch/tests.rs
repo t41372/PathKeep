@@ -40,10 +40,10 @@ use vault_core::{
     HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
     IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
     QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
-    S3CredentialInput, SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest,
-    TopSitesRequest, UnlockAppSessionRequest,
+    SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
+    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
+    UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -365,13 +365,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "export_history",
         json!({ "request": ExportRequest { query: HistoryQuery::default(), format: ExportFormat::Jsonl } }),
     );
-    dispatch_for_coverage(&state, "preview_remote_backup", json!({}));
-    dispatch_for_coverage(&state, "run_remote_backup", json!({}));
-    dispatch_for_coverage(
-        &state,
-        "verify_remote_backup",
-        json!({ "bundlePath": dir.path().join("missing.zip").display().to_string() }),
-    );
     dispatch_for_coverage(&state, "inspect_takeout", json!({ "request": takeout.clone() }));
     dispatch_for_coverage(&state, "import_takeout", json!({ "request": takeout }));
     dispatch_for_coverage(
@@ -396,15 +389,6 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "keyring_get_database_key", json!({}));
     dispatch_for_coverage(&state, "keyring_store_database_key", json!({ "value": "secret" }));
     dispatch_for_coverage(&state, "keyring_clear_database_key", json!({}));
-    dispatch_for_coverage(
-        &state,
-        "store_s3_credentials",
-        json!({ "credentials": S3CredentialInput {
-            access_key_id: "access".to_string(),
-            secret_access_key: "secret".to_string(),
-        } }),
-    );
-    dispatch_for_coverage(&state, "clear_s3_credentials", json!({}));
     dispatch_for_coverage(
         &state,
         "store_ai_provider_api_key",

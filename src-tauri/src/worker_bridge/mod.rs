@@ -11,7 +11,6 @@ mod archive;
 mod import;
 mod intelligence;
 mod migration;
-mod remote;
 mod schedule;
 mod security;
 
@@ -29,9 +28,7 @@ pub(crate) use self::annotations::*;
 // and the glob is only loaded for production builds.
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use self::migration::*;
-pub(crate) use self::{
-    app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
-};
+pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
 fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
@@ -337,38 +334,6 @@ mod tests {
             Some("session-secret".to_string())
         );
         assert!(!keyring_clear_database_key_impl().expect("clear keyring key").stored_secret);
-
-        store_s3_credentials_impl(S3CredentialInput {
-            access_key_id: "test-access".to_string(),
-            secret_access_key: "test-secret".to_string(),
-        })
-        .expect("store s3 credentials");
-
-        let mut remote_config = config.clone();
-        remote_config.remote_backup.enabled = true;
-        remote_config.remote_backup.bucket = "pathkeep-tests".to_string();
-        remote_config.remote_backup.region = "us-west-2".to_string();
-        remote_config.remote_backup.prefix = "archives".to_string();
-        let saved_snapshot =
-            save_config_impl(remote_config.clone(), session_key(&session).as_deref())
-                .expect("save remote config");
-        assert!(saved_snapshot.config.remote_backup.credentials_saved);
-
-        let remote_preview = preview_remote_backup_impl().expect("preview remote backup");
-        assert!(remote_preview.preview_command.contains("curl"));
-        let remote_verify_error = verify_remote_backup_impl(
-            "/tmp/pathkeep-missing-bundle.zip".to_string(),
-            session_key(&session).as_deref(),
-        )
-        .expect_err("missing bundle should fail verification");
-        assert!(
-            remote_verify_error.contains("opening")
-                && remote_verify_error.contains("pathkeep-missing-bundle.zip")
-        );
-        clear_s3_credentials_impl().expect("clear s3 credentials");
-        let remote_error = run_remote_backup_impl(session_key(&session).as_deref())
-            .expect_err("remote backup should require stored credentials");
-        assert!(remote_error.contains("S3"));
 
         let provider_snapshot = store_ai_provider_api_key_impl(
             AiProviderSecretInput {

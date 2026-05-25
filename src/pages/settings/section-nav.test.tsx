@@ -33,10 +33,10 @@ const navItems: SettingsSectionNavItem[] = [
     label: 'General',
   },
   {
-    icon: 'cloud_upload',
-    id: 'settings-remote',
-    key: 'remote',
-    label: 'Remote backup',
+    icon: 'download',
+    id: 'settings-migration',
+    key: 'migration',
+    label: 'Data migration',
   },
 ]
 
@@ -67,11 +67,11 @@ describe('SettingsSectionNav', () => {
     try {
       render(
         <MemoryRouter initialEntries={['/settings']}>
-          <section id="settings-remote" tabIndex={0} />
+          <section id="settings-migration" tabIndex={0} />
           <SettingsSectionNav items={navItems} label="Settings sections" />
         </MemoryRouter>,
       )
-      const remotePanel = document.getElementById('settings-remote')
+      const remotePanel = document.getElementById('settings-migration')
       if (!(remotePanel instanceof HTMLElement)) {
         throw new Error('Expected settings remote panel')
       }
@@ -87,12 +87,12 @@ describe('SettingsSectionNav', () => {
 
       await user.click(
         screen.getByRole('link', {
-          name: 'Remote backup',
+          name: 'Data migration',
         }),
       )
 
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
-      expect(document.getElementById('settings-remote')).toHaveAttribute(
+      expect(document.getElementById('settings-migration')).toHaveAttribute(
         'tabindex',
         '0',
       )
@@ -126,7 +126,7 @@ describe('SettingsSectionNav', () => {
 
       await user.click(
         screen.getByRole('link', {
-          name: 'Remote backup',
+          name: 'Data migration',
         }),
       )
       await new Promise((resolve) => window.setTimeout(resolve, 0))
@@ -152,8 +152,8 @@ describe('SettingsSectionNav', () => {
 
     try {
       const { unmount } = render(
-        <MemoryRouter initialEntries={['/settings#settings-remote']}>
-          <section id="settings-remote" />
+        <MemoryRouter initialEntries={['/settings#settings-migration']}>
+          <section id="settings-migration" />
           <SettingsSectionNav items={navItems} label="Settings sections" />
         </MemoryRouter>,
       )

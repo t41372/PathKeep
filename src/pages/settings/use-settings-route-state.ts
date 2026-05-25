@@ -30,7 +30,6 @@ import type {
 } from '../../lib/types'
 import { useSettingsAiState } from './use-settings-ai-state'
 import { useSettingsDerivedState } from './use-settings-derived-state'
-import { useSettingsRemoteState } from './use-settings-remote-state'
 import { useSettingsSupportState } from './use-settings-support-state'
 import { useSettingsUpdaterState } from './use-settings-updater-state'
 
@@ -91,17 +90,10 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
     saveConfig: args.saveConfig,
     snapshot: args.snapshot,
   })
-  const remoteState = useSettingsRemoteState({
-    refreshAppData: args.refreshAppData,
-    saveConfig: args.saveConfig,
-    snapshot: args.snapshot,
-  })
-
   return {
     ...supportState,
     ...updaterState,
     ...aiState,
     ...derivedState,
-    ...remoteState,
   }
 }

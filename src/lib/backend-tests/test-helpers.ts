@@ -50,19 +50,6 @@ export const previewConfigFixture: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
-  remoteBackup: {
-    enabled: false,
-    bucket: '',
-    region: 'us-east-1',
-    endpoint: null,
-    prefix: 'pathkeep',
-    pathStyle: true,
-    uploadAfterBackup: false,
-    credentialsSaved: false,
-    lastUploadedAt: null,
-    lastUploadedObjectKey: null,
-    lastError: null,
-  },
   enrichment: {
     plugins: [
       {

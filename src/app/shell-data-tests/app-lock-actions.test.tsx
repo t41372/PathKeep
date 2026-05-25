@@ -263,7 +263,6 @@ describe('ShellDataProvider', () => {
               run: null,
               profiles: [],
               warnings: [],
-              remoteBackup: null,
             })
         }),
     )

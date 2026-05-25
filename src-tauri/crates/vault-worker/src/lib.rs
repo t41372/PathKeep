@@ -43,13 +43,11 @@ pub use self::{
         import_browser_history_source_with_progress, import_takeout_source,
         import_takeout_source_with_progress, inspect_browser_history_source,
         inspect_takeout_source, load_history_favicons, load_history_og_images,
-        mark_og_images_shown, og_image_storage_stats, preview_import_batch_detail,
-        preview_remote_backup_bundle, preview_retention_plan, preview_snapshot_restore_plan,
-        prefetch_og_images_on_demand, query_history, refetch_og_images, repair_health,
-        restore_import_batch_detail,
+        mark_og_images_shown, og_image_storage_stats, prefetch_og_images_on_demand,
+        preview_import_batch_detail, preview_retention_plan, preview_snapshot_restore_plan,
+        query_history, refetch_og_images, repair_health, restore_import_batch_detail,
         revert_import_batch_detail, run_backup_now, run_backup_now_with_progress,
         run_og_image_cleanup, run_retention_plan, run_snapshot_restore_plan,
-        upload_remote_backup_bundle, verify_remote_backup_bundle,
     },
     cli::run_worker_cli,
     intelligence::{
@@ -78,11 +76,11 @@ pub use self::{
         schedule_status,
     },
     security::{
-        clear_ai_provider_api_key, clear_database_key_from_keyring, clear_s3_credentials,
-        configure_app_lock_passcode, keyring_report, load_app_lock_status, lock_app_ui_session,
-        preview_rekey_archive, read_database_key_from_keyring, remove_app_lock_passcode,
-        reset_local_secret_vault, security_status, store_ai_provider_api_key, store_s3_credentials,
-        unlock_app_ui_session, write_database_key_to_keyring,
+        clear_ai_provider_api_key, clear_database_key_from_keyring, configure_app_lock_passcode,
+        keyring_report, load_app_lock_status, lock_app_ui_session, preview_rekey_archive,
+        read_database_key_from_keyring, remove_app_lock_passcode, reset_local_secret_vault,
+        security_status, store_ai_provider_api_key, unlock_app_ui_session,
+        write_database_key_to_keyring,
     },
 };
 #[cfg(test)]
