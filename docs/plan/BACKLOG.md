@@ -38,23 +38,6 @@
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 
-- [ ] **WORK-FEEDBACK-0525-TAG-NOTE-SEARCH** — Tag/note search dimensions (feedback-2026-05-25 §3.3 A)
-  - 讀先：
-    `src-tauri/crates/vault-core/src/archive/search_query.rs` (現有 site:/intitle:/inurl: parser)
-    `src-tauri/crates/vault-core/src/annotations.rs` (notes + tags backend)
-    `docs/features/annotations.md`
-    `src/components/explorer-paper/paper-search-hero.tsx`
-    `src/components/explorer-paper/paper-advanced-search-help.tsx`
-    `src/lib/i18n/catalog/explorer.ts`
-  - 觀察 (feedback-2026-05-25 §3.3 A)：annotations backend 已存在但 search query 只看 title / URL — 使用者無法搜 tag 或 note 文字。
-  - 目標：(1) 擴充 `search_query.rs` 解析 `tag:foo` 與 `note:"bar baz"` operator，SQL join url_tags / url_annotations。(2) `PaperAdvancedSearchHelp` 多兩條 `tag:` `note:` 範例 + 對應三語 copy。(3) PaperSearchHero 多 `+ tag` `+ note` add-filter chip，開啟 popover 從 `listUrlAnnotations` 撈現有 tag list 讓使用者勾選；chip 對應到 URL `?tag=foo,bar` `?note=hello world` params。(4) Explorer route 把 params 轉成 `tag:` / `note:` operators 注入 query。
-  - 契約：
-    - operator 解析要跟既有 site:/intitle: 一致，並支援 negation (`-tag:foo`) 與多值 (`tag:foo tag:bar`)。
-    - join 不得讓無 annotation 的列消失 — 沒 tag/note operator 時 query 走原 path、效能不退步。
-    - 三語 i18n parity 100%。
-    - 100% JS + Rust coverage 維持。
-  - 驗收：能搜到只附 tag 沒在 title 出現的 URL；advanced help popover 列出新 operator；`bun run check`。
-
 - [ ] **WORK-FEEDBACK-0525-BROWSE-VIRT** — Browse sliding-window DOM recycling + directional prefetch (feedback-2026-05-25 §1.1 + §1.2)
   - 讀先：
     `docs/features/explorer-browse.md`
