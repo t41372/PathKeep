@@ -131,11 +131,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
-            json_value!(worker_bridge::run_backup_now_impl(
-                payload.due_only,
-                session_key(&state.session).as_deref(),
-                std::mem::drop::<vault_core::BackupProgressEvent>,
-            )?)
+            let key = session_key(&state.session);
+            json_value!(backup_now_off_thread(payload.due_only, key).await?)
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
@@ -861,6 +858,31 @@ fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, String> {
 
 fn to_json_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
+}
+
+/// Hops `run_backup_now_impl` onto the tokio blocking thread pool.
+///
+/// The post-backup tick inside `run_backup_now` fires the og:image refetch
+/// and prefetch passes, which build a `reqwest::blocking::Client` whose
+/// internal tokio runtime panics if dropped from inside another async
+/// runtime. Production Tauri commands wrap synchronous worker calls in
+/// `tauri::async_runtime::spawn_blocking` via `run_blocking_command`; the
+/// dev IPC bridge must mirror it. Without this hop the dev-IPC HTTP
+/// server thread crashes mid-response and the client sees a
+/// `socket hang up` with no body.
+async fn backup_now_off_thread(
+    due_only: bool,
+    key: Option<String>,
+) -> Result<vault_core::BackupReport, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::run_backup_now_impl(
+            due_only,
+            key.as_deref(),
+            std::mem::drop::<vault_core::BackupProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("run_backup_now join failed: {error}")))
 }
 
 #[cfg(test)]
