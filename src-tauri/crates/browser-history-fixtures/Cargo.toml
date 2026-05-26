@@ -1,0 +1,16 @@
+[package]
+name = "browser-history-fixtures"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Deterministic test fixtures for browser-history-parser and vault-core ingest scenarios."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite.workspace = true
+
+[dev-dependencies]
+browser-history-parser = { version = "0.1.0", path = "../browser-history-parser" }
+tempfile.workspace = true
