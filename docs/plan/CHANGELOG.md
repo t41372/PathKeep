@@ -1775,3 +1775,52 @@ contract pins.
 - 608 vault-core tests pass; 9 fixture crate tests pass.
 - All §5 audit contracts pinned (except infrastructure-blocked items).
 - Rust workspace compiles clean across all targets.
+
+### Final session entry — E9 hidden flag + future-work BACKLOG additions
+
+> 2026-05-25 · commits 8bc8b5ce + (this) · `feat/import-data-integrity-tests`
+
+#### One more focused scenario
+
+**E9** (`e9_hidden_url_flag_round_trips_for_both_true_and_false`) in
+`dedup_scenarios_edge_cases.rs`: pins that `hidden = true` source URL
+(Chrome redirect intermediates) lands non-zero in archive and
+`hidden = false` lands as 0. C-series only exercised `hidden: false`,
+and C4 (B1 fix) only used `hidden: true` in regression-prevention
+context — first-time-import preservation was not pinned.
+
+#### Final state
+
+- **35 dedup scenarios** across 4 modules (added E9).
+- 609 vault-core tests pass.
+- Rust coverage 100% (34,985 instrumented lines / 1,616 functions).
+- `bun run check:base` green; `bun run coverage:rust` green.
+- `bun run check` failed on **one unrelated E2E flake** —
+  `tests/e2e/desktop-bridge.spec.ts:223` ("runs a live backup and core
+  intelligence flow through the desktop command bridge") returned
+  `socket hang up` on `POST /commands/run_backup_now`. This is a
+  network-level desktop-bridge test failure with no connection to
+  Rust-only test additions in this branch.
+
+#### Future work documented in BACKLOG
+
+Four new work blocks added to BACKLOG for the follow-up work the user
+flagged as "do later":
+
+1. **WORK-IMPORT-FIXTURE-SIDECARS-A** — Extend Chromium fixture to
+   write `downloads` / `keyword_search_terms` / `favicons` /
+   `favicon_bitmaps` / `icon_mapping` tables, plus T6-T9 end-to-end
+   scenarios. Currently the parser supports these tables and writes.rs
+   has `insert_download` / `insert_search_term` / `insert_favicon`,
+   but no scenario covers them end-to-end.
+
+2. **WORK-IMPORT-TEST-MINOR-A** — 5 narrow contract pins as E10-E14:
+   visit_count edges, from_visit referential integrity, visit_duration
+   round-trip, Safari synthesized flag, Firefox visit_type enum.
+
+3. **WORK-IMPORT-TEST-PARSER-ORDERING-A** — Unit test the
+   `ArchiveChunkConsumer::visits` silent-skip behavior for visits with
+   missing url_id_map entries (audit §4 contract).
+
+4. **WORK-IMPORT-TEST-CONCURRENCY-A** — Audit + integration test for
+   same-profile concurrent ingest safety (audit §4 watermark race).

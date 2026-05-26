@@ -90,6 +90,65 @@
   - 目標：驗證 B5 hash collision probability — 用 1M+ record Takeout fixture 觀察 `stable_key_i64` 的實際碰撞率，確認是否在 14.4M design ceiling 下需要更換 hash function。
   - 契約：不修 product code；只產出 benchmark + collision statistics。
 
+- [ ] **WORK-IMPORT-FIXTURE-SIDECARS-A** — Chromium Sidecar Tables Fixture Extension + End-to-End Scenarios
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md` (§3 — "Downloads / search_terms / favicons all supported")
+    `docs/plan/program/import-test-harness-spec.md`
+    `src-tauri/crates/browser-history-fixtures/src/chromium/mod.rs` (current writer: urls + visits only)
+    `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` (lines 115+ — DOWNLOADS_SQL / SEARCH_TERMS_SQL / FAVICONS_SQL)
+    `src-tauri/crates/vault-core/src/archive/ingest/writes.rs` (`insert_download`, `insert_search_term`, `insert_favicon`)
+    `src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql` (downloads / keyword_search_terms / favicons / favicon_bitmaps schemas)
+  - 觀察（2026-05-25）：現在的 `ChromiumHistoryFixture` 只能寫 `urls` + `visits` 兩張表。實際 Chrome `History` DB 還有 `downloads`, `keyword_search_terms`, `favicons`/`favicon_bitmaps`/`icon_mapping` 等表，parser 都有對應 SELECT 與 archive 寫入，但**端到端 scenario level 完全沒測過** —— CHANGELOG 早有記錄。實際使用者真的有下載歷史 / 搜尋詞 / favicon，這個 gap 真實存在。
+  - 目標：(1) 在 `browser-history-fixtures/src/chromium/mod.rs` 加 `ChromiumDownloadRow` / `ChromiumKeywordSearchTermRow` / `ChromiumFaviconRow` + `ChromiumIconMappingRow` 三個（或四個）資料結構與對應的 `add_download` / `add_search_term` / `add_favicon` 方法；(2) 在 `SCHEMA_SQL` 補 real Chromium downloads / keyword_search_terms / favicons / favicon_bitmaps / icon_mapping 表結構（schema 要對齊真實 Chrome 145+ 版本，columns 取自 parser 的 SELECT 列表）；(3) 寫四個新 scenario：T6 `chromium_downloads_round_trip_to_archive_downloads_table`、T7 `chromium_keyword_search_terms_land_with_term_text_preserved`、T8 `chromium_favicons_link_to_canonical_url_rows_with_blob_dedup`、T9 `chromium_icon_mapping_resolves_url_to_favicon`；(4) 為新 fixture 表加 round-trip self-validation 測試到 `tests/fixture_roundtrip.rs`。
+  - 契約：
+    - 不修 product code；只擴展 fixture + 加 scenario。
+    - **絕對不讀取使用者真實瀏覽 / 下載資料**。所有 fixture rows 由 deterministic seed 程序化生成，URL / filename / search term 只用 `example.com` / `synthetic.test` / public-domain corpus。
+    - 三個（或四個）新 fixture data structures 不超過 800 行（含 schema、helper、unit test）。
+    - 100% Rust coverage 維持；新 scenario 必須在 `cargo test -p vault-core` 與 `bun run check` 全綠。
+    - Favicon blob bytes 使用 4-byte synthetic PNG header（`\x89PNG\r\n\x1a\n` + 1 byte filler），不從真實圖檔取材。
+  - 驗收：
+    - `ChromiumHistoryFixture` 至少支援 4 個新 add\_\* 方法 + 對應 SCHEMA_SQL 擴展。
+    - 4 個新 scenario 全綠，分別 assert downloads / search_terms / favicons / icon_mapping 從 fixture 進 archive 後 column values 1:1 對應。
+    - `tests/fixture_roundtrip.rs` 新增 self-validation 測試，確認 fixture writer 寫出的 SQLite DB 可被真實 parser 讀回。
+    - audit doc §6 contract table 新增 T6-T9 rows + 對應 §3 Chromium downloads / search_terms / favicons 註腳更新。
+    - CHANGELOG 紀錄哪些 sidecar tables 現在有 end-to-end scenario coverage。
+
+- [ ] **WORK-IMPORT-TEST-MINOR-A** — Minor Data-Integrity Contract Pins
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md`
+    `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases.rs` (where these will land)
+    `src-tauri/crates/browser-history-parser/src/safari/mod.rs` (lines 585-605 — synthesized / load_successful / http_non_get context evidence)
+  - 觀察（2026-05-25）：完成 35 個 dedup scenarios 之後剩下這些 narrow 的 contract pins，每個值都不大但加起來能補完 column-level 行為的測試覆蓋：
+    1. **visit_count = 0 / visit_count = N round-trip** — Chrome 對 typed-but-never-visited URL 會寫 `visit_count = 0`，parser 應該照搬不做奇怪轉換。
+    2. **`from_visit` referential integrity** — 如果 `from_visit` 指向不存在的 visit id（user 手動編輯 DB 或 parent visit 被刪），archive 怎麼存？current behavior 是 dangling reference 還是 0？
+    3. **`visit_duration_micros` round-trip** — 顯式 assert duration 從 fixture 傳到 archive 的 `visit_duration_us` column 沒丟。
+    4. **Safari `synthesized` context evidence** — audit §3 提到 Safari 的 synthesized flag 會 inflate visit_count，parser 把它記成 `safari.synthesized` ContextEvidence 但沒測過 round-trip。
+    5. **Firefox `visit_type` enum mapping** — Firefox 的 visit_type 編碼跟 Chromium transition 不同，應該照搬到 archive 而不被 normalize。
+  - 目標：每個 item 加一個 focused test 到 `dedup_scenarios_edge_cases.rs`（或在 baselines / takeout 各自模組裡），命名遵循 E-series（E10 / E11 / E12 / E13 / E14）。
+  - 契約：不修 product code；每個 test < 80 lines；不擴展 fixture API（用現有 fields）；audit doc §6 同步更新。
+  - 驗收：5 個新 test 全綠；`cargo test -p vault-core` + `bun run check`；audit doc §6 contract table 新增 5 rows；CHANGELOG 紀錄這批 pins。
+
+- [ ] **WORK-IMPORT-TEST-PARSER-ORDERING-A** — Visit-Before-URL Parser Ordering Contract
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md` (§4 — "Visit→URL ordering dependency" + §5.3)
+    `src-tauri/crates/vault-core/src/archive/ingest/mod.rs` (lines 155-158 — `ArchiveChunkConsumer::visits` silently drops visit if url_id_map miss)
+    `src-tauri/crates/vault-core/src/archive/ingest/chunk_consumer.rs` (if separate file)
+  - 觀察：audit §4 明確指出 parser 必須先 emit `urls()` 再 emit `visits()`；任何後續 refactor 改動 batching order 都會造成 silent data loss。但這個契約完全在 parser 層，不容易從 e2e scenario 測 —— 需要寫一個 mock `ChunkConsumer` 或直接 call `ArchiveChunkConsumer::visits` 在沒有對應 url_id_map entry 時，verify 行為（silent skip vs error）。
+  - 目標：在 vault-core 內加一個 unit test (不是 scenario) 直接驅動 `ArchiveChunkConsumer::visits` with empty url_id_map，assert visits are silently skipped (current behavior), 然後在 doc comment 連到 audit §4 警告任何未來 refactor 都要保留這個契約或顯式 fail-fast。
+  - 契約：不修 product code；測試只 pin 現有行為（silent skip），不主張 fail-fast 行為。如果 reviewer 認為應該改成 fail-fast，那是另一個 design conversation。
+  - 驗收：1 個 unit test 在 `dedup_scenarios_edge_cases.rs` 或 `writes.rs` 的 #[cfg(test)] module 全綠；audit doc §4 加 cross-reference 連到 test；CHANGELOG 紀錄這個 narrow contract pin。
+
+- [ ] **WORK-IMPORT-TEST-CONCURRENCY-A** — Multi-Profile Concurrent Ingest Safety
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md` (§4 — "Watermark race")
+    `src-tauri/crates/vault-core/src/archive/ingest/mod.rs` (lines 411-437 — transaction + watermark save)
+    `src-tauri/crates/vault-core/src/archive/mod.rs`
+    `src-tauri/crates/vault-worker/src/archive_flows.rs`
+  - 觀察：audit §4 指出 single-DB transaction 已經阻止 same-profile concurrent ingest，但 in-app queue serialization 與 backup vs Browser Direct cross-flow 沒測過。實際 production scenario：使用者點 manual backup 同時 schedule 觸發 auto backup，兩個 flow 都會試著 ingest 同一個 source_profile，race condition 可能讓 watermark 被踩或讓 same profile 同時被兩個 transaction 處理。
+  - 目標：(1) Reading 現有 worker queue / archive flow code，確認 same-profile 的 serial guarantee 從哪裡來；(2) 寫一個 integration test 模擬兩個 import flow 對同一 profile，assert second flow 等到 first flow 完成才開始；(3) 如果發現 gap，建立 bug entry，但**不在這個 block 修**。
+  - 契約：第一階段 audit-only（read + analysis），第二階段才寫測試；不修 product code；發現 bug 寫 BACKLOG entry 不直接 fix。
+  - 驗收：audit doc 新增 §4.1 "concurrent ingest safety analysis" 子章節；至少 1 個 integration test 證明 same-profile concurrent flow 是 serialized；任何發現的真實 race condition 寫獨立 BACKLOG block。
+
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：
     `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
