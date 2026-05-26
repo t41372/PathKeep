@@ -184,7 +184,7 @@ mod tests {
         write_test_config(&dest_paths, &initialized_plaintext_config());
 
         let result =
-            apply_import(None, bundle_path, ApplyImportOptions { confirm_overwrite: false })
+            apply_import(None, bundle_path, ApplyImportOptions { confirm_overwrite: false, ..Default::default() })
                 .expect("apply");
         assert!(
             dest_paths.archive_database_path.exists(),

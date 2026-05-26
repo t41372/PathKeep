@@ -1149,7 +1149,7 @@ mod tests {
         let applied = super::apply_app_data_import_impl(
             session_key(&session).as_deref(),
             bundle_target.clone(),
-            vault_core::ApplyImportOptions { confirm_overwrite: true },
+            vault_core::ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
         )
         .expect("apply app data import wrapper");
         assert_eq!(applied.final_schema_version, vault_core::archive::max_schema_version());

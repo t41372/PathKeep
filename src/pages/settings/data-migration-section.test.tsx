@@ -379,17 +379,19 @@ describe('DataMigrationSection', () => {
     expect(banner).not.toHaveTextContent('Previous project preserved')
   })
 
-  test('handleApplyImport is a no-op when phase is not "previewed"', async () => {
-    // L133 guard: after an apply error the preview panel stays mounted
-    // (so the user can read the error or cancel), but the confirm button
-    // is bound to a handler whose closed-over `phase` is `applyError`.
-    // Clicking it again must NOT re-fire `applyAppDataImport` — that's
-    // the contract the guard enforces.
+  test('handleApplyImport retries after an apply error so the user can fix and re-submit', async () => {
+    // After Codex C4, an apply error keeps the preview panel mounted on
+    // purpose so the user can change the source archive key (when the
+    // bundle is encrypted) and click Confirm again. The retry must
+    // re-invoke `applyAppDataImport`. The previous behaviour (no-op on
+    // any non-`previewed` phase) was the wrong contract — it forced the
+    // user to cancel and re-pick the bundle on every typo.
     dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
     vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(mockPreview())
     const applySpy = vi
       .spyOn(backend, 'applyAppDataImport')
-      .mockRejectedValue(new Error('boom'))
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(mockResult())
 
     renderSection()
     await userEvent.click(screen.getByTestId('settings-migration-import'))
@@ -404,13 +406,14 @@ describe('DataMigrationSection', () => {
     )
     expect(applySpy).toHaveBeenCalledTimes(1)
 
-    // Click again while phase is `applyError` — the guard on L133 fires.
+    // Click confirm a second time from the `applyError` phase — the
+    // backend is invoked again and on success the panel transitions to
+    // the `applied` banner.
     await userEvent.click(screen.getByTestId('settings-migration-confirm'))
-    // No second backend invocation; nothing transitions to `applied`.
-    expect(applySpy).toHaveBeenCalledTimes(1)
-    expect(
-      screen.queryByTestId('settings-migration-applied'),
-    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-applied')).toBeVisible(),
+    )
+    expect(applySpy).toHaveBeenCalledTimes(2)
   })
 
   test('preview renders without exporter hostname suffix when manifest omits it', async () => {
@@ -457,5 +460,172 @@ describe('DataMigrationSection', () => {
     expect(
       screen.queryByTestId('settings-migration-preview'),
     ).not.toBeInTheDocument()
+  })
+
+  test('encrypted preview renders the source-key prompt and gates Confirm on a non-empty key', async () => {
+    // Codex C4 frontend gate: the source-key input appears only when
+    // the manifest reports `archiveMode === "encrypted"`. Confirm is
+    // disabled until the user types a non-empty key, so a click can't
+    // bounce off the backend with "source_archive_key required."
+    dialogOpenMock.mockResolvedValue('/tmp/encrypted.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
+      mockPreview({
+        manifest: {
+          ...mockBundle().manifest,
+          archiveMode: 'encrypted',
+        },
+      }),
+    )
+    const applySpy = vi
+      .spyOn(backend, 'applyAppDataImport')
+      .mockResolvedValue(mockResult())
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-source-key-prompt'),
+      ).toBeVisible(),
+    )
+
+    const confirm = screen.getByTestId('settings-migration-confirm')
+    expect(confirm).toBeDisabled()
+    expect(applySpy).not.toHaveBeenCalled()
+
+    const input = screen.getByTestId('settings-migration-source-key-input')
+    expect(input).toHaveAttribute('type', 'password')
+
+    await userEvent.type(input, 'source-machine-key')
+    expect(confirm).toBeEnabled()
+
+    await userEvent.click(confirm)
+    await waitFor(() => expect(applySpy).toHaveBeenCalledTimes(1))
+    expect(applySpy).toHaveBeenCalledWith('/tmp/encrypted.pathkeep', {
+      confirmOverwrite: true,
+      sourceArchiveKey: 'source-machine-key',
+    })
+  })
+
+  test('plaintext bundle import does not render the source-key prompt and omits sourceArchiveKey', async () => {
+    // Regression guard: the default plaintext path must keep working.
+    // `bundleIsEncrypted` only flips on the literal `"encrypted"`
+    // value so an unknown mode falls back to plaintext rather than
+    // demanding a key the bundle does not need.
+    dialogOpenMock.mockResolvedValue('/tmp/plaintext.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(mockPreview())
+    const applySpy = vi
+      .spyOn(backend, 'applyAppDataImport')
+      .mockResolvedValue(mockResult())
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+
+    expect(
+      screen.queryByTestId('settings-migration-source-key-prompt'),
+    ).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+    await waitFor(() => expect(applySpy).toHaveBeenCalledTimes(1))
+    expect(applySpy).toHaveBeenCalledWith('/tmp/plaintext.pathkeep', {
+      confirmOverwrite: true,
+      sourceArchiveKey: undefined,
+    })
+  })
+
+  test('source-key-required error swaps the apply banner copy and keeps the panel mounted for retry', async () => {
+    // Backend signals `source_archive_key required` when the bundle is
+    // encrypted but no key was passed. The frontend matches on the
+    // typed prefix and renders the dedicated "Source archive key
+    // required" copy instead of the generic "Import failed" banner.
+    dialogOpenMock.mockResolvedValue('/tmp/encrypted.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
+      mockPreview({
+        manifest: {
+          ...mockBundle().manifest,
+          archiveMode: 'encrypted',
+        },
+      }),
+    )
+    // Reject with the typed prefix exactly the way the Rust side
+    // formats it. The test pins the contract by string-matching the
+    // constant — if the prefix ever drifts on the Rust side the
+    // catalogue test will catch the missing locale, and this test
+    // pins the JS-side detection.
+    vi.spyOn(backend, 'applyAppDataImport').mockRejectedValue(
+      new Error(
+        'source_archive_key required: the imported bundle was encrypted on the source machine.',
+      ),
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-source-key-prompt'),
+      ).toBeVisible(),
+    )
+    await userEvent.type(
+      screen.getByTestId('settings-migration-source-key-input'),
+      'whatever',
+    )
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-apply-error'),
+      ).toBeVisible(),
+    )
+    const banner = screen.getByTestId('settings-migration-apply-error')
+    expect(banner).toHaveTextContent('Source archive key required')
+    // Preview panel + source-key input still mounted so the user can
+    // edit the key and click confirm again.
+    expect(
+      screen.getByTestId('settings-migration-preview'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('settings-migration-source-key-input'),
+    ).toBeInTheDocument()
+  })
+
+  test('source-key-invalid error renders the "wrong key" copy distinct from the generic banner', async () => {
+    // Distinct typed prefix → distinct copy. UX needs to tell the user
+    // "key wrong, try again" not "import failed for an unknown reason."
+    dialogOpenMock.mockResolvedValue('/tmp/encrypted.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
+      mockPreview({
+        manifest: {
+          ...mockBundle().manifest,
+          archiveMode: 'encrypted',
+        },
+      }),
+    )
+    vi.spyOn(backend, 'applyAppDataImport').mockRejectedValue(
+      new Error(
+        'source_archive_key invalid: the supplied key does not decrypt the archive.',
+      ),
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-source-key-prompt'),
+      ).toBeVisible(),
+    )
+    await userEvent.type(
+      screen.getByTestId('settings-migration-source-key-input'),
+      'wrong-key',
+    )
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-apply-error'),
+      ).toBeVisible(),
+    )
+    const banner = screen.getByTestId('settings-migration-apply-error')
+    expect(banner).toHaveTextContent('Source archive key is incorrect')
   })
 })

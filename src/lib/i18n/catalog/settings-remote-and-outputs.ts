@@ -187,6 +187,15 @@ export const settingsRemoteAndOutputsNamespace = {
     migrationAppliedNoMigrations: 'none',
     migrationAppliedBakNotice:
       'Previous project preserved as .bak-<timestamp> sidecars.',
+    migrationSourceKeyLabel: 'Source archive key',
+    migrationSourceKeyHint:
+      'This bundle was encrypted on the source machine. Enter the archive key from the machine that produced this bundle to continue. The live archive on this machine stays untouched until the key matches.',
+    migrationSourceKeyMissingTitle: 'Source archive key required',
+    migrationSourceKeyMissingBody:
+      'The bundle is encrypted. Enter the source archive key above and try the import again. Your live data has not been changed.',
+    migrationSourceKeyInvalidTitle: 'Source archive key is incorrect',
+    migrationSourceKeyInvalidBody:
+      'That key does not decrypt the imported archive. Double-check the key from the source machine and try again. Your live data has not been changed.',
   },
   'zh-CN': {
     restoreReady: '可恢复',
@@ -345,6 +354,15 @@ export const settingsRemoteAndOutputsNamespace = {
       '存档现在是 schema v{finalSchemaVersion}。已应用的迁移：{migrationsApplied}。{bakNotice}',
     migrationAppliedNoMigrations: '无',
     migrationAppliedBakNotice: '原先的项目已以 .bak-<时间戳> 为后缀保留。',
+    migrationSourceKeyLabel: '来源存档密钥',
+    migrationSourceKeyHint:
+      '这个数据包在来源机器上是加密的。请输入产生此数据包的那台机器使用的存档密钥，才能继续导入。密钥匹配之前，本机的现有存档完全不会被修改。',
+    migrationSourceKeyMissingTitle: '需要来源存档密钥',
+    migrationSourceKeyMissingBody:
+      '此数据包是加密的。请在上方输入来源存档密钥后再次尝试导入。本机的现有数据没有被改动。',
+    migrationSourceKeyInvalidTitle: '来源存档密钥不正确',
+    migrationSourceKeyInvalidBody:
+      '这把密钥无法解密导入的存档。请确认来源机器上的密钥后再试一次。本机的现有数据没有被改动。',
   },
   'zh-TW': {
     restoreReady: '可還原',
@@ -503,5 +521,14 @@ export const settingsRemoteAndOutputsNamespace = {
       '封存現在是 schema v{finalSchemaVersion}。已套用的遷移：{migrationsApplied}。{bakNotice}',
     migrationAppliedNoMigrations: '無',
     migrationAppliedBakNotice: '原先的專案已以 .bak-<時間戳> 為後綴保留。',
+    migrationSourceKeyLabel: '來源封存密碼',
+    migrationSourceKeyHint:
+      '這個資料包在來源機器上是加密的。請輸入製作此資料包那台機器使用的封存密碼，才能繼續匯入。密碼比對成功之前，本機既有的封存完全不會被動。',
+    migrationSourceKeyMissingTitle: '需要來源封存密碼',
+    migrationSourceKeyMissingBody:
+      '此資料包是加密的。請在上方輸入來源封存密碼後再次嘗試匯入。本機既有的資料沒有被改動。',
+    migrationSourceKeyInvalidTitle: '來源封存密碼不正確',
+    migrationSourceKeyInvalidBody:
+      '這個密碼無法解密匯入的封存。請確認來源機器的密碼後再試一次。本機既有的資料沒有被改動。',
   },
 } as const

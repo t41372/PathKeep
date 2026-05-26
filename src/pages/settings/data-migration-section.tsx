@@ -33,15 +33,45 @@
 import { useCallback, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { backend } from '@/lib/backend-client'
-import type {
-  ExportedBundle,
-  ImportPreview,
-  ImportResult,
+import {
+  IMPORT_SOURCE_KEY_INVALID_PREFIX,
+  IMPORT_SOURCE_KEY_REQUIRED_PREFIX,
+  type ExportedBundle,
+  type ImportPreview,
+  type ImportResult,
 } from '@/lib/backend-client/migration'
 import { describeError } from '@/lib/errors'
 import { formatBytes } from '@/lib/format'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+/**
+ * Reads the `archiveMode` field off a bundle manifest as the typed
+ * literal the UI cares about. The Rust side serializes the field as a
+ * free-form string (`"encrypted"` / `"plaintext"`), so the helper
+ * defends against an unknown value by treating it as plaintext — that
+ * keeps the existing import flow working for older bundles while only
+ * the explicit `"encrypted"` case triggers the source-key prompt.
+ */
+function bundleIsEncrypted(preview: ImportPreview): boolean {
+  return preview.manifest.archiveMode === 'encrypted'
+}
+
+/**
+ * Classifies an apply-time error against the backend's typed-prefix
+ * contract so the UI can render a source-key prompt instead of a
+ * generic banner. See `migration.ts` for the prefix definitions.
+ */
+type ApplyErrorKind = 'sourceKeyRequired' | 'sourceKeyInvalid' | 'generic'
+function classifyApplyError(message: string): ApplyErrorKind {
+  if (message.includes(IMPORT_SOURCE_KEY_REQUIRED_PREFIX)) {
+    return 'sourceKeyRequired'
+  }
+  if (message.includes(IMPORT_SOURCE_KEY_INVALID_PREFIX)) {
+    return 'sourceKeyInvalid'
+  }
+  return 'generic'
+}
 
 export interface DataMigrationSectionProps {
   navItem: SettingsSectionNavItem
@@ -129,24 +159,28 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
     }
   }, [t])
 
-  const handleApplyImport = useCallback(async () => {
-    if (phase.kind !== 'previewed') return
-    const { bundlePath, preview } = phase
-    setPhase({ kind: 'applying', bundlePath, preview })
-    try {
-      const result = await backend.applyAppDataImport(bundlePath, {
-        confirmOverwrite: true,
-      })
-      setPhase({ kind: 'applied', result })
-    } catch (error) {
-      setPhase({
-        kind: 'applyError',
-        message: describeError(error, 'apply_app_data_import'),
-        bundlePath,
-        preview,
-      })
-    }
-  }, [phase])
+  const handleApplyImport = useCallback(
+    async (sourceArchiveKey?: string) => {
+      if (phase.kind !== 'previewed' && phase.kind !== 'applyError') return
+      const { bundlePath, preview } = phase
+      setPhase({ kind: 'applying', bundlePath, preview })
+      try {
+        const result = await backend.applyAppDataImport(bundlePath, {
+          confirmOverwrite: true,
+          sourceArchiveKey,
+        })
+        setPhase({ kind: 'applied', result })
+      } catch (error) {
+        setPhase({
+          kind: 'applyError',
+          message: describeError(error, 'apply_app_data_import'),
+          bundlePath,
+          preview,
+        })
+      }
+    },
+    [phase],
+  )
 
   const handleResetPreview = useCallback(() => setPhase({ kind: 'idle' }), [])
 
@@ -229,7 +263,7 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
             preview={phase.preview}
             applying={phase.kind === 'applying'}
             applyError={phase.kind === 'applyError' ? phase.message : null}
-            onConfirm={handleApplyImport}
+            onConfirm={(sourceKey) => void handleApplyImport(sourceKey)}
             onCancel={handleResetPreview}
           />
         ) : null}
@@ -307,7 +341,7 @@ interface ImportPreviewPanelProps {
   preview: ImportPreview
   applying: boolean
   applyError: string | null
-  onConfirm: () => void
+  onConfirm: (sourceArchiveKey?: string) => void
   onCancel: () => void
 }
 
@@ -320,6 +354,14 @@ function ImportPreviewPanel({
   onCancel,
 }: ImportPreviewPanelProps) {
   const { t } = useI18n()
+  const encrypted = bundleIsEncrypted(preview)
+  const [sourceKey, setSourceKey] = useState('')
+  const applyErrorKind = applyError ? classifyApplyError(applyError) : null
+  // Encrypted bundles cannot be applied without a non-empty source key.
+  // The Confirm button reflects that so the user does not click and
+  // immediately bounce back with the "source key required" error from
+  // the backend.
+  const canConfirm = encrypted ? sourceKey.trim().length > 0 : true
   return (
     <section
       data-testid="settings-migration-preview"
@@ -400,12 +442,52 @@ function ImportPreviewPanel({
         </ul>
       </details>
 
+      {encrypted ? (
+        <div
+          data-testid="settings-migration-source-key-prompt"
+          className="mt-4 flex flex-col gap-2"
+        >
+          <label
+            htmlFor="settings-migration-source-key"
+            className="text-ink font-serif text-[13px] font-medium tracking-[-0.005em]"
+          >
+            {t('settings.migrationSourceKeyLabel')}
+          </label>
+          <p className="text-ink-secondary font-serif text-[12px] leading-[1.5]">
+            {t('settings.migrationSourceKeyHint')}
+          </p>
+          <input
+            id="settings-migration-source-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={sourceKey}
+            onChange={(event) => setSourceKey(event.target.value)}
+            disabled={applying}
+            data-testid="settings-migration-source-key-input"
+            className="border-border-light bg-paper text-ink rounded-paper border px-3 py-2 font-mono text-[12px]"
+          />
+        </div>
+      ) : null}
+
       {applyError ? (
         <FeedbackBanner
           tone="error"
           testId="settings-migration-apply-error"
-          title={t('settings.migrationApplyErrorTitle')}
-          body={applyError}
+          title={
+            applyErrorKind === 'sourceKeyRequired'
+              ? t('settings.migrationSourceKeyMissingTitle')
+              : applyErrorKind === 'sourceKeyInvalid'
+                ? t('settings.migrationSourceKeyInvalidTitle')
+                : t('settings.migrationApplyErrorTitle')
+          }
+          body={
+            applyErrorKind === 'sourceKeyRequired'
+              ? t('settings.migrationSourceKeyMissingBody')
+              : applyErrorKind === 'sourceKeyInvalid'
+                ? t('settings.migrationSourceKeyInvalidBody')
+                : applyError
+          }
         />
       ) : null}
 
@@ -413,8 +495,10 @@ function ImportPreviewPanel({
         <button
           type="button"
           className="btn-primary"
-          onClick={onConfirm}
-          disabled={applying}
+          onClick={() =>
+            onConfirm(encrypted ? sourceKey.trim() : undefined)
+          }
+          disabled={applying || !canConfirm}
           data-testid="settings-migration-confirm"
         >
           {applying

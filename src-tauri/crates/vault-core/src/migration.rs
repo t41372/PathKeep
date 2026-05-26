@@ -58,7 +58,7 @@
 
 use crate::{
     archive::{
-        export_archive_database, max_schema_version, open_archive_connection,
+        apply_cipher_key, export_archive_database, max_schema_version, open_archive_connection,
         open_source_evidence_connection, run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
@@ -183,7 +183,35 @@ pub struct ApplyImportOptions {
     /// the function refuses early so a UI bug can't slip past the
     /// PME confirmation.
     pub confirm_overwrite: bool,
+    /// The archive cipher key that was used on the *source* machine.
+    /// Required when the bundle's manifest reports `archive_mode =
+    /// "encrypted"`. Plaintext bundles ignore this field entirely.
+    ///
+    /// The previous implementation re-used the *caller's* session key to
+    /// open the imported archive after the on-disk swap — but for a
+    /// fresh install (key=None) or a target machine whose local archive
+    /// happens to be locked with a different key, that key won't open
+    /// the imported database. `apply_import` then failed AFTER renaming
+    /// the live target to `.bak-*`, leaving the user with the import
+    /// applied on disk but reported as failed. Codex review finding C4.
+    ///
+    /// Surfaced through the Settings → Data migration prompt so the
+    /// user is asked for the source key only when the bundle actually
+    /// needs one.
+    pub source_archive_key: Option<String>,
 }
+
+/// Error-message prefix used by `apply_import` to signal "this bundle
+/// is encrypted but no source key was supplied." The frontend matches
+/// on this prefix to render the source-key input on the Settings →
+/// Data migration panel.
+pub const IMPORT_SOURCE_KEY_REQUIRED_PREFIX: &str = "source_archive_key required";
+
+/// Error-message prefix used by `apply_import` to signal "the source
+/// key supplied for this encrypted bundle is wrong." Distinct from
+/// `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` so the frontend can swap copy
+/// between "please enter" and "wrong key, try again."
+pub const IMPORT_SOURCE_KEY_INVALID_PREFIX: &str = "source_archive_key invalid";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -361,7 +389,15 @@ pub fn preview_import(paths: &ProjectPaths, bundle_path: &Path) -> Result<Import
 pub fn apply_import(
     paths: &ProjectPaths,
     config: &AppConfig,
-    key: Option<&str>,
+    // Codex C4: the caller's session key is no longer consulted by
+    // `apply_import`. Encrypted bundles use
+    // `options.source_archive_key`; plaintext bundles need no key. The
+    // parameter stays in the public signature so all existing callers
+    // (commands/migration.rs, worker_bridge::apply_app_data_import_impl,
+    // dev_ipc_bridge dispatch) keep compiling without churn, and we
+    // mark it `_key` so the compiler doesn't warn about it being
+    // unused.
+    _key: Option<&str>,
     bundle_path: &Path,
     options: &ApplyImportOptions,
 ) -> Result<ImportResult> {
@@ -390,6 +426,45 @@ pub fn apply_import(
     let staging = tempfile::TempDir::new_in(&staging_root)
         .with_context(|| format!("creating import staging dir under {}", staging_root.display()))?;
     extract_bundle_into(bundle_path, staging.path(), &preview.manifest)?;
+
+    // Codex C4: when the bundle is encrypted, verify the source key
+    // BEFORE renaming any live file to `.bak-*`. The previous
+    // implementation reused the caller's session key for the post-
+    // install schema check — but a fresh install (key=None) or a
+    // differently-keyed target can't open the imported database, and
+    // the failure happened only after the swap, leaving the user with
+    // their live archive renamed away and the import reported as
+    // failed.
+    //
+    // The fail-fast path here is read-only (it opens the *staged*
+    // archive under `app_root/staging/...`, not the live one), so a
+    // bad key surfaces as a typed error and the live tree is
+    // untouched. The verified key is then threaded through to the
+    // post-install schema check at the bottom of the function.
+    let staged_config = load_staged_config(staging.path())?;
+    let effective_post_install_key: Option<String> = if matches!(
+        staged_config.archive_mode,
+        ArchiveMode::Encrypted,
+    ) {
+        let source_key = options.source_archive_key.as_deref().filter(|k| !k.is_empty());
+        let Some(source_key) = source_key else {
+            anyhow::bail!(
+                "{IMPORT_SOURCE_KEY_REQUIRED_PREFIX}: the imported bundle was encrypted on the source machine. Re-call apply_import with options.source_archive_key set to the source key. The live archive on this machine is unchanged.",
+            );
+        };
+        let staged_archive_path = staging.path().join("archive/history-vault.sqlite");
+        if let Err(error) = verify_archive_key(&staged_archive_path, source_key) {
+            anyhow::bail!(
+                "{IMPORT_SOURCE_KEY_INVALID_PREFIX}: the supplied source_archive_key does not decrypt the imported archive ({error:?}). The live archive on this machine is unchanged.",
+            );
+        }
+        Some(source_key.to_string())
+    } else {
+        // Plaintext bundles ignore source_archive_key entirely. The
+        // post-install schema check uses None too, matching the legacy
+        // behaviour for unencrypted archives.
+        None
+    };
 
     // Atomic-ish swap: rename current subtrees to .bak then move staged in.
     // SQLite + WAL files require the connection to be closed before move
@@ -446,16 +521,21 @@ pub fn apply_import(
     let imported_config = load_config(paths).unwrap_or_else(|_| config.clone());
     save_config(paths, &imported_config).ok();
 
-    // Run forward migrations on the newly-installed archive.
+    // Run forward migrations on the newly-installed archive. Encrypted
+    // bundles use the verified source key (see Codex C4 above);
+    // plaintext bundles use `None`. The caller's session key is no
+    // longer consulted here — it was the wrong reference frame for an
+    // imported archive.
+    let post_install_key = effective_post_install_key.as_deref();
     let migrations_applied = if preview.migrations_to_apply.is_empty() {
         Vec::new()
     } else {
-        let connection = open_archive_for_migration(paths, &imported_config, key)?;
+        let connection = open_archive_for_migration(paths, &imported_config, post_install_key)?;
         run_migrations(&connection)?;
         preview.migrations_to_apply.clone()
     };
     let final_schema_version = {
-        let connection = open_archive_for_migration(paths, &imported_config, key)?;
+        let connection = open_archive_for_migration(paths, &imported_config, post_install_key)?;
         crate::archive::current_version(&connection)?
     };
 
@@ -584,6 +664,53 @@ fn add_file_to_zip(
         size_bytes,
     });
     Ok(())
+}
+
+/// Verifies that `key` opens the SQLCipher-encrypted database at
+/// `db_path`. Returns `Ok(())` if the key is correct, `Err(_)` otherwise.
+///
+/// Used by `apply_import` to refuse encrypted bundles BEFORE renaming
+/// any live file to `.bak-<ts>` when the supplied source key is wrong
+/// or absent. The cheapest end-to-end test of "does this key work" is
+/// to run `SELECT count(*) FROM sqlite_master` against the staged
+/// database after applying the cipher key — SQLCipher fails the query
+/// with a "file is not a database" / decryption error when the key is
+/// wrong.
+///
+/// Lives in `migration.rs` (not `archive/schema.rs`) because it
+/// intentionally bypasses `ensure_archive_bootstrapped`,
+/// `attach_search_database`, and `seed_search_projection_if_missing` —
+/// the staged archive is read-only here and we don't want to bootstrap
+/// projections against a database we may yet decide to reject.
+fn verify_archive_key(db_path: &Path, key: &str) -> Result<()> {
+    let connection = Connection::open(db_path)
+        .with_context(|| format!("opening staged archive at {}", db_path.display()))?;
+    apply_cipher_key(&connection, key)?;
+    connection
+        .query_row("SELECT count(*) FROM sqlite_master", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .with_context(|| {
+            format!("verifying source archive key for {}", db_path.display())
+        })?;
+    Ok(())
+}
+
+/// Reads the staged config JSON from a freshly-extracted bundle. Returns
+/// the parsed `AppConfig` so callers can decide whether the bundle is
+/// encrypted *before* any destructive on-disk rename. Falls back to
+/// `AppConfig::default()` (plaintext) when the bundle did not ship a
+/// config — older bundles or callers may legitimately produce that.
+fn load_staged_config(staging_dir: &Path) -> Result<AppConfig> {
+    let staged_config_path = staging_dir.join("config/config.json");
+    if !staged_config_path.exists() {
+        return Ok(AppConfig::default());
+    }
+    let content = fs::read_to_string(&staged_config_path)
+        .with_context(|| format!("reading staged config {}", staged_config_path.display()))?;
+    let config: AppConfig =
+        serde_json::from_str(&content).context("parsing staged config json")?;
+    Ok(config)
 }
 
 /// Rejects bundle-manifest entries whose `path` could escape the staging
@@ -829,7 +956,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_target,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         )
         .expect("apply");
         assert_eq!(result.final_schema_version, max_schema_version());
@@ -892,7 +1019,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         )
         .expect_err("should refuse without confirm");
         assert!(format!("{err:?}").contains("confirm_overwrite"));
@@ -916,7 +1043,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: true },
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
         )
         .expect("apply with confirm");
         assert!(result.preserved_previous_as_bak);
@@ -1047,6 +1174,188 @@ mod tests {
     }
 
     #[test]
+    fn apply_import_rejects_encrypted_bundle_when_source_key_is_missing() {
+        // Codex C4: encrypted bundle imported without
+        // `options.source_archive_key` must refuse BEFORE the live tree
+        // is touched. Caller's session key (legacy `key: Option<&str>`)
+        // is ignored — that was the wrong reference frame.
+        let (src_dir, src_paths) = fresh_paths();
+        let encrypted_config = AppConfig {
+            archive_mode: ArchiveMode::Encrypted,
+            initialized: true,
+            ..AppConfig::default()
+        };
+        let source_key = "source-machine-key";
+        crate::archive::ensure_archive_initialized(&src_paths, &encrypted_config, Some(source_key))
+            .expect("init encrypted source archive");
+        save_config(&src_paths, &encrypted_config).expect("save source config");
+        let bundle_path = src_dir.path().join("encrypted-needs-key.pathkeep");
+        export_app_data(&src_paths, &encrypted_config, Some(source_key), &bundle_path)
+            .expect("export encrypted bundle");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let err = apply_import(
+            &dest_paths,
+            &dest_config,
+            None, // caller's session key — intentionally untouched here
+            &bundle_path,
+            &ApplyImportOptions {
+                confirm_overwrite: false,
+                source_archive_key: None,
+            },
+        )
+        .expect_err("encrypted bundle without source key must be refused");
+
+        let message = format!("{err:?}");
+        assert!(
+            message.contains(IMPORT_SOURCE_KEY_REQUIRED_PREFIX),
+            "expected {IMPORT_SOURCE_KEY_REQUIRED_PREFIX} prefix, got: {message}",
+        );
+        // Live archive on dest never existed; confirm the refusal didn't
+        // leave a `.bak-*` sibling next to the dest archive path, which
+        // would mean the `.bak` rename loop ran.
+        assert!(
+            !dest_paths.archive_database_path.exists(),
+            "fresh dest must still have no archive after refusal",
+        );
+        let archive_dir = dest_paths.archive_database_path.parent().unwrap();
+        if archive_dir.exists() {
+            let bak_siblings: Vec<_> = std::fs::read_dir(archive_dir)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| {
+                    entry.file_name().to_string_lossy().contains(".bak-")
+                })
+                .collect();
+            assert!(
+                bak_siblings.is_empty(),
+                "refusal must NOT leave .bak-* siblings: found {:?}",
+                bak_siblings,
+            );
+        }
+    }
+
+    #[test]
+    fn apply_import_rejects_encrypted_bundle_when_source_key_is_wrong() {
+        // Codex C4: encrypted bundle imported with a *wrong*
+        // `source_archive_key` must refuse BEFORE the live tree is
+        // touched, with a different error prefix than the "missing key"
+        // case so the UI can swap copy between "please enter" and
+        // "wrong key, try again."
+        let (src_dir, src_paths) = fresh_paths();
+        let encrypted_config = AppConfig {
+            archive_mode: ArchiveMode::Encrypted,
+            initialized: true,
+            ..AppConfig::default()
+        };
+        let source_key = "source-machine-key";
+        crate::archive::ensure_archive_initialized(&src_paths, &encrypted_config, Some(source_key))
+            .expect("init encrypted source archive");
+        save_config(&src_paths, &encrypted_config).expect("save source config");
+        let bundle_path = src_dir.path().join("encrypted-wrong-key.pathkeep");
+        export_app_data(&src_paths, &encrypted_config, Some(source_key), &bundle_path)
+            .expect("export encrypted bundle");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let err = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions {
+                confirm_overwrite: false,
+                source_archive_key: Some("this-is-not-the-right-key".to_string()),
+            },
+        )
+        .expect_err("encrypted bundle with wrong source key must be refused");
+
+        let message = format!("{err:?}");
+        assert!(
+            message.contains(IMPORT_SOURCE_KEY_INVALID_PREFIX),
+            "expected {IMPORT_SOURCE_KEY_INVALID_PREFIX} prefix, got: {message}",
+        );
+    }
+
+    #[test]
+    fn apply_import_accepts_encrypted_bundle_with_matching_source_key() {
+        // Codex C4 happy path: source_archive_key matches the bundle's
+        // cipher key → the staged-archive verify step passes, the
+        // install proceeds, and the post-install schema check uses the
+        // verified source key (not the caller's session key).
+        let (src_dir, src_paths) = fresh_paths();
+        let encrypted_config = AppConfig {
+            archive_mode: ArchiveMode::Encrypted,
+            initialized: true,
+            ..AppConfig::default()
+        };
+        let source_key = "source-machine-key";
+        crate::archive::ensure_archive_initialized(&src_paths, &encrypted_config, Some(source_key))
+            .expect("init encrypted source archive");
+        save_config(&src_paths, &encrypted_config).expect("save source config");
+        let bundle_path = src_dir.path().join("encrypted-correct-key.pathkeep");
+        export_app_data(&src_paths, &encrypted_config, Some(source_key), &bundle_path)
+            .expect("export encrypted bundle");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            // The caller's session key on the target machine could be
+            // None (fresh install) or some other unrelated key — the
+            // import must NOT use it. Pass an obviously-wrong value to
+            // pin that contract.
+            Some("ignored-target-session-key"),
+            &bundle_path,
+            &ApplyImportOptions {
+                confirm_overwrite: false,
+                source_archive_key: Some(source_key.to_string()),
+            },
+        )
+        .expect("encrypted bundle with matching source key must apply");
+
+        assert!(
+            dest_paths.archive_database_path.exists(),
+            "encrypted archive must be installed at the dest after success",
+        );
+        assert!(
+            result.final_schema_version > 0,
+            "schema-check step must succeed with the verified source key",
+        );
+    }
+
+    #[test]
+    fn apply_import_ignores_source_archive_key_for_plaintext_bundles() {
+        // Plaintext bundles must keep working even when a
+        // source_archive_key is passed (e.g. the UI threads a value
+        // through unconditionally). This protects the common case where
+        // the user happens to type a key into the import dialog before
+        // realising the bundle is plaintext.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("plaintext-with-key.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path)
+            .expect("export plaintext bundle");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions {
+                confirm_overwrite: false,
+                source_archive_key: Some("totally-unused".to_string()),
+            },
+        )
+        .expect("plaintext bundle must apply regardless of source_archive_key");
+        assert!(result.final_schema_version > 0);
+    }
+
+    #[test]
     fn apply_import_applies_pending_migrations_when_bundle_schema_is_older() {
         // Forge a manifest claiming the bundle was produced at one schema
         // version below the current binary so `migrations_to_apply` is
@@ -1070,7 +1379,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         )
         .expect("apply with pending migrations");
         assert_eq!(result.migrations_applied, vec![local_max]);
@@ -1143,7 +1452,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         )
         .expect_err("payload tamper must be rejected");
         assert!(
@@ -1185,7 +1494,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: true },
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
         );
 
         // Restore permissions *before* asserting so a panic still lets
@@ -1266,7 +1575,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         );
 
         fs::set_permissions(&app_root, original).unwrap();
@@ -1319,7 +1628,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: true },
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
         );
 
         let outcome = result.expect("apply_import must succeed when dest is on a different fs than /tmp");
@@ -1357,7 +1666,7 @@ mod tests {
             &dest_config,
             None,
             &bundle_path,
-            &ApplyImportOptions { confirm_overwrite: false },
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
         )
         .expect("import must succeed on a fresh dest");
 
