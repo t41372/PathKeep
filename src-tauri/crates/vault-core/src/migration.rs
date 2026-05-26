@@ -72,7 +72,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
     io::{BufReader, Read, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::Duration as StdDuration,
 };
 use tempfile::tempdir;
@@ -307,6 +307,14 @@ pub fn export_app_data(
 pub fn preview_import(paths: &ProjectPaths, bundle_path: &Path) -> Result<ImportPreview> {
     let manifest = read_and_validate_manifest(bundle_path)?;
     validate_format_version(&manifest)?;
+    // Reject any traversal / absolute / drive-letter entry now, before
+    // the UI even shows a confirm prompt. The user must not be invited
+    // to authorise overwriting "their archive" with a bundle that would
+    // actually write outside the project root.
+    for declared in &manifest.files {
+        validate_bundle_relative_path(&declared.path)
+            .with_context(|| format!("bundle manifest entry {} is not safe", declared.path))?;
+    }
     let local_max = max_schema_version();
     if manifest.archive_schema_version > local_max {
         anyhow::bail!(
@@ -562,6 +570,62 @@ fn add_file_to_zip(
     Ok(())
 }
 
+/// Rejects bundle-manifest entries whose `path` could escape the staging
+/// directory or otherwise impersonate a system file when joined to a base
+/// path.
+///
+/// The manifest is attacker-controlled: its sha256 sidecar lives inside
+/// the same zip, so a malicious bundle author can recompute the hash for
+/// any `files[].path` they like. Without this check
+/// `target_dir.join(declared.path)` would happily follow `..` or accept
+/// absolute paths, giving `File::create` an arbitrary-write primitive
+/// under the running user's identity.
+///
+/// A valid entry must:
+///   - be non-empty,
+///   - contain only `Component::Normal` parts (so no `..`, no root, no
+///     Windows drive-letter prefix, no leading `/`),
+///   - contain no embedded NUL byte (defence in depth against C-string
+///     truncation tricks if the path is ever handed to a non-Rust API).
+///
+/// Returns the normalized `PathBuf` so the caller doesn't accidentally
+/// re-parse the raw string later.
+fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
+    if raw.is_empty() {
+        anyhow::bail!("bundle entry has an empty path");
+    }
+    if raw.as_bytes().contains(&0) {
+        anyhow::bail!("bundle entry path {raw} contains a NUL byte");
+    }
+    let candidate = Path::new(raw);
+    let mut out = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            // Anything else — RootDir, CurDir, ParentDir, Prefix — could
+            // escape staging when joined to a base path. Reject the
+            // bundle outright; we don't try to "clean up" an attacker
+            // path.
+            Component::ParentDir => {
+                anyhow::bail!("bundle entry path {raw} contains a `..` component")
+            }
+            Component::RootDir => {
+                anyhow::bail!("bundle entry path {raw} is absolute")
+            }
+            Component::Prefix(_) => {
+                anyhow::bail!("bundle entry path {raw} has a drive-letter prefix")
+            }
+            Component::CurDir => {
+                anyhow::bail!("bundle entry path {raw} contains a `.` component")
+            }
+        }
+    }
+    if out.as_os_str().is_empty() {
+        anyhow::bail!("bundle entry path {raw} resolved to an empty relative path");
+    }
+    Ok(out)
+}
+
 fn read_and_validate_manifest(bundle_path: &Path) -> Result<ExportManifest> {
     let file = File::open(bundle_path)
         .with_context(|| format!("opening bundle {}", bundle_path.display()))?;
@@ -614,12 +678,17 @@ fn extract_bundle_into(
     let mut archive = ZipArchive::new(file)?;
 
     // Verify every manifest file is present + bytes match before we
-    // touch the live project tree.
+    // touch the live project tree. `preview_import` already rejected any
+    // traversal / absolute / drive-letter entries; the second pass here
+    // is defence-in-depth so `apply_import` callers that skipped preview
+    // (synthetic CLI users, future automation) can't slip past the gate.
     for declared in &manifest.files {
+        let safe_relative = validate_bundle_relative_path(&declared.path)
+            .with_context(|| format!("bundle manifest entry {} is not safe", declared.path))?;
         let mut entry = archive
             .by_name(&declared.path)
             .with_context(|| format!("bundle is missing declared entry {}", declared.path))?;
-        let dest = target_dir.join(&declared.path);
+        let dest = target_dir.join(&safe_relative);
         ensure_parent_dir(&dest)?;
         let mut out =
             File::create(&dest).with_context(|| format!("staging file {}", dest.display()))?;
@@ -1316,6 +1385,118 @@ mod tests {
         }
         writer.finish().unwrap();
     }
+    #[test]
+    fn validate_bundle_relative_path_accepts_a_normal_relative_path() {
+        let normalized = validate_bundle_relative_path("archive/history-vault.sqlite").unwrap();
+        let expected: PathBuf = ["archive", "history-vault.sqlite"].iter().collect();
+        assert_eq!(normalized, expected);
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_parent_dir_traversal() {
+        let err = validate_bundle_relative_path("../etc/passwd")
+            .expect_err("traversal must be rejected");
+        assert!(
+            format!("{err:?}").contains("..` component"),
+            "expected `..` error, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_nested_parent_dir_traversal() {
+        let err = validate_bundle_relative_path("archive/../../escape.txt")
+            .expect_err("nested traversal must be rejected");
+        assert!(
+            format!("{err:?}").contains("..` component"),
+            "expected `..` error, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_unix_absolute() {
+        let err = validate_bundle_relative_path("/etc/passwd")
+            .expect_err("absolute path must be rejected");
+        assert!(
+            format!("{err:?}").contains("is absolute"),
+            "expected absolute-path error, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_empty_input() {
+        let err =
+            validate_bundle_relative_path("").expect_err("empty path must be rejected");
+        assert!(format!("{err:?}").contains("empty path"), "got {err:?}");
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_nul_byte() {
+        let err =
+            validate_bundle_relative_path("ok/\u{0}bad").expect_err("NUL must be rejected");
+        assert!(format!("{err:?}").contains("NUL byte"), "got {err:?}");
+    }
+
+    #[test]
+    fn preview_import_rejects_bundle_with_traversal_manifest_entry() {
+        // Build a real bundle and then rewrite its manifest to declare a
+        // `..` entry. The sha sidecar is recomputed (it's inside the same
+        // zip), mirroring what a malicious bundle author would actually
+        // do. preview_import must reject before the UI ever sees an
+        // overwrite confirmation prompt.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("traversal.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let mut tampered = bundle.manifest.clone();
+        tampered.files.push(ExportManifestFile {
+            path: "../escape.txt".to_string(),
+            sha256: sha256_hex(b"escape-payload"),
+            size_bytes: b"escape-payload".len() as u64,
+        });
+        // Add a matching zip entry so the bundle is otherwise consistent;
+        // the rejection must come from validate_bundle_relative_path, not
+        // from a missing-entry / sha-mismatch path.
+        rewrite_zip_entries(
+            &bundle_path,
+            &[("../escape.txt", b"escape-payload".to_vec())],
+        );
+        rewrite_bundle_manifest(&bundle_path, &tampered);
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let err = preview_import(&dest_paths, &bundle_path)
+            .expect_err("traversal manifest entry must be rejected");
+        assert!(
+            format!("{err:?}").contains("..` component"),
+            "expected `..` rejection, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn preview_import_rejects_bundle_with_absolute_manifest_entry() {
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("absolute.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let mut tampered = bundle.manifest.clone();
+        tampered.files.push(ExportManifestFile {
+            path: "/tmp/owned.txt".to_string(),
+            sha256: sha256_hex(b"owned"),
+            size_bytes: b"owned".len() as u64,
+        });
+        rewrite_zip_entries(&bundle_path, &[("/tmp/owned.txt", b"owned".to_vec())]);
+        rewrite_bundle_manifest(&bundle_path, &tampered);
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let err = preview_import(&dest_paths, &bundle_path)
+            .expect_err("absolute manifest entry must be rejected");
+        assert!(
+            format!("{err:?}").contains("is absolute"),
+            "expected absolute-path rejection, got {err:?}",
+        );
+    }
+
     fn rewrite_bundle_manifest(bundle_path: &Path, manifest: &ExportManifest) {
         let bytes = serde_json::to_vec_pretty(manifest).unwrap();
         let sha = format!("{}\n", sha256_hex(&bytes));
