@@ -487,6 +487,233 @@ fn x1_edge_imports_chrome_then_both_diverge() {
 // T1, T2, T2b moved to dedup_scenarios_takeout.rs.
 
 // ----------------------------------------------------------------------
+// X2: Chromium-family product identity for Atlas and Comet
+// ----------------------------------------------------------------------
+
+/// X2 — Per the browser-support-and-adapter-playbook §156-161, ChatGPT
+/// Atlas and Perplexity Comet are Chromium-family products that must
+/// preserve their product identity in `source_profiles.browser_product`
+/// rather than collapsing into a generic "Google Chrome". This scenario
+/// pins that contract: each profile's `browser_product` column must
+/// match its source `browser_name` verbatim after ingest. If a future
+/// refactor accidentally normalizes all Chromium-family browsers to
+/// "Google Chrome" (or strips the product distinction in any other
+/// way), this test fails immediately.
+#[test]
+fn x2_chromium_family_products_preserve_browser_product_identity() {
+    let env = ScenarioEnv::new();
+    let day_one_ms = 1_777_680_000_000_i64;
+
+    // Each browser gets its own synthetic 1-URL, 1-visit fixture. The
+    // fixture format is the same Chromium History schema for all three
+    // products — what differs is the profile metadata.
+    let make_fixture = |url: &str, title: &str| {
+        ChromiumHistoryFixture::new()
+            .add_url(ChromiumUrlRow {
+                id: 1,
+                url: url.to_string(),
+                title: Some(title.to_string()),
+                visit_count: 1,
+                typed_count: 0,
+                last_visit_unix_ms: day_one_ms,
+                hidden: false,
+            })
+            .add_visit(visit_row(10, 1, day_one_ms))
+    };
+
+    let atlas_snapshot = snapshot_for_fixture(
+        &make_fixture("https://example.com/atlas-page", "Atlas Page"),
+        chromium_profile("chatgpt-atlas:Default", "ChatGPT Atlas"),
+    );
+    let comet_snapshot = snapshot_for_fixture(
+        &make_fixture("https://example.com/comet-page", "Comet Page"),
+        chromium_profile("comet:Default", "Perplexity Comet"),
+    );
+    let chrome_snapshot = snapshot_for_fixture(
+        &make_fixture("https://example.com/chrome-page", "Chrome Page"),
+        chromium_profile("chrome:Default", "Google Chrome"),
+    );
+
+    run_one_ingest(&env, 1, &atlas_snapshot, false);
+    run_one_ingest(&env, 2, &comet_snapshot, false);
+    run_one_ingest(&env, 3, &chrome_snapshot, false);
+
+    // Each profile lands as an independent source_profile with its own
+    // canonical row counts.
+    assert_eq!(count_urls_for_profile(&env, "chatgpt-atlas:Default"), 1);
+    assert_eq!(count_visits_for_profile(&env, "chatgpt-atlas:Default"), 1);
+    assert_eq!(count_urls_for_profile(&env, "comet:Default"), 1);
+    assert_eq!(count_visits_for_profile(&env, "comet:Default"), 1);
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 1);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 1);
+
+    // Provenance contract: each browser_product must stay verbatim.
+    let archive = env.open_archive();
+    let product_for = |profile_key: &str| -> String {
+        archive
+            .query_row(
+                "SELECT browser_product FROM source_profiles WHERE profile_key = ?1",
+                [profile_key],
+                |row| row.get(0),
+            )
+            .expect("query browser_product")
+    };
+
+    assert_eq!(
+        product_for("chatgpt-atlas:Default"),
+        "ChatGPT Atlas",
+        "ChatGPT Atlas must not collapse to Google Chrome (playbook §156)"
+    );
+    assert_eq!(
+        product_for("comet:Default"),
+        "Perplexity Comet",
+        "Perplexity Comet must not collapse to Google Chrome (playbook §158)"
+    );
+    assert_eq!(product_for("chrome:Default"), "Google Chrome");
+
+    // browser_kind (derived from profile_id prefix) must also distinguish them.
+    let kind_for = |profile_key: &str| -> String {
+        archive
+            .query_row(
+                "SELECT browser_kind FROM source_profiles WHERE profile_key = ?1",
+                [profile_key],
+                |row| row.get(0),
+            )
+            .expect("query browser_kind")
+    };
+
+    assert_eq!(kind_for("chatgpt-atlas:Default"), "chatgpt-atlas");
+    assert_eq!(kind_for("comet:Default"), "comet");
+    assert_eq!(kind_for("chrome:Default"), "chrome");
+}
+
+// ----------------------------------------------------------------------
+// C5: Chromium incremental growth — pure append-new-rows
+// ----------------------------------------------------------------------
+
+/// C5 — The most common real-world re-import: the user has new browsing
+/// activity since last backup. Distinct from C2 (zero new rows) and C3
+/// (new visit on an OLD URL exposing watermark fallback). Here the
+/// second pass adds wholly new URLs and visits that did not exist in
+/// the first import. The watermark advance must let only the new rows
+/// land while the original rows stay deduplicated. Pins the audit §5.1
+/// "re-import after appending new rows" contract.
+#[test]
+fn c5_chromium_incremental_append_new_urls_and_visits() {
+    let env = ScenarioEnv::new();
+
+    let day_one_ms = 1_777_680_000_000_i64;
+    let day_two_ms = 1_777_809_600_000_i64;
+    let day_three_ms = 1_777_872_930_000_i64;
+    let day_four_ms = 1_777_939_200_000_i64;
+
+    // Pass 1: 2 URLs, 2 visits.
+    let first_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/original-one".to_string(),
+            title: Some("Original One".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/original-two".to_string(),
+            title: Some("Original Two".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, day_one_ms))
+        .add_visit(visit_row(11, 2, day_two_ms));
+    let first_snapshot =
+        snapshot_for_fixture(&first_fixture, chromium_profile("chrome:Default", "Google Chrome"));
+    let first_summary = run_one_ingest(&env, 1, &first_snapshot, false);
+    assert_eq!(first_summary.new_urls, 2);
+    assert_eq!(first_summary.new_visits, 2);
+    drop(first_snapshot);
+
+    // Pass 2: same 2 URLs + 2 NEW URLs + 2 NEW visits (one per new URL).
+    // The originals must stay deduplicated; only the 2 new URLs / 2 new
+    // visits should land.
+    let second_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/original-one".to_string(),
+            title: Some("Original One".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/original-two".to_string(),
+            title: Some("Original Two".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 3,
+            url: "https://example.com/new-three".to_string(),
+            title: Some("New Three".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_three_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 4,
+            url: "https://example.com/new-four".to_string(),
+            title: Some("New Four".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_four_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, day_one_ms))
+        .add_visit(visit_row(11, 2, day_two_ms))
+        .add_visit(visit_row(12, 3, day_three_ms))
+        .add_visit(visit_row(13, 4, day_four_ms));
+    let second_snapshot =
+        snapshot_for_fixture(&second_fixture, chromium_profile("chrome:Default", "Google Chrome"));
+    let second_summary = run_one_ingest(&env, 2, &second_snapshot, true);
+
+    // Summary must report exactly the new content.
+    assert_eq!(second_summary.new_urls, 2, "second import should report 2 new URLs");
+    assert_eq!(second_summary.new_visits, 2, "second import should report 2 new visits");
+
+    // Archive totals: 4 URLs, 4 visits.
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 4);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 4);
+    assert_eq!(count_archive_rows(&env, "urls"), 4);
+    assert_eq!(count_archive_rows(&env, "visits"), 4);
+
+    // Source visit IDs flow through unmodified (sorted lexically: 10, 11, 12, 13).
+    let visit_ids = collect_visit_source_ids(&env, "chrome:Default");
+    assert_eq!(visit_ids, vec!["10", "11", "12", "13"]);
+
+    // Confirm the new visit timestamps round-tripped, not just the row count.
+    let archive = env.open_archive();
+    let new_visit_three_ms: i64 = archive
+        .query_row(
+            "SELECT visit_time_ms FROM visits
+             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE source_profiles.profile_key = 'chrome:Default'
+               AND visits.source_visit_id = '12'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query new visit three time");
+    assert_eq!(new_visit_three_ms, day_three_ms);
+}
+
+// ----------------------------------------------------------------------
 // C4: URL upsert must not regress metadata on re-import (B1 — FIXED)
 // ----------------------------------------------------------------------
 
