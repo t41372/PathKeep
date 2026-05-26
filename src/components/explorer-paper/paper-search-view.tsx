@@ -15,7 +15,7 @@
  *   results.
  */
 
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { cn } from '@/lib/cn'
 import {
   PaperSearchHero,
@@ -83,6 +83,14 @@ export interface PaperSearchViewProps {
   onAddSourceFilter?: () => void
   onAddDomainFilter?: () => void
   onAddVisitCountFilter?: () => void
+  onAddTagFilter?: () => void
+  onAddNoteFilter?: () => void
+  /**
+   * Forwarded to the hero's input element so the panel can move focus
+   * back to the input after appending an operator chip (e.g. clicking
+   * `+ Tag` should leave the caret right after `tag:` ready to type).
+   */
+  inputRef?: Ref<HTMLInputElement>
   /** Optional slot rendered below the hero before the results (e.g. for
       provider gating callouts in semantic mode). */
   belowHeroSlot?: ReactNode
@@ -113,6 +121,9 @@ export function PaperSearchView({
   onAddSourceFilter,
   onAddDomainFilter,
   onAddVisitCountFilter,
+  onAddTagFilter,
+  onAddNoteFilter,
+  inputRef,
   belowHeroSlot,
   copy,
   className,
@@ -129,6 +140,7 @@ export function PaperSearchView({
       className={cn('flex w-full flex-col', className)}
     >
       <PaperSearchHero
+        ref={inputRef}
         query={query}
         mode={mode}
         activeFilters={activeFilters}
@@ -140,6 +152,8 @@ export function PaperSearchView({
         onAddSourceFilter={onAddSourceFilter}
         onAddDomainFilter={onAddDomainFilter}
         onAddVisitCountFilter={onAddVisitCountFilter}
+        onAddTagFilter={onAddTagFilter}
+        onAddNoteFilter={onAddNoteFilter}
         copy={copy.hero}
       />
 

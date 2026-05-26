@@ -15,13 +15,20 @@
  * - URL parsing — the route hands typed callbacks for each side effect.
  */
 
+import { useCallback, useMemo, useRef } from 'react'
 import type { HistoryEntry } from '@/lib/types/archive'
 import {
   PaperSearchView,
+  type PaperSearchHeroFilter,
   type PaperSearchResultEntry,
 } from '@/components/explorer-paper'
 import { StatusCallout } from '@/components/primitives/status-callout'
 import { buildPaperSearchViewCopy } from './paper-explorer-copy'
+import {
+  appendOperator,
+  parseActiveSearchFilters,
+  removeFilterToken,
+} from './paper-search-filters'
 import {
   buildPaperSearchDayGroups,
   explorerStateFromPaperSearchMode,
@@ -83,22 +90,80 @@ export function PaperSearchPanel({
   onSelectEntry,
   onSeeInContext,
 }: PaperSearchPanelProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  const activeFilters = useMemo<PaperSearchHeroFilter[]>(
+    () =>
+      parseActiveSearchFilters(query).map((filter) => ({
+        id: filter.id,
+        label: filter.label,
+      })),
+    [query],
+  )
+
+  const focusInputAtEnd = useCallback((nextQuery: string) => {
+    const handle = window.requestAnimationFrame(() => {
+      const input = inputRef.current
+      if (!input) return
+      input.focus()
+      const cursor = nextQuery.length
+      try {
+        input.setSelectionRange(cursor, cursor)
+      } catch {
+        /* Some input types reject setSelectionRange; focus is enough. */
+      }
+    })
+    return () => window.cancelAnimationFrame(handle)
+  }, [])
+
+  const appendFilterOperator = useCallback(
+    (operator: string) => {
+      const next = appendOperator(query, operator)
+      if (next === query) return
+      onQueryChange(next)
+      focusInputAtEnd(next)
+    },
+    [query, onQueryChange, focusInputAtEnd],
+  )
+
+  const handleRemoveFilter = useCallback(
+    (id: string) => {
+      const filter = parseActiveSearchFilters(query).find(
+        (candidate) => candidate.id === id,
+      )
+      if (!filter) return
+      onQueryChange(removeFilterToken(query, filter.tokenIndex))
+    },
+    [query, onQueryChange],
+  )
+
+  const handleAddTagFilter = useCallback(
+    () => appendFilterOperator('tag'),
+    [appendFilterOperator],
+  )
+
+  const handleAddNoteFilter = useCallback(
+    () => appendFilterOperator('note'),
+    [appendFilterOperator],
+  )
+
   return (
     <PaperSearchView
       query={query}
       mode={paperSearchModeFromExplorerState(mode, regexMode)}
-      activeFilters={[]}
+      activeFilters={activeFilters}
       groups={buildPaperSearchDayGroups(entries, { language })}
       totalResults={totalResults}
       resolveDomainColor={getDomainColor}
       resolveDomainAbbr={getDomainAbbr}
+      inputRef={inputRef}
       onQueryChange={onQueryChange}
       onModeChange={(nextMode) =>
         onModeChange(explorerStateFromPaperSearchMode(nextMode))
       }
-      onRemoveFilter={() => {
-        /* Paper hero filter chips are wired in a later pass. */
-      }}
+      onRemoveFilter={handleRemoveFilter}
+      onAddTagFilter={handleAddTagFilter}
+      onAddNoteFilter={handleAddNoteFilter}
       onSubmit={onSubmit}
       onSelectEntry={(entry) => onSelectEntry(Number(entry.id))}
       onSeeInContext={onSeeInContext}

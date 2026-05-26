@@ -218,6 +218,8 @@ export function buildPaperSearchViewCopy(
       addFilterSource: t('paperSearchView.heroAddFilterSource'),
       addFilterDomain: t('paperSearchView.heroAddFilterDomain'),
       addFilterVisitCount: t('paperSearchView.heroAddFilterVisitCount'),
+      addFilterTag: t('paperSearchView.heroAddFilterTag'),
+      addFilterNote: t('paperSearchView.heroAddFilterNote'),
       removeChipLabel: t('paperSearchView.heroRemoveChipLabel'),
       advancedSyntaxHelp: {
         ariaLabel: t('advancedSearchHelpAria'),

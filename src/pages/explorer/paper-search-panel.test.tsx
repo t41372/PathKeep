@@ -183,4 +183,84 @@ describe('PaperSearchPanel', () => {
     fireEvent.click(row)
     expect(onSelectEntry).toHaveBeenCalledWith(42)
   })
+
+  test('+ Tag chip appends `tag:` to the query and focuses the input', () => {
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-add-tag'))
+    expect(onQueryChange).toHaveBeenCalledWith('rust tag:')
+  })
+
+  test('+ Note chip appends `note:` and works on an empty query without a leading space', () => {
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchPanel
+        query=""
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-add-note'))
+    expect(onQueryChange).toHaveBeenCalledWith('note:')
+  })
+
+  test('active tag / note operators surface as removable chips that strip the matching token from the query', () => {
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchPanel
+        query='rust tag:rust note:"design doc"'
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // Two active chips render: `tag:rust` and `note:design doc`.
+    expect(screen.getByTestId('paper-search-active-filter-tag-1')).toHaveTextContent(
+      'tag:rust',
+    )
+    expect(screen.getByTestId('paper-search-active-filter-note-2')).toHaveTextContent(
+      'note:design doc',
+    )
+    // Clicking the `tag:` chip's × removes that token from the query
+    // and leaves the rest intact (including the quoted note phrase).
+    const tagChip = screen.getByTestId('paper-search-active-filter-tag-1')
+    const removeButton = tagChip.querySelector('button')
+    if (!(removeButton instanceof HTMLButtonElement)) {
+      throw new Error('expected remove button inside the tag chip')
+    }
+    fireEvent.click(removeButton)
+    expect(onQueryChange).toHaveBeenCalledWith('rust note:"design doc"')
+  })
 })

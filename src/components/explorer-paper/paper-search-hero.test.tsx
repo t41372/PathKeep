@@ -22,6 +22,8 @@ const COPY: PaperSearchHeroCopy = {
   addFilterSource: '+ Source',
   addFilterDomain: '+ Domain',
   addFilterVisitCount: '+ Visit count',
+  addFilterTag: '+ Tag',
+  addFilterNote: '+ Note',
   removeChipLabel: 'Remove {label}',
   advancedSyntaxHelp: {
     ariaLabel: 'Show advanced keyword syntax',
@@ -255,6 +257,8 @@ describe('PaperSearchHero', () => {
     const onAddSource = vi.fn()
     const onAddDomain = vi.fn()
     const onAddVisitCount = vi.fn()
+    const onAddTag = vi.fn()
+    const onAddNote = vi.fn()
     render(
       <PaperSearchHero
         query=""
@@ -267,6 +271,8 @@ describe('PaperSearchHero', () => {
         onAddSourceFilter={onAddSource}
         onAddDomainFilter={onAddDomain}
         onAddVisitCountFilter={onAddVisitCount}
+        onAddTagFilter={onAddTag}
+        onAddNoteFilter={onAddNote}
         copy={COPY}
       />,
     )
@@ -275,11 +281,55 @@ describe('PaperSearchHero', () => {
     fireEvent.click(screen.getByTestId('paper-search-add-source'))
     fireEvent.click(screen.getByTestId('paper-search-add-domain'))
     fireEvent.click(screen.getByTestId('paper-search-add-visit-count'))
+    fireEvent.click(screen.getByTestId('paper-search-add-tag'))
+    fireEvent.click(screen.getByTestId('paper-search-add-note'))
 
     expect(onAddDate).toHaveBeenCalledTimes(1)
     expect(onAddSource).toHaveBeenCalledTimes(1)
     expect(onAddDomain).toHaveBeenCalledTimes(1)
     expect(onAddVisitCount).toHaveBeenCalledTimes(1)
+    expect(onAddTag).toHaveBeenCalledTimes(1)
+    expect(onAddNote).toHaveBeenCalledTimes(1)
+  })
+
+  test('annotation add-chips (+ Tag / + Note) render with the supplied copy labels', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        onAddTagFilter={() => {}}
+        onAddNoteFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(screen.getByTestId('paper-search-add-tag')).toHaveTextContent('+ Tag')
+    expect(screen.getByTestId('paper-search-add-note')).toHaveTextContent('+ Note')
+  })
+
+  test('+Tag and +Note chips stay disabled when their handlers are omitted', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(
+      screen.getByTestId<HTMLButtonElement>('paper-search-add-tag').disabled,
+    ).toBe(true)
+    expect(
+      screen.getByTestId<HTMLButtonElement>('paper-search-add-note').disabled,
+    ).toBe(true)
   })
 
   test('renders the advanced-syntax help trigger and reveals the popover on hover', () => {

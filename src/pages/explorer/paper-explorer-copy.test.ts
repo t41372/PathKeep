@@ -192,6 +192,12 @@ describe('buildPaperSearchViewCopy', () => {
     expect(copy.hero.advancedSyntaxHelp.siteExclude).toContain('github.com')
     expect(copy.hero.advancedSyntaxHelp.tag).toContain('tag')
     expect(copy.hero.advancedSyntaxHelp.note).toContain('note')
+    // §3.3 A optimisation — the annotation chip labels resolve to
+    // non-empty translated strings so the search hero can render the
+    // `+ Tag` / `+ Note` add-chips alongside the inert Date / Source /
+    // Domain / Visit count ones.
+    expect(copy.hero.addFilterTag).toBe('+ Tag')
+    expect(copy.hero.addFilterNote).toBe('+ Note')
     expect(copy.empty.tryAskingHeading).toBe('Try asking')
     expect(copy.empty.recentMeta).toContain('{mode}')
     expect(copy.resultsCount).toContain('{count}')
@@ -210,6 +216,8 @@ describe('buildPaperSearchViewCopy', () => {
     expect(copy.empty.tryAskingHeading).toBe('试着这样问')
     expect(copy.pageSuffixSingular).toBe('页')
     expect(copy.seeInContextLabel).toBe('回到当天 →')
+    expect(copy.hero.addFilterTag).toBe('+ 标签')
+    expect(copy.hero.addFilterNote).toBe('+ 笔记')
   })
 
   test('builds Search view copy for Traditional Chinese', () => {
@@ -218,6 +226,8 @@ describe('buildPaperSearchViewCopy', () => {
     expect(copy.hero.modeKeyword).toBe('關鍵字')
     expect(copy.empty.recentHeading).toBe('最近搜尋')
     expect(copy.noMatchesTitle).toBe('記憶需要時間。')
+    expect(copy.hero.addFilterTag).toBe('+ 標籤')
+    expect(copy.hero.addFilterNote).toBe('+ 筆記')
   })
 
   test('Search view copy has no missing-key leakage across locales', () => {

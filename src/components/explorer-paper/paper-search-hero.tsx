@@ -48,11 +48,20 @@ export interface PaperSearchHeroCopy {
   modeHintKeyword: string
   modeHintRegex: string
   modeHintSemantic: string
-  /** Add-chip prefixes: "+ Date", "+ Source", "+ Domain", "+ Visit count". */
+  /**
+   * Add-chip prefixes: "+ Date", "+ Source", "+ Domain", "+ Visit
+   * count" plus the §3.3 A annotations chips "+ Tag" / "+ Note".
+   * The annotations chips are wired end-to-end (panel parses active
+   * `tag:` / `note:` operators back into removable chips); the
+   * remaining chips stay inert until the broader filter-chip wiring
+   * pass lands.
+   */
   addFilterDate: string
   addFilterSource: string
   addFilterDomain: string
   addFilterVisitCount: string
+  addFilterTag: string
+  addFilterNote: string
   /** Aria label template for the chip remove button, e.g. "Remove {label}". */
   removeChipLabel: string
   /**
@@ -83,6 +92,8 @@ export interface PaperSearchHeroProps {
   onAddSourceFilter?: () => void
   onAddDomainFilter?: () => void
   onAddVisitCountFilter?: () => void
+  onAddTagFilter?: () => void
+  onAddNoteFilter?: () => void
   /** Optional Enter handler; defaults to swallowing the event so the form doesn't submit. */
   onSubmit?: (query: string) => void
   /** True when this hero owns first-paint focus (Search route default). */
@@ -104,6 +115,8 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
     onAddSourceFilter,
     onAddDomainFilter,
     onAddVisitCountFilter,
+    onAddTagFilter,
+    onAddNoteFilter,
     onSubmit,
     autoFocus = false,
     copy,
@@ -250,6 +263,16 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
           label={copy.addFilterVisitCount}
           onClick={onAddVisitCountFilter}
           testId="paper-search-add-visit-count"
+        />
+        <AddFilterChip
+          label={copy.addFilterTag}
+          onClick={onAddTagFilter}
+          testId="paper-search-add-tag"
+        />
+        <AddFilterChip
+          label={copy.addFilterNote}
+          onClick={onAddNoteFilter}
+          testId="paper-search-add-note"
         />
       </div>
     </section>

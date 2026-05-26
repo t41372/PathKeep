@@ -26,6 +26,8 @@ const COPY: PaperSearchViewCopy = {
     addFilterSource: '+ Source',
     addFilterDomain: '+ Domain',
     addFilterVisitCount: '+ Visit count',
+    addFilterTag: '+ Tag',
+    addFilterNote: '+ Note',
     removeChipLabel: 'Remove {label}',
     advancedSyntaxHelp: {
       ariaLabel: 'Show advanced keyword syntax',
