@@ -981,6 +981,23 @@ mod tests {
         .expect("refetch with fetch_enabled=false");
         assert_eq!(disabled, 0);
 
+        // fetch_mode = Off with fetch_enabled = true is the modern policy
+        // for "no network fetches anywhere". The implicit on-demand IPC
+        // path (this fn) must short-circuit even though the legacy kill
+        // switch is on. Settings copy promises Off = "No fetching anywhere",
+        // and that promise lives here.
+        let mut off_mode_config = initialized_config();
+        off_mode_config.og_image.fetch_enabled = true;
+        off_mode_config.og_image.fetch_mode = vault_core::OgImageFetchMode::Off;
+        save_config_impl(off_mode_config, session_key(&session).as_deref())
+            .expect("save fetch_mode=Off config");
+        let off_mode = super::refetch_og_images_impl(
+            vec!["https://example.com/another-page".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect("refetch with fetch_mode=Off");
+        assert_eq!(off_mode, 0);
+
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
             std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);

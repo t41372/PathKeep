@@ -285,6 +285,56 @@ describe('useExplorerOgImages', () => {
       ),
     ).toBeNull()
   })
+
+  test('honours fetchMode=off — hydrates cache but suppresses triggerOgImageRefetch', async () => {
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([
+      {
+        url: 'https://example.com/cached',
+        ogImage: { dataUrl: 'data:image/png;base64,AAA=' },
+        fetchStatus: 'ok',
+      },
+    ])
+    vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    const refetch = vi
+      .spyOn(backend, 'triggerOgImageRefetch')
+      .mockResolvedValue(0)
+
+    // Mix of an OK cache row and a literal cache miss — the literal miss
+    // would normally be enqueued for `triggerOgImageRefetch`. With
+    // fetchMode='off' the enqueue must not happen.
+    const results = historyResponse([
+      historyEntry(1, 'https://example.com/cached'),
+      historyEntry(2, 'https://example.com/never-seen'),
+    ])
+
+    const { result } = renderHook(() =>
+      useExplorerOgImages({
+        cacheToken: 1,
+        loading: false,
+        results,
+        fetchMode: 'off',
+      }),
+    )
+
+    // Existing cached row must still hydrate — Off only blocks *outbound*
+    // fetches, it doesn't disable local reads.
+    await waitFor(() =>
+      expect(
+        result.current.ogImageCache.get(
+          historyOgImageLookupKey('https://example.com/cached'),
+        ),
+      ).toEqual({ dataUrl: 'data:image/png;base64,AAA=' }),
+    )
+    // The literal miss URL is also stored (as null) so subsequent renders
+    // don't re-issue the lookup.
+    expect(
+      result.current.ogImageCache.has(
+        historyOgImageLookupKey('https://example.com/never-seen'),
+      ),
+    ).toBe(true)
+    // The defining assertion: no outbound enqueue while Off.
+    expect(refetch).not.toHaveBeenCalled()
+  })
 })
 
 function historyResponse(items: HistoryEntry[]): HistoryQueryResponse {

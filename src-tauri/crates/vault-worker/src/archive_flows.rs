@@ -211,6 +211,22 @@ fn clamp_budget(configured: u32) -> usize {
     configured.min(PER_TICK_BUDGET_HARD_CAP) as usize
 }
 
+/// Returns the user's effective og:image fetch policy, folding the
+/// legacy `fetch_enabled` kill switch into the modern `fetch_mode`
+/// tri-state.
+///
+/// Surfaced to the worker bridge so the implicit on-demand IPC path
+/// (`trigger_og_image_refetch`, called from the Browse `useExplorerOgImages`
+/// hook) can refuse to enqueue network fetches when the user has chosen
+/// `OgImageFetchMode::Off`. The explicit "Rebuild now" affordance uses
+/// `prefetch_og_images_on_demand` instead, which is documented to ignore
+/// `fetch_mode` because clicking Rebuild *is* the explicit override.
+pub fn effective_og_image_fetch_mode() -> Result<vault_core::OgImageFetchMode> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    Ok(config.og_image.effective_mode())
+}
+
 /// Looks up URLs whose `refetch_after` window has elapsed and hands
 /// them back to `refetch_og_images` for a second attempt. Returns the
 /// (count_due, count_succeeded) pair so the caller can surface both in

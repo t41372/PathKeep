@@ -127,10 +127,24 @@ pub(crate) fn mark_og_images_shown_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 /// Fetches og:image previews for the given URLs and persists each outcome.
+///
+/// This is the IPC entrypoint hit by the implicit on-demand path (the
+/// `useExplorerOgImages` hook). It must short-circuit when the user has
+/// chosen `OgImageFetchMode::Off` so the data-sovereignty promise on the
+/// Settings → Link previews copy ("Off — No fetching anywhere.") holds
+/// regardless of what the frontend does. The explicit "Rebuild now"
+/// affordance uses `prefetch_og_images_impl` instead, which intentionally
+/// ignores `fetch_mode` because clicking Rebuild *is* the explicit
+/// override.
 pub(crate) fn refetch_og_images_impl(
     urls: Vec<String>,
     session_database_key: Option<&str>,
 ) -> Result<u32, String> {
+    match vault_worker::effective_og_image_fetch_mode() {
+        Ok(vault_core::OgImageFetchMode::Off) => return Ok(0),
+        Ok(_) => {}
+        Err(error) => return Err(error.to_string()),
+    }
     worker_result(vault_worker::refetch_og_images(session_database_key, urls))
 }
 

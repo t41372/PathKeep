@@ -333,10 +333,23 @@ export function ExplorerPage() {
     loading,
     results: combinedTimeResults,
   })
+  // Fold the legacy `fetchEnabled` kill switch into the effective fetch
+  // mode so the hook only ever sees the modern tri-state. Off (either by
+  // explicit mode choice or the legacy switch) blocks the implicit on-
+  // demand enqueue; cached rows still hydrate. Defaults to 'background'
+  // when the config field hasn't been hydrated yet so first paint doesn't
+  // suppress the fetch path on a brand-new install.
+  const ogImageFetchMode = useMemo(() => {
+    const settings = snapshot?.config.ogImage
+    if (!settings) return 'background' as const
+    if (!settings.fetchEnabled) return 'off' as const
+    return settings.fetchMode
+  }, [snapshot?.config.ogImage])
   const { ogImageCache } = useExplorerOgImages({
     cacheToken: refreshKey,
     loading,
     results: combinedTimeResults,
+    fetchMode: ogImageFetchMode,
   })
   const renderedTimeResults = useMemo(() => {
     if (!combinedTimeResults) {

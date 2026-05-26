@@ -34,7 +34,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { backend } from '../../../lib/backend-client'
-import type { HistoryEntry, HistoryQueryResponse } from '../../../lib/types'
+import type {
+  HistoryEntry,
+  HistoryQueryResponse,
+  OgImageFetchModeConfig,
+} from '../../../lib/types'
 import { historyOgImageLookupKey } from '../helpers'
 
 const MARK_SHOWN_DEBOUNCE_MS = 1000
@@ -50,6 +54,17 @@ interface UseExplorerOgImagesOptions {
   results: HistoryQueryResponse | null
   /** When false the hook skips the load + mark-shown calls (list mode). */
   enabled?: boolean
+  /**
+   * Effective fetch policy from `AppConfig.ogImage` (with the legacy
+   * `fetchEnabled` kill switch already folded in by the caller). When
+   * `'off'`, the hook still reads existing cached rows from local
+   * SQLite via `loadHistoryOgImages` but skips the
+   * `triggerOgImageRefetch` enqueue branch entirely — Settings copy
+   * promises Off = "No fetching anywhere." Defaults to `'background'`
+   * so older callers / tests that don't thread the config through still
+   * behave the way they used to.
+   */
+  fetchMode?: OgImageFetchModeConfig
 }
 
 /**
@@ -65,6 +80,7 @@ export function useExplorerOgImages({
   loading,
   results,
   enabled = true,
+  fetchMode = 'background',
 }: UseExplorerOgImagesOptions) {
   const [cacheState, setCacheState] = useState(() => ({
     token: cacheToken,
@@ -145,11 +161,18 @@ export function useExplorerOgImages({
             }
           }
         }
-        if (enqueueCandidates.length > 0) {
+        if (enqueueCandidates.length > 0 && fetchMode !== 'off') {
           // Only mark URLs that actually enter the batch as enqueued —
           // overflow URLs stay eligible so a later pass (cache-token bump
           // or new visible window) can submit them instead of leaving
           // them locked out forever.
+          //
+          // `fetchMode === 'off'` skips this whole enqueue branch: cached
+          // rows still hydrate via `loadHistoryOgImages` above, but no
+          // new outbound HTTP is requested. The backend
+          // `refetch_og_images_impl` also gates on the effective mode for
+          // defense in depth, so a buggy caller can't bypass the user's
+          // choice. See Codex review finding C1 (data-sovereignty hole).
           const batch = enqueueCandidates.slice(0, FETCH_ENQUEUE_BATCH_CAP)
           for (const url of batch) {
             enqueuedFetchRef.current.add(historyOgImageLookupKey(url))
@@ -207,7 +230,7 @@ export function useExplorerOgImages({
     return () => {
       cancelled = true
     }
-  }, [cacheToken, enabled, loading, ogImageCache, visibleUrls])
+  }, [cacheToken, enabled, fetchMode, loading, ogImageCache, visibleUrls])
 
   // Debounced "mark these URLs as shown" so user-configured LRU eviction
   // can prefer rows the user actually looked at.
