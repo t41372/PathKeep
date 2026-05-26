@@ -297,7 +297,16 @@ fn compute_browse_day_insights(date: &str, visits: &[DayVisitRow]) -> BrowseDayI
         }
 
         match (current_session_start_ms, current_session_end_ms) {
-            (Some(_), Some(end)) if visit.visit_time_ms - end > SESSION_GAP_MS => {
+            // The SQL `ORDER BY visit_time_ms` guarantees the inputs are
+            // ascending and the subtraction never goes negative under
+            // contract. `saturating_sub` makes the defence explicit so a
+            // future refactor that relaxes the ordering or an external
+            // feed that wraps near `i64::MAX` cannot silently corrupt the
+            // session-gap classifier into producing wrong day insights.
+            // Claude review finding #7.
+            (Some(_), Some(end))
+                if visit.visit_time_ms.saturating_sub(end) > SESSION_GAP_MS =>
+            {
                 // Close the previous session, open a new one.
                 if let (Some(start), Some(end)) = (current_session_start_ms, current_session_end_ms)
                 {
@@ -589,18 +598,35 @@ mod tests {
     // Helper: a fixed local-day timestamp so tests don't depend on the
     // host clock. We resolve "2026-05-25 HH:MM:SS local" into a single
     // millis value.
+    //
+    // DST handling: if the requested local time falls into a DST
+    // "spring-forward" gap (Ambiguous / None on either call), retry one
+    // hour later. The retry is wrapped in an explicit `match` instead
+    // of `.unwrap()` so a hypothetical future tzdata with a >2-hour
+    // jump that nukes both midnight AND 01:00 fails with a clear
+    // assertion message — the previous `.unwrap()` would emit a bare
+    // "called `Option::unwrap()` on a `None` value" with no file:line
+    // context inside the test runner. Claude review finding #8.
     fn local_ms(hour: u32, minute: u32, second: u32) -> i64 {
         let day = NaiveDate::from_ymd_opt(2026, 5, 25).unwrap();
-        Local
+        let first = Local
             .from_local_datetime(&day.and_hms_opt(hour, minute, second).unwrap())
-            .single()
-            .or_else(|| {
-                Local
-                    .from_local_datetime(&day.and_hms_opt(hour + 1, minute, second).unwrap())
-                    .single()
-            })
-            .unwrap()
-            .timestamp_millis()
+            .single();
+        let resolved = match first {
+            Some(dt) => dt,
+            None => match Local
+                .from_local_datetime(&day.and_hms_opt(hour + 1, minute, second).unwrap())
+                .single()
+            {
+                Some(dt) => dt,
+                None => panic!(
+                    "DST helper exhausted at 2026-05-25 {hour:02}:{minute:02}:{second:02} \
+                     local — both the requested hour and hour+1 returned Ambiguous/None. \
+                     The test tzdata likely has a >2h DST jump or the helper needs widening.",
+                ),
+            },
+        };
+        resolved.timestamp_millis()
     }
 
     #[test]
