@@ -388,7 +388,8 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src/app/shell-helpers.ts`
     `src/pages/dashboard/index.tsx`
     `src/components/explorer-paper/*`
-  - 目標：把 `bun run check` 的 JS coverage threshold 從目前的 `lines:99 / functions:98 / branches:98 / statements:99` 重新拉回 100/100/100/100。
+  - 目標：把 `bun run check` 的 JS coverage threshold 從目前的 `lines:99 / functions:99 / branches:98 / statements:99` 重新拉回 100/100/100/100。
+  - **2026-05-26 Codex review finding C5**：vitest.config.ts 目前的 99/99/98/99 是這個 work block 的 in-progress state，但 `docs/plan/program/quality-matrix.md`（Accepted）仍寫死 100/100/100/100。Codex 標這是 merge contract violation。使用者 2026-05-26 明確指示：本 block 才是正解，不要在 review fix bundle 裡偷偷降 quality-matrix，也不要硬拉到 100；把這保留為 release-style 大窗口任務。
   - 2026-05-20 進度（commit 63ddf37 / 5b3720c / b4a2872 / b7c58ab）：
     - **dashboard/index.tsx** 從 82.35% lines → 98.42% lines。新增 dashboard-helpers.ts (15 unit cases) + 3 個 route-shell callback tests（On This Day open-entry、jumpToDate target-label button、insights badge、All threads badge）。剩餘殘餘 ~2 lines 是 useMemoGreeting 的 evening (hour ≥ 18) 分支與 footer，需要 Date mock 才能測。
     - **paper-preferences.ts** 從 88.88% statements / 72.22% branches → 100/83。新增 9 unit cases；剩下 branch 缺口是 `typeof window === 'undefined'` SSR guards（jsdom 永遠 truthy，無法觸發）。
