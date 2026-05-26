@@ -69,4 +69,44 @@ describe('describeError', () => {
   test('returns the message even when context is provided', () => {
     expect(describeError(new Error('boom'), 'while exporting')).toBe('boom')
   })
+
+  test('extracts a reason field when message and error are absent', () => {
+    expect(describeError({ reason: 'queue closed' })).toBe('queue closed')
+  })
+
+  test('extracts a description field when message, error, and reason are absent', () => {
+    expect(describeError({ description: 'sqlite is locked' })).toBe(
+      'sqlite is locked',
+    )
+  })
+
+  test('appends context to a class-name fallback when the Error has no message', () => {
+    class TimeoutError extends Error {
+      constructor() {
+        super('')
+        this.name = 'TimeoutError'
+      }
+    }
+    expect(describeError(new TimeoutError(), 'while exporting')).toBe(
+      'TimeoutError: while exporting',
+    )
+  })
+
+  test('prepends context when the error is bare undefined', () => {
+    expect(describeError(undefined, 'lock acquire')).toBe(
+      'lock acquire: undefined',
+    )
+  })
+
+  test('falls back to the literal "Error" when both message and name are empty', () => {
+    const stripped = new Error('')
+    Object.defineProperty(stripped, 'name', { value: '' })
+    expect(describeError(stripped)).toBe('Error')
+  })
+
+  test('describes an unrenderable object with just the type label when no context is given', () => {
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(describeError(cyclic)).toBe('<object>')
+  })
 })

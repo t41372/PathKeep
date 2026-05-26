@@ -1,12 +1,12 @@
 //! App-level configuration and shell read models.
 
 use super::ArchiveMode;
+use super::ArchiveStatus;
 use super::{
     AiIndexStatus, BackupRunOverview, BrowserProfile, ImportBatchOverview, IntelligenceStatus,
     KeyringStatusReport,
 };
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
-use super::{ArchiveStatus, RemoteBackupConfig};
 use super::{
     merge_deterministic_module_states, merge_enrichment_plugin_preferences,
     merge_enrichment_plugin_states,
@@ -130,7 +130,6 @@ pub struct AppConfig {
     pub app_autostart: bool,
     pub explorer_background_prefetch_pages: u64,
     pub app_lock: AppLockConfig,
-    pub remote_backup: RemoteBackupConfig,
     pub enrichment: EnrichmentSettings,
     pub deterministic: DeterministicSettings,
     pub ai: AiSettings,
@@ -233,7 +232,6 @@ impl Default for AppConfig {
             app_autostart: false,
             explorer_background_prefetch_pages: DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES,
             app_lock: AppLockConfig::default(),
-            remote_backup: RemoteBackupConfig::default(),
             enrichment: EnrichmentSettings::default(),
             deterministic: DeterministicSettings::default(),
             ai: AiSettings::default(),
