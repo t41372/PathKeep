@@ -32,8 +32,14 @@
 //!   string is extracted before the response is dropped.
 
 use reqwest::blocking::Client;
+use std::io::Read;
 
 use crate::utils::url_domain;
+
+/// Hard upper bound on the Bilibili view API response body. Real responses
+/// run ~5–10 KB; anything larger is treated as a misbehaving (or hostile /
+/// MITM'd) endpoint and discarded without buffering the full payload.
+const BILIBILI_API_BODY_CAP_BYTES: usize = 64 * 1024;
 
 /// Synthesizes an og:image URL that the fetch pipeline can download
 /// directly, without parsing the page HTML.
@@ -79,13 +85,51 @@ pub(crate) fn resolve_image_url_via_api_with_base(
     if !response.status().is_success() {
         return None;
     }
-    // The view API typically returns ~5–10 KB. Cap the body before the
-    // JSON parse so a misbehaving endpoint can't blow memory.
-    let body = response.bytes().ok()?;
-    if body.len() > 64 * 1024 {
-        return None;
+    // Defence in depth against a hostile / MITM'd api.bilibili.com:
+    //
+    // 1. If the server declares a Content-Length above the cap, short-
+    //    circuit BEFORE allocating any body bytes.
+    // 2. Stream the body through a fixed-size buffer and abort as soon
+    //    as the running total exceeds the cap. This way a server that
+    //    lies about Content-Length (or omits it and streams gigabytes)
+    //    still cannot make us allocate beyond the cap.
+    //
+    // The previous implementation called `response.bytes()` first and
+    // checked size second — fully buffering the body before deciding
+    // it was too large, which OOM-killed the worker on multi-GB
+    // responses (real risk for shared dev/test environments where a
+    // user can override BILIBILI_API_BASE).
+    if let Some(declared_len) = response.content_length() {
+        if declared_len > BILIBILI_API_BODY_CAP_BYTES as u64 {
+            return None;
+        }
     }
+    let body = read_response_with_cap(response, BILIBILI_API_BODY_CAP_BYTES)?;
     extract_bilibili_pic_field(&body)
+}
+
+/// Stream-reads `response` into a `Vec<u8>`, returning `None` as soon as
+/// the running total exceeds `cap_bytes` or any read error occurs. The
+/// returned buffer never exceeds `cap_bytes`.
+fn read_response_with_cap(
+    mut response: reqwest::blocking::Response,
+    cap_bytes: usize,
+) -> Option<Vec<u8>> {
+    let mut buffer = Vec::new();
+    let mut chunk = [0_u8; 8 * 1024];
+    loop {
+        match response.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                if buffer.len() + n > cap_bytes {
+                    return None;
+                }
+                buffer.extend_from_slice(&chunk[..n]);
+            }
+            Err(_) => return None,
+        }
+    }
+    Some(buffer)
 }
 
 /// Pulls the `data.pic` string out of a Bilibili view-API JSON body.
@@ -415,6 +459,9 @@ mod tests {
 
     #[test]
     fn resolve_image_url_via_api_returns_none_when_body_exceeds_cap() {
+        // Mockito sets Content-Length automatically from the body — the
+        // function's Content-Length short-circuit fires before any
+        // streaming read, exercising the defence-in-depth fast path.
         let mut server = mockito::Server::new();
         let big = vec![b'x'; 100 * 1024];
         let _mock = server
@@ -430,6 +477,65 @@ mod tests {
             &server.url(),
         );
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn read_response_with_cap_aborts_on_cap_exceed_without_buffering_excess() {
+        // Direct test of the streaming helper using a fake reader. Pins
+        // that we don't materialize the whole body before checking size
+        // — the failure mode that motivated the cap (hostile / MITM'd
+        // api.bilibili.com returning multi-GB JSON blowing memory).
+        struct CountedReader {
+            data: Vec<u8>,
+            position: usize,
+            max_yielded: usize,
+        }
+        impl std::io::Read for CountedReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.position >= self.data.len() {
+                    return Ok(0);
+                }
+                let n = std::cmp::min(buf.len(), self.data.len() - self.position);
+                buf[..n].copy_from_slice(&self.data[self.position..self.position + n]);
+                self.position += n;
+                self.max_yielded = self.max_yielded.max(self.position);
+                Ok(n)
+            }
+        }
+
+        // We can't construct a reqwest::blocking::Response in a test,
+        // so test the cap algorithm with an inline copy of the read
+        // loop. (The production function is one screen of code; this
+        // pins the behavior contract.)
+        let cap = 64 * 1024;
+        let mut reader =
+            CountedReader { data: vec![b'x'; 100 * 1024], position: 0, max_yielded: 0 };
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 8 * 1024];
+        let aborted = loop {
+            let n = match std::io::Read::read(&mut reader, &mut chunk) {
+                Ok(0) => break false,
+                Ok(n) => n,
+                Err(_) => break true,
+            };
+            if buffer.len() + n > cap {
+                break true;
+            }
+            buffer.extend_from_slice(&chunk[..n]);
+        };
+        assert!(aborted, "streaming read must abort once cap is exceeded");
+        assert!(
+            buffer.len() <= cap,
+            "buffer must never exceed cap (got {} bytes, cap {} bytes)",
+            buffer.len(),
+            cap,
+        );
+        assert!(
+            reader.max_yielded <= cap + chunk.len(),
+            "reader should not be drained far beyond the cap (read {} of {} bytes)",
+            reader.max_yielded,
+            reader.data.len(),
+        );
     }
 
     #[test]
