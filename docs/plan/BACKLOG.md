@@ -73,13 +73,12 @@
     - CHANGELOG 紀錄哪些 audit bugs 已有 failing tests、哪些尚待 follow-up。
     - 三語 i18n 不適用（test infra 內部 ID 用 ASCII）。
 
-- [ ] **WORK-IMPORT-TEST-REMAINING-A** — Import Test Harness Remaining Audit Items + Maintainability
+- [x] **WORK-IMPORT-TEST-REMAINING-A** — Import Test Harness Remaining Audit Items + Maintainability
+  - 2026-05-25 closeout: all non-blocked audit items complete. Edge cases (E1-E6, C_SUB_MS, Empty DB×3, R1), cross-family baselines (F_C2, S_C2), Takeout coverage (ptoken, visitedAt, missing-time), and maintainability refactor (1274→641 lines via Takeout extraction + F2/S2 move) all shipped. R2/R3 and B5 remain blocked on infrastructure not yet built.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md`
     `docs/plan/program/import-test-harness-spec.md`
-    `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs` (1274 lines — >1200 threshold)
-  - 已完成（25801b35 + 30febcab）：E6 URL canonicalization、C_SUB_MS sub-ms collision、Empty DB×3、R1 corrupt DB、F_C2/S_C2 incremental no-new-data、E1-E4 time boundary edge cases、Takeout ptoken field fixture + assertion、Takeout visitedAt ISO format fixture、Takeout missing-time-field silent-skip。
-  - 剩餘：(1) `dedup_scenarios.rs` 維護性重構執行階段（1274 行，審查已完成：拆 Takeout→新 module + 移 F2/S2→baselines，可降至 ~637 行）；(2) R2/R3 crash rollback/batch revert（需 transaction-abort test infra，blocked）；(3) B5 scale collision test（blocked on million-record fixture infra — see WORK-IMPORT-SCALE-TEST-A）。
+  - 剩餘 blocked items now tracked individually：(1) R2/R3 crash rollback/batch revert — needs transaction-abort test infra；(2) B5 scale collision test — see WORK-IMPORT-SCALE-TEST-A。
   - 契約：不修 product code；maintainability refactor 不改 behavior。
 
 - [!] **WORK-IMPORT-SCALE-TEST-A** — B5 Takeout `stable_key_i64` Collision At Scale [!blocked: needs million-record fixture infrastructure + benchmark tooling]

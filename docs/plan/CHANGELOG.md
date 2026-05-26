@@ -1650,3 +1650,36 @@ hooks, million-record fixtures) are now covered.
 - 9 fixture crate tests pass (5 integration + 4 unit).
 - Rust coverage: 100% (34,535 lines / 1,611 functions).
 - `cargo fmt --all` clean.
+
+### WORK-IMPORT-TEST-REMAINING-A (closeout) — dedup_scenarios.rs maintainability refactor
+
+> 2026-05-25 · commit 0f41e7f7 · `feat/import-data-integrity-tests`
+
+Executes the documented split proposal for `dedup_scenarios.rs` (1274 lines,
+above the 1200-line maintainability threshold). Behavior-preserving
+extraction — zero test behavior changes, all 602 vault-core tests pass.
+
+#### Changes
+
+- **New `dedup_scenarios_takeout.rs`** (561 lines): T1, T2, T2b, T3, T5 +
+  Takeout-specific helpers + duplicated shared test infrastructure.
+- **`dedup_scenarios_baselines.rs`** (806 → 980 lines): gained F2 (Firefox
+  long-tail revisit B2) + S2 (Safari long-tail revisit refutation).
+- **`dedup_scenarios.rs`** (1274 → 641 lines): now Chromium-only (C1-C4, X1).
+  Removed 8 unused fixture imports, updated module doc to reference
+  companion modules.
+- Registered `dedup_scenarios_takeout` in `mod.rs`.
+
+#### File size summary
+
+| Module                         | Lines | Status           |
+| ------------------------------ | ----- | ---------------- |
+| `dedup_scenarios.rs`           | 641   | ✅ under 800     |
+| `dedup_scenarios_baselines.rs` | 980   | ✅ under 1200    |
+| `dedup_scenarios_edge_cases.rs`| 726   | ✅ under 800     |
+| `dedup_scenarios_takeout.rs`   | 561   | ✅ under 800     |
+
+#### Remaining blocked gaps (tracked in BACKLOG)
+
+- **R2/R3**: Crash rollback / batch revert — needs transaction-abort test infra.
+- **B5 / T4**: Takeout hash collision at scale — needs million-record fixture infra.
