@@ -992,7 +992,6 @@ function makeSnapshot(options: {
         enabled: false,
         biometricEnabled: false,
       } as never,
-      remoteBackup: {} as never,
       enrichment: {} as never,
       deterministic: {} as never,
       ai: {} as never,
