@@ -29,6 +29,8 @@ mod writes;
 mod dedup_scenarios;
 #[cfg(test)]
 mod dedup_scenarios_baselines;
+#[cfg(test)]
+mod dedup_scenarios_edge_cases;
 
 use self::{
     parser::{Watermark, load_watermark, save_watermark, should_checkpoint},

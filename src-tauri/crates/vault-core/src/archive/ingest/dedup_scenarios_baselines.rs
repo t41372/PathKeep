@@ -644,3 +644,163 @@ fn chromium_fingerprint_dedup_catches_same_visits_with_different_source_ids() {
         "no duplicate visits should be created despite different source_visit_ids"
     );
 }
+
+// ======================================================================
+// F_C2: Firefox incremental no-new-data — watermark prevents re-import
+// ======================================================================
+
+/// F_C2 — Re-importing the same Firefox fixture with `use_watermark = true`
+/// must produce zero new rows. The watermark advance after the first import
+/// should make the second import a no-op at the parser level. This is the
+/// Firefox analog of C2 (Chromium incremental no-new-data).
+#[test]
+fn f_c2_firefox_incremental_no_new_data() {
+    let env = ScenarioEnv::new();
+    let (t1, t2, t3, t4, t5) = (
+        1_777_680_000_000_i64,
+        1_777_809_600_000_i64,
+        1_777_872_930_000_i64,
+        1_777_939_200_000_i64,
+        1_778_041_800_000_i64,
+    );
+
+    let build_fixture = || {
+        FirefoxPlacesFixture::new()
+            .add_place(FirefoxPlaceRow {
+                id: 1,
+                url: "https://example.com/firefox-article-one".to_string(),
+                title: Some("Firefox Article One".to_string()),
+                visit_count: 2,
+                hidden: false,
+                last_visit_unix_ms: t2,
+            })
+            .add_place(FirefoxPlaceRow {
+                id: 2,
+                url: "https://example.org/firefox-article-two".to_string(),
+                title: Some("Firefox Article Two".to_string()),
+                visit_count: 2,
+                hidden: false,
+                last_visit_unix_ms: t4,
+            })
+            .add_place(FirefoxPlaceRow {
+                id: 3,
+                url: "https://example.net/firefox-article-three".to_string(),
+                title: Some("Firefox Article Three".to_string()),
+                visit_count: 1,
+                hidden: false,
+                last_visit_unix_ms: t5,
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 10,
+                place_id: 1,
+                visit_time_unix_ms: t1,
+                from_visit: None,
+                visit_type: Some(1),
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 11,
+                place_id: 1,
+                visit_time_unix_ms: t2,
+                from_visit: Some(10),
+                visit_type: Some(2),
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 12,
+                place_id: 2,
+                visit_time_unix_ms: t3,
+                from_visit: None,
+                visit_type: Some(1),
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 13,
+                place_id: 2,
+                visit_time_unix_ms: t4,
+                from_visit: Some(12),
+                visit_type: Some(1),
+            })
+            .add_visit(FirefoxVisitRow {
+                id: 14,
+                place_id: 3,
+                visit_time_unix_ms: t5,
+                from_visit: None,
+                visit_type: Some(5),
+            })
+    };
+
+    // First import: baseline — no watermark.
+    let first_snapshot = firefox_snapshot(&build_fixture(), "firefox:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    // Second import: identical data — watermark should skip everything.
+    let second_snapshot = firefox_snapshot(&build_fixture(), "firefox:Default");
+    let summary = run_one_ingest(&env, 2, &second_snapshot, true);
+
+    assert_eq!(summary.new_urls, 0, "second import must add no new URL rows");
+    assert_eq!(summary.new_visits, 0, "second import must add no new visit rows");
+
+    // Archive row counts must stay at the first import's values.
+    assert_eq!(count_archive_rows(&env, "urls"), 3);
+    assert_eq!(count_archive_rows(&env, "visits"), 5);
+    assert_eq!(count_urls_for_profile(&env, "firefox:Default"), 3);
+    assert_eq!(count_visits_for_profile(&env, "firefox:Default"), 5);
+}
+
+// ======================================================================
+// S_C2: Safari incremental no-new-data — watermark prevents re-import
+// ======================================================================
+
+/// S_C2 — Re-importing the same Safari fixture with `use_watermark = true`
+/// must produce zero new rows. The watermark advance after the first import
+/// should make the second import a no-op at the parser level. This is the
+/// Safari analog of C2 (Chromium incremental no-new-data).
+#[test]
+fn s_c2_safari_incremental_no_new_data() {
+    let env = ScenarioEnv::new();
+    let (t1, t2, t3, t4, t5) = (
+        1_777_680_000_000_i64,
+        1_777_809_600_000_i64,
+        1_777_872_930_000_i64,
+        1_777_939_200_000_i64,
+        1_778_041_800_000_i64,
+    );
+
+    let build_fixture = || {
+        SafariHistoryFixture::new()
+            .add_item(SafariHistoryItemRow {
+                id: 1,
+                url: "https://example.com/safari-article-one".to_string(),
+            })
+            .add_item(SafariHistoryItemRow {
+                id: 2,
+                url: "https://example.org/safari-article-two".to_string(),
+            })
+            .add_item(SafariHistoryItemRow {
+                id: 3,
+                url: "https://example.net/safari-article-three".to_string(),
+            })
+            .add_visit(safari_visit(10, 1, "Safari Article One", t1))
+            .add_visit(safari_visit(11, 1, "Safari Article One", t2))
+            .add_visit(safari_visit(12, 2, "Safari Article Two", t3))
+            .add_visit(safari_visit(13, 2, "Safari Article Two", t4))
+            .add_visit(safari_visit(14, 3, "Safari Article Three", t5))
+    };
+
+    // First import: baseline — no watermark.
+    let first_snapshot = safari_snapshot(&build_fixture(), "safari:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    // Second import: identical data — watermark should skip everything.
+    let second_snapshot = safari_snapshot(&build_fixture(), "safari:Default");
+    let summary = run_one_ingest(&env, 2, &second_snapshot, true);
+
+    assert_eq!(summary.new_urls, 0, "second import must add no new URL rows");
+    assert_eq!(summary.new_visits, 0, "second import must add no new visit rows");
+
+    // Archive row counts must stay at the first import's values.
+    assert_eq!(count_archive_rows(&env, "urls"), 3);
+    assert_eq!(count_archive_rows(&env, "visits"), 5);
+    assert_eq!(count_urls_for_profile(&env, "safari:Default"), 3);
+    assert_eq!(count_visits_for_profile(&env, "safari:Default"), 5);
+}

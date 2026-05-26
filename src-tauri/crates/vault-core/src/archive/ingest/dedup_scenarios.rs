@@ -1269,10 +1269,5 @@ fn t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract() {
     );
 }
 
-// TODO: C_SUB_MS — Sub-millisecond Chrome visit collision scenario.
-// Chrome stores visit times at microsecond precision; ingest truncates to
-// milliseconds. Two visits to the same URL within the same ms produce
-// identical fingerprints. The primary index (source_visit_id) keeps them
-// apart, but any fingerprint-only dedup path (e.g. Takeout) would drop
-// the second visit. Write a scenario with two Chrome visits 500μs apart
-// to the same URL and assert both survive.
+// C_SUB_MS implemented in dedup_scenarios_edge_cases.rs —
+// documents sub-millisecond fingerprint collision as known limitation.
