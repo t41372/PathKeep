@@ -45,6 +45,7 @@ import { useExplorerArchiveDensity } from './hooks/use-explorer-archive-density'
 import { useExplorerData } from './hooks/use-explorer-data'
 import { useExplorerFavicons } from './hooks/use-explorer-favicons'
 import { useExplorerInfinitePages } from './hooks/use-explorer-infinite-pages'
+import { useScrollDirection } from './hooks/use-scroll-direction'
 import { useExplorerOgImages } from './hooks/use-explorer-og-images'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
@@ -294,6 +295,11 @@ export function ExplorerPage() {
     view !== 'time' ||
     surfaceIsSearch ||
     historyBlockedByInvalidRegex
+  // BROWSE-VIRT §1.2: directional prefetch. The hook samples
+  // window.scrollY per RAF and only emits 'down' when the user
+  // sustains a downward scroll, so a quick wobble won't flip the
+  // prefetch budget.
+  const scrollDirection = useScrollDirection()
   const {
     extraItems: infiniteExtraItems,
     loadedPageCount: infiniteLoadedPageCount,
@@ -307,6 +313,7 @@ export function ExplorerPage() {
     headResults: visibleTimeResults,
     disabled: infiniteDisabled,
     cacheToken: refreshKey,
+    scrollDirection,
   })
   // Combine the head page + every accumulated infinite-scroll page into one
   // synthetic `HistoryQueryResponse` so the lazy favicon / og:image hooks

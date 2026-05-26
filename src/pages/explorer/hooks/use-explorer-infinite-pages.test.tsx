@@ -259,4 +259,95 @@ describe('useExplorerInfinitePages', () => {
     act(() => result.current.loadMore())
     expect(result.current.loadedPageCount).toBe(1)
   })
+
+  test('warms a second page ahead when scrollDirection="down" (BROWSE-VIRT directional prefetch)', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [
+              {
+                id: (req.page ?? 1) * 10,
+                profileId: 'chrome:Default',
+                url: `https://example.com/page-${req.page ?? 1}`,
+                title: `page ${req.page ?? 1}`,
+                domain: 'example.com',
+                favicon: null,
+                visitedAt: '2025-12-01T10:00:00Z',
+                visitTime: 1733050800,
+                sourceVisitId: 0,
+              },
+            ],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 6, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+        scrollDirection: 'down',
+      }),
+    )
+    act(() => result.current.loadMore())
+    // foreground page 2 + background page 3 (always) + background
+    // page 4 (because direction is "down"). The waitFor settles after
+    // all three have been requested.
+    await waitFor(() => {
+      const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
+      expect(queriedPages).toContain(2)
+      expect(queriedPages).toContain(3)
+      expect(queriedPages).toContain(4)
+    })
+  })
+
+  test('idle scroll direction keeps the original single-page prefetch (no +2 warmup)', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [
+              {
+                id: (req.page ?? 1) * 10,
+                profileId: 'chrome:Default',
+                url: `u${req.page ?? 1}`,
+                title: 't',
+                domain: 'example.com',
+                favicon: null,
+                visitedAt: '2025-12-01T10:00:00Z',
+                visitTime: 1733050800,
+                sourceVisitId: 0,
+              },
+            ],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 6, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+        scrollDirection: 'idle',
+      }),
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() => {
+      const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
+      expect(queriedPages).toContain(2)
+      expect(queriedPages).toContain(3)
+    })
+    // Give a microtask for any deferred +2 prefetch that should NOT
+    // happen on "idle" direction; assertion follows.
+    await Promise.resolve()
+    const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
+    expect(queriedPages.filter((p) => p === 4)).toEqual([])
+  })
 })

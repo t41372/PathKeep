@@ -150,6 +150,9 @@ function runScenario(
   viewMode: 'list' | 'cards',
 ): ScenarioRow {
   const days = makeDays(dayCount, rowsPerDay)
+  // Spike intentionally measures the un-virtualised baseline so the
+  // numbers stay comparable to the original 2026-05-25 baseline that
+  // motivated the BROWSE-VIRT work.
   const { container, unmount } = render(
     <PaperContactSheet
       days={days}
@@ -157,6 +160,7 @@ function runScenario(
       onViewModeChange={() => {}}
       dayNav={NAV}
       copy={COPY}
+      disableVirtualization
       testId={`spike-${scenario}-${viewMode}`}
     />,
   )

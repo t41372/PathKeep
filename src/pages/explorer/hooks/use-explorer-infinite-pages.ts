@@ -43,6 +43,7 @@ import type {
   HistoryQuery,
   HistoryQueryResponse,
 } from '@/lib/types'
+import type { ScrollDirection } from './use-scroll-direction'
 
 export interface ExplorerInfinitePagesState {
   /** Entries from pages 2..accumulatedPages (page 1 is owned by the caller). */
@@ -82,18 +83,33 @@ interface UseExplorerInfinitePagesOptions {
    * accumulated buffer.
    */
   cacheToken: number
+  /**
+   * Current scroll direction signal. The hook warms one extra page
+   * ahead of the sentinel when the user is scrolling `'down'`
+   * (the dominant Browse pattern — moving back through history),
+   * so a fast scroller never sees the load-more skeleton on the
+   * second hop. `'up'` / `'idle'` fall back to the single
+   * background prefetch we always do regardless of direction.
+   * Optional so older callers (and the dev preview that doesn't
+   * track scroll) stay valid.
+   */
+  scrollDirection?: ScrollDirection
 }
 
 /**
  * Hard cap on how many pages we accumulate in memory before stopping
- * infinite scroll. With the default 50 rows / page this lets the user
- * stream ~5000 rows past the first page, which is roughly two screens
- * of scroll on a 4K monitor in dense list mode — past that point the
- * row count would balloon the DOM (no row virtualisation today) and
- * make GC pressure visible on the target 4-core/8 GB box. The user can
- * always jump deeper via the search palette or a date pill.
+ * infinite scroll. After the BROWSE-VIRT viewport-driven mounting
+ * landed (2026-05-25), DOM cost is no longer linear with page count —
+ * off-screen day blocks recycle to a placeholder div — so the cap is
+ * now memory-driven instead of DOM-driven. At the default 50 rows /
+ * page this allows up to ~50 000 entries (≈30 MB of HistoryEntry
+ * objects) in the page buffer, sized for the BROWSE-VIRT spike's
+ * 4-core / 8 GB target.
+ *
+ * See `docs/plan/program/browse-virt-spike-2026-05-25.md` for the
+ * cap derivation.
  */
-const MAX_ACCUMULATED_PAGES = 100
+const MAX_ACCUMULATED_PAGES = 1_000
 
 const SIGNATURE_FIELDS = [
   'q',
@@ -128,6 +144,7 @@ export function useExplorerInfinitePages({
   headResults,
   disabled,
   cacheToken,
+  scrollDirection,
 }: UseExplorerInfinitePagesOptions): ExplorerInfinitePagesState {
   const [accumulatedPages, setAccumulatedPages] = useState(1)
   const [pageItems, setPageItems] = useState<Map<number, HistoryEntry[]>>(
@@ -211,10 +228,19 @@ export function useExplorerInfinitePages({
     if (!targetAlreadyBuffered) {
       fetchPage(target, { background: false })
     }
-    // Warm the next page in the background. We only warm one page ahead
-    // to stay polite to the worker pool — encrypted SQLite reads on the
-    // 264k-row archive are not free even when nobody is watching.
+    // Warm one page ahead in the background unconditionally — this is
+    // the original prefetch budget and stays polite to the worker
+    // pool. When the user is actively scrolling down (the dominant
+    // Browse pattern — moving back through older history), warm a
+    // second page so a fast scroller doesn't see the load-more
+    // skeleton on the next hop. We cap at +2 to avoid flooding the
+    // encrypted-SQLite reader on the populated archive; the spike doc
+    // documents the budget at
+    // `docs/plan/program/browse-virt-spike-2026-05-25.md`.
     fetchPage(target + 1, { background: true })
+    if (scrollDirection === 'down') {
+      fetchPage(target + 2, { background: true })
+    }
 
     return () => {
       // Cancellation clears `loadingMore` explicitly. The .finally below
@@ -232,7 +258,7 @@ export function useExplorerInfinitePages({
     // before this effect runs; pageItems is intentionally absent so we
     // don't re-trigger on every set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accumulatedPages, disabled, headResults, signature])
+  }, [accumulatedPages, disabled, headResults, signature, scrollDirection])
 
   const extraItems = useMemo(() => {
     const out: HistoryEntry[] = []

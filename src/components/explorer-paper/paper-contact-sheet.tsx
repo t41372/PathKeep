@@ -33,6 +33,7 @@ import {
   getDomainAbbr,
   getDomainColor,
 } from '@/pages/explorer/paper/domain-color'
+import { useViewportMount } from '@/pages/explorer/hooks/use-viewport-mount'
 import { PaperContactFrame } from './paper-contact-frame'
 import { PaperDayHeader } from './paper-day-header'
 import {
@@ -219,6 +220,21 @@ export interface PaperContactSheetProps {
    * not own URL filter state).
    */
   filterStripSlot?: ReactNode
+  /**
+   * Opt out of the IntersectionObserver-driven viewport mounting
+   * (see `BROWSE-VIRT spike` doc). Tests / spike harnesses set this
+   * to `true` so they observe the un-recycled DOM cost. Defaults to
+   * `false` for the shipping Browse surface so off-screen days
+   * render only a height-preserving placeholder.
+   */
+  disableVirtualization?: boolean
+  /**
+   * Buffer applied to each day's IntersectionObserver `rootMargin`.
+   * Defaults to one screen above and below — enough head-start that
+   * fast scrollers don't see content pop in. Routes that scroll an
+   * inner container or want a different buffer can override.
+   */
+  virtualizationRootMargin?: string
   className?: string
   testId?: string
 }
@@ -241,6 +257,8 @@ export function PaperContactSheet({
   hour12 = true,
   copy,
   filterStripSlot,
+  disableVirtualization = false,
+  virtualizationRootMargin,
   className,
   testId,
 }: PaperContactSheetProps) {
@@ -273,8 +291,6 @@ export function PaperContactSheet({
     ],
     [copy.cards, copy.list],
   )
-
-  let globalFrameIndex = 0
 
   return (
     <section
@@ -344,105 +360,232 @@ export function PaperContactSheet({
         )
       ) : (
         days.map((day, dayIndex) => (
-          <div
+          <PaperDayBlock
             key={day.date}
-            data-day={day.date}
-            className={cn('flex flex-col', dayIndex > 0 && 'mt-8')}
-          >
-            <PaperDayHeader
-              label={describeDayInLanguage(day.date, language)}
-              meta={copy.dayMeta
-                .replace('{count}', String(day.visitCount))
-                .replace('{sessions}', String(day.sessions.length))}
-              rightIndex={copy.dayIndex.replace(
-                '{n}',
-                String(days.length - dayIndex),
-              )}
-              active={target?.date === day.date}
-              toolbarOffsetPx={toolbarHeight}
-            />
-
-            {dayInsightsCopy ? (
-              <PaperDayInsights
-                insights={
-                  resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)
-                }
-                copy={dayInsightsCopy}
-                language={language}
-                hour12={hour12}
-                testId={`paper-day-insights-${day.date}`}
-              />
-            ) : null}
-
-            {day.sessions.map((session, sessionIdx) => {
-              // Sessions are ordered newest → oldest. The gap between the
-              // previous session in the array and this one is therefore the
-              // ms from the older session's end to the newer session's
-              // start — i.e. how long the user was away from the browser
-              // before opening it again.
-              const previous = day.sessions[sessionIdx - 1]
-              const gapMs = previous ? previous.startMs - session.endMs : 0
-              return (
-                <div key={session.id} className="mt-4">
-                  {gapMs > 0 ? (
-                    <PaperSessionGap
-                      label={copy.sessionGapLabel.replace(
-                        '{duration}',
-                        formatDuration(gapMs, language),
-                      )}
-                      testId={`paper-session-gap-${day.date}-${sessionIdx}`}
-                    />
-                  ) : null}
-                  <PaperSessionHeader
-                    timeRange={formatRange(
-                      session.startMs,
-                      session.endMs,
-                      language,
-                      hour12,
-                    )}
-                    label={`${session.visitCount} ${copy.pagesLabel}`}
-                  />
-
-                  {viewMode === 'cards' ? (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
-                      {session.blocks.map((block) =>
-                        renderCardBlock({
-                          block,
-                          baseIndex: globalFrameIndex,
-                          increment: (n) => {
-                            globalFrameIndex += n
-                          },
-                          language,
-                          hour12,
-                          selectedEntryId,
-                          onSelectEntry,
-                        }),
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col">
-                      {flattenBlocks(session.blocks).map((entry) => (
-                        <PaperListRow
-                          key={entry.id}
-                          entry={toListEntry(entry, language, hour12)}
-                          domainColor={getDomainColor(entry.domain)}
-                          domainAbbr={getDomainAbbr(entry.domain)}
-                          selected={selectedEntryId === entry.id}
-                          onClick={() => onSelectEntry?.(entry)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+            day={day}
+            dayIndex={dayIndex}
+            totalDays={days.length}
+            viewMode={viewMode}
+            target={target ?? null}
+            selectedEntryId={selectedEntryId}
+            onSelectEntry={onSelectEntry}
+            dayInsightsCopy={dayInsightsCopy}
+            resolveDayInsights={resolveDayInsights}
+            language={language}
+            hour12={hour12}
+            copy={copy}
+            toolbarHeight={toolbarHeight}
+            disableVirtualization={disableVirtualization}
+            virtualizationRootMargin={virtualizationRootMargin}
+          />
         ))
       )}
 
       {pagination ? <PaginationFooter pagination={pagination} /> : null}
       {infiniteScroll ? <InfiniteScrollFooter scroll={infiniteScroll} /> : null}
     </section>
+  )
+}
+
+interface PaperDayBlockProps {
+  day: PaperDay
+  dayIndex: number
+  totalDays: number
+  viewMode: PaperViewMode
+  target: PaperContactSheetTarget | null
+  selectedEntryId: number | string | null
+  onSelectEntry?: (entry: HistoryEntry) => void
+  dayInsightsCopy?: PaperDayInsightsCopy
+  resolveDayInsights?: (date: string) => DayInsights | null
+  language: string
+  hour12: boolean
+  copy: PaperContactSheetCopy
+  toolbarHeight: number
+  disableVirtualization: boolean
+  virtualizationRootMargin?: string
+}
+
+/**
+ * Viewport-driven wrapper around one day's worth of contact-sheet
+ * content. The block keeps a stable wrapper div in the document so
+ * IntersectionObserver always has something to watch and the day's
+ * scroll-position contribution stays honest; the heavy day chrome
+ * (PaperDayHeader, PaperDayInsights, sessions, cards / list rows)
+ * only mounts while the block is intersecting the viewport ± one
+ * screen of buffer.
+ *
+ * When the block goes out of view we hold a `min-height` equal to
+ * the last measured render so the document doesn't collapse and
+ * the scrollbar doesn't jump as the user scrolls past long days.
+ *
+ * Tests / spike harnesses pass `disableVirtualization={true}` to
+ * always render the full content (matches the pre-virt behaviour).
+ */
+function PaperDayBlock({
+  day,
+  dayIndex,
+  totalDays,
+  viewMode,
+  target,
+  selectedEntryId,
+  onSelectEntry,
+  dayInsightsCopy,
+  resolveDayInsights,
+  language,
+  hour12,
+  copy,
+  toolbarHeight,
+  disableVirtualization,
+  virtualizationRootMargin,
+}: PaperDayBlockProps) {
+  const { ref, inView, measuredHeight } = useViewportMount<HTMLDivElement>({
+    rootMargin: virtualizationRootMargin,
+    initialInView: true,
+  })
+  const shouldRender = disableVirtualization || inView
+  const placeholderStyle =
+    !shouldRender && measuredHeight !== null
+      ? { minHeight: `${measuredHeight}px` }
+      : undefined
+
+  return (
+    <div
+      ref={ref}
+      data-day={day.date}
+      data-virt-state={shouldRender ? 'mounted' : 'recycled'}
+      style={placeholderStyle}
+      className={cn('flex flex-col', dayIndex > 0 && 'mt-8')}
+    >
+      {shouldRender ? (
+        <PaperDayBlockContent
+          day={day}
+          dayIndex={dayIndex}
+          totalDays={totalDays}
+          viewMode={viewMode}
+          target={target}
+          selectedEntryId={selectedEntryId}
+          onSelectEntry={onSelectEntry}
+          dayInsightsCopy={dayInsightsCopy}
+          resolveDayInsights={resolveDayInsights}
+          language={language}
+          hour12={hour12}
+          copy={copy}
+          toolbarHeight={toolbarHeight}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function PaperDayBlockContent({
+  day,
+  dayIndex,
+  totalDays,
+  viewMode,
+  target,
+  selectedEntryId,
+  onSelectEntry,
+  dayInsightsCopy,
+  resolveDayInsights,
+  language,
+  hour12,
+  copy,
+  toolbarHeight,
+}: Omit<
+  PaperDayBlockProps,
+  'disableVirtualization' | 'virtualizationRootMargin'
+>) {
+  let frameIndex = 0
+  return (
+    <>
+      <PaperDayHeader
+        label={describeDayInLanguage(day.date, language)}
+        meta={copy.dayMeta
+          .replace('{count}', String(day.visitCount))
+          .replace('{sessions}', String(day.sessions.length))}
+        rightIndex={copy.dayIndex.replace(
+          '{n}',
+          String(totalDays - dayIndex),
+        )}
+        active={target?.date === day.date}
+        toolbarOffsetPx={toolbarHeight}
+      />
+
+      {dayInsightsCopy ? (
+        <PaperDayInsights
+          insights={
+            resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)
+          }
+          copy={dayInsightsCopy}
+          language={language}
+          hour12={hour12}
+          testId={`paper-day-insights-${day.date}`}
+        />
+      ) : null}
+
+      {day.sessions.map((session, sessionIdx) => {
+        // Sessions are ordered newest → oldest. The gap between the
+        // previous session in the array and this one is therefore the
+        // ms from the older session's end to the newer session's
+        // start — i.e. how long the user was away from the browser
+        // before opening it again.
+        const previous = day.sessions[sessionIdx - 1]
+        const gapMs = previous ? previous.startMs - session.endMs : 0
+        return (
+          <div key={session.id} className="mt-4">
+            {gapMs > 0 ? (
+              <PaperSessionGap
+                label={copy.sessionGapLabel.replace(
+                  '{duration}',
+                  formatDuration(gapMs, language),
+                )}
+                testId={`paper-session-gap-${day.date}-${sessionIdx}`}
+              />
+            ) : null}
+            <PaperSessionHeader
+              timeRange={formatRange(
+                session.startMs,
+                session.endMs,
+                language,
+                hour12,
+              )}
+              label={`${session.visitCount} ${copy.pagesLabel}`}
+            />
+
+            {viewMode === 'cards' ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
+                {session.blocks.map((block) =>
+                  renderCardBlock({
+                    block,
+                    baseIndex: frameIndex,
+                    increment: (n) => {
+                      frameIndex += n
+                    },
+                    language,
+                    hour12,
+                    selectedEntryId,
+                    onSelectEntry,
+                  }),
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {flattenBlocks(session.blocks).map((entry) => (
+                  <PaperListRow
+                    key={entry.id}
+                    entry={toListEntry(entry, language, hour12)}
+                    domainColor={getDomainColor(entry.domain)}
+                    domainAbbr={getDomainAbbr(entry.domain)}
+                    selected={selectedEntryId === entry.id}
+                    onClick={() => onSelectEntry?.(entry)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
   )
 }
 
