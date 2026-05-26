@@ -191,10 +191,19 @@ export function PaperDetailPanel({
   // Track the prop values we synced from last so we can adjust state during
   // render when they change. This is the React 19-blessed alternative to
   // setState-in-effect for "derive state from a prop change".
-  const [trackedEntryId, setTrackedEntryId] = useState(entry?.id ?? null)
+  //
+  // The conditional avoids `entry?.id ?? null` because a synthetic-id path
+  // or string-id type extension could legitimately have `entry.id === 0`
+  // (or `''`), and `?? null` would collapse that into the no-entry sentinel
+  // — the panel would silently stop syncing notes for that record. Today
+  // SQLite ROWIDs start at 1 so this is dormant; the explicit null check
+  // is the future-proofing Claude review finding #5 asked for.
+  const [trackedEntryId, setTrackedEntryId] = useState<
+    PaperDetailPanelEntry['id'] | null
+  >(entry == null ? null : entry.id)
   const [lastSyncedNotes, setLastSyncedNotes] = useState(notes)
 
-  const nextEntryId = entry?.id ?? null
+  const nextEntryId = entry == null ? null : entry.id
   if (nextEntryId !== trackedEntryId) {
     // Swap in the new record's notes during render (React 19 supports
     // setState during render to derive state from a prop change). The
