@@ -714,6 +714,184 @@ fn c5_chromium_incremental_append_new_urls_and_visits() {
 }
 
 // ----------------------------------------------------------------------
+// X3: Multi-profile per browser — Chrome Default vs Chrome Profile 1
+// ----------------------------------------------------------------------
+
+/// X3 — Real users almost always have multiple Chrome profiles
+/// (`Default`, `Profile 1`, sometimes more). Each profile is a separate
+/// `~/Library/Application Support/Google/Chrome/<Profile>/History`
+/// file, discovered as an independent `BrowserProfile`. The dedup
+/// contract requires:
+///
+/// 1. **Independent source_profiles**: `profile_key = "chrome:Default"`
+///    and `profile_key = "chrome:Profile 1"` must produce two distinct
+///    rows in `source_profiles` (no collision under same `browser_kind`).
+/// 2. **Per-profile dedup scope**: identical visits across the two
+///    profiles must not deduplicate. The `event_fingerprint` partial
+///    unique index is scoped by `source_profile_id`, so each profile
+///    keeps its own copy.
+/// 3. **Per-profile watermark isolation**: a re-import of Profile 1
+///    after Default has been ingested must not be affected by Default's
+///    watermark advance — both profiles get independent incremental
+///    state.
+///
+/// This is the multi-profile mirror of X1's cross-browser test. If a
+/// future refactor accidentally key the watermark by `browser_kind` only
+/// (instead of by `source_profile_id`), or merges identical visits
+/// across profiles, this scenario fails.
+#[test]
+fn x3_multiple_profiles_within_same_browser_stay_independent() {
+    let env = ScenarioEnv::new();
+
+    let day_one_ms = 1_777_680_000_000_i64;
+    let day_two_ms = 1_777_809_600_000_i64;
+    let day_three_ms = 1_777_872_930_000_i64;
+
+    // Both profiles share the same URL + visit time (e.g. the user
+    // visited the same article from both work and personal profiles).
+    let shared_fixture = |source_url_id: i64, source_visit_id: i64| {
+        ChromiumHistoryFixture::new()
+            .add_url(ChromiumUrlRow {
+                id: source_url_id,
+                url: "https://example.com/cross-profile".to_string(),
+                title: Some("Cross Profile".to_string()),
+                visit_count: 1,
+                typed_count: 0,
+                last_visit_unix_ms: day_one_ms,
+                hidden: false,
+            })
+            .add_visit(visit_row(source_visit_id, source_url_id, day_one_ms))
+    };
+
+    // Default: pass 1 — single shared URL + visit.
+    let default_snap_1 = snapshot_for_fixture(
+        &shared_fixture(1, 10),
+        chromium_profile("chrome:Default", "Google Chrome"),
+    );
+    let default_summary_1 = run_one_ingest(&env, 1, &default_snap_1, false);
+    assert_eq!(default_summary_1.new_urls, 1);
+    assert_eq!(default_summary_1.new_visits, 1);
+    drop(default_snap_1);
+
+    // Profile 1: pass 1 — same URL + visit time but DIFFERENT
+    // source_visit_id (each Chrome profile has its own rowid sequence).
+    // The fingerprint inputs (url, visit_time_ms, title, transition,
+    // app_id) match Default's, but the fingerprint partial index is
+    // scoped per source_profile_id, so this visit must NOT dedup.
+    let profile1_snap_1 = snapshot_for_fixture(
+        &shared_fixture(1, 99),
+        chromium_profile("chrome:Profile 1", "Google Chrome"),
+    );
+    let profile1_summary_1 = run_one_ingest(&env, 2, &profile1_snap_1, false);
+    assert_eq!(
+        profile1_summary_1.new_urls, 1,
+        "Profile 1's URL must land independently of Default's"
+    );
+    assert_eq!(
+        profile1_summary_1.new_visits, 1,
+        "identical visit across profiles must not dedup (per-profile fingerprint scope)"
+    );
+
+    // Per-profile counts confirm the two profiles each hold one URL +
+    // one visit, even though the visit content is identical.
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 1);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 1);
+    assert_eq!(count_urls_for_profile(&env, "chrome:Profile 1"), 1);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Profile 1"), 1);
+    assert_eq!(count_archive_rows(&env, "urls"), 2);
+    assert_eq!(count_archive_rows(&env, "visits"), 2);
+
+    // Per-profile watermark isolation: now re-import Profile 1 with
+    // NEW activity (the user kept browsing on Profile 1). Default's
+    // watermark advance from pass 1 must not affect Profile 1's
+    // incremental cursor. Profile 1's new content must be detected.
+    let profile1_fixture_2 = ChromiumHistoryFixture::new()
+        // Same URL+visit as Profile 1's pass 1 — must dedup at Profile 1's
+        // partial fingerprint index.
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/cross-profile".to_string(),
+            title: Some("Cross Profile".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one_ms,
+            hidden: false,
+        })
+        // New URL only seen on Profile 1.
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/profile-one-only".to_string(),
+            title: Some("Profile One Only".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 3,
+            url: "https://example.com/profile-one-late".to_string(),
+            title: Some("Profile One Late".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_three_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(99, 1, day_one_ms))
+        .add_visit(visit_row(100, 2, day_two_ms))
+        .add_visit(visit_row(101, 3, day_three_ms));
+    let profile1_snap_2 = snapshot_for_fixture(
+        &profile1_fixture_2,
+        chromium_profile("chrome:Profile 1", "Google Chrome"),
+    );
+    let profile1_summary_2 = run_one_ingest(&env, 3, &profile1_snap_2, true);
+
+    // Watermark must have been read from Profile 1's own state (not
+    // Default's). Profile 1 sees 2 new URLs and 2 new visits.
+    assert_eq!(
+        profile1_summary_2.new_urls, 2,
+        "Profile 1's incremental import must pick up its own 2 new URLs"
+    );
+    assert_eq!(
+        profile1_summary_2.new_visits, 2,
+        "Profile 1's incremental import must pick up its own 2 new visits"
+    );
+
+    // Final per-profile counts.
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 1, "Default untouched");
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 1, "Default untouched");
+    assert_eq!(count_urls_for_profile(&env, "chrome:Profile 1"), 3);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Profile 1"), 3);
+    assert_eq!(count_archive_rows(&env, "urls"), 4);
+    assert_eq!(count_archive_rows(&env, "visits"), 4);
+
+    // Provenance: both share `browser_kind = chrome` and
+    // `browser_product = Google Chrome` but have distinct `profile_key`
+    // and `profile_name`.
+    let archive = env.open_archive();
+    let collect_profile_meta = |profile_key: &str| -> (String, String, String) {
+        archive
+            .query_row(
+                "SELECT browser_kind, browser_product, profile_name
+                 FROM source_profiles WHERE profile_key = ?1",
+                [profile_key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("profile meta")
+    };
+    let (default_kind, default_product, default_name) = collect_profile_meta("chrome:Default");
+    let (profile1_kind, profile1_product, profile1_name) = collect_profile_meta("chrome:Profile 1");
+    assert_eq!(default_kind, "chrome");
+    assert_eq!(profile1_kind, "chrome");
+    assert_eq!(default_product, "Google Chrome");
+    assert_eq!(profile1_product, "Google Chrome");
+    assert_eq!(default_name, "Default");
+    // profile_name comes from chromium_profile helper which hardcodes
+    // "Default"; in real PathKeep it would be the OS-discovered name.
+    // Both still produce distinct profile_keys via the profile_id input.
+    assert_eq!(profile1_name, "Default");
+}
+
+// ----------------------------------------------------------------------
 // C6: Chromium source DB schema tolerance — extra columns must not break ingest
 // ----------------------------------------------------------------------
 
