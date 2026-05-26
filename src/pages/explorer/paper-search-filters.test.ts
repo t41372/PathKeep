@@ -21,7 +21,9 @@ describe('tokenizeQuery', () => {
   })
 
   test('keeps quoted phrases as a single token, including smart quotes and escapes', () => {
-    const tokens = tokenizeQuery('"release notes" tag:“async runtime” -note:legacy escape\\ slash')
+    const tokens = tokenizeQuery(
+      '"release notes" tag:“async runtime” -note:legacy escape\\ slash',
+    )
     const literals = tokens.map((token) => token.literal)
     expect(literals).toEqual([
       '"release notes"',
@@ -43,15 +45,22 @@ describe('parseActiveSearchFilters', () => {
     const filters = parseActiveSearchFilters(
       'tag:rust -tag:archived note:"design doc" -note:legacy',
     )
-    expect(filters.map(({ kind, value, negated, label }) => ({
-      kind,
-      value,
-      negated,
-      label,
-    }))).toEqual([
+    expect(
+      filters.map(({ kind, value, negated, label }) => ({
+        kind,
+        value,
+        negated,
+        label,
+      })),
+    ).toEqual([
       { kind: 'tag', value: 'rust', negated: false, label: 'tag:rust' },
       { kind: 'tag', value: 'archived', negated: true, label: '-tag:archived' },
-      { kind: 'note', value: 'design doc', negated: false, label: 'note:design doc' },
+      {
+        kind: 'note',
+        value: 'design doc',
+        negated: false,
+        label: 'note:design doc',
+      },
       { kind: 'note', value: 'legacy', negated: true, label: '-note:legacy' },
     ])
     // Each chip carries the tokenIndex so the panel can remove the exact

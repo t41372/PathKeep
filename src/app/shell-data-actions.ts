@@ -262,11 +262,7 @@ export function createShellDataActions({
         setNotice(backupCompletionNotice(report, t))
         return report
       } catch (nextError) {
-        const message = formatShellActionError(
-          nextError,
-          'run_backup_now',
-          t,
-        )
+        const message = formatShellActionError(nextError, 'run_backup_now', t)
         setError(message)
         if (taskId) {
           archiveTasks?.failBackupTask(taskId, message)

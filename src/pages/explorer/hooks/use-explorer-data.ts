@@ -551,9 +551,7 @@ export function useExplorerData({
       })
       setProviderProbe(probe)
     } catch (error) {
-      setIntelligenceError(
-        describeError(error, 'test_ai_provider_connection'),
-      )
+      setIntelligenceError(describeError(error, 'test_ai_provider_connection'))
     } finally {
       setQueueAction(null)
     }

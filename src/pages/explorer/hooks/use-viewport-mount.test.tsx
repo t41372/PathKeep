@@ -3,6 +3,7 @@
  * PaperContactSheet to recycle off-screen day blocks.
  */
 
+import { useEffect } from 'react'
 import { act, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { useViewportMount } from './use-viewport-mount'
@@ -31,8 +32,9 @@ function installObserverMock(): { trigger: TriggerFn; restore: () => void } {
     this.takeRecords = () => []
   }
   const previous = globalThis.IntersectionObserver
-  ;(globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
-    MockIO as unknown as typeof IntersectionObserver
+  ;(
+    globalThis as { IntersectionObserver: typeof IntersectionObserver }
+  ).IntersectionObserver = MockIO as unknown as typeof IntersectionObserver
   return {
     trigger(node, isIntersecting) {
       const callback = subscribers.get(node)
@@ -50,8 +52,9 @@ function installObserverMock(): { trigger: TriggerFn; restore: () => void } {
       ])
     },
     restore() {
-      ;(globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
-        previous
+      ;(
+        globalThis as { IntersectionObserver: typeof IntersectionObserver }
+      ).IntersectionObserver = previous
     },
   }
 }
@@ -64,7 +67,15 @@ function Harness({
   options?: Parameters<typeof useViewportMount>[0]
 }) {
   const state = useViewportMount<HTMLDivElement>(options)
-  onState(state)
+  // Defer the side effect to commit time so the render itself stays
+  // pure (and the React lint rule banning ref reads + side effects
+  // during render stays satisfied).
+  useEffect(() => {
+    onState(state)
+    // The hook returns a fresh object every render, so we listen on
+    // its observable fields instead of the wrapper identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.inView, state.measuredHeight])
   return (
     <div ref={state.ref} data-testid="harness">
       {state.inView ? 'mounted' : 'recycled'}
@@ -93,7 +104,17 @@ describe('useViewportMount', () => {
     const node = getByTestId('harness')
     // Pretend the node was 480px tall before we recycled it.
     node.getBoundingClientRect = () =>
-      ({ height: 480, width: 0, top: 0, left: 0, bottom: 480, right: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+      ({
+        height: 480,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 480,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
     act(() => {
       io.trigger(node, false)
     })
@@ -107,7 +128,17 @@ describe('useViewportMount', () => {
     const { getByTestId } = render(<Harness onState={(s) => states.push(s)} />)
     const node = getByTestId('harness')
     node.getBoundingClientRect = () =>
-      ({ height: 240, width: 0, top: 0, left: 0, bottom: 240, right: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+      ({
+        height: 240,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 240,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
     act(() => {
       io.trigger(node, false)
     })
@@ -131,12 +162,16 @@ describe('useViewportMount', () => {
   test('no-ops when IntersectionObserver is unavailable, staying at initialInView', () => {
     io.restore()
     const previous = globalThis.IntersectionObserver
-    ;(globalThis as { IntersectionObserver: typeof IntersectionObserver | undefined }).IntersectionObserver =
-      undefined as unknown as typeof IntersectionObserver
+    ;(
+      globalThis as {
+        IntersectionObserver: typeof IntersectionObserver | undefined
+      }
+    ).IntersectionObserver = undefined as unknown as typeof IntersectionObserver
     const states: ReturnType<typeof useViewportMount>[] = []
     render(<Harness onState={(s) => states.push(s)} />)
     expect(states[states.length - 1].inView).toBe(true)
-    ;(globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
-      previous
+    ;(
+      globalThis as { IntersectionObserver: typeof IntersectionObserver }
+    ).IntersectionObserver = previous
   })
 })

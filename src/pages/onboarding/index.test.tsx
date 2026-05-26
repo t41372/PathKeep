@@ -484,9 +484,7 @@ describe('OnboardingPage', () => {
     )
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
 
-    expect(
-      await screen.findByText('scheduler fallback'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('scheduler fallback')).toBeInTheDocument()
   })
 
   test('ignores schedule preview success and failure after leaving the schedule step', async () => {

@@ -189,9 +189,7 @@ export function useSettingsSupportState({
       } catch (error) {
         if (!cancelled) {
           setRetentionPreview(null)
-          setRetentionError(
-            describeError(error, 'preview_retention_prune'),
-          )
+          setRetentionError(describeError(error, 'preview_retention_prune'))
         }
       }
     }

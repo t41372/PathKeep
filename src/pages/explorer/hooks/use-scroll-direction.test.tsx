@@ -125,9 +125,9 @@ describe('useScrollDirection', () => {
     const removeSpy = vi.spyOn(window, 'removeEventListener')
     const { unmount } = renderHook(() => useScrollDirection())
     unmount()
-    expect(
-      removeSpy.mock.calls.some(([event]) => event === 'scroll'),
-    ).toBe(true)
+    expect(removeSpy.mock.calls.some(([event]) => event === 'scroll')).toBe(
+      true,
+    )
     removeSpy.mockRestore()
   })
 })

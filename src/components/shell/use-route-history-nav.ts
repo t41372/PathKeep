@@ -56,10 +56,7 @@ const isMacLike = (): boolean => {
 
 const modifierLabelForPlatform = (): string => (isMacLike() ? '⌘' : 'Ctrl+')
 
-const shortcutMatches = (
-  event: KeyboardEvent,
-  key: '[' | ']',
-): boolean => {
+const shortcutMatches = (event: KeyboardEvent, key: '[' | ']'): boolean => {
   if (event.key !== key) return false
   // Avoid hijacking shortcuts the OS / browser owns (e.g. window switch
   // shortcuts on Linux use Alt/Super). Match either Meta (Cmd) on macOS
@@ -120,7 +117,17 @@ export function useRouteHistoryNav(): RouteHistoryNav {
       return
     }
     lastKeyRef.current = location.key
+    // This block intentionally calls setState inside the effect: the
+    // hook is integrating router navigation events (an external source
+    // of truth driven by user gestures) into the local back/forward
+    // counter. There is no "derived from props" path that captures
+    // both Push (counter +1) and Pop (counter -1) honestly without
+    // duplicating the lastKey tracking — so the side effect must
+    // fire here. Cascading renders are bounded because both setters
+    // use the functional updater form and only fire when location.key
+    // actually changes (guarded above by the lastKeyRef check).
     if (navigationType === NavigationType.Push) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStackIndex((index) => index + 1)
       // A Push wipes any in-flight forward branch, mirroring browser
       // behaviour. Otherwise a back-then-link-click would still leave

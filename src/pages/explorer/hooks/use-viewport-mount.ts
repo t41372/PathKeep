@@ -107,16 +107,18 @@ export function useViewportMount<TElement extends HTMLElement = HTMLDivElement>(
   // measured height — the day content height changes with view mode
   // toggles, lazy image loads, and day-insights fetches, and a stale
   // measurement would create the wrong placeholder size on next
-  // recycle.
+  // recycle. `measuredHeight` is intentionally NOT in the dep list —
+  // the effect only needs to fire when `inView` flips; re-firing on
+  // every height-state change would cause an infinite update loop.
   useEffect(() => {
     if (!inView) return
     const node = ref.current
     if (!node) return
     const height = node.getBoundingClientRect().height
-    if (height > 0 && height !== measuredHeight) {
-      setMeasuredHeight(height)
+    if (height > 0) {
+      setMeasuredHeight((current) => (current === height ? current : height))
     }
-  })
+  }, [inView])
 
   return { ref, inView, measuredHeight }
 }

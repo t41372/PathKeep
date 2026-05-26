@@ -272,9 +272,7 @@ describe('LinkPreviewsSection', () => {
       totalBytes: 0,
       oldestFetchedAt: null,
     })
-    render(
-      withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }),
-    )
+    render(withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }))
     expect(
       screen
         .getByTestId('link-previews-fetch-mode-on_demand')
@@ -339,21 +337,14 @@ describe('LinkPreviewsSection', () => {
       totalBytes: 0,
       oldestFetchedAt: null,
     })
-    render(
-      withShell({ ogImageFetchEnabled: false, fetchMode: 'background' }),
-    )
+    render(withShell({ ogImageFetchEnabled: false, fetchMode: 'background' }))
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-fetch-mode-off',
-        ) as HTMLButtonElement
-      ).disabled,
+      screen.getByTestId<HTMLButtonElement>('link-previews-fetch-mode-off')
+        .disabled,
     ).toBe(true)
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-fetch-mode-background',
-        ) as HTMLButtonElement
+      screen.getByTestId<HTMLButtonElement>(
+        'link-previews-fetch-mode-background',
       ).disabled,
     ).toBe(true)
   })
@@ -386,13 +377,12 @@ describe('LinkPreviewsSection', () => {
     })
     const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(withShell({ ogImageFetchEnabled: true, saveConfig }))
-    fireEvent.change(
-      screen.getByTestId('link-previews-daily-refetch-budget'),
-      { target: { value: '250' } },
+    fireEvent.change(screen.getByTestId('link-previews-daily-refetch-budget'), {
+      target: { value: '250' },
+    })
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget).toBe(
+      250,
     )
-    expect(
-      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
-    ).toBe(250)
   })
 
   test('daily refetch budget clamps above the maximum (5000)', () => {
@@ -404,13 +394,12 @@ describe('LinkPreviewsSection', () => {
     })
     const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(withShell({ ogImageFetchEnabled: true, saveConfig }))
-    fireEvent.change(
-      screen.getByTestId('link-previews-daily-refetch-budget'),
-      { target: { value: '999999' } },
+    fireEvent.change(screen.getByTestId('link-previews-daily-refetch-budget'), {
+      target: { value: '999999' },
+    })
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget).toBe(
+      5000,
     )
-    expect(
-      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
-    ).toBe(5000)
   })
 
   test('daily refetch budget clamps to 0 for negative values', () => {
@@ -422,13 +411,10 @@ describe('LinkPreviewsSection', () => {
     })
     const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(withShell({ ogImageFetchEnabled: true, saveConfig }))
-    fireEvent.change(
-      screen.getByTestId('link-previews-daily-refetch-budget'),
-      { target: { value: '-9' } },
-    )
-    expect(
-      saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget,
-    ).toBe(0)
+    fireEvent.change(screen.getByTestId('link-previews-daily-refetch-budget'), {
+      target: { value: '-9' },
+    })
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.dailyRefetchBudget).toBe(0)
   })
 
   test('daily refetch budget skips saveConfig when value is unchanged', () => {
@@ -446,10 +432,9 @@ describe('LinkPreviewsSection', () => {
         saveConfig,
       }),
     )
-    fireEvent.change(
-      screen.getByTestId('link-previews-daily-refetch-budget'),
-      { target: { value: '50' } },
-    )
+    fireEvent.change(screen.getByTestId('link-previews-daily-refetch-budget'), {
+      target: { value: '50' },
+    })
     expect(saveConfig).not.toHaveBeenCalled()
   })
 
@@ -462,11 +447,8 @@ describe('LinkPreviewsSection', () => {
     })
     render(withShell({ ogImageFetchEnabled: false }))
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-daily-refetch-budget',
-        ) as HTMLInputElement
-      ).disabled,
+      screen.getByTestId<HTMLInputElement>('link-previews-daily-refetch-budget')
+        .disabled,
     ).toBe(true)
   })
 
@@ -534,11 +516,8 @@ describe('LinkPreviewsSection', () => {
     })
     render(withShell({ ogImageFetchEnabled: false }))
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-prefetch-budget',
-        ) as HTMLInputElement
-      ).disabled,
+      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
+        .disabled,
     ).toBe(true)
   })
 
@@ -549,15 +528,10 @@ describe('LinkPreviewsSection', () => {
       totalBytes: 0,
       oldestFetchedAt: null,
     })
-    render(
-      withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }),
-    )
+    render(withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }))
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-prefetch-budget',
-        ) as HTMLInputElement
-      ).disabled,
+      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
+        .disabled,
     ).toBe(true)
   })
 
@@ -568,15 +542,10 @@ describe('LinkPreviewsSection', () => {
       totalBytes: 0,
       oldestFetchedAt: null,
     })
-    render(
-      withShell({ ogImageFetchEnabled: true, fetchMode: 'background' }),
-    )
+    render(withShell({ ogImageFetchEnabled: true, fetchMode: 'background' }))
     expect(
-      (
-        screen.getByTestId(
-          'link-previews-prefetch-budget',
-        ) as HTMLInputElement
-      ).disabled,
+      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
+        .disabled,
     ).toBe(false)
   })
 
@@ -631,9 +600,7 @@ describe('LinkPreviewsSection', () => {
     render(withShell({ ogImageFetchEnabled: true }))
     await userEvent.click(screen.getByTestId('link-previews-rebuild-now'))
     await waitFor(() =>
-      expect(screen.getByTestId('link-previews-stats')).toHaveTextContent(
-        '42',
-      ),
+      expect(screen.getByTestId('link-previews-stats')).toHaveTextContent('42'),
     )
   })
 
@@ -646,9 +613,8 @@ describe('LinkPreviewsSection', () => {
     })
     render(withShell({ ogImageFetchEnabled: false }))
     expect(
-      (
-        screen.getByTestId('link-previews-rebuild-now') as HTMLButtonElement
-      ).disabled,
+      screen.getByTestId<HTMLButtonElement>('link-previews-rebuild-now')
+        .disabled,
     ).toBe(true)
   })
 
@@ -663,9 +629,9 @@ describe('LinkPreviewsSection', () => {
       new Error('worker offline'),
     )
     render(withShell({ ogImageFetchEnabled: true }))
-    const button = screen.getByTestId(
+    const button = screen.getByTestId<HTMLButtonElement>(
       'link-previews-rebuild-now',
-    ) as HTMLButtonElement
+    )
     await userEvent.click(button).catch(() => undefined)
     // After the promise rejects, the button must re-enable so the user
     // can retry — otherwise a transient error permanently locks the

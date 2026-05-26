@@ -495,7 +495,16 @@ function PaperDayBlockContent({
   PaperDayBlockProps,
   'disableVirtualization' | 'virtualizationRootMargin'
 >) {
-  let frameIndex = 0
+  // Pre-compute the cumulative card-frame index per session so the
+  // render path stays pure (no closure-captured `let` mutated during
+  // map iteration). The "01 / 02 / …" badge on PaperContactFrame
+  // counts across all sessions within the day for visual continuity.
+  const sessionBaseIndices: number[] = []
+  let runningTotal = 0
+  for (const session of day.sessions) {
+    sessionBaseIndices.push(runningTotal)
+    runningTotal += session.blocks.length
+  }
   return (
     <>
       <PaperDayHeader
@@ -503,19 +512,14 @@ function PaperDayBlockContent({
         meta={copy.dayMeta
           .replace('{count}', String(day.visitCount))
           .replace('{sessions}', String(day.sessions.length))}
-        rightIndex={copy.dayIndex.replace(
-          '{n}',
-          String(totalDays - dayIndex),
-        )}
+        rightIndex={copy.dayIndex.replace('{n}', String(totalDays - dayIndex))}
         active={target?.date === day.date}
         toolbarOffsetPx={toolbarHeight}
       />
 
       {dayInsightsCopy ? (
         <PaperDayInsights
-          insights={
-            resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)
-          }
+          insights={resolveDayInsights?.(day.date) ?? aggregateDayInsights(day)}
           copy={dayInsightsCopy}
           language={language}
           hour12={hour12}
@@ -554,13 +558,10 @@ function PaperDayBlockContent({
 
             {viewMode === 'cards' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(195px,1fr))] gap-4">
-                {session.blocks.map((block) =>
+                {session.blocks.map((block, blockIdx) =>
                   renderCardBlock({
                     block,
-                    baseIndex: frameIndex,
-                    increment: (n) => {
-                      frameIndex += n
-                    },
+                    baseIndex: sessionBaseIndices[sessionIdx] + blockIdx,
                     language,
                     hour12,
                     selectedEntryId,
@@ -796,7 +797,6 @@ function PaginationFooter({
 interface CardBlockArgs {
   block: PaperBlock
   baseIndex: number
-  increment: (n: number) => void
   language: string
   hour12: boolean
   selectedEntryId: number | string | null
@@ -806,7 +806,6 @@ interface CardBlockArgs {
 function renderCardBlock({
   block,
   baseIndex,
-  increment,
   language,
   hour12,
   selectedEntryId,
@@ -814,7 +813,6 @@ function renderCardBlock({
 }: CardBlockArgs) {
   const idx = baseIndex
   const entry = block.entry
-  increment(1)
   return (
     <PaperContactFrame
       key={entry.id}

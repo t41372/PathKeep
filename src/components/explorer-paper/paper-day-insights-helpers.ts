@@ -118,10 +118,7 @@ export function aggregateDayInsights(day: PaperDay): DayInsights {
     string,
     { url: string; title: string | null; visits: number }
   >()
-  const searchQueryCounts = new Map<
-    string,
-    { query: string; count: number }
-  >()
+  const searchQueryCounts = new Map<string, { query: string; count: number }>()
   const hourBuckets = new Array<number>(24).fill(0)
   let totalPages = 0
   let typedCount = 0

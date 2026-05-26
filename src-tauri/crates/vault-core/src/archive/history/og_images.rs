@@ -763,12 +763,7 @@ mod tests {
     fn list_urls_for_prefetch_honors_the_limit() {
         let connection = open_test_archive();
         for id in 1..=5 {
-            seed_url(
-                &connection,
-                id,
-                &format!("https://example.com/page/{id}"),
-                (id * 1000) as i64,
-            );
+            seed_url(&connection, id, &format!("https://example.com/page/{id}"), id * 1000);
         }
 
         let two = list_urls_for_prefetch(&connection, 2).unwrap();

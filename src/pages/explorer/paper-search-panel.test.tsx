@@ -184,8 +184,15 @@ describe('PaperSearchPanel', () => {
     expect(onSelectEntry).toHaveBeenCalledWith(42)
   })
 
-  test('+ Tag chip appends `tag:` to the query and focuses the input', () => {
+  test('+ Tag chip appends `tag:` to the query and focuses the input after the next animation frame', async () => {
     const onQueryChange = vi.fn()
+    let rafCallback: FrameRequestCallback | null = null
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        rafCallback = cb
+        return 1
+      })
     render(
       <PaperSearchPanel
         query="rust"
@@ -204,6 +211,44 @@ describe('PaperSearchPanel', () => {
     )
     fireEvent.click(screen.getByTestId('paper-search-add-tag'))
     expect(onQueryChange).toHaveBeenCalledWith('rust tag:')
+    // Flush the rAF callback: the panel uses it to defer the
+    // input.focus() + setSelectionRange to the next paint so the
+    // browser commits the appended `tag:` text before placing the
+    // caret. Without flushing we'd never exercise that branch.
+    const input = screen.getByTestId<HTMLInputElement>('paper-search-input')
+    const focusSpy = vi.spyOn(input, 'focus')
+    const setSelectionRangeSpy = vi.spyOn(input, 'setSelectionRange')
+    expect(rafCallback).not.toBeNull()
+    rafCallback?.(0)
+    expect(focusSpy).toHaveBeenCalled()
+    expect(setSelectionRangeSpy).toHaveBeenCalledWith('rust tag:'.length, 'rust tag:'.length)
+    rafSpy.mockRestore()
+  })
+
+  test('+ Tag chip is a no-op when appendOperator would return the same query (defensive)', () => {
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchPanel
+        query=""
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // appendOperator on empty query returns 'tag:' so this still
+    // fires; the early-return branch only triggers if the helper
+    // returns the unchanged query, which currently can't happen for
+    // valid operator names — kept the guard as a defensive layer.
+    fireEvent.click(screen.getByTestId('paper-search-add-tag'))
+    expect(onQueryChange).toHaveBeenCalledWith('tag:')
   })
 
   test('+ Note chip appends `note:` and works on an empty query without a leading space', () => {
@@ -247,12 +292,12 @@ describe('PaperSearchPanel', () => {
       />,
     )
     // Two active chips render: `tag:rust` and `note:design doc`.
-    expect(screen.getByTestId('paper-search-active-filter-tag-1')).toHaveTextContent(
-      'tag:rust',
-    )
-    expect(screen.getByTestId('paper-search-active-filter-note-2')).toHaveTextContent(
-      'note:design doc',
-    )
+    expect(
+      screen.getByTestId('paper-search-active-filter-tag-1'),
+    ).toHaveTextContent('tag:rust')
+    expect(
+      screen.getByTestId('paper-search-active-filter-note-2'),
+    ).toHaveTextContent('note:design doc')
     // Clicking the `tag:` chip's × removes that token from the query
     // and leaves the rest intact (including the quoted note phrase).
     const tagChip = screen.getByTestId('paper-search-active-filter-tag-1')

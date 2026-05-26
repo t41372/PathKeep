@@ -131,7 +131,9 @@ describe('ShellDataProvider', () => {
     )
 
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent('dashboard offline'),
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'dashboard offline',
+      ),
     )
     expect(loadDashboardSnapshotSpy.mock.calls.length).toBeGreaterThan(
       callsBeforeLocaleSwitch,

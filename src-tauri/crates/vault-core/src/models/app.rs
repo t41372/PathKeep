@@ -149,18 +149,13 @@ pub struct AppConfig {
 ///                `og_images` row, and the daily negative-cache retry.
 ///                This is the default: it keeps social cards warm
 ///                without pinning UI activity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OgImageFetchMode {
     Off,
     OnDemand,
+    #[default]
     Background,
-}
-
-impl Default for OgImageFetchMode {
-    fn default() -> Self {
-        Self::Background
-    }
 }
 
 /// User-controllable og:image fetch + cache settings.

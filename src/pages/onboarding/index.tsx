@@ -112,9 +112,7 @@ export function OnboardingPage() {
         if (!cancelled) {
           setSchedulePlan(null)
           setScheduleStatus(null)
-          setSchedulePreviewError(
-            describeError(nextError, 'preview_schedule'),
-          )
+          setSchedulePreviewError(describeError(nextError, 'preview_schedule'))
         }
       } finally {
         if (!cancelled) {

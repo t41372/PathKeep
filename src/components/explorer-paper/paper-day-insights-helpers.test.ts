@@ -452,9 +452,10 @@ describe('aggregateDayInsights', () => {
       }),
     ]
     const insights = aggregateDayInsights(dayFromEntries('2026-05-21', visits))
-    expect(insights.topSearchQueries.map((row) => row.query).sort()).toEqual(
-      ['naked', 'with-www'],
-    )
+    expect(insights.topSearchQueries.map((row) => row.query).sort()).toEqual([
+      'naked',
+      'with-www',
+    ])
   })
 
   test('search-engine subdomain we have not mapped is ignored', () => {
@@ -497,11 +498,7 @@ describe('aggregateDayInsights', () => {
     ]
     const insights = aggregateDayInsights(dayFromEntries('2026-05-21', visits))
     const queries = insights.topSearchQueries.map((row) => row.query).sort()
-    expect(queries).toEqual([
-      'baidu-query',
-      'google-query',
-      'yahoo-query',
-    ])
+    expect(queries).toEqual(['baidu-query', 'google-query', 'yahoo-query'])
   })
 
   test('totalPages tally still counts even when no queries are extracted', () => {

@@ -556,9 +556,7 @@ describe('useSettingsDerivedState', () => {
     await act(async () => {
       await result.current.derived.onDeleteSearchEngineRule('custom:docs')
     })
-    expect(result.current.derived.searchEngineRuleError).toBe(
-      'delete fallback',
-    )
+    expect(result.current.derived.searchEngineRuleError).toBe('delete fallback')
   })
 
   test('ignores late runtime and search-rule loads after unmount', async () => {

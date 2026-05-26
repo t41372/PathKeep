@@ -440,9 +440,7 @@ describe('PaperExplorerView', () => {
       ),
     ).toBe(true)
     expect(
-      Array.from(rows).some((row) =>
-        row.textContent?.includes('arxiv paper'),
-      ),
+      Array.from(rows).some((row) => row.textContent?.includes('arxiv paper')),
     ).toBe(true)
   })
 

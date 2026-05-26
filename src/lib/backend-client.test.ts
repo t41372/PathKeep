@@ -405,6 +405,27 @@ describe('backend client', () => {
         args: { batchId: 7 },
       },
       {
+        run: () => backend.exportAppData('/tmp/pk.pathkeep'),
+        command: 'export_app_data',
+        args: { targetPath: '/tmp/pk.pathkeep' },
+      },
+      {
+        run: () => backend.previewAppDataImport('/tmp/pk.pathkeep'),
+        command: 'preview_app_data_import',
+        args: { bundlePath: '/tmp/pk.pathkeep' },
+      },
+      {
+        run: () =>
+          backend.applyAppDataImport('/tmp/pk.pathkeep', {
+            confirmOverwrite: true,
+          }),
+        command: 'apply_app_data_import',
+        args: {
+          bundlePath: '/tmp/pk.pathkeep',
+          options: { confirmOverwrite: true },
+        },
+      },
+      {
         run: () => backend.revertImportBatch(7),
         command: 'revert_import_batch',
         args: { batchId: 7 },

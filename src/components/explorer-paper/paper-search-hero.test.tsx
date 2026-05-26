@@ -307,8 +307,12 @@ describe('PaperSearchHero', () => {
       />,
     )
 
-    expect(screen.getByTestId('paper-search-add-tag')).toHaveTextContent('+ Tag')
-    expect(screen.getByTestId('paper-search-add-note')).toHaveTextContent('+ Note')
+    expect(screen.getByTestId('paper-search-add-tag')).toHaveTextContent(
+      '+ Tag',
+    )
+    expect(screen.getByTestId('paper-search-add-note')).toHaveTextContent(
+      '+ Note',
+    )
   })
 
   test('+Tag and +Note chips stay disabled when their handlers are omitted', () => {

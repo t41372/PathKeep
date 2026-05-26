@@ -89,9 +89,7 @@ describe('SegmentedControl', () => {
       />,
     )
     for (const option of OPTIONS) {
-      const node = screen.getByTestId(
-        `seg-${option.id}`,
-      ) as HTMLButtonElement
+      const node = screen.getByTestId<HTMLButtonElement>(`seg-${option.id}`)
       expect(node.disabled).toBe(true)
     }
   })
@@ -128,9 +126,7 @@ describe('SegmentedControl', () => {
       />,
     )
     for (const option of OPTIONS) {
-      const node = screen.getByTestId(
-        `seg-${option.id}`,
-      ) as HTMLButtonElement
+      const node = screen.getByTestId<HTMLButtonElement>(`seg-${option.id}`)
       expect(node.disabled).toBe(false)
     }
   })
@@ -154,11 +150,7 @@ describe('SegmentedControl', () => {
   test('omitting testId still renders every option (no data-testid leak)', () => {
     const onChange = vi.fn()
     const { container } = render(
-      <SegmentedControl
-        options={OPTIONS}
-        value="off"
-        onChange={onChange}
-      />,
+      <SegmentedControl options={OPTIONS} value="off" onChange={onChange} />,
     )
     // 3 radio buttons rendered, none carrying a data-testid attribute.
     const radios = container.querySelectorAll('button[role="radio"]')

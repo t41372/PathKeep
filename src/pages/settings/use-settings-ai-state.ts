@@ -161,9 +161,7 @@ export function useSettingsAiState({
       } catch (error) {
         if (!cancelled) {
           setAiIntegrationPreview(null)
-          setAiIntegrationError(
-            describeError(error, 'preview_ai_integrations'),
-          )
+          setAiIntegrationError(describeError(error, 'preview_ai_integrations'))
           setAiIntegrationCopyFeedback(null)
         }
       }

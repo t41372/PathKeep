@@ -265,9 +265,7 @@ describe('useSecurityWorkflow', () => {
       },
     )
 
-    await waitFor(() =>
-      expect(result.current.loadState.error).toBe('offline'),
-    )
+    await waitFor(() => expect(result.current.loadState.error).toBe('offline'))
 
     rerender({ refreshKey: 2 })
     await waitFor(() => expect(result.current.status?.initialized).toBe(false))

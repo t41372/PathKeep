@@ -50,7 +50,10 @@ const NAV: PaperContactSheetDayNav = {
   },
 }
 
-function makeEntry(id: number, overrides: Partial<HistoryEntry> = {}): HistoryEntry {
+function makeEntry(
+  id: number,
+  overrides: Partial<HistoryEntry> = {},
+): HistoryEntry {
   return {
     id,
     profileId: 'virt-test',
@@ -117,8 +120,9 @@ function installObserverMock() {
     this.takeRecords = () => []
   }
   const previous = globalThis.IntersectionObserver
-  ;(globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
-    MockIO as unknown as typeof IntersectionObserver
+  ;(
+    globalThis as { IntersectionObserver: typeof IntersectionObserver }
+  ).IntersectionObserver = MockIO as unknown as typeof IntersectionObserver
   return {
     trigger(node: Element, isIntersecting: boolean) {
       const callback = subscribers.get(node)
@@ -136,8 +140,9 @@ function installObserverMock() {
       ])
     },
     restore() {
-      ;(globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
-        previous
+      ;(
+        globalThis as { IntersectionObserver: typeof IntersectionObserver }
+      ).IntersectionObserver = previous
     },
   }
 }
@@ -184,7 +189,17 @@ describe('PaperContactSheet — viewport-driven mounting', () => {
     // recycled it. jsdom returns 0 for getBoundingClientRect by
     // default, so we stub it for this assertion.
     bottomDay.getBoundingClientRect = () =>
-      ({ height: 600, width: 0, top: 0, left: 0, bottom: 600, right: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+      ({
+        height: 600,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 600,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
 
     act(() => {
       io.trigger(bottomDay, false)

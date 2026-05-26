@@ -320,7 +320,9 @@ describe('ShellDataProvider', () => {
     renderShellProbe()
 
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent('dashboard offline'),
+      expect(screen.getByTestId('error')).toHaveTextContent(
+        'dashboard offline',
+      ),
     )
   })
 

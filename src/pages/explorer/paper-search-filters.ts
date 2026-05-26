@@ -123,7 +123,11 @@ export function tokenizeQuery(raw: string): QueryToken[] {
         i++
       }
     }
-    tokens.push({ literal: raw.slice(start, i), startIndex: start, endIndex: i })
+    tokens.push({
+      literal: raw.slice(start, i),
+      startIndex: start,
+      endIndex: i,
+    })
   }
   return tokens
 }
@@ -145,8 +149,7 @@ function stripSurroundingQuotes(value: string): string {
   const last = value[value.length - 1]
   const asciiPaired = first === '"' && last === '"'
   const smartPaired =
-    (first === '“' || first === '”') &&
-    (last === '“' || last === '”')
+    (first === '“' || first === '”') && (last === '“' || last === '”')
   if (asciiPaired || smartPaired) return value.slice(1, -1)
   return value
 }

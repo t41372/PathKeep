@@ -392,9 +392,7 @@ describe('intelligence surfaces', () => {
 
     await user.clear(input)
     await user.type(input, 'force failure{enter}')
-    expect(
-      (await screen.findAllByText('assistant offline'))[0],
-    ).toBeVisible()
+    expect((await screen.findAllByText('assistant offline'))[0]).toBeVisible()
     expect(askAssistant).toHaveBeenLastCalledWith({
       question: 'force failure',
       profileId: null,
@@ -494,9 +492,7 @@ describe('intelligence surfaces', () => {
     await user.click(
       screen.getByRole('button', { name: assistantT('checkStatus') }),
     )
-    expect(
-      await screen.findByText('queued status unavailable'),
-    ).toBeVisible()
+    expect(await screen.findByText('queued status unavailable')).toBeVisible()
 
     await user.clear(input)
     await user.type(input, 'run fallback{enter}')

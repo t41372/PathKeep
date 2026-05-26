@@ -112,13 +112,6 @@ pub(super) struct ExportPayload {
     pub(super) request: ExportRequest,
 }
 
-/// Points a verifier command at an already-built bundle artifact on disk.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct BundlePathPayload {
-    pub(super) bundle_path: String,
-}
-
 /// Carries Google Takeout scan or import options through the dev mirror.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

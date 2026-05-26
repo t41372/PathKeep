@@ -1518,13 +1518,13 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
     every existing CSS contract (sticky day header, cards grid
     auto-fill, document scroll, target-banner anchoring).
   - Residual follow-ups (NOT user-blocking):
-    * LRU page-eviction at the cache cap — currently the cap is
+    - LRU page-eviction at the cache cap — currently the cap is
       hard (capReached flag fires); LRU only matters once users
       regularly hit the 50 k-entry boundary.
-    * Real Chrome devtools FPS trace on the populated archive +
+    - Real Chrome devtools FPS trace on the populated archive +
       a Playwright e2e with a 14 M-row preview fixture were called
       out in the original BACKLOG 驗收 — both need real-desktop
       session time and are deferred until the next deep-gate pass.
-    * `docs/features/explorer-browse.md` was listed as 讀先 but
+    - `docs/features/explorer-browse.md` was listed as 讀先 but
       doesn't exist; spike doc + STATUS notes cover the v0.3 truth
       until a Browse feature spec is written.

@@ -102,12 +102,16 @@ function makeEntry(id: number): HistoryEntry {
 function makeDays(dayCount: number, rowsPerDay: number): PaperDay[] {
   const days: PaperDay[] = []
   for (let d = 0; d < dayCount; d += 1) {
-    const dayStartMs = new Date('2026-05-16T20:15:00Z').getTime() - d * 86_400_000
+    const dayStartMs =
+      new Date('2026-05-16T20:15:00Z').getTime() - d * 86_400_000
     const sessionStart = dayStartMs
     const sessionEnd = dayStartMs - rowsPerDay * 60_000
     const blocks = []
     for (let r = 0; r < rowsPerDay; r += 1) {
-      blocks.push({ type: 'single' as const, entry: makeEntry(d * 100_000 + r) })
+      blocks.push({
+        type: 'single' as const,
+        entry: makeEntry(d * 100_000 + r),
+      })
     }
     days.push({
       date: new Date(dayStartMs).toISOString().slice(0, 10),
@@ -180,6 +184,14 @@ function runScenario(
   return row
 }
 
+// The largest spike scenarios mount thousands of DOM nodes; under the
+// v8 coverage instrumentation each render walks the full subtree
+// twice, so the 5 000-row cards-mode scenario takes ~20-30 s on the
+// CI box. Per-test timeout overrides for those scenarios keep the
+// coverage gate green while leaving the default 5 s budget intact for
+// every other test.
+const SPIKE_SCENARIO_TIMEOUT_MS = 60_000
+
 describe('BROWSE-VIRT spike measurement', () => {
   test('list mode — 1 day × 50 rows (single-day baseline)', () => {
     const row = runScenario('1d-50r', 1, 50, 'list')
@@ -191,20 +203,28 @@ describe('BROWSE-VIRT spike measurement', () => {
     expect(row.nodes).toBeGreaterThan(0)
   })
 
-  test('list mode — 100 days × 50 rows = 5000 rows (current MAX_ACCUMULATED_PAGES cap)', () => {
-    const row = runScenario('100d-50r', 100, 50, 'list')
-    expect(row.nodes).toBeGreaterThan(0)
-    // Baseline target the virt impl must beat: 5000 rows of list mode
-    // currently materialise into > 25 000 DOM nodes (5+ nodes per row
-    // chrome). The virt window should keep this under ~3 000 nodes by
-    // only mounting viewport ± buffer.
-    expect(row.nodes).toBeGreaterThan(5000)
-  })
+  test(
+    'list mode — 100 days × 50 rows = 5000 rows (current MAX_ACCUMULATED_PAGES cap)',
+    () => {
+      const row = runScenario('100d-50r', 100, 50, 'list')
+      expect(row.nodes).toBeGreaterThan(0)
+      // Baseline target the virt impl must beat: 5000 rows of list mode
+      // currently materialise into > 25 000 DOM nodes (5+ nodes per row
+      // chrome). The virt window should keep this under ~3 000 nodes by
+      // only mounting viewport ± buffer.
+      expect(row.nodes).toBeGreaterThan(5000)
+    },
+    SPIKE_SCENARIO_TIMEOUT_MS,
+  )
 
-  test('cards mode — 100 days × 50 rows = 5000 rows', () => {
-    const row = runScenario('100d-50r', 100, 50, 'cards')
-    expect(row.nodes).toBeGreaterThan(0)
-  })
+  test(
+    'cards mode — 100 days × 50 rows = 5000 rows',
+    () => {
+      const row = runScenario('100d-50r', 100, 50, 'cards')
+      expect(row.nodes).toBeGreaterThan(0)
+    },
+    SPIKE_SCENARIO_TIMEOUT_MS,
+  )
 
   test('exports the measurement table for inclusion in the BROWSE-VIRT spike doc', () => {
     // Pretty-print the matrix so `bun run test:unit -- spike` prints
@@ -229,7 +249,6 @@ describe('BROWSE-VIRT spike measurement', () => {
     lines.push(
       '└─────────────┴──────────┴─────────┴──────────┴─────────────┴─────────────┘',
     )
-    // eslint-disable-next-line no-console
     console.log(lines.join('\n'))
     expect(results.length).toBeGreaterThanOrEqual(4)
   })
