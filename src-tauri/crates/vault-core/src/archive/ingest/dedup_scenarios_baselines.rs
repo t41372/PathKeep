@@ -804,3 +804,177 @@ fn s_c2_safari_incremental_no_new_data() {
     assert_eq!(count_urls_for_profile(&env, "safari:Default"), 3);
     assert_eq!(count_visits_for_profile(&env, "safari:Default"), 5);
 }
+
+// ----------------------------------------------------------------------
+// F2: Firefox incremental revisit of an old URL drops the new visit (B2)
+// ----------------------------------------------------------------------
+
+/// F2 — Firefox equivalent of C3. The Chromium parser's
+/// `INGEST_URLS_SQL` has an `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
+/// fallback to catch URLs whose `last_visit_time` is below the watermark
+/// but which received a new visit anyway. The Firefox parser at
+/// `firefox/mod.rs:22-33` lacks that fallback: its URL stream uses
+/// `WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1` only. A
+/// long-tail revisit therefore falls through `url_id_map` and is
+/// silently dropped by `ArchiveChunkConsumer::visits`. `#[should_panic]`
+/// today; flip to plain `#[test]` after Firefox grows the OR fallback.
+#[test]
+fn f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2() {
+    let env = ScenarioEnv::new();
+    // Long-tail URL (T1) + anchor URL (T2) so the URL watermark
+    // advances past T1 after the first import; the second-pass URL
+    // query then excludes the long-tail URL.
+    let visit_long_tail_ms = 1_777_680_000_000_i64;
+    let visit_anchor_ms = 1_777_809_600_000_i64;
+    let visit_revisit_ms = 1_777_872_930_000_i64;
+
+    let first_fixture = FirefoxPlacesFixture::new()
+        .add_place(FirefoxPlaceRow {
+            id: 1,
+            url: "https://example.com/firefox-long-tail".to_string(),
+            title: Some("Firefox Long Tail".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_long_tail_ms,
+        })
+        .add_place(FirefoxPlaceRow {
+            id: 2,
+            url: "https://example.com/firefox-anchor".to_string(),
+            title: Some("Firefox Anchor".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_anchor_ms,
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 10,
+            place_id: 1,
+            visit_time_unix_ms: visit_long_tail_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 20,
+            place_id: 2,
+            visit_time_unix_ms: visit_anchor_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        });
+    let first_snapshot = firefox_snapshot(&first_fixture, "firefox:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    // Pass 2: URL 1's last_visit_date stays at T1 (below the watermark);
+    // its new visit (id=30, time > T2) only appears in moz_historyvisits.
+    // Without the OR fallback the URL is filtered out and the visit's
+    // url_id_map lookup fails.
+    let second_fixture = FirefoxPlacesFixture::new()
+        .add_place(FirefoxPlaceRow {
+            id: 1,
+            url: "https://example.com/firefox-long-tail".to_string(),
+            title: Some("Firefox Long Tail".to_string()),
+            visit_count: 2,
+            hidden: false,
+            last_visit_unix_ms: visit_long_tail_ms,
+        })
+        .add_place(FirefoxPlaceRow {
+            id: 2,
+            url: "https://example.com/firefox-anchor".to_string(),
+            title: Some("Firefox Anchor".to_string()),
+            visit_count: 1,
+            hidden: false,
+            last_visit_unix_ms: visit_anchor_ms,
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 10,
+            place_id: 1,
+            visit_time_unix_ms: visit_long_tail_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 20,
+            place_id: 2,
+            visit_time_unix_ms: visit_anchor_ms,
+            from_visit: None,
+            visit_type: Some(1),
+        })
+        .add_visit(FirefoxVisitRow {
+            id: 30,
+            place_id: 1,
+            visit_time_unix_ms: visit_revisit_ms,
+            from_visit: Some(20),
+            visit_type: Some(1),
+        });
+    let second_snapshot = firefox_snapshot(&second_fixture, "firefox:Default");
+    run_one_ingest(&env, 2, &second_snapshot, true);
+
+    let visits = count_visits_for_profile(&env, "firefox:Default");
+    assert_eq!(
+        visits, 3,
+        "B2 fix required for Firefox: long-tail revisit silently dropped (got {visits})"
+    );
+}
+
+// ----------------------------------------------------------------------
+// S2: Safari long-tail revisit correctly handled — refutes B2 for Safari
+// ----------------------------------------------------------------------
+
+/// S2 — Audit **B2** lumped Firefox and Safari together as both missing
+/// the Chromium OR-fallback. The harness proved that Safari does not
+/// actually have the bug: the Safari URL query at `safari/mod.rs:42-56`
+/// computes `MAX(history_visits.visit_time)` *on the fly* from the
+/// visits table (Safari's `history_items` table has no cached
+/// `last_visit_time` column), so any new visit row immediately raises
+/// the item's effective last-visit time and the URL gets re-streamed
+/// without needing an OR fallback. This contract scenario pins that
+/// correct behavior — if a future refactor introduces a stored
+/// `last_visit_time` cache on `history_items` without the OR fallback,
+/// the same long-tail revisit bug would emerge and this test would
+/// flip from passing to failing.
+#[test]
+fn s2_safari_long_tail_revisit_captured_without_or_fallback() {
+    let env = ScenarioEnv::new();
+    // Long-tail item (T1) + anchor item (T2). The anchor pushes the URL
+    // watermark past T1; the second-pass Safari URL query (which
+    // computes per-item MAX(visit_time) on the fly) excludes the
+    // long-tail item; the new visit references it and gets dropped.
+    let visit_long_tail_ms = 1_777_680_000_000_i64;
+    let visit_anchor_ms = 1_777_809_600_000_i64;
+    let visit_revisit_ms = 1_777_872_930_000_i64;
+
+    let first_fixture = SafariHistoryFixture::new()
+        .add_item(SafariHistoryItemRow {
+            id: 1,
+            url: "https://example.com/safari-long-tail".to_string(),
+        })
+        .add_item(SafariHistoryItemRow {
+            id: 2,
+            url: "https://example.com/safari-anchor".to_string(),
+        })
+        .add_visit(safari_visit(9, 1, "Safari Long Tail", visit_long_tail_ms))
+        .add_visit(safari_visit(19, 2, "Safari Anchor", visit_anchor_ms));
+    let first_snapshot = safari_snapshot(&first_fixture, "safari:Default");
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    let second_fixture = SafariHistoryFixture::new()
+        .add_item(SafariHistoryItemRow {
+            id: 1,
+            url: "https://example.com/safari-long-tail".to_string(),
+        })
+        .add_item(SafariHistoryItemRow {
+            id: 2,
+            url: "https://example.com/safari-anchor".to_string(),
+        })
+        .add_visit(safari_visit(9, 1, "Safari Long Tail", visit_long_tail_ms))
+        .add_visit(safari_visit(19, 2, "Safari Anchor", visit_anchor_ms))
+        .add_visit(safari_visit(29, 1, "Safari Long Tail Revisited", visit_revisit_ms));
+    let second_snapshot = safari_snapshot(&second_fixture, "safari:Default");
+    run_one_ingest(&env, 2, &second_snapshot, true);
+
+    let visits = count_visits_for_profile(&env, "safari:Default");
+    assert_eq!(
+        visits, 3,
+        "Safari MAX(visit_time)-computed URL query already handles long-tail revisits without an OR fallback"
+    );
+}
