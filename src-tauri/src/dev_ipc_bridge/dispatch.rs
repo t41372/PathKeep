@@ -379,22 +379,41 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "test_ai_provider_connection" => {
+            // Same panic mechanism as `run_backup_now` before f580761:
+            // the worker builds a fresh `tokio::runtime::Runtime` via
+            // `Runtime::new()` and calls `block_on(...)` on the provider
+            // probe. Dropping that runtime inside the dev-IPC bridge's
+            // async context panics with "Cannot drop a runtime in a
+            // context where blocking is not allowed", crashes the bridge
+            // thread, and clients see `socket hang up`. Production Tauri
+            // commands sidestep this via `run_blocking_command`; the
+            // dev bridge must mirror it. Claude review findings #1–4
+            // (the four AI arms below all share this root cause).
             let payload =
                 parse_payload::<WrappedRequest<AiProviderConnectionTestRequest>>(payload)?;
-            json_value!(worker_bridge::test_ai_provider_connection_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::test_ai_provider_connection_impl(payload.request, key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("test_ai_provider_connection join failed: {error}"))??;
+            json_value!(result)
         }
         "load_ai_queue_status" => json_value!(worker_bridge::load_ai_queue_status_impl(
             session_key(&state.session).as_deref()
         )?),
         "run_ai_queue_jobs" => {
+            // Drains queued AI jobs synchronously and calls block_on
+            // inside each `complete_claimed_*_job`. Same panic mechanism
+            // as the arms above; hop off the async thread.
             let payload = parse_payload::<MaxJobsPayload>(payload)?;
-            json_value!(worker_bridge::run_ai_queue_jobs_impl(
-                payload.max_jobs,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::run_ai_queue_jobs_impl(payload.max_jobs, key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("run_ai_queue_jobs join failed: {error}"))??;
+            json_value!(result)
         }
         "replay_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
@@ -425,18 +444,31 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "search_ai_history" => {
+            // `run_semantic_search` calls `block_on` against the embedding
+            // provider; same panic mechanism as the AI arms above.
             let payload = parse_payload::<WrappedRequest<AiSearchRequest>>(payload)?;
-            json_value!(worker_bridge::search_ai_history_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::search_ai_history_impl(payload.request, key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("search_ai_history join failed: {error}"))??;
+            json_value!(result)
         }
         "ask_ai_assistant" => {
+            // When `job_queue_paused=false`, `ask_ai_assistant` runs the
+            // assistant job synchronously and reaches `block_on` via
+            // `complete_claimed_assistant_job`. The paused path is safe
+            // (it only stages the job), but we wrap unconditionally so
+            // the panic cannot fire on a config flip.
             let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
-            json_value!(worker_bridge::ask_ai_assistant_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::ask_ai_assistant_impl(payload.request, key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("ask_ai_assistant join failed: {error}"))??;
+            json_value!(result)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
