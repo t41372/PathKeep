@@ -194,6 +194,22 @@ fn collect_visit_source_ids(env: &ScenarioEnv, profile_key: &str) -> Vec<String>
         .expect("collect visit ids")
 }
 
+/// Reads the saved watermark row for a profile_id directly. Returns
+/// `None` if no row exists yet. Used by watermark-isolation and
+/// incremental-import scenarios that need to prove the parser's cursor
+/// actually advanced (the row-count assertions alone cannot — the
+/// canonical-layer dedup masks any watermark regression).
+fn read_profile_watermark(env: &ScenarioEnv, profile_id: &str) -> Option<i64> {
+    let archive = env.open_archive();
+    archive
+        .query_row(
+            "SELECT last_visit_id FROM profile_watermarks WHERE profile_id = ?1",
+            [profile_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+}
+
 /// Build a fixture with two URLs and three visits, all within one week.
 fn baseline_chromium_fixture() -> ChromiumHistoryFixture {
     // 2026-05-01 00:00, 2026-05-02 12:00, 2026-05-03 08:15:30
@@ -274,6 +290,13 @@ fn c1_chromium_baseline_import() {
 /// C2 — Re-importing the same fixture with `use_watermark = true` must
 /// produce zero new rows. The watermark advance after the first import
 /// should make the second import a no-op at the parser level.
+///
+/// The new-rows assertion alone does NOT prove the watermark works —
+/// the fingerprint partial index would catch identical re-imports even
+/// if the watermark always returned zero. We additionally query
+/// `profile_watermarks` directly to assert the cursor advanced to the
+/// maximum source_visit_id observed in pass 1, then stayed there after
+/// the no-op pass 2.
 #[test]
 fn c2_chromium_incremental_no_new_data() {
     let env = ScenarioEnv::new();
@@ -283,6 +306,15 @@ fn c2_chromium_incremental_no_new_data() {
     );
     run_one_ingest(&env, 1, &first_snapshot, false);
     drop(first_snapshot);
+
+    // Direct watermark assertion — proves the parser actually saved the
+    // cursor. baseline_chromium_fixture's max source_visit_id is 12.
+    let watermark_after_pass1 = read_profile_watermark(&env, "chrome:Default");
+    assert_eq!(
+        watermark_after_pass1,
+        Some(12),
+        "C2 watermark contract: pass 1 must save the max source_visit_id observed (12)"
+    );
 
     let second_snapshot = snapshot_for_fixture(
         &baseline_chromium_fixture(),
@@ -295,6 +327,14 @@ fn c2_chromium_incremental_no_new_data() {
 
     assert_eq!(count_archive_rows(&env, "urls"), 2);
     assert_eq!(count_archive_rows(&env, "visits"), 3);
+
+    // Watermark must not regress on the no-op pass.
+    let watermark_after_pass2 = read_profile_watermark(&env, "chrome:Default");
+    assert_eq!(
+        watermark_after_pass2,
+        Some(12),
+        "C2 watermark contract: no-op pass 2 must not regress the cursor"
+    );
 }
 
 // ----------------------------------------------------------------------
@@ -636,6 +676,16 @@ fn c5_chromium_incremental_append_new_urls_and_visits() {
     assert_eq!(first_summary.new_visits, 2);
     drop(first_snapshot);
 
+    // Direct watermark assertion — pins that the parser saved cursor=11
+    // after pass 1, otherwise pass 2's new_visits=2 below could be
+    // satisfied by a broken watermark that re-streams everything and
+    // relies on fingerprint dedup to drop the originals.
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Default"),
+        Some(11),
+        "C5 watermark contract: pass 1 must save cursor at max source_visit_id (11)"
+    );
+
     // Pass 2: same 2 URLs + 2 NEW URLs + 2 NEW visits (one per new URL).
     // The originals must stay deduplicated; only the 2 new URLs / 2 new
     // visits should land.
@@ -711,6 +761,18 @@ fn c5_chromium_incremental_append_new_urls_and_visits() {
         )
         .expect("query new visit three time");
     assert_eq!(new_visit_three_ms, day_three_ms);
+
+    // Direct watermark assertion: pass 2's parser ran with cursor=11
+    // (saved by pass 1) and observed visits 12, 13. The cursor must
+    // have advanced to 13 after pass 2 commits. If a future regression
+    // breaks the watermark save and pass 2 silently re-streamed every
+    // visit (with fingerprint dedup masking the row counts), this
+    // assertion catches it.
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Default"),
+        Some(13),
+        "C5 watermark contract: pass 2 must advance the cursor to the new max (13)"
+    );
 }
 
 // ----------------------------------------------------------------------
@@ -801,6 +863,23 @@ fn x3_multiple_profiles_within_same_browser_stay_independent() {
     assert_eq!(count_archive_rows(&env, "urls"), 2);
     assert_eq!(count_archive_rows(&env, "visits"), 2);
 
+    // Direct per-profile watermark assertion — pins that the two
+    // profiles each have their own profile_watermarks row keyed by
+    // their distinct profile_id. If a regression keyed watermarks by
+    // browser_kind only (cross-profile bleed), these two queries would
+    // return the same value or one of them would be missing.
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Default"),
+        Some(10),
+        "Default's watermark must be saved at its own max source_visit_id (10)"
+    );
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Profile 1"),
+        Some(99),
+        "Profile 1's watermark must be saved at its own max source_visit_id (99), \
+         independently of Default's"
+    );
+
     // Per-profile watermark isolation: now re-import Profile 1 with
     // NEW activity (the user kept browsing on Profile 1). Default's
     // watermark advance from pass 1 must not affect Profile 1's
@@ -863,6 +942,22 @@ fn x3_multiple_profiles_within_same_browser_stay_independent() {
     assert_eq!(count_visits_for_profile(&env, "chrome:Profile 1"), 3);
     assert_eq!(count_archive_rows(&env, "urls"), 4);
     assert_eq!(count_archive_rows(&env, "visits"), 4);
+
+    // Direct watermark assertion after Profile 1's incremental pass:
+    // Default's cursor must remain frozen at 10, Profile 1's must have
+    // advanced to 101 (the new max). If a regression made the two
+    // profiles share a single watermark, Default's cursor would have
+    // jumped to 101 too — which this assertion catches.
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Default"),
+        Some(10),
+        "Default's watermark must NOT be touched by Profile 1's incremental import"
+    );
+    assert_eq!(
+        read_profile_watermark(&env, "chrome:Profile 1"),
+        Some(101),
+        "Profile 1's watermark must have advanced to the new max source_visit_id (101)"
+    );
 
     // Provenance: both share `browser_kind = chrome` and
     // `browser_product = Google Chrome` but have distinct `profile_key`
@@ -1013,6 +1108,109 @@ fn c6_chromium_extra_columns_on_source_db_do_not_break_ingest() {
         )
         .expect("query url title after ALTER");
     assert_eq!(title.as_deref(), Some("Schema Tolerant"));
+}
+
+// ----------------------------------------------------------------------
+// C7: Tied last_visit_ms must NOT overwrite title / hidden / payload_hash
+// ----------------------------------------------------------------------
+
+/// C7 — Tie-break contract for the B1 fix in `writes.rs::upsert_url`.
+/// When two snapshots report the same `last_visit_ms` for a URL, the
+/// upsert must NOT overwrite `title`, `hidden`, `payload_hash`, or
+/// `recorded_at` — only strictly newer timestamps win. This prevents
+/// two real-world data losses:
+///
+/// 1. A re-import where Chrome's title hadn't been hydrated yet
+///    (ParsedUrl.title = None) shouldn't silently destroy a captured
+///    title at the same `last_visit_ms`.
+/// 2. Firefox bookmark-only URLs (last_visit_date IS NULL → 0) tie at
+///    `last_visit_ms = 0` on every re-import; the original B1 fix's
+///    `>=` comparison meant title/hidden flipped to the second snapshot
+///    every sync.
+#[test]
+fn c7_tied_last_visit_ms_does_not_overwrite_title_hidden_or_payload_hash() {
+    let env = ScenarioEnv::new();
+    let visit_time_ms = 1_777_809_600_000_i64;
+
+    // Snapshot 1: URL with real title, hidden=false, captured at T.
+    let first_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/tied-time".to_string(),
+            title: Some("Captured Title".to_string()),
+            visit_count: 3,
+            typed_count: 1,
+            last_visit_unix_ms: visit_time_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, visit_time_ms));
+    let first_snapshot =
+        snapshot_for_fixture(&first_fixture, chromium_profile("chrome:Tied", "Google Chrome"));
+    run_one_ingest(&env, 1, &first_snapshot, false);
+    drop(first_snapshot);
+
+    let initial_payload_hash: String = {
+        let archive = env.open_archive();
+        archive
+            .query_row(
+                "SELECT payload_hash FROM urls
+                 JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+                 WHERE source_profiles.profile_key = 'chrome:Tied'
+                   AND urls.source_url_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query initial payload_hash")
+    };
+
+    // Snapshot 2: same last_visit_ms (tie), but everything else is
+    // worse — title is NULL, hidden flipped to true, lower counts.
+    // The B1 fix must preserve snapshot 1's values across this tie.
+    let second_fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/tied-time".to_string(),
+            title: None,
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_time_ms,
+            hidden: true,
+        })
+        .add_visit(visit_row(11, 1, visit_time_ms));
+    let second_snapshot =
+        snapshot_for_fixture(&second_fixture, chromium_profile("chrome:Tied", "Google Chrome"));
+    run_one_ingest(&env, 2, &second_snapshot, false);
+
+    let archive = env.open_archive();
+    let (title, hidden, payload_hash, visit_count, typed_count): (
+        Option<String>,
+        i64,
+        String,
+        i64,
+        i64,
+    ) = archive
+        .query_row(
+            "SELECT title, hidden, payload_hash, visit_count, typed_count FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = 'chrome:Tied'
+               AND urls.source_url_id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .expect("query url state after tied re-import");
+
+    assert_eq!(
+        title.as_deref(),
+        Some("Captured Title"),
+        "tied last_visit_ms must NOT overwrite title with NULL from later snapshot",
+    );
+    assert_eq!(hidden, 0, "tied last_visit_ms must NOT flip hidden to true from later snapshot");
+    assert_eq!(
+        payload_hash, initial_payload_hash,
+        "tied last_visit_ms must preserve original payload_hash (audit-trail integrity)",
+    );
+    assert_eq!(visit_count, 3, "visit_count must use MAX semantics, preserving the higher value");
+    assert_eq!(typed_count, 1, "typed_count must use MAX semantics, preserving the higher value");
 }
 
 // ----------------------------------------------------------------------

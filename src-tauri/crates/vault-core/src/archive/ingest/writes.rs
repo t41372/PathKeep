@@ -121,19 +121,28 @@ pub(super) fn upsert_url(
          )
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-           url = excluded.url,
+           url = CASE
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
+             ELSE urls.url
+           END,
            title = CASE
-             WHEN excluded.last_visit_ms >= urls.last_visit_ms THEN excluded.title
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.title
              ELSE urls.title
            END,
            visit_count = MAX(urls.visit_count, excluded.visit_count),
            typed_count = MAX(urls.typed_count, excluded.typed_count),
            hidden = CASE
-             WHEN excluded.last_visit_ms >= urls.last_visit_ms THEN excluded.hidden
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.hidden
              ELSE urls.hidden
            END,
-           payload_hash = excluded.payload_hash,
-           recorded_at = excluded.recorded_at,
+           payload_hash = CASE
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.payload_hash
+             ELSE urls.payload_hash
+           END,
+           recorded_at = CASE
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
+             ELSE urls.recorded_at
+           END,
            last_visit_ms = CASE
              WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
              ELSE urls.last_visit_ms
@@ -209,10 +218,26 @@ pub(super) fn insert_visit(
                 visit.external_referrer_url,
                 visit.app_id,
                 // Intentional: source_kind is hardcoded to "chromium-history"
-                // for ALL browser families. Takeout dedup (T2) relies on
-                // fingerprints matching Chromium's — changing this per-family
-                // would break the partial-index dedup that catches renamed
-                // Takeout re-imports.
+                // for every browser family that flows through this
+                // backup-pipeline writer (Chromium, Firefox, Safari).
+                // The (source_profile_id, event_fingerprint) partial unique
+                // index that backs the fallback dedup is scoped per
+                // source_profile_id, so cross-family fingerprint matching is
+                // NOT structurally required — but keeping the constant
+                // identical across families inside this writer means a
+                // re-import of the same browser profile always produces the
+                // same fingerprint regardless of which browser_family the
+                // profile metadata reports, which is what the partial-index
+                // dedup relies on.
+                //
+                // The Takeout import paths (vault-core/src/takeout/
+                // payload_import.rs and vault-core/src/takeout/
+                // browser_history.rs) compute fingerprints with their own
+                // source_kind values and use Unix-millisecond timestamps,
+                // not Chrome-microsecond. Cross-flow fingerprint matching
+                // between this writer and the Takeout writers is not a
+                // contract — the two flows always land in distinct
+                // source_profiles rows and dedup separately.
                 visit_event_fingerprint(
                     "chromium-history",
                     &visit.url,
@@ -467,13 +492,28 @@ mod tests {
     use crate::archive::visit_event_fingerprint;
     use crate::utils::unix_micros_to_chrome_time;
 
-    /// Contract: `visit_event_fingerprint` uses the hardcoded source_kind
-    /// `"chromium-history"` for ALL browser families. This is intentional —
-    /// Takeout dedup (T2) relies on fingerprints matching Chromium's values
-    /// regardless of the originating browser. If someone adds per-family
-    /// source_kind dispatch, this test fails immediately.
+    /// Contract: the backup-pipeline writer (`insert_visit` above) uses
+    /// the hardcoded source_kind `"chromium-history"` for every browser
+    /// family it serves (Chromium, Firefox, Safari). This is intentional —
+    /// keeping the constant identical across families inside this writer
+    /// means a re-import of the same browser profile always produces the
+    /// same fingerprint, which is what the
+    /// `(source_profile_id, event_fingerprint)` partial unique index
+    /// relies on for fallback dedup.
+    ///
+    /// Cross-flow fingerprint matching against the Takeout writers
+    /// (`vault-core/src/takeout/payload_import.rs`,
+    /// `vault-core/src/takeout/browser_history.rs`) is NOT a contract —
+    /// those writers use different source_kind values and Unix-millisecond
+    /// timestamps. Their visits always land in distinct source_profiles
+    /// rows from this writer's output, so the partial index naturally
+    /// scopes the dedup per flow.
+    ///
+    /// If a future change parameterizes source_kind per family inside
+    /// `insert_visit` itself, this test fails immediately and forces a
+    /// follow-up audit of any re-imports that crossed family-by-version.
     #[test]
-    fn fingerprint_is_family_agnostic_by_design() {
+    fn fingerprint_is_family_agnostic_within_backup_writer() {
         let url = "https://example.com/article";
         let visit_time_ms: i64 = 1_777_680_000_000;
         let visit_time_chrome = unix_micros_to_chrome_time(visit_time_ms.saturating_mul(1_000));
@@ -490,8 +530,8 @@ mod tests {
             app_id,
         );
 
-        // If a future change parameterizes source_kind per family, these
-        // would diverge and Takeout fingerprint dedup would break.
+        // Identical inputs must produce identical fingerprints; that is
+        // what the backup writer guarantees across families today.
         let firefox_fp = visit_event_fingerprint(
             "chromium-history",
             url,
