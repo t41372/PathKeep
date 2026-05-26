@@ -126,9 +126,7 @@ describe('createShellDataActions', () => {
       'ipc failed',
     )
 
-    expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.initializeArchiveFailed'),
-    )
+    expect(harness.setError).toHaveBeenLastCalledWith('ipc failed')
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
 
@@ -328,9 +326,7 @@ describe('createShellDataActions', () => {
     expect(harness.setError).toHaveBeenLastCalledWith('backup exploded')
 
     await expect(harness.actions.runBackup()).rejects.toBe('worker payload')
-    expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.manualBackupFailed'),
-    )
+    expect(harness.setError).toHaveBeenLastCalledWith('worker payload')
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
@@ -504,9 +500,7 @@ describe('createShellDataActions', () => {
     await expect(harness.actions.saveConfig(config)).rejects.toBe(
       'save payload',
     )
-    expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.savingSettingsFailed'),
-    )
+    expect(harness.setError).toHaveBeenLastCalledWith('save payload')
 
     await expect(
       harness.actions.setAppLockPasscode({
@@ -514,14 +508,12 @@ describe('createShellDataActions', () => {
         recoveryHint: null,
       }),
     ).rejects.toBe('set payload')
-    expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.setAppLockPasscodeFailed'),
-    )
+    expect(harness.setError).toHaveBeenLastCalledWith('set payload')
 
     await expect(harness.actions.lockAppSession('idle')).rejects.toBe(
       'lock payload',
     )
-    expect(harness.setError).toHaveBeenLastCalledWith(t('shell.lockAppFailed'))
+    expect(harness.setError).toHaveBeenLastCalledWith('lock payload')
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(3)
   })
 
@@ -555,15 +547,9 @@ describe('createShellDataActions', () => {
 
     expect(harness.setError).toHaveBeenNthCalledWith(2, 'save exploded')
     expect(harness.setError).toHaveBeenNthCalledWith(4, 'weak pin')
-    expect(harness.setError).toHaveBeenNthCalledWith(
-      6,
-      t('shell.clearAppLockPasscodeFailed'),
-    )
+    expect(harness.setError).toHaveBeenNthCalledWith(6, 'clear payload')
     expect(harness.setError).toHaveBeenNthCalledWith(8, 'lock refused')
-    expect(harness.setError).toHaveBeenNthCalledWith(
-      10,
-      t('shell.unlockAppFailed'),
-    )
+    expect(harness.setError).toHaveBeenNthCalledWith(10, 'bad passcode payload')
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(5)
   })
 })

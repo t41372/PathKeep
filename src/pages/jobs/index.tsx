@@ -29,6 +29,7 @@ import { PermissionGate } from '../../components/primitives/permission-gate'
 import { TaskProgressCard } from '../../components/progress'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
@@ -231,8 +232,7 @@ export function JobsPage() {
       await Promise.all([refreshAppData(), refreshRuntimeStatus()])
       setPageError(null)
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : commonT('notAvailable')
+      const message = describeError(error, 'retry_intelligence_job')
       if (runtimeJobMutationNeedsRefresh(message)) {
         await Promise.all([refreshAppData(), refreshRuntimeStatus()])
         return
@@ -250,8 +250,7 @@ export function JobsPage() {
       await Promise.all([refreshAppData(), refreshRuntimeStatus()])
       setPageError(null)
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : commonT('notAvailable')
+      const message = describeError(error, 'cancel_intelligence_job')
       if (runtimeJobMutationNeedsRefresh(message)) {
         await Promise.all([refreshAppData(), refreshRuntimeStatus()])
         return

@@ -323,11 +323,7 @@ export function ImportPage() {
         setManualPathExpanded(false)
       }
     } catch (nextError) {
-      reportActionError(
-        nextError instanceof Error
-          ? nextError
-          : new Error(t('import.filePickerUnavailable')),
-      )
+      reportActionError(nextError)
     }
   }
 

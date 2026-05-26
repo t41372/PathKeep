@@ -37,6 +37,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { backend } from '@/lib/backend-client'
+import { describeError } from '@/lib/errors'
 import type {
   HistoryEntry,
   HistoryQuery,
@@ -194,9 +195,7 @@ export function useExplorerInfinitePages({
           // sentinel re-fires. Foreground failures roll back the counter
           // so the sentinel retries cleanly instead of skipping the page.
           if (!options.background) {
-            const message =
-              reason instanceof Error ? reason.message : String(reason)
-            setError(message)
+            setError(describeError(reason, 'query_history_page'))
             setAccumulatedPages((current) =>
               current === page ? current - 1 : current,
             )

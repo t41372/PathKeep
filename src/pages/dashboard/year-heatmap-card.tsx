@@ -30,6 +30,7 @@ import {
   PaperCardHeader,
 } from '@/components/cards'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
+import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useProfileScope } from '@/lib/profile-scope-context'
 import {
@@ -134,11 +135,7 @@ export function DashboardYearHeatmapCard({
       } catch (nextError) {
         if (!cancelled) {
           setPoints([])
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('dashboard.yearInPagesError'),
-          )
+          setError(describeError(nextError, 'get_discovery_trend'))
         }
       } finally {
         if (!cancelled) setLoading(false)

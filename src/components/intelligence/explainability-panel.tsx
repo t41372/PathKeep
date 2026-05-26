@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import * as api from '../../lib/core-intelligence/api'
 import type { Explanation } from '../../lib/core-intelligence/types'
+import { describeError } from '../../lib/errors'
 
 import './explainability-panel.css'
 
@@ -192,8 +193,7 @@ export function ExplainabilityPanel({
         const result = await api.explainEntity(entityType, entityId)
         setData(result)
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        setError(msg)
+        setError(describeError(err, 'explain_entity'))
       } finally {
         setLoading(false)
       }

@@ -26,6 +26,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { normalizeExplorerBackgroundPrefetchPages } from '../../lib/explorer-preferences'
 import { useI18n } from '../../lib/i18n'
 import type {
@@ -189,7 +190,7 @@ export function useSettingsSupportState({
         if (!cancelled) {
           setRetentionPreview(null)
           setRetentionError(
-            error instanceof Error ? error.message : t('common.notAvailable'),
+            describeError(error, 'preview_retention_prune'),
           )
         }
       }
@@ -272,9 +273,7 @@ export function useSettingsSupportState({
       setRetentionError(null)
     } catch (error) {
       setRetentionPreview(null)
-      setRetentionError(
-        error instanceof Error ? error.message : t('common.notAvailable'),
-      )
+      setRetentionError(describeError(error, 'preview_retention_prune'))
     }
   }
 
@@ -305,9 +304,7 @@ export function useSettingsSupportState({
       await refreshAppData()
       await refreshRetentionPreview()
     } catch (error) {
-      setRetentionError(
-        error instanceof Error ? error.message : t('common.notAvailable'),
-      )
+      setRetentionError(describeError(error, 'run_retention_prune'))
     } finally {
       setRetentionAction(null)
     }

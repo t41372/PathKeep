@@ -137,7 +137,7 @@ describe('useSettingsDerivedState', () => {
       await result.current.derived.onClearDerivedState()
     })
     expect(result.current.derived.intelligenceRuntimeError).toBe(
-      'Not available',
+      'runtime refresh fallback',
     )
 
     act(() => {
@@ -404,12 +404,12 @@ describe('useSettingsDerivedState', () => {
 
     await waitFor(() =>
       expect(result.current.derived.intelligenceRuntimeError).toBe(
-        'Not available',
+        'runtime fallback',
       ),
     )
     await waitFor(() =>
       expect(result.current.derived.searchEngineRuleError).toBe(
-        'Not available',
+        'rules fallback',
       ),
     )
   })
@@ -548,7 +548,7 @@ describe('useSettingsDerivedState', () => {
     await act(async () => {
       await result.current.derived.onSaveSearchEngineRule()
     })
-    expect(result.current.derived.searchEngineRuleError).toBe('Not available')
+    expect(result.current.derived.searchEngineRuleError).toBe('save fallback')
 
     act(() => {
       result.current.derived.onEditSearchEngineRule(searchRuleFixture())
@@ -556,7 +556,9 @@ describe('useSettingsDerivedState', () => {
     await act(async () => {
       await result.current.derived.onDeleteSearchEngineRule('custom:docs')
     })
-    expect(result.current.derived.searchEngineRuleError).toBe('Not available')
+    expect(result.current.derived.searchEngineRuleError).toBe(
+      'delete fallback',
+    )
   })
 
   test('ignores late runtime and search-rule loads after unmount', async () => {

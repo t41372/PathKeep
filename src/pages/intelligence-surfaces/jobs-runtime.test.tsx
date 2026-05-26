@@ -929,7 +929,6 @@ describe('intelligence surfaces', () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const jobsT = createNamespaceTranslator('en', 'jobs')
-    const commonT = createNamespaceTranslator('en', 'common')
     const runtime = runtimeFixture({
       recentJobs: [
         runtimeJobFixture({
@@ -977,12 +976,12 @@ describe('intelligence surfaces', () => {
     await user.click(
       within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
     )
-    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+    expect(await screen.findByText('retry fallback')).toBeVisible()
 
     await user.click(
       within(runtimePanel).getByRole('button', { name: jobsT('cancelJob') }),
     )
-    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+    expect(await screen.findByText('cancel fallback')).toBeVisible()
   })
 
   test('renders active and stale archive write tasks in Jobs', async () => {

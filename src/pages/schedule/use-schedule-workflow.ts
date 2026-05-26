@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShellData } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type {
   AppSnapshot,
@@ -162,22 +163,17 @@ export function useScheduleWorkflow() {
           })
         }
       } catch (nextError) {
+        const message = describeError(nextError, 'detect_schedule')
         setLoadState({
           requestKey: refreshKey,
           plan: null,
           status: null,
-          error:
-            nextError instanceof Error
-              ? nextError.message
-              : 'schedule.unavailableBody',
+          error: message,
         })
         setActionResult({
           kind,
           status: 'error',
-          message:
-            nextError instanceof Error
-              ? nextError.message
-              : 'schedule.unavailableBody',
+          message,
           at: new Date(),
         })
       } finally {
@@ -315,10 +311,7 @@ export function useScheduleWorkflow() {
         setActionResult({
           kind,
           status: 'error',
-          message:
-            nextError instanceof Error
-              ? nextError.message
-              : 'schedule.operationFailed',
+          message: describeError(nextError, 'schedule_action'),
           at: new Date(),
         })
       } finally {
@@ -383,10 +376,7 @@ export function useScheduleWorkflow() {
       setActionResult({
         kind: 'copy-diagnostics',
         status: 'error',
-        message:
-          nextError instanceof Error
-            ? nextError.message
-            : 'schedule.diagnosticsCopyFailed',
+        message: describeError(nextError, 'copy_schedule_diagnostics'),
         at: new Date(),
       })
     } finally {

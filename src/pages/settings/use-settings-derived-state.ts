@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { backend } from '../../lib/backend-client'
 import { queueCoreIntelligenceRebuild } from '../../lib/core-intelligence/api'
+import { describeError } from '../../lib/errors'
 import type {
   CoreIntelligenceQueueReport,
   SearchEngineRule,
@@ -104,7 +105,7 @@ export function useSettingsDerivedState({
     } catch (error) {
       setIntelligenceRuntime(null)
       setIntelligenceRuntimeError(
-        error instanceof Error ? error.message : t('common.notAvailable'),
+        describeError(error, 'load_intelligence_runtime'),
       )
     }
   }
@@ -131,7 +132,7 @@ export function useSettingsDerivedState({
         if (!cancelled) {
           setIntelligenceRuntime(null)
           setIntelligenceRuntimeError(
-            error instanceof Error ? error.message : t('common.notAvailable'),
+            describeError(error, 'load_intelligence_runtime'),
           )
         }
       }
@@ -171,7 +172,7 @@ export function useSettingsDerivedState({
         if (!cancelled) {
           setSearchEngineRules([])
           setSearchEngineRuleError(
-            error instanceof Error ? error.message : t('common.notAvailable'),
+            describeError(error, 'list_search_engine_rules'),
           )
         }
       } finally {
@@ -292,7 +293,7 @@ export function useSettingsDerivedState({
       await refreshIntelligenceRuntimeState()
     } catch (error) {
       setSearchEngineRuleError(
-        error instanceof Error ? error.message : t('common.notAvailable'),
+        describeError(error, 'upsert_search_engine_rule'),
       )
     } finally {
       setDerivedAction(null)
@@ -319,7 +320,7 @@ export function useSettingsDerivedState({
       await refreshIntelligenceRuntimeState()
     } catch (error) {
       setSearchEngineRuleError(
-        error instanceof Error ? error.message : t('common.notAvailable'),
+        describeError(error, 'delete_search_engine_rule'),
       )
     } finally {
       setDerivedAction(null)

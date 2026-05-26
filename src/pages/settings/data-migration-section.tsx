@@ -38,6 +38,7 @@ import type {
   ImportPreview,
   ImportResult,
 } from '@/lib/backend-client/migration'
+import { describeError } from '@/lib/errors'
 import { formatBytes } from '@/lib/format'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import type { SettingsSectionNavItem } from './section-nav-items'
@@ -97,11 +98,10 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
       const result = await backend.exportAppData(target)
       setPhase({ kind: 'exported', result })
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t('settings.migrationExportUnknownError')
-      setPhase({ kind: 'exportError', message })
+      setPhase({
+        kind: 'exportError',
+        message: describeError(error, 'export_app_data'),
+      })
     }
   }, [t])
 
@@ -122,11 +122,10 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
       const preview = await backend.previewAppDataImport(selected)
       setPhase({ kind: 'previewed', bundlePath: selected, preview })
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t('settings.migrationPreviewUnknownError')
-      setPhase({ kind: 'previewError', message })
+      setPhase({
+        kind: 'previewError',
+        message: describeError(error, 'preview_app_data_import'),
+      })
     }
   }, [t])
 
@@ -140,13 +139,14 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
       })
       setPhase({ kind: 'applied', result })
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : t('settings.migrationApplyUnknownError')
-      setPhase({ kind: 'applyError', message, bundlePath, preview })
+      setPhase({
+        kind: 'applyError',
+        message: describeError(error, 'apply_app_data_import'),
+        bundlePath,
+        preview,
+      })
     }
-  }, [phase, t])
+  }, [phase])
 
   const handleResetPreview = useCallback(() => setPhase({ kind: 'idle' }), [])
 

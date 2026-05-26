@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import * as api from '../../../lib/core-intelligence/api'
 import type { NavigationPathStep } from '../../../lib/core-intelligence/types'
+import { describeError } from '../../../lib/errors'
 import { sanitizeExplorerDisplayText } from '../helpers'
 import type { Translator } from '../types'
 
@@ -50,8 +51,7 @@ export function NavigationTracer({
         const result = await api.getNavigationPath(visitId)
         setSteps(result.steps)
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        setError(msg)
+        setError(describeError(err, 'get_navigation_path'))
       } finally {
         setLoading(false)
       }

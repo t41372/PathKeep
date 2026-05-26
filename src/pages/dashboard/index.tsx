@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useShellData } from '@/app/shell-data-context'
 import { useI18n } from '@/lib/i18n'
+import { describeError } from '@/lib/errors'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
 import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
 import { useProfileScope } from '@/lib/profile-scope-context'
@@ -84,11 +85,7 @@ export function DashboardPage() {
       } catch (nextError) {
         if (!cancelled) {
           setOnThisDayEntries([])
-          setOnThisDayError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('dashboard.onThisDayError'),
-          )
+          setOnThisDayError(describeError(nextError, 'get_on_this_day'))
         }
       } finally {
         if (!cancelled) {

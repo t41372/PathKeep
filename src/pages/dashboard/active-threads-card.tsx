@@ -35,6 +35,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '@/components/cards'
+import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
 import type { PathFlow } from '@/lib/core-intelligence'
@@ -88,11 +89,7 @@ export function DashboardActiveThreads({
       } catch (nextError) {
         if (!cancelled) {
           setFlows([])
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('dashboard.activeThreadsError'),
-          )
+          setError(describeError(nextError, 'get_path_flows'))
         }
       } finally {
         if (!cancelled) setLoading(false)

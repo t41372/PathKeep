@@ -22,6 +22,7 @@
 
 import { useState } from 'react'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { useI18n } from '../../lib/i18n'
 import {
   RELEASES_PAGE_URL,
@@ -113,8 +114,7 @@ export function useSettingsUpdaterState({
         phase: 'error',
         downloadedBytes: null,
         contentLength: null,
-        message:
-          error instanceof Error ? error.message : t('common.unavailable'),
+        message: describeError(error, 'check_for_app_update'),
       })
     }
   }

@@ -352,7 +352,7 @@ describe('useExplorerData', () => {
     await waitFor(() => {
       expect(result.current.queryState).toMatchObject({
         results: null,
-        error: 'Query failed',
+        error: 'not an Error',
       })
     })
 
@@ -679,7 +679,7 @@ describe('useExplorerData', () => {
         throw 'queue fallback'
       })
     })
-    expect(result.current.intelligenceError).toBe('Loading archive')
+    expect(result.current.intelligenceError).toBe('queue fallback')
 
     await act(async () => {
       await result.current.handleIndexAction('Build index', {
@@ -687,7 +687,7 @@ describe('useExplorerData', () => {
         clearOnly: false,
       })
     })
-    expect(result.current.intelligenceError).toBe('Semantic recall degraded')
+    expect(result.current.intelligenceError).toBe('index fallback')
 
     await act(async () => {
       await result.current.handleProviderProbe()
@@ -697,12 +697,12 @@ describe('useExplorerData', () => {
     await act(async () => {
       await result.current.handleExport('markdown')
     })
-    expect(result.current.actionError).toBe('Export failed')
+    expect(result.current.actionError).toBe('export fallback')
 
     await act(async () => {
       await result.current.handleVisit('https://example.com')
     })
-    expect(result.current.actionError).toBe('Visit failed')
+    expect(result.current.actionError).toBe('visit fallback')
   })
 
   test('loads semantic results and reports semantic failures', async () => {
@@ -770,7 +770,7 @@ describe('useExplorerData', () => {
       expect(result.current.semanticState).toEqual({
         requestKey: 'semantic-non-error',
         results: null,
-        error: 'Semantic recall degraded',
+        error: 'semantic fallback',
       })
     })
   })
@@ -862,7 +862,7 @@ describe('useExplorerData', () => {
     await act(async () => {
       await result.current.handleProviderProbe()
     })
-    expect(result.current.intelligenceError).toBe('Semantic recall degraded')
+    expect(result.current.intelligenceError).toBe('provider fallback')
 
     await act(async () => {
       await result.current.handleExport('markdown')

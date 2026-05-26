@@ -26,6 +26,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { useI18n } from '../../lib/i18n'
 import { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
@@ -161,7 +162,7 @@ export function useSettingsAiState({
         if (!cancelled) {
           setAiIntegrationPreview(null)
           setAiIntegrationError(
-            error instanceof Error ? error.message : t('common.notAvailable'),
+            describeError(error, 'preview_ai_integrations'),
           )
           setAiIntegrationCopyFeedback(null)
         }

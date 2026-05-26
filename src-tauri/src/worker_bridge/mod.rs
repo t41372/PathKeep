@@ -31,9 +31,18 @@ pub(crate) use self::migration::*;
 pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
-fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
+///
+/// Uses the `{:#}` alternate Display formatter so `anyhow::Error` chains
+/// surface as `"top: cause: root"` instead of just the top-level summary.
+/// PathKeep is a local-only app and the user is *also* the bug reporter —
+/// hiding the cause behind a generic frontend fallback ("…failed for an
+/// unknown reason.") strips the one piece of information that would let
+/// them file an actionable bug. Non-anyhow types fall back to plain
+/// Display, which `{:#}` reduces to for any type that does not honour the
+/// alternate flag.
+fn worker_result<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, String> {
     result.map_err(|error| {
-        let message = error.to_string();
+        let message = format!("{error:#}");
         log::warn!(target: "pathkeep::worker_bridge", "{message}");
         message
     })

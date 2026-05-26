@@ -22,6 +22,7 @@ import {
   type ReactNode,
 } from 'react'
 import { backend } from '../lib/backend-client'
+import { describeError } from '../lib/errors'
 import { subscribeToImportProgress } from '../lib/ipc/import-progress'
 import { useI18nContext } from '../lib/i18n'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
@@ -104,7 +105,6 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const surfacedScheduleHealthRef = useRef<string | null>(null)
   const dashboardRefreshTokenRef = useRef(0)
   const activeRuntimeJobsRef = useRef(0)
-  const loadingLatestArchiveState = t('shell.loadingLatestArchiveState')
   const activeArchiveTask = findActiveArchiveTask(archiveTasks) ?? null
   const latestArchiveTask = archiveTasks[0] ?? null
   const unreadNotificationCount = notifications.filter(
@@ -361,11 +361,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
 
         if (nextSnapshot.config.initialized && surfaceErrors) {
-          setError(
-            dashboardError instanceof Error
-              ? dashboardError.message
-              : loadingLatestArchiveState,
-          )
+          setError(describeError(dashboardError, 'load_dashboard_snapshot'))
           return
         }
 
@@ -376,7 +372,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [loadingLatestArchiveState],
+    [],
   )
 
   const refreshAppData = useCallback(
@@ -444,11 +440,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             // Fall back to the generic error path below if the lock refresh fails.
           }
         }
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : loadingLatestArchiveState,
-        )
+        setError(describeError(nextError, 'refresh_shell_snapshot'))
         throw nextError
       } finally {
         if (showSpinner) {
@@ -456,12 +448,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [
-      clearLoadedState,
-      loadingLatestArchiveState,
-      refreshDashboardSnapshot,
-      setLanguagePreference,
-    ],
+    [clearLoadedState, refreshDashboardSnapshot, setLanguagePreference],
   )
 
   const armIdleDeadline = useEffectEvent((idleTimeoutMinutes: number) => {
@@ -478,11 +465,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
           setRefreshKey((value) => value + 1)
         })
         .catch((nextError) => {
-          setError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('shell.lockAppFailed'),
-          )
+          setError(describeError(nextError, 'lock_app_session'))
         })
     }, idleTimeoutMinutes * 60_000)
   })
@@ -646,10 +629,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       finishImportTask(started.task.id, result)
       return result
     } catch (nextError) {
-      const message =
-        nextError instanceof Error
-          ? nextError.message
-          : t('import.actionErrorTitle')
+      const message = describeError(nextError, 'import_history')
       failArchiveTask(started.task.id, message)
       throw nextError
     } finally {

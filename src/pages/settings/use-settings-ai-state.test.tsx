@@ -332,7 +332,9 @@ describe('useSettingsAiState', () => {
       { wrapper: Wrapper },
     )
     await waitFor(() =>
-      expect(third.result.current.ai.integrationError).toBe('Not available'),
+      expect(third.result.current.ai.integrationError).toBe(
+        'plain preview failure',
+      ),
     )
   })
 

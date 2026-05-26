@@ -171,6 +171,48 @@ describe('DataMigrationSection', () => {
     ).toHaveTextContent('disk full')
   })
 
+  test('export error path surfaces the raw rejection when the dialog plugin throws a plain string', async () => {
+    // Regression: when the Tauri dialog plugin (or any non-Error throw)
+    // bubbled out of `save()`, the section used to fall back to an i18n
+    // "unknown reason" banner — leaving the user with no idea what went
+    // wrong. The describeError helper must surface the raw string instead.
+    dialogSaveMock.mockRejectedValue(
+      'dialog.save not allowed by the app capabilities',
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-export'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-export-error'),
+      ).toBeVisible(),
+    )
+    expect(
+      screen.getByTestId('settings-migration-export-error'),
+    ).toHaveTextContent('dialog.save not allowed by the app capabilities')
+  })
+
+  test('export error path surfaces a Tauri-style {message} object verbatim', async () => {
+    dialogSaveMock.mockResolvedValue('/tmp/pk.pathkeep')
+    vi.spyOn(backend, 'exportAppData').mockRejectedValue({
+      kind: 'Io',
+      message: 'permission denied: /Users/yt/PathKeep/exports',
+    })
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-export'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-export-error'),
+      ).toBeVisible(),
+    )
+    expect(
+      screen.getByTestId('settings-migration-export-error'),
+    ).toHaveTextContent('permission denied: /Users/yt/PathKeep/exports')
+  })
+
   test('import preview renders schema descriptor + overwrite warning + exclusions', async () => {
     dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
     const preview = mockPreview({

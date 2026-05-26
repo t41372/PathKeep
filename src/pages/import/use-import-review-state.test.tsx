@@ -413,7 +413,7 @@ describe('useImportReviewState', () => {
     act(() => {
       result.current.reportActionError('plain failure')
     })
-    expect(result.current.actionError).toBe('Unavailable')
+    expect(result.current.actionError).toBe('plain failure')
 
     vi.mocked(window.confirm).mockReturnValueOnce(false)
     await act(async () => {

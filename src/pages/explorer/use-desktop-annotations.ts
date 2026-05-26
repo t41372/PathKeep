@@ -28,6 +28,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import type { LocalAnnotations } from './use-local-annotations'
 
 interface Bundle {
@@ -131,6 +132,5 @@ function formatError(
   error: unknown,
   scope: 'hydrate' | 'notes' | 'tags',
 ): string {
-  const reason = error instanceof Error ? error.message : String(error)
-  return `${scope}: ${reason}`
+  return `${scope}: ${describeError(error, scope)}`
 }

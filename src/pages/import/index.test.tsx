@@ -312,7 +312,7 @@ describe('ImportPage route owner', () => {
       await latestWorkflowProps().onBrowseSource({ directory: false })
     })
     expect(latestReviewState().reportedErrors.at(-1)?.message).toBe(
-      'import.filePickerUnavailable',
+      'dialog unavailable',
     )
 
     openMock.mockRejectedValueOnce(new Error('native dialog failed'))

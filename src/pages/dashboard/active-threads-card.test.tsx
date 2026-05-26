@@ -136,14 +136,14 @@ describe('DashboardActiveThreads', () => {
     expect(onOpenThread).toHaveBeenCalledWith('flow-target')
   })
 
-  test('falls back to the translated error key when the rejection is not an Error', async () => {
+  test('surfaces the raw rejection when the failure is not an Error', async () => {
     vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockRejectedValue(
       'string-rejection',
     )
     renderCard()
     expect(
       await screen.findByTestId('dashboard-active-threads-error'),
-    ).toHaveTextContent('Could not load active threads.')
+    ).toHaveTextContent('string-rejection')
   })
 
   test('row click does not throw when onOpenThread is omitted', async () => {

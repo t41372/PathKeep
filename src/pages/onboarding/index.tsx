@@ -28,6 +28,7 @@ import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import {
   formatBuildRevisionLabel,
   formatBuildVersionTitle,
@@ -112,9 +113,7 @@ export function OnboardingPage() {
           setSchedulePlan(null)
           setScheduleStatus(null)
           setSchedulePreviewError(
-            nextError instanceof Error
-              ? nextError.message
-              : t('schedulePreviewFallbackError'),
+            describeError(nextError, 'preview_schedule'),
           )
         }
       } finally {
@@ -496,5 +495,5 @@ function formatOnboardingError(
     return t('errorSafariNeedsFullDiskAccess')
   }
 
-  return t('errorFinishFailed')
+  return describeError(nextError, 'onboarding_finish')
 }

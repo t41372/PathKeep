@@ -485,9 +485,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
 
     expect(
-      await screen.findByText(
-        "Couldn't preview the schedule. You can set this up later in Settings.",
-      ),
+      await screen.findByText('scheduler fallback'),
     ).toBeInTheDocument()
   })
 
@@ -585,11 +583,7 @@ describe('OnboardingPage', () => {
 
     await advanceToReady(user)
     await user.click(screen.getByRole('button', { name: 'finish' }))
-    expect(
-      await screen.findByText(
-        'Something went wrong during setup. You can try again.',
-      ),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('disk exploded')).toBeInTheDocument()
   })
 
   test('skips schedule setup without applying a native schedule', async () => {

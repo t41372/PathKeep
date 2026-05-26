@@ -167,7 +167,6 @@ describe('ShellDataProvider', () => {
 
   test('uses the paint fallback and surfaces refresh errors without breaking follow-up saves', async () => {
     const user = userEvent.setup()
-    const translator = createTranslator('en')
     const { dashboard, snapshot } = await seedSnapshot()
     const savedSnapshot: AppSnapshot = {
       ...snapshot,
@@ -210,9 +209,7 @@ describe('ShellDataProvider', () => {
       getAppSnapshotSpy.mockRejectedValueOnce('not-an-error')
       await user.click(screen.getByRole('button', { name: 'refresh' }))
       await waitFor(() =>
-        expect(screen.getByTestId('error')).toHaveTextContent(
-          translator('shell.loadingLatestArchiveState'),
-        ),
+        expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
       )
 
       getAppSnapshotSpy.mockRejectedValueOnce(new Error('refresh failed'))
@@ -311,7 +308,6 @@ describe('ShellDataProvider', () => {
   })
 
   test('localizes non-error dashboard refresh failures during bootstrap', async () => {
-    const translator = createTranslator('en')
     const { snapshot } = await seedSnapshot()
     vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
     vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
@@ -324,9 +320,7 @@ describe('ShellDataProvider', () => {
     renderShellProbe()
 
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.loadingLatestArchiveState'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('dashboard offline'),
     )
   })
 

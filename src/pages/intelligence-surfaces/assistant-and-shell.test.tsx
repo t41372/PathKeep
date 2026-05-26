@@ -327,9 +327,7 @@ describe('intelligence surfaces', () => {
       name: assistantT('refreshQueue'),
     })
     await user.click(refreshButton)
-    expect(
-      await screen.findByText(assistantT('loadingQueueAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('refresh unavailable')).toBeVisible()
 
     const input = await screen.findByLabelText(assistantT('inputLabel'))
     expect(input).toHaveValue('seeded question')
@@ -395,7 +393,7 @@ describe('intelligence surfaces', () => {
     await user.clear(input)
     await user.type(input, 'force failure{enter}')
     expect(
-      (await screen.findAllByText(assistantT('failedResponse')))[0],
+      (await screen.findAllByText('assistant offline'))[0],
     ).toBeVisible()
     expect(askAssistant).toHaveBeenLastCalledWith({
       question: 'force failure',
@@ -497,7 +495,7 @@ describe('intelligence surfaces', () => {
       screen.getByRole('button', { name: assistantT('checkStatus') }),
     )
     expect(
-      await screen.findByText(assistantT('loadingQueuedAnswerAction')),
+      await screen.findByText('queued status unavailable'),
     ).toBeVisible()
 
     await user.clear(input)
@@ -508,9 +506,7 @@ describe('intelligence surfaces', () => {
         .getAllByRole('button', { name: assistantT('runQueuedJob') })
         .at(-1)!,
     )
-    expect(
-      await screen.findByText(assistantT('runningQueuedJobsAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('run unavailable')).toBeVisible()
 
     await user.clear(input)
     await user.type(input, 'cancel fallback{enter}')
@@ -518,9 +514,7 @@ describe('intelligence surfaces', () => {
     await user.click(
       screen.getAllByRole('button', { name: assistantT('cancel') }).at(-1)!,
     )
-    expect(
-      await screen.findByText(assistantT('cancellingAssistantJobAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('cancel unavailable')).toBeVisible()
   })
 
   test('surfaces provider, assistant, and runtime queue fallback states', async () => {
@@ -559,7 +553,7 @@ describe('intelligence surfaces', () => {
       screen.getByRole('button', { name: assistantT('testProvider') }),
     )
     expect(
-      await screen.findByText(assistantT('testingProviderAction')),
+      await screen.findByText('provider returned a non-error failure'),
     ).toBeVisible()
 
     const input = await screen.findByLabelText(assistantT('inputLabel'))
@@ -611,7 +605,7 @@ describe('intelligence surfaces', () => {
     const input = await screen.findByLabelText(assistantT('inputLabel'))
     await user.type(input, 'ask without providers{enter}')
     expect(
-      (await screen.findAllByText(assistantT('failedResponse'))).length,
+      (await screen.findAllByText('providerless failure')).length,
     ).toBeGreaterThan(0)
   })
 

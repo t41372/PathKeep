@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from '@/app/shell-data-context'
 import { backend } from '@/lib/backend-client'
+import { describeError } from '@/lib/errors'
 import { formatBytes } from '@/lib/format'
 import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import type {
@@ -189,15 +190,10 @@ export function LinkPreviewsSection({
       // process, and the user can retry by clicking the button again
       // (the finally re-enables it).
       setSummary(
-        error instanceof Error
-          ? `${t('settings.linkPreviewsRebuildSummary', {
-              enqueued: '0',
-              succeeded: '0',
-            })} (${error.message})`
-          : t('settings.linkPreviewsRebuildSummary', {
-              enqueued: '0',
-              succeeded: '0',
-            }),
+        `${t('settings.linkPreviewsRebuildSummary', {
+          enqueued: '0',
+          succeeded: '0',
+        })} (${describeError(error, 'refetch_og_images')})`,
       )
     } finally {
       setPendingAction(null)

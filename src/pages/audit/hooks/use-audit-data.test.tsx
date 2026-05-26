@@ -368,7 +368,7 @@ describe('useAuditData', () => {
     )
 
     await waitFor(() =>
-      expect(detailFailure.result.current.error).toBe('Run detail unavailable'),
+      expect(detailFailure.result.current.error).toBe('offline'),
     )
     detailFailure.unmount()
 
@@ -393,7 +393,7 @@ describe('useAuditData', () => {
 
     await waitFor(() =>
       expect(batchFailure.result.current.relatedBatchError).toBe(
-        'Import preview unavailable',
+        'batch offline',
       ),
     )
     expect(batchFailure.result.current.relatedBatchDetail).toBeNull()
@@ -551,7 +551,7 @@ describe('useAuditData', () => {
     await act(async () => {
       await result.current.handleRelatedBatchMutation('revert')
     })
-    expect(result.current.batchActionError).toBe('Unavailable')
+    expect(result.current.batchActionError).toBe('revert offline')
   })
 
   test('previews and executes snapshot restore with unsupported and failing branches', async () => {
@@ -621,7 +621,7 @@ describe('useAuditData', () => {
     await act(async () => {
       await result.current.handlePreviewRestore('/snapshots/string-bad.sqlite')
     })
-    expect(result.current.restoreError).toBe('Unavailable')
+    expect(result.current.restoreError).toBe('preview offline')
 
     act(() => {
       result.current.setDetailTab('warnings')
@@ -676,7 +676,7 @@ describe('useAuditData', () => {
     await act(async () => {
       await result.current.handleExecuteRestore()
     })
-    expect(result.current.restoreError).toBe('Unavailable')
+    expect(result.current.restoreError).toBe('restore offline')
   })
 })
 

@@ -29,6 +29,7 @@ import {
 import { LoadingState } from '../../components/primitives/loading-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { formatDateTime } from '../../lib/format'
 import {
   buildIntelligenceLocalHost,
@@ -128,10 +129,7 @@ export function SettingsExternalOutputLocalHostPanel({
     } catch (error) {
       setBuildState({
         tone: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : t('externalOutputsLocalHostUnavailableBody'),
+        message: describeError(error, 'build_intelligence_local_host'),
       })
     } finally {
       setBuilding(false)

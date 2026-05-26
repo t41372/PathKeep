@@ -107,13 +107,13 @@ describe('DashboardYearHeatmapCard', () => {
     expect(onSelectDate).toHaveBeenCalled()
   })
 
-  test('falls back to the translated error key when the rejection is not an Error', async () => {
+  test('surfaces the raw rejection when the failure is not an Error', async () => {
     vi.spyOn(coreIntelligenceApi, 'getDiscoveryTrend').mockRejectedValue(
       'string-rejection',
     )
     renderCard()
     expect(await screen.findByTestId('dashboard-year-error')).toHaveTextContent(
-      'Could not load the year heatmap.',
+      'string-rejection',
     )
   })
 

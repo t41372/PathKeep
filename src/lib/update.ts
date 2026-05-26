@@ -18,6 +18,7 @@
  */
 
 import { backend } from './backend-client'
+import { describeError } from './errors'
 import { subscribeToUpdaterProgress } from './ipc/updater-progress'
 import { hasDesktopCommandTransport, hasTauriGuestApi } from './runtime'
 import type {
@@ -153,10 +154,10 @@ export async function downloadAndInstallAppUpdate(
       version: pendingUpdate.version,
       downloadedBytes: null,
       contentLength: null,
-      message:
-        error instanceof Error
-          ? error.message
-          : `PathKeep could not install ${pendingUpdate.version}.`,
+      message: describeError(
+        error,
+        `install_app_update ${pendingUpdate.version}`,
+      ),
     } satisfies UpdateInstallState
     onStateChange?.(failed)
     return failed

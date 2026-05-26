@@ -266,7 +266,7 @@ describe('useSecurityWorkflow', () => {
     )
 
     await waitFor(() =>
-      expect(result.current.loadState.error).toBe('security.unavailableBody'),
+      expect(result.current.loadState.error).toBe('offline'),
     )
 
     rerender({ refreshKey: 2 })
@@ -355,7 +355,7 @@ describe('useSecurityWorkflow', () => {
     await act(async () => {
       await result.current.handleStoreKeyringKey()
     })
-    expect(result.current.actionError).toBe('common.unavailable')
+    expect(result.current.actionError).toBe('store failed')
 
     vi.spyOn(backend, 'keyringStoreDatabaseKey').mockResolvedValueOnce(
       keyringStatusFixture({ storedSecret: true }),

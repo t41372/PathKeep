@@ -400,7 +400,7 @@ describe('useShellRuntimeStatus', () => {
       aiQueue: null,
       intelligence: null,
       loading: false,
-      error: t('common.notAvailable'),
+      error: 'offline',
     })
     unmount()
   })
@@ -456,7 +456,7 @@ describe('useShellRuntimeStatus', () => {
       aiQueue: null,
       intelligence: null,
       loading: false,
-      error: t('common.notAvailable'),
+      error: 'offline',
     })
   })
 

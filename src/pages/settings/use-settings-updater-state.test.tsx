@@ -268,7 +268,7 @@ describe('useSettingsUpdaterState', () => {
 
     expect(result.current.updater.updateInstallState).toMatchObject({
       phase: 'error',
-      message: 'Unavailable',
+      message: 'offline',
     })
     expect(openExternalUrl).toHaveBeenCalledWith(updateLib.RELEASES_PAGE_URL)
   })
