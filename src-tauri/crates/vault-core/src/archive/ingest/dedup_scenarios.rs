@@ -673,6 +673,7 @@ fn takeout_record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBro
         page_transition: Some("LINK".to_string()),
         client_id: None,
         favicon_url: None,
+        ptoken: None,
     }
 }
 

@@ -19,6 +19,7 @@ fn record(url: &str, title: &str, visit_time_unix_ms: i64) -> TakeoutBrowserReco
         page_transition: Some("LINK".to_string()),
         client_id: Some("synthetic-client-id".to_string()),
         favicon_url: Some(format!("{url}/favicon.ico")),
+        ptoken: Some("synthetic-ptoken-value".to_string()),
     }
 }
 
@@ -135,6 +136,23 @@ fn takeout_standard_json_round_trips_through_production_parser() {
         transition_evidence.iter().all(|ctx| ctx.value_json.contains("LINK")),
         "page_transition evidence should contain the LINK value"
     );
+
+    // ptoken → ContextEvidence with key "context.takeout.ptoken"
+    let ptoken_evidence: Vec<_> = parsed
+        .typed_evidence
+        .context
+        .iter()
+        .filter(|ctx| ctx.context_key == "context.takeout.ptoken")
+        .collect();
+    assert_eq!(
+        ptoken_evidence.len(),
+        2,
+        "each record with ptoken should produce one context evidence row"
+    );
+    assert!(
+        ptoken_evidence.iter().all(|ctx| ctx.value_json.contains("synthetic-ptoken-value")),
+        "ptoken evidence should contain the fixture value"
+    );
 }
 
 #[test]
@@ -234,4 +252,60 @@ fn takeout_jsonl_round_trips() {
             .any(|ctx| ctx.context_key == "context.takeout.favicon_url"),
         "JSONL format should preserve favicon_url evidence"
     );
+}
+
+#[test]
+fn takeout_visited_at_iso_string_parsed_correctly() {
+    let temp = TempDir::new().expect("tempdir");
+    let dir = temp.path().join("Chrome");
+    std::fs::create_dir_all(&dir).expect("create Chrome dir");
+    let path = dir.join("BrowserHistory.json");
+
+    let json = r#"{"Browser History": [
+  {"url": "https://example.com/iso-time", "title": "ISO Time Test", "visitedAt": "2026-05-02T00:00:00+00:00"},
+  {"url": "https://example.org/iso-time-2", "title": "ISO Time 2", "visitedAt": "2026-05-03T12:30:00+00:00"}
+]}"#;
+    std::fs::write(&path, json).expect("write visitedAt fixture");
+
+    let parsed = takeout::parse_history(&path).expect("parse visitedAt payload");
+    assert_eq!(parsed.urls.len(), 2, "should parse 2 URLs");
+    assert_eq!(parsed.visits.len(), 2, "should parse 2 visits");
+
+    let visits_by_url: std::collections::HashMap<_, _> =
+        parsed.visits.iter().map(|v| (v.url.clone(), v)).collect();
+
+    let first = visits_by_url.get("https://example.com/iso-time").expect("first visit");
+    assert_eq!(
+        first.visit_time_ms, 1_777_680_000_000,
+        "2026-05-02T00:00:00Z → 1_777_680_000_000 ms"
+    );
+
+    let second = visits_by_url.get("https://example.org/iso-time-2").expect("second visit");
+    assert_eq!(
+        second.visit_time_ms, 1_777_811_400_000,
+        "2026-05-03T12:30:00Z → 1_777_811_400_000 ms"
+    );
+
+    assert_eq!(first.app_id.as_deref(), Some("takeout"));
+    assert_eq!(second.app_id.as_deref(), Some("takeout"));
+}
+
+#[test]
+fn takeout_record_without_time_field_is_skipped() {
+    let temp = TempDir::new().expect("tempdir");
+    let dir = temp.path().join("Chrome");
+    std::fs::create_dir_all(&dir).expect("create Chrome dir");
+    let path = dir.join("BrowserHistory.json");
+
+    let json = r#"{"Browser History": [
+  {"url": "https://example.com/no-time", "title": "No Time"},
+  {"url": "https://example.com/with-time", "title": "With Time", "time_usec": 1777680000000000}
+]}"#;
+    std::fs::write(&path, json).expect("write no-time fixture");
+
+    let parsed = takeout::parse_history(&path).expect("parse no-time payload");
+    assert_eq!(parsed.urls.len(), 1, "only the record with time should produce a URL");
+    assert_eq!(parsed.visits.len(), 1, "only the record with time should produce a visit");
+    assert_eq!(parsed.urls[0].url, "https://example.com/with-time");
+    assert_eq!(parsed.visits[0].url, "https://example.com/with-time");
 }

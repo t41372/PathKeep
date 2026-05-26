@@ -41,6 +41,9 @@ pub struct TakeoutBrowserRecord {
     /// Optional favicon URL; serialized as `favicon_url`. Captured as
     /// context evidence by the parser.
     pub favicon_url: Option<String>,
+    /// Optional ptoken; serialized as `ptoken`. Captured as context
+    /// evidence (`context.takeout.ptoken`) by the parser.
+    pub ptoken: Option<String>,
 }
 
 /// Which on-disk layout to emit for the Takeout payload.
@@ -150,6 +153,9 @@ fn serialize_record(record: &TakeoutBrowserRecord) -> String {
     if let Some(favicon) = &record.favicon_url {
         fields.push(format!("\"favicon_url\": {}", json_string(favicon)));
     }
+    if let Some(ptoken) = &record.ptoken {
+        fields.push(format!("\"ptoken\": {}", json_string(ptoken)));
+    }
     format!("{{{}}}", fields.join(", "))
 }
 
@@ -210,6 +216,7 @@ mod tests {
             page_transition: Some("LINK".to_string()),
             client_id: None,
             favicon_url: None,
+            ptoken: None,
         };
         let serialized = serialize_record(&record);
         assert!(serialized.contains("\"url\": \"https://example.com\""));
@@ -218,5 +225,24 @@ mod tests {
         assert!(serialized.contains("\"page_transition\": \"LINK\""));
         assert!(!serialized.contains("client_id"));
         assert!(!serialized.contains("favicon_url"));
+        assert!(!serialized.contains("ptoken"));
+    }
+
+    #[test]
+    fn serialize_record_includes_ptoken_when_present() {
+        let record = TakeoutBrowserRecord {
+            url: "https://example.com".to_string(),
+            title: Some("Example".to_string()),
+            visit_time_unix_ms: 1_700_000_000_000,
+            page_transition: None,
+            client_id: None,
+            favicon_url: None,
+            ptoken: Some("synthetic-ptoken-value".to_string()),
+        };
+        let serialized = serialize_record(&record);
+        assert!(
+            serialized.contains("\"ptoken\": \"synthetic-ptoken-value\""),
+            "serialized output should contain ptoken field: {serialized}"
+        );
     }
 }
