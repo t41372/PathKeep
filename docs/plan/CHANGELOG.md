@@ -1672,12 +1672,12 @@ extraction — zero test behavior changes, all 602 vault-core tests pass.
 
 #### File size summary
 
-| Module                         | Lines | Status           |
-| ------------------------------ | ----- | ---------------- |
-| `dedup_scenarios.rs`           | 641   | ✅ under 800     |
-| `dedup_scenarios_baselines.rs` | 980   | ✅ under 1200    |
-| `dedup_scenarios_edge_cases.rs`| 726   | ✅ under 800     |
-| `dedup_scenarios_takeout.rs`   | 561   | ✅ under 800     |
+| Module                          | Lines | Status        |
+| ------------------------------- | ----- | ------------- |
+| `dedup_scenarios.rs`            | 641   | ✅ under 800  |
+| `dedup_scenarios_baselines.rs`  | 980   | ✅ under 1200 |
+| `dedup_scenarios_edge_cases.rs` | 726   | ✅ under 800  |
+| `dedup_scenarios_takeout.rs`    | 561   | ✅ under 800  |
 
 #### Remaining blocked gaps (tracked in BACKLOG)
 
