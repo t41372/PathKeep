@@ -92,9 +92,28 @@ describe('parseActiveSearchFilters', () => {
     expect(filters).toEqual([])
   })
 
-  test('builds a stable id per token suitable as a React key', () => {
+  test('builds an identity-based id (kind::neg/pos::value::occurrence) that survives unrelated query edits', () => {
+    // Duplicates of the same (kind, negation, value) tuple get
+    // disambiguated by occurrenceIndex.
     const filters = parseActiveSearchFilters('tag:rust tag:rust')
-    expect(filters.map((filter) => filter.id)).toEqual(['tag-0', 'tag-1'])
+    expect(filters.map((filter) => filter.id)).toEqual([
+      'tag::pos::rust::0',
+      'tag::pos::rust::1',
+    ])
+    expect(filters.map((filter) => filter.occurrenceIndex)).toEqual([0, 1])
+
+    // If unrelated tokens are added (e.g. user types a new operator
+    // before the chip click commits), the original chip's id still
+    // resolves the same active filter on re-parse.
+    const reparsed = parseActiveSearchFilters(
+      'note:foo tag:rust async tag:rust',
+    )
+    expect(
+      reparsed.find((filter) => filter.id === 'tag::pos::rust::0'),
+    ).toBeDefined()
+    expect(
+      reparsed.find((filter) => filter.id === 'tag::pos::rust::1'),
+    ).toBeDefined()
   })
 })
 
@@ -127,6 +146,27 @@ describe('removeFilterToken', () => {
   test('preserves quoted phrases on either side of the removed token', () => {
     const query = '"release notes" tag:rust -note:legacy'
     expect(removeFilterToken(query, 1)).toBe('"release notes" -note:legacy')
+  })
+
+  test('preserves whitespace inside surviving quoted phrases (does not collapse tabs / runs)', () => {
+    // Regression for the BROWSE-VIRT code-review §1 finding: a naïve
+    // `replace(/[ \t]+/g, ' ')` over the full stitched string would
+    // rewrite the user's `\t` inside the quoted phrase to a single
+    // space, making vault-core's exact-phrase match silently fail.
+    const query = 'tag:rust "release\tnotes\there" note:legacy'
+    expect(removeFilterToken(query, 0)).toBe(
+      '"release\tnotes\there" note:legacy',
+    )
+  })
+
+  test('drops leading whitespace when the removed token was at the start', () => {
+    const query = 'tag:rust  rust async'
+    expect(removeFilterToken(query, 0)).toBe('rust async')
+  })
+
+  test('drops trailing whitespace when the removed token was at the end', () => {
+    const query = 'rust async  tag:rust'
+    expect(removeFilterToken(query, 2)).toBe('rust async')
   })
 
   test('is a no-op when the index is out of range', () => {

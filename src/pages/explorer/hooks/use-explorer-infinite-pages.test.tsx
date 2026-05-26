@@ -350,4 +350,95 @@ describe('useExplorerInfinitePages', () => {
     const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
     expect(queriedPages.filter((p) => p === 4)).toEqual([])
   })
+
+  test('scrollDirection flipping during an in-flight foreground fetch does NOT drop that fetch (review §2 regression)', async () => {
+    // Pre-fix behaviour: scrollDirection was in the main fetch effect's
+    // dep array, so flipping it tore down the cleanup which set
+    // `cancelled = true` and short-circuited the resolved foreground
+    // response — the loaded page was silently dropped. The fix splits
+    // the directional +2 prefetch into a separate effect so direction
+    // flips can only cancel the opportunistic background prefetch.
+    let resolvePage2: ((value: unknown) => void) | undefined
+    const slow = new Promise<unknown>((resolve) => {
+      resolvePage2 = resolve
+    })
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) => {
+        const page = req.page ?? 1
+        if (page === 2) return slow as Promise<HistoryQueryResponse>
+        return Promise.resolve(
+          makeHeadResponse({
+            page,
+            items: [
+              {
+                id: page * 10,
+                profileId: 'chrome:Default',
+                url: `u${page}`,
+                title: 't',
+                domain: 'example.com',
+                favicon: null,
+                visitedAt: '2025-12-01T10:00:00Z',
+                visitTime: 1733050800,
+                sourceVisitId: 0,
+              },
+            ],
+          }),
+        )
+      })
+    const head = makeHeadResponse({ pageCount: 6, hasNext: true })
+    const { result, rerender } = renderHook(
+      ({ direction }: { direction: 'idle' | 'down' | 'up' }) =>
+        useExplorerInfinitePages({
+          query: baseQuery,
+          headResults: head,
+          disabled: false,
+          cacheToken: 1,
+          scrollDirection: direction,
+        }),
+      {
+        initialProps: { direction: 'idle' as 'idle' | 'down' | 'up' },
+      },
+    )
+    // Start a foreground fetch for page 2 — it parks in `slow`.
+    act(() => result.current.loadMore())
+    await waitFor(() => {
+      expect(querySpy.mock.calls.some((call) => call[0].page === 2)).toBe(true)
+    })
+    // User wobbles scroll direction mid-fetch.
+    rerender({ direction: 'down' })
+    rerender({ direction: 'idle' })
+    rerender({ direction: 'down' })
+    // Now the slow page-2 resolves. With the bug, the cleanup chain
+    // would have set cancelled=true and silently dropped the response;
+    // with the fix, the page lands in pageItems and extraItems exposes
+    // it.
+    await act(async () => {
+      resolvePage2?.(
+        makeHeadResponse({
+          page: 2,
+          items: [
+            {
+              id: 20,
+              profileId: 'chrome:Default',
+              url: 'https://example.com/page-2',
+              title: 'page 2',
+              domain: 'example.com',
+              favicon: null,
+              visitedAt: '2025-12-01T10:00:00Z',
+              visitTime: 1733050800,
+              sourceVisitId: 0,
+            },
+          ],
+        }),
+      )
+      await slow
+    })
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toContain(
+        'https://example.com/page-2',
+      ),
+    )
+    expect(result.current.loadingMore).toBe(false)
+  })
 })

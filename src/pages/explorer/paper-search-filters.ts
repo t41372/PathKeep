@@ -61,7 +61,14 @@ export type ActiveFilterKind =
   | 'inurl'
 
 export interface ActiveSearchFilter {
-  /** Stable id within a single parse pass, suitable as a React key. */
+  /**
+   * Stable id encoded from (kind, negated, value, occurrenceIndex).
+   * Identical across re-parses of the same query AND across re-parses
+   * of a query that has only had unrelated tokens added/removed — so
+   * a chip click resolves the right operator even when query state
+   * shifted between render and the click event. Use as a React key
+   * AND as the lookup id for {@link removeFilterToken}.
+   */
   id: string
   /** Canonical operator family (after aliasing `ext`→`filetype` etc.). */
   kind: ActiveFilterKind
@@ -71,6 +78,14 @@ export interface ActiveSearchFilter {
   negated: boolean
   /** Display label, e.g. `tag:rust` or `-tag:archived`. */
   label: string
+  /**
+   * The Nth occurrence (0-based) of this (kind, negated, value)
+   * triple within the parsed filter list. Combined with the other
+   * fields in {@link id}, it disambiguates duplicates like
+   * `tag:rust tag:rust` so removing one doesn't ambiguously match
+   * both.
+   */
+  occurrenceIndex: number
   /**
    * Index into {@link tokenizeQuery}'s output. {@link removeFilterToken}
    * uses this to strip the exact token even when the user typed two
@@ -163,6 +178,7 @@ function stripSurroundingQuotes(value: string): string {
 export function parseActiveSearchFilters(query: string): ActiveSearchFilter[] {
   const tokens = tokenizeQuery(query)
   const filters: ActiveSearchFilter[] = []
+  const occurrenceCount = new Map<string, number>()
   tokens.forEach((token, tokenIndex) => {
     const negated = token.literal.startsWith('-') && token.literal.length > 1
     const body = negated ? token.literal.slice(1) : token.literal
@@ -176,12 +192,20 @@ export function parseActiveSearchFilters(query: string): ActiveSearchFilter[] {
     const display = stripSurroundingQuotes(operand).trim()
     if (display.length === 0) return
     const kind = OPERATOR_KIND[operatorRaw]
+    const identityKey = `${kind}::${negated ? 'neg' : 'pos'}::${display}`
+    const occurrenceIndex = occurrenceCount.get(identityKey) ?? 0
+    occurrenceCount.set(identityKey, occurrenceIndex + 1)
     filters.push({
-      id: `${kind}-${tokenIndex}`,
+      // Identity-based id: stable across re-parses of the same query
+      // even after unrelated tokens were added/removed, so a chip
+      // click resolves the right operator when state shifted between
+      // render and click. occurrenceIndex disambiguates duplicates.
+      id: `${identityKey}::${occurrenceIndex}`,
       kind,
       value: display,
       negated,
       label: `${negated ? '-' : ''}${kind}:${display}`,
+      occurrenceIndex,
       tokenIndex,
     })
   })
@@ -204,17 +228,27 @@ export function appendOperator(query: string, operator: string): string {
 
 /**
  * Removes the token at the supplied {@link ActiveSearchFilter.tokenIndex}
- * from the query and collapses the surrounding whitespace so the
- * resulting string stays clean. Returns the query unchanged when the
- * index is out of range (which can happen if the user edited the
- * query between parse and click).
+ * from the query and collapses the whitespace **at the junction**
+ * between the kept before / after slices so the resulting string
+ * stays clean. Critically, whitespace inside surviving tokens (e.g.
+ * a quoted phrase like `"release\tnotes"`) is preserved — running a
+ * naïve `replace(/[ \t]+/g, ' ')` over the full stitched string
+ * silently rewrites those phrases and they would no longer match the
+ * vault-core search-query parser's literal tokens. Returns the
+ * query unchanged when the index is out of range (which can happen
+ * if the user edited the query between parse and click).
  */
 export function removeFilterToken(query: string, tokenIndex: number): string {
   const tokens = tokenizeQuery(query)
   const token = tokens[tokenIndex]
   if (!token) return query
-  const before = query.slice(0, token.startIndex)
-  const after = query.slice(token.endIndex)
-  const stitched = `${before}${after}`
-  return stitched.replace(/[ \t]+/g, ' ').replace(/^\s+|\s+$/g, '')
+  // Walk the kept slice on either side of the removed token, dropping
+  // ONLY the whitespace immediately abutting the cut. Anything past
+  // the first non-whitespace character is preserved verbatim — that
+  // includes whitespace inside quoted phrases further down the line.
+  const before = query.slice(0, token.startIndex).replace(/[ \t]+$/, '')
+  const after = query.slice(token.endIndex).replace(/^[ \t]+/, '')
+  if (before.length === 0) return after
+  if (after.length === 0) return before
+  return `${before} ${after}`
 }

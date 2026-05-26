@@ -95,11 +95,12 @@ describe('useScrollDirection', () => {
     expect(result.current).toBe('up')
   })
 
-  test('deltas smaller than `deltaThresholdPx` are dropped without resetting the count', () => {
+  test('a sub-threshold delta resets the hysteresis count so the direction stays idle until a fresh same-direction streak rebuilds it', () => {
     const { result } = renderHook(() =>
       useScrollDirection({ hysteresisFrames: 3, deltaThresholdPx: 5 }),
     )
-    // Two large-enough down samples.
+    // Two large-enough down samples → count = 2 (not yet >=
+    // hysteresis, so direction is still 'idle').
     act(() => {
       setScrollY(50)
       dispatchScroll()
@@ -110,14 +111,20 @@ describe('useScrollDirection', () => {
       dispatchScroll()
       vi.runAllTimers()
     })
-    // Sub-threshold wobble — still below 5px from 100 → 102.
+    // Sub-threshold wobble — below 5 px from 100 → 102. Per the
+    // hook contract (see use-scroll-direction.ts §sample), a
+    // sub-threshold sample resets `sameDirCountRef` to 0 AND
+    // `lastSampledDirRef` to 'idle' so the hysteresis has to
+    // re-charge from scratch. Reset matches a user pausing
+    // mid-scroll: their next directional intent should be treated
+    // as a fresh decision, not a continuation of the prior streak.
     act(() => {
       setScrollY(102)
       dispatchScroll()
       vi.runAllTimers()
     })
-    // Idle still because hysteresis counter was reset by the
-    // sub-threshold sample.
+    // The reset means we never reached the 3-frame threshold, so
+    // direction is still 'idle'.
     expect(result.current).toBe('idle')
   })
 

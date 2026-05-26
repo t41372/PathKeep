@@ -15,7 +15,7 @@
  * - URL parsing — the route hands typed callbacks for each side effect.
  */
 
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { HistoryEntry } from '@/lib/types/archive'
 import {
   PaperSearchView,
@@ -101,8 +101,29 @@ export function PaperSearchPanel({
     [query],
   )
 
+  // Pending rAF handle for the input-focus-and-place-caret side effect.
+  // Tracking it in a ref lets rapid successive chip clicks cancel the
+  // earlier frame before scheduling the new one — otherwise rAF1
+  // would write a stale caret index against rAF2's already-committed
+  // query (review §6 race).
+  const focusFrameRef = useRef<number | null>(null)
+  useEffect(() => {
+    // Cancel any pending focus frame on unmount so the rAF callback
+    // never fires against a stale input ref.
+    return () => {
+      if (focusFrameRef.current !== null) {
+        window.cancelAnimationFrame(focusFrameRef.current)
+        focusFrameRef.current = null
+      }
+    }
+  }, [])
+
   const focusInputAtEnd = useCallback((nextQuery: string) => {
-    const handle = window.requestAnimationFrame(() => {
+    if (focusFrameRef.current !== null) {
+      window.cancelAnimationFrame(focusFrameRef.current)
+    }
+    focusFrameRef.current = window.requestAnimationFrame(() => {
+      focusFrameRef.current = null
       const input = inputRef.current
       if (!input) return
       input.focus()
@@ -113,7 +134,6 @@ export function PaperSearchPanel({
         /* Some input types reject setSelectionRange; focus is enough. */
       }
     })
-    return () => window.cancelAnimationFrame(handle)
   }, [])
 
   const appendFilterOperator = useCallback(

@@ -184,13 +184,16 @@ describe('PaperSearchPanel', () => {
     expect(onSelectEntry).toHaveBeenCalledWith(42)
   })
 
-  test('+ Tag chip appends `tag:` to the query and focuses the input after the next animation frame', async () => {
+  test('+ Tag chip appends `tag:` to the query and focuses the input after the next animation frame', () => {
     const onQueryChange = vi.fn()
-    let rafCallback: FrameRequestCallback | null = null
+    // Boxed reference so the rAF callback survives TS's control-flow
+    // narrowing of `let rafCallback = null` to `never` outside the
+    // spy closure.
+    const rafBox: { cb: FrameRequestCallback | null } = { cb: null }
     const rafSpy = vi
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
-        rafCallback = cb
+        rafBox.cb = cb
         return 1
       })
     render(
@@ -218,11 +221,82 @@ describe('PaperSearchPanel', () => {
     const input = screen.getByTestId<HTMLInputElement>('paper-search-input')
     const focusSpy = vi.spyOn(input, 'focus')
     const setSelectionRangeSpy = vi.spyOn(input, 'setSelectionRange')
-    expect(rafCallback).not.toBeNull()
-    rafCallback?.(0)
+    expect(rafBox.cb).not.toBeNull()
+    rafBox.cb?.(0)
     expect(focusSpy).toHaveBeenCalled()
-    expect(setSelectionRangeSpy).toHaveBeenCalledWith('rust tag:'.length, 'rust tag:'.length)
+    expect(setSelectionRangeSpy).toHaveBeenCalledWith(
+      'rust tag:'.length,
+      'rust tag:'.length,
+    )
     rafSpy.mockRestore()
+  })
+
+  test('back-to-back +Tag and +Note clicks within one frame cancel the earlier focus rAF (review §6)', () => {
+    // Pre-fix behaviour: rAF1 fires first and writes setSelectionRange
+    // for the SHORTER query ("rust tag:" length 9) against an input
+    // whose committed value is the LONGER second query ("rust tag:
+    // note:" length 15) — caret lands at position 9 instead of 15.
+    // The fix tracks the latest rAF handle in a ref and cancels the
+    // previous before scheduling the new one.
+    const onQueryChange = vi.fn().mockImplementationOnce(() => {
+      // Simulate the parent committing the new value so the input
+      // node's `.value` reflects it before rAF2 measures.
+    })
+    const cancelled: number[] = []
+    let nextHandle = 1
+    const rafCallbacks: Array<{ handle: number; cb: FrameRequestCallback }> = []
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        const handle = nextHandle++
+        rafCallbacks.push({ handle, cb })
+        return handle
+      })
+    const cancelSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((handle: number) => {
+        cancelled.push(handle)
+      })
+
+    const { rerender } = render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-add-tag'))
+    rerender(
+      <PaperSearchPanel
+        query="rust tag:"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-add-note'))
+    // Two clicks scheduled two rAFs; the second click must have
+    // cancelled the first (handle === 1).
+    expect(cancelled).toContain(1)
+    rafSpy.mockRestore()
+    cancelSpy.mockRestore()
   })
 
   test('+ Tag chip is a no-op when appendOperator would return the same query (defensive)', () => {
@@ -292,20 +366,81 @@ describe('PaperSearchPanel', () => {
       />,
     )
     // Two active chips render: `tag:rust` and `note:design doc`.
+    // Chip ids are identity-based (kind::pos|neg::value::occurrence)
+    // so they stay stable even if unrelated tokens are added.
     expect(
-      screen.getByTestId('paper-search-active-filter-tag-1'),
+      screen.getByTestId('paper-search-active-filter-tag::pos::rust::0'),
     ).toHaveTextContent('tag:rust')
     expect(
-      screen.getByTestId('paper-search-active-filter-note-2'),
+      screen.getByTestId('paper-search-active-filter-note::pos::design doc::0'),
     ).toHaveTextContent('note:design doc')
     // Clicking the `tag:` chip's × removes that token from the query
     // and leaves the rest intact (including the quoted note phrase).
-    const tagChip = screen.getByTestId('paper-search-active-filter-tag-1')
+    const tagChip = screen.getByTestId(
+      'paper-search-active-filter-tag::pos::rust::0',
+    )
     const removeButton = tagChip.querySelector('button')
     if (!(removeButton instanceof HTMLButtonElement)) {
       throw new Error('expected remove button inside the tag chip')
     }
     fireEvent.click(removeButton)
     expect(onQueryChange).toHaveBeenCalledWith('rust note:"design doc"')
+  })
+
+  test('chip click resolves the right operator after the query was extended between render and click (review §8 id-stability)', () => {
+    // Render with one tag chip → its identity-based id is
+    // `tag::pos::rust::0`. Then SIMULATE a query update that prepends
+    // a new operator before the click commits (e.g. another component
+    // wrote to URL state). Re-render with the new query, then click
+    // the old chip — the click must still remove the `tag:rust`
+    // token, not the prepended new one.
+    const onQueryChange = vi.fn()
+    const { rerender } = render(
+      <PaperSearchPanel
+        query="rust tag:rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId('paper-search-active-filter-tag::pos::rust::0'),
+    ).toBeInTheDocument()
+    // Query extends with an unrelated `note:hi` token prepended.
+    rerender(
+      <PaperSearchPanel
+        query="note:hi rust tag:rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    const tagChip = screen.getByTestId(
+      'paper-search-active-filter-tag::pos::rust::0',
+    )
+    const removeButton = tagChip.querySelector('button')
+    if (!(removeButton instanceof HTMLButtonElement)) {
+      throw new Error('expected remove button inside the tag chip')
+    }
+    fireEvent.click(removeButton)
+    // Result preserves the note operator and the bare `rust` keyword,
+    // drops the `tag:rust` operator.
+    expect(onQueryChange).toHaveBeenCalledWith('note:hi rust')
   })
 })

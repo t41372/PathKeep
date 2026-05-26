@@ -51,6 +51,17 @@ export interface ViewportMountOptions {
    * synchronously on first mount and tests / SSR get the full tree.
    */
   initialInView?: boolean
+  /**
+   * When `true`, the hook returns `{ inView: true }` without
+   * installing an IntersectionObserver. Callers that have already
+   * decided they don't want viewport-driven recycling (e.g.
+   * `<PaperContactSheet disableVirtualization />` in spike harnesses
+   * and unit tests) use this to avoid spinning up 100+ wasted
+   * observers per render. The hook still returns a stable `ref` and
+   * a `measuredHeight` of `null` so consumers can keep the same
+   * branching shape.
+   */
+  skip?: boolean
 }
 
 export interface ViewportMountState<TElement extends HTMLElement> {
@@ -72,12 +83,17 @@ const DEFAULT_ROOT_MARGIN = '100% 0px'
 export function useViewportMount<TElement extends HTMLElement = HTMLDivElement>(
   options: ViewportMountOptions = {},
 ): ViewportMountState<TElement> {
-  const { rootMargin = DEFAULT_ROOT_MARGIN, initialInView = true } = options
+  const {
+    rootMargin = DEFAULT_ROOT_MARGIN,
+    initialInView = true,
+    skip = false,
+  } = options
   const ref = useRef<TElement | null>(null)
   const [inView, setInView] = useState(initialInView)
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null)
 
   useEffect(() => {
+    if (skip) return
     const node = ref.current
     if (!node) return
     if (typeof IntersectionObserver === 'undefined') return
@@ -101,7 +117,7 @@ export function useViewportMount<TElement extends HTMLElement = HTMLDivElement>(
     )
     observer.observe(node)
     return () => observer.disconnect()
-  }, [rootMargin])
+  }, [rootMargin, skip])
 
   // While the element is in view, opportunistically refresh the
   // measured height — the day content height changes with view mode
@@ -111,14 +127,14 @@ export function useViewportMount<TElement extends HTMLElement = HTMLDivElement>(
   // the effect only needs to fire when `inView` flips; re-firing on
   // every height-state change would cause an infinite update loop.
   useEffect(() => {
-    if (!inView) return
+    if (skip || !inView) return
     const node = ref.current
     if (!node) return
     const height = node.getBoundingClientRect().height
     if (height > 0) {
       setMeasuredHeight((current) => (current === height ? current : height))
     }
-  }, [inView])
+  }, [inView, skip])
 
-  return { ref, inView, measuredHeight }
+  return { ref, inView: skip ? true : inView, measuredHeight }
 }

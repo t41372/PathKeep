@@ -292,6 +292,25 @@ export function PaperContactSheet({
     [copy.cards, copy.list],
   )
 
+  // Per-day starting index for the cards-mode "01 / 02 / …" frame
+  // badge. The badge counts ACROSS all days in the contact sheet
+  // (matches the pk-contactsheet design handoff), but the per-day
+  // PaperDayBlock owns only one day's render path — so we pre-sum
+  // the entry count of every earlier day here and hand each block
+  // its starting offset. This restores the cross-day continuity
+  // the original `let globalFrameIndex = 0` pre-virt code provided.
+  const dayFrameOffsets = useMemo(() => {
+    const offsets: number[] = []
+    let running = 0
+    for (const day of days) {
+      offsets.push(running)
+      for (const session of day.sessions) {
+        running += session.blocks.length
+      }
+    }
+    return offsets
+  }, [days])
+
   return (
     <section
       data-testid={testId}
@@ -365,6 +384,15 @@ export function PaperContactSheet({
             day={day}
             dayIndex={dayIndex}
             totalDays={days.length}
+            // PaperContactFrame's "01 / 02 / …" badge counts across
+            // ALL days in the contact sheet (per the pk-contactsheet
+            // design handoff). PaperDayBlock owns one day at a time
+            // so we pre-sum the entry counts of every earlier day
+            // here and hand the cumulative starting index in.
+            // Restored after the 2026-05-25 §5 review found the
+            // initial PaperDayBlock extraction had reset the counter
+            // per-day.
+            frameOffset={dayFrameOffsets[dayIndex]}
             viewMode={viewMode}
             target={target ?? null}
             selectedEntryId={selectedEntryId}
@@ -391,6 +419,13 @@ interface PaperDayBlockProps {
   day: PaperDay
   dayIndex: number
   totalDays: number
+  /**
+   * Cumulative entry count of every day rendered above this one.
+   * Used as the starting value for the cards-mode "01 / 02 / …"
+   * frame badge so badges count across the full contact sheet, not
+   * per-day.
+   */
+  frameOffset: number
   viewMode: PaperViewMode
   target: PaperContactSheetTarget | null
   selectedEntryId: number | string | null
@@ -425,6 +460,7 @@ function PaperDayBlock({
   day,
   dayIndex,
   totalDays,
+  frameOffset,
   viewMode,
   target,
   selectedEntryId,
@@ -441,6 +477,7 @@ function PaperDayBlock({
   const { ref, inView, measuredHeight } = useViewportMount<HTMLDivElement>({
     rootMargin: virtualizationRootMargin,
     initialInView: true,
+    skip: disableVirtualization,
   })
   const shouldRender = disableVirtualization || inView
   const placeholderStyle =
@@ -461,6 +498,7 @@ function PaperDayBlock({
           day={day}
           dayIndex={dayIndex}
           totalDays={totalDays}
+          frameOffset={frameOffset}
           viewMode={viewMode}
           target={target}
           selectedEntryId={selectedEntryId}
@@ -481,6 +519,7 @@ function PaperDayBlockContent({
   day,
   dayIndex,
   totalDays,
+  frameOffset,
   viewMode,
   target,
   selectedEntryId,
@@ -497,10 +536,12 @@ function PaperDayBlockContent({
 >) {
   // Pre-compute the cumulative card-frame index per session so the
   // render path stays pure (no closure-captured `let` mutated during
-  // map iteration). The "01 / 02 / …" badge on PaperContactFrame
-  // counts across all sessions within the day for visual continuity.
+  // map iteration). `frameOffset` is the cumulative entry count of
+  // every earlier day in the contact sheet — the "01 / 02 / …" badge
+  // continues counting across days, not per-day, matching the
+  // pk-contactsheet design handoff.
   const sessionBaseIndices: number[] = []
-  let runningTotal = 0
+  let runningTotal = frameOffset
   for (const session of day.sessions) {
     sessionBaseIndices.push(runningTotal)
     runningTotal += session.blocks.length

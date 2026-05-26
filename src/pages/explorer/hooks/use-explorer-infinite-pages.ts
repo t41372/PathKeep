@@ -101,15 +101,26 @@ interface UseExplorerInfinitePagesOptions {
  * infinite scroll. After the BROWSE-VIRT viewport-driven mounting
  * landed (2026-05-25), DOM cost is no longer linear with page count —
  * off-screen day blocks recycle to a placeholder div — so the cap is
- * now memory-driven instead of DOM-driven. At the default 50 rows /
- * page this allows up to ~50 000 entries (≈30 MB of HistoryEntry
- * objects) in the page buffer, sized for the BROWSE-VIRT spike's
- * 4-core / 8 GB target.
+ * memory-driven instead of DOM-driven.
+ *
+ * The original spike doc proposed raising the cap to 1000 (≈50 000
+ * entries / 30 MB of HistoryEntry objects). The 2026-05-25 code
+ * review §3 flagged that JS-side aggregation is still O(N) per page
+ * fetch (the `extraItems` memo iterates every buffered page on every
+ * setPageItems, the explorer route then spreads it into
+ * `combinedTimeResults`, then maps it again for favicon / og
+ * hydration), so the effective work at the cap is ~150 000 array
+ * ops per fetch on top of the IPC round-trip. We settle on 500 (~25
+ * 000 entries / ~15 MB) as the trade-off between deep-scroll reach
+ * and per-fetch aggregation cost on the target 4-core / 8 GB box.
+ * Raising further requires an incremental aggregator (append-only,
+ * not rebuild-from-scratch); revisit that as a separate work block
+ * before bumping again.
  *
  * See `docs/plan/program/browse-virt-spike-2026-05-25.md` for the
- * cap derivation.
+ * cap derivation + the §3 follow-up note.
  */
-const MAX_ACCUMULATED_PAGES = 1_000
+const MAX_ACCUMULATED_PAGES = 500
 
 const SIGNATURE_FIELDS = [
   'q',
@@ -178,6 +189,15 @@ export function useExplorerInfinitePages({
   // sentinel only ever has to render an already-buffered slice — the
   // visible skeleton stops popping in for fast scrollers on the
   // populated 264k-row archive.
+  //
+  // `scrollDirection` is intentionally NOT in this effect's dep list:
+  // a direction flip would otherwise tear down the foreground fetch in
+  // flight (setting `cancelled = true` short-circuits the `.then`,
+  // silently dropping the page; the user then sees the loading
+  // skeleton disappear with no result and has to re-trigger the
+  // sentinel). The directional +2 prefetch lives in its own effect
+  // below where the cancellation only kills the opportunistic
+  // background fetch.
   useEffect(() => {
     if (disabled) return
     if (!headResults) return
@@ -230,17 +250,8 @@ export function useExplorerInfinitePages({
     }
     // Warm one page ahead in the background unconditionally — this is
     // the original prefetch budget and stays polite to the worker
-    // pool. When the user is actively scrolling down (the dominant
-    // Browse pattern — moving back through older history), warm a
-    // second page so a fast scroller doesn't see the load-more
-    // skeleton on the next hop. We cap at +2 to avoid flooding the
-    // encrypted-SQLite reader on the populated archive; the spike doc
-    // documents the budget at
-    // `docs/plan/program/browse-virt-spike-2026-05-25.md`.
+    // pool.
     fetchPage(target + 1, { background: true })
-    if (scrollDirection === 'down') {
-      fetchPage(target + 2, { background: true })
-    }
 
     return () => {
       // Cancellation clears `loadingMore` explicitly. The .finally below
@@ -257,6 +268,53 @@ export function useExplorerInfinitePages({
     // signature is in the dep list so a switch resets the buffer above
     // before this effect runs; pageItems is intentionally absent so we
     // don't re-trigger on every set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accumulatedPages, disabled, headResults, signature])
+
+  // Directional +2 prefetch. Lives in its own effect so a scroll
+  // direction flip does NOT cancel the main fetch effect's in-flight
+  // foreground request. When the user sustains a downward scroll
+  // (`scrollDirection === 'down'`), warm a second page beyond the
+  // unconditional +1 so a fast scroller doesn't see the load-more
+  // skeleton on the next hop. We cap at +2 to stay polite to the
+  // encrypted-SQLite reader; the spike doc documents the budget at
+  // `docs/plan/program/browse-virt-spike-2026-05-25.md`.
+  useEffect(() => {
+    if (disabled) return
+    if (!headResults) return
+    if (scrollDirection !== 'down') return
+    if (accumulatedPages <= 1) return
+    const totalPages = headResults.pageCount ?? 0
+    const ahead = accumulatedPages + 2
+    if (ahead > totalPages || ahead <= 1) return
+    if (pageItems.has(ahead) || inflightRef.current.has(ahead)) return
+
+    let cancelled = false
+    inflightRef.current.add(ahead)
+    void backend
+      .queryHistory({ ...query, page: ahead, cursor: null })
+      .then((response) => {
+        if (cancelled) return
+        setPageItems((prev) => {
+          const next = new Map(prev)
+          next.set(ahead, response.items)
+          return next
+        })
+      })
+      .catch(() => {
+        // Background-only prefetch — failures stay silent. The
+        // foreground request will retry through the main effect if
+        // the user keeps scrolling.
+      })
+      .finally(() => {
+        inflightRef.current.delete(ahead)
+      })
+
+    return () => {
+      // Only the opportunistic +2 prefetch is dropped here; the
+      // foreground page still resolves through the main effect above.
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accumulatedPages, disabled, headResults, signature, scrollDirection])
 

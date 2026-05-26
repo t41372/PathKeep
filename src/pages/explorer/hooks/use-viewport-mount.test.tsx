@@ -159,6 +159,42 @@ describe('useViewportMount', () => {
     expect(states[0].inView).toBe(false)
   })
 
+  test('skip=true bypasses the IntersectionObserver entirely and always reports inView=true (review §11)', () => {
+    let observerCount = 0
+    const previousIO = globalThis.IntersectionObserver
+    ;(
+      globalThis as { IntersectionObserver: typeof IntersectionObserver }
+    ).IntersectionObserver = function MockCountingIO() {
+      observerCount += 1
+      // Return a stub that satisfies the interface but isn't actually
+      // used — we're only counting whether it was constructed.
+      return {
+        observe: () => {},
+        unobserve: () => {},
+        disconnect: () => {},
+        takeRecords: () => [],
+        root: null,
+        rootMargin: '',
+        thresholds: [0],
+      } as unknown as IntersectionObserver
+    } as unknown as typeof IntersectionObserver
+
+    const states: ReturnType<typeof useViewportMount>[] = []
+    render(
+      <Harness
+        onState={(s) => states.push(s)}
+        options={{ skip: true, initialInView: false }}
+      />,
+    )
+    expect(observerCount).toBe(0)
+    // Even with `initialInView: false`, skip forces `inView=true` so
+    // the consumer renders content.
+    expect(states[states.length - 1].inView).toBe(true)
+    ;(
+      globalThis as { IntersectionObserver: typeof IntersectionObserver }
+    ).IntersectionObserver = previousIO
+  })
+
   test('no-ops when IntersectionObserver is unavailable, staying at initialInView', () => {
     io.restore()
     const previous = globalThis.IntersectionObserver

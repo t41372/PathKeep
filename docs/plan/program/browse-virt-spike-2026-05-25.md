@@ -88,9 +88,19 @@ With recycling, we can afford more:
 
 ### Page accumulation cap
 
-Bump `MAX_ACCUMULATED_PAGES` from 100 → **1 000** once virtualisation
+Bump `MAX_ACCUMULATED_PAGES` from 100 → **500** once virtualisation
 is in place. The DOM is no longer the limit; the cache cap above
 governs memory.
+
+> **2026-05-25 §3 review follow-up:** initial impl bumped the cap to
+> 1 000 to match the 50 k-entry target, but the code review caught
+> that JS-side aggregation (the `extraItems` memo + the explorer
+> route's `combinedTimeResults` spread + the favicon / og hydration
+> map) is still O(N) per page fetch — at 1 000 pages that's ~150 000
+> array ops per fetch on top of the IPC round-trip. We've settled
+> on **500** as the deep-scroll-vs-aggregation-cost trade-off; going
+> back to 1 000 requires an incremental aggregator (append-on-add
+> rather than rebuild-from-scratch) and is queued as a follow-up.
 
 ## What the implementation must preserve
 

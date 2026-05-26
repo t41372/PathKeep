@@ -123,6 +123,38 @@ describe('useRouteHistoryNav', () => {
     expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
   })
 
+  test('goForward leaves canGoBack=true (review §4 regression — Pop misclassification)', () => {
+    // Pre-fix behaviour: goForward called navigate(1) which react-router
+    // emits as NavigationType.Pop. The effect treated every Pop as a
+    // back step and decremented stackIndex, leaving canGoBack=false
+    // even though the user landed on the forward page with a valid
+    // back target. The navIntent ref tells the effect this Pop came
+    // from goForward so the counter increments instead.
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+      </MemoryRouter>,
+    )
+    // Build history: / → /step (stackIndex=1, canBack=y).
+    act(() => {
+      screen.getByTestId('harness-push').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('y')
+    // Go back to / (stackIndex=0, canBack=n, canForward=y).
+    act(() => {
+      screen.getByTestId('harness-back').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('n')
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('y')
+    // Go forward back to /step. Without the fix this leaves both
+    // arrows disabled; with the fix canGoBack flips back to y.
+    act(() => {
+      screen.getByTestId('harness-forward').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('y')
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+  })
+
   test('goBack is a no-op at history root', () => {
     render(
       <MemoryRouter initialEntries={['/']}>

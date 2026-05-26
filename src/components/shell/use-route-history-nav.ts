@@ -107,6 +107,18 @@ export function useRouteHistoryNav(): RouteHistoryNav {
   // the initial mount (always `Pop` per react-router) would underflow
   // the stack to -1 → 0.
   const lastKeyRef = useRef<string | null>(null)
+  // Intent ring: react-router emits NavigationType.Pop for both
+  // history.go(-1) AND history.go(+1) — there is no way to tell from
+  // navigationType alone whether the Pop came from a back step or a
+  // forward step. goForward writes 'forward' here before calling
+  // navigate(1); the effect reads the intent on the very next Pop
+  // and increments the stack accordingly, then clears the ref. Any
+  // other Pop (browser back button, goBack, in-app `<a>` with
+  // back-relative href) sees an empty intent and falls back to the
+  // back semantics. Code-review §4 regression: the original effect
+  // unconditionally treated Pop as back, so goForward left both
+  // arrows disabled.
+  const navIntentRef = useRef<'forward' | null>(null)
 
   useEffect(() => {
     if (lastKeyRef.current === location.key) return
@@ -133,8 +145,19 @@ export function useRouteHistoryNav(): RouteHistoryNav {
       // behaviour. Otherwise a back-then-link-click would still leave
       // the forward arrow lit.
       setForwardAvailable(false)
+      navIntentRef.current = null
     } else if (navigationType === NavigationType.Pop) {
-      setStackIndex((index) => Math.max(0, index - 1))
+      if (navIntentRef.current === 'forward') {
+        // goForward-triggered Pop: walk DOWN the forward branch,
+        // increment the counter, and leave forwardAvailable cleared
+        // by goForward (no further setState here).
+        navIntentRef.current = null
+        setStackIndex((index) => index + 1)
+      } else {
+        // Browser back / goBack-triggered Pop: walk up the back
+        // branch.
+        setStackIndex((index) => Math.max(0, index - 1))
+      }
     }
     // NavigationType.Replace intentionally does not move the counter —
     // a redirect / canonicalisation should not arm the back button.
@@ -146,12 +169,14 @@ export function useRouteHistoryNav(): RouteHistoryNav {
   const goBack = useCallback(() => {
     if (stackIndex <= 0) return
     setForwardAvailable(true)
+    navIntentRef.current = null
     void navigate(-1)
   }, [navigate, stackIndex])
 
   const goForward = useCallback(() => {
     if (!forwardAvailable) return
     setForwardAvailable(false)
+    navIntentRef.current = 'forward'
     void navigate(1)
   }, [forwardAvailable, navigate])
 

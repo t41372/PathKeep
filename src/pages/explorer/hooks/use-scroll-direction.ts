@@ -72,6 +72,14 @@ export function useScrollDirection(
       const delta = y - lastYRef.current
       lastYRef.current = y
       if (Math.abs(delta) < deltaThresholdPx) {
+        // Sub-threshold delta — treat as a pause. We reset BOTH the
+        // hysteresis counter AND the last-sampled direction to
+        // 'idle' so the next directional intent has to re-build the
+        // streak from scratch. This matches user expectation: if I
+        // stop scrolling, my next gesture is a fresh decision, not a
+        // continuation of whatever I was doing before the pause.
+        // Documented + pinned by the matching test in
+        // use-scroll-direction.test.tsx.
         sameDirCountRef.current = 0
         lastSampledDirRef.current = 'idle'
         return
