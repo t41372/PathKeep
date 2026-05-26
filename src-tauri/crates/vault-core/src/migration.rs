@@ -372,7 +372,23 @@ pub fn apply_import(
         );
     }
 
-    let staging = tempdir().context("creating import staging dir")?;
+    // Stage the bundle under the project's own `app_root` (specifically
+    // the `staging/` subtree that's already in `EXPORT_EXCLUSIONS_DOC`,
+    // so a future export won't accidentally pack a half-extracted bundle
+    // into a new bundle). The previous implementation created the staging
+    // directory under `std::env::temp_dir()` (typically `/tmp`, often on
+    // a different mount), which made the subsequent `fs::rename(staged,
+    // target)` raise `EXDEV` whenever the user's project root lived on a
+    // different filesystem. Worse, the `.bak` rename of the live target
+    // runs *before* the install rename — failure left the live archive
+    // gone (renamed to `.bak-*`) with nothing installed in its place.
+    // Same-filesystem staging removes the cross-device boundary entirely.
+    // Codex review finding C3.
+    let staging_root = paths.app_root.join("staging");
+    fs::create_dir_all(&staging_root)
+        .with_context(|| format!("creating staging root {}", staging_root.display()))?;
+    let staging = tempfile::TempDir::new_in(&staging_root)
+        .with_context(|| format!("creating import staging dir under {}", staging_root.display()))?;
     extract_bundle_into(bundle_path, staging.path(), &preview.manifest)?;
 
     // Atomic-ish swap: rename current subtrees to .bak then move staged in.
@@ -1152,6 +1168,11 @@ mod tests {
 
         let (_dest_dir, dest_paths) = fresh_paths();
         let dest_config = seed_archive(&dest_paths);
+        // After Codex C3, staging lives under `app_root/staging/`. Pre-
+        // create it so the read-only app_root doesn't short-circuit at
+        // staging-dir creation — we want the original file-preserve
+        // rename to be the failing point this test was written for.
+        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
 
         let app_root = dest_paths.app_root.clone();
         let original = fs::metadata(&app_root).unwrap().permissions();
@@ -1227,6 +1248,12 @@ mod tests {
         fs::create_dir_all(dest_paths.archive_database_path.parent().unwrap()).unwrap();
         fs::create_dir_all(&dest_paths.derived_dir).unwrap();
         fs::write(dest_paths.derived_dir.join("sentinel.txt"), b"pre-import").unwrap();
+        // After Codex C3, apply_import stages under `app_root/staging/`.
+        // Pre-create that directory so the read-only app_root permission
+        // doesn't fail at the `fs::create_dir_all(staging_root)` line —
+        // we want the test to still exercise the *dir-preserve* rename
+        // closure that this test was originally written for.
+        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
 
         let app_root = dest_paths.app_root.clone();
         let original = fs::metadata(&app_root).unwrap().permissions();
@@ -1259,26 +1286,24 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn apply_import_propagates_install_rename_errors_across_filesystem_boundaries() {
-        // Covers the install-rename `with_context` closure on the
-        // movable-file loop by forcing the *destination* onto a
-        // different filesystem than the staging tempdir. Linux
-        // `rename(2)` returns `EXDEV` across mounts, and that's exactly
-        // what these closures wrap with operator-friendly context.
+    fn apply_import_succeeds_when_dest_lives_on_different_filesystem_than_default_tempdir() {
+        // Codex review finding C3: the previous implementation staged
+        // imports under `std::env::temp_dir()` (commonly `/tmp`,
+        // tmpfs on most Linux distros). When the user's project root
+        // lived on a different filesystem (USB drive, custom storage,
+        // separate `/home` mount), `fs::rename(staged, target)` raised
+        // `EXDEV` — but only AFTER the live target had already been
+        // renamed to `.bak-*`. The user was left with a "preserved"
+        // backup and nothing installed.
         //
-        // Trick that keeps the suite parallel-safe: instead of
-        // mutating `TMPDIR` (which would leak into every other
-        // tempdir-using test), we explicitly anchor the *dest* tempdir
-        // under `/dev/shm` via `TempDir::new_in`. The production
-        // `apply_import` still uses its own `tempdir()` under the
-        // default temp root (`/tmp`), so the install rename crosses
-        // the tmpfs boundary even though we never touched the env.
-        //
-        // Both target and backup of the preserve step stay under the
-        // dest tempdir → same filesystem → preserve succeeds. Only
-        // the staged → target install rename crosses devices.
+        // The fix moves staging under `paths.app_root.join("staging")`,
+        // which is by definition on the same filesystem as the install
+        // targets. This test pins that contract: a dest anchored on
+        // `/dev/shm` (tmpfs) imports cleanly even though the OS default
+        // tempdir is `/tmp` (also tmpfs but a different mount), because
+        // staging now follows the dest, not the system tempdir.
         let cross_fs_root = std::path::Path::new("/dev/shm");
-        assert!(cross_fs_root.exists(), "this test needs /dev/shm to differ from /tmp");
+        assert!(cross_fs_root.exists(), "this test needs /dev/shm to be writable");
 
         let (src_dir, src_paths) = fresh_paths();
         let config = seed_archive(&src_paths);
@@ -1297,94 +1322,59 @@ mod tests {
             &ApplyImportOptions { confirm_overwrite: true },
         );
 
-        let err = result.expect_err("cross-fs install must surface install-rename error");
-        let message = format!("{err:?}");
-        assert!(message.contains("installing"), "expected install-rename context, got {message}",);
+        let outcome = result.expect("apply_import must succeed when dest is on a different fs than /tmp");
+        assert!(
+            outcome.preserved_previous_as_bak,
+            "the dest had a live archive that must have been preserved as .bak",
+        );
+        assert!(
+            dest_paths.archive_database_path.exists(),
+            "the imported archive must be installed at the canonical target",
+        );
     }
 
     #[cfg(unix)]
     #[test]
-    fn apply_import_propagates_directory_install_rename_errors_across_filesystem_boundaries() {
-        // Twin of the previous test, but tightened so the failure
-        // arises from the *directory* install loop. We strip the
-        // movable-file entries out of the bundle manifest first so
-        // every entry in the file loop is `staged.exists() == false`
-        // and falls through to the directory loop, where the staged
-        // /tmp directory cannot be renamed onto the /dev/shm dest.
-        let cross_fs_root = std::path::Path::new("/dev/shm");
-        assert!(cross_fs_root.exists(), "this test needs /dev/shm to differ from /tmp");
-
+    fn apply_import_staging_dir_lives_under_app_root_not_system_tempdir() {
+        // Direct verification that the staging root for imports is
+        // anchored inside the project's own `app_root`. We can observe
+        // this from the outside by confirming that `staging/` exists
+        // under the dest app_root after a successful import (the
+        // TempDir::new_in target dir is created up-front by
+        // `fs::create_dir_all`). If a future change accidentally
+        // reverted to `tempdir()` (under `std::env::temp_dir()`), this
+        // sentinel directory would never appear under `app_root` and
+        // the cross-fs guarantee would silently regress.
         let (src_dir, src_paths) = fresh_paths();
         let config = seed_archive(&src_paths);
-        let bundle_path = src_dir.path().join("xdev-dir-install.pathkeep");
-        let bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+        let bundle_path = src_dir.path().join("staging-anchor.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
 
-        // Drop every non-derived manifest entry and remove the matching
-        // zip entries so `extract_bundle_into` only stages derived/
-        // contents. The movable-file iterations in apply_import will
-        // skip every step, leaving only the directory install rename
-        // to trip on the cross-device boundary.
-        let mut trimmed_manifest = bundle.manifest.clone();
-        let drop_zip_entries: Vec<String> = trimmed_manifest
-            .files
-            .iter()
-            .filter(|f| !f.path.starts_with("derived/"))
-            .map(|f| f.path.clone())
-            .collect();
-        trimmed_manifest.files.retain(|f| f.path.starts_with("derived/"));
-        remove_zip_entries(&bundle_path, &drop_zip_entries);
-        rewrite_bundle_manifest(&bundle_path, &trimmed_manifest);
-
-        let dest_dir = TempDir::new_in(cross_fs_root).expect("dest on /dev/shm");
-        let dest_paths = project_paths_with_root(dest_dir.path());
+        let (dest_dir, dest_paths) = fresh_paths();
         let dest_config = AppConfig::default();
-        // Pre-create a non-empty derived/ on dest so the preserve step
-        // exercises and successfully renames (both target + backup are
-        // under the dest tempdir → same filesystem). The install rename
-        // is the only one that crosses devices.
-        fs::create_dir_all(&dest_paths.derived_dir).unwrap();
-        fs::write(dest_paths.derived_dir.join("sentinel.txt"), b"pre-import").unwrap();
-
-        let result = apply_import(
+        apply_import(
             &dest_paths,
             &dest_config,
             None,
             &bundle_path,
             &ApplyImportOptions { confirm_overwrite: false },
-        );
+        )
+        .expect("import must succeed on a fresh dest");
 
-        let err = result.expect_err("cross-fs directory install must surface install-rename error");
-        let message = format!("{err:?}");
+        let staging_root = dest_paths.app_root.join("staging");
         assert!(
-            message.contains("installing") && message.contains("derived"),
-            "expected derived-install context, got {message}",
+            staging_root.exists(),
+            "staging root {} must be created inside app_root, not under the system tempdir",
+            staging_root.display(),
         );
+        // The actual TempDir sub-directory inside staging/ is cleaned
+        // up on RAII drop at the end of apply_import — its absence is
+        // expected. The `staging/` parent stays because we created it
+        // with `fs::create_dir_all` and it's the documented import
+        // workspace location (see EXPORT_EXCLUSIONS_DOC).
+        let _ = dest_dir;
     }
 
-    fn remove_zip_entries(bundle_path: &Path, drop: &[String]) {
-        // zip-rs has no in-place delete API; rewrite the archive,
-        // keeping every entry whose name is not in `drop`.
-        let original = fs::read(bundle_path).unwrap();
-        let cursor = std::io::Cursor::new(original);
-        let mut reader = ZipArchive::new(cursor).unwrap();
-        let target = File::create(bundle_path).unwrap();
-        let mut writer = ZipWriter::new(target);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        let names: Vec<String> =
-            (0..reader.len()).map(|i| reader.by_index(i).unwrap().name().to_string()).collect();
-        let drop_set: std::collections::HashSet<&str> = drop.iter().map(String::as_str).collect();
-        for name in &names {
-            if drop_set.contains(name.as_str()) {
-                continue;
-            }
-            let mut entry = reader.by_name(name).unwrap();
-            let mut buf = Vec::new();
-            entry.read_to_end(&mut buf).unwrap();
-            writer.start_file(name, options).unwrap();
-            writer.write_all(&buf).unwrap();
-        }
-        writer.finish().unwrap();
-    }
     #[test]
     fn validate_bundle_relative_path_accepts_a_normal_relative_path() {
         let normalized = validate_bundle_relative_path("archive/history-vault.sqlite").unwrap();
