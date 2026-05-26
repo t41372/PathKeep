@@ -1600,3 +1600,53 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
 - 598 vault-core tests pass (24 dedup scenarios across 3 modules).
 - Rust coverage: 100% (34,423 lines / 1,611 functions).
 - `cargo fmt --all` clean.
+
+### WORK-IMPORT-TEST-REMAINING-A (partial) — Time boundaries + Takeout ptoken/visitedAt coverage
+
+> 2026-05-25 · commit 30febcab · `feat/import-data-integrity-tests`
+
+Fills the remaining "easy" gaps identified in the WORK-IMPORT-TEST-REMAINING-A
+audit checklist. All items that don't require new infra (transaction-abort
+hooks, million-record fixtures) are now covered.
+
+#### New tests
+
+1. **`dedup_scenarios_edge_cases.rs`** (+162 lines → 895 total) — 4 tests:
+   - **E1**: Epoch timestamp (visit_time_ms = 0) stores and round-trips as 0.
+   - **E2**: Year-2038 boundary (2,147,483,647,000 ms) round-trips correctly.
+   - **E3**: Far-future timestamp (year 9999) stores without overflow.
+   - **E4**: Negative timestamp from source DB clamped to 0 by all parsers.
+
+2. **`browser-history-fixtures/src/takeout/mod.rs`** (+26 lines → 248 total):
+   - Added `ptoken: Option<String>` field with serialization + unit test.
+
+3. **`browser-history-fixtures/tests/takeout_roundtrip.rs`** (+74 lines → 311 total) — 3 additions:
+   - ptoken evidence assertion in existing standard roundtrip test.
+   - **`takeout_visited_at_iso_string_parsed_correctly`**: hand-crafted JSON
+     with `visitedAt` RFC-3339 strings verifies the parser's ISO fallback path.
+   - **`takeout_record_without_time_field_is_skipped`**: record without any time
+     field silently dropped; only time-bearing records produce URL + visit rows.
+
+4. **`dedup_scenarios.rs`** (+1 line) — fix compilation: `ptoken: None` added
+   to `takeout_record` helper after fixture API change.
+
+#### Doc updates
+
+- `import-dedup-audit.md` §6: 7 new scenarios added to contract table
+  (E1-E4, Takeout ptoken/visitedAt/missing-time).
+
+#### Remaining gaps (still in BACKLOG)
+
+- **`dedup_scenarios.rs` maintainability refactor** (1274 lines, >1200 threshold):
+  review phase complete (split proposal documented), execution phase not started.
+- **R2/R3**: Crash rollback / batch revert — still needs transaction-abort
+  test infrastructure.
+- **B5 / T4**: Takeout hash collision at scale — still needs million-record
+  fixture infra.
+
+#### Verification
+
+- 602 vault-core tests pass (28 dedup scenarios across 3 modules).
+- 9 fixture crate tests pass (5 integration + 4 unit).
+- Rust coverage: 100% (34,535 lines / 1,611 functions).
+- `cargo fmt --all` clean.
