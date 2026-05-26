@@ -77,8 +77,9 @@
   - 讀先：
     `docs/plan/program/import-dedup-audit.md`
     `docs/plan/program/import-test-harness-spec.md`
-    `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs` (1278 lines — >1200 threshold)
-  - 目標：(1) `dedup_scenarios.rs` 維護性審查（1278 行，超過 1200 行 threshold，考慮按 browser family 拆分 helper/scenario module）；(2) 補全 MEDIUM audit items：Takeout ptoken field fixture + assertion、Takeout visitedAt ISO format fixture、URL canonicalization contract scenarios (E6 fragment/trailing-slash)、sub-millisecond Chrome visit collision (C_SUB_MS)。
+    `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs` (1273 lines — >1200 threshold)
+  - 已完成（25801b35）：E6 URL canonicalization、C_SUB_MS sub-ms collision、Empty DB×3、R1 corrupt DB、F_C2/S_C2 incremental no-new-data — 見 `dedup_scenarios_edge_cases.rs` + `dedup_scenarios_baselines.rs`。
+  - 剩餘：(1) `dedup_scenarios.rs` 維護性審查（1273 行，考慮按 browser family 拆分 helper/scenario module）；(2) Takeout ptoken field fixture + assertion；(3) Takeout visitedAt ISO format fixture；(4) R2/R3 crash rollback/batch revert（需 transaction-abort test infra）；(5) E1-E4 time boundary edge cases。
   - 契約：不修 product code；maintainability review 不改 behavior。
 
 - [!] **WORK-IMPORT-SCALE-TEST-A** — B5 Takeout `stable_key_i64` Collision At Scale [!blocked: needs million-record fixture infrastructure + benchmark tooling]
