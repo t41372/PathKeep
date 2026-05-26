@@ -42,6 +42,28 @@ WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1
    OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)
 ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
 "#;
+
+/// First-import URL ingest query. When both watermarks are at zero, the
+/// `last_visit_date >= 0` predicate already matches every moz_places row,
+/// so the OR's `SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > 0`
+/// subquery is pure waste — it forces SQLite to scan the entire
+/// `moz_historyvisits` table and materialize an ephemeral B-tree of every
+/// distinct place_id before the outer filter runs. On a 14.4M-visit Firefox
+/// profile that's a multi-GB transient plus multi-minute stall added to
+/// the very first import. Mirrors the Chromium `INGEST_URLS_FULL_SQL`
+/// optimization — stripping the OR removes the hazard without losing any
+/// rows.
+const URLS_FULL_SQL: &str = r#"
+SELECT
+  moz_places.id,
+  moz_places.url,
+  moz_places.title,
+  moz_places.visit_count,
+  COALESCE(moz_places.hidden, 0),
+  COALESCE(moz_places.last_visit_date, 0)
+FROM moz_places
+ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
+"#;
 const VISITS_SQL: &str = r#"
 SELECT
   moz_historyvisits.id,
@@ -191,13 +213,25 @@ where
     let mut source_evidence_chunk = SourceEvidenceChunk::default();
 
     {
-        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
+        // First-import branch: when both watermarks are zero, the OR
+        // subquery in URLS_SQL is wasted work over potentially millions
+        // of moz_historyvisits rows. Use URLS_FULL_SQL (no OR clause,
+        // no bound params) to skip the materialization. Matches the
+        // Chromium pattern at `chromium/mod.rs:383-384`.
+        let first_import = after_visit_id == 0 && after_url_last_visit_ms == 0;
+        let sql = if first_import { URLS_FULL_SQL } else { URLS_SQL };
+        let mut statement = stream_sql(connection.prepare(sql))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows = stream_sql(
-            statement
-                .query(params![unix_ms_to_firefox_time(after_url_last_visit_ms), after_visit_id]),
-        )?;
+        let mut rows =
+            if first_import {
+                stream_sql(statement.query([]))?
+            } else {
+                stream_sql(statement.query(params![
+                    unix_ms_to_firefox_time(after_url_last_visit_ms),
+                    after_visit_id
+                ]))?
+            };
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             batch.push(stream_sql(parsed_url_from_row(row))?);
