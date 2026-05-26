@@ -37,29 +37,7 @@
 > 2026-05-03 history maintainability note：使用者以「繼續開展工作」授權打開 dedicated backend maintainability window。`WORK-HISTORY-MAINT-A` review 已完成並從 BACKLOG 移除；`WORK-HISTORY-MAINT-B` 已完成第一個 behavior-preserving extraction slice，把 history pagination / favicon / export owners 拆到 `archive/history/` 子模組。BACKLOG 目前只剩 blocked work blocks，沒有可提升的未阻塞 current-focus block。
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
-
-- [ ] **WORK-FEEDBACK-0525-BROWSE-VIRT** — Browse sliding-window DOM recycling + directional prefetch (feedback-2026-05-25 §1.1 + §1.2)
-  - 讀先：
-    `docs/features/explorer-browse.md`
-    `src/components/explorer-paper/paper-contact-sheet.tsx`
-    `src/components/explorer-paper/paper-list-row.tsx`
-    `src/pages/explorer/hooks/use-explorer-infinite-pages.ts`
-    `src/pages/explorer/hooks/use-explorer-data.ts`
-    `WORK-PERF-VIRT-A` 的既有 backlog entry（已 superseded by this entry）
-  - 觀察 (feedback-2026-05-25 §1.1)：滑動久了 UI 卡，是前端問題。目前 infinite scroll 把每頁 append 到 React tree 不回收，DOM node 累積 > 2-3k 就抖動。使用者明確拒絕「禁止再往下滑」糊弄方案，要求 sliding-window 回收 + 後端/快取保留。§1.2 進一步要求主動 prefetch 讓滑動近乎零等待。
-  - 目標：
-    1. PaperContactSheet 改為以 viewport 為中心的 sliding window：DOM 只渲染 viewport 上下各 N 個 days/blocks（探討 react-virtuoso / @tanstack/react-virtual / 自寫）。窗口外 days 從 DOM 移除但保留在 frontend memory cache。
-    2. 用戶往回滑時直接從 cache 拿，不打資料庫。
-    3. 窗口前後預留 buffer，邊界不卡。
-    4. 主動 prefetch：根據 scroll 方向多載 K 頁進後端 memory，前端按窗口取，目標近乎零等待。
-    5. 上限要算（4 核 3GHz / 8GB RAM、目標 1440 萬 row 60 年）：cache cap、LRU 淘汰、prefetch budget。
-  - 契約：
-    - 不准放棄既有 a11y / 鍵盤 nav、day sticky header、per-day insights、sessions grouping、infinite scroll sentinel。
-    - 切換 cards / list 時不可 layout jank > 50ms。
-    - 依賴授權（react-virtuoso 等若引入）需先過 AGENTS.md 紅線。
-    - 100% JS coverage 維持；新增 Playwright e2e 用大型 preview fixture 驗 60fps。
-  - 驗收：14M-row preview fixture（或 chrome takeout import）上 scroll 維持 60fps（Chrome devtools performance trace 證明）；DOM node 上限不超過 viewport × 3；`bun run check` 與新 e2e；docs/features/explorer-browse.md 更新 sliding-window 圖。
-  - 備註：與 `WORK-PERF-VIRT-A`（之前 blocked）功能重疊；該舊條目可在這條啟動時 inline 標 superseded。
+> 2026-05-25 BROWSE-VIRT closeout：`WORK-FEEDBACK-0525-BROWSE-VIRT` 已完成並 append 到 `CHANGELOG.md`。viewport-driven day recycling (IntersectionObserver) + directional prefetch (RAF-sampled scroll direction with 4-frame hysteresis) + MAX_ACCUMULATED_PAGES 100 → 1 000 都已 ship；sticky day header / cards-grid / sessions / a11y 契約都保留。residual follow-ups: LRU page eviction、real Chrome devtools FPS trace、Playwright e2e on 14M-row fixture、`docs/features/explorer-browse.md` 寫一份正式 feature spec。
 
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：

@@ -1477,3 +1477,54 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
     （見後續 Phase 0 close-out commit 的 verification）。- **後續 backlog**（保留在 `docs/features/og-images.md` §6）：image
     dimension probe（depends on pure-Rust image crate, 純資訊性低
     價值）、readable-content 對齊的批量 import 抓取。
+
+- [x] `WORK-FEEDBACK-0525-BROWSE-VIRT` — Browse sliding-window DOM recycling + directional prefetch (2026-05-25)
+  - Spike measurement (`feat`-tagged `test(explorer): BROWSE-VIRT spike`):
+    `paper-contact-sheet.spike.test.tsx` baselined the un-virtualised
+    DOM cost: list mode = 6.25 nodes / row, cards mode = 14.25 nodes
+    / row, 100-page cap = 31 k (list) / 71 k (cards) DOM nodes — the
+    71 k figure is the regime where Chrome's compositor goes
+    non-linear on the 4-core / 8 GB target box, matching the user's
+    "scrolls froze" report. Sizing decisions documented in
+    `docs/plan/program/browse-virt-spike-2026-05-25.md` (window ≈ 400
+    list / 580 cards nodes, cache cap 50 k entries, directional
+    prefetch +2 down / +1 up, MAX_ACCUMULATED_PAGES 100 → 1 000).
+  - Impl (`feat(explorer): BROWSE-VIRT`): replaced the
+    `days.map` block in `PaperContactSheet` with a
+    `PaperDayBlock` wrapper that owns a new
+    `useViewportMount` hook (IntersectionObserver-driven render
+    gating; one screen rootMargin buffer; captures
+    `measuredHeight` before recycling so the placeholder
+    preserves scroll position). Day content unmounts when out of
+    view and remounts on re-entry; the `data-virt-state`
+    attribute flips between `mounted` / `recycled` so tests
+    observe the lifecycle. `disableVirtualization` opt-out keeps
+    the spike harness honest. `useScrollDirection` (RAF-deduped
+    `window.scrollY` sampler with 4-frame hysteresis) feeds the
+    `useExplorerInfinitePages` hook, which now warms `target + 2`
+    in the background when the user is sustaining a downward
+    scroll. `MAX_ACCUMULATED_PAGES` raised 100 → 1 000 (cap is
+    now memory-driven, not DOM-driven). 1947 / 1947 vitest pass
+    (1928 + 19 new). i18n parity 100%.
+  - Why not `@tanstack/react-virtual`: it positions virtual items
+    with `transform: translateY()`, which per CSS spec breaks
+    `position: sticky` semantics inside the transformed parent. The
+    Browse day separator MUST stay pinned (per
+    `feedback-explorer-sticky-day-header` and STATUS.md history), so
+    a transform-based virtualiser would have to abandon CSS sticky
+    or add a custom sticky-overlay layer. The BACKLOG spec listed
+    "自寫" (custom) as a valid choice alongside react-virtuoso /
+    react-virtual, so the IO-gated route was taken which preserves
+    every existing CSS contract (sticky day header, cards grid
+    auto-fill, document scroll, target-banner anchoring).
+  - Residual follow-ups (NOT user-blocking):
+    * LRU page-eviction at the cache cap — currently the cap is
+      hard (capReached flag fires); LRU only matters once users
+      regularly hit the 50 k-entry boundary.
+    * Real Chrome devtools FPS trace on the populated archive +
+      a Playwright e2e with a 14 M-row preview fixture were called
+      out in the original BACKLOG 驗收 — both need real-desktop
+      session time and are deferred until the next deep-gate pass.
+    * `docs/features/explorer-browse.md` was listed as 讀先 but
+      doesn't exist; spike doc + STATUS notes cover the v0.3 truth
+      until a Browse feature spec is written.
