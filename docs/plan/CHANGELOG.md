@@ -1824,3 +1824,136 @@ flagged as "do later":
 
 4. **WORK-IMPORT-TEST-CONCURRENCY-A** — Audit + integration test for
    same-profile concurrent ingest safety (audit §4 watermark race).
+
+### Code review against feat/v0.3-redesign-2 — 10 fixes applied
+
+> 2026-05-26 · commits 6587865d / b377f394 / 4992769a / cafac470 / b4e77f7f / 25c90253 / 014db312 · `feat/import-data-integrity-tests`
+
+A max-effort code review (5 finder angles × 8 candidates, then 1-vote
+verification + gap sweep) against the merge-target branch surfaced 15
+findings. Of these, 10 were verified valid with a worthwhile trade-off
+and were fixed before merge; the remaining 5 were design trade-offs
+(MAX visit_count semantics — the B1 fix was intentional) or already
+documented contracts that didn't need behavior change.
+
+#### Correctness fixes
+
+1. **B1 still live in two Takeout code paths** (commit 6587865d) —
+   `vault-core/src/takeout/browser_history.rs` and
+   `vault-core/src/takeout/payload_import.rs` URL upserts unconditionally
+   overwrote `title` / `hidden` from the latest record. The original B1
+   fix (commit 6884c10d) only touched `archive/ingest/writes.rs`.
+   Mirrored the same CASE-WHEN gates plus `MAX(visit_count)` / `MAX(typed_count)`.
+   `payload_import.rs` also had `visit_count` / `typed_count` missing
+   from the UPDATE clause entirely (INSERT VALUES hardcoded `1, 0`),
+   so Takeout URLs stayed frozen at the first import's count — fixed.
+
+2. **B1 `>=` tie-break clobbered title with NULL at equal timestamps**
+   (commit 6587865d) — `writes.rs` upsert used `excluded.last_visit_ms >=
+urls.last_visit_ms` for title / hidden, which silently overwrote
+   captured non-NULL title with NULL whenever last_visit_ms tied.
+   Firefox bookmark-only URLs (last_visit_date IS NULL → 0) tripped this
+   on every re-import. Tightened to `>`; added `url` and `payload_hash`
+   and `recorded_at` to the same strict-newer gate.
+
+3. **`track_url_visit_bounds` widened bounds from dropped visits**
+   (commit 6587865d) — `ingest/mod.rs:183` called the bounds tracker
+   unconditionally after `insert_visit`. When INSERT OR IGNORE silently
+   dropped a visit (clock-corrected re-import), `urls.first_visit_ms` /
+   `last_visit_ms` widened from a row that was never stored, leaving
+   the canonical URL claiming bounds with no matching visit. Gated on
+   `inserted > 0`.
+
+4. **B3 ordinal-tiebreaker for Takeout source_visit_id** (commit b377f394)
+   — The B3 fix changed `source_visit_id` to `{url}:{visit_time_micros}`
+   for cross-path stability but lost per-record uniqueness. Multiple
+   Takeout records at the same URL+microsecond collided on the
+   `(source_profile_id, source_visit_id)` UNIQUE index. Restored the
+   `ordinal` parameter as a tiebreaker — Google's Takeout JSON is a
+   deterministic export so ordinals are stable across re-imports.
+
+5. **`stable_key_i64` could return negative for `i64::MIN` input**
+   (commit b377f394) — `.abs()` on `i64::MIN` returns `i64::MIN` (no
+   positive representation) and panics in debug builds. Added explicit
+   corner-case branch mapping `i64::MIN → i64::MAX`. Smoke test pins
+   non-negativity across assorted inputs.
+
+6. **og:image Bilibili API memory DoS** (commits cafac470 / 014db312)
+   — `resolve_image_url_via_api_with_base` called `response.bytes()`
+   then checked size, so a multi-GB hostile/MITM response OOM-killed
+   the worker before the 64 KiB cap could fire. Now: Content-Length
+   fast-path + generic `read_with_cap<R: Read>` streaming helper that
+   aborts at the cap. Refactored the helper to take `R: Read` so the
+   cap-exceeded and read-error branches are unit-testable without
+   standing up a chunked-encoding mockito server.
+
+7. **Browser-back stranded canGoForward** (commit b4e77f7f) — the Pop
+   branch of `use-route-history-nav.ts` only decremented stackIndex,
+   so browser-back (which bypasses the in-app `goBack` callback) left
+   the topbar forward chevron disabled even though forward navigation
+   was available. Added `expectingForwardPopRef` to distinguish
+   goForward-initiated Pops from external Pops; external Pops now set
+   `forwardAvailable=true`.
+
+#### Performance
+
+8. **Firefox first-import OR-subquery O(N×M) regression** (commit 4992769a)
+   — B2 fix added `OR id IN (SELECT DISTINCT place_id FROM moz_historyvisits ...)`
+   to Firefox URLS_SQL. On the AGENTS.md target ceiling (14.4M visits,
+   first import with watermarks=0), SQLite still materializes the full
+   DISTINCT subquery even though the first predicate matches every row.
+   Added `URLS_FULL_SQL` + `first_import` branch matching the Chromium
+   pattern at `chromium/mod.rs:383-384`.
+
+#### Test/doc hygiene
+
+9. **Watermark assertions strengthened in C2 / C5 / X3** (commit 6587865d)
+   — the new scenarios asserted row counts that the fingerprint partial
+   index satisfies whether the watermark works or not. Added direct
+   `profile_watermarks.last_visit_id` assertions so a watermark
+   regression (cross-profile bleed, lost cursor advance) fails the test
+   immediately instead of silently passing through the canonical-layer
+   dedup.
+
+10. **Misleading comments + unused dep** (commits 25c90253 / 6587865d) —
+    `writes.rs` fingerprint comment claimed "Takeout dedup relies on
+    fingerprints matching Chromium's"; actual Takeout flows use
+    different source_kind and time encoding, so this contract didn't
+    exist. Rewrote to describe the real per-source-profile scoping.
+    F2 doc comment in `dedup_scenarios_baselines.rs` still claimed the
+    Firefox OR fallback was missing and the test was `#[should_panic]`;
+    both untrue since 6884c10d. `chrono` dep declared in fixtures
+    `Cargo.toml` but unused — removed plus updated lib.rs doc comment.
+    Fixture `chrome_time_to_unix_ms` aligned with production's `.max(0)`
+    clamp.
+
+#### New regression tests added
+
+- **C7** (`c7_tied_last_visit_ms_does_not_overwrite_title_hidden_or_payload_hash`)
+- **T6** (`t6_takeout_payload_import_url_upsert_protects_against_older_snapshot_regression`)
+- **T7** (`t7_takeout_same_url_same_microsecond_records_land_as_distinct_visits`)
+- **stable_key_tests** module (smoke test for non-negativity)
+- **og:image** read_with_cap × 3 (under-cap success, cap-exceeded, read-error)
+- **use-route-history-nav** browser-back-enables-forward
+- **fixture time.rs** pre-Unix-epoch chrome time clamps to 0
+
+#### Verification
+
+- 616 vault-core tests pass (was 609 → 616 with C7/T6/T7).
+- 46 browser-history-parser tests pass (stable_key_tests added).
+- 41 vault-core og_images_synth tests pass.
+- 15 use-route-history-nav tests pass.
+- Rust coverage 100% (35,184 instrumented lines / 1,630 functions).
+- `cargo fmt --all` clean.
+- `bun run check:base` green.
+- Full `bun run check` (incl. e2e + mutation) pending verification.
+
+#### Findings not actioned
+
+- **MAX(visit_count) prevents Chrome history-clear from reducing counts**
+  — flagged as a possible behavior surprise but the B1 audit explicitly
+  prioritized "never lose visit_count". This is a documented product
+  trade-off; no change.
+- Other findings were either already-documented contracts (T5 B6
+  fingerprint open question) or no-ops once the misleading comments
+  were corrected.
