@@ -714,6 +714,130 @@ fn c5_chromium_incremental_append_new_urls_and_visits() {
 }
 
 // ----------------------------------------------------------------------
+// C6: Chromium source DB schema tolerance — extra columns must not break ingest
+// ----------------------------------------------------------------------
+
+/// C6 — Chrome's `History` schema grows over time (real Chrome adds
+/// columns like `favicon_id` on `urls`, plus `segment_id`,
+/// `opener_visit`, and the `originator_*` sync metadata fields on
+/// `visits`). PathKeep's parser uses **explicit column lists** in
+/// SELECTs (see `INGEST_URLS_SQL`, `INGEST_VISITS_SQL`), so extra
+/// columns in the source DB must be silently tolerated. This scenario
+/// pins that contract: a fixture DB with `ALTER TABLE`-added columns
+/// must import without error and produce identical canonical rows.
+///
+/// If a future refactor switches to `SELECT *` or otherwise becomes
+/// column-count-sensitive, this test fails immediately. This is the
+/// §5.1 "re-import after schema migration in the source DB" contract.
+#[test]
+fn c6_chromium_extra_columns_on_source_db_do_not_break_ingest() {
+    let env = ScenarioEnv::new();
+
+    let day_one_ms = 1_777_680_000_000_i64;
+    let day_two_ms = 1_777_809_600_000_i64;
+
+    let fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/schema-tolerant".to_string(),
+            title: Some("Schema Tolerant".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_one_ms,
+            hidden: false,
+        })
+        .add_url(ChromiumUrlRow {
+            id: 2,
+            url: "https://example.com/schema-tolerant-two".to_string(),
+            title: Some("Schema Tolerant Two".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: day_two_ms,
+            hidden: false,
+        })
+        .add_visit(visit_row(10, 1, day_one_ms))
+        .add_visit(visit_row(11, 2, day_two_ms));
+
+    let temp_dir = tempdir().expect("snapshot tempdir");
+    let history_path = temp_dir.path().join("History");
+    fixture.write(&history_path).expect("write chromium fixture");
+
+    // Simulate Chrome adding new columns in a later release. The
+    // PathKeep parser must continue to project only the columns it
+    // explicitly names; the extras must be ignored entirely.
+    {
+        let connection = Connection::open(&history_path).expect("open fixture for ALTER");
+        // Real Chrome additions over time:
+        connection
+            .execute("ALTER TABLE urls ADD COLUMN favicon_id INTEGER", [])
+            .expect("add favicon_id");
+        connection
+            .execute("ALTER TABLE visits ADD COLUMN segment_id INTEGER", [])
+            .expect("add segment_id");
+        connection
+            .execute("ALTER TABLE visits ADD COLUMN opener_visit INTEGER", [])
+            .expect("add opener_visit");
+        connection
+            .execute("ALTER TABLE visits ADD COLUMN originator_cache_guid TEXT", [])
+            .expect("add originator_cache_guid");
+        // Populate the new columns with synthetic data so the schema isn't
+        // just a NULL column suffix — proves the parser truly ignores them.
+        connection
+            .execute("UPDATE urls SET favicon_id = 42 WHERE id = 1", [])
+            .expect("populate favicon_id");
+        connection
+            .execute(
+                "UPDATE visits SET segment_id = 7, opener_visit = 0, originator_cache_guid = 'synthetic-originator' WHERE id = 10",
+                [],
+            )
+            .expect("populate visit extras");
+    }
+
+    let history_bytes = std::fs::metadata(&history_path).map(|meta| meta.len()).unwrap_or(0);
+    let mut profile = chromium_profile("chrome:Default", "Google Chrome");
+    profile.history_bytes = history_bytes;
+    let snapshot = ProfileSnapshot {
+        profile,
+        temp_dir,
+        history_path,
+        favicons_path: None,
+        source_hashes: vec![FileFingerprint {
+            path: "History".to_string(),
+            sha256: "synthetic-fixture-hash".to_string(),
+        }],
+    };
+
+    let summary = run_one_ingest(&env, 1, &snapshot, false);
+
+    // The extra columns must be silently ignored — canonical row counts
+    // must match what a normal fixture without ALTER TABLE produces.
+    assert_eq!(
+        summary.new_urls, 2,
+        "schema-tolerance: URL count must match minimal-schema fixture"
+    );
+    assert_eq!(
+        summary.new_visits, 2,
+        "schema-tolerance: visit count must match minimal-schema fixture"
+    );
+    assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 2);
+    assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 2);
+
+    // Spot-check that the columns the parser DOES project still landed.
+    let archive = env.open_archive();
+    let title: Option<String> = archive
+        .query_row(
+            "SELECT title FROM urls
+             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
+             WHERE source_profiles.profile_key = 'chrome:Default'
+               AND urls.source_url_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query url title after ALTER");
+    assert_eq!(title.as_deref(), Some("Schema Tolerant"));
+}
+
+// ----------------------------------------------------------------------
 // C4: URL upsert must not regress metadata on re-import (B1 — FIXED)
 // ----------------------------------------------------------------------
 
