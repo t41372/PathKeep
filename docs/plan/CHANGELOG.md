@@ -1515,3 +1515,40 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
     - **Verification**: `bun run check` green (format + lint + typecheck +
       i18n + unit tests + coverage + build + e2e + desktop-bridge truth +
       desktop-contract mutation).
+
+- [x] **WORK-IMPORT-TEST-HARNESS-A (follow-up)** — Bug Fixes + SQLite-Level Audit Hardening
+  - 2026-05-25 closeout: B1/B2/B3 ingest dedup bugs fixed, 22-finding audit
+    implemented with 13 new Rust tests.
+  - **Bug fixes** (commit 6884c10d):
+    - B1: URL upsert now uses `MAX()` for visit_count/typed_count and
+      `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for title/hidden.
+    - B2: Firefox URL stream gets the same OR-fallback clause Chromium uses
+      (`OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)`).
+    - B3: Takeout `source_visit_id` now derived from `url:visit_time_micros`
+      instead of `source_path:ordinal:url`.
+    - C4/F2/T2b flipped from `#[should_panic]` to plain `#[test]`.
+  - **Audit hardening** (commit 3b7c14f7):
+    - Round-trip tests: Safari extra-column assertions (typed_evidence for
+      load_successful/synthesized/redirect/score), Firefox full-field assertions
+      (typed_count, visit_duration_ms, is_known_to_sync, etc.), Takeout
+      client_id/favicon_url/page_transition context evidence assertions.
+    - New baseline scenarios: F1 (Firefox) and S1 (Safari) happy-path imports
+      in `dedup_scenarios_baselines.rs` (646 lines).
+    - Chromium fingerprint dedup scenario: re-import with different
+      source_visit_ids asserts event_fingerprint partial index catches dupes.
+    - Edge cases: CJK URL/title round-trip, Safari pre-1970 timestamp clamping
+      (lossy `.max(0)` behaviour documented), Firefox NULL visit_count/last_visit_date.
+    - C4 expanded: third import pass with strictly older last_visit_ms verifying
+      title/hidden don't regress.
+    - writes.rs: fingerprint source_kind contract test, url_bounds no-change test.
+    - Audit doc updated: B1/B2/B3 marked FIXED, F1/S1/fingerprint-dedup added.
+  - **Not done (deferred to BACKLOG)**:
+    - Takeout `ptoken` field fixture + assertion.
+    - Takeout `visitedAt` ISO format fixture.
+    - E-series URL canonicalization scenarios (E6 fragment/trailing-slash).
+    - C_SUB_MS sub-millisecond Chrome visit collision scenario.
+    - `dedup_scenarios.rs` maintainability review (1278 lines, >1200 threshold).
+  - **Verification**: Rust 100% (33,956 lines / 1,604 functions), JS 99%+
+    (99.05/98.01/99.54/99.53), 787 Rust + 1906 JS tests pass. `bun run check`
+    green except pre-existing flaky desktop-bridge e2e (`socket hang up` on
+    `run_backup_now` — verified same failure on clean tree).
