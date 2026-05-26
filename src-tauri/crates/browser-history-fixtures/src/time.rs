@@ -23,10 +23,17 @@ pub fn unix_ms_to_chrome_time(unix_ms: i64) -> i64 {
 
 /// Converts Chrome microseconds-since-1601 back into Unix milliseconds.
 ///
-/// The inverse of [`unix_ms_to_chrome_time`]; used by round-trip tests to
-/// assert the fixture writer and the production parser agree on the epoch.
+/// The inverse of [`unix_ms_to_chrome_time`] for positive Unix timestamps;
+/// used by round-trip tests to assert the fixture writer and the production
+/// parser agree on the epoch.
+///
+/// Mirrors the production parser's `.max(0)` clamp at
+/// `browser-history-parser/src/chromium/mod.rs:290` so any pre-1970 chrome
+/// timestamp (negative-after-offset-subtraction) lands as 0 — keeping
+/// fixture-side verification helpers aligned with how production stores
+/// the value, even though the inverse is no longer total across i64.
 pub fn chrome_time_to_unix_ms(chrome_micros: i64) -> i64 {
-    chrome_micros.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS).div_euclid(1_000)
+    chrome_micros.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS).div_euclid(1_000).max(0)
 }
 
 #[cfg(test)]
@@ -51,5 +58,15 @@ mod tests {
         let absurd = i64::MAX / 1_000;
         let chrome = unix_ms_to_chrome_time(absurd);
         assert_eq!(chrome, i64::MAX);
+    }
+
+    #[test]
+    fn pre_unix_epoch_chrome_time_clamps_to_zero() {
+        // chrome_micros = 0 represents the Windows NT epoch (1601-01-01),
+        // which is well before the Unix epoch. Production parser clamps
+        // such values to 0; the fixture-side inverse helper must do the
+        // same so verification helpers agree with archived state.
+        assert_eq!(chrome_time_to_unix_ms(0), 0);
+        assert_eq!(chrome_time_to_unix_ms(CHROME_UNIX_EPOCH_OFFSET_MICROS - 1), 0);
     }
 }

@@ -9,7 +9,6 @@ description = "Deterministic test fixtures for browser-history-parser and vault-
 path = "src/lib.rs"
 
 [dependencies]
-chrono.workspace = true
 rusqlite.workspace = true
 
 [dev-dependencies]

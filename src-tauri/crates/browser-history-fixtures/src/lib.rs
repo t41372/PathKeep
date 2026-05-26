@@ -20,7 +20,10 @@
 //! ## Dependencies
 //! - `rusqlite` (bundled SQLCipher build inherited from the workspace) for
 //!   writing real History databases.
-//! - `chrono` for time-zone-safe epoch conversions.
+//! - Epoch conversions are implemented in `time.rs` with plain integer
+//!   arithmetic — no `chrono` dependency. The constants are pinned to
+//!   `vault_core::utils::CHROME_UNIX_EPOCH_OFFSET_MICROS` and verified
+//!   by round-trip tests against the production parser.
 //!
 //! ## Performance notes
 //! - Fixture writes use a single transaction per database; bulk-loading a

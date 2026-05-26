@@ -501,7 +501,6 @@ name = "browser-history-fixtures"
 version = "0.1.0"
 dependencies = [
  "browser-history-parser",
- "chrono",
  "rusqlite",
  "tempfile",
 ]

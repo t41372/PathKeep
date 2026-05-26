@@ -809,15 +809,16 @@ fn s_c2_safari_incremental_no_new_data() {
 // F2: Firefox incremental revisit of an old URL drops the new visit (B2)
 // ----------------------------------------------------------------------
 
-/// F2 — Firefox equivalent of C3. The Chromium parser's
-/// `INGEST_URLS_SQL` has an `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
-/// fallback to catch URLs whose `last_visit_time` is below the watermark
-/// but which received a new visit anyway. The Firefox parser at
-/// `firefox/mod.rs:22-33` lacks that fallback: its URL stream uses
-/// `WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1` only. A
-/// long-tail revisit therefore falls through `url_id_map` and is
-/// silently dropped by `ArchiveChunkConsumer::visits`. `#[should_panic]`
-/// today; flip to plain `#[test]` after Firefox grows the OR fallback.
+/// F2 — Firefox equivalent of C3, regression test for audit bug B2.
+/// The Chromium parser's `INGEST_URLS_SQL` has an
+/// `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` fallback
+/// to catch URLs whose `last_visit_time` is below the URL watermark but
+/// which received a new visit anyway. Firefox grew the equivalent OR
+/// fallback in `firefox/mod.rs:32-44` as part of the B2 fix (commit
+/// 6884c10d); this scenario pins that fix in place. If the Firefox
+/// URL stream loses the OR-subquery in a future refactor, the new
+/// visit's `url_id_map.get` will fail and `ArchiveChunkConsumer::visits`
+/// will silently drop the row — the assertion below would then fail.
 #[test]
 fn f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2() {
     let env = ScenarioEnv::new();
