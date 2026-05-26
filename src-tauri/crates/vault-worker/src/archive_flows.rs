@@ -1644,4 +1644,150 @@ mod tests {
         let scoped = core_refresh_rebuild_scopes(&["chrome:Default".to_string()]);
         assert_eq!(scoped[0].profile_id.as_deref(), Some("chrome:Default"));
     }
+
+    /// Inserts a `source_profiles` row + a `runs` row so subsequent
+    /// `urls` inserts satisfy the schema's FK constraints. Idempotent so
+    /// callers can call it more than once per archive without duplicate
+    /// PK errors.
+    fn seed_url_parents(connection: &rusqlite::Connection) {
+        let existing: i64 = connection
+            .query_row("SELECT COUNT(*) FROM source_profiles WHERE id = 1", [], |row| row.get(0))
+            .unwrap_or(0);
+        if existing > 0 {
+            return;
+        }
+        connection
+            .execute(
+                "INSERT INTO source_profiles (
+                   id, browser_kind, browser_version, profile_name, profile_path,
+                   discovered_at, enabled, profile_key, user_name, updated_at,
+                   browser_family, browser_product
+                 ) VALUES (1, 'chrome', NULL, 'Default', '/tmp/profile',
+                           '2026-01-01T00:00:00Z', 1, 'chrome:Default', NULL,
+                           '2026-01-01T00:00:00Z', 'chromium', 'Chrome')",
+                [],
+            )
+            .expect("seed source profile");
+        connection
+            .execute(
+                "INSERT INTO runs (
+                   id, run_type, trigger, started_at, timezone, status,
+                   profile_scope_json, warnings_json, stats_json, due_only
+                 ) VALUES (1, 'backup', 'manual', '2026-01-01T00:00:00Z', 'UTC',
+                           'success', '[]', '[]', '{}', 0)",
+                [],
+            )
+            .expect("seed run");
+    }
+
+    /// Inserts a visited `urls` row. The OG-image prefetch query keys on
+    /// `last_visit_ms DESC` and `LIKE 'https://%'`, so the URL must use
+    /// https and carry a non-null last_visit timestamp.
+    fn seed_url(connection: &rusqlite::Connection, id: i64, url: &str, last_visit_ms: i64) {
+        seed_url_parents(connection);
+        let iso = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(last_visit_ms)
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        connection
+            .execute(
+                "INSERT INTO urls (
+                   id, url, title, visit_count, typed_count,
+                   first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                   source_profile_id, created_by_run_id
+                 ) VALUES (?1, ?2, NULL, 1, 0, ?3, ?4, ?3, ?4, 1, 1)",
+                rusqlite::params![id, url, last_visit_ms, iso],
+            )
+            .expect("seed url");
+    }
+
+    #[test]
+    fn prefetch_og_images_on_demand_enqueues_visited_urls_and_drives_worker_pool() {
+        // Exercises the `urls.is_empty() == false` branch of
+        // `prefetch_og_images_on_demand` (the assignment to `enqueued`
+        // and the subsequent `refetch_og_images` call). Every URL is on
+        // the blocklist so the worker pool returns a deterministic
+        // `blocked` outcome with no network touch and the per-URL
+        // persist path still runs.
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        config.og_image.blocked_hosts = vec!["blocked.test".to_string()];
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        {
+            let connection = vault_core::archive::open_archive_connection(&paths, &config, None)
+                .expect("connection");
+            // Seed a visited https:// URL with no og_images row so
+            // list_urls_for_prefetch returns it.
+            seed_url(&connection, 1, "https://blocked.test/page", 5_000);
+        }
+
+        let (enqueued, succeeded) =
+            prefetch_og_images_on_demand(None, 10).expect("on-demand prefetch");
+        assert_eq!(enqueued, 1, "the seeded https URL must be enqueued");
+        // Blocked host outcome counts as non-success on the refetch path
+        // (it persists a missing/blocked row but doesn't bump the
+        // success counter), so `succeeded` is 0 for our deterministic
+        // blocked input.
+        assert_eq!(succeeded, 0, "blocked outcomes must not bump succeeded");
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
+    fn browse_day_insights_returns_an_empty_snapshot_for_a_day_with_no_visits() {
+        // The worker wrapper is a thin pass-through to
+        // `vault_core::get_browse_day_insights` — every interesting
+        // aggregation case already lives in that crate. This test
+        // covers the wrapper itself end-to-end: project_paths +
+        // load_unlocked_config hydrate cleanly and the call returns the
+        // empty-day shape for an archive with no visits in range.
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let insights = crate::archive_flows::browse_day_insights(
+            None,
+            vault_core::BrowseDayInsightsRequest {
+                date: "2026-05-25".to_string(),
+                profile_id: None,
+            },
+        )
+        .expect("browse day insights");
+        assert_eq!(insights.date, "2026-05-25");
+        assert_eq!(insights.total_pages, 0, "empty archive must report zero pages for the day");
+        assert!(insights.top_domains.is_empty());
+        assert!(insights.top_urls.is_empty());
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
 }

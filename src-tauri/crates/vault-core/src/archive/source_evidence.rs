@@ -675,6 +675,66 @@ mod tests {
     }
 
     #[test]
+    fn open_source_evidence_connection_applies_cipher_key_in_encrypted_mode() {
+        // Drives the encrypted branch of open_source_evidence_connection
+        // — without this test the cipher-key application stays
+        // uncovered because every other call site in this module uses
+        // the plaintext default. We round-trip a write + read with a
+        // real sqlcipher key so the key actually gates the database.
+        let root = tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let encrypted_config =
+            AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        let key = "source-evidence-encryption-test-key";
+
+        // Initial open creates an encrypted schema.
+        {
+            let mut connection =
+                open_source_evidence_connection(&paths, &encrypted_config, Some(key))
+                    .expect("encrypted open creates schema");
+            let transaction = connection.transaction().expect("transaction");
+            transaction
+                .execute(
+                    "INSERT INTO source_batches (
+                       source_profile_id, run_id, source_kind, browser_version,
+                       schema_version_text, schema_version_int, schema_fingerprint,
+                       parser_version, capability_snapshot_json, coverage_stats_json,
+                       artifact_refs_json, notes_json, created_at)
+                     VALUES (1, NULL, 'chromium', NULL, NULL, NULL, 'fp', 'pv', '{}', '{}', NULL, NULL, '2026-05-25T00:00:00Z')",
+                    [],
+                )
+                .expect("insert");
+            transaction.commit().expect("commit");
+        }
+
+        // Re-opening with the same key reads the encrypted rows back.
+        let connection = open_source_evidence_connection(&paths, &encrypted_config, Some(key))
+            .expect("re-open with correct key");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM source_batches", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 1, "encrypted round-trip lost the inserted batch");
+    }
+
+    #[test]
+    fn open_source_evidence_connection_requires_key_when_encrypted() {
+        // Cover the `key.context(...)` Err arm: an encrypted config
+        // with no key must surface the documented "database key is
+        // required" error rather than silently fall through to a
+        // schema bootstrap that would race with a future write.
+        let root = tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(root.path());
+        let encrypted_config =
+            AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        let err = open_source_evidence_connection(&paths, &encrypted_config, None)
+            .expect_err("encrypted open without key must error");
+        assert!(
+            format!("{err:?}").contains("database key is required"),
+            "unexpected error: {err:?}",
+        );
+    }
+
+    #[test]
     fn deferred_payload_error_contexts_name_spool_and_chunk_paths() {
         let root = tempdir().expect("tempdir");
         let paths = crate::config::project_paths_with_root(root.path());

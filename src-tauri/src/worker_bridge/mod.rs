@@ -1064,6 +1064,94 @@ mod tests {
     }
 
     #[test]
+    fn migration_and_browse_insights_impls_cover_local_desktop_flows() {
+        // Drives the Settings → Data Migration wrappers (export / preview /
+        // apply) and the Browse-day insights / og:image prefetch wrappers
+        // through their `_impl` entry points. These are thin adapters over
+        // `vault_worker::*` whose only desktop-layer behaviour is the
+        // string-error transport shape (`worker_result`). We need a real
+        // initialised project root so the worker's `load_unlocked_config`
+        // call succeeds — otherwise the wrappers short-circuit before
+        // touching the bundle / aggregation paths we care about for
+        // coverage.
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let session = SessionState::default();
+        let config = initialized_config();
+        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+
+        // Browse-day insights: aggregates one local calendar day from the
+        // archive. The seeded Chrome fixture emits a single visit dated
+        // "today" in the host's local zone, so the request only needs to
+        // succeed — we don't depend on a specific count here.
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let insights = super::browse_day_insights_impl(
+            session_key(&session).as_deref(),
+            BrowseDayInsightsRequest { date: today.clone(), profile_id: None },
+        )
+        .expect("browse day insights wrapper");
+        assert_eq!(insights.date, today);
+        assert_eq!(insights.hour_buckets.len(), 24);
+
+        // og:image on-demand prefetch: budget=0 takes the fast-path inside
+        // the worker (no network, no archive scan) so this is safe inside
+        // the test harness even with the seed fixture present. The wrapper
+        // still exercises `worker_result` around the `(u32, u32)` return.
+        let prefetch = super::prefetch_og_images_impl(0, session_key(&session).as_deref())
+            .expect("prefetch og images wrapper");
+        assert_eq!(prefetch, (0, 0));
+
+        // Export / Import round-trip. Re-uses the just-initialised project
+        // as the export source; importing it back onto the same tree
+        // exercises the `confirm_overwrite=true` overwrite branch.
+        let bundle_target = dir.path().join("bundle.pathkeep");
+        let exported =
+            super::export_app_data_impl(session_key(&session).as_deref(), bundle_target.clone())
+                .expect("export app data wrapper");
+        assert_eq!(exported.bundle_path, bundle_target);
+        assert!(bundle_target.exists(), "bundle file should land at the chosen target path");
+
+        let preview = super::preview_app_data_import_impl(bundle_target.clone())
+            .expect("preview app data import wrapper");
+        assert!(
+            preview.will_overwrite_existing,
+            "preview should flag overwrite because the source tree is already initialised",
+        );
+
+        let applied = super::apply_app_data_import_impl(
+            session_key(&session).as_deref(),
+            bundle_target.clone(),
+            vault_core::ApplyImportOptions { confirm_overwrite: true },
+        )
+        .expect("apply app data import wrapper");
+        assert_eq!(applied.final_schema_version, vault_core::archive::max_schema_version());
+
+        // Error transport: a missing bundle should surface through
+        // `worker_result` as a non-empty string carrying the cause chain.
+        let bogus = dir.path().join("does-not-exist.pathkeep");
+        let preview_err = super::preview_app_data_import_impl(bogus)
+            .expect_err("missing bundle should surface as a string error");
+        assert!(!preview_err.is_empty());
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
     fn entrypoint_and_payload_writer_cover_stdout_paths() {
         entrypoint().expect("entrypoint");
 

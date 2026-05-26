@@ -321,7 +321,36 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         }),
     );
     dispatch_for_coverage(&state, "load_dashboard_snapshot", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "get_browse_day_insights",
+        wrapped(vault_core::BrowseDayInsightsRequest {
+            date: "2026-04-01".to_string(),
+            profile_id: None,
+        }),
+    );
     dispatch_for_coverage(&state, "load_audit_run_detail", json!({ "runId": 1 }));
+    // Data Migration (Settings → Export / Import) — every arm runs through
+    // `worker_bridge::migration` and the wrappers must surface even when
+    // the underlying paths point at a fresh, uninitialised project tree.
+    dispatch_for_coverage(
+        &state,
+        "export_app_data",
+        json!({ "targetPath": dir.path().join("bundle.pathkeep").display().to_string() }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "preview_app_data_import",
+        json!({ "bundlePath": dir.path().join("missing.pathkeep").display().to_string() }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "apply_app_data_import",
+        json!({
+            "bundlePath": dir.path().join("missing.pathkeep").display().to_string(),
+            "options": { "confirmOverwrite": false }
+        }),
+    );
     // og:image + annotations dispatch arms (cover dispatch.rs lines 154-188).
     dispatch_for_coverage(&state, "load_history_og_images", json!({ "entries": [] }));
     dispatch_for_coverage(&state, "mark_og_images_shown", json!({ "urls": [] }));

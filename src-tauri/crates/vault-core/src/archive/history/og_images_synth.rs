@@ -681,4 +681,26 @@ mod tests {
         assert!(!host_requires_synthesis("https://notyoutube.com/"));
         assert!(!host_requires_synthesis("https://bilibili.com.attacker/"));
     }
+
+    #[test]
+    fn parse_bilibili_bv_rejects_twelve_char_strings_that_do_not_start_with_bv() {
+        // Cover the early return for inputs that happen to match the
+        // expected length but lack the `BV` magic prefix. The existing
+        // bilibili reject tests only cover bad alphanumeric content;
+        // this pins the prefix gate so a future loosening (e.g. accepting
+        // mixed-case `bv1xx…`) would have to update the test instead of
+        // silently widening the surface.
+        assert!(parse_bilibili_bv("AB1xx411c7m1").is_none());
+        assert!(parse_bilibili_bv("bv1xx411c7m1").is_none());
+    }
+
+    #[test]
+    fn parse_bilibili_av_rejects_non_numeric_tails_after_the_av_prefix() {
+        // Cover the digits-only gate of `parse_bilibili_av`: previous
+        // tests rejected missing prefixes; this pins the alphabet check
+        // so something like `av170abc` is refused instead of being
+        // mistaken for video id `170abc`.
+        assert!(parse_bilibili_av("av170abc").is_none());
+        assert!(parse_bilibili_av("AV170abc").is_none());
+    }
 }

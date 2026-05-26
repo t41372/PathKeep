@@ -897,7 +897,425 @@ mod tests {
         assert!(format!("{err:?}").contains("sha256 mismatch"));
     }
 
-    // Helpers ----------------------------------------------------------------
+    #[test]
+    fn export_app_data_bails_when_archive_database_missing() {
+        // Tries to export a project root that has never been initialized.
+        // The early bail keeps callers from producing a manifest that
+        // references a non-existent archive db.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = AppConfig::default();
+        let target = src_dir.path().join("nope.pathkeep");
+        let err = export_app_data(&src_paths, &config, None, &target)
+            .expect_err("export must refuse missing archive db");
+        let message = format!("{err:?}");
+        assert!(
+            message.contains("no archive to export"),
+            "expected missing-archive bail, got {message}",
+        );
+        assert!(
+            message.contains(&src_paths.archive_database_path.display().to_string()),
+            "bail message must name the missing archive path, got {message}",
+        );
+    }
+
+    #[test]
+    fn export_app_data_rejects_encrypted_archive_without_key() {
+        // Drives the `encryption_key_for_copy` error arm: the config asks
+        // for an encrypted bundle but the caller forgot to pass the active
+        // database key. We seed a plaintext archive on disk so the early
+        // exists() check passes; the failure must surface from the key
+        // resolver, not from a half-written zip.
+        let (src_dir, src_paths) = fresh_paths();
+        seed_archive(&src_paths);
+        let encrypted_config =
+            AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        let target = src_dir.path().join("enc-nokey.pathkeep");
+        let err = export_app_data(&src_paths, &encrypted_config, None, &target)
+            .expect_err("encrypted export without key must be rejected");
+        assert!(
+            format!("{err:?}").contains("encrypted archive must be unlocked"),
+            "unexpected error: {err:?}",
+        );
+    }
+
+    #[test]
+    fn export_app_data_writes_encrypted_mode_in_manifest_for_encrypted_archives() {
+        // The `archive_mode` match arm for Encrypted is otherwise unreached
+        // because every other test in this module relies on the plaintext
+        // default. Drive a real sqlcipher-encrypted archive through export
+        // so the manifest gets the `"encrypted"` string.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = AppConfig {
+            archive_mode: ArchiveMode::Encrypted,
+            initialized: true,
+            ..AppConfig::default()
+        };
+        let key = "vault-encrypted-test-key";
+        crate::archive::ensure_archive_initialized(&src_paths, &config, Some(key))
+            .expect("init encrypted archive");
+        save_config(&src_paths, &config).expect("save encrypted config");
+
+        let target = src_dir.path().join("encrypted.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, Some(key), &target)
+            .expect("encrypted export should succeed");
+        assert_eq!(bundle.manifest.archive_mode, "encrypted");
+    }
+
+    #[test]
+    fn apply_import_applies_pending_migrations_when_bundle_schema_is_older() {
+        // Forge a manifest claiming the bundle was produced at one schema
+        // version below the current binary so `migrations_to_apply` is
+        // non-empty. The actual on-disk archive is already current, so
+        // `run_migrations` is a checksum-matching no-op — what we're
+        // verifying is that the else-branch (the migration runner) is
+        // taken and propagated.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("older-schema.pathkeep");
+        let mut bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+        let local_max = max_schema_version();
+        assert!(local_max >= 1, "this test assumes at least one migration exists");
+        bundle.manifest.archive_schema_version = local_max - 1;
+        rewrite_bundle_manifest(&bundle_path, &bundle.manifest);
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false },
+        )
+        .expect("apply with pending migrations");
+        assert_eq!(result.migrations_applied, vec![local_max]);
+        assert_eq!(result.final_schema_version, local_max);
+    }
+
+    #[test]
+    fn add_dir_to_zip_if_exists_returns_early_when_source_directory_missing() {
+        // Direct unit test for the early-return branch. Production tests
+        // can't reach this through `export_app_data` because
+        // `ensure_paths` recreates every included directory before the
+        // zip walk runs.
+        let dir = TempDir::new().expect("tempdir");
+        let zip_path = dir.path().join("out.zip");
+        let file = File::create(&zip_path).expect("create zip");
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let mut manifest_files: Vec<ExportManifestFile> = Vec::new();
+
+        let missing = dir.path().join("never-existed");
+        add_dir_to_zip_if_exists(&mut zip, &missing, "prefix", options, &mut manifest_files)
+            .expect("early return when source dir missing must succeed");
+        zip.finish().expect("finish zip");
+
+        assert!(manifest_files.is_empty(), "no files should be added for a missing source dir");
+    }
+
+    #[test]
+    fn preview_import_rejects_bundle_without_export_manifest() {
+        // Cover the `read_zip_entry_bytes` "missing manifest" with_context
+        // closure: build a bare zip that lacks the export manifest entry.
+        let dir = TempDir::new().expect("tempdir");
+        let bundle_path = dir.path().join("no-manifest.zip");
+        let file = File::create(&bundle_path).expect("create empty zip");
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        zip.start_file("payload.bin", options).expect("start dummy entry");
+        zip.write_all(b"placeholder").expect("write dummy payload");
+        zip.finish().expect("finish zip");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let err = preview_import(&dest_paths, &bundle_path)
+            .expect_err("bundle without manifest must be rejected");
+        assert!(
+            format!("{err:?}").contains("is this a PathKeep export"),
+            "expected missing-manifest context, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn extract_bundle_into_rejects_entries_whose_bytes_do_not_match_manifest_sha256() {
+        // Tamper with a non-manifest entry inside an already-valid bundle:
+        // the manifest still says the original sha256, but the on-disk
+        // bytes are replaced. extract_bundle_into must bail before
+        // touching the live project tree.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("payload-tampered.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        // Replace the marker file bytes inside the zip without updating
+        // the manifest entry, so the extract-time hash check disagrees
+        // with the manifest's recorded digest.
+        rewrite_zip_entries(&bundle_path, &[("derived/marker.txt", b"counterfeit".to_vec())]);
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        let err = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false },
+        )
+        .expect_err("payload tamper must be rejected");
+        assert!(
+            format!("{err:?}").contains("sha256 mismatch"),
+            "expected per-entry sha mismatch, got {err:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_file_preserve_rename_error_when_app_root_is_readonly() {
+        // Covers the `with_context` closure on the *file* preserve rename:
+        // we deny write on app_root so renaming the existing
+        // `root/config.json` to its `.bak-<timestamp>` sibling fails at
+        // the OS level. The error message must name the preserve step so
+        // operators can diagnose the failed swap.
+        use std::os::unix::fs::PermissionsExt;
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("file-preserve-fail.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = seed_archive(&dest_paths);
+
+        let app_root = dest_paths.app_root.clone();
+        let original = fs::metadata(&app_root).unwrap().permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o500);
+        fs::set_permissions(&app_root, locked).unwrap();
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: true },
+        );
+
+        // Restore permissions *before* asserting so a panic still lets
+        // the tempdir drop succeed.
+        fs::set_permissions(&app_root, original).unwrap();
+        let err = result.expect_err("read-only app_root must surface preserve-rename error");
+        assert!(
+            format!("{err:?}").contains("preserving previous"),
+            "expected preserve-rename context, got {err:?}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_directory_preserve_rename_error_when_app_root_is_readonly() {
+        // Covers the *directory*-loop preserve rename closure. The trick
+        // is to make every movable-file step skip (so they never trip on
+        // the readonly app_root first) and only leave the included
+        // directory rename to fail:
+        //   - source: archive db + derived/marker.txt only, no config,
+        //     no source-evidence (those entries are absent from the
+        //     bundle, so apply_import's per-file `staged.exists()` skips
+        //     each movable file iteration).
+        //   - dest:  pre-create `app_root/archive/` so ensure_parent_dir
+        //     for the staged archive db succeeds without needing write on
+        //     app_root, and pre-create `app_root/derived/` as a non-empty
+        //     dir so target.exists() is true and we hit the preserve
+        //     branch.
+        //   - app_root: chmod 0o500 → write denied at the app_root level,
+        //     which makes `rename(app_root/derived, app_root/derived.bak)`
+        //     fail (parent is read-only) while leaving the
+        //     `app_root/archive/` install rename writable.
+        use std::os::unix::fs::PermissionsExt;
+        let (src_dir, src_paths) = fresh_paths();
+        // Minimal source: archive db + derived dir only.
+        let config = AppConfig::default();
+        fs::create_dir_all(src_paths.archive_database_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(&src_paths.derived_dir).unwrap();
+        crate::archive::create_schema(
+            &crate::archive::open_archive_connection(&src_paths, &config, None).unwrap(),
+        )
+        .unwrap();
+        fs::write(src_paths.derived_dir.join("marker.txt"), b"derived sentinel").unwrap();
+        // Deliberately do not save the config and remove the
+        // source-evidence db that `ensure_paths` may have created.
+        let _ = fs::remove_file(&src_paths.config_path);
+        let _ = fs::remove_file(&src_paths.source_evidence_database_path);
+
+        let bundle_path = src_dir.path().join("dir-preserve-fail.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        // Remove every dest-side movable target so the file loop has
+        // nothing to rename, and pre-create the archive db parent so
+        // ensure_parent_dir does not require write on app_root.
+        let _ = fs::remove_file(&dest_paths.config_path);
+        let _ = fs::remove_file(&dest_paths.archive_database_path);
+        let _ = fs::remove_file(&dest_paths.source_evidence_database_path);
+        fs::create_dir_all(dest_paths.archive_database_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(&dest_paths.derived_dir).unwrap();
+        fs::write(dest_paths.derived_dir.join("sentinel.txt"), b"pre-import").unwrap();
+
+        let app_root = dest_paths.app_root.clone();
+        let original = fs::metadata(&app_root).unwrap().permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o500);
+        fs::set_permissions(&app_root, locked).unwrap();
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false },
+        );
+
+        fs::set_permissions(&app_root, original).unwrap();
+        let err = result.expect_err("read-only app_root must surface dir-preserve rename error");
+        let message = format!("{err:?}");
+        assert!(
+            message.contains("preserving previous"),
+            "expected dir-preserve context, got {message}",
+        );
+        // Confirm we really tripped on the directory branch (the message
+        // must reference the derived path, not a config/archive file).
+        assert!(
+            message.contains("derived"),
+            "preserve error must name the derived directory, got {message}",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_install_rename_errors_across_filesystem_boundaries() {
+        // Covers the install-rename `with_context` closure on the
+        // movable-file loop by forcing the *destination* onto a
+        // different filesystem than the staging tempdir. Linux
+        // `rename(2)` returns `EXDEV` across mounts, and that's exactly
+        // what these closures wrap with operator-friendly context.
+        //
+        // Trick that keeps the suite parallel-safe: instead of
+        // mutating `TMPDIR` (which would leak into every other
+        // tempdir-using test), we explicitly anchor the *dest* tempdir
+        // under `/dev/shm` via `TempDir::new_in`. The production
+        // `apply_import` still uses its own `tempdir()` under the
+        // default temp root (`/tmp`), so the install rename crosses
+        // the tmpfs boundary even though we never touched the env.
+        //
+        // Both target and backup of the preserve step stay under the
+        // dest tempdir → same filesystem → preserve succeeds. Only
+        // the staged → target install rename crosses devices.
+        let cross_fs_root = std::path::Path::new("/dev/shm");
+        assert!(cross_fs_root.exists(), "this test needs /dev/shm to differ from /tmp");
+
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("xdev-install.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let dest_dir = TempDir::new_in(cross_fs_root).expect("dest on /dev/shm");
+        let dest_paths = project_paths_with_root(dest_dir.path());
+        let dest_config = seed_archive(&dest_paths);
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: true },
+        );
+
+        let err = result.expect_err("cross-fs install must surface install-rename error");
+        let message = format!("{err:?}");
+        assert!(message.contains("installing"), "expected install-rename context, got {message}",);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_directory_install_rename_errors_across_filesystem_boundaries() {
+        // Twin of the previous test, but tightened so the failure
+        // arises from the *directory* install loop. We strip the
+        // movable-file entries out of the bundle manifest first so
+        // every entry in the file loop is `staged.exists() == false`
+        // and falls through to the directory loop, where the staged
+        // /tmp directory cannot be renamed onto the /dev/shm dest.
+        let cross_fs_root = std::path::Path::new("/dev/shm");
+        assert!(cross_fs_root.exists(), "this test needs /dev/shm to differ from /tmp");
+
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("xdev-dir-install.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        // Drop every non-derived manifest entry and remove the matching
+        // zip entries so `extract_bundle_into` only stages derived/
+        // contents. The movable-file iterations in apply_import will
+        // skip every step, leaving only the directory install rename
+        // to trip on the cross-device boundary.
+        let mut trimmed_manifest = bundle.manifest.clone();
+        let drop_zip_entries: Vec<String> = trimmed_manifest
+            .files
+            .iter()
+            .filter(|f| !f.path.starts_with("derived/"))
+            .map(|f| f.path.clone())
+            .collect();
+        trimmed_manifest.files.retain(|f| f.path.starts_with("derived/"));
+        remove_zip_entries(&bundle_path, &drop_zip_entries);
+        rewrite_bundle_manifest(&bundle_path, &trimmed_manifest);
+
+        let dest_dir = TempDir::new_in(cross_fs_root).expect("dest on /dev/shm");
+        let dest_paths = project_paths_with_root(dest_dir.path());
+        let dest_config = AppConfig::default();
+        // Pre-create a non-empty derived/ on dest so the preserve step
+        // exercises and successfully renames (both target + backup are
+        // under the dest tempdir → same filesystem). The install rename
+        // is the only one that crosses devices.
+        fs::create_dir_all(&dest_paths.derived_dir).unwrap();
+        fs::write(dest_paths.derived_dir.join("sentinel.txt"), b"pre-import").unwrap();
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false },
+        );
+
+        let err = result.expect_err("cross-fs directory install must surface install-rename error");
+        let message = format!("{err:?}");
+        assert!(
+            message.contains("installing") && message.contains("derived"),
+            "expected derived-install context, got {message}",
+        );
+    }
+
+    fn remove_zip_entries(bundle_path: &Path, drop: &[String]) {
+        // zip-rs has no in-place delete API; rewrite the archive,
+        // keeping every entry whose name is not in `drop`.
+        let original = fs::read(bundle_path).unwrap();
+        let cursor = std::io::Cursor::new(original);
+        let mut reader = ZipArchive::new(cursor).unwrap();
+        let target = File::create(bundle_path).unwrap();
+        let mut writer = ZipWriter::new(target);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let names: Vec<String> =
+            (0..reader.len()).map(|i| reader.by_index(i).unwrap().name().to_string()).collect();
+        let drop_set: std::collections::HashSet<&str> = drop.iter().map(String::as_str).collect();
+        for name in &names {
+            if drop_set.contains(name.as_str()) {
+                continue;
+            }
+            let mut entry = reader.by_name(name).unwrap();
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).unwrap();
+            writer.start_file(name, options).unwrap();
+            writer.write_all(&buf).unwrap();
+        }
+        writer.finish().unwrap();
+    }
     fn rewrite_bundle_manifest(bundle_path: &Path, manifest: &ExportManifest) {
         let bytes = serde_json::to_vec_pretty(manifest).unwrap();
         let sha = format!("{}\n", sha256_hex(&bytes));

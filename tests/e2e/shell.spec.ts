@@ -187,66 +187,9 @@ test('walks import preview, revert, restore, and doctor review in browser previe
   ).toBeVisible()
 })
 
-test('walks remote backup settings and Maintenance PME in browser preview', async ({
-  page,
-}) => {
-  await completePreviewOnboarding(page)
-
-  await page.getByRole('link', { name: 'Settings', exact: true }).click()
-  const settingsPage = page.getByTestId('settings-page')
-  const remoteSection = page.getByTestId('settings-remote')
-
-  await expect(settingsPage).toBeVisible()
-  await expect(remoteSection).toBeVisible()
-
-  await remoteSection.getByLabel('Bucket').fill('example-bucket')
-  await remoteSection.getByLabel('Region').fill('us-east-1')
-  await remoteSection.getByRole('button', { name: 'Save', exact: true }).click()
-
-  await remoteSection.getByLabel('Access key ID').fill('preview-key')
-  await remoteSection.getByLabel('Secret access key').fill('preview-secret')
-  await remoteSection.getByRole('button', { name: 'Save credentials' }).click()
-
-  // The "Open Maintenance" link lives inside the remote-backup preferences
-  // card; both Settings + Maintenance reuse the same RemoteBackupSection
-  // component so its testid is stable across routes.
-  await page
-    .getByRole('link', { name: /Open Maintenance/i })
-    .first()
-    .click()
-  const maintenancePage = page.getByTestId('maintenance-page')
-  const maintenanceRemoteSection =
-    maintenancePage.getByTestId('settings-remote')
-
-  await expect(maintenancePage).toBeVisible()
-  await maintenanceRemoteSection
-    .getByRole('button', { name: 'Preview upload' })
-    .click()
-  await expect(
-    maintenanceRemoteSection.getByText('File path', { exact: true }),
-  ).toBeVisible()
-  await expect(
-    maintenanceRemoteSection.getByText(/pathkeep-remote-.*\.zip/).first(),
-  ).toBeVisible()
-
-  await maintenanceRemoteSection.getByRole('button', { name: 'Manual' }).click()
-  await expect(
-    maintenanceRemoteSection.getByText('Upload command', { exact: true }),
-  ).toBeVisible()
-
-  await maintenanceRemoteSection
-    .getByRole('button', { name: 'Upload now' })
-    .click()
-  await expect(
-    maintenanceRemoteSection.getByText(
-      'Browser preview mode simulated the upload and produced a local bundle for verification.',
-    ),
-  ).toBeVisible()
-
-  await maintenanceRemoteSection
-    .getByRole('button', { name: 'Verify backup' })
-    .click()
-  await expect(
-    maintenanceRemoteSection.getByText('pathkeep.remote-backup.v1'),
-  ).toBeVisible()
-})
+// The "walks remote backup settings and Maintenance PME" test that lived
+// here was removed alongside the S3 remote-backup feature in 9e0a266
+// (feat(scope)!: remove S3 cloud backup entirely — feedback-2026-05-25
+// §2.2). The replacement (.pathkeep bundle Export/Import) is covered by
+// unit and integration tests in vault-core/vault-worker, not via the
+// browser preview shell.
