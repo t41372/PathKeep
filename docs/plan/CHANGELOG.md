@@ -1683,3 +1683,64 @@ extraction — zero test behavior changes, all 602 vault-core tests pass.
 
 - **R2/R3**: Crash rollback / batch revert — needs transaction-abort test infra.
 - **B5 / T4**: Takeout hash collision at scale — needs million-record fixture infra.
+
+### Import test harness expansion — provenance, incremental, schema, multi-profile
+
+> 2026-05-25 · commits ec95f4f0 / 325d4dc4 / cd6b65d5 · `feat/import-data-integrity-tests`
+
+Closes the remaining unblocked §5 contract gaps after the maintainability
+refactor. Adds 4 new Chromium-family scenarios; brings total dedup
+scenarios to 31 across 4 modules.
+
+#### New tests
+
+1. **X2 — Atlas / Comet provenance** (`x2_chromium_family_products_preserve_browser_product_identity`):
+   imports 3 Chromium-family profiles (Atlas, Comet, Chrome); asserts each
+   `browser_product` and `browser_kind` round-trips verbatim. Pins playbook
+   §156-161 (ChatGPT Atlas / Perplexity Comet must not collapse to "Google Chrome").
+
+2. **C5 — Append-new-rows incremental** (`c5_chromium_incremental_append_new_urls_and_visits`):
+   re-import where second pass adds 2 wholly new URLs + 2 new visits (no
+   overlap with first pass). Watermark lets only new rows land; originals
+   stay deduplicated. Pins §5.1 "re-import after appending new rows" — the
+   most common real-world incremental import shape.
+
+3. **C6 — Schema tolerance** (`c6_chromium_extra_columns_on_source_db_do_not_break_ingest`):
+   uses `ALTER TABLE` to add 4 real Chrome columns (`favicon_id`,
+   `segment_id`, `opener_visit`, `originator_cache_guid`) with synthetic
+   non-null data, then ingests. Verifies parser's explicit-column-list
+   discipline tolerates Chrome's schema evolution. Pins §5.1 "re-import
+   after schema migration"; catches accidental `SELECT *` regressions.
+
+4. **X3 — Multi-profile per browser** (`x3_multiple_profiles_within_same_browser_stay_independent`):
+   imports same URL+visit under chrome:Default and chrome:Profile 1; asserts
+   the fingerprint partial index is per-profile (no cross-profile dedup),
+   then re-imports Profile 1 with new content asserting Default's watermark
+   advance didn't affect Profile 1's incremental cursor. Pins per-profile
+   isolation on all 3 axes (source_profiles row, fingerprint scope, watermark).
+
+#### Audit doc updates
+
+- `import-dedup-audit.md` §6: 4 new scenario rows added (X2, C5, C6, X3).
+
+#### File size impact
+
+- `dedup_scenarios.rs`: 641 → 1170 lines (approaching 1200 review threshold).
+  Subsequent Chromium-only scenarios should go to satellite modules or
+  trigger a second split round.
+
+#### Verification
+
+- 606 vault-core tests pass (31 dedup scenarios across 4 modules).
+- 9 fixture crate tests pass.
+- `cargo fmt --all` clean.
+
+#### Contract coverage status
+
+All audit §5 contracts that are testable without blocked infrastructure
+are now pinned. Remaining gaps are infrastructure-blocked:
+
+- **R2/R3 crash rollback** — needs transaction-abort test infra.
+- **B5/T4 hash collision at scale** — needs million-record fixture infra.
+- **Parser visit-before-URL ordering** — would require an artificial
+  parser; low value at this layer.
