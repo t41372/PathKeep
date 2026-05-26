@@ -495,9 +495,7 @@ function ImportPreviewPanel({
         <button
           type="button"
           className="btn-primary"
-          onClick={() =>
-            onConfirm(encrypted ? sourceKey.trim() : undefined)
-          }
+          onClick={() => onConfirm(encrypted ? sourceKey.trim() : undefined)}
           disabled={applying || !canConfirm}
           data-testid="settings-migration-confirm"
         >

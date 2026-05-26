@@ -581,9 +581,7 @@ describe('DataMigrationSection', () => {
     expect(banner).toHaveTextContent('Source archive key required')
     // Preview panel + source-key input still mounted so the user can
     // edit the key and click confirm again.
-    expect(
-      screen.getByTestId('settings-migration-preview'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('settings-migration-preview')).toBeInTheDocument()
     expect(
       screen.getByTestId('settings-migration-source-key-input'),
     ).toBeInTheDocument()
