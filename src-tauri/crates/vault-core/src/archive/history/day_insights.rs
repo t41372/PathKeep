@@ -304,9 +304,7 @@ fn compute_browse_day_insights(date: &str, visits: &[DayVisitRow]) -> BrowseDayI
             // feed that wraps near `i64::MAX` cannot silently corrupt the
             // session-gap classifier into producing wrong day insights.
             // Claude review finding #7.
-            (Some(_), Some(end))
-                if visit.visit_time_ms.saturating_sub(end) > SESSION_GAP_MS =>
-            {
+            (Some(_), Some(end)) if visit.visit_time_ms.saturating_sub(end) > SESSION_GAP_MS => {
                 // Close the previous session, open a new one.
                 if let (Some(start), Some(end)) = (current_session_start_ms, current_session_end_ms)
                 {
@@ -609,9 +607,8 @@ mod tests {
     // context inside the test runner. Claude review finding #8.
     fn local_ms(hour: u32, minute: u32, second: u32) -> i64 {
         let day = NaiveDate::from_ymd_opt(2026, 5, 25).unwrap();
-        let first = Local
-            .from_local_datetime(&day.and_hms_opt(hour, minute, second).unwrap())
-            .single();
+        let first =
+            Local.from_local_datetime(&day.and_hms_opt(hour, minute, second).unwrap()).single();
         let resolved = match first {
             Some(dt) => dt,
             None => match Local

@@ -687,12 +687,8 @@ fn verify_archive_key(db_path: &Path, key: &str) -> Result<()> {
         .with_context(|| format!("opening staged archive at {}", db_path.display()))?;
     apply_cipher_key(&connection, key)?;
     connection
-        .query_row("SELECT count(*) FROM sqlite_master", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .with_context(|| {
-            format!("verifying source archive key for {}", db_path.display())
-        })?;
+        .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get::<_, i64>(0))
+        .with_context(|| format!("verifying source archive key for {}", db_path.display()))?;
     Ok(())
 }
 
@@ -708,8 +704,7 @@ fn load_staged_config(staging_dir: &Path) -> Result<AppConfig> {
     }
     let content = fs::read_to_string(&staged_config_path)
         .with_context(|| format!("reading staged config {}", staged_config_path.display()))?;
-    let config: AppConfig =
-        serde_json::from_str(&content).context("parsing staged config json")?;
+    let config: AppConfig = serde_json::from_str(&content).context("parsing staged config json")?;
     Ok(config)
 }
 
@@ -1200,10 +1195,7 @@ mod tests {
             &dest_config,
             None, // caller's session key — intentionally untouched here
             &bundle_path,
-            &ApplyImportOptions {
-                confirm_overwrite: false,
-                source_archive_key: None,
-            },
+            &ApplyImportOptions { confirm_overwrite: false, source_archive_key: None },
         )
         .expect_err("encrypted bundle without source key must be refused");
 
@@ -1224,9 +1216,7 @@ mod tests {
             let bak_siblings: Vec<_> = std::fs::read_dir(archive_dir)
                 .unwrap()
                 .filter_map(|entry| entry.ok())
-                .filter(|entry| {
-                    entry.file_name().to_string_lossy().contains(".bak-")
-                })
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".bak-"))
                 .collect();
             assert!(
                 bak_siblings.is_empty(),
@@ -1336,8 +1326,7 @@ mod tests {
         let (src_dir, src_paths) = fresh_paths();
         let config = seed_archive(&src_paths);
         let bundle_path = src_dir.path().join("plaintext-with-key.pathkeep");
-        export_app_data(&src_paths, &config, None, &bundle_path)
-            .expect("export plaintext bundle");
+        export_app_data(&src_paths, &config, None, &bundle_path).expect("export plaintext bundle");
 
         let (_dest_dir, dest_paths) = fresh_paths();
         let dest_config = AppConfig::default();
@@ -1631,7 +1620,8 @@ mod tests {
             &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
         );
 
-        let outcome = result.expect("apply_import must succeed when dest is on a different fs than /tmp");
+        let outcome =
+            result.expect("apply_import must succeed when dest is on a different fs than /tmp");
         assert!(
             outcome.preserved_previous_as_bak,
             "the dest had a live archive that must have been preserved as .bak",
@@ -1693,22 +1683,16 @@ mod tests {
 
     #[test]
     fn validate_bundle_relative_path_rejects_parent_dir_traversal() {
-        let err = validate_bundle_relative_path("../etc/passwd")
-            .expect_err("traversal must be rejected");
-        assert!(
-            format!("{err:?}").contains("..` component"),
-            "expected `..` error, got {err:?}",
-        );
+        let err =
+            validate_bundle_relative_path("../etc/passwd").expect_err("traversal must be rejected");
+        assert!(format!("{err:?}").contains("..` component"), "expected `..` error, got {err:?}",);
     }
 
     #[test]
     fn validate_bundle_relative_path_rejects_nested_parent_dir_traversal() {
         let err = validate_bundle_relative_path("archive/../../escape.txt")
             .expect_err("nested traversal must be rejected");
-        assert!(
-            format!("{err:?}").contains("..` component"),
-            "expected `..` error, got {err:?}",
-        );
+        assert!(format!("{err:?}").contains("..` component"), "expected `..` error, got {err:?}",);
     }
 
     #[test]
@@ -1723,15 +1707,13 @@ mod tests {
 
     #[test]
     fn validate_bundle_relative_path_rejects_empty_input() {
-        let err =
-            validate_bundle_relative_path("").expect_err("empty path must be rejected");
+        let err = validate_bundle_relative_path("").expect_err("empty path must be rejected");
         assert!(format!("{err:?}").contains("empty path"), "got {err:?}");
     }
 
     #[test]
     fn validate_bundle_relative_path_rejects_nul_byte() {
-        let err =
-            validate_bundle_relative_path("ok/\u{0}bad").expect_err("NUL must be rejected");
+        let err = validate_bundle_relative_path("ok/\u{0}bad").expect_err("NUL must be rejected");
         assert!(format!("{err:?}").contains("NUL byte"), "got {err:?}");
     }
 
@@ -1756,10 +1738,7 @@ mod tests {
         // Add a matching zip entry so the bundle is otherwise consistent;
         // the rejection must come from validate_bundle_relative_path, not
         // from a missing-entry / sha-mismatch path.
-        rewrite_zip_entries(
-            &bundle_path,
-            &[("../escape.txt", b"escape-payload".to_vec())],
-        );
+        rewrite_zip_entries(&bundle_path, &[("../escape.txt", b"escape-payload".to_vec())]);
         rewrite_bundle_manifest(&bundle_path, &tampered);
 
         let (_dest_dir, dest_paths) = fresh_paths();

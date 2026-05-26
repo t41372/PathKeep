@@ -183,9 +183,12 @@ mod tests {
         let dest_paths = vault_core::project_paths().expect("dest paths");
         write_test_config(&dest_paths, &initialized_plaintext_config());
 
-        let result =
-            apply_import(None, bundle_path, ApplyImportOptions { confirm_overwrite: false, ..Default::default() })
-                .expect("apply");
+        let result = apply_import(
+            None,
+            bundle_path,
+            ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+        )
+        .expect("apply");
         assert!(
             dest_paths.archive_database_path.exists(),
             "archive db missing on destination after apply_import",
