@@ -1744,3 +1744,34 @@ are now pinned. Remaining gaps are infrastructure-blocked:
 - **B5/T4 hash collision at scale** — needs million-record fixture infra.
 - **Parser visit-before-URL ordering** — would require an artificial
   parser; low value at this layer.
+
+### Data-integrity edge cases — NULL handling and Unicode round-trip
+
+> 2026-05-25 · commit aaf71c19 · `feat/import-data-integrity-tests`
+
+Adds two real-world data-integrity scenarios that complement the §5
+contract pins.
+
+#### New tests
+
+1. **E7** (`e7_null_title_imports_with_null_archive_title`): NULL source
+   `title` must project as NULL in archive, not empty string. Sibling
+   non-NULL title round-trips normally. Real Chrome routinely produces
+   NULL titles (pages that never loaded, binary downloads).
+
+2. **E8** (`e8_unicode_urls_and_titles_round_trip_byte_identical`): three
+   Unicode shapes (CJK Traditional Chinese title with em-dash,
+   percent-encoded path with `%E6%B8%AC%E8%A9%A6`, emoji 🚀 in title)
+   round-trip byte-identical. Pins NO NFC/NFD normalization, NO case
+   folding, NO percent-decoding. Critical for international users.
+
+#### Final test harness state
+
+- **34 dedup scenarios** across 4 modules:
+  - `dedup_scenarios.rs` (1170 lines): C1-C6, X1-X3
+  - `dedup_scenarios_baselines.rs` (980 lines): F1, S1, F2, S2, F_C2, S_C2, fingerprint dedup
+  - `dedup_scenarios_edge_cases.rs` (902 lines): E1-E8, C_SUB_MS, Empty DB×3, R1a/R1b
+  - `dedup_scenarios_takeout.rs` (561 lines): T1, T2, T2b, T3, T5
+- 608 vault-core tests pass; 9 fixture crate tests pass.
+- All §5 audit contracts pinned (except infrastructure-blocked items).
+- Rust workspace compiles clean across all targets.
