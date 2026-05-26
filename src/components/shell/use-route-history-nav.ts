@@ -107,6 +107,15 @@ export function useRouteHistoryNav(): RouteHistoryNav {
   // the initial mount (always `Pop` per react-router) would underflow
   // the stack to -1 → 0.
   const lastKeyRef = useRef<string | null>(null)
+  // `goForward` calls `navigate(1)` which fires a Pop event. We need to
+  // distinguish that Pop (the user consumed the forward branch — should
+  // leave forwardAvailable=false) from a browser-back-initiated Pop
+  // (the user just stepped backwards — should set forwardAvailable=true
+  // so the topbar forward chevron reflects the browser's actual state).
+  // React-router does not expose the delta direction on Pop events, so
+  // we tag the in-app goForward path explicitly and have the effect
+  // consume the tag on the next Pop.
+  const expectingForwardPopRef = useRef(false)
 
   useEffect(() => {
     if (lastKeyRef.current === location.key) return
@@ -136,6 +145,20 @@ export function useRouteHistoryNav(): RouteHistoryNav {
       // state. The rule only fires once per effect body, so no extra
       // eslint-disable is needed here.
       setStackIndex((index) => Math.max(0, index - 1))
+      if (expectingForwardPopRef.current) {
+        // This Pop is the tail of an in-app `goForward` → navigate(1).
+        // goForward already set forwardAvailable=false before
+        // triggering the navigation; consume the tag and leave the
+        // state alone.
+        expectingForwardPopRef.current = false
+      } else {
+        // External-initiated Pop (browser back arrow, history.go(-N),
+        // or the in-app goBack which also flowed through this path).
+        // In every one of those cases the user just stepped backwards,
+        // so forward navigation is now available — enable the topbar
+        // forward chevron to mirror the browser's actual forward state.
+        setForwardAvailable(true)
+      }
     }
     // NavigationType.Replace intentionally does not move the counter —
     // a redirect / canonicalisation should not arm the back button.
@@ -153,6 +176,10 @@ export function useRouteHistoryNav(): RouteHistoryNav {
   const goForward = useCallback(() => {
     if (!forwardAvailable) return
     setForwardAvailable(false)
+    // Tag the upcoming Pop so the effect doesn't re-enable
+    // forwardAvailable from underneath us. See the matching consumer
+    // in the Pop branch above.
+    expectingForwardPopRef.current = true
     void navigate(1)
   }, [forwardAvailable, navigate])
 
