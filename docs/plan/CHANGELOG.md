@@ -1946,7 +1946,18 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
 - Rust coverage 100% (35,184 instrumented lines / 1,630 functions).
 - `cargo fmt --all` clean.
 - `bun run check:base` green.
-- Full `bun run check` (incl. e2e + mutation) pending verification.
+- Full `bun run check` fails on the same pre-existing E2E flake
+  documented in the prior session
+  (`tests/e2e/desktop-bridge.spec.ts:223` —
+  `apiRequestContext.post: socket hang up` on
+  `POST /commands/run_backup_now`). **Verified independent of these
+  fixes**: reverting just `writes.rs` + `ingest/mod.rs` to the
+  pre-fix state (b249ea78) and re-running yields the same socket
+  hang-up failure. The desktop-bridge process closes the connection
+  during the backup; the Rust changes only touch SQL inside the
+  transaction and per-visit bookkeeping, neither of which can affect
+  the dev-IPC HTTP server. Tracked as a pre-existing flake; not
+  blocking this branch.
 
 #### Findings not actioned
 
