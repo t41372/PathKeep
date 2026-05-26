@@ -36,6 +36,17 @@ function NavHarness({
       <button data-testid="harness-forward" onClick={api.goForward}>
         forward
       </button>
+      {/* Simulates the browser's back arrow — `navigate(-1)` fires a
+          Pop without going through the hook's `goBack` callback (which
+          would normally set forwardAvailable=true on the in-app path).
+          This is the path that exposed the bug where browser-back left
+          canGoForward stranded at false. */}
+      <button
+        data-testid="harness-browser-back"
+        onClick={() => void navigate(-1)}
+      >
+        browser-back
+      </button>
       <span data-testid="harness-can-back">{api.canGoBack ? 'y' : 'n'}</span>
       <span data-testid="harness-can-forward">
         {api.canGoForward ? 'y' : 'n'}
@@ -174,6 +185,41 @@ describe('useRouteHistoryNav', () => {
         <NavHarness onMount={() => {}} />
       </MemoryRouter>,
     )
+    act(() => {
+      screen.getByTestId('harness-forward').click()
+    })
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+  })
+
+  test('browser-back (Pop bypassing goBack) enables canGoForward', () => {
+    // The in-app `goBack` callback sets forwardAvailable=true before
+    // calling navigate(-1). The browser's back arrow also fires a Pop
+    // event but doesn't invoke the callback — previously this left
+    // canGoForward stranded at false even though forward navigation
+    // was actually available. The Pop branch in the effect now mirrors
+    // the same forwardAvailable=true behavior.
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+      </MemoryRouter>,
+    )
+    act(() => {
+      screen.getByTestId('harness-push').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('y')
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+
+    // Browser-back: navigate(-1) directly, bypassing goBack().
+    act(() => {
+      screen.getByTestId('harness-browser-back').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('n')
+    expect(
+      screen.getByTestId('harness-can-forward'),
+      'browser-back must enable canGoForward so the topbar forward chevron reflects the browser state',
+    ).toHaveTextContent('y')
+
+    // goForward then consumes forwardAvailable as usual.
     act(() => {
       screen.getByTestId('harness-forward').click()
     })

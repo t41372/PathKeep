@@ -338,15 +338,10 @@ describe('LinkPreviewsSection', () => {
       oldestFetchedAt: null,
     })
     render(withShell({ ogImageFetchEnabled: false, fetchMode: 'background' }))
+    expect(screen.getByTestId('link-previews-fetch-mode-off')).toBeDisabled()
     expect(
-      screen.getByTestId<HTMLButtonElement>('link-previews-fetch-mode-off')
-        .disabled,
-    ).toBe(true)
-    expect(
-      screen.getByTestId<HTMLButtonElement>(
-        'link-previews-fetch-mode-background',
-      ).disabled,
-    ).toBe(true)
+      screen.getByTestId('link-previews-fetch-mode-background'),
+    ).toBeDisabled()
   })
 
   test('daily refetch budget renders the snapshot value', () => {
@@ -447,9 +442,8 @@ describe('LinkPreviewsSection', () => {
     })
     render(withShell({ ogImageFetchEnabled: false }))
     expect(
-      screen.getByTestId<HTMLInputElement>('link-previews-daily-refetch-budget')
-        .disabled,
-    ).toBe(true)
+      screen.getByTestId('link-previews-daily-refetch-budget'),
+    ).toBeDisabled()
   })
 
   test('prefetch budget input persists in-range value', () => {
@@ -515,10 +509,7 @@ describe('LinkPreviewsSection', () => {
       oldestFetchedAt: null,
     })
     render(withShell({ ogImageFetchEnabled: false }))
-    expect(
-      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
-        .disabled,
-    ).toBe(true)
+    expect(screen.getByTestId('link-previews-prefetch-budget')).toBeDisabled()
   })
 
   test('prefetch budget disabled when fetch mode is not Background', () => {
@@ -529,10 +520,7 @@ describe('LinkPreviewsSection', () => {
       oldestFetchedAt: null,
     })
     render(withShell({ ogImageFetchEnabled: true, fetchMode: 'on_demand' }))
-    expect(
-      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
-        .disabled,
-    ).toBe(true)
+    expect(screen.getByTestId('link-previews-prefetch-budget')).toBeDisabled()
   })
 
   test('prefetch budget remains enabled when mode is Background + fetchEnabled', () => {
@@ -544,9 +532,8 @@ describe('LinkPreviewsSection', () => {
     })
     render(withShell({ ogImageFetchEnabled: true, fetchMode: 'background' }))
     expect(
-      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
-        .disabled,
-    ).toBe(false)
+      screen.getByTestId('link-previews-prefetch-budget'),
+    ).not.toBeDisabled()
   })
 
   test('Rebuild now calls backend.prefetchOgImages with the default budget', async () => {
@@ -612,10 +599,7 @@ describe('LinkPreviewsSection', () => {
       oldestFetchedAt: null,
     })
     render(withShell({ ogImageFetchEnabled: false }))
-    expect(
-      screen.getByTestId<HTMLButtonElement>('link-previews-rebuild-now')
-        .disabled,
-    ).toBe(true)
+    expect(screen.getByTestId('link-previews-rebuild-now')).toBeDisabled()
   })
 
   test('Rebuild now clears the pending state even when the worker throws', async () => {
@@ -629,14 +613,12 @@ describe('LinkPreviewsSection', () => {
       new Error('worker offline'),
     )
     render(withShell({ ogImageFetchEnabled: true }))
-    const button = screen.getByTestId<HTMLButtonElement>(
-      'link-previews-rebuild-now',
-    )
+    const button = screen.getByTestId('link-previews-rebuild-now')
     await userEvent.click(button).catch(() => undefined)
     // After the promise rejects, the button must re-enable so the user
     // can retry — otherwise a transient error permanently locks the
     // affordance until reload.
-    await waitFor(() => expect(button.disabled).toBe(false))
+    await waitFor(() => expect(button).not.toBeDisabled())
   })
 
   test('Clear all is guarded by window.confirm', async () => {
@@ -660,6 +642,244 @@ describe('LinkPreviewsSection', () => {
     confirmSpy.mockReturnValue(true)
     await userEvent.click(screen.getByTestId('link-previews-clear-all'))
     expect(clearSpy).toHaveBeenCalled()
+  })
+
+  // ── Defensive guards exercised against unusual shell states ─────
+
+  // Pins line 102 `?? DEFAULT_OG_IMAGE_SETTINGS` fallback when snapshot is null.
+  test('renders with built-in defaults when shell snapshot is null', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    render(withNullSnapshotShell({ saveConfig: vi.fn() }))
+    // Defaults: fetchEnabled = true, dailyRefetchBudget = 50, prefetch = 100.
+    expect(
+      screen
+        .getByTestId('link-previews-fetch-toggle')
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(
+      screen.getByTestId<HTMLInputElement>('link-previews-daily-refetch-budget')
+        .value,
+    ).toBe('50')
+    expect(
+      screen.getByTestId<HTMLInputElement>('link-previews-prefetch-budget')
+        .value,
+    ).toBe('100')
+  })
+
+  // Pins line 120 `if (!snapshot) return` early-return inside persistSettings.
+  test('persistSettings bails out without calling saveConfig when snapshot is null', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(withNullSnapshotShell({ saveConfig }))
+    // Toggle the fetch switch — this would normally write through
+    // persistSettings, but with no snapshot it must early-return.
+    await userEvent.click(screen.getByTestId('link-previews-fetch-toggle'))
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  // Pins line 158 `if (next === settings.dailyRefetchBudget) return` early-return.
+  // The DOM input is already showing '50'; firing change to '50' is a no-op
+  // because React's input tracker dedups same-value events. '50.4' has a
+  // different DOM string but parseInt-clamps to the same numeric 50, so the
+  // handler runs and the equality check trips.
+  test('daily refetch budget early-returns when clamped value equals the current setting', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        dailyRefetchBudget: 50,
+        saveConfig,
+      }),
+    )
+    fireEvent.change(screen.getByTestId('link-previews-daily-refetch-budget'), {
+      target: { value: '50.4' },
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  // Pins line 169 `if (next === settings.newVisitPrefetchBudget) return` early-return.
+  test('prefetch budget early-returns when clamped value equals the current setting', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        newVisitPrefetchBudget: 100,
+        saveConfig,
+      }),
+    )
+    fireEvent.change(screen.getByTestId('link-previews-prefetch-budget'), {
+      target: { value: '100.7' },
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  // Pins line 211 `if (id === selectedModeId) return` — clicking the chip that
+  // already represents the current cleanup mode must not call saveConfig.
+  test('clicking the currently-selected cleanup mode chip is a no-op', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'timeTtl', maxAgeDays: 42 },
+        saveConfig,
+      }),
+    )
+    await userEvent.click(
+      screen.getByTestId('link-previews-cleanup-mode-timeTtl'),
+    )
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  // Pins the `cleanup.maxBytes` (true) arm of the sizeCap/lru ternary in
+  // onSelectMode — when cleanup is already sizeCap and the user picks lru,
+  // the existing byte budget must carry over rather than reset to the default.
+  test('switching from sizeCap → lru preserves the existing maxBytes', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup: { mode: 'sizeCap', maxBytes: 333 * 1024 * 1024 },
+        saveConfig,
+      }),
+    )
+    await userEvent.click(screen.getByTestId('link-previews-cleanup-mode-lru'))
+    const written = saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup
+    expect(written).toEqual({ mode: 'lru', maxBytes: 333 * 1024 * 1024 })
+  })
+
+  // Pins the `cleanup.maxAgeDays` (true) arm of the timeTtl ternary in
+  // onSelectMode. In normal UI flow this branch is unreachable because if
+  // cleanup is already timeTtl the click would short-circuit at line 211.
+  // The cond-expr still exists as a defensive carry-over and we exercise it
+  // by mutating cleanup.mode after render so that selectedModeId (captured
+  // at render) still says non-timeTtl while isTimeTtl(cleanup) flips true.
+  test('switching into timeTtl reuses cleanup.maxAgeDays when isTimeTtl(cleanup) is true', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    // Build a cleanup that *also* carries maxAgeDays so that after the
+    // post-render mutation the structural-typing predicate isTimeTtl passes
+    // and the carry-over branch sees a usable number.
+    const cleanup = {
+      mode: 'sizeCap',
+      maxBytes: 200 * 1024 * 1024,
+      maxAgeDays: 99,
+    } as unknown as OgImageCleanupMode
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup,
+        saveConfig,
+      }),
+    )
+    // Flip the mode in place — selectedModeId (closed-over at render) still
+    // says 'sizeCap', but isTimeTtl(cleanup) now returns true.
+    ;(cleanup as { mode: string }).mode = 'timeTtl'
+    fireEvent.click(screen.getByTestId('link-previews-cleanup-mode-timeTtl'))
+    // The persist call is fire-and-forget inside the click handler; we just
+    // need its first invocation to confirm the carry-over branch was used.
+    expect(saveConfig).toHaveBeenCalled()
+    expect(saveConfig.mock.calls.at(-1)?.[0].ogImage.cleanup).toEqual({
+      mode: 'timeTtl',
+      maxAgeDays: 99,
+    })
+  })
+
+  // Pins line 230 `if (!isTimeTtl(cleanup)) return` — defensive guard that
+  // fires when the change event arrives but cleanup is no longer timeTtl.
+  // The input is conditionally rendered, so we mutate the captured cleanup
+  // object in place (no rerender) to force isTimeTtl to flip false at the
+  // moment the handler runs.
+  test('onChangeMaxAgeDays bails out when cleanup has been swapped away from timeTtl', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    const cleanup = { mode: 'timeTtl', maxAgeDays: 30 } as OgImageCleanupMode
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup,
+        saveConfig,
+      }),
+    )
+    // Mutate in place — the captured closure still holds this reference,
+    // but isTimeTtl(cleanup) now returns false.
+    ;(cleanup as { mode: string }).mode = 'off'
+    fireEvent.change(screen.getByTestId('link-previews-max-age-days'), {
+      target: { value: '90' },
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
+  })
+
+  // Pins line 244 `if (!isSizeCapOrLru(cleanup)) return` — same trick:
+  // mutate cleanup away from sizeCap/lru after render so the rendered
+  // input's handler hits its defensive early-return.
+  test('onChangeMaxBytesMb bails out when cleanup has been swapped away from sizeCap/lru', () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
+    const cleanup = {
+      mode: 'sizeCap',
+      maxBytes: 100 * 1024 * 1024,
+    } as OgImageCleanupMode
+    render(
+      withShell({
+        ogImageFetchEnabled: true,
+        cleanup,
+        saveConfig,
+      }),
+    )
+    ;(cleanup as { mode: string }).mode = 'off'
+    fireEvent.change(screen.getByTestId('link-previews-max-bytes-mb'), {
+      target: { value: '256' },
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 })
 
@@ -711,6 +931,41 @@ function withShell(overrides: {
   )
 }
 
+function withNullSnapshotShell(overrides: {
+  saveConfig: ShellDataContextValue['saveConfig']
+}) {
+  const value: ShellDataContextValue = {
+    buildInfo: null,
+    appLockStatus: null,
+    snapshot: null,
+    dashboard: null,
+    loading: false,
+    busyAction: null,
+    busyOverlay: null,
+    error: null,
+    notice: null,
+    refreshKey: 0,
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
+    refreshRuntimeStatus: vi.fn(),
+    saveConfig: overrides.saveConfig,
+    initializeArchive: vi.fn(),
+    runBackup: vi.fn().mockResolvedValue({}),
+    setAppLockPasscode: vi.fn(),
+    clearAppLockPasscode: vi.fn(),
+    lockAppSession: vi.fn().mockResolvedValue({}),
+    unlockAppSession: vi.fn(),
+    clearNotice: vi.fn(),
+  } as ShellDataContextValue
+
+  return (
+    <I18nProvider>
+      <ShellDataContext.Provider value={value}>
+        <LinkPreviewsSection />
+      </ShellDataContext.Provider>
+    </I18nProvider>
+  )
+}
+
 function makeSnapshot(options: {
   ogImageFetchEnabled: boolean
   blockedHosts: string[]
@@ -737,6 +992,7 @@ function makeSnapshot(options: {
         enabled: false,
         biometricEnabled: false,
       } as never,
+      remoteBackup: {} as never,
       enrichment: {} as never,
       deterministic: {} as never,
       ai: {} as never,

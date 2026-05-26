@@ -215,4 +215,102 @@ describe('PaperSettingsHeader', () => {
     expect(scrollSpy).not.toHaveBeenCalled()
     rafSpy.mockRestore()
   })
+
+  test('hash-driven scroll bails out cleanly when the target element is missing', () => {
+    // Hash names a registered nav section but the DOM never mounted it
+    // (rare race: section panel suspended / removed). The early return on
+    // L44 keeps focus/scrollIntoView from being called on a null element.
+    document.body.innerHTML = ''
+    const scrollSpy = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      value: scrollSpy,
+      configurable: true,
+    })
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+    render(
+      <MemoryRouter initialEntries={['/settings#settings-applock']}>
+        <PaperSettingsHeader
+          eyebrow="Preferences"
+          title="Title"
+          subtitle="Sub"
+          jumpLabel="Jump to"
+          items={items}
+        />
+      </MemoryRouter>,
+    )
+    expect(scrollSpy).not.toHaveBeenCalled()
+    rafSpy.mockRestore()
+  })
+
+  test('respects an existing tabindex when focusing the scrolled section', () => {
+    // Branch coverage for `if (!element.hasAttribute('tabindex'))`: when
+    // the section already declares a tabindex (e.g. set by upstream a11y
+    // wiring), focusSection must NOT clobber it.
+    document.body.innerHTML = '<div id="settings-applock" tabindex="0"></div>'
+    const target = document.getElementById('settings-applock')
+    if (!(target instanceof HTMLElement)) throw new Error('target missing')
+    const setAttrSpy = vi.spyOn(target, 'setAttribute')
+    Object.defineProperty(target, 'scrollIntoView', {
+      value: vi.fn(),
+      configurable: true,
+    })
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        cb(0)
+        return 1
+      })
+    renderHeader()
+    fireEvent.click(
+      screen.getByRole<HTMLAnchorElement>('link', { name: 'App Lock' }),
+    )
+    expect(setAttrSpy).not.toHaveBeenCalledWith('tabindex', '-1')
+    expect(target.getAttribute('tabindex')).toBe('0')
+    rafSpy.mockRestore()
+  })
+
+  test('setTimeout fallback returns a cleanup that clearTimeouts on unmount', () => {
+    // Exercises the L57 cleanup `return () => window.clearTimeout(timeout)`
+    // by forcing the rAF-absent path AND triggering React effect cleanup
+    // through unmount. Without unmount, the scheduleSectionScroll return
+    // value is never invoked.
+    document.body.innerHTML = '<div id="settings-applock"></div>'
+    const originalRaf = window.requestAnimationFrame
+    ;(
+      window as unknown as { requestAnimationFrame: unknown }
+    ).requestAnimationFrame = undefined
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+    const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout')
+    try {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={['/settings#settings-applock']}>
+          <PaperSettingsHeader
+            eyebrow="Preferences"
+            title="Title"
+            subtitle="Sub"
+            jumpLabel="Jump to"
+            items={items}
+          />
+        </MemoryRouter>,
+      )
+      // The hash-driven effect must have used setTimeout, not rAF.
+      expect(setTimeoutSpy).toHaveBeenCalled()
+      const scheduledHandle = setTimeoutSpy.mock.results[0]?.value
+      unmount()
+      // Unmount fires the effect cleanup, which calls clearTimeout with
+      // the same handle setTimeout returned.
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(scheduledHandle)
+    } finally {
+      setTimeoutSpy.mockRestore()
+      clearTimeoutSpy.mockRestore()
+      ;(
+        window as unknown as { requestAnimationFrame: typeof originalRaf }
+      ).requestAnimationFrame = originalRaf
+    }
+  })
 })

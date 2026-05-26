@@ -107,17 +107,19 @@ export function useRouteHistoryNav(): RouteHistoryNav {
   // the initial mount (always `Pop` per react-router) would underflow
   // the stack to -1 → 0.
   const lastKeyRef = useRef<string | null>(null)
-  // Intent ring: react-router emits NavigationType.Pop for both
+  // Intent ring: react-router emits NavigationType.Pop for BOTH
   // history.go(-1) AND history.go(+1) — there is no way to tell from
   // navigationType alone whether the Pop came from a back step or a
-  // forward step. goForward writes 'forward' here before calling
-  // navigate(1); the effect reads the intent on the very next Pop
-  // and increments the stack accordingly, then clears the ref. Any
-  // other Pop (browser back button, goBack, in-app `<a>` with
-  // back-relative href) sees an empty intent and falls back to the
-  // back semantics. Code-review §4 regression: the original effect
-  // unconditionally treated Pop as back, so goForward left both
-  // arrows disabled.
+  // forward step. Two distinct bugs hinge on this disambiguation:
+  //   1. (review §4) goForward → navigate(1) → Pop must increment the
+  //      stackIndex counter, not decrement it.
+  //   2. (F2)       a browser-back / goBack Pop must enable
+  //      forwardAvailable so the forward chevron reflects the browser's
+  //      real forward branch; a goForward Pop must not.
+  // goForward writes 'forward' here before calling navigate(1); the
+  // effect reads + clears the intent on the next Pop and routes both
+  // branches correctly. Any other Pop sees a null intent and falls
+  // back to the back semantics.
   const navIntentRef = useRef<'forward' | null>(null)
 
   useEffect(() => {
@@ -148,15 +150,20 @@ export function useRouteHistoryNav(): RouteHistoryNav {
       navIntentRef.current = null
     } else if (navigationType === NavigationType.Pop) {
       if (navIntentRef.current === 'forward') {
-        // goForward-triggered Pop: walk DOWN the forward branch,
-        // increment the counter, and leave forwardAvailable cleared
-        // by goForward (no further setState here).
+        // goForward-triggered Pop: walk DOWN the forward branch and
+        // bump the counter. goForward already cleared forwardAvailable
+        // before navigating, so do not touch it here.
         navIntentRef.current = null
         setStackIndex((index) => index + 1)
       } else {
-        // Browser back / goBack-triggered Pop: walk up the back
-        // branch.
+        // External-initiated Pop (browser back arrow, history.go(-N),
+        // or in-app goBack). Walk UP the back branch AND enable the
+        // forward chevron — the user just stepped backwards, so the
+        // browser's forward branch is now available for the next click.
+        // goBack also flows through here; it pre-set forwardAvailable
+        // to true already, so the redundant setter is a harmless no-op.
         setStackIndex((index) => Math.max(0, index - 1))
+        setForwardAvailable(true)
       }
     }
     // NavigationType.Replace intentionally does not move the counter —

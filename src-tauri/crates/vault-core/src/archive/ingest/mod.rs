@@ -25,6 +25,15 @@
 mod parser;
 mod writes;
 
+#[cfg(test)]
+mod dedup_scenarios;
+#[cfg(test)]
+mod dedup_scenarios_baselines;
+#[cfg(test)]
+mod dedup_scenarios_edge_cases;
+#[cfg(test)]
+mod dedup_scenarios_takeout;
+
 use self::{
     parser::{Watermark, load_watermark, save_watermark, should_checkpoint},
     writes::{
@@ -168,10 +177,18 @@ impl HistoryBatchConsumer for ArchiveChunkConsumer<'_> {
             )?;
             if inserted > 0 {
                 self.progress.new_visits += 1;
+                // Only widen URL bounds from visits that actually landed.
+                // INSERT OR IGNORE may drop a visit on either unique-index
+                // hit (`(url_id, source_visit_id)` or the fingerprint
+                // partial index); in either case the visit row is not in
+                // the canonical `visits` table, so widening
+                // `urls.first_visit_ms` / `urls.last_visit_ms` from it
+                // would leave the URL claiming bounds that no visit row
+                // proves — breaking any read model that joins them back.
+                track_url_visit_bounds(&mut self.progress.url_bounds, url_id, &visit);
             }
             self.progress.visit_count += 1;
             self.progress.last_visit_id = self.progress.last_visit_id.max(visit.source_visit_id);
-            track_url_visit_bounds(&mut self.progress.url_bounds, url_id, &visit);
         }
         if let Some(report_progress) = self.report_progress.as_mut() {
             report_progress(ArchiveIngestProgress {

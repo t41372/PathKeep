@@ -497,6 +497,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "browser-history-fixtures"
+version = "0.1.0"
+dependencies = [
+ "browser-history-parser",
+ "rusqlite",
+ "tempfile",
+]
+
+[[package]]
 name = "browser-history-parser"
 version = "0.1.0"
 dependencies = [
@@ -6605,6 +6614,7 @@ name = "vault-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "browser-history-fixtures",
  "browser-history-parser",
  "chrono",
  "directories",

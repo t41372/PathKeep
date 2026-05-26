@@ -89,8 +89,7 @@ describe('SegmentedControl', () => {
       />,
     )
     for (const option of OPTIONS) {
-      const node = screen.getByTestId<HTMLButtonElement>(`seg-${option.id}`)
-      expect(node.disabled).toBe(true)
+      expect(screen.getByTestId(`seg-${option.id}`)).toBeDisabled()
     }
   })
 
@@ -126,8 +125,7 @@ describe('SegmentedControl', () => {
       />,
     )
     for (const option of OPTIONS) {
-      const node = screen.getByTestId<HTMLButtonElement>(`seg-${option.id}`)
-      expect(node.disabled).toBe(false)
+      expect(screen.getByTestId(`seg-${option.id}`)).not.toBeDisabled()
     }
   })
 

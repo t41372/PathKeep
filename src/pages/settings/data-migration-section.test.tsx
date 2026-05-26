@@ -306,6 +306,140 @@ describe('DataMigrationSection', () => {
     )
   })
 
+  test('import dialog cancel returns to idle without firing the backend', async () => {
+    // L118-120: when the Tauri open() resolves to `null` (user dismissed
+    // the picker), the section must reset to idle so the import tile
+    // becomes clickable again — not freeze in the "previewing" spinner.
+    dialogOpenMock.mockResolvedValue(null)
+    const previewSpy = vi.spyOn(backend, 'previewAppDataImport')
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('settings-migration-preview'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(previewSpy).not.toHaveBeenCalled()
+    // Idle means the import tile is re-enabled and no preview/error
+    // banner is rendered.
+    expect(
+      screen.queryByTestId('settings-migration-preview-error'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByTestId('settings-migration-import')).not.toBeDisabled()
+  })
+
+  test('import dialog returns an empty string → still treated as cancel', async () => {
+    // L118 covers the `!selected.trim()` branch — some platforms return
+    // an empty path string instead of null when the picker is dismissed.
+    dialogOpenMock.mockResolvedValue('   ')
+    const previewSpy = vi.spyOn(backend, 'previewAppDataImport')
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-import'),
+      ).not.toBeDisabled(),
+    )
+    expect(previewSpy).not.toHaveBeenCalled()
+  })
+
+  test('apply success with no forward migrations renders the "none" descriptor', async () => {
+    // HTML L1237 branch: `migrationsApplied.length === 0` → the i18n
+    // string `migrationAppliedNoMigrations` ('none') is rendered in
+    // place of the comma-joined migration list. Also exercises the
+    // `preservedPreviousAsBak: false` branch so `{bakNotice}` resolves
+    // to '' and gets trimmed away.
+    dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(mockPreview())
+    vi.spyOn(backend, 'applyAppDataImport').mockResolvedValue(
+      mockResult({
+        migrationsApplied: [],
+        preservedPreviousAsBak: false,
+      }),
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-applied')).toBeVisible(),
+    )
+    const banner = screen.getByTestId('settings-migration-applied')
+    expect(banner).toHaveTextContent('none')
+    // bakNotice path went to '' so the .bak preservation copy must be
+    // absent from the success banner.
+    expect(banner).not.toHaveTextContent('Previous project preserved')
+  })
+
+  test('handleApplyImport is a no-op when phase is not "previewed"', async () => {
+    // L133 guard: after an apply error the preview panel stays mounted
+    // (so the user can read the error or cancel), but the confirm button
+    // is bound to a handler whose closed-over `phase` is `applyError`.
+    // Clicking it again must NOT re-fire `applyAppDataImport` — that's
+    // the contract the guard enforces.
+    dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(mockPreview())
+    const applySpy = vi
+      .spyOn(backend, 'applyAppDataImport')
+      .mockRejectedValue(new Error('boom'))
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('settings-migration-apply-error'),
+      ).toBeVisible(),
+    )
+    expect(applySpy).toHaveBeenCalledTimes(1)
+
+    // Click again while phase is `applyError` — the guard on L133 fires.
+    await userEvent.click(screen.getByTestId('settings-migration-confirm'))
+    // No second backend invocation; nothing transitions to `applied`.
+    expect(applySpy).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByTestId('settings-migration-applied'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('preview renders without exporter hostname suffix when manifest omits it', async () => {
+    // L342 branch: `exporterHostname` falsy → the ` · {host}` suffix is
+    // skipped. Same component now also exercises the
+    // `willOverwriteExisting: false` branch on L376 so the overwrite
+    // warning is absent.
+    dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
+    const baseManifest = mockBundle().manifest
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(
+      mockPreview({
+        willOverwriteExisting: false,
+        manifest: { ...baseManifest, exporterHostname: '' },
+      }),
+    )
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+    const preview_panel = screen.getByTestId('settings-migration-preview')
+    expect(preview_panel).toHaveTextContent('2026-05-25T01:00:00Z')
+    expect(preview_panel).not.toHaveTextContent('source-machine')
+    expect(
+      screen.queryByTestId('settings-migration-preview-overwrite-warning'),
+    ).not.toBeInTheDocument()
+  })
+
   test('preview error renders the error banner without opening the preview panel', async () => {
     dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
     vi.spyOn(backend, 'previewAppDataImport').mockRejectedValue(

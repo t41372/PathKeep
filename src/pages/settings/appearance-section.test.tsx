@@ -127,6 +127,37 @@ describe('AppearanceSection', () => {
     }
   })
 
+  test('the appearance card reflows when PAPER_PREFERENCES_EVENT fires from a peer surface', async () => {
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    const light = screen.getByRole('radio', { name: /Paper · light/i })
+    const dark = screen.getByRole('radio', { name: /Darkroom · dark/i })
+    expect(light.getAttribute('aria-checked')).toBe('true')
+    expect(dark.getAttribute('aria-checked')).toBe('false')
+
+    await import('@testing-library/react').then(({ act }) =>
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('pathkeep.paperPreferencesChanged', {
+            detail: {
+              preferences: {
+                theme: 'dark',
+                fonts: 'bundled',
+                density: 'comfortable',
+                paperTexture: true,
+              },
+            },
+          }),
+        )
+      }),
+    )
+    expect(dark.getAttribute('aria-checked')).toBe('true')
+    expect(light.getAttribute('aria-checked')).toBe('false')
+  })
+
   test('the appearance card reflows when CLOCK_FORMAT_EVENT fires from a peer surface', async () => {
     render(
       <I18nProvider>
@@ -154,5 +185,34 @@ describe('AppearanceSection', () => {
     )
     expect(twentyFour.getAttribute('aria-checked')).toBe('true')
     expect(twelve.getAttribute('aria-checked')).toBe('false')
+  })
+
+  test('peer events with missing detail do not crash or change state', async () => {
+    render(
+      <I18nProvider>
+        <AppearanceSection />
+      </I18nProvider>,
+    )
+    const light = screen.getByRole('radio', { name: /Paper · light/i })
+    const twelve = screen.getByRole('radio', { name: /12-hour/i })
+    expect(light.getAttribute('aria-checked')).toBe('true')
+    expect(twelve.getAttribute('aria-checked')).toBe('true')
+
+    await import('@testing-library/react').then(({ act }) =>
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent('pathkeep.paperPreferencesChanged', {
+            detail: {},
+          }),
+        )
+        window.dispatchEvent(
+          new CustomEvent('pathkeep.clockFormatChanged', {
+            detail: {},
+          }),
+        )
+      }),
+    )
+    expect(light.getAttribute('aria-checked')).toBe('true')
+    expect(twelve.getAttribute('aria-checked')).toBe('true')
   })
 })

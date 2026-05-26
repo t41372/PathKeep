@@ -124,4 +124,42 @@ describe('applyPaperPreferences', () => {
       document.documentElement.style.getPropertyValue('--vignette-opacity'),
     ).toBe('0')
   })
+
+  test('dispatches PAPER_PREFERENCES_EVENT with the resolved prefs', () => {
+    const events: PaperPreferences[] = []
+    const listener = (e: Event) => {
+      const detail = (e as CustomEvent<{ preferences: PaperPreferences }>)
+        .detail
+      events.push(detail.preferences)
+    }
+    window.addEventListener('pathkeep.paperPreferencesChanged', listener)
+    try {
+      const candidate: PaperPreferences = {
+        theme: 'dark',
+        fonts: 'system',
+        density: 'compact',
+        paperTexture: false,
+      }
+      applyPaperPreferences(candidate)
+      expect(events).toHaveLength(1)
+      expect(events[0]).toEqual(candidate)
+    } finally {
+      window.removeEventListener('pathkeep.paperPreferencesChanged', listener)
+    }
+  })
+
+  test('persists and returns the resolved bundle', () => {
+    const candidate: PaperPreferences = {
+      theme: 'dark',
+      fonts: 'system',
+      density: 'compact',
+      paperTexture: true,
+    }
+    const result = applyPaperPreferences(candidate)
+    expect(result).toEqual(candidate)
+    expect(window.localStorage.getItem('pathkeep.theme')).toBe('dark')
+    expect(window.localStorage.getItem('pathkeep.fonts')).toBe('system')
+    expect(window.localStorage.getItem('pathkeep.density')).toBe('compact')
+    expect(window.localStorage.getItem('pathkeep.paperTexture')).toBe('on')
+  })
 })
