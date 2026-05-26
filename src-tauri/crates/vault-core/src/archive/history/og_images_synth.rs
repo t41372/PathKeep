@@ -104,21 +104,24 @@ pub(crate) fn resolve_image_url_via_api_with_base(
             return None;
         }
     }
-    let body = read_response_with_cap(response, BILIBILI_API_BODY_CAP_BYTES)?;
+    let body = read_with_cap(response, BILIBILI_API_BODY_CAP_BYTES)?;
     extract_bilibili_pic_field(&body)
 }
 
-/// Stream-reads `response` into a `Vec<u8>`, returning `None` as soon as
+/// Stream-reads `reader` into a `Vec<u8>`, returning `None` as soon as
 /// the running total exceeds `cap_bytes` or any read error occurs. The
 /// returned buffer never exceeds `cap_bytes`.
-fn read_response_with_cap(
-    mut response: reqwest::blocking::Response,
-    cap_bytes: usize,
-) -> Option<Vec<u8>> {
+///
+/// Generic over `Read` so callers can pass either
+/// `reqwest::blocking::Response` (which implements `Read`) in production
+/// or a `Cursor` / fake reader in tests — both the cap-exceeded and
+/// read-error branches must be unit-testable without standing up a
+/// streaming HTTP server.
+fn read_with_cap<R: Read>(mut reader: R, cap_bytes: usize) -> Option<Vec<u8>> {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 8 * 1024];
     loop {
-        match response.read(&mut chunk) {
+        match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => {
                 if buffer.len() + n > cap_bytes {
@@ -480,62 +483,38 @@ mod tests {
     }
 
     #[test]
-    fn read_response_with_cap_aborts_on_cap_exceed_without_buffering_excess() {
-        // Direct test of the streaming helper using a fake reader. Pins
-        // that we don't materialize the whole body before checking size
-        // — the failure mode that motivated the cap (hostile / MITM'd
-        // api.bilibili.com returning multi-GB JSON blowing memory).
-        struct CountedReader {
-            data: Vec<u8>,
-            position: usize,
-            max_yielded: usize,
-        }
-        impl std::io::Read for CountedReader {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                if self.position >= self.data.len() {
-                    return Ok(0);
-                }
-                let n = std::cmp::min(buf.len(), self.data.len() - self.position);
-                buf[..n].copy_from_slice(&self.data[self.position..self.position + n]);
-                self.position += n;
-                self.max_yielded = self.max_yielded.max(self.position);
-                Ok(n)
-            }
-        }
+    fn read_with_cap_returns_buffer_when_under_cap() {
+        let data = vec![b'x'; 4 * 1024];
+        let result = super::read_with_cap(data.as_slice(), 64 * 1024);
+        assert_eq!(result.as_deref().map(|b| b.len()), Some(4 * 1024));
+    }
 
-        // We can't construct a reqwest::blocking::Response in a test,
-        // so test the cap algorithm with an inline copy of the read
-        // loop. (The production function is one screen of code; this
-        // pins the behavior contract.)
-        let cap = 64 * 1024;
-        let mut reader =
-            CountedReader { data: vec![b'x'; 100 * 1024], position: 0, max_yielded: 0 };
-        let mut buffer = Vec::new();
-        let mut chunk = [0_u8; 8 * 1024];
-        let aborted = loop {
-            let n = match std::io::Read::read(&mut reader, &mut chunk) {
-                Ok(0) => break false,
-                Ok(n) => n,
-                Err(_) => break true,
-            };
-            if buffer.len() + n > cap {
-                break true;
+    #[test]
+    fn read_with_cap_returns_none_when_stream_exceeds_cap() {
+        // Exercises the cap-exceeded branch directly. A streaming
+        // reqwest::Response was previously the only way into this
+        // branch, so the line was uncoverable in unit tests without
+        // standing up a mockito server with chunked-encoding. The
+        // generic Read signature lets us drive it with a plain slice.
+        let data = vec![b'x'; 100 * 1024];
+        let result = super::read_with_cap(data.as_slice(), 64 * 1024);
+        assert!(result.is_none(), "stream exceeding cap must return None");
+    }
+
+    #[test]
+    fn read_with_cap_returns_none_on_read_error() {
+        // Exercises the Read-error branch directly via a fake reader
+        // that always errors. Defends against a future refactor that
+        // accidentally swallows the error (returning Some(partial))
+        // instead of propagating it.
+        struct ErrorReader;
+        impl std::io::Read for ErrorReader {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("fake read failure"))
             }
-            buffer.extend_from_slice(&chunk[..n]);
-        };
-        assert!(aborted, "streaming read must abort once cap is exceeded");
-        assert!(
-            buffer.len() <= cap,
-            "buffer must never exceed cap (got {} bytes, cap {} bytes)",
-            buffer.len(),
-            cap,
-        );
-        assert!(
-            reader.max_yielded <= cap + chunk.len(),
-            "reader should not be drained far beyond the cap (read {} of {} bytes)",
-            reader.max_yielded,
-            reader.data.len(),
-        );
+        }
+        let result = super::read_with_cap(ErrorReader, 64 * 1024);
+        assert!(result.is_none(), "read error must propagate as None");
     }
 
     #[test]
