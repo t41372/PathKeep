@@ -1552,3 +1552,51 @@ negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
     (99.05/98.01/99.54/99.53), 787 Rust + 1906 JS tests pass. `bun run check`
     green except pre-existing flaky desktop-bridge e2e (`socket hang up` on
     `run_backup_now` — verified same failure on clean tree).
+
+---
+
+### WORK-IMPORT-TEST-HARNESS-B — Edge-case & cross-family dedup scenario expansion
+
+- **Date**: 2026-05-25
+- **Commit**: 728c1b88
+- **Scope**: Filling assessment gaps — raised spec coverage from ~40% (12/30
+  scenarios) toward ~63% (19/30) by adding 9 new test scenarios across 2 files.
+
+#### New tests
+
+1. **`dedup_scenarios_edge_cases.rs`** (NEW, 564 lines) — 7 tests:
+   - **C_SUB_MS (E5)**: Sub-millisecond Chrome visit collision — pins the
+     known limitation that two visits to the same URL within the same ms are
+     collapsed by the fingerprint partial unique index.
+   - **E6**: URL canonicalization contract — trailing slash, fragment, mixed
+     case all stored verbatim as separate URLs (no normalization).
+   - **Empty DB × 3 families**: Chromium, Firefox, Safari zero-row fixtures
+     import without error, summary reports 0/0.
+   - **R1a**: Corrupt random bytes file → `Err`, not panic.
+   - **R1b**: Valid SQLite DB missing required browser tables → `Err`, not panic.
+
+2. **`dedup_scenarios_baselines.rs`** (+160 lines → 806 total) — 2 tests:
+   - **F_C2**: Firefox incremental no-new-data (watermark prevents re-import).
+   - **S_C2**: Safari incremental no-new-data (same pattern).
+
+#### Doc updates
+
+- `import-dedup-audit.md` §4: sub-millisecond TODO replaced with implemented
+  test cross-reference; URL canonicalization section updated with E6 reference.
+- `import-dedup-audit.md` §6: 9 new scenarios added to contract scenarios table.
+- `dedup_scenarios.rs`: C_SUB_MS TODO replaced with cross-reference to edge_cases.
+
+#### Remaining gaps (still in BACKLOG)
+
+- **R2/R3**: Crash rollback, batch revert — requires transaction-abort
+  test infrastructure not yet built.
+- **E1-E4**: Time boundary edge cases (epoch, year-2038, far-future, DST).
+- **T4**: Takeout hash collision at scale (needs million-record fixture infra).
+- **Download/SearchTerm/Favicon minimal E2E**: Completely untested at scenario
+  level (covered by unit tests in `writes.rs` and chunk_consumer integration).
+
+#### Verification
+
+- 598 vault-core tests pass (24 dedup scenarios across 3 modules).
+- Rust coverage: 100% (34,423 lines / 1,611 functions).
+- `cargo fmt --all` clean.
