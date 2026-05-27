@@ -148,27 +148,22 @@ export function PaperSearchResult({
 function highlightQuery(text: string, query: string | undefined): ReactNode {
   const trimmed = query?.trim()
   if (!trimmed) return text
-  try {
-    const tokens = trimmed
-      .split(/\s+/)
-      .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .filter(Boolean)
-    if (tokens.length === 0) return text
-    const pattern = new RegExp(`(${tokens.join('|')})`, 'gi')
-    const parts = text.split(pattern)
-    return parts.map((part, index) =>
-      pattern.test(part) ? (
-        <mark
-          key={index}
-          className="bg-accent-soft text-accent rounded-[1px] px-[1px]"
-        >
-          {part}
-        </mark>
-      ) : (
-        <span key={index}>{part}</span>
-      ),
-    )
-  } catch {
-    return text
-  }
+  const tokens = trimmed
+    .split(/\s+/)
+    .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .filter(Boolean)
+  const pattern = new RegExp(`(${tokens.join('|')})`, 'gi')
+  const parts = text.split(pattern)
+  return parts.map((part, index) =>
+    pattern.test(part) ? (
+      <mark
+        key={index}
+        className="bg-accent-soft text-accent rounded-[1px] px-[1px]"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={index}>{part}</span>
+    ),
+  )
 }

@@ -22,12 +22,13 @@ describe('tokenizeQuery', () => {
 
   test('keeps quoted phrases as a single token, including smart quotes and escapes', () => {
     const tokens = tokenizeQuery(
-      '"release notes" tag:“async runtime” -note:legacy escape\\ slash',
+      '"release notes" tag:“async runtime” note:"design\\"doc" -note:legacy escape\\ slash',
     )
     const literals = tokens.map((token) => token.literal)
     expect(literals).toEqual([
       '"release notes"',
       'tag:“async runtime”',
+      'note:"design\\"doc"',
       '-note:legacy',
       'escape\\',
       'slash',
@@ -84,12 +85,34 @@ describe('parseActiveSearchFilters', () => {
 
   test('ignores empty operands, unknown operators, and non-operator tokens', () => {
     const filters = parseActiveSearchFilters(
-      'tag: note: rust unknown:value 123:abc "release notes" -',
+      'tag: note: tag:"" rust unknown:value 123:abc "release notes" -',
     )
-    // tag: / note: → empty operand, skipped. unknown:value → not a known
-    // operator. 123:abc → operator part not all-alphabetic. Plain words
-    // and bare "-" are not filters.
+    // tag: / note: → empty operand, tag:"" → empty display after
+    // quote-stripping, skipped. unknown:value → not a known operator.
+    // 123:abc → operator part not all-alphabetic. Plain words and bare
+    // "-" are not filters.
     expect(filters).toEqual([])
+  })
+
+  test('normalizes smart-quoted operands to the displayed chip value', () => {
+    const filters = parseActiveSearchFilters('note:“design doc”')
+    expect(filters).toEqual([
+      expect.objectContaining({
+        kind: 'note',
+        value: 'design doc',
+        label: 'note:design doc',
+      }),
+    ])
+  })
+
+  test('keeps a one-character operand instead of treating it as a quote pair', () => {
+    expect(parseActiveSearchFilters('tag:r')).toEqual([
+      expect.objectContaining({
+        kind: 'tag',
+        value: 'r',
+        label: 'tag:r',
+      }),
+    ])
   })
 
   test('builds an identity-based id (kind::neg/pos::value::occurrence) that survives unrelated query edits', () => {

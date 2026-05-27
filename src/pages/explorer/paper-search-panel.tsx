@@ -139,7 +139,6 @@ export function PaperSearchPanel({
   const appendFilterOperator = useCallback(
     (operator: string) => {
       const next = appendOperator(query, operator)
-      if (next === query) return
       onQueryChange(next)
       focusInputAtEnd(next)
     },

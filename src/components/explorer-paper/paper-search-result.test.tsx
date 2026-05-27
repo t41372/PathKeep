@@ -43,6 +43,20 @@ describe('PaperSearchResult', () => {
     expect(screen.getByText('link')).toBeVisible()
   })
 
+  test('omits the transition badge when the entry does not provide one', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({ transitionType: undefined })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId="result-no-transition"
+      />,
+    )
+
+    expect(screen.getByTestId('result-no-transition')).toBeVisible()
+    expect(screen.queryByText('link')).not.toBeInTheDocument()
+  })
+
   test('wraps matching tokens of the query in <mark> tags', () => {
     render(
       <PaperSearchResult
@@ -96,6 +110,24 @@ describe('PaperSearchResult', () => {
     fireEvent.keyDown(row, { key: 'Enter' })
     fireEvent.keyDown(row, { key: ' ' })
     expect(onSelect).toHaveBeenCalledTimes(2)
+  })
+
+  test('ignores unrelated keys so keyboard navigation does not select rows accidentally', () => {
+    const onSelect = vi.fn()
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        onSelect={onSelect}
+        testId="result-arrow-key"
+      />,
+    )
+
+    fireEvent.keyDown(screen.getByTestId('result-arrow-key'), {
+      key: 'ArrowDown',
+    })
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   test('renders the snippet block when supplied', () => {
@@ -152,6 +184,28 @@ describe('PaperSearchResult', () => {
     expect(
       screen.queryByTestId('paper-search-result-see-in-context'),
     ).toBeNull()
+  })
+
+  test('falls back from an empty title to url and then domain for the visible result heading', () => {
+    const { rerender } = render(
+      <PaperSearchResult
+        entry={makeEntry({ title: '', url: 'https://example.com/docs' })}
+        domainColor="#24292e"
+        domainAbbr="EX"
+        testId="result-url-title"
+      />,
+    )
+    expect(screen.getByText('example.com/docs')).toBeVisible()
+
+    rerender(
+      <PaperSearchResult
+        entry={makeEntry({ title: '', url: '', domain: 'example.com' })}
+        domainColor="#24292e"
+        domainAbbr="EX"
+        testId="result-domain-title"
+      />,
+    )
+    expect(screen.getByText('example.com')).toBeVisible()
   })
 
   test('falls back gracefully when query is empty', () => {

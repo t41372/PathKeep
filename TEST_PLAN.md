@@ -161,6 +161,13 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
    - `[x]` 9A migration import fail-fast refusal paths.
    - `[x]` 9B security/keyring refusal and recovery paths.
    - `[x]` 9C scheduler host-command failure paths.
+10. `[ ]` JS coverage residual restoration
+    - Restore `coverage:js` from the current 99/98/99/99 floor back to the
+      documented 100/100/100/100 gate without excluding active runtime code.
+    - `[x]` 10A Search/Browse chip and result residuals.
+    - `[ ]` 10B Explorer route and paper-view residuals.
+    - `[ ]` 10C Dashboard/app shell residuals.
+    - `[ ]` 10D Hook/helper branch residuals.
 
 ## Bug / Drift Register
 
@@ -809,6 +816,65 @@ Suspected product bugs: none confirmed. The scheduler audit found existing
 Windows/macOS host-command failure coverage for access denied, missing tasks,
 mismatches, loaded-without-file states, and manual Linux paths; this checkpoint
 tightens the macOS failed-bootstrap recovery/status contract.
+
+### Module 10A: JS Search/Browse chip and result residuals
+
+Added focused frontend behavior assertions and removed two dead defensive guards:
+
+- Advanced search help now has direct coverage for its default test id plus the
+  keyboard focus/blur popover path.
+- Search-filter helpers now pin escaped quotes inside quoted operators,
+  smart-quoted operands, one-character operands, and quoted-empty operands that
+  must not surface as chips.
+- Search result rows now assert unrelated keys do not select the row, missing
+  transition labels stay hidden, and title fallback proceeds from title to URL
+  to domain.
+- Paper search panel now has a child-contract test proving stale remove ids are
+  ignored and focus scheduling tolerates a child that does not attach the input
+  ref.
+- Deleted the unreachable `highlightQuery` regex `try/catch` and the
+  unreachable `appendFilterOperator` unchanged-query guard. Query tokens are
+  escaped before regex construction, and the panel only appends valid hard-coded
+  `tag` / `note` operators.
+
+Commands:
+
+```sh
+bunx vitest run src/components/explorer-paper/paper-advanced-search-help.test.tsx src/components/explorer-paper/paper-search-hero.test.tsx src/pages/explorer/paper-search-filters.test.ts src/components/explorer-paper/paper-search-result.test.tsx src/pages/explorer/paper-search-panel.test.tsx src/pages/explorer/paper-search-panel.child-contract.test.tsx --coverage --coverage.include=src/components/explorer-paper/paper-advanced-search-help.tsx --coverage.include=src/pages/explorer/paper-search-filters.ts --coverage.include=src/components/explorer-paper/paper-search-result.tsx --coverage.include=src/pages/explorer/paper-search-panel.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Test Files 6 passed (6)
+Tests 60 passed (60)
+Targeted coverage for paper-advanced-search-help.tsx, paper-search-filters.ts,
+paper-search-result.tsx, and paper-search-panel.tsx:
+statements 100 | branches 100 | functions 100 | lines 100
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+unit: 279 files passed; 2085 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.48%, branches 98.75%, functions 99.72%, lines 99.77%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Gate note: the first full `bun run check` attempt in the command sandbox failed
+only in mockito-backed Rust tests because local test servers could not bind
+sockets (`Operation not permitted`). Re-running the same command with normal
+local permissions passed.
+
+Suspected product bugs: none confirmed.
 
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 

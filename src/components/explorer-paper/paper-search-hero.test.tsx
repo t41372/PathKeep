@@ -372,6 +372,37 @@ describe('PaperSearchHero', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('advanced-syntax help opens on keyboard focus and closes on blur', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    const trigger = screen
+      .getByTestId('paper-search-advanced-help')
+      .querySelector('button')
+    if (!(trigger instanceof HTMLButtonElement)) {
+      throw new Error('advanced help button missing')
+    }
+
+    fireEvent.focus(trigger)
+    expect(screen.getByTestId('paper-advanced-search-help-panel')).toBeVisible()
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.blur(trigger)
+    expect(
+      screen.queryByTestId('paper-advanced-search-help-panel'),
+    ).not.toBeInTheDocument()
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+
   test('forwards ref to the input for parent-managed focus', () => {
     let input: HTMLInputElement | null = null
     render(

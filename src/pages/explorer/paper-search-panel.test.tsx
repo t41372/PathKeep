@@ -299,7 +299,7 @@ describe('PaperSearchPanel', () => {
     cancelSpy.mockRestore()
   })
 
-  test('+ Tag chip is a no-op when appendOperator would return the same query (defensive)', () => {
+  test('+ Tag chip emits the appended operator even when the current query is empty', () => {
     const onQueryChange = vi.fn()
     render(
       <PaperSearchPanel
@@ -317,10 +317,6 @@ describe('PaperSearchPanel', () => {
         onSeeInContext={() => {}}
       />,
     )
-    // appendOperator on empty query returns 'tag:' so this still
-    // fires; the early-return branch only triggers if the helper
-    // returns the unchanged query, which currently can't happen for
-    // valid operator names — kept the guard as a defensive layer.
     fireEvent.click(screen.getByTestId('paper-search-add-tag'))
     expect(onQueryChange).toHaveBeenCalledWith('tag:')
   })
