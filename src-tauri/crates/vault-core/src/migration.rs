@@ -2009,3 +2009,6 @@ mod tests {
         writer.finish().unwrap();
     }
 }
+
+#[cfg(test)]
+mod fault_tests;

@@ -152,12 +152,15 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
    - Route history and global shell state branches.
 7. `[x]` `src/pages/dashboard/index.tsx`
    - Branch coverage is low despite line coverage; assert fallback semantics.
-8. `[ ]` Rust import/fixture sidecar backlog blocks
+8. `[x]` Rust import/fixture sidecar backlog blocks
    - Follow existing BACKLOG order: sidecar fixture extension, minor integrity
      pins, parser ordering, concurrency.
 9. `[ ]` Rust migration/security/scheduler fault-injection sweep
    - Add tests for partial I/O, permission errors, command failures, and
      concurrent state transitions before full mutation.
+   - `[x]` 9A migration import fail-fast refusal paths.
+   - `[ ]` 9B security/keyring refusal and recovery paths.
+   - `[ ]` 9C scheduler host-command failure paths.
 
 ## Bug / Drift Register
 
@@ -670,6 +673,49 @@ desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
 
 Suspected product bugs: none confirmed. This was a maintainability-only split;
 test assertions and product ingest semantics were preserved.
+
+### Module 9A: `vault-core::migration` import refusal fault paths
+
+Added two behavior assertions for whole-app import refusal ordering:
+
+- Wrong encrypted source key must fail with the typed invalid-key prefix while
+  preserving the existing target archive, derived marker, and all non-`.bak`
+  paths.
+- Payload hash mismatch must fail before preservation/install renames, leaving
+  the existing target archive and derived marker untouched and creating no
+  `.bak-*` sidecars.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core migration::fault_tests --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib
+```
+
+Actual output:
+
+```text
+migration::fault_tests: 2 passed; 0 failed; 662 filtered out
+vault-core lib: 664 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+unit: 277 files passed; 2076 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.38%, branches 98.61%, functions 99.66%, lines 99.72%
+Rust workspace tests: vault-core 664 passed; vault-platform 46 passed; vault-worker 70 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed. These tests pin the current intended
+fail-fast behavior before the live project tree is renamed or overwritten.
 
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
