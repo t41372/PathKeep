@@ -47,6 +47,7 @@ const originalDescriptor = Object.getOwnPropertyDescriptor(
 )
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   if (originalDescriptor) {
     Object.defineProperty(window.navigator, 'platform', originalDescriptor)
   }
@@ -67,6 +68,12 @@ describe('PKTopbar', () => {
       configurable: true,
       value: 'Linux x86_64',
     })
+    renderTopbar()
+    expect(screen.getByText(/Ctrl\+K/)).toBeInTheDocument()
+  })
+
+  test('falls back to Ctrl+ when navigator is unavailable', () => {
+    vi.stubGlobal('navigator', undefined)
     renderTopbar()
     expect(screen.getByText(/Ctrl\+K/)).toBeInTheDocument()
   })

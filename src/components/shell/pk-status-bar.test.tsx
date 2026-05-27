@@ -127,6 +127,18 @@ describe('PKStatusBar', () => {
     expect(screen.getByTestId('pk-status-bar')).toBeInTheDocument()
   })
 
+  test('omitting epigraphIndex uses the first stable epigraph', () => {
+    renderStatusBar({ epigraphIndex: undefined })
+    expect(screen.getByText('Memory is patient.')).toBeInTheDocument()
+  })
+
+  test('active source labels omit the profile separator when profile is absent', () => {
+    renderStatusBar({ selectedSourceId: 'firefox:default' })
+    const trigger = screen.getByTestId('pk-status-bar-source-trigger')
+    expect(trigger).toHaveTextContent('Firefox')
+    expect(trigger).not.toHaveTextContent('Firefox ·')
+  })
+
   test('routes Manage Sources to onManageSources', async () => {
     const user = userEvent.setup()
     const { props } = renderStatusBar()

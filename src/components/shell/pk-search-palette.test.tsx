@@ -108,6 +108,39 @@ describe('PKSearchPalette', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  test('discarding a stale successful search keeps late results out of the palette', async () => {
+    let resolveSearch: ((hits: PaletteResult[]) => void) | undefined
+    const pendingSearch = new Promise<PaletteResult[]>((resolve) => {
+      resolveSearch = resolve
+    })
+    const onSearch = vi.fn().mockReturnValue(pendingSearch)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const { props, rerender } = renderPalette({ onSearch })
+
+    const input = screen.getByPlaceholderText(/find/i)
+    await user.type(input, 'tauri')
+    await act(async () => {
+      vi.advanceTimersByTime(160)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(onSearch).toHaveBeenCalledWith('tauri'))
+
+    rerender(
+      <I18nProvider>
+        <MemoryRouter>
+          <PKSearchPalette {...props} open={false} />
+        </MemoryRouter>
+      </I18nProvider>,
+    )
+    await act(async () => {
+      resolveSearch?.(sampleResults)
+      await pendingSearch
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Tauri docs')).not.toBeInTheDocument()
+  })
+
   test('Cmd+Enter triggers full search navigation', async () => {
     const onOpenChange = vi.fn()
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -142,7 +175,43 @@ describe('PKSearchPalette', () => {
       await Promise.resolve()
     })
     await waitFor(() => expect(onSearch).toHaveBeenCalled())
-    // No exception, palette remains mounted.
-    expect(input).toBeInTheDocument()
+    expect(
+      await screen.findByText('Nothing here yet. Memory is patient.'),
+    ).toBeInTheDocument()
+  })
+
+  test('discarding a stale failed search keeps the current palette state intact', async () => {
+    let rejectSearch: ((error: Error) => void) | undefined
+    const pendingSearch = new Promise<PaletteResult[]>((_, reject) => {
+      rejectSearch = reject
+    })
+    const onSearch = vi.fn().mockReturnValue(pendingSearch)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const { props, rerender } = renderPalette({ onSearch })
+
+    const input = screen.getByPlaceholderText(/find/i)
+    await user.type(input, 'oops')
+    await act(async () => {
+      vi.advanceTimersByTime(160)
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(onSearch).toHaveBeenCalledWith('oops'))
+
+    rerender(
+      <I18nProvider>
+        <MemoryRouter>
+          <PKSearchPalette {...props} open={false} />
+        </MemoryRouter>
+      </I18nProvider>,
+    )
+    await act(async () => {
+      rejectSearch?.(new Error('late failure'))
+      await pendingSearch.catch(() => undefined)
+      await Promise.resolve()
+    })
+
+    expect(
+      screen.queryByText('Nothing here yet. Memory is patient.'),
+    ).not.toBeInTheDocument()
   })
 })

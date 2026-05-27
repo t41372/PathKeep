@@ -47,6 +47,12 @@ function NavHarness({
       >
         browser-back
       </button>
+      <button
+        data-testid="harness-replace"
+        onClick={() => void navigate('/replacement', { replace: true })}
+      >
+        replace
+      </button>
       <span data-testid="harness-can-back">{api.canGoBack ? 'y' : 'n'}</span>
       <span data-testid="harness-can-forward">
         {api.canGoForward ? 'y' : 'n'}
@@ -81,6 +87,7 @@ function setUserAgent(value: string) {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   if (platformDescriptor) {
     Object.defineProperty(window.navigator, 'platform', platformDescriptor)
   }
@@ -188,6 +195,19 @@ describe('useRouteHistoryNav', () => {
     act(() => {
       screen.getByTestId('harness-forward').click()
     })
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+  })
+
+  test('replace navigation does not create a back or forward affordance', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+      </MemoryRouter>,
+    )
+    act(() => {
+      screen.getByTestId('harness-replace').click()
+    })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('n')
     expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
   })
 
@@ -359,6 +379,16 @@ describe('useRouteHistoryNav', () => {
     expect(screen.getByTestId('harness-modifier')).toHaveTextContent('Ctrl+')
   })
 
+  test('modifier label falls back to Ctrl when navigator is unavailable', () => {
+    vi.stubGlobal('navigator', undefined)
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('harness-modifier')).toHaveTextContent('Ctrl+')
+  })
+
   test('UA-based fallback flags macOS when navigator.platform is blank', () => {
     setPlatform('')
     setUserAgent('Mozilla/5.0 (Mac OS X 14.0)')
@@ -368,6 +398,17 @@ describe('useRouteHistoryNav', () => {
       </MemoryRouter>,
     )
     expect(screen.getByTestId('harness-modifier')).toHaveTextContent('⌘')
+  })
+
+  test('blank platform and user agent stay on the Ctrl shortcut branch', () => {
+    setPlatform('')
+    setUserAgent('')
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('harness-modifier')).toHaveTextContent('Ctrl+')
   })
 
   test('keyboard shortcut bails out when the target is contenteditable', () => {
@@ -383,6 +424,29 @@ describe('useRouteHistoryNav', () => {
       screen.getByTestId('harness-push').click()
     })
     const editable = screen.getByTestId('harness-editable')
+    act(() => {
+      fireEvent.keyDown(editable, { key: '[', metaKey: true })
+    })
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+  })
+
+  test('keyboard shortcut bails out when the target reports isContentEditable', () => {
+    setPlatform('MacIntel')
+    setUserAgent('Mozilla/5.0 (Macintosh)')
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NavHarness onMount={() => {}} />
+        <div data-testid="harness-editable-property" />
+      </MemoryRouter>,
+    )
+    act(() => {
+      screen.getByTestId('harness-push').click()
+    })
+    const editable = screen.getByTestId('harness-editable-property')
+    Object.defineProperty(editable, 'isContentEditable', {
+      configurable: true,
+      value: true,
+    })
     act(() => {
       fireEvent.keyDown(editable, { key: '[', metaKey: true })
     })

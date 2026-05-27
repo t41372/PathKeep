@@ -25,6 +25,8 @@ import { AppShell } from './shell'
 import { appScreens } from './router'
 import { I18nProvider } from '@/lib/i18n'
 import { ProfileScopeProvider } from '@/lib/profile-scope'
+import type { DashboardSnapshot } from '@/lib/types'
+import { PAPER_PREFERENCES_EVENT } from '@/lib/paper-preferences'
 
 vi.mock('@/components/primitives/busy-overlay', () => ({
   BusyOverlay: ({ label }: { label: string }) => (
@@ -77,6 +79,25 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
+  test('renders non-blocking background progress when the busy payload is marked background', () => {
+    renderShell({
+      busyAction: 'Running backup',
+      busyOverlay: {
+        background: true,
+        label: 'Backing up archive',
+        detail: 'Chrome Default',
+        progressLabel: '2 of 4',
+        progressValue: 50,
+        steps: [],
+        logLines: ['Copied 12 pages'],
+      },
+    })
+    expect(screen.getByTestId('background-progress')).toHaveTextContent(
+      'Backing up archive',
+    )
+    expect(screen.queryByTestId('busy-overlay')).not.toBeInTheDocument()
+  })
+
   test('uses the deepest matched route handle as the active screen', () => {
     renderShell({}, '/jobs')
     expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
@@ -103,6 +124,21 @@ describe('AppShell (paper redesign)', () => {
     window.localStorage.setItem('pathkeep.theme', 'dark')
     renderShell({}, '/')
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  test('ignores malformed preference-change events without changing the theme toggle', () => {
+    window.localStorage.setItem('pathkeep.theme', 'dark')
+    renderShell({}, '/')
+    const sidebar = screen.getByTestId('pk-sidebar')
+    const themeToggle = sidebar.querySelector('button[aria-label*="theme" i]')
+    if (!themeToggle) throw new Error('theme toggle missing')
+    const renderedIconBefore = themeToggle.innerHTML
+
+    window.dispatchEvent(
+      new CustomEvent(PAPER_PREFERENCES_EVENT, { detail: {} }),
+    )
+
+    expect(themeToggle.innerHTML).toBe(renderedIconBefore)
   })
 
   test('renders the build version and short commit revision in the sidebar', () => {
@@ -138,6 +174,51 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
+  test('renders dashboard totals and last-archive telemetry in the status bar', () => {
+    renderShell({ dashboard: makeDashboardSnapshot() })
+    const statusBar = screen.getByTestId('pk-status-bar')
+    expect(statusBar).toHaveTextContent('2,500 pages')
+    expect(statusBar).toHaveTextContent('May 2026')
+    expect(statusBar).toHaveTextContent(/Last archived/i)
+  })
+
+  test('source swatches prefer browser-family colors, then browser-name colors, then the neutral fallback', () => {
+    renderShell({
+      snapshot: {
+        archiveStatus: { initialized: true, warning: null },
+        browserProfiles: [
+          {
+            profileId: 'family',
+            browserName: 'Chromium Variant',
+            browserFamily: 'Chrome',
+            profileName: 'Default',
+            historyBytes: 1024,
+          },
+          {
+            profileId: 'name',
+            browserName: 'Chrome',
+            browserFamily: 'unknown',
+            profileName: 'Default',
+            historyBytes: 1024,
+          },
+          {
+            profileId: 'fallback',
+            browserName: 'Mystery',
+            browserFamily: 'unknown',
+            profileName: 'Default',
+            historyBytes: 1024,
+          },
+        ],
+      } as never,
+    })
+    const swatches = screen
+      .getByTestId('pk-status-bar-source-trigger')
+      .querySelectorAll('span[style]')
+    expect(swatches[0]).toHaveStyle({ background: '#4285F4' })
+    expect(swatches[1]).toHaveStyle({ background: '#4285F4' })
+    expect(swatches[2]).toHaveStyle({ background: '#8a7f70' })
+  })
+
   test('opens the ⌘K palette via the topbar trigger (covers onOpenPalette branch)', async () => {
     const user = userEvent.setup()
     renderShell({}, '/')
@@ -155,13 +236,24 @@ describe('AppShell (paper redesign)', () => {
     ).not.toBeNull()
   })
 
-  test('palette search swallows backend errors with an empty array', async () => {
+  test('palette search swallows backend errors and shows the no-results state', async () => {
+    const user = userEvent.setup()
     const { backend } = await import('@/lib/backend-client')
     vi.mocked(backend.queryHistory).mockRejectedValueOnce(new Error('ipc boom'))
     renderShell({}, '/')
-    // Importing the mocked backend with a rejection arms the catch path so the
-    // next palette open + query lands in the empty-array fallback.
-    expect(backend.queryHistory).toBeDefined()
+    const paletteTrigger = screen
+      .getByTestId('pk-topbar')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
+    if (!paletteTrigger) throw new Error('palette trigger missing')
+    await user.click(paletteTrigger)
+    const input = await screen.findByPlaceholderText(/Find a page/i)
+    await user.type(input, 'broken')
+    await new Promise((resolve) => window.setTimeout(resolve, 250))
+    await vi.waitFor(() =>
+      expect(screen.getByText('Nothing here yet. Memory is patient.')),
+    )
   })
 
   test('palette query routes through backend.queryHistory with the trimmed search term', async () => {
@@ -214,7 +306,7 @@ describe('AppShell (paper redesign)', () => {
     // returns no palette hits instead of crashing.
     vi.mocked(backend.queryHistory).mockResolvedValue({
       total: 0,
-      items: [],
+      items: undefined as never,
       page: 1,
       pageSize: 8,
       pageCount: 0,
@@ -233,8 +325,9 @@ describe('AppShell (paper redesign)', () => {
     await user.type(input, 'q')
     await new Promise((resolve) => window.setTimeout(resolve, 250))
     await vi.waitFor(() => expect(backend.queryHistory).toHaveBeenCalled())
-    // The palette stays mounted with no results.
-    expect(input).toBeInTheDocument()
+    expect(
+      await screen.findByText('Nothing here yet. Memory is patient.'),
+    ).toBeInTheDocument()
   })
 
   test('palette result selection forwards to handlePaletteSelect (visit date present)', async () => {
@@ -275,9 +368,10 @@ describe('AppShell (paper redesign)', () => {
     await vi.waitFor(() => expect(backend.queryHistory).toHaveBeenCalled())
     const item = await screen.findByText('Example article')
     await user.click(item)
+    expect(await screen.findByText('explorer body')).toBeInTheDocument()
   })
 
-  test('palette tolerates items missing title / url and falls back to entry.id / "(untitled)"', async () => {
+  test('palette maps URL-only backend hits to visible results with extracted domains', async () => {
     const user = userEvent.setup()
     const { backend } = await import('@/lib/backend-client')
     vi.mocked(backend.queryHistory).mockResolvedValue({
@@ -286,12 +380,11 @@ describe('AppShell (paper redesign)', () => {
         {
           id: 7,
           profileId: 'chrome:Default',
-          // intentionally minimal: url is empty so domain falls back too
-          url: '',
+          url: 'https://fallback.example/article',
           title: null,
           domain: '',
           favicon: null,
-          visitedAt: '2026-04-17T10:30:00',
+          visitedAt: null as never,
           visitTime: 1745311800,
           sourceVisitId: 0,
         },
@@ -311,13 +404,53 @@ describe('AppShell (paper redesign)', () => {
     if (!paletteTrigger) throw new Error('palette trigger missing')
     await user.click(paletteTrigger)
     const input = await screen.findByPlaceholderText(/Find a page/i)
-    await user.type(input, 'a')
+    await user.type(input, 'fallback')
     await new Promise((resolve) => window.setTimeout(resolve, 250))
     await vi.waitFor(() => expect(backend.queryHistory).toHaveBeenCalled())
-    // The mapping code walked all fallbacks (title ?? entry.url ??
-    // '(untitled)', entry.domain || extractDomain(...), missing visitedAt
-    // → null) without crashing — coverage points fire even though cmdk
-    // filters the resulting item from the visible list.
+    expect(
+      await screen.findByText('https://fallback.example/article'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('fallback.example')).toBeInTheDocument()
+    expect(screen.queryByText(/2026-04-17/)).not.toBeInTheDocument()
+  })
+
+  test('palette maps titleless and URL-less backend hits to an untitled result', async () => {
+    const user = userEvent.setup()
+    const { backend } = await import('@/lib/backend-client')
+    vi.mocked(backend.queryHistory).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 8,
+          profileId: 'chrome:Default',
+          url: null as never,
+          title: null,
+          domain: null as never,
+          favicon: null,
+          visitedAt: null as never,
+          visitTime: 0,
+          sourceVisitId: 0,
+        },
+      ],
+      page: 1,
+      pageSize: 8,
+      pageCount: 1,
+      hasPrevious: false,
+      hasNext: false,
+    })
+    renderShell({}, '/')
+    const paletteTrigger = screen
+      .getByTestId('pk-topbar')
+      .querySelector<HTMLButtonElement>(
+        'button[data-testid="pk-topbar-palette"]',
+      )
+    if (!paletteTrigger) throw new Error('palette trigger missing')
+    await user.click(paletteTrigger)
+    const input = await screen.findByPlaceholderText(/Find a page/i)
+    await user.type(input, 'untitled')
+    await new Promise((resolve) => window.setTimeout(resolve, 250))
+    await vi.waitFor(() => expect(backend.queryHistory).toHaveBeenCalled())
+    expect(await screen.findByText('(untitled)')).toBeInTheDocument()
   })
 
   test('palette result with no visit date falls back to /explorer', async () => {
@@ -359,6 +492,7 @@ describe('AppShell (paper redesign)', () => {
     await vi.waitFor(() => expect(backend.queryHistory).toHaveBeenCalled())
     const item = await screen.findByText('No date article')
     await user.click(item)
+    expect(await screen.findByText('explorer body')).toBeInTheDocument()
   })
 
   test('toggling the theme button flips data-theme and persists', async () => {
@@ -371,6 +505,17 @@ describe('AppShell (paper redesign)', () => {
     // Toggle 1 → dark, toggle 2 → light. Either way, the data-theme attr
     // updates and shell.tsx line 144 fires.
     expect(document.documentElement.getAttribute('data-theme')).not.toBeNull()
+  })
+
+  test('toggling the theme button from dark returns the shell to light mode', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('pathkeep.theme', 'dark')
+    renderShell({}, '/')
+    const sidebar = screen.getByTestId('pk-sidebar')
+    const themeToggle = sidebar.querySelector('button[aria-label*="theme" i]')
+    if (!themeToggle) throw new Error('theme toggle missing')
+    await user.click(themeToggle)
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
   })
 
   test('Lock now fires the shell lockAppSession action with manual reason', async () => {
@@ -432,8 +577,11 @@ describe('AppShell (paper redesign)', () => {
     await user.click(paletteTrigger)
     await screen.findByPlaceholderText(/Find a page/i)
     await user.keyboard('{Escape}')
-    // No assertion needed — pressing Escape fires line 136 which calls
-    // setPaletteOpen(false). The test just needs to drive the key path.
+    await vi.waitFor(() =>
+      expect(
+        screen.queryByPlaceholderText(/Find a page/i),
+      ).not.toBeInTheDocument(),
+    )
   })
 
   test('selecting "Manage sources" navigates to settings#sources', async () => {
@@ -464,9 +612,7 @@ describe('AppShell (paper redesign)', () => {
     await user.click(sourcesButton)
     const manage = await screen.findByText(/Manage sources/i)
     await user.click(manage)
-    // handleManageSources is the route's `void navigate('/settings#sources')`
-    // — clicking the link fires it and covers line 156. No DOM assertion
-    // needed; the test just needs to drive the callback.
+    expect(await screen.findByText('settings body')).toBeInTheDocument()
   })
 })
 
@@ -498,6 +644,14 @@ function renderShell(
             handle: {
               screen: appScreens.find((screen) => screen.id === 'jobs'),
             },
+          },
+          {
+            path: 'explorer',
+            element: <p>explorer body</p>,
+          },
+          {
+            path: 'settings',
+            element: <p>settings body</p>,
           },
         ],
       },
@@ -536,4 +690,30 @@ function shellValue(
     clearNotice: vi.fn(),
     ...overrides,
   } as ShellDataContextValue
+}
+
+function makeDashboardSnapshot(): DashboardSnapshot {
+  return {
+    generatedAt: '2026-05-19T00:00:00Z',
+    totalProfiles: 1,
+    totalUrls: 1000,
+    totalVisits: 2500,
+    totalDownloads: 0,
+    lastSuccessfulBackupAt: '2026-05-18T14:23:00Z',
+    recentRuns: [],
+    storage: {
+      archiveDatabaseBytes: 8 * 1024 * 1024,
+      sourceEvidenceDatabaseBytes: 0,
+      searchDatabaseBytes: 1024 * 1024,
+      intelligenceDatabaseBytes: 0,
+      manifestBytes: 0,
+      snapshotBytes: 0,
+      exportBytes: 0,
+      stagingBytes: 0,
+      quarantineBytes: 0,
+      semanticSidecarBytes: 0,
+      intelligenceBlobBytes: 0,
+    },
+    nextAction: null,
+  }
 }
