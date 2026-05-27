@@ -1558,6 +1558,42 @@ mod tests {
     }
 
     #[test]
+    fn refetch_og_images_short_circuits_when_kill_switch_is_off() {
+        // After A1 (Codex C1), every external caller of
+        // `refetch_og_images` pre-gates on `effective_mode != Off`. The
+        // inner `if !config.og_image.fetch_enabled` check at the top of
+        // this fn is the defence-in-depth safety net for a future caller
+        // that forgets to gate. Exercise it directly via the public
+        // worker fn so the coverage gate stays honest about the value
+        // of that net.
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original_project_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        }
+        let paths = vault_core::project_paths().expect("paths");
+
+        let mut config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        config.og_image.fetch_enabled = false;
+        write_test_config(&paths, &config);
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let result =
+            super::refetch_og_images(None, vec!["https://example.com/never-reached".to_string()]);
+        assert_eq!(result.expect("kill-switch short-circuits"), 0);
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+        restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+    }
+
+    #[test]
     fn append_og_image_prefetch_result_formats_each_case() {
         let mut warnings: Vec<String> = Vec::new();
         // (0, _) silently drops — most backups have nothing to enqueue.

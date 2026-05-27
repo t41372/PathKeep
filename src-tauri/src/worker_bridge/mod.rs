@@ -998,6 +998,39 @@ mod tests {
         .expect("refetch with fetch_mode=Off");
         assert_eq!(off_mode, 0);
 
+        // Drive the `Err(error) => return Err(error.to_string())` arm
+        // of `refetch_og_images_impl`. The outer `effective_og_image_fetch_mode`
+        // helper hydrates config through `load_unlocked_config`, which
+        // refuses to return a hydrated `AppConfig` when an enabled App
+        // Lock is currently locked. Configure that state, lock the
+        // session, and the bridge surface refuses the implicit on-
+        // demand fetch with a typed error string instead of silently
+        // initiating outbound HTTP.
+        let mut locked_config = initialized_config();
+        locked_config.app_lock.enabled = true;
+        set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
+            passcode: "1357".to_string(),
+            recovery_hint: None,
+        })
+        .expect("set app lock passcode for refetch err-arm coverage");
+        save_config_impl(locked_config, session_key(&session).as_deref())
+            .expect("save app-lock-enabled config");
+        lock_app_session_impl(Some("manual".to_string()))
+            .expect("lock app session for refetch err-arm coverage");
+        let err = super::refetch_og_images_impl(
+            vec!["https://example.com/while-locked".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect_err("refetch must surface lock error from effective_mode helper");
+        assert!(
+            err.contains("currently locked"),
+            "expected locked-session error context, got {err:?}",
+        );
+        // Restore the unlocked-baseline so subsequent assertions in this
+        // test (and other tests sharing the env override) see a normal
+        // unlocked state.
+        clear_app_lock_passcode_impl().expect("clear app lock for follow-up tests");
+
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
             std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);

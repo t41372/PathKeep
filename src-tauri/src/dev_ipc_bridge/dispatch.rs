@@ -392,12 +392,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload =
                 parse_payload::<WrappedRequest<AiProviderConnectionTestRequest>>(payload)?;
             let key = session_key(&state.session);
-            let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::test_ai_provider_connection_impl(payload.request, key.as_deref())
-            })
-            .await
-            .map_err(|error| format!("test_ai_provider_connection join failed: {error}"))??;
-            json_value!(result)
+            json_value!(test_ai_provider_connection_off_thread(payload.request, key).await?)
         }
         "load_ai_queue_status" => json_value!(worker_bridge::load_ai_queue_status_impl(
             session_key(&state.session).as_deref()
@@ -408,12 +403,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // as the arms above; hop off the async thread.
             let payload = parse_payload::<MaxJobsPayload>(payload)?;
             let key = session_key(&state.session);
-            let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::run_ai_queue_jobs_impl(payload.max_jobs, key.as_deref())
-            })
-            .await
-            .map_err(|error| format!("run_ai_queue_jobs join failed: {error}"))??;
-            json_value!(result)
+            json_value!(run_ai_queue_jobs_off_thread(payload.max_jobs, key).await?)
         }
         "replay_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
@@ -448,12 +438,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // provider; same panic mechanism as the AI arms above.
             let payload = parse_payload::<WrappedRequest<AiSearchRequest>>(payload)?;
             let key = session_key(&state.session);
-            let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::search_ai_history_impl(payload.request, key.as_deref())
-            })
-            .await
-            .map_err(|error| format!("search_ai_history join failed: {error}"))??;
-            json_value!(result)
+            json_value!(search_ai_history_off_thread(payload.request, key).await?)
         }
         "ask_ai_assistant" => {
             // When `job_queue_paused=false`, `ask_ai_assistant` runs the
@@ -463,12 +448,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // the panic cannot fire on a config flip.
             let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
             let key = session_key(&state.session);
-            let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::ask_ai_assistant_impl(payload.request, key.as_deref())
-            })
-            .await
-            .map_err(|error| format!("ask_ai_assistant join failed: {error}"))??;
-            json_value!(result)
+            json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
@@ -915,6 +895,69 @@ async fn backup_now_off_thread(
     })
     .await
     .unwrap_or_else(|error| Err(format!("run_backup_now join failed: {error}")))
+}
+
+/// Hops `test_ai_provider_connection_impl` onto the tokio blocking
+/// thread pool. The worker builds a fresh `tokio::runtime::Runtime`
+/// internally and calls `block_on` on the provider-connection probe;
+/// dropping that runtime inside the dev-IPC bridge's async context
+/// panics ("Cannot drop a runtime in a context where blocking is not
+/// allowed"). Same shape as `backup_now_off_thread`.
+async fn test_ai_provider_connection_off_thread(
+    request: vault_core::AiProviderConnectionTestRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::test_ai_provider_connection_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("test_ai_provider_connection join failed: {error}")))
+}
+
+/// Hops `run_ai_queue_jobs_impl` onto the tokio blocking thread pool.
+/// The synchronous drain loop calls `block_on` inside each
+/// `complete_claimed_index_job` / `complete_claimed_assistant_job`,
+/// so the bridge thread cannot host it directly.
+async fn run_ai_queue_jobs_off_thread(
+    max_jobs: Option<u32>,
+    key: Option<String>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("run_ai_queue_jobs join failed: {error}")))
+}
+
+/// Hops `search_ai_history_impl` onto the tokio blocking thread pool.
+/// `run_semantic_search` calls `block_on` against the embedding
+/// provider; same panic mechanism if dropped inside the bridge's
+/// async context.
+async fn search_ai_history_off_thread(
+    request: vault_core::AiSearchRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiSearchResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::search_ai_history_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("search_ai_history join failed: {error}")))
+}
+
+/// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
+/// When `job_queue_paused=false`, the assistant job runs synchronously
+/// and reaches `block_on` via `complete_claimed_assistant_job`. The
+/// paused path is safe (it only stages the job) but we wrap
+/// unconditionally so the panic cannot fire on a config flip.
+async fn ask_ai_assistant_off_thread(
+    request: vault_core::AiAssistantRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiAssistantResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("ask_ai_assistant join failed: {error}")))
 }
 
 #[cfg(test)]

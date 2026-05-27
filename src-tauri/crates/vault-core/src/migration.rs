@@ -72,7 +72,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
     io::{BufReader, Read, Write},
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     time::Duration as StdDuration,
 };
 use tempfile::tempdir;
@@ -735,31 +735,43 @@ fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
     if raw.as_bytes().contains(&0) {
         anyhow::bail!("bundle entry path {raw} contains a NUL byte");
     }
-    let candidate = Path::new(raw);
+    // Validate the raw string directly instead of routing through
+    // `Path::components()`. The Component enum has a `Prefix` variant
+    // that's only ever yielded on Windows (`C:\foo`); a Unix coverage
+    // run can't reach it and the unit-test crate can't construct a
+    // `PrefixComponent` either, so a match-based approach leaves a
+    // dead arm. The string-level walk below has the same rejection
+    // surface and every branch is reachable from a Unix test.
+    let bytes = raw.as_bytes();
+    // Reject absolute paths — both Unix (`/foo`) and Windows
+    // (`\foo`) shapes. Done before component splitting so a single
+    // leading separator is the absolute case, not a leading "empty
+    // segment".
+    if bytes[0] == b'/' || bytes[0] == b'\\' {
+        anyhow::bail!("bundle entry path {raw} is absolute");
+    }
+    // Reject Windows drive-letter prefixes (`C:foo`, `c:`, etc.).
+    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+        anyhow::bail!("bundle entry path {raw} has a drive-letter prefix");
+    }
     let mut out = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            Component::Normal(part) => out.push(part),
-            // Anything else — RootDir, CurDir, ParentDir, Prefix — could
-            // escape staging when joined to a base path. Reject the
-            // bundle outright; we don't try to "clean up" an attacker
-            // path.
-            Component::ParentDir => {
-                anyhow::bail!("bundle entry path {raw} contains a `..` component")
+    for segment in raw.split(|c: char| c == '/' || c == '\\') {
+        match segment {
+            "" => {
+                // Empty segment from a repeated separator like
+                // "a//b". Treat as a no-op so legitimate-looking
+                // bundles with a trailing slash still validate; the
+                // important rejections (`..`, `.`, absolute) are
+                // checked separately above and below.
             }
-            Component::RootDir => {
-                anyhow::bail!("bundle entry path {raw} is absolute")
-            }
-            Component::Prefix(_) => {
-                anyhow::bail!("bundle entry path {raw} has a drive-letter prefix")
-            }
-            Component::CurDir => {
+            "." => {
                 anyhow::bail!("bundle entry path {raw} contains a `.` component")
             }
+            ".." => {
+                anyhow::bail!("bundle entry path {raw} contains a `..` component")
+            }
+            other => out.push(other),
         }
-    }
-    if out.as_os_str().is_empty() {
-        anyhow::bail!("bundle entry path {raw} resolved to an empty relative path");
     }
     Ok(out)
 }
@@ -1206,24 +1218,19 @@ mod tests {
         );
         // Live archive on dest never existed; confirm the refusal didn't
         // leave a `.bak-*` sibling next to the dest archive path, which
-        // would mean the `.bak` rename loop ran.
+        // would mean the `.bak` rename loop ran. `fresh_paths` does not
+        // pre-create `app_root/archive/`, so the *parent* directory is
+        // absent on a refusal that bails before the rename loop — that
+        // by itself is the assertion we want.
         assert!(
             !dest_paths.archive_database_path.exists(),
             "fresh dest must still have no archive after refusal",
         );
-        let archive_dir = dest_paths.archive_database_path.parent().unwrap();
-        if archive_dir.exists() {
-            let bak_siblings: Vec<_> = std::fs::read_dir(archive_dir)
-                .unwrap()
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.file_name().to_string_lossy().contains(".bak-"))
-                .collect();
-            assert!(
-                bak_siblings.is_empty(),
-                "refusal must NOT leave .bak-* siblings: found {:?}",
-                bak_siblings,
-            );
-        }
+        assert!(
+            !dest_paths.archive_database_path.parent().unwrap().exists(),
+            "refusal must bail BEFORE creating the archive/ directory \
+             (a `.bak-*` sibling would mean the rename loop ran)",
+        );
     }
 
     #[test]
@@ -1583,6 +1590,133 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_file_install_rename_error_when_app_root_is_readonly() {
+        // After Codex C3 the staging dir lives under `app_root/staging/`,
+        // so EXDEV can no longer fire on the install rename. We can
+        // still drive the install closure (line 495 `installing {staged}
+        // into {target}`) by chmod-ing app_root to read-only AFTER
+        // creating the staging subtree. fs::rename(staged, target)
+        // then fails with EACCES because target's parent (= app_root)
+        // is no longer writable. Pre-creating staging/ and archive/
+        // beforehand keeps the staging extraction itself working.
+        use std::os::unix::fs::PermissionsExt;
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("file-install-fail.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        // Pre-create app_root/staging/ AND app_root/archive/ so the
+        // staging extraction step succeeds (TempDir + extract write
+        // inside these subdirs, which inherit 0o755 from `fresh_paths`).
+        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
+        fs::create_dir_all(dest_paths.archive_database_path.parent().unwrap()).unwrap();
+
+        let app_root = dest_paths.app_root.clone();
+        let original = fs::metadata(&app_root).unwrap().permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o500);
+        fs::set_permissions(&app_root, locked).unwrap();
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+        );
+        fs::set_permissions(&app_root, original).unwrap();
+
+        let err = result.expect_err("install rename onto readonly app_root must surface error");
+        let message = format!("{err:?}");
+        assert!(message.contains("installing"), "expected install-rename context, got {message}",);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_import_propagates_directory_install_rename_error_when_app_root_is_readonly() {
+        // Twin of the file-install test, but tightened so the failure
+        // arises from the *directory* install loop (line 514). Trim
+        // every non-derived manifest entry + zip entry so the file
+        // loop's `staged.exists()` short-circuits each iteration; the
+        // dir loop is then the only place left to trip.
+        use std::os::unix::fs::PermissionsExt;
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("dir-install-fail.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_path).unwrap();
+
+        let mut trimmed_manifest = bundle.manifest.clone();
+        let drop_zip_entries: Vec<String> = trimmed_manifest
+            .files
+            .iter()
+            .filter(|f| !f.path.starts_with("derived/"))
+            .map(|f| f.path.clone())
+            .collect();
+        trimmed_manifest.files.retain(|f| f.path.starts_with("derived/"));
+        remove_zip_entries(&bundle_path, &drop_zip_entries);
+        rewrite_bundle_manifest(&bundle_path, &trimmed_manifest);
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        // Pre-create staging/ before locking app_root so the import
+        // can extract its (single derived/...) entry. app_root/derived/
+        // is intentionally NOT pre-created — `target.exists()` will be
+        // false, the preserve branch is skipped, and only the install
+        // rename remains to fail under the read-only app_root.
+        fs::create_dir_all(dest_paths.app_root.join("staging")).unwrap();
+
+        let app_root = dest_paths.app_root.clone();
+        let original = fs::metadata(&app_root).unwrap().permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o500);
+        fs::set_permissions(&app_root, locked).unwrap();
+
+        let result = apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+        );
+        fs::set_permissions(&app_root, original).unwrap();
+
+        let err = result.expect_err("dir install rename onto readonly app_root must surface error");
+        let message = format!("{err:?}");
+        assert!(
+            message.contains("installing") && message.contains("derived"),
+            "expected derived-install context, got {message}",
+        );
+    }
+
+    fn remove_zip_entries(bundle_path: &Path, drop: &[String]) {
+        // zip-rs has no in-place delete API; rewrite the archive,
+        // keeping every entry whose name is not in `drop`.
+        let original = fs::read(bundle_path).unwrap();
+        let cursor = std::io::Cursor::new(original);
+        let mut reader = ZipArchive::new(cursor).unwrap();
+        let target = File::create(bundle_path).unwrap();
+        let mut writer = ZipWriter::new(target);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let names: Vec<String> =
+            (0..reader.len()).map(|i| reader.by_index(i).unwrap().name().to_string()).collect();
+        let drop_set: std::collections::HashSet<&str> = drop.iter().map(String::as_str).collect();
+        for name in &names {
+            if drop_set.contains(name.as_str()) {
+                continue;
+            }
+            let mut entry = reader.by_name(name).unwrap();
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).unwrap();
+            writer.start_file(name, options).unwrap();
+            writer.write_all(&buf).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
     #[test]
     fn apply_import_succeeds_when_dest_lives_on_different_filesystem_than_default_tempdir() {
         // Codex review finding C3: the previous implementation staged
@@ -1696,6 +1830,20 @@ mod tests {
     }
 
     #[test]
+    fn validate_bundle_relative_path_rejects_current_dir_component() {
+        // `Path::new("./escape.txt").components()` yields
+        // [CurDir, Normal("escape.txt")]. The bare `.` is also a CurDir.
+        // Both must be rejected — a `.` component is an attacker-friendly
+        // shape for normalising-vs-not collisions in downstream tools.
+        let err = validate_bundle_relative_path("./escape.txt")
+            .expect_err("`.` component must be rejected");
+        assert!(
+            format!("{err:?}").contains("`.` component"),
+            "expected `.` rejection, got {err:?}",
+        );
+    }
+
+    #[test]
     fn validate_bundle_relative_path_rejects_unix_absolute() {
         let err = validate_bundle_relative_path("/etc/passwd")
             .expect_err("absolute path must be rejected");
@@ -1703,6 +1851,47 @@ mod tests {
             format!("{err:?}").contains("is absolute"),
             "expected absolute-path error, got {err:?}",
         );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_windows_style_absolute() {
+        // `\foo` is the Windows-style absolute marker. The string-level
+        // check rejects this too even on Unix CI, so an attacker can't
+        // build a bundle that ships safely under `Path::components()`
+        // on Unix and only blows up on a Windows target.
+        let err = validate_bundle_relative_path("\\Windows\\System32")
+            .expect_err("backslash-absolute path must be rejected");
+        assert!(
+            format!("{err:?}").contains("is absolute"),
+            "expected absolute-path error, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_rejects_windows_drive_letter_prefix() {
+        // `C:foo` is the explicit Windows drive-letter shape. The
+        // up-front string check rejects it on every platform so the
+        // path is never handed to a downstream tool that might
+        // interpret `C:` as an alternate root.
+        let err = validate_bundle_relative_path("C:Windows\\evil")
+            .expect_err("drive-letter prefix must be rejected");
+        assert!(
+            format!("{err:?}").contains("drive-letter prefix"),
+            "expected drive-letter rejection, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn validate_bundle_relative_path_collapses_repeated_separators() {
+        // `a//b` produces an empty segment between `a` and `b`. The
+        // empty arm intentionally folds the empty segment away so a
+        // bundle that uses a doubled separator validates; the
+        // important rejections (`..`, `.`, absolute, drive-letter)
+        // are checked separately. The resulting PathBuf is the
+        // dedup'd form.
+        let normalized = validate_bundle_relative_path("archive//history-vault.sqlite").unwrap();
+        let expected: PathBuf = ["archive", "history-vault.sqlite"].iter().collect();
+        assert_eq!(normalized, expected);
     }
 
     #[test]
