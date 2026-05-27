@@ -275,8 +275,7 @@ export function PaperContactSheet({
   // ago. Don't revert.
   const [toolbarHeight, setToolbarHeight] = useState(44)
   useEffect(() => {
-    const node = toolbarRef.current
-    if (!node) return
+    const node = toolbarRef.current as HTMLDivElement
     const update = () => setToolbarHeight(node.getBoundingClientRect().height)
     update()
     if (typeof ResizeObserver === 'undefined') return
@@ -674,7 +673,6 @@ function InfiniteScrollFooter({
   useEffect(() => {
     const node = sentinelRef.current
     if (!node) return
-    if (!canLoadMore) return
     if (typeof IntersectionObserver === 'undefined') {
       // jsdom + extremely old browsers: fall back to firing immediately so
       // the auto-load still works (slower, but never gets stuck).

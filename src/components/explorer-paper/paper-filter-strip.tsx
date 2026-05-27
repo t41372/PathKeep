@@ -128,8 +128,8 @@ export function PaperFilterStrip({
   useEffect(() => {
     if (!open) return
     function handlePointer(event: MouseEvent) {
-      if (!containerRef.current) return
-      if (!containerRef.current.contains(event.target as Node)) {
+      const container = containerRef.current as HTMLDivElement
+      if (!container.contains(event.target as Node)) {
         setOpen(false)
       }
     }

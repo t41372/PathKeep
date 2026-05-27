@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { PaperDayInsights } from './paper-day-insights'
 import type { DayInsights } from './paper-day-insights-helpers'
 
@@ -205,5 +205,79 @@ describe('PaperDayInsights', () => {
     openDisclosure()
     const longest = screen.getByText('Longest session').nextElementSibling
     expect(longest?.textContent).toMatch(/1.*min|1m/i)
+  })
+
+  test('keeps the details disclosure useful when the peak hour is absent', () => {
+    render(
+      <PaperDayInsights
+        insights={makeInsights({
+          firstVisitMs: new Date('2026-05-21T09:14:00').getTime(),
+          lastVisitMs: null,
+          peakHour: null,
+          longestSessionMs: 0,
+          topUrls: [],
+        })}
+        copy={COPY}
+        language="en"
+      />,
+    )
+
+    openDisclosure()
+    expect(screen.getByText('First visit')).toBeVisible()
+    expect(screen.queryByText('Peak hour')).toBeNull()
+  })
+
+  test('falls back when host time formatting throws', () => {
+    const formatter = vi
+      .spyOn(Date.prototype, 'toLocaleTimeString')
+      .mockImplementation(() => {
+        throw new Error('time formatting unavailable')
+      })
+
+    try {
+      render(
+        <PaperDayInsights
+          insights={makeInsights({
+            firstVisitMs: new Date('2026-05-21T09:14:00').getTime(),
+            lastVisitMs: new Date('2026-05-21T22:43:00').getTime(),
+            peakHour: 6,
+            longestSessionMs: 0,
+            topUrls: [],
+          })}
+          copy={COPY}
+          language="en"
+        />,
+      )
+
+      openDisclosure()
+      expect(screen.getAllByText('--:--')).toHaveLength(2)
+      expect(
+        screen.getByText('Peak hour').nextElementSibling,
+      ).toHaveTextContent('6')
+    } finally {
+      formatter.mockRestore()
+    }
+  })
+
+  test('truncates very long revisited URLs in the details disclosure', () => {
+    const longUrl = `https://example.com/${'deep-path/'.repeat(10)}article`
+    render(
+      <PaperDayInsights
+        insights={makeInsights({
+          firstVisitMs: null,
+          lastVisitMs: null,
+          peakHour: null,
+          longestSessionMs: 0,
+          topUrls: [{ url: longUrl, title: null, visits: 2 }],
+        })}
+        copy={COPY}
+        language="en"
+      />,
+    )
+
+    openDisclosure()
+    const row = screen.getByText(/example\.com\/deep-path/)
+    expect(row.textContent).toContain('…')
+    expect(row.textContent?.length).toBeLessThan(longUrl.length)
   })
 })

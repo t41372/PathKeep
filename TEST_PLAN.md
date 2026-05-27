@@ -169,6 +169,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
     - `[x]` 10C Dashboard/app shell residuals.
     - `[x]` 10D Hook/helper branch residuals.
     - `[x]` 10E Explorer runtime hooks and paper helper residuals.
+    - `[x]` 10F Explorer Paper component residuals.
 
 ## Bug / Drift Register
 
@@ -1143,6 +1144,71 @@ format/lint/i18n/typecheck: passed
 unit: 279 files passed; 2138 tests passed
 desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
 JS coverage: All files statements 99.87%, branches 99.56%, functions 99.87%, lines 99.92%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed.
+
+### Module 10F: JS Explorer Paper component residuals
+
+Added 11 focused behavior assertions and removed redundant private branches in
+Explorer Paper presentation/runtime components:
+
+- `PaperCalendarPopover` now pins low- and medium-density hover spark opacity
+  instead of relying on the year picker to incidentally walk density tiers.
+- `aggregateDayInsights` now pins empty URL handling, empty domain+URL fallback,
+  invalid timestamp handling, exact-hour durations, and the `Intl.NumberFormat`
+  unit-format fallback.
+- `PaperDayInsights` now pins a details disclosure with no peak-hour row, host
+  time-formatting failures, and long revisited-URL truncation.
+- `PaperListRow` now pins og:image as the list icon fallback when favicon bytes
+  are absent.
+- Redundant branches were simplified where the public render grammar already
+  guarantees the ref or handler: assistant auto-scroll, contact-sheet toolbar
+  measurement, infinite-scroll footer `canLoadMore`, detail-panel pending flush
+  and look-further rows, filter-strip outside-click container, and top-domain
+  max-visit lookup.
+
+Commands:
+
+```sh
+bunx vitest run src/components/explorer-paper/paper-assistant-view.test.tsx src/components/explorer-paper/paper-calendar-popover.test.tsx src/components/explorer-paper/paper-contact-sheet.test.tsx src/components/explorer-paper/paper-contact-sheet.behavior.test.tsx src/components/explorer-paper/paper-contact-sheet.virt.test.tsx src/components/explorer-paper/paper-day-insights-helpers.test.ts src/components/explorer-paper/paper-day-insights.test.tsx src/components/explorer-paper/paper-detail-panel.test.tsx src/components/explorer-paper/paper-filter-strip.test.tsx src/components/explorer-paper/paper-browse-primitives.test.tsx
+bunx vitest run src/components/explorer-paper/paper-assistant-view.test.tsx src/components/explorer-paper/paper-calendar-popover.test.tsx src/components/explorer-paper/paper-contact-sheet.test.tsx src/components/explorer-paper/paper-contact-sheet.behavior.test.tsx src/components/explorer-paper/paper-contact-sheet.virt.test.tsx src/components/explorer-paper/paper-day-insights-helpers.test.ts src/components/explorer-paper/paper-day-insights.test.tsx src/components/explorer-paper/paper-detail-panel.test.tsx src/components/explorer-paper/paper-filter-strip.test.tsx src/components/explorer-paper/paper-browse-primitives.test.tsx --coverage --coverage.include=src/components/explorer-paper/paper-assistant-view.tsx --coverage.include=src/components/explorer-paper/paper-calendar-popover.tsx --coverage.include=src/components/explorer-paper/paper-contact-sheet.tsx --coverage.include=src/components/explorer-paper/paper-day-insights-helpers.ts --coverage.include=src/components/explorer-paper/paper-day-insights.tsx --coverage.include=src/components/explorer-paper/paper-detail-panel.tsx --coverage.include=src/components/explorer-paper/paper-filter-strip.tsx --coverage.include=src/components/explorer-paper/paper-list-row.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Targeted tests:
+Test Files 10 passed (10)
+Tests 173 passed (173)
+
+Targeted 10F coverage:
+All files 100/100/100/100
+src/components/explorer-paper/paper-assistant-view.tsx 100/100/100/100
+src/components/explorer-paper/paper-calendar-popover.tsx 100/100/100/100
+src/components/explorer-paper/paper-contact-sheet.tsx 100/100/100/100
+src/components/explorer-paper/paper-day-insights-helpers.ts 100/100/100/100
+src/components/explorer-paper/paper-day-insights.tsx 100/100/100/100
+src/components/explorer-paper/paper-detail-panel.tsx 100/100/100/100
+src/components/explorer-paper/paper-filter-strip.tsx 100/100/100/100
+src/components/explorer-paper/paper-list-row.tsx 100/100/100/100
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+format/lint/i18n/typecheck: passed
+unit: 279 files passed; 2149 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.94%, branches 99.76%, functions 99.87%, lines 99.95%
 Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
 Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
 Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions

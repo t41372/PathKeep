@@ -79,8 +79,8 @@ export function PaperAssistantView({
 }: PaperAssistantViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    const node = scrollRef.current
-    if (node) node.scrollTop = node.scrollHeight
+    const node = scrollRef.current as HTMLDivElement
+    node.scrollTop = node.scrollHeight
   }, [messages.length])
 
   const isEmpty = messages.length === 0

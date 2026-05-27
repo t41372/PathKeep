@@ -1,7 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperDay } from '@/pages/explorer/paper/group-entries'
-import { aggregateDayInsights } from './paper-day-insights-helpers'
+import {
+  aggregateDayInsights,
+  formatDuration,
+} from './paper-day-insights-helpers'
 
 function entry(
   overrides: Partial<HistoryEntry> & {
@@ -671,5 +674,74 @@ describe('aggregateDayInsights', () => {
     // promote it. Once a non-null title is captured, later titles are
     // ignored — keeps the panel stable across rapid sessions.
     expect(insights.topUrls[0].title).toBe('Better title')
+  })
+
+  test('skips empty URLs without suppressing page or domain tallies', () => {
+    const insights = aggregateDayInsights(
+      dayFromEntries('2026-05-21', [
+        entry({
+          id: 1,
+          url: '',
+          domain: 'example.com',
+          visitedAt: '2026-05-21T08:00:00Z',
+        }),
+      ]),
+    )
+
+    expect(insights.totalPages).toBe(1)
+    expect(insights.topDomains).toEqual([{ domain: 'example.com', visits: 1 }])
+    expect(insights.topUrls).toEqual([])
+    expect(insights.topSearchQueries).toEqual([])
+  })
+
+  test('does not invent a domain when both domain and URL are empty', () => {
+    const insights = aggregateDayInsights(
+      dayFromEntries('2026-05-21', [
+        entry({
+          id: 1,
+          url: '',
+          domain: '',
+          visitedAt: '2026-05-21T08:00:00Z',
+        }),
+      ]),
+    )
+
+    expect(insights.totalPages).toBe(1)
+    expect(insights.distinctDomains).toBe(0)
+    expect(insights.topDomains).toEqual([])
+  })
+
+  test('ignores invalid visit timestamps while keeping the visit counted', () => {
+    const insights = aggregateDayInsights(
+      dayFromEntries('2026-05-21', [
+        entry({
+          id: 1,
+          visitTime: 0,
+          visitedAt: 'not-a-date',
+        }),
+      ]),
+    )
+
+    expect(insights.totalPages).toBe(1)
+    expect(insights.firstVisitMs).toBeNull()
+    expect(insights.lastVisitMs).toBeNull()
+    expect(insights.peakHour).toBeNull()
+    expect(insights.hourBuckets.reduce((sum, value) => sum + value, 0)).toBe(0)
+  })
+
+  test('falls back to compact unit suffixes when Intl unit formatting is unavailable', () => {
+    const formatter = vi.spyOn(Intl, 'NumberFormat').mockImplementation(() => {
+      throw new Error('unit formatting unavailable')
+    })
+
+    try {
+      expect(formatDuration(2 * 60 * 60_000 + 30 * 60_000, 'en')).toBe('2h 30m')
+    } finally {
+      formatter.mockRestore()
+    }
+  })
+
+  test('formats exact-hour durations without a trailing zero-minute unit', () => {
+    expect(formatDuration(2 * 60 * 60_000, 'en')).toMatch(/2.*hr|2h/i)
   })
 })

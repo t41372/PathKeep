@@ -173,6 +173,36 @@ describe('PaperCalendarPopover', () => {
     expect(screen.getByText(/active days · [\d,]+ pages/)).toBeVisible()
   })
 
+  test('hover preview uses the tier-2 spark opacity for medium-density days', () => {
+    const { container } = render(<PaperCalendarPopover {...baseProps()} />)
+
+    const cell = container.querySelector(
+      '[data-iso="2026-05-10"]',
+    ) as HTMLElement
+    fireEvent.mouseEnter(cell)
+
+    const sparkFill = container.querySelector<HTMLElement>(
+      '.bg-accent.block.h-full',
+    )
+    expect(screen.getByText('80 pages archived')).toBeVisible()
+    expect(sparkFill?.style.opacity).toBe('0.55')
+  })
+
+  test('hover preview uses the tier-1 spark opacity for low-density days', () => {
+    const { container } = render(<PaperCalendarPopover {...baseProps()} />)
+
+    const cell = container.querySelector(
+      '[data-iso="2026-05-01"]',
+    ) as HTMLElement
+    fireEvent.mouseEnter(cell)
+
+    const sparkFill = container.querySelector<HTMLElement>(
+      '.bg-accent.block.h-full',
+    )
+    expect(screen.getByText('12 pages archived')).toBeVisible()
+    expect(sparkFill?.style.opacity).toBe('0.35')
+  })
+
   test('opens the year picker and selecting a year jumps the grid', () => {
     render(<PaperCalendarPopover {...baseProps()} />)
 

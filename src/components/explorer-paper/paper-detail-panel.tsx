@@ -225,7 +225,7 @@ export function PaperDetailPanel({
   // onUpdateNotes by reference, so it lands on the right entry.
   useLayoutEffect(() => {
     if (pendingFlushRef.current) {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
+      clearTimeout(saveTimer.current as ReturnType<typeof setTimeout>)
       saveTimer.current = null
       const flush = pendingFlushRef.current
       pendingFlushRef.current = null
@@ -751,26 +751,22 @@ function LookFurtherRow({
 }: {
   label: string
   hint?: string
-  onClick?: () => void
+  onClick: () => void
 }) {
-  const isInteractive = Boolean(onClick)
-  const Element = isInteractive ? 'button' : 'div'
   return (
-    <Element
-      type={isInteractive ? 'button' : undefined}
+    <button
+      type="button"
       onClick={onClick}
       className={cn(
         'border-border-light flex items-center justify-between border-b py-2 last:border-b-0',
         'font-sans text-[12px] text-ink-secondary text-left',
-        isInteractive
-          ? 'hover:text-accent cursor-pointer transition-colors duration-150'
-          : 'cursor-default',
+        'hover:text-accent cursor-pointer transition-colors duration-150',
       )}
     >
       <span>{label}</span>
       {hint ? (
         <span className="text-ink-faint font-mono text-[10.5px]">{hint}</span>
       ) : null}
-    </Element>
+    </button>
   )
 }

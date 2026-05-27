@@ -540,6 +540,26 @@ describe('PaperListRow', () => {
     expect(screen.queryByTestId('list-favicon-swatch')).not.toBeInTheDocument()
   })
 
+  test('uses og:image as the list icon when favicon bytes are absent', () => {
+    render(
+      <PaperListRow
+        entry={{
+          ...entry,
+          faviconDataUrl: null,
+          ogImageDataUrl: 'data:image/png;base64,OGI',
+        }}
+        domainColor="#a8322d"
+        domainAbbr="ARX"
+        testId="list-og-image"
+      />,
+    )
+
+    const icon = screen.getByTestId<HTMLImageElement>('list-og-image-og-icon')
+    expect(icon).toBeVisible()
+    expect(icon.src).toBe('data:image/png;base64,OGI')
+    expect(screen.queryByTestId('list-og-image-swatch')).not.toBeInTheDocument()
+  })
+
   test('falls back to the domain swatch when faviconDataUrl is null or absent', () => {
     const { rerender } = render(
       <PaperListRow

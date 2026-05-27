@@ -127,7 +127,7 @@ export function PaperDayInsights({
                   <span
                     className="absolute inset-y-0 left-0 bg-accent opacity-55"
                     style={{
-                      width: `${(row.visits / Math.max(1, insights.topDomains[0]?.visits ?? 1)) * 100}%`,
+                      width: `${(row.visits / Math.max(1, insights.topDomains[0].visits)) * 100}%`,
                     }}
                   />
                 </span>
