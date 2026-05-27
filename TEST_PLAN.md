@@ -150,7 +150,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
    - Persistent local preference parse/fallback failure paths.
 6. `[x]` `src/app/shell.tsx` and `src/components/shell/*`
    - Route history and global shell state branches.
-7. `[ ]` `src/pages/dashboard/index.tsx`
+7. `[x]` `src/pages/dashboard/index.tsx`
    - Branch coverage is low despite line coverage; assert fallback semantics.
 8. `[ ]` Rust import/fixture sidecar backlog blocks
    - Follow existing BACKLOG order: sidecar fixture extension, minor integrity
@@ -456,3 +456,51 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-006` for the
 remaining defensive/redundant branches that are not naturally reachable through
 the current public shell grammar.
+
+### Module 7: `src/pages/dashboard/index.tsx`
+
+Added 6 focused behavior tests:
+
+- archive span uses the current day when `latestVisitAt` is missing, instead of
+  rendering the missing-span placeholder.
+- read-model derived archive state renders zero-size fallback, encrypted mode,
+  source count, database-path fallback, and missing manifest hash.
+- `getOnThisDay()` null data renders the empty state instead of preserving stale
+  entries.
+- stale successful and failed On This Day responses are discarded after the
+  route becomes uninitialized.
+- On This Day entries/header actions, year heatmap actions, and active-thread
+  actions navigate to their route-level destinations.
+- morning greeting branch is covered alongside the existing afternoon/evening
+  branches.
+
+Commands:
+
+```sh
+bunx vitest run src/pages/dashboard/index.test.tsx --coverage --coverage.include=src/pages/dashboard/index.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Test Files  1 passed (1)
+Tests       17 passed (17)
+
+Targeted dashboard coverage:
+All files: statements 100 | branches 100 | functions 100 | lines 100
+index.tsx: statements 100 | branches 100 | functions 100 | lines 100
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: Test Files 277 passed (277), Tests 2076 passed (2076)
+JS coverage: statements 99.38 | branches 98.61 | functions 99.66 | lines 99.72
+Rust coverage: 100% for 35246 instrumented source lines and 1634 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed.
