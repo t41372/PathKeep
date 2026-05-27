@@ -376,6 +376,39 @@ mod tests {
     }
 
     #[test]
+    fn provider_key_does_not_satisfy_database_key_status_or_clear_database_secret() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let original_keyring_dir = std::env::var_os(TEST_KEYRING_DIR_ENV);
+        let original_keyring_service = std::env::var_os(TEST_KEYRING_SERVICE_ENV);
+        unsafe {
+            std::env::set_var(TEST_KEYRING_DIR_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_SERVICE_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        keyring_set_provider_api_key("openai-primary", "provider-secret").expect("set provider");
+        assert!(provider_api_key_saved("openai-primary"));
+        assert!(
+            !keyring_status().stored_secret,
+            "provider API keys must not make the database key look saved",
+        );
+
+        keyring_set_database_key("database-secret").expect("set db");
+        assert!(keyring_status().stored_secret);
+
+        keyring_clear_provider_api_key("openai-primary").expect("clear provider");
+        assert_eq!(
+            keyring_get_database_key().expect("get db"),
+            Some("database-secret".to_string()),
+            "clearing a provider key must not clear the database key",
+        );
+        assert!(!provider_api_key_saved("openai-primary"));
+
+        restore_env_var(TEST_KEYRING_DIR_ENV, original_keyring_dir.as_deref());
+        restore_env_var(TEST_KEYRING_SERVICE_ENV, original_keyring_service.as_deref());
+    }
+
+    #[test]
     fn provider_keyring_user_and_file_backed_helpers_cover_extra_paths() {
         let _guard = env_lock().lock().expect("env lock");
         let dir = tempdir().expect("tempdir");

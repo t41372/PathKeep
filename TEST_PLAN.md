@@ -159,7 +159,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
    - Add tests for partial I/O, permission errors, command failures, and
      concurrent state transitions before full mutation.
    - `[x]` 9A migration import fail-fast refusal paths.
-   - `[ ]` 9B security/keyring refusal and recovery paths.
+   - `[x]` 9B security/keyring refusal and recovery paths.
    - `[ ]` 9C scheduler host-command failure paths.
 
 ## Bug / Drift Register
@@ -716,6 +716,55 @@ desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
 
 Suspected product bugs: none confirmed. These tests pin the current intended
 fail-fast behavior before the live project tree is renamed or overwritten.
+
+### Module 9B: `vault-core::app_lock` and `vault-platform::keyring`
+
+Added two behavior assertions for security refusal and recovery paths:
+
+- Malformed App Lock session state fails closed for status and unlock, malformed
+  secret hydration fails, and clearing the passcode removes the corrupted state
+  and secret files so the user can recover.
+- Provider API keys do not satisfy database-key saved status, and clearing a
+  provider key does not remove the database key.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core malformed_app_lock_files_fail_closed_until_passcode_is_cleared --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform provider_key_does_not_satisfy_database_key_status_or_clear_database_secret --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core app_lock --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform keyring --lib
+```
+
+Actual output:
+
+```text
+app_lock targeted: 1 passed; 0 failed; 664 filtered out
+keyring targeted: 1 passed; 0 failed; 46 filtered out
+app_lock module: 5 passed; 0 failed; 660 filtered out
+keyring module: 4 passed; 0 failed; 43 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+unit: 277 files passed; 2076 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.38%, branches 98.61%, functions 99.66%, lines 99.72%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed. These tests pin fail-closed behavior for
+corrupted lock files while keeping the documented recovery path available, and
+they prevent provider API key storage from being mistaken for database key
+storage.
 
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 

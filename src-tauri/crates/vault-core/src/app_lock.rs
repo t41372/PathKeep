@@ -730,4 +730,56 @@ mod tests {
         .expect_err("default biometric unavailable");
         assert!(default_unlock.to_string().contains("not available"));
     }
+
+    #[test]
+    fn malformed_app_lock_files_fail_closed_until_passcode_is_cleared() {
+        let paths = temp_paths();
+        let mut config = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig {
+                enabled: true,
+                idle_timeout_minutes: 5,
+                biometric_enabled: false,
+                passcode_enabled: true,
+                passcode_configured: false,
+                recovery_hint: None,
+            },
+            ..AppConfig::default()
+        };
+        set_app_lock_passcode(
+            &paths,
+            &mut config,
+            &SetAppLockPasscodeRequest {
+                passcode: "2468".to_string(),
+                recovery_hint: Some("desk drawer".to_string()),
+            },
+        )
+        .expect("set passcode");
+        hydrate_app_lock_config(&paths, &mut config).expect("hydrate configured passcode");
+        initialize_app_lock_session(&paths, &config).expect("initialize lock");
+
+        fs::write(app_lock_state_path(&paths), "{not valid session json").expect("corrupt state");
+        let status_error =
+            app_lock_status(&paths, &config).expect_err("malformed state must fail closed");
+        assert!(status_error.to_string().contains("parsing app lock session state"));
+        let unlock_error = unlock_app_session(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest { passcode: Some("2468".to_string()), use_biometric: false },
+        )
+        .expect_err("malformed state must block unlock mutation");
+        assert!(unlock_error.to_string().contains("parsing app lock session state"));
+
+        fs::write(app_lock_secret_path(&paths), "{not valid secret json").expect("corrupt secret");
+        let hydrate_error =
+            hydrate_app_lock_config(&paths, &mut config).expect_err("malformed secret fails");
+        assert!(hydrate_error.to_string().contains("parsing app lock secret"));
+
+        let cleared =
+            clear_app_lock_passcode(&paths, &mut config).expect("clear recovers corrupt files");
+        assert!(!cleared.enabled);
+        assert!(!cleared.passcode_configured);
+        assert!(!app_lock_state_path(&paths).exists());
+        assert!(!app_lock_secret_path(&paths).exists());
+    }
 }
