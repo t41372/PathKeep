@@ -16,4 +16,12 @@ describe('handlePreviewShellCommand', () => {
       handlePreviewShellCommand('load_history_favicons', undefined, state),
     ).toEqual([])
   })
+
+  test('loads history og:image rows with an empty default request', () => {
+    const state = createMockState()
+
+    expect(
+      handlePreviewShellCommand('load_history_og_images', undefined, state),
+    ).toEqual([])
+  })
 })

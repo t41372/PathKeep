@@ -185,4 +185,27 @@ describe('PaperIntelligencePanel', () => {
     expect(screen.getByText('tokio docs')).toBeInTheDocument()
     expect(screen.getByText('5 days · 4 sessions')).toBeInTheDocument()
   })
+
+  test('falls back to the page URL when a refind item has no title', () => {
+    const overview = makeOverview(
+      [],
+      [
+        makeRefindPage({
+          canonicalUrl: 'https://docs.rs/sqlx',
+          url: 'https://docs.rs/sqlx',
+          title: null,
+        }),
+      ],
+    )
+    render(
+      <PaperIntelligencePanel
+        primaryOverview={overview}
+        dashboard={baseDashboard}
+        onSelectDomain={() => {}}
+        explorerT={explorerT}
+      />,
+    )
+
+    expect(screen.getByText('https://docs.rs/sqlx')).toBeInTheDocument()
+  })
 })

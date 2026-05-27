@@ -180,6 +180,56 @@ describe('intelligence surfaces', () => {
     window.localStorage.removeItem('pathkeep.profile-scope')
   })
 
+  test('renders paper assistant layout and sends through the paper composer', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    const askAssistant = vi.spyOn(backend, 'askAiAssistant').mockResolvedValue({
+      state: 'completed',
+      answer: 'Paper answer.',
+      jobId: null,
+      runId: null,
+      providerId: 'llm-local',
+      embeddingProviderId: 'embed-local',
+      citations: [],
+      notes: [],
+    })
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant?layout=paper',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('paper-assistant-panel')).toBeVisible()
+    const input = screen.getByTestId('paper-assistant-input')
+    await user.type(input, 'paper question{enter}')
+
+    expect(await screen.findByText('Paper answer.')).toBeVisible()
+    expect(askAssistant).toHaveBeenCalledWith({
+      question: 'paper question',
+      profileId: null,
+    })
+  })
+
+  test('paper assistant layout keeps providerless attribution explicit', async () => {
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    snapshot.config.ai.llmProviderId = null
+    snapshot.config.ai.llmProviders = []
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant?layout=paper',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('paper-assistant-panel')).toBeVisible()
+    expect(
+      screen.getAllByText(assistantT('paperComposerAttributionFallback'))
+        .length,
+    ).toBeGreaterThan(0)
+  })
+
   test('renders assistant setup, lock, and disabled gates truthfully', async () => {
     const { snapshot } = await seedArchiveState()
     const assistantT = createNamespaceTranslator('en', 'assistant')

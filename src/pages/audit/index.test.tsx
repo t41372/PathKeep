@@ -109,6 +109,24 @@ describe('AuditPage route owner', () => {
     expect(runBackup).toHaveBeenCalledTimes(1)
   })
 
+  test('paper layout renders manifest chain and routes chain block selection', async () => {
+    const user = userEvent.setup()
+
+    renderPage('/audit?layout=paper&run=11')
+
+    expect(screen.getByTestId('paper-audit-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-audit-view')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-chain-block-10'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('paper-chain-block-10')).toHaveAttribute(
+        'data-current',
+        'true',
+      ),
+    )
+  })
+
   test('filters runs by route-owned controls and exposes restore-kind labeling to the detail panel', async () => {
     const user = userEvent.setup()
     const runs = [

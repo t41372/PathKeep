@@ -61,24 +61,15 @@ export default defineConfig({
         'src/pages/intelligence/promoted-entity-routes.tsx',
         'src/pages/intelligence/sections/secondary-sections.tsx',
       ],
-      // Coverage floor — pushed up after the WORK-V03-COVERAGE-RESIDUAL
-      // second sweep (2026-05-20). Current global is 99.68 lines /
-      // 99.48 functions / 98.68 branches / 99.39 statements. Threshold
-      // lifted from {99,98,98,99} → {99,99,98,99} so the function-coverage
-      // gain is locked in and the branch / statement residual is the only
-      // remaining headroom.
-      //
-      // Residual sits in a stable set of pre-existing files. Each needs a
-      // targeted unit-test sweep but is bounded by defensive jsdom-unreachable
-      // code (SSR guards, locale toLocaleString try/catch fallbacks, dead-key
-      // ref initializers). The remaining work lives in
-      // WORK-V03-COVERAGE-RESIDUAL. Do not lower thresholds without a
-      // matching backlog entry.
+      // Runtime JS/TS coverage is a hard gate. TEST_PLAN.md Module 10G closes
+      // the residual sweep and confirms lcov has no uncovered lines, branches,
+      // or functions. Do not lower thresholds without a matching bug/drift
+      // entry and a documented rollback reason.
       thresholds: {
-        lines: 99,
-        functions: 99,
-        branches: 98,
-        statements: 99,
+        lines: 100,
+        functions: 100,
+        branches: 100,
+        statements: 100,
       },
     },
   },

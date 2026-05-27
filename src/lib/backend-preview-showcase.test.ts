@@ -58,6 +58,23 @@ describe('browser-preview showcase dataset', () => {
     })
   })
 
+  test('dashboard snapshot keeps earliest visit stable when later rows follow it', () => {
+    const state = createMockState()
+    state.snapshot.config.initialized = true
+    const first = structuredClone(state.history.items[0])
+    const second = structuredClone(state.history.items[0])
+    state.history.items = [
+      { ...first, visitedAt: '2026-05-03T12:00:00.000Z' },
+      { ...second, visitedAt: '2026-05-01T12:00:00.000Z' },
+      { ...second, visitedAt: '2026-05-02T12:00:00.000Z' },
+    ]
+
+    const dashboard = buildMockDashboardSnapshot(state)
+
+    expect(dashboard.earliestVisitAt).toBe('2026-05-01T12:00:00.000Z')
+    expect(dashboard.latestVisitAt).toBe('2026-05-03T12:00:00.000Z')
+  })
+
   test('serves showcase Core Intelligence reads instead of empty fallbacks', () => {
     vi.stubGlobal('__PATHKEEP_BROWSER_PREVIEW_DATASET__', 'showcase')
     const state = createMockState()

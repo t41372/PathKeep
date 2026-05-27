@@ -93,7 +93,7 @@ export function YearHeatmap({
               gridColumnEnd: 'span 1',
             }}
           >
-            {marker.label ?? ''}
+            {marker.label}
           </span>
         ))}
       </div>
@@ -158,7 +158,10 @@ function ColumnRow({
             />
           )
         }
-        const clickable = Boolean(onSelectDate && cell.count > 0)
+        const clickable = onSelectDate !== undefined && cell.count > 0
+        const handleClick = clickable
+          ? () => onSelectDate(cell.date, cell.count)
+          : undefined
         return (
           <button
             key={index}
@@ -167,9 +170,7 @@ function ColumnRow({
             data-date={cell.date}
             data-level={cell.level}
             disabled={!clickable}
-            onClick={() => {
-              if (clickable && onSelectDate) onSelectDate(cell.date, cell.count)
-            }}
+            onClick={handleClick}
             className={`aspect-square min-w-[10px] rounded-[2px] border transition-[outline-color,transform] duration-100 ${
               LEVEL_CLASS[cell.level]
             } ${

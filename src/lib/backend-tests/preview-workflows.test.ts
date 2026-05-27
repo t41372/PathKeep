@@ -596,6 +596,12 @@ describe('backend facade preview workflows', () => {
       backend.triggerOgImageRefetch(['https://example.test/preview']),
     ).resolves.toEqual(expect.any(Number))
 
+    // The legacy browser-preview backend still has no prefetch implementation;
+    // keep that limitation explicit instead of silently pretending work ran.
+    await expect(backend.prefetchOgImages(25)).rejects.toThrow(
+      'Mock backend does not implement prefetch_og_images',
+    )
+
     await expect(backend.getOgImageStorageStats()).resolves.toEqual(
       expect.objectContaining({
         rowCount: expect.any(Number),

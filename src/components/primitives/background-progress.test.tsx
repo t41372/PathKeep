@@ -75,6 +75,15 @@ describe('BackgroundProgress', () => {
     expect(screen.getByText('Working…')).toBeVisible()
   })
 
+  test('keeps the label cell empty when no state or fallback label exists', () => {
+    const { container } = render(
+      <BackgroundProgress state={baseState({ label: '' })} />,
+    )
+
+    expect(container.textContent).not.toContain('Running a manual backup')
+    expect(container.textContent).not.toContain('Working')
+  })
+
   test('renders the detail line and the most recent log line when both exist', () => {
     render(
       <BackgroundProgress
@@ -102,6 +111,19 @@ describe('BackgroundProgress', () => {
     )
     const matches = screen.getAllByText('Chrome / Default')
     expect(matches).toHaveLength(1)
+  })
+
+  test('renders a log-only detail row when no detail text exists', () => {
+    render(
+      <BackgroundProgress
+        state={baseState({
+          detail: null,
+          logLines: ['imported 99'],
+        })}
+      />,
+    )
+
+    expect(screen.getByText('imported 99')).toBeVisible()
   })
 
   test('does not render the detail row at all when neither detail nor log is provided', () => {

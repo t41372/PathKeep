@@ -160,9 +160,11 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
   }, [t])
 
   const handleApplyImport = useCallback(
-    async (sourceArchiveKey?: string) => {
-      if (phase.kind !== 'previewed' && phase.kind !== 'applyError') return
-      const { bundlePath, preview } = phase
+    async (
+      bundlePath: string,
+      preview: ImportPreview,
+      sourceArchiveKey?: string,
+    ) => {
       setPhase({ kind: 'applying', bundlePath, preview })
       try {
         const result = await backend.applyAppDataImport(bundlePath, {
@@ -179,7 +181,7 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
         })
       }
     },
-    [phase],
+    [],
   )
 
   const handleResetPreview = useCallback(() => setPhase({ kind: 'idle' }), [])
@@ -263,7 +265,9 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
             preview={phase.preview}
             applying={phase.kind === 'applying'}
             applyError={phase.kind === 'applyError' ? phase.message : null}
-            onConfirm={(sourceKey) => void handleApplyImport(sourceKey)}
+            onConfirm={(sourceKey) =>
+              void handleApplyImport(phase.bundlePath, phase.preview, sourceKey)
+            }
             onCancel={handleResetPreview}
           />
         ) : null}

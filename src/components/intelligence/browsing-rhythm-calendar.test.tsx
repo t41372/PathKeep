@@ -86,6 +86,35 @@ describe('BrowsingRhythmCalendar', () => {
     expect(onResetToCurrentYear).toHaveBeenCalledTimes(1)
   })
 
+  test('button-mode year controls expose disabled boundary years without reset action', () => {
+    render(
+      <BrowsingRhythmYearControls
+        canResetToCurrentYear={false}
+        mode="year"
+        newerYear={null}
+        olderYear={null}
+        onResetToCurrentYear={vi.fn()}
+        onSelectYear={vi.fn()}
+        selectedYear={2026}
+        t={t}
+        yearNavigation="pager"
+        yearOptions={[2026]}
+      />,
+    )
+
+    expect(
+      screen.queryByTestId('browsing-rhythm-current-year-shortcut'),
+    ).toBeNull()
+    expect(screen.getByTestId('browsing-rhythm-year-previous')).toBeDisabled()
+    expect(screen.getByTestId('browsing-rhythm-year-next')).toBeDisabled()
+    expect(
+      screen.getByLabelText('rhythmPreviousYearAria:{"year":2026}'),
+    ).toBeVisible()
+    expect(
+      screen.getByLabelText('rhythmNextYearAria:{"year":2026}'),
+    ).toBeVisible()
+  })
+
   test('calendar grid renders heat levels and emits day selection only for enabled cells', async () => {
     const user = userEvent.setup()
     const onSelectDay = vi.fn()
