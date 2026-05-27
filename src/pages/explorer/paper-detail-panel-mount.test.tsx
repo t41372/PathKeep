@@ -171,6 +171,29 @@ describe('PaperDetailPanelMount', () => {
     }
   })
 
+  test('All of domain forwards the selected domain and closes the panel', () => {
+    const onOpenDomain = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry({ domain: 'docs.example.com' })}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={onClose}
+        onOpen={() => {}}
+        onOpenDomain={onOpenDomain}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'paperBrowse.detailLookAllOfDomain',
+      }),
+    )
+    expect(onOpenDomain).toHaveBeenCalledWith('docs.example.com')
+    expect(onClose).toHaveBeenCalled()
+  })
+
   test('reads notes through the annotation store', () => {
     const notesFor = vi.fn(() => 'remembered')
     render(

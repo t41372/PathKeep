@@ -165,20 +165,20 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
     - Restore `coverage:js` from the current 99/98/99/99 floor back to the
       documented 100/100/100/100 gate without excluding active runtime code.
     - `[x]` 10A Search/Browse chip and result residuals.
-    - `[ ]` 10B Explorer route and paper-view residuals.
+    - `[x]` 10B Explorer route and paper-view residuals.
     - `[ ]` 10C Dashboard/app shell residuals.
     - `[ ]` 10D Hook/helper branch residuals.
 
 ## Bug / Drift Register
 
-| ID         | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                | Action                                                                                                                                                                                                         |
-| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                                                                                                                                                                    | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                                                                                                 |
-| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                                                                                                                                                            | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                                                                                  |
-| QA-GAP-003 | open   | `src/pages/explorer/index.tsx` still builds a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount.                                                                                                                                        | Confirm whether the legacy paginated time-view branch should be deleted or restored as an intentional mode; do not add a fake coverage seam.                                                                   |
-| QA-GAP-004 | open   | `src/components/explorer-paper/paper-contact-sheet.tsx` retains two defensive guards that targeted behavior cannot naturally hit: toolbar ref missing after mount and `canLoadMore` false after the sentinel exists.                                                                                                                                                                                                    | Keep as defensive code unless product logic changes; avoid synthetic seams. If ref/sentinel grammar changes, add direct regression tests.                                                                      |
-| QA-GAP-005 | open   | `src/components/explorer-paper/paper-detail-panel.tsx` retains unreachable defensive branches: layout-flush with `pendingFlushRef` but no active timer, and `LookFurtherRow` non-interactive rendering even though the parent filters out rows without handlers.                                                                                                                                                        | Keep as defensive code unless route grammar changes; do not test private helpers only for branch count. If non-interactive rows return, add direct behavior tests.                                             |
-| QA-GAP-006 | open   | Shell residual branches are defensive or redundant under current public grammar: `shellStorage()` without `window`, `handleSearchQuery()` receiving a blank query after `PKSearchPalette` already suppresses blank searches, `archiveHealthy ?? false` after a boolean expression, `domainAbbreviation().split('.')[0] ?? cleaned`, and duplicate route-history location keys inside an effect keyed by `location.key`. | Leave as explicit drift instead of adding artificial test seams. Resolve by deleting redundant branches, exposing intentional SSR behavior, or changing the public grammar so the behavior becomes observable. |
+| ID         | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                | Action                                                                                                                                                                                                                   |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                                                                                                                                                                    | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                                                                                                           |
+| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                                                                                                                                                            | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                                                                                            |
+| QA-GAP-003 | closed | `src/pages/explorer/index.tsx` still built a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount.                                                                                                                                         | Resolved in Module 10B by deleting the route-only paginated prop, the redundant results render guard, and the unreachable infinite-scroll fallback. Component-level pagination remains covered in `paper-view.test.tsx`. |
+| QA-GAP-004 | open   | `src/components/explorer-paper/paper-contact-sheet.tsx` retains two defensive guards that targeted behavior cannot naturally hit: toolbar ref missing after mount and `canLoadMore` false after the sentinel exists.                                                                                                                                                                                                    | Keep as defensive code unless product logic changes; avoid synthetic seams. If ref/sentinel grammar changes, add direct regression tests.                                                                                |
+| QA-GAP-005 | open   | `src/components/explorer-paper/paper-detail-panel.tsx` retains unreachable defensive branches: layout-flush with `pendingFlushRef` but no active timer, and `LookFurtherRow` non-interactive rendering even though the parent filters out rows without handlers.                                                                                                                                                        | Keep as defensive code unless route grammar changes; do not test private helpers only for branch count. If non-interactive rows return, add direct behavior tests.                                                       |
+| QA-GAP-006 | open   | Shell residual branches are defensive or redundant under current public grammar: `shellStorage()` without `window`, `handleSearchQuery()` receiving a blank query after `PKSearchPalette` already suppresses blank searches, `archiveHealthy ?? false` after a boolean expression, `domainAbbreviation().split('.')[0] ?? cleaned`, and duplicate route-history location keys inside an effect keyed by `location.key`. | Leave as explicit drift instead of adding artificial test seams. Resolve by deleting redundant branches, exposing intentional SSR behavior, or changing the public grammar so the behavior becomes observable.           |
 
 ## Checkpoint Log
 
@@ -873,6 +873,75 @@ Gate note: the first full `bun run check` attempt in the command sandbox failed
 only in mockito-backed Rust tests because local test servers could not bind
 sockets (`Operation not permitted`). Re-running the same command with normal
 local permissions passed.
+
+Suspected product bugs: none confirmed.
+
+### Module 10B: JS Explorer route and paper-view residuals
+
+Added 10 focused frontend behavior assertions and removed route/helper branches
+that the current public grammar cannot exercise:
+
+- `PaperExplorerView` now pins calendar day selection, non-Escape key handling,
+  invalid active-date labels, omitted `todayIso` current-day fallback, malformed
+  clock-format events, locale-format fallback/no-crash behavior, and decorated
+  pagination / infinite-scroll descriptors.
+- `PaperDetailPanelMount` now asserts "All of domain" forwards the selected
+  domain and closes the panel.
+- `ExplorerPage` now asserts enabled og:image settings forward their configured
+  fetch mode and desktop command transport selects the desktop annotation store.
+- Deleted the route-only paginated `PaperExplorerView` prop, the redundant
+  `|| results` render guard, and the unreachable `infiniteDisabled ? undefined`
+  branch at the Browse route mount point. The route grammar already sends every
+  `infiniteDisabled` surface to Search, grouped views, invalid-regex callouts,
+  or locked/uninitialized states before Browse mounts.
+- Simplified Paper search day-group sorting and Paper view density override
+  helpers to remove equality / `Map.has` branches that were unreachable under
+  the helper contracts.
+
+Commands:
+
+```sh
+bunx vitest run src/pages/explorer/index.test.tsx src/pages/explorer/paper-view.test.tsx src/pages/explorer/paper-detail-panel-mount.test.tsx src/pages/explorer/paper-view-helpers.test.ts src/pages/explorer/paper-search-helpers.test.ts
+bunx tsc -b --pretty false
+bun run coverage:js
+```
+
+Actual output:
+
+```text
+Targeted tests:
+Test Files 5 passed (5)
+Tests 94 passed (94)
+
+coverage:js:
+Test Files 279 passed (279)
+Tests 2095 passed (2095)
+All files statements 99.6 | branches 99 | functions 99.84 | lines 99.88
+
+Module 10B files now at 100/100/100/100:
+src/pages/explorer/index.tsx
+src/pages/explorer/paper-detail-panel-mount.tsx
+src/pages/explorer/paper-search-helpers.ts
+src/pages/explorer/paper-view-helpers.ts
+src/pages/explorer/paper-view.tsx
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+format/lint/i18n/typecheck: passed
+unit: 279 files passed; 2095 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.61%, branches 99.02%, functions 99.84%, lines 99.88%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
 
 Suspected product bugs: none confirmed.
 

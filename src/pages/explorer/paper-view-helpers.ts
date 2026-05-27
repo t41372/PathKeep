@@ -29,7 +29,8 @@ export function buildPerDayDensity(
     overrides.forEach((value, key) => {
       // Overrides override loaded counts so the calendar can show density for
       // days we haven't paged in yet.
-      if (!map.has(key) || (map.get(key) ?? 0) < value) map.set(key, value)
+      const current = map.get(key)
+      if (current === undefined || current < value) map.set(key, value)
     })
   }
   return map
@@ -47,7 +48,8 @@ export function buildPerYearDensity(
   }
   if (overrides) {
     overrides.forEach((value, year) => {
-      if (!map.has(year) || (map.get(year) ?? 0) < value) map.set(year, value)
+      const current = map.get(year)
+      if (current === undefined || current < value) map.set(year, value)
     })
   }
   return map

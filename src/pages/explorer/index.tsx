@@ -103,14 +103,10 @@ export function ExplorerPage() {
     clearAllFilters,
     currentQuery,
     end,
-    explicitPage,
     groupedDateRange,
-    handleNextHistoryPage,
-    handlePreviousHistoryPage,
     handleNextSemanticPage,
     handlePreviousSemanticPage,
     mode,
-    pageSize,
     persistRecentSearch,
     profileId,
     queryInput,
@@ -119,7 +115,6 @@ export function ExplorerPage() {
     searchParams,
     semanticQuery,
     semanticTrail,
-    setHistoryPageSize,
     setQueryInput,
     setRecentSearches,
     setSearchParams,
@@ -814,7 +809,7 @@ export function ExplorerPage() {
           eyebrow={explorerT('noMatchesEyebrow')}
           title={explorerT('noMatchesTitle')}
         />
-      ) : view === 'time' && (loading || visibleTimeResults || results) ? (
+      ) : view === 'time' && (loading || visibleTimeResults) ? (
         <PaperExplorerView
           entries={renderedTimeResults?.items ?? []}
           loading={loading}
@@ -854,41 +849,16 @@ export function ExplorerPage() {
             next.delete('source')
             setSearchParams(next)
           }}
-          pagination={
-            infiniteDisabled
-              ? {
-                  page: explicitPage,
-                  pageSize,
-                  total: visibleTimeResults?.total ?? 0,
-                  pageCount: visibleTimeResults?.pageCount ?? 0,
-                  hasPrevious: Boolean(visibleTimeResults?.hasPrevious),
-                  hasNext: Boolean(visibleTimeResults?.hasNext),
-                  onPrevious: () =>
-                    handlePreviousHistoryPage(
-                      visibleTimeResults?.page ?? explicitPage ?? 1,
-                    ),
-                  onNext: () =>
-                    handleNextHistoryPage(
-                      visibleTimeResults?.page ?? explicitPage ?? 1,
-                    ),
-                  onChangePageSize: setHistoryPageSize,
-                }
-              : undefined
-          }
-          infiniteScroll={
-            infiniteDisabled
-              ? undefined
-              : {
-                  loadingMore: infiniteLoadingMore,
-                  canLoadMore: infiniteCanLoadMore,
-                  onLoadMore: infiniteLoadMore,
-                  loadedPageCount: infiniteLoadedPageCount,
-                  totalPages: visibleTimeResults?.pageCount ?? 0,
-                  totalRows: visibleTimeResults?.total ?? 0,
-                  capReached: infiniteCapReached,
-                  error: infiniteError,
-                }
-          }
+          infiniteScroll={{
+            loadingMore: infiniteLoadingMore,
+            canLoadMore: infiniteCanLoadMore,
+            onLoadMore: infiniteLoadMore,
+            loadedPageCount: infiniteLoadedPageCount,
+            totalPages: visibleTimeResults?.pageCount ?? 0,
+            totalRows: visibleTimeResults?.total ?? 0,
+            capReached: infiniteCapReached,
+            error: infiniteError,
+          }}
           language={language}
           copy={buildPaperExplorerCopy(explorerT)}
           filterStripSlot={paperFilterStrip}

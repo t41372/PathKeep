@@ -156,6 +156,6 @@ export function buildPaperSearchDayGroups(
         entries: sorted.map(paperSearchEntryFromHistoryEntry),
       }
     })
-    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    .sort((a, b) => b.date.localeCompare(a.date))
   return days
 }

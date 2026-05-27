@@ -211,6 +211,22 @@ describe('PaperExplorerView', () => {
     expect(within(nav).getByText('yesterday')).toBeVisible()
   })
 
+  test('uses the current calendar day when no todayIso prop is supplied', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-18T18:00:00Z'))
+    try {
+      render(
+        <PaperExplorerView entries={[]} copy={COPY} testId="px-today-now" />,
+      )
+
+      const nav = screen.getByTestId('paper-contact-sheet-day-nav')
+      expect(within(nav).getByText('MON')).toBeVisible()
+      expect(within(nav).getByText('May 18')).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   test('clicking Previous day walks back inside the loaded archive bounds', () => {
     const onJump = vi.fn()
     render(
@@ -323,6 +339,30 @@ describe('PaperExplorerView', () => {
     expect(screen.getByText('May')).toBeVisible()
   })
 
+  test('selecting a calendar day commits the date jump and closes the popover', () => {
+    const onJump = vi.fn()
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        onJumpToDate={onJump}
+        testId="px-cal-select"
+      />,
+    )
+
+    const nav = screen.getByTestId('paper-contact-sheet-day-nav')
+    fireEvent.click(within(nav).getByRole('button', { name: 'Open calendar' }))
+    const dayButton = document.querySelector<HTMLButtonElement>(
+      'button[data-iso="2026-05-15"]',
+    )
+    expect(dayButton).not.toBeNull()
+    fireEvent.click(dayButton!)
+
+    expect(onJump).toHaveBeenCalledWith('2026-05-15')
+    expect(screen.queryByTestId('paper-explorer-calendar')).toBeNull()
+  })
+
   test('Escape closes the calendar', () => {
     render(
       <PaperExplorerView
@@ -338,6 +378,40 @@ describe('PaperExplorerView', () => {
     expect(screen.getByTestId('paper-explorer-calendar')).toBeVisible()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByTestId('paper-explorer-calendar')).toBeNull()
+  })
+
+  test('non-Escape keyboard events leave the calendar open', () => {
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        testId="px-esc-ignore"
+      />,
+    )
+
+    const nav = screen.getByTestId('paper-contact-sheet-day-nav')
+    fireEvent.click(within(nav).getByRole('button', { name: 'Open calendar' }))
+    fireEvent.keyDown(window, { key: 'Enter' })
+    expect(screen.getByTestId('paper-explorer-calendar')).toBeVisible()
+  })
+
+  test('invalid active date keeps the raw date label instead of crashing the day nav', () => {
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        targetDate="not-a-calendar-date"
+        copy={COPY}
+        todayIso="2026-05-17"
+        testId="px-invalid-active-date"
+      />,
+    )
+
+    expect(
+      within(screen.getByTestId('paper-contact-sheet-day-nav')).getByText(
+        'not-a-calendar-date',
+      ),
+    ).toBeVisible()
   })
 
   test('renders the target banner when targetDate is supplied', () => {
@@ -562,6 +636,134 @@ describe('PaperExplorerView', () => {
       )
     })
     expect(document.body.textContent).not.toMatch(/\bAM\b|\bPM\b/)
+  })
+
+  test('malformed clock-format events do not rewrite the visible time format', () => {
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        testId="px-clock-malformed"
+      />,
+    )
+    expect(document.body.textContent).toMatch(/AM|PM/)
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('pathkeep.clockFormatChanged', {
+          detail: {},
+        }),
+      )
+    })
+
+    expect(document.body.textContent).toMatch(/AM|PM/)
+  })
+
+  test('locale date formatting falls back to en-US and then to a blank label', () => {
+    const spy = vi.spyOn(Date.prototype, 'toLocaleDateString')
+    try {
+      spy.mockImplementation(function (
+        this: Date,
+        ...args: Parameters<Date['toLocaleDateString']>
+      ) {
+        const [locale] = args
+        if (locale === 'bad-locale') {
+          throw new Error('unsupported locale')
+        }
+        return new Intl.DateTimeFormat(...args).format(this)
+      })
+      const { rerender } = render(
+        <PaperExplorerView
+          entries={[]}
+          copy={COPY}
+          language="bad-locale"
+          todayIso="2026-05-16"
+          testId="px-locale-fallback"
+        />,
+      )
+      expect(
+        within(screen.getByTestId('paper-contact-sheet-day-nav')).getByText(
+          'SAT',
+        ),
+      ).toBeVisible()
+
+      spy.mockImplementation(() => {
+        throw new Error('all locale formatting failed')
+      })
+      rerender(
+        <PaperExplorerView
+          entries={[]}
+          copy={COPY}
+          language="bad-locale"
+          todayIso="2026-05-16"
+          testId="px-locale-fallback"
+        />,
+      )
+      expect(screen.getByTestId('paper-contact-sheet-day-nav')).toBeVisible()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('pagination and infinite-scroll descriptors are decorated with localized copy', () => {
+    const onPrevious = vi.fn()
+    const onNext = vi.fn()
+    const onChangePageSize = vi.fn()
+    const onLoadMore = vi.fn()
+    const { rerender } = render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        pagination={{
+          page: 2,
+          pageSize: 50,
+          total: 75,
+          pageCount: 3,
+          hasPrevious: true,
+          hasNext: true,
+          onPrevious,
+          onNext,
+          onChangePageSize,
+        }}
+        testId="px-pagination"
+      />,
+    )
+
+    expect(screen.getByText('Page 2 of 3 · 75 rows')).toBeVisible()
+    fireEvent.click(screen.getByTestId('paper-contact-sheet-page-prev'))
+    fireEvent.click(screen.getByTestId('paper-contact-sheet-page-next'))
+    fireEvent.change(screen.getByTestId('paper-contact-sheet-page-size'), {
+      target: { value: '100' },
+    })
+    expect(onPrevious).toHaveBeenCalled()
+    expect(onNext).toHaveBeenCalled()
+    expect(onChangePageSize).toHaveBeenCalledWith(100)
+
+    rerender(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        copy={COPY}
+        todayIso="2026-05-17"
+        infiniteScroll={{
+          loadingMore: false,
+          canLoadMore: false,
+          onLoadMore,
+          loadedPageCount: 2,
+          totalPages: 5,
+          totalRows: 40,
+          capReached: false,
+          error: null,
+        }}
+        testId="px-infinite"
+      />,
+    )
+
+    expect(
+      screen.getByText('You’ve reached the start of the archive.'),
+    ).toBeVisible()
+    expect(onLoadMore).not.toHaveBeenCalled()
   })
 })
 

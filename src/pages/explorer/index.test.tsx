@@ -26,6 +26,9 @@ import { ExplorerPage } from './index'
 const {
   aiStatusMetaMock,
   optionalAiFeaturesAvailableState,
+  desktopCommandTransportAvailable,
+  desktopAnnotationsMock,
+  localAnnotationsMock,
   selectedAiProviderMock,
   useExplorerDataMock,
   useExplorerFaviconsMock,
@@ -35,6 +38,9 @@ const {
   useShellDataMock,
 } = vi.hoisted(() => ({
   aiStatusMetaMock: vi.fn(),
+  desktopAnnotationsMock: vi.fn(),
+  desktopCommandTransportAvailable: { value: false },
+  localAnnotationsMock: vi.fn(),
   optionalAiFeaturesAvailableState: { value: false },
   selectedAiProviderMock: vi.fn(),
   useExplorerDataMock: vi.fn(),
@@ -66,6 +72,10 @@ vi.mock('../../lib/release-capabilities', () => ({
   get optionalAiFeaturesAvailable() {
     return optionalAiFeaturesAvailableState.value
   },
+}))
+
+vi.mock('../../lib/runtime', () => ({
+  hasDesktopCommandTransport: () => desktopCommandTransportAvailable.value,
 }))
 
 vi.mock('../../lib/backend-client', () => ({
@@ -100,6 +110,14 @@ vi.mock('./hooks/use-explorer-og-images', () => ({
 
 vi.mock('./hooks/use-explorer-url-state', () => ({
   useExplorerUrlState: useExplorerUrlStateMock,
+}))
+
+vi.mock('./use-local-annotations', () => ({
+  useLocalAnnotations: localAnnotationsMock,
+}))
+
+vi.mock('./use-desktop-annotations', () => ({
+  useDesktopAnnotations: desktopAnnotationsMock,
 }))
 
 vi.mock('./panels/runtime-panel', () => ({
@@ -248,11 +266,17 @@ vi.mock('./paper-view', () => ({
 
 vi.mock('./paper-detail-panel-mount', () => ({
   PaperDetailPanelMount: (props: {
+    annotations: {
+      notesFor: (url: string) => string
+    }
     onClose: () => void
     onOpen: (url: string) => void
     onOpenDomain: (domain: string) => void
   }) => (
-    <div data-testid="paper-detail-mount">
+    <div
+      data-testid="paper-detail-mount"
+      data-annotation-source={props.annotations.notesFor('__source__')}
+    >
       <button
         type="button"
         data-testid="paper-detail-close"
@@ -359,6 +383,7 @@ vi.mock('./paper-search-panel', () => ({
 describe('ExplorerPage route shell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    desktopCommandTransportAvailable.value = false
     optionalAiFeaturesAvailableState.value = false
     aiStatusMetaMock.mockReturnValue({ label: 'AI ready', tone: 'info' })
     selectedAiProviderMock.mockReturnValue({
@@ -367,6 +392,8 @@ describe('ExplorerPage route shell', () => {
     })
     useShellDataMock.mockReturnValue(defaultShellData())
     useProfileScopeMock.mockReturnValue({ activeProfileId: 'chrome:Default' })
+    localAnnotationsMock.mockReturnValue(annotationStore('local'))
+    desktopAnnotationsMock.mockReturnValue(annotationStore('desktop'))
     useExplorerFaviconsMock.mockReturnValue({ faviconCache: new Map() })
     useExplorerOgImagesMock.mockReturnValue({ ogImageCache: new Map() })
     useExplorerUrlStateMock.mockReturnValue(defaultUrlState())
@@ -722,6 +749,29 @@ describe('ExplorerPage route shell', () => {
     )
   })
 
+  test('enabled og:image settings forward the configured fetch mode to the hook', () => {
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          config: {
+            ...defaultShellData().snapshot.config,
+            ogImage: {
+              fetchEnabled: true,
+              fetchMode: 'on_demand',
+            },
+          },
+        },
+      }),
+    )
+
+    renderExplorer()
+
+    expect(useExplorerOgImagesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchMode: 'on_demand' }),
+    )
+  })
+
   test('search-result URLs suppress misleading og:image hydration in Browse rows', () => {
     useExplorerDataMock.mockImplementation(
       (options: Parameters<typeof defaultExplorerData>[0]) =>
@@ -798,6 +848,25 @@ describe('ExplorerPage route shell', () => {
     // onClose drops the mount.
     await user.click(screen.getByTestId('paper-detail-close'))
     expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
+  })
+
+  test('desktop command transport selects the desktop annotation store for paper details', async () => {
+    const user = userEvent.setup()
+    desktopCommandTransportAvailable.value = true
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          selectedId: 42,
+        }),
+    )
+
+    renderExplorer()
+
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(screen.getByTestId('paper-detail-mount')).toHaveAttribute(
+      'data-annotation-source',
+      'desktop',
+    )
   })
 
   test('shows the deferred semantic callout when optional AI is unavailable', () => {
@@ -959,6 +1028,15 @@ function setSearchParamsMockFromLatestUrlState() {
     setSearchParams: ReturnType<typeof vi.fn>
   }
   return state.setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+}
+
+function annotationStore(source: string) {
+  return {
+    notesFor: () => source,
+    tagsFor: () => [],
+    updateNotes: vi.fn(),
+    updateTags: vi.fn(),
+  }
 }
 
 function defaultExplorerData(

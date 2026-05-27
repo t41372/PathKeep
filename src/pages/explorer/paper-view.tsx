@@ -291,7 +291,6 @@ export function PaperExplorerView({
   // the previously-toggled value leak into tests that re-mount the view.
   const [viewMode, setViewMode] = useState<PaperViewMode>(() => {
     if (initialViewMode) return initialViewMode
-    if (typeof window === 'undefined') return 'cards'
     return readExplorerViewMode()
   })
   const handleViewModeChange = useCallback((next: PaperViewMode) => {
@@ -305,7 +304,6 @@ export function PaperExplorerView({
     readClockFormat(),
   )
   useEffect(() => {
-    if (typeof window === 'undefined') return
     function handle(event: Event) {
       const detail = (event as CustomEvent<ClockFormatEventDetail>).detail
       if (detail?.format) setClockFormat(detail.format)
@@ -395,7 +393,6 @@ export function PaperExplorerView({
 
   function stepDay(delta: number) {
     const next = addDaysIso(activeDate, delta)
-    if (next < bounds.firstIso || next > bounds.lastIso) return
     setActiveDate(next)
     onJumpToDate?.(next)
   }
