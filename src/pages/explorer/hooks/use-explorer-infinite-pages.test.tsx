@@ -40,6 +40,20 @@ function makeHeadResponse(
   }
 }
 
+function makeEntry(page: number, url = `https://example.com/page-${page}`) {
+  return {
+    id: page * 10,
+    profileId: 'chrome:Default',
+    url,
+    title: `page ${page}`,
+    domain: 'example.com',
+    favicon: null,
+    visitedAt: '2025-12-01T10:00:00Z',
+    visitTime: 1733050800,
+    sourceVisitId: 0,
+  }
+}
+
 describe('useExplorerInfinitePages', () => {
   beforeEach(() => {
     vi.spyOn(backend, 'queryHistory').mockReset()
@@ -177,6 +191,174 @@ describe('useExplorerInfinitePages', () => {
     rerender({ q: 'newer-term' })
     expect(result.current.loadedPageCount).toBe(1)
     expect(result.current.extraItems).toEqual([])
+  })
+
+  test('resets accumulated state when the cache token changes without a query change', async () => {
+    vi.spyOn(backend, 'queryHistory').mockResolvedValue(
+      makeHeadResponse({
+        page: 2,
+        items: [makeEntry(2, 'https://example.com/before-refresh')],
+      }),
+    )
+    const head = makeHeadResponse()
+    const { result, rerender } = renderHook(
+      ({ cacheToken }: { cacheToken: number }) =>
+        useExplorerInfinitePages({
+          query: baseQuery,
+          headResults: head,
+          disabled: false,
+          cacheToken,
+        }),
+      { initialProps: { cacheToken: 1 } },
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/before-refresh',
+      ]),
+    )
+    rerender({ cacheToken: 2 })
+    expect(result.current.loadedPageCount).toBe(1)
+    expect(result.current.extraItems).toEqual([])
+    expect(result.current.error).toBeNull()
+    expect(result.current.loadingMore).toBe(false)
+  })
+
+  test('does not issue a duplicate foreground request while a page is loading', async () => {
+    let resolvePage2: ((response: HistoryQueryResponse) => void) | undefined
+    const slowPage2 = new Promise<HistoryQueryResponse>((resolve) => {
+      resolvePage2 = resolve
+    })
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) => {
+        const page = req.page ?? 1
+        if (page === 2) return slowPage2
+        return Promise.resolve(
+          makeHeadResponse({ page, items: [makeEntry(page)] }),
+        )
+      })
+    const head = makeHeadResponse({ pageCount: 4, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+      }),
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() => expect(result.current.loadingMore).toBe(true))
+
+    act(() => result.current.loadMore())
+    expect(
+      querySpy.mock.calls.filter((call) => call[0].page === 2),
+    ).toHaveLength(1)
+
+    await act(async () => {
+      resolvePage2?.(makeHeadResponse({ page: 2, items: [makeEntry(2)] }))
+      await slowPage2
+    })
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/page-2',
+      ]),
+    )
+  })
+
+  test('does not prefetch a page beyond the reported pageCount', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [makeEntry(req.page ?? 1)],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 2, hasNext: false })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+      }),
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/page-2',
+      ]),
+    )
+    await Promise.resolve()
+    expect(querySpy.mock.calls.map((call) => call[0].page)).toEqual([2])
+    expect(result.current.canLoadMore).toBe(false)
+  })
+
+  test('keeps background prefetch failures silent when the foreground page succeeds', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) => {
+        const page = req.page ?? 1
+        if (page === 3) return Promise.reject(new Error('background timeout'))
+        return Promise.resolve(
+          makeHeadResponse({ page, items: [makeEntry(page)] }),
+        )
+      })
+    const head = makeHeadResponse({ pageCount: 4, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+      }),
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/page-2',
+      ]),
+    )
+    await waitFor(() =>
+      expect(querySpy.mock.calls.map((call) => call[0].page)).toContain(3),
+    )
+    expect(result.current.error).toBeNull()
+    expect(result.current.loadedPageCount).toBe(2)
+    expect(result.current.loadingMore).toBe(false)
+  })
+
+  test('downward prefetch does not warm a second page beyond the reported pageCount', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [makeEntry(req.page ?? 1)],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 3, hasNext: false })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+        scrollDirection: 'down',
+      }),
+    )
+    act(() => result.current.loadMore())
+    await waitFor(() => {
+      const queriedPages = querySpy.mock.calls.map((call) => call[0].page)
+      expect(queriedPages).toContain(2)
+      expect(queriedPages).toContain(3)
+    })
+    await Promise.resolve()
+    expect(querySpy.mock.calls.map((call) => call[0].page)).toEqual([2, 3])
   })
 
   test('prefetches one page ahead so the next loadMore is instant', async () => {
