@@ -121,7 +121,13 @@
     - audit doc §6 contract table 新增 T6-T9 rows + 對應 §3 Chromium downloads / search_terms / favicons 註腳更新。
     - CHANGELOG 紀錄哪些 sidecar tables 現在有 end-to-end scenario coverage。
 
-- [ ] **WORK-IMPORT-TEST-MINOR-A** — Minor Data-Integrity Contract Pins
+- [x] **WORK-IMPORT-TEST-MINOR-A** — Minor Data-Integrity Contract Pins
+  - 2026-05-26 closeout: Added E10-E14 focused edge-case scenarios for
+    Chromium `visit_count` zero/nonzero preservation, dangling `from_visit`
+    preservation, `visit_duration` value preservation, Safari synthesized
+    source-evidence persistence, and Firefox `visit_type` passthrough. No
+    product bugs confirmed; the duration test pins the current archive column
+    name (`visit_duration_ms`) and verbatim value semantics.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md`
     `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases.rs` (where these will land)
@@ -156,6 +162,20 @@
   - 目標：(1) Reading 現有 worker queue / archive flow code，確認 same-profile 的 serial guarantee 從哪裡來；(2) 寫一個 integration test 模擬兩個 import flow 對同一 profile，assert second flow 等到 first flow 完成才開始；(3) 如果發現 gap，建立 bug entry，但**不在這個 block 修**。
   - 契約：第一階段 audit-only（read + analysis），第二階段才寫測試；不修 product code；發現 bug 寫 BACKLOG entry 不直接 fix。
   - 驗收：audit doc 新增 §4.1 "concurrent ingest safety analysis" 子章節；至少 1 個 integration test 證明 same-profile concurrent flow 是 serialized；任何發現的真實 race condition 寫獨立 BACKLOG block。
+
+- [ ] **WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A** — Split oversized import edge-case scenario module
+  - 2026-05-26 note: `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases.rs`
+    reached 1250 lines while adding E10-E14. Per AGENTS.md >1200-line
+    rule, review the module boundary and split E-series / resilience / empty-DB
+    scenario groups before adding more broad coverage to this file.
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md`
+    `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases.rs`
+    `src-tauri/crates/vault-core/src/archive/ingest/mod.rs`
+  - 契約：maintainability-only；不改 ingest behavior；先保留 existing test names unless
+    Rust module visibility forces a local rename with doc traceability.
+  - 驗收：edge-case tests split into focused owner modules, vault-core lib tests
+    and `bun run check` stay green, and audit §6 links still resolve.
 
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：

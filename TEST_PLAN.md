@@ -453,6 +453,50 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 
 Suspected product bugs: none confirmed.
 
+### Module 8B: `WORK-IMPORT-TEST-MINOR-A`
+
+Added 5 focused Rust behavior tests:
+
+- E10 asserts Chromium URL `visit_count` and `typed_count` values round-trip for
+  both zero-count typed URLs and nonzero visited URLs.
+- E11 asserts a dangling Chromium `from_visit` reference is preserved verbatim
+  instead of being rewritten to NULL or 0.
+- E12 asserts Chromium `visits.visit_duration` lands unchanged in the current
+  archive `visits.visit_duration_ms` column.
+- E13 asserts Safari `history_visits.synthesized` persists to the cold
+  source-evidence DB as `safari.synthesized` with source ids and `source_field`
+  intact.
+- E14 asserts Firefox `moz_historyvisits.visit_type` values land in
+  `visits.transition_type` without Chromium normalization.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core e1 --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib
+```
+
+Actual output:
+
+```text
+e1 filter: 6 passed; 0 failed; 654 filtered out (existing E1 + new E10-E14)
+vault-core lib: 660 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: Test Files 277 passed (277), Tests 2076 passed (2076)
+JS coverage: statements 99.38 | branches 98.61 | functions 99.66 | lines 99.72
+Rust coverage: 100% for 35805 instrumented source lines and 1648 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed.
+
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
 Added 15 behavior assertions across the global shell and shell chrome:

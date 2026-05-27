@@ -2036,3 +2036,19 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
 - Updated `import-dedup-audit.md` §3 / §6 to record the new sidecar coverage.
 - Verification: targeted fixture + vault-core tests pass; full checkpoint gate
   is recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-MINOR-A
+
+- Added five minor import data-integrity contract pins in
+  `dedup_scenarios_edge_cases.rs`:
+  - E10 `e10_chromium_visit_counts_round_trip_for_zero_and_nonzero_urls`
+  - E11 `e11_chromium_dangling_from_visit_is_preserved_verbatim`
+  - E12 `e12_chromium_visit_duration_value_is_preserved_verbatim`
+  - E13 `e13_safari_synthesized_context_evidence_persists_boolean_value`
+  - E14 `e14_firefox_visit_type_enum_lands_as_transition_type_without_normalization`
+- Added a scenario helper that persists deferred source-evidence plans so Safari
+  context evidence is verified against the cold source-evidence DB, not only
+  parser memory.
+- Updated `import-dedup-audit.md` §6 with E10-E14 rows.
+- Verification: targeted E1/E10-E14 filter passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.
