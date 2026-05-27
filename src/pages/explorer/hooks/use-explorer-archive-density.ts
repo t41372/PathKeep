@@ -37,7 +37,7 @@
  *   on a 1440 M-row archive, that's at most ~7300 daily rollup rows.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getDiscoveryTrend } from '@/lib/core-intelligence'
 import { isoDateOnly } from '@/pages/dashboard/dashboard-helpers'
 
@@ -100,10 +100,6 @@ export function useExplorerArchiveDensity({
     perYear: EMPTY_PER_YEAR,
     bounds: null,
   })
-  // The mounted flag stops a late discovery-trend response from clobbering
-  // a more recent fetch (or writing to state after the route unmounts).
-  const requestSeqRef = useRef(0)
-
   useEffect(() => {
     if (!archiveReady) {
       // Walk a microtask before resetting so the effect doesn't write
@@ -122,12 +118,11 @@ export function useExplorerArchiveDensity({
         cancelledReset = true
       }
     }
-    const sequence = ++requestSeqRef.current
     const range = archiveDensityRange(new Date())
     let cancelled = false
     void getDiscoveryTrend(range, profileId, 'day')
       .then((envelope) => {
-        if (cancelled || requestSeqRef.current !== sequence) return
+        if (cancelled) return
         // `getDiscoveryTrend` wraps the payload in a section envelope; the
         // density rollups live on `.data`. Missing-data states surface
         // `.data` as a default-constructed shape with empty points + years.
@@ -162,7 +157,7 @@ export function useExplorerArchiveDensity({
         // Density is best-effort — if the backend rejects (locked archive,
         // empty rollup table, transient error) we leave the cache in its
         // pre-fetch state so the route falls back to per-entry density.
-        if (cancelled || requestSeqRef.current !== sequence) return
+        if (cancelled) return
         setDensity({
           perDay: EMPTY_PER_DAY,
           perYear: EMPTY_PER_YEAR,

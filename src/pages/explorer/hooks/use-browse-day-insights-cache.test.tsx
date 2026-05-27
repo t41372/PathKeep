@@ -122,6 +122,66 @@ describe('useBrowseDayInsightsCache', () => {
     expect(spy).toHaveBeenCalledTimes(2)
   })
 
+  test('drops a successful reply that resolves after refreshKey changes', async () => {
+    const slow = deferred<BrowseDayInsights>()
+    const spy = vi
+      .spyOn(backend, 'getBrowseDayInsights')
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValue(fakeInsights('2026-05-25'))
+    const { result, rerender } = renderHook(
+      (props: { refreshKey: number }) =>
+        useBrowseDayInsightsCache({
+          profileId: null,
+          refreshKey: props.refreshKey,
+        }),
+      { initialProps: { refreshKey: 1 } },
+    )
+
+    act(() => {
+      result.current.resolve('2026-05-25')
+    })
+    rerender({ refreshKey: 2 })
+    await act(async () => {
+      slow.resolve(fakeInsights('2026-05-25'))
+      await slow.promise
+    })
+    act(() => {
+      result.current.resolve('2026-05-25')
+    })
+
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  test('drops a rejected reply that resolves after refreshKey changes', async () => {
+    const slow = deferred<BrowseDayInsights>()
+    const spy = vi
+      .spyOn(backend, 'getBrowseDayInsights')
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValue(fakeInsights('2026-05-25'))
+    const { result, rerender } = renderHook(
+      (props: { refreshKey: number }) =>
+        useBrowseDayInsightsCache({
+          profileId: null,
+          refreshKey: props.refreshKey,
+        }),
+      { initialProps: { refreshKey: 1 } },
+    )
+
+    act(() => {
+      result.current.resolve('2026-05-25')
+    })
+    rerender({ refreshKey: 2 })
+    await act(async () => {
+      slow.reject(new Error('stale failure'))
+      await slow.promise.catch(() => undefined)
+    })
+    act(() => {
+      result.current.resolve('2026-05-25')
+    })
+
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
   test('changing profileId clears the cache', () => {
     const spy = vi
       .spyOn(backend, 'getBrowseDayInsights')
@@ -172,3 +232,13 @@ describe('useBrowseDayInsightsCache', () => {
     expect(result.current.resolve('2026-05-25')).toBeNull()
   })
 })
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  let reject: (error: Error) => void = () => {}
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}

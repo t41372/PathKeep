@@ -167,7 +167,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
     - `[x]` 10A Search/Browse chip and result residuals.
     - `[x]` 10B Explorer route and paper-view residuals.
     - `[x]` 10C Dashboard/app shell residuals.
-    - `[ ]` 10D Hook/helper branch residuals.
+    - `[x]` 10D Hook/helper branch residuals.
 
 ## Bug / Drift Register
 
@@ -1012,6 +1012,69 @@ format/lint/i18n/typecheck: passed
 unit: 279 files passed; 2101 tests passed
 desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
 JS coverage: All files statements 99.64%, branches 99.11%, functions 99.84%, lines 99.89%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed.
+
+### Module 10D: JS Explorer hook/helper residuals
+
+Added 15 focused hook/helper behavior assertions and removed duplicate private
+guards that the public hook grammar could not exercise:
+
+- `url-state-derivations` now pins keyword grouped views, positive page parsing,
+  empty query/cursor history payloads, null query signatures, semantic/session
+  active-filter chips, bare recent-search labels, and incomplete date shortcut
+  ranges.
+- `useDesktopAnnotations` now treats missing backend `tags` as an empty list
+  during hydration instead of leaking `undefined` into the UI state.
+- `useBrowseDayInsightsCache` now pins stale success/failure replies after a
+  refresh-key rotation and removed a private duplicate request guard already
+  made unreachable by `resolve()`'s cache-entry check.
+- `useExplorerArchiveDensity` now pins stale success/failure replies, cancelled
+  not-ready reset microtasks, available-year-only bounds, and no-finite-year
+  responses. The removed sequence ref duplicated effect cleanup cancellation.
+- `useExplorerData` now pins cached adjacent prefetch reuse, stale multi-page
+  prefetch cancellation, cancellation before the transition paint, and empty
+  semantic recall results without inventing a selected row.
+
+Commands:
+
+```sh
+bunx vitest run src/pages/explorer/url-state-derivations.test.ts src/pages/explorer/use-desktop-annotations.test.tsx src/pages/explorer/hooks/use-browse-day-insights-cache.test.tsx src/pages/explorer/hooks/use-explorer-archive-density.test.tsx src/pages/explorer/hooks/use-explorer-data.test.tsx
+bunx vitest run src/pages/explorer/url-state-derivations.test.ts src/pages/explorer/use-desktop-annotations.test.tsx src/pages/explorer/hooks/use-browse-day-insights-cache.test.tsx src/pages/explorer/hooks/use-explorer-archive-density.test.tsx src/pages/explorer/hooks/use-explorer-data.test.tsx --coverage --coverage.include=src/pages/explorer/url-state-derivations.ts --coverage.include=src/pages/explorer/use-desktop-annotations.ts --coverage.include=src/pages/explorer/hooks/use-browse-day-insights-cache.ts --coverage.include=src/pages/explorer/hooks/use-explorer-archive-density.ts --coverage.include=src/pages/explorer/hooks/use-explorer-data.ts --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Targeted tests:
+Test Files 5 passed (5)
+Tests 58 passed (58)
+
+Targeted 10D coverage:
+All files 100/100/100/100
+src/pages/explorer/url-state-derivations.ts 100/100/100/100
+src/pages/explorer/use-desktop-annotations.ts 100/100/100/100
+src/pages/explorer/hooks/use-browse-day-insights-cache.ts 100/100/100/100
+src/pages/explorer/hooks/use-explorer-archive-density.ts 100/100/100/100
+src/pages/explorer/hooks/use-explorer-data.ts 100/100/100/100
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+format/lint/i18n/typecheck: passed
+unit: 279 files passed; 2114 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.69%, branches 99.21%, functions 99.84%, lines 99.91%
 Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
 Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
 Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions

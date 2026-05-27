@@ -43,6 +43,28 @@ describe('useDesktopAnnotations', () => {
     expect(getUrlAnnotation).toHaveBeenCalledTimes(1)
   })
 
+  test('hydration treats missing backend tags as an empty tag list', async () => {
+    getUrlAnnotation.mockResolvedValue({
+      url: 'https://example.com/no-tags',
+      notes: 'remembered',
+      tags: undefined,
+      updatedAt: '2026-05-18T00:00:00Z',
+      createdAt: '2026-05-17T00:00:00Z',
+      sourceProfile: null,
+    })
+    const { result, rerender } = renderHook(() => useDesktopAnnotations())
+
+    expect(result.current.tagsFor('https://example.com/no-tags')).toEqual([])
+    await waitFor(() => {
+      rerender()
+      expect(result.current.notesFor('https://example.com/no-tags')).toBe(
+        'remembered',
+      )
+    })
+
+    expect(result.current.tagsFor('https://example.com/no-tags')).toEqual([])
+  })
+
   test('updateNotes writes through to the backend and updates the cache', () => {
     getUrlAnnotation.mockResolvedValue(null)
     setUrlNotes.mockResolvedValue({

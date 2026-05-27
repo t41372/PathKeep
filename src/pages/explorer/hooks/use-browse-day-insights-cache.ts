@@ -119,7 +119,6 @@ export function useBrowseDayInsightsCache(
       // marker only needs to dedupe future requests during this
       // render cycle; we'll bump `version` once the backend reply
       // lands so consumers re-resolve and see the new payload.
-      if (cacheState.cache.has(date)) return
       cacheState.cache.set(date, { state: 'pending' })
       backend
         .getBrowseDayInsights({

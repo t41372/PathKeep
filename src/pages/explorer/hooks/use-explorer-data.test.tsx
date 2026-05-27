@@ -29,6 +29,7 @@ import type {
   HistoryQuery,
   HistoryQueryResponse,
 } from '../../../lib/types'
+import { waitForNextPaint } from '../../../lib/wait-for-next-paint'
 import { useExplorerData } from './use-explorer-data'
 
 vi.mock('../../../lib/wait-for-next-paint', () => ({
@@ -99,7 +100,7 @@ describe('useExplorerData', () => {
   })
 
   test('prefetches adjacent history pages and reuses an inflight prefetch during navigation', async () => {
-    const pageOneQuery = historyQueryFixture({ page: 1 })
+    const pageOneQuery = historyQueryFixture({ page: null })
     const pageTwoQuery = historyQueryFixture({ page: 2 })
     const pageOneResponse = historyResponseFixture({
       page: 1,
@@ -166,7 +167,7 @@ describe('useExplorerData', () => {
   })
 
   test('reuses an inflight adjacent prefetch when a new load schedules the same page', async () => {
-    const pageOneQuery = historyQueryFixture({ page: 1 })
+    const pageOneQuery = historyQueryFixture({ page: null })
     const pageTwoQuery = historyQueryFixture({ page: 2 })
     const pageOneResponse = historyResponseFixture({
       page: 1,
@@ -250,6 +251,154 @@ describe('useExplorerData', () => {
       )
       await deferredPageTwo.promise
     })
+  })
+
+  test('reuses a cached adjacent page when a later prefetch window asks for it again', async () => {
+    const pageOneQuery = historyQueryFixture({ page: null })
+    const pageTwoQuery = historyQueryFixture({ page: 2 })
+    const pageThreeQuery = historyQueryFixture({ page: 3 })
+    const queryHistory = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) =>
+        Promise.resolve(
+          historyResponseFixture({
+            items: [
+              {
+                ...historyResponseFixture().items[0],
+                id: 100 + (query.page ?? 1),
+                url: `https://example.com/page-${query.page ?? 1}`,
+              },
+            ],
+            page: query.page ?? 1,
+            pageCount: 3,
+            hasPrevious: (query.page ?? 1) > 1,
+            hasNext: (query.page ?? 1) < 3,
+          }),
+        ),
+      )
+    const options = createOptions({
+      backgroundPrefetchPages: 1,
+      currentQuery: pageOneQuery,
+      requestKey: historyRequestKey(pageOneQuery, 1),
+    })
+    const { result, rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() => {
+      expect(result.current.queryState.results?.page).toBe(1)
+    })
+    await waitFor(() => {
+      expect(queryHistory).toHaveBeenCalledWith(pageTwoQuery)
+    })
+
+    rerender({
+      ...options,
+      currentQuery: pageTwoQuery,
+      requestKey: historyRequestKey(pageTwoQuery, 1),
+    })
+    await waitFor(() => {
+      expect(result.current.queryState.results?.page).toBe(2)
+    })
+    await waitFor(() => {
+      expect(queryHistory).toHaveBeenCalledWith(pageThreeQuery)
+    })
+
+    expect(
+      queryHistory.mock.calls.filter(([query]) => (query.page ?? 1) === 1),
+    ).toHaveLength(1)
+  })
+
+  test('cancels a stale multi-page prefetch window before it asks for the next page', async () => {
+    const pageOneQuery = historyQueryFixture({ page: null })
+    const pageTwoQuery = historyQueryFixture({ page: 2 })
+    const pageThreeQuery = historyQueryFixture({ page: 3 })
+    const changedPageOneQuery = historyQueryFixture({
+      page: null,
+      q: 'changed',
+    })
+    const slowPageTwo =
+      deferred<Awaited<ReturnType<typeof backend.queryHistory>>>()
+    const queryHistory = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((query) => {
+        if (query.q === 'changed') {
+          return Promise.resolve(
+            historyResponseFixture({
+              items: [
+                {
+                  ...historyResponseFixture().items[0],
+                  id: 401,
+                  url: 'https://example.com/changed',
+                },
+              ],
+              page: 1,
+              pageCount: 1,
+              hasNext: false,
+            }),
+          )
+        }
+        if (query.page === 2) {
+          return slowPageTwo.promise
+        }
+        if (query.page === 3) {
+          return Promise.resolve(
+            historyResponseFixture({
+              page: 3,
+              pageCount: 3,
+            }),
+          )
+        }
+        return Promise.resolve(
+          historyResponseFixture({
+            page: 1,
+            pageCount: 3,
+            hasNext: true,
+          }),
+        )
+      })
+    const options = createOptions({
+      backgroundPrefetchPages: 2,
+      currentQuery: pageOneQuery,
+      requestKey: historyRequestKey(pageOneQuery, 1),
+    })
+    const { result, rerender } = renderHook(
+      (props: ReturnType<typeof createOptions>) => useExplorerData(props),
+      { initialProps: options },
+    )
+
+    await waitFor(() => {
+      expect(result.current.queryState.results?.page).toBe(1)
+    })
+    await waitFor(() => {
+      expect(queryHistory).toHaveBeenCalledWith(pageTwoQuery)
+    })
+
+    rerender({
+      ...options,
+      currentQuery: changedPageOneQuery,
+      requestKey: historyRequestKey(changedPageOneQuery, 1),
+    })
+    await waitFor(() => {
+      expect(result.current.queryState.results?.items[0]?.url).toBe(
+        'https://example.com/changed',
+      )
+    })
+
+    await act(async () => {
+      slowPageTwo.resolve(
+        historyResponseFixture({
+          page: 2,
+          pageCount: 3,
+          hasNext: true,
+        }),
+      )
+      await slowPageTwo.promise
+    })
+    await Promise.resolve()
+
+    expect(queryHistory).not.toHaveBeenCalledWith(pageThreeQuery)
   })
 
   test('keeps loaded history when adjacent prefetch fails', async () => {
@@ -640,6 +789,31 @@ describe('useExplorerData', () => {
     expect(result.current.queryState.error).toBeNull()
   })
 
+  test('ignores a history response cancelled before the transition paint', async () => {
+    const secondPaint = deferred<void>()
+    vi.mocked(waitForNextPaint)
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(secondPaint.promise)
+    vi.spyOn(backend, 'queryHistory').mockResolvedValue(
+      historyResponseFixture(),
+    )
+    const persistRecentSearch = vi.fn()
+    const { result, unmount } = renderHook(() =>
+      useExplorerData(createOptions({ persistRecentSearch })),
+    )
+
+    await waitFor(() => {
+      expect(persistRecentSearch).toHaveBeenCalledTimes(1)
+    })
+    unmount()
+    await act(async () => {
+      secondPaint.resolve()
+      await secondPaint.promise
+    })
+
+    expect(result.current.queryState.results).toBeNull()
+  })
+
   test('surfaces native history errors without replacing their message', async () => {
     vi.spyOn(backend, 'queryHistory').mockRejectedValue(
       new Error('history hard fail'),
@@ -749,6 +923,32 @@ describe('useExplorerData', () => {
         error: 'semantic unavailable',
       }),
     )
+  })
+
+  test('keeps selection empty when semantic recall returns no rows', async () => {
+    vi.spyOn(backend, 'searchAiHistory').mockResolvedValue({
+      ...semanticResponseFixture(),
+      total: 0,
+      items: [],
+    })
+    const options = createOptions({
+      historyBlockedByInvalidRegex: true,
+      mode: 'semantic',
+      semanticQuery: {
+        query: 'local recall',
+        profileId: 'chrome:Default',
+        domain: null,
+        limit: 8,
+        cursor: null,
+      },
+      semanticRequestKey: 'semantic-empty-results',
+    })
+    const { result } = renderHook(() => useExplorerData(options))
+
+    await waitFor(() => {
+      expect(result.current.semanticState.results?.items).toEqual([])
+    })
+    expect(result.current.selectedId).toBeNull()
   })
 
   test('falls back to the semantic recall degraded label for non-Error semantic failures', async () => {
