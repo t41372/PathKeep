@@ -91,7 +91,14 @@
   - 目標：驗證 B5 hash collision probability — 用 1M+ record Takeout fixture 觀察 `stable_key_i64` 的實際碰撞率，確認是否在 14.4M design ceiling 下需要更換 hash function。
   - 契約：不修 product code；只產出 benchmark + collision statistics。
 
-- [ ] **WORK-IMPORT-FIXTURE-SIDECARS-A** — Chromium Sidecar Tables Fixture Extension + End-to-End Scenarios
+- [x] **WORK-IMPORT-FIXTURE-SIDECARS-A** — Chromium Sidecar Tables Fixture Extension + End-to-End Scenarios
+  - 2026-05-26 closeout: `ChromiumHistoryFixture` now writes parser-faithful
+    `downloads` and `keyword_search_terms` tables plus a companion `Favicons`
+    database (`favicons` / `favicon_bitmaps` / `icon_mapping`). Added
+    fixture self-validation for downloads/search/favicon round-trip through the
+    production parser, plus T6-T9 vault-core end-to-end scenarios for archive
+    downloads, search terms, favicon blob dedup, and icon mapping. No product
+    bugs confirmed.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md` (§3 — "Downloads / search_terms / favicons all supported")
     `docs/plan/program/import-test-harness-spec.md`

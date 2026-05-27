@@ -2019,3 +2019,20 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
 - Other findings were either already-documented contracts (T5 B6
   fingerprint open question) or no-ops once the misleading comments
   were corrected.
+
+## 2026-05-26 — WORK-IMPORT-FIXTURE-SIDECARS-A
+
+- Extended `browser-history-fixtures::ChromiumHistoryFixture` so generated
+  Chromium fixtures can write `downloads`, `keyword_search_terms`, and a
+  companion `Favicons` database (`favicons`, `favicon_bitmaps`, `icon_mapping`)
+  without reading any real browser data.
+- Added Chromium fixture self-validation for downloads, keyword search terms,
+  favicon bitmap bytes, and icon mapping through the production parser.
+- Added four vault-core end-to-end ingest scenarios:
+  - T6 `chromium_downloads_round_trip_to_archive_downloads_table`
+  - T7 `chromium_keyword_search_terms_land_with_term_text_preserved`
+  - T8 `chromium_favicons_link_to_canonical_url_rows_with_blob_dedup`
+  - T9 `chromium_icon_mapping_resolves_url_to_favicon`
+- Updated `import-dedup-audit.md` §3 / §6 to record the new sidecar coverage.
+- Verification: targeted fixture + vault-core tests pass; full checkpoint gate
+  is recorded in `TEST_PLAN.md`.

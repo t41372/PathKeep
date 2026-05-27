@@ -12,7 +12,8 @@
 //! `browser_history_parser::chromium::parse_history` entry point.
 
 use browser_history_fixtures::{
-    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, chrome_time_to_unix_ms,
+    ChromiumDownloadRow, ChromiumFaviconRow, ChromiumHistoryFixture, ChromiumIconMappingRow,
+    ChromiumKeywordSearchTermRow, ChromiumUrlRow, ChromiumVisitRow, chrome_time_to_unix_ms,
     unix_ms_to_chrome_time,
 };
 use browser_history_parser::{ChromiumReadCursor, HistoryDatabaseSet, chromium};
@@ -134,6 +135,112 @@ fn chromium_fixture_round_trips_through_production_parser() {
 }
 
 #[test]
+fn chromium_fixture_sidecar_tables_round_trip_through_production_parser() {
+    let temp = TempDir::new().expect("tempdir");
+    let history_path = temp.path().join("History");
+    let favicons_path = temp.path().join("Favicons");
+    let visit_ms = 1_777_680_000_000;
+    let download_ms = 1_777_680_010_000;
+    let favicon_ms = 1_777_680_020_000;
+    let png_bytes = synthetic_png_bytes(1);
+
+    let fixture = ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 7,
+            url: "https://example.com/downloads".to_string(),
+            title: Some("Downloads".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_ms,
+            hidden: false,
+        })
+        .add_visit(ChromiumVisitRow {
+            id: 70,
+            url_id: 7,
+            visit_time_unix_ms: visit_ms,
+            from_visit: None,
+            transition: Some(805306368),
+            visit_duration_micros: Some(1_000),
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        })
+        .add_download(ChromiumDownloadRow {
+            id: 9,
+            guid: Some("fixture-download-guid".to_string()),
+            current_path: Some("/tmp/pathkeep.partial".to_string()),
+            target_path: Some("/tmp/pathkeep.zip".to_string()),
+            start_time_unix_ms: Some(download_ms),
+            received_bytes: Some(128),
+            total_bytes: Some(256),
+            state: Some(1),
+            mime_type: Some("application/zip".to_string()),
+            original_mime_type: Some("application/octet-stream".to_string()),
+        })
+        .add_search_term(ChromiumKeywordSearchTermRow {
+            keyword_id: 3,
+            url_id: 7,
+            term: "PathKeep fixtures".to_string(),
+            normalized_term: "pathkeep fixtures".to_string(),
+        })
+        .add_favicon(ChromiumFaviconRow {
+            id: 11,
+            icon_url: "https://example.com/favicon.ico".to_string(),
+            icon_type: Some(1),
+            width: 32,
+            height: 32,
+            last_updated_unix_ms: favicon_ms,
+            image_data: Some(png_bytes.clone()),
+        })
+        .add_icon_mapping(ChromiumIconMappingRow {
+            page_url: "https://example.com/downloads".to_string(),
+            icon_id: 11,
+        });
+    fixture.write(&history_path).expect("write History fixture");
+    fixture.write_favicons(&favicons_path).expect("write Favicons fixture");
+
+    let parsed = chromium::parse_history(
+        &HistoryDatabaseSet {
+            history_path: history_path.clone(),
+            favicons_path: Some(favicons_path),
+        },
+        ChromiumReadCursor::default(),
+    )
+    .expect("parse fixture");
+
+    assert_eq!(parsed.downloads.len(), 1, "download sidecar row should parse");
+    let download = &parsed.downloads[0];
+    assert_eq!(download.source_download_id, 9);
+    assert_eq!(download.guid.as_deref(), Some("fixture-download-guid"));
+    assert_eq!(download.current_path.as_deref(), Some("/tmp/pathkeep.partial"));
+    assert_eq!(download.target_path.as_deref(), Some("/tmp/pathkeep.zip"));
+    assert_eq!(download.start_time_ms, Some(download_ms));
+    assert_eq!(download.received_bytes, Some(128));
+    assert_eq!(download.total_bytes, Some(256));
+    assert_eq!(download.state, Some(1));
+    assert_eq!(download.mime_type.as_deref(), Some("application/zip"));
+    assert_eq!(download.original_mime_type.as_deref(), Some("application/octet-stream"));
+
+    assert_eq!(parsed.search_terms.len(), 1, "keyword_search_terms row should parse");
+    let term = &parsed.search_terms[0];
+    assert_eq!(term.keyword_id, 3);
+    assert_eq!(term.url_id, 7);
+    assert_eq!(term.term, "PathKeep fixtures");
+    assert_eq!(term.normalized_term, "pathkeep fixtures");
+
+    assert_eq!(parsed.favicons.len(), 1, "favicon mapping + bitmap should parse");
+    let favicon = &parsed.favicons[0];
+    assert_eq!(favicon.page_url, "https://example.com/downloads");
+    assert_eq!(favicon.icon_url, "https://example.com/favicon.ico");
+    assert_eq!(favicon.icon_type, Some(1));
+    assert_eq!(favicon.width, 32);
+    assert_eq!(favicon.height, 32);
+    assert_eq!(favicon.last_updated_ms, favicon_ms);
+    assert_eq!(favicon.image_data.as_deref(), Some(png_bytes.as_slice()));
+}
+
+#[test]
 fn chromium_fixture_preserves_cjk_url_and_title() {
     let temp = TempDir::new().expect("tempdir");
     let history_path = temp.path().join("History");
@@ -188,6 +295,12 @@ fn chromium_fixture_preserves_cjk_url_and_title() {
     let visit = &parsed.visits[0];
     assert_eq!(visit.url, cjk_url, "visit-level URL should match the CJK URL");
     assert_eq!(visit.visit_time_ms, visit_ms);
+}
+
+fn synthetic_png_bytes(seed: u8) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.push(seed);
+    bytes
 }
 
 #[test]

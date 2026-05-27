@@ -36,7 +36,10 @@ pub mod safari;
 pub mod takeout;
 pub mod time;
 
-pub use chromium::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
+pub use chromium::{
+    ChromiumDownloadRow, ChromiumFaviconRow, ChromiumHistoryFixture, ChromiumIconMappingRow,
+    ChromiumKeywordSearchTermRow, ChromiumUrlRow, ChromiumVisitRow,
+};
 pub use firefox::{
     FirefoxPlaceRow, FirefoxPlacesFixture, FirefoxVisitRow, firefox_time_to_unix_ms,
     unix_ms_to_firefox_time,

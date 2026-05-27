@@ -401,6 +401,58 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 
 Suspected product bugs: none confirmed.
 
+### Module 8A: `WORK-IMPORT-FIXTURE-SIDECARS-A`
+
+Added 6 focused Rust behavior tests:
+
+- Chromium fixture self-validation proves generated downloads, keyword search
+  terms, favicon bitmap bytes, and icon mappings round-trip through the
+  production parser.
+- Chromium `Favicons` fixture writer overwrites an existing invalid file with a
+  queryable companion schema and does not retain duplicate rows on rewrite.
+- T6 asserts Chromium `downloads` rows land in archive `downloads` with source
+  id, paths, byte counts, state, MIME fields, and Unix-ms start time preserved.
+- T7 asserts `keyword_search_terms` rows land in archive `search_terms` linked
+  to the canonical URL with term text, normalized term, profile id, and keyword
+  id preserved.
+- T8 asserts favicon page URLs match canonical URL rows and identical synthetic
+  PNG payload bytes deduplicate into one `favicon_blobs` row.
+- T9 asserts multiple `icon_mapping` rows for one icon create separate page URL
+  favicon rows while preserving the shared icon URL.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-fixtures write_favicons_overwrites_existing_file_with_companion_schema
+cargo test --manifest-path src-tauri/Cargo.toml -p browser-history-fixtures chromium --tests
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core chromium_sidecars --lib
+```
+
+Actual output:
+
+```text
+browser-history-fixtures:
+write_favicons_overwrites_existing_file_with_companion_schema: 1 passed
+chromium_roundtrip: 4 passed
+
+vault-core:
+Test result: ok. 4 passed; 0 failed; 651 filtered out.
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: Test Files 277 passed (277), Tests 2076 passed (2076)
+JS coverage: statements 99.37 | branches 98.59 | functions 99.66 | lines 99.72
+Rust coverage: 100% for 35596 instrumented source lines and 1643 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed.
+
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
 Added 15 behavior assertions across the global shell and shell chrome:

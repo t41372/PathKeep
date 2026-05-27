@@ -30,6 +30,8 @@ mod dedup_scenarios;
 #[cfg(test)]
 mod dedup_scenarios_baselines;
 #[cfg(test)]
+mod dedup_scenarios_chromium_sidecars;
+#[cfg(test)]
 mod dedup_scenarios_edge_cases;
 #[cfg(test)]
 mod dedup_scenarios_takeout;
