@@ -622,6 +622,117 @@ describe('PaperDetailPanel', () => {
     ).toBe('second record notes')
   })
 
+  test('external notes refreshes replace the textarea when no local edit is pending', () => {
+    const entry = makeEntry()
+    const { rerender } = render(
+      <PaperDetailPanel
+        entry={entry}
+        notes="cached note"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    rerender(
+      <PaperDetailPanel
+        entry={entry}
+        notes="backend refresh"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(
+      screen.getByTestId<HTMLTextAreaElement>('paper-detail-notes').value,
+    ).toBe('backend refresh')
+  })
+
+  test('pending local notes are not overwritten by a stale external refresh', () => {
+    const entry = makeEntry()
+    const onUpdateNotes = vi.fn()
+    const { rerender } = render(
+      <PaperDetailPanel
+        entry={entry}
+        notes="cached note"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotes}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+
+    fireEvent.change(screen.getByTestId('paper-detail-notes'), {
+      target: { value: 'local draft' },
+    })
+    rerender(
+      <PaperDetailPanel
+        entry={entry}
+        notes="stale backend refresh"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={onUpdateNotes}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        notesDebounceMs={400}
+      />,
+    )
+
+    expect(
+      screen.getByTestId<HTMLTextAreaElement>('paper-detail-notes').value,
+    ).toBe('local draft')
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(onUpdateNotes).toHaveBeenCalledWith('local draft')
+  })
+
+  test('look-further section is suppressed when route handlers are not wired', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(screen.queryByText('Look further')).toBeNull()
+    expect(screen.queryByText('Page-level insights')).toBeNull()
+  })
+
+  test('look-further rows remain clickable when count hints are omitted', () => {
+    const onOpenDomain = vi.fn()
+    const entry = makeEntry()
+    render(
+      <PaperDetailPanel
+        entry={entry}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        onOpenDomain={onOpenDomain}
+        copy={COPY}
+      />,
+    )
+
+    const row = screen.getByRole('button', { name: 'All of github.com' })
+    expect(row).toHaveTextContent('All of github.com')
+    fireEvent.click(row)
+    expect(onOpenDomain).toHaveBeenCalledWith(entry)
+  })
+
   test('renders the favicon chip and og:image hero when both are provided', () => {
     render(
       <PaperDetailPanel
@@ -642,6 +753,30 @@ describe('PaperDetailPanel', () => {
     expect(favicon.src).toContain('FAVICON')
     const hero = screen.getByTestId<HTMLImageElement>('paper-detail-og-hero')
     expect(hero.src).toContain('OGHERO')
+  })
+
+  test('uses default media test ids when the caller does not supply a panel test id', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry({
+          faviconDataUrl: 'data:image/png;base64,FAVICON',
+          ogImageDataUrl: 'data:image/png;base64,OGHERO',
+        })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(
+      screen.getByTestId<HTMLImageElement>('paper-detail-favicon').src,
+    ).toContain('FAVICON')
+    expect(
+      screen.getByTestId<HTMLImageElement>('paper-detail-og-hero').src,
+    ).toContain('OGHERO')
   })
 
   test('omits the favicon chip and og:image hero when neither is provided', () => {

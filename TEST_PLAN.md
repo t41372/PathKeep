@@ -143,7 +143,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 3. `[x]` `src/components/explorer-paper/paper-contact-sheet.tsx`
    - Virtualization/render-state branches; must assert mounted/recycled/session
      behavior rather than DOM snapshots alone.
-4. `[ ]` `src/components/explorer-paper/paper-detail-panel.tsx`
+4. `[x]` `src/components/explorer-paper/paper-detail-panel.tsx`
    - Notes/tags persistence UX; assert disabled/error/loading states and
      mutation-prone handler behavior.
 5. `[ ]` `src/lib/explorer-preferences.ts` and `src/lib/paper-preferences.ts`
@@ -161,12 +161,13 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 
 ## Bug / Drift Register
 
-| ID         | Status | Evidence                                                                                                                                                                                                                                                                         | Action                                                                                                                                       |
-| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                             | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                               |
-| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                     | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                |
-| QA-GAP-003 | open   | `src/pages/explorer/index.tsx` still builds a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount. | Confirm whether the legacy paginated time-view branch should be deleted or restored as an intentional mode; do not add a fake coverage seam. |
-| QA-GAP-004 | open   | `src/components/explorer-paper/paper-contact-sheet.tsx` retains two defensive guards that targeted behavior cannot naturally hit: toolbar ref missing after mount and `canLoadMore` false after the sentinel exists.                                                             | Keep as defensive code unless product logic changes; avoid synthetic seams. If ref/sentinel grammar changes, add direct regression tests.    |
+| ID         | Status | Evidence                                                                                                                                                                                                                                                                         | Action                                                                                                                                                             |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                             | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                                                     |
+| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                     | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                                      |
+| QA-GAP-003 | open   | `src/pages/explorer/index.tsx` still builds a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount. | Confirm whether the legacy paginated time-view branch should be deleted or restored as an intentional mode; do not add a fake coverage seam.                       |
+| QA-GAP-004 | open   | `src/components/explorer-paper/paper-contact-sheet.tsx` retains two defensive guards that targeted behavior cannot naturally hit: toolbar ref missing after mount and `canLoadMore` false after the sentinel exists.                                                             | Keep as defensive code unless product logic changes; avoid synthetic seams. If ref/sentinel grammar changes, add direct regression tests.                          |
+| QA-GAP-005 | open   | `src/components/explorer-paper/paper-detail-panel.tsx` retains unreachable defensive branches: layout-flush with `pendingFlushRef` but no active timer, and `LookFurtherRow` non-interactive rendering even though the parent filters out rows without handlers.                 | Keep as defensive code unless route grammar changes; do not test private helpers only for branch count. If non-interactive rows return, add direct behavior tests. |
 
 ## Checkpoint Log
 
@@ -309,3 +310,46 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-004`: the
 remaining guards are defensive branches that current render grammar does not
 make observable through user behavior.
+
+### Module 4: `src/components/explorer-paper/paper-detail-panel.tsx`
+
+Added 5 behavior assertions around the detail panel's persistence and navigation
+surface:
+
+- External notes refreshes update the textarea when no local edit is pending.
+- Pending local notes survive a stale backend refresh and still debounce-save the
+  local draft.
+- Look-further rows are suppressed when route handlers are not wired, avoiding
+  phantom navigation labels.
+- Look-further rows remain clickable when count hints are omitted.
+- Favicon and og:image media use default test ids when the caller does not pass
+  a panel `testId`.
+
+Commands:
+
+```sh
+bunx vitest run src/components/explorer-paper/paper-detail-panel.test.tsx --coverage --coverage.include=src/components/explorer-paper/paper-detail-panel.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Test Files  1 passed (1)
+Tests       28 passed (28)
+
+paper-detail-panel.tsx targeted coverage:
+statements 100 | branches 96.19 | functions 100 | lines 100
+uncovered lines: 228, 757-765
+
+Full checkpoint gate:
+bun run check
+JS coverage: statements 99.27 | branches 98.27 | functions 99.66 | lines 99.69
+Rust coverage: 100% for 35246 instrumented source lines and 1634 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-005`: the
+remaining branches are defensive paths that the current public render grammar
+does not expose through user behavior.
