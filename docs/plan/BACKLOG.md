@@ -158,7 +158,15 @@
   - 契約：不修 product code；測試只 pin 現有行為（silent skip），不主張 fail-fast 行為。如果 reviewer 認為應該改成 fail-fast，那是另一個 design conversation。
   - 驗收：1 個 unit test 在 `dedup_scenarios_edge_cases.rs` 或 `writes.rs` 的 #[cfg(test)] module 全綠；audit doc §4 加 cross-reference 連到 test；CHANGELOG 紀錄這個 narrow contract pin。
 
-- [ ] **WORK-IMPORT-TEST-CONCURRENCY-A** — Multi-Profile Concurrent Ingest Safety
+- [x] **WORK-IMPORT-TEST-CONCURRENCY-A** — Multi-Profile Concurrent Ingest Safety
+  - 2026-05-26 closeout: Added
+    `same_profile_writer_waits_for_committed_watermark` in
+    `archive::ingest::concurrency_tests`. The audit found no app-level ingest
+    queue around backup/import commands; current same-profile serialization
+    comes from the real SQLite writer lock acquired before watermark reads.
+    The test holds one writer transaction open, proves a second same-profile
+    writer cannot read the watermark before commit, then asserts it observes
+    the committed cursor. No product bugs confirmed.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md` (§4 — "Watermark race")
     `src-tauri/crates/vault-core/src/archive/ingest/mod.rs` (lines 411-437 — transaction + watermark save)

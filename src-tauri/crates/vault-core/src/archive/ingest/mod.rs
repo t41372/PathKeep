@@ -26,6 +26,8 @@ mod parser;
 mod writes;
 
 #[cfg(test)]
+mod concurrency_tests;
+#[cfg(test)]
 mod dedup_scenarios;
 #[cfg(test)]
 mod dedup_scenarios_baselines;

@@ -318,6 +318,32 @@ commit would silently re-process records the first already imported. SQLite
 prevents simultaneous write transactions on the same DB, but the in-app
 queue serialization is not under audit here — flag for harness coverage.
 
+### Concurrent ingest safety analysis
+
+The current same-profile serialization guarantee is not an app-level worker
+queue. `vault-worker/src/archive_flows.rs` calls the archive/import entrypoints
+directly, and Tauri/dev-IPC dispatch hops blocking work onto a blocking thread
+pool. The safety boundary is the real archive SQLite connection:
+
+- `run_backup_with_progress` opens one archive transaction for the whole backup
+  run. Inside that transaction, `process_profile_snapshot_with_progress` calls
+  `upsert_source_profile` before `load_watermark`, so a contending writer must
+  acquire the SQLite write lock before it can read the cursor.
+- Browser Direct import does not use incremental watermarks, but it follows the
+  same archive transaction shape for source profile, import batch, URL, and
+  visit writes. Duplicate rows remain bounded by the same source-profile unique
+  indexes.
+- This means staging and parser reads can overlap, but canonical archive writes
+  for one DB are serialized by SQLite's writer lock and 5-second busy timeout.
+
+[`same_profile_writer_waits_for_committed_watermark`](../../../src-tauri/crates/vault-core/src/archive/ingest/concurrency_tests.rs)
+pins the critical ordering: with one same-profile writer transaction holding a
+new watermark open, a second writer cannot read the watermark before the first
+commits; after commit, the second writer observes the committed cursor. If a
+future refactor moves `load_watermark` before the first writer-locking write, or
+opens snapshot processing outside the caller-owned transaction, this test should
+fail.
+
 ### Visit→URL ordering dependency
 
 [ingest/mod.rs:155-158](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs)
@@ -383,6 +409,7 @@ Maps to scenarios that will be enumerated in
 | X1 — Edge imports Chrome history then diverges     | [`x1_edge_imports_chrome_then_both_diverge`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                                    | Per-source-profile architecture preserved: a URL visited in both browsers keeps two `urls` rows; Edge's `browser_product` stays `"Microsoft Edge"` (playbook §107).                                                                                                              |
 | X2 — Atlas / Comet preserve browser_product        | [`x2_chromium_family_products_preserve_browser_product_identity`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                               | ChatGPT Atlas (playbook §156) and Perplexity Comet (playbook §158) stay tagged with their product identity in `source_profiles.browser_product`; do not collapse to "Google Chrome".                                                                                             |
 | X3 — Multi-profile per browser independence        | [`x3_multiple_profiles_within_same_browser_stay_independent`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                   | Chrome `Default` and Chrome `Profile 1` produce distinct `source_profiles` rows under same `browser_kind`; identical visits across them do NOT dedup (per-profile fingerprint scope); per-profile watermark isolation preserved.                                                 |
+| CONC1 — Same-profile writer lock and watermark     | [`same_profile_writer_waits_for_committed_watermark`](../../../src-tauri/crates/vault-core/src/archive/ingest/concurrency_tests.rs)                                                      | Two archive connections target the same `profile_id`; the second writer cannot read `profile_watermarks` until the first writer commits, then observes the committed cursor. Pins §4.1 lock-before-watermark ordering.                                                           |
 | C5 — Chromium incremental append-new-rows          | [`c5_chromium_incremental_append_new_urls_and_visits`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                          | Re-import where second pass adds wholly new URLs + new visits (no overlap with first import) — watermark lets only new rows land while originals stay deduplicated. Pins §5.1 "re-import after appending new rows" contract.                                                     |
 | C6 — Chromium source DB schema tolerance           | [`c6_chromium_extra_columns_on_source_db_do_not_break_ingest`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)                                                  | Fixture DB with `ALTER TABLE`-added columns (`favicon_id`, `segment_id`, `opener_visit`, `originator_cache_guid`) imports without error and produces identical canonical rows. Pins §5.1 "re-import after schema migration" contract; catches accidental `SELECT *` regressions. |
 | F1 — Firefox baseline import                       | [`f1_firefox_baseline_import`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs)                                                                        | Firefox single-import happy path: 3 URLs, 5 visits all land with correct counts, timestamps, and field values.                                                                                                                                                                   |

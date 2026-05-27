@@ -2067,3 +2067,17 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
   `ingest/mod.rs`.
 - Verification: targeted parser-ordering unit test passes; full checkpoint gate
   is recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-CONCURRENCY-A
+
+- Added `archive::ingest::concurrency_tests` with
+  `same_profile_writer_waits_for_committed_watermark`.
+- The test uses two real archive connections against the same temp DB: the first
+  writer holds a same-profile watermark update open, the second writer is
+  blocked from reading that watermark until commit, and then observes the
+  committed cursor.
+- Updated `import-dedup-audit.md` §4.1 to document that current serialization
+  comes from SQLite's writer lock after `upsert_source_profile`, not from an
+  app-level ingest queue.
+- Verification: targeted concurrency unit test passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.

@@ -540,6 +540,49 @@ passed, and the subsequent full `bun run check` passed.
 
 Suspected product bugs: none confirmed.
 
+### Module 8D: `WORK-IMPORT-TEST-CONCURRENCY-A`
+
+Added 1 focused Rust behavior test:
+
+- `same_profile_writer_waits_for_committed_watermark` asserts same-profile
+  concurrent archive writers are serialized at the SQLite transaction boundary:
+  the second writer cannot read `profile_watermarks` while the first writer's
+  transaction is uncommitted, and it observes the committed cursor after the
+  first writer commits.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core same_profile_writer_waits_for_committed_watermark --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib
+```
+
+Actual output:
+
+```text
+concurrency targeted: 1 passed; 0 failed; 661 filtered out
+vault-core lib: 662 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: 277 files passed; 2076 tests passed
+JS desktop contract: 5 files passed; 26 tests passed; coverage 100% statements/branches/functions/lines
+JS coverage: statements 99.38%; branches 98.61%; functions 99.66%; lines 99.72%
+Rust workspace tests: vault-core 662 passed in base; vault-core 663 passed under coverage cfg
+Rust coverage: 100% for 35835 instrumented source lines and 1649 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 score; 64 mutants; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed. The audit found no separate app-level
+ingest queue; the current same-profile guarantee is SQLite writer-lock
+serialization after `upsert_source_profile`, documented in
+`import-dedup-audit.md` §4.1.
+
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
 Added 15 behavior assertions across the global shell and shell chrome:
