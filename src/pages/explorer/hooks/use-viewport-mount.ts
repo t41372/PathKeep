@@ -132,7 +132,7 @@ export function useViewportMount<TElement extends HTMLElement = HTMLDivElement>(
     if (!node) return
     const height = node.getBoundingClientRect().height
     if (height > 0) {
-      setMeasuredHeight((current) => (current === height ? current : height))
+      setMeasuredHeight(height)
     }
   }, [inView, skip])
 

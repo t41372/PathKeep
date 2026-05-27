@@ -79,7 +79,6 @@ function toSingleBlocks(entries: HistoryEntry[]): PaperBlock[] {
 }
 
 function splitIntoSessions(entries: HistoryEntry[]): PaperSession[] {
-  if (entries.length === 0) return []
   const gapMs = SESSION_GAP_MINUTES * 60 * 1000
   const sessions: HistoryEntry[][] = []
   let current: HistoryEntry[] = [entries[0]]
@@ -128,7 +127,7 @@ export function groupEntriesByDay(entries: HistoryEntry[]): PaperDay[] {
       sessions: splitIntoSessions(dayEntries),
     })
   })
-  return days.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  return days.sort((a, b) => b.date.localeCompare(a.date))
 }
 
 export function describeDay(date: string, language: string): string {

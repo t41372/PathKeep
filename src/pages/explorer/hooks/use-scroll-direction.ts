@@ -63,7 +63,6 @@ export function useScrollDirection(
   const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
     lastYRef.current = window.scrollY
 
     const sample = () => {

@@ -59,6 +59,45 @@ describe('useScrollDirection', () => {
     expect(result.current).toBe('down')
   })
 
+  test('keeps a stable direction once the sampled direction already matches', () => {
+    const { result } = renderHook(() =>
+      useScrollDirection({ hysteresisFrames: 1, deltaThresholdPx: 1 }),
+    )
+
+    act(() => {
+      setScrollY(50)
+      dispatchScroll()
+      vi.runAllTimers()
+    })
+    expect(result.current).toBe('down')
+
+    act(() => {
+      setScrollY(100)
+      dispatchScroll()
+      vi.runAllTimers()
+    })
+    expect(result.current).toBe('down')
+  })
+
+  test('dedupes multiple scroll events into one pending animation frame', () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
+    renderHook(() =>
+      useScrollDirection({ hysteresisFrames: 3, deltaThresholdPx: 1 }),
+    )
+
+    act(() => {
+      setScrollY(50)
+      dispatchScroll()
+      dispatchScroll()
+    })
+    expect(rafSpy).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      vi.runAllTimers()
+    })
+    rafSpy.mockRestore()
+  })
+
   test('flips to "up" after `hysteresisFrames` consecutive upward samples; a reversed sample resets the count', () => {
     const { result } = renderHook(() =>
       useScrollDirection({ hysteresisFrames: 3, deltaThresholdPx: 1 }),
@@ -136,5 +175,19 @@ describe('useScrollDirection', () => {
       true,
     )
     removeSpy.mockRestore()
+  })
+
+  test('cancels a pending animation-frame sample on unmount', () => {
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    const { unmount } = renderHook(() => useScrollDirection())
+
+    act(() => {
+      setScrollY(50)
+      dispatchScroll()
+    })
+    unmount()
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+    cancelSpy.mockRestore()
   })
 })

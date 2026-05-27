@@ -89,10 +89,6 @@ export function useExplorerOgImages({
   const inflightKeysRef = useRef(new Set<string>())
   const markShownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingMarkShownRef = useRef<Set<string>>(new Set())
-  // Tracks URLs we've already kicked at the refetch worker in this cache
-  // epoch so a re-render doesn't re-enqueue them. Cleared whenever the
-  // explorer cacheToken bumps (new query, fresh load).
-  const enqueuedFetchRef = useRef<Set<string>>(new Set())
   const emptyCache = useMemo(
     () => new Map<string, HistoryEntry['ogImage'] | null>(),
     [],
@@ -103,7 +99,6 @@ export function useExplorerOgImages({
   useEffect(() => {
     inflightKeysRef.current.clear()
     pendingMarkShownRef.current.clear()
-    enqueuedFetchRef.current.clear()
   }, [cacheToken])
 
   const visibleUrls = useMemo(() => {
@@ -156,17 +151,10 @@ export function useExplorerOgImages({
           const key = historyOgImageLookupKey(url)
           const row = loadedByKey.get(key)
           if (!row || row.fetchStatus !== 'ok') {
-            if (!enqueuedFetchRef.current.has(key)) {
-              enqueueCandidates.push(url)
-            }
+            enqueueCandidates.push(url)
           }
         }
         if (enqueueCandidates.length > 0 && fetchMode !== 'off') {
-          // Only mark URLs that actually enter the batch as enqueued —
-          // overflow URLs stay eligible so a later pass (cache-token bump
-          // or new visible window) can submit them instead of leaving
-          // them locked out forever.
-          //
           // `fetchMode === 'off'` skips this whole enqueue branch: cached
           // rows still hydrate via `loadHistoryOgImages` above, but no
           // new outbound HTTP is requested. The backend
@@ -174,9 +162,6 @@ export function useExplorerOgImages({
           // defense in depth, so a buggy caller can't bypass the user's
           // choice. See Codex review finding C1 (data-sovereignty hole).
           const batch = enqueueCandidates.slice(0, FETCH_ENQUEUE_BATCH_CAP)
-          for (const url of batch) {
-            enqueuedFetchRef.current.add(historyOgImageLookupKey(url))
-          }
           // Refetch is async on the worker; without polling for completion,
           // the cache stays on the favicon fallback even when the worker
           // already wrote an `ok` row to the archive. Wait for the worker
@@ -192,7 +177,6 @@ export function useExplorerOgImages({
             .then((refreshed) => {
               if (cancelled || !refreshed) return
               setCacheState((current) => {
-                if (current.token !== cacheToken) return current
                 const next = new Map(current.entries)
                 for (const row of refreshed) {
                   next.set(
@@ -241,9 +225,6 @@ export function useExplorerOgImages({
     for (const url of visibleUrls) {
       pendingMarkShownRef.current.add(url)
     }
-    if (markShownTimerRef.current) {
-      clearTimeout(markShownTimerRef.current)
-    }
     markShownTimerRef.current = setTimeout(() => {
       const urls = Array.from(pendingMarkShownRef.current)
       pendingMarkShownRef.current.clear()
@@ -254,9 +235,8 @@ export function useExplorerOgImages({
       })
     }, MARK_SHOWN_DEBOUNCE_MS)
     return () => {
-      if (markShownTimerRef.current) {
-        clearTimeout(markShownTimerRef.current)
-      }
+      clearTimeout(markShownTimerRef.current as ReturnType<typeof setTimeout>)
+      markShownTimerRef.current = null
     }
   }, [enabled, loading, visibleUrls])
 

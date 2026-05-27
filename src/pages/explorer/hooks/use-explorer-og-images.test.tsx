@@ -101,6 +101,22 @@ describe('useExplorerOgImages', () => {
     expect(markSpy).not.toHaveBeenCalled()
   })
 
+  test('skips loading when there are no visible history rows', () => {
+    const loadSpy = vi.spyOn(backend, 'loadHistoryOgImages')
+    const markSpy = vi.spyOn(backend, 'markOgImagesShown')
+
+    renderHook(() =>
+      useExplorerOgImages({
+        cacheToken: 1,
+        loading: false,
+        results: historyResponse([]),
+      }),
+    )
+
+    expect(loadSpy).not.toHaveBeenCalled()
+    expect(markSpy).not.toHaveBeenCalled()
+  })
+
   test('skips loading entirely when enabled=false (list mode)', () => {
     const loadSpy = vi.spyOn(backend, 'loadHistoryOgImages')
     const markSpy = vi.spyOn(backend, 'markOgImagesShown')
@@ -179,6 +195,45 @@ describe('useExplorerOgImages', () => {
 
     // No throw, no unhandled rejection bubbling out of the hook.
     await vi.advanceTimersByTimeAsync(1100)
+  })
+
+  test('does not mark shown URLs after a cache-token reset clears the pending batch', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
+    const markSpy = vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    const results = historyResponse([historyEntry(1, 'https://example.com/a')])
+    const { rerender } = renderHook(
+      ({ cacheToken }: { cacheToken: number }) =>
+        useExplorerOgImages({
+          cacheToken,
+          loading: false,
+          results,
+        }),
+      { initialProps: { cacheToken: 1 } },
+    )
+
+    rerender({ cacheToken: 2 })
+    await vi.advanceTimersByTimeAsync(1100)
+
+    expect(markSpy).not.toHaveBeenCalled()
+  })
+
+  test('clears the pending mark-shown timer on unmount', () => {
+    vi.useFakeTimers()
+    vi.spyOn(backend, 'loadHistoryOgImages').mockResolvedValue([])
+    const markSpy = vi.spyOn(backend, 'markOgImagesShown').mockResolvedValue()
+    const { unmount } = renderHook(() =>
+      useExplorerOgImages({
+        cacheToken: 1,
+        loading: false,
+        results: historyResponse([historyEntry(1, 'https://example.com/a')]),
+      }),
+    )
+
+    unmount()
+    vi.advanceTimersByTime(1100)
+
+    expect(markSpy).not.toHaveBeenCalled()
   })
 
   test('enqueues a bounded triggerOgImageRefetch batch for non-ok cache rows', async () => {

@@ -168,6 +168,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
     - `[x]` 10B Explorer route and paper-view residuals.
     - `[x]` 10C Dashboard/app shell residuals.
     - `[x]` 10D Hook/helper branch residuals.
+    - `[x]` 10E Explorer runtime hooks and paper helper residuals.
 
 ## Bug / Drift Register
 
@@ -1075,6 +1076,73 @@ format/lint/i18n/typecheck: passed
 unit: 279 files passed; 2114 tests passed
 desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
 JS coverage: All files statements 99.69%, branches 99.21%, functions 99.84%, lines 99.91%
+Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
+Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
+Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions
+build: passed
+browser E2E: 4 passed
+desktop bridge E2E: 3 passed
+desktop contract mutation: 64 mutants; 100.00 score; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed.
+
+### Module 10E: JS Explorer runtime hook and paper helper residuals
+
+Added 24 focused behavior assertions and removed redundant branches inside
+Explorer runtime hooks/helpers:
+
+- `useExplorerInfinitePages` now pins disabled/no-head dormancy, same-key buffer
+  retention, cancelled rejected foreground pages, directional prefetch failure,
+  directional prefetch reuse, and the hard-cap/page-count decision through a
+  pure derivation helper. The hook now treats `pageCount` as the numbered-page
+  contract instead of mixing in cursor-style `hasNext`.
+- `useExplorerOgImages` now pins empty result windows, cache-token reset of the
+  pending mark-shown batch, and unmount timer cleanup. Redundant enqueued-url
+  tracking was removed because the visible URL dedupe, inflight set, and cache
+  map already prevent duplicate local reads/refetch enqueues.
+- `useScrollDirection` now pins stable same-direction samples, RAF dedupe, and
+  pending-frame cleanup.
+- `useViewportMount` now pins no-ref setup, empty observer callbacks,
+  zero-height recycle, and re-entry measurement behavior.
+- `groupEntriesByDay`/format helpers now pin out-of-range date fallback and
+  hour12 formatting. Private empty-session and manual date-comparator branches
+  were simplified under the public grouping contract.
+- `ExplorerDetailPanel` now pins loading, empty, missing metadata, null-domain,
+  and null-profile detail-rail branches.
+
+Commands:
+
+```sh
+bunx vitest run src/pages/explorer/hooks/use-explorer-infinite-pages.test.tsx src/pages/explorer/hooks/use-explorer-og-images.test.tsx src/pages/explorer/hooks/use-scroll-direction.test.tsx src/pages/explorer/hooks/use-viewport-mount.test.tsx src/pages/explorer/paper/group-entries.test.ts src/pages/explorer/panels/detail-panel.test.tsx
+bunx vitest run src/pages/explorer/hooks/use-explorer-infinite-pages.test.tsx src/pages/explorer/hooks/use-explorer-og-images.test.tsx src/pages/explorer/hooks/use-scroll-direction.test.tsx src/pages/explorer/hooks/use-viewport-mount.test.tsx src/pages/explorer/paper/group-entries.test.ts src/pages/explorer/panels/detail-panel.test.tsx --coverage --coverage.include=src/pages/explorer/hooks/use-explorer-infinite-pages.ts --coverage.include=src/pages/explorer/hooks/use-explorer-og-images.ts --coverage.include=src/pages/explorer/hooks/use-scroll-direction.ts --coverage.include=src/pages/explorer/hooks/use-viewport-mount.ts --coverage.include=src/pages/explorer/paper/group-entries.ts --coverage.include=src/pages/explorer/panels/detail-panel.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Targeted tests:
+Test Files 6 passed (6)
+Tests 81 passed (81)
+
+Targeted 10E coverage:
+All files 100/100/100/100
+src/pages/explorer/hooks/use-explorer-infinite-pages.ts 100/100/100/100
+src/pages/explorer/hooks/use-explorer-og-images.ts 100/100/100/100
+src/pages/explorer/hooks/use-scroll-direction.ts 100/100/100/100
+src/pages/explorer/hooks/use-viewport-mount.ts 100/100/100/100
+src/pages/explorer/paper/group-entries.ts 100/100/100/100
+src/pages/explorer/panels/detail-panel.tsx 100/100/100/100
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+format/lint/i18n/typecheck: passed
+unit: 279 files passed; 2138 tests passed
+desktop contract: 5 files passed; 26 tests passed; coverage 100/100/100/100
+JS coverage: All files statements 99.87%, branches 99.56%, functions 99.87%, lines 99.92%
 Rust workspace tests: vault-core 665 passed; vault-platform 47 passed; vault-worker 70 passed
 Rust coverage cfg tests: vault-core 666 passed; vault-platform 49 passed; vault-worker 80 passed
 Rust coverage: verified at 100% for 35459 instrumented source lines and 1652 source functions

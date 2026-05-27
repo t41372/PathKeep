@@ -4,13 +4,18 @@
  */
 
 import { useEffect } from 'react'
-import { act, render } from '@testing-library/react'
+import { act, render, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { useViewportMount } from './use-viewport-mount'
 
 type TriggerFn = (node: Element, intersecting: boolean) => void
+type TriggerEmptyFn = (node: Element) => void
 
-function installObserverMock(): { trigger: TriggerFn; restore: () => void } {
+function installObserverMock(): {
+  trigger: TriggerFn
+  triggerEmpty: TriggerEmptyFn
+  restore: () => void
+} {
   type Callback = (entries: IntersectionObserverEntry[]) => void
   const subscribers = new Map<Element, Callback>()
   function MockIO(this: Record<string, unknown>, callback: Callback) {
@@ -50,6 +55,11 @@ function installObserverMock(): { trigger: TriggerFn; restore: () => void } {
           time: 0,
         } as IntersectionObserverEntry,
       ])
+    },
+    triggerEmpty(node) {
+      const callback = subscribers.get(node)
+      if (!callback) return
+      callback([])
     },
     restore() {
       ;(
@@ -98,6 +108,13 @@ describe('useViewportMount', () => {
     expect(states[states.length - 1].inView).toBe(true)
   })
 
+  test('no-ops before a consumer assigns the observed ref', () => {
+    const { result } = renderHook(() => useViewportMount<HTMLDivElement>())
+
+    expect(result.current.inView).toBe(true)
+    expect(result.current.measuredHeight).toBeNull()
+  })
+
   test('flips inView=false when IntersectionObserver reports out-of-view, capturing measured height', () => {
     const states: ReturnType<typeof useViewportMount>[] = []
     const { getByTestId } = render(<Harness onState={(s) => states.push(s)} />)
@@ -123,7 +140,44 @@ describe('useViewportMount', () => {
     expect(last.measuredHeight).toBe(480)
   })
 
-  test('flips inView back to true on re-entry', () => {
+  test('does not record a placeholder height when the recycled node has no height', () => {
+    const states: ReturnType<typeof useViewportMount>[] = []
+    const { getByTestId } = render(<Harness onState={(s) => states.push(s)} />)
+    const node = getByTestId('harness')
+    node.getBoundingClientRect = () =>
+      ({
+        height: 0,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
+
+    act(() => {
+      io.trigger(node, false)
+    })
+
+    expect(states[states.length - 1].inView).toBe(false)
+    expect(states[states.length - 1].measuredHeight).toBeNull()
+  })
+
+  test('ignores observer callbacks that arrive without entries', () => {
+    const states: ReturnType<typeof useViewportMount>[] = []
+    const { getByTestId } = render(<Harness onState={(s) => states.push(s)} />)
+    const node = getByTestId('harness')
+
+    act(() => {
+      io.triggerEmpty(node)
+    })
+
+    expect(states[states.length - 1].inView).toBe(true)
+  })
+
+  test('flips inView back to true on re-entry without changing a matching measured height', async () => {
     const states: ReturnType<typeof useViewportMount>[] = []
     const { getByTestId } = render(<Harness onState={(s) => states.push(s)} />)
     const node = getByTestId('harness')
@@ -145,7 +199,10 @@ describe('useViewportMount', () => {
     act(() => {
       io.trigger(node, true)
     })
-    expect(states[states.length - 1].inView).toBe(true)
+    await waitFor(() => {
+      expect(states[states.length - 1].inView).toBe(true)
+    })
+    expect(states[states.length - 1].measuredHeight).toBe(240)
   })
 
   test('respects initialInView=false (e.g. server-rendered placeholder)', () => {

@@ -226,6 +226,10 @@ describe('describeDay', () => {
     expect(describeDay('2026-05-XX', 'en')).toBe('2026-05-XX')
   })
 
+  test('falls back to the raw string when numeric date parts are outside the Date range', () => {
+    expect(describeDay('999999999-05-17', 'en')).toBe('999999999-05-17')
+  })
+
   test('produces a long-form locale label for valid dates', () => {
     const label = describeDay('2026-05-17', 'en')
     // The label should mention the year and the month — locale exact formatting
@@ -246,6 +250,11 @@ describe('formatHourMinute', () => {
   test('produces a zero-padded HH:mm string for a valid timestamp', () => {
     const ms = new Date('2026-05-17T07:05:00Z').getTime()
     expect(formatHourMinute(ms, 'en')).toMatch(/\d{2}:\d{2}/)
+  })
+
+  test('uses locale hour-cycle formatting when hour12 is requested', () => {
+    const ms = new Date('2026-05-17T19:05:00Z').getTime()
+    expect(formatHourMinute(ms, 'en-US', { hour12: true })).toMatch(/PM/i)
   })
 
   test('falls back to "--:--" for NaN timestamps', () => {

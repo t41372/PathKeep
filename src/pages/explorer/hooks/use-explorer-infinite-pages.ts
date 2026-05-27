@@ -122,6 +122,39 @@ interface UseExplorerInfinitePagesOptions {
  */
 const MAX_ACCUMULATED_PAGES = 500
 
+/**
+ * Derives the user-visible and mutation-sensitive pagination flags for Browse
+ * infinite scroll.
+ *
+ * The hook owns async fetch effects, but the cap/page-count decision is pure:
+ * page-based Browse loading should advance only while the backend reports a
+ * concrete next page. `hasNext` is cursor metadata from the shared response
+ * shape and is deliberately not used here, because this hook issues numbered
+ * page requests.
+ */
+export function deriveExplorerInfinitePagination({
+  accumulatedPages,
+  disabled,
+  headResults,
+  loadingMore,
+}: {
+  accumulatedPages: number
+  disabled: boolean
+  headResults: HistoryQueryResponse | null
+  loadingMore: boolean
+}) {
+  if (disabled || !headResults) {
+    return { canLoadMore: false, capReached: false, canAdvance: false }
+  }
+  const hasMorePages = accumulatedPages < headResults.pageCount
+  const capReached = accumulatedPages >= MAX_ACCUMULATED_PAGES && hasMorePages
+  return {
+    canLoadMore: hasMorePages && !capReached,
+    capReached,
+    canAdvance: hasMorePages && !capReached && !loadingMore,
+  }
+}
+
 const SIGNATURE_FIELDS = [
   'q',
   'profileId',
@@ -175,7 +208,6 @@ export function useExplorerInfinitePages({
   const signature = useMemo(() => querySignature(query), [query])
   const resetKey = `${signature}|${cacheToken}`
   useEffect(() => {
-    if (resetKey === signatureRef.current) return
     signatureRef.current = resetKey
     setAccumulatedPages(1)
     setPageItems(new Map())
@@ -206,9 +238,8 @@ export function useExplorerInfinitePages({
     const targetAlreadyBuffered = pageItems.has(target)
     if (targetAlreadyBuffered) setLoadingMore(false)
 
-    const totalPages = headResults.pageCount ?? 0
+    const totalPages = headResults.pageCount
     const fetchPage = (page: number, options: { background: boolean }) => {
-      if (page <= 1) return
       if (page > totalPages) return
       if (pageItems.has(page)) return
       if (inflightRef.current.has(page)) return
@@ -233,9 +264,7 @@ export function useExplorerInfinitePages({
           // so the sentinel retries cleanly instead of skipping the page.
           if (!options.background) {
             setError(describeError(reason, 'query_history_page'))
-            setAccumulatedPages((current) =>
-              current === page ? current - 1 : current,
-            )
+            setAccumulatedPages(page - 1)
           }
         })
         .finally(() => {
@@ -284,9 +313,9 @@ export function useExplorerInfinitePages({
     if (!headResults) return
     if (scrollDirection !== 'down') return
     if (accumulatedPages <= 1) return
-    const totalPages = headResults.pageCount ?? 0
+    const totalPages = headResults.pageCount
     const ahead = accumulatedPages + 2
-    if (ahead > totalPages || ahead <= 1) return
+    if (ahead > totalPages) return
     if (pageItems.has(ahead) || inflightRef.current.has(ahead)) return
 
     let cancelled = false
@@ -327,42 +356,31 @@ export function useExplorerInfinitePages({
     return out
   }, [accumulatedPages, pageItems])
 
-  const canLoadMore = useMemo(() => {
-    if (disabled || !headResults) return false
-    if (accumulatedPages >= MAX_ACCUMULATED_PAGES) return false
-    if (accumulatedPages < (headResults.pageCount ?? 0)) return true
-    return Boolean(headResults.hasNext) && accumulatedPages === 1
-  }, [accumulatedPages, disabled, headResults])
-
-  // Distinguishes the hard cap from a genuine end-of-archive. The
-  // contact-sheet footer uses this to render "Showing first N rows · use
-  // search / a date pill to jump deeper" instead of the misleading "End
-  // of archive" copy when the user has merely hit the in-memory cap on a
-  // truly large archive.
-  const capReached = useMemo(() => {
-    if (disabled || !headResults) return false
-    if (accumulatedPages < MAX_ACCUMULATED_PAGES) return false
-    return accumulatedPages < (headResults.pageCount ?? 0)
-  }, [accumulatedPages, disabled, headResults])
+  const pagination = useMemo(
+    () =>
+      deriveExplorerInfinitePagination({
+        accumulatedPages,
+        disabled,
+        headResults,
+        loadingMore,
+      }),
+    [accumulatedPages, disabled, headResults, loadingMore],
+  )
 
   const loadMore = useMemo(
     () => () => {
-      if (disabled) return
-      if (!headResults) return
-      if (loadingMore) return
-      if (accumulatedPages >= MAX_ACCUMULATED_PAGES) return
-      if (accumulatedPages >= (headResults.pageCount ?? 0)) return
+      if (!pagination.canAdvance) return
       setAccumulatedPages((current) => current + 1)
     },
-    [accumulatedPages, disabled, headResults, loadingMore],
+    [pagination.canAdvance],
   )
 
   return {
     extraItems,
     loadedPageCount: accumulatedPages,
     loadingMore,
-    canLoadMore,
-    capReached,
+    canLoadMore: pagination.canLoadMore,
+    capReached: pagination.capReached,
     error,
     loadMore,
   }

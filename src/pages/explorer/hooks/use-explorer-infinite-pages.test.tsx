@@ -8,7 +8,10 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '@/lib/backend-client'
 import type { HistoryQuery, HistoryQueryResponse } from '@/lib/types'
-import { useExplorerInfinitePages } from './use-explorer-infinite-pages'
+import {
+  deriveExplorerInfinitePagination,
+  useExplorerInfinitePages,
+} from './use-explorer-infinite-pages'
 
 const baseQuery: HistoryQuery = {
   q: null,
@@ -54,6 +57,60 @@ function makeEntry(page: number, url = `https://example.com/page-${page}`) {
   }
 }
 
+describe('deriveExplorerInfinitePagination', () => {
+  test('refuses to advance without an active page-based head response', () => {
+    expect(
+      deriveExplorerInfinitePagination({
+        accumulatedPages: 1,
+        disabled: true,
+        headResults: makeHeadResponse({ pageCount: 4 }),
+        loadingMore: false,
+      }),
+    ).toEqual({ canLoadMore: false, capReached: false, canAdvance: false })
+    expect(
+      deriveExplorerInfinitePagination({
+        accumulatedPages: 1,
+        disabled: false,
+        headResults: null,
+        loadingMore: false,
+      }),
+    ).toEqual({ canLoadMore: false, capReached: false, canAdvance: false })
+  })
+
+  test('uses pageCount, not cursor hasNext, as the page-based load contract', () => {
+    expect(
+      deriveExplorerInfinitePagination({
+        accumulatedPages: 1,
+        disabled: false,
+        headResults: makeHeadResponse({ pageCount: 1, hasNext: true }),
+        loadingMore: false,
+      }),
+    ).toEqual({ canLoadMore: false, capReached: false, canAdvance: false })
+  })
+
+  test('keeps the load affordance visible while a page request is already running', () => {
+    expect(
+      deriveExplorerInfinitePagination({
+        accumulatedPages: 2,
+        disabled: false,
+        headResults: makeHeadResponse({ pageCount: 4 }),
+        loadingMore: true,
+      }),
+    ).toEqual({ canLoadMore: true, capReached: false, canAdvance: false })
+  })
+
+  test('reports the hard cap separately from a real end-of-archive', () => {
+    expect(
+      deriveExplorerInfinitePagination({
+        accumulatedPages: 500,
+        disabled: false,
+        headResults: makeHeadResponse({ pageCount: 600 }),
+        loadingMore: false,
+      }),
+    ).toEqual({ canLoadMore: false, capReached: true, canAdvance: false })
+  })
+})
+
 describe('useExplorerInfinitePages', () => {
   beforeEach(() => {
     vi.spyOn(backend, 'queryHistory').mockReset()
@@ -74,6 +131,24 @@ describe('useExplorerInfinitePages', () => {
     )
     expect(result.current.canLoadMore).toBe(false)
     expect(result.current.extraItems).toEqual([])
+    expect(querySpy).not.toHaveBeenCalled()
+  })
+
+  test('stays dormant until the first page response is available', () => {
+    const querySpy = vi.spyOn(backend, 'queryHistory')
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: null,
+        disabled: false,
+        cacheToken: 1,
+      }),
+    )
+
+    act(() => result.current.loadMore())
+
+    expect(result.current.canLoadMore).toBe(false)
+    expect(result.current.loadedPageCount).toBe(1)
     expect(querySpy).not.toHaveBeenCalled()
   })
 
@@ -191,6 +266,40 @@ describe('useExplorerInfinitePages', () => {
     rerender({ q: 'newer-term' })
     expect(result.current.loadedPageCount).toBe(1)
     expect(result.current.extraItems).toEqual([])
+  })
+
+  test('keeps accumulated pages when the same reset key renders again', async () => {
+    vi.spyOn(backend, 'queryHistory').mockResolvedValue(
+      makeHeadResponse({
+        page: 2,
+        items: [makeEntry(2, 'https://example.com/still-buffered')],
+      }),
+    )
+    const head = makeHeadResponse()
+    const props = {
+      query: baseQuery,
+      headResults: head,
+      disabled: false,
+      cacheToken: 1,
+    }
+    const { result, rerender } = renderHook(
+      (options: Parameters<typeof useExplorerInfinitePages>[0]) =>
+        useExplorerInfinitePages(options),
+      { initialProps: props },
+    )
+
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toEqual([
+        'https://example.com/still-buffered',
+      ]),
+    )
+    rerender(props)
+
+    expect(result.current.loadedPageCount).toBe(2)
+    expect(result.current.extraItems.map((item) => item.url)).toEqual([
+      'https://example.com/still-buffered',
+    ])
   })
 
   test('resets accumulated state when the cache token changes without a query change', async () => {
@@ -327,6 +436,33 @@ describe('useExplorerInfinitePages', () => {
     )
     expect(result.current.error).toBeNull()
     expect(result.current.loadedPageCount).toBe(2)
+    expect(result.current.loadingMore).toBe(false)
+  })
+
+  test('drops a rejected page response after the request is cancelled', async () => {
+    const slowPage2 = deferred<HistoryQueryResponse>()
+    vi.spyOn(backend, 'queryHistory').mockReturnValue(slowPage2.promise)
+    const head = makeHeadResponse()
+    const { result, rerender } = renderHook(
+      ({ q }: { q: string | null }) =>
+        useExplorerInfinitePages({
+          query: { ...baseQuery, q },
+          headResults: head,
+          disabled: false,
+          cacheToken: 1,
+        }),
+      { initialProps: { q: null as string | null } },
+    )
+
+    act(() => result.current.loadMore())
+    await waitFor(() => expect(result.current.loadingMore).toBe(true))
+    rerender({ q: 'changed' })
+    await act(async () => {
+      slowPage2.reject(new Error('late page failure'))
+      await slowPage2.promise.catch(() => undefined)
+    })
+
+    expect(result.current.error).toBeNull()
     expect(result.current.loadingMore).toBe(false)
   })
 
@@ -487,6 +623,91 @@ describe('useExplorerInfinitePages', () => {
     })
   })
 
+  test('keeps directional prefetch failures silent', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) => {
+        const page = req.page ?? 1
+        if (page === 4) return Promise.reject(new Error('directional timeout'))
+        return Promise.resolve(
+          makeHeadResponse({
+            page,
+            items: [makeEntry(page)],
+          }),
+        )
+      })
+    const head = makeHeadResponse({ pageCount: 6, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+        scrollDirection: 'down',
+      }),
+    )
+
+    act(() => result.current.loadMore())
+    await waitFor(() => {
+      expect(querySpy.mock.calls.map((call) => call[0].page)).toEqual(
+        expect.arrayContaining([2, 3, 4]),
+      )
+    })
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toContain(
+        'https://example.com/page-2',
+      ),
+    )
+
+    expect(result.current.error).toBeNull()
+  })
+
+  test('does not re-fetch a directional prefetch page when it becomes the next warm target', async () => {
+    const querySpy = vi
+      .spyOn(backend, 'queryHistory')
+      .mockImplementation((req: HistoryQuery) =>
+        Promise.resolve(
+          makeHeadResponse({
+            page: req.page ?? 1,
+            items: [makeEntry(req.page ?? 1)],
+          }),
+        ),
+      )
+    const head = makeHeadResponse({ pageCount: 6, hasNext: true })
+    const { result } = renderHook(() =>
+      useExplorerInfinitePages({
+        query: baseQuery,
+        headResults: head,
+        disabled: false,
+        cacheToken: 1,
+        scrollDirection: 'down',
+      }),
+    )
+
+    act(() => result.current.loadMore())
+    await waitFor(() => {
+      expect(querySpy.mock.calls.map((call) => call[0].page)).toEqual(
+        expect.arrayContaining([2, 3, 4]),
+      )
+    })
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toContain(
+        'https://example.com/page-2',
+      ),
+    )
+
+    act(() => result.current.loadMore())
+    await waitFor(() =>
+      expect(result.current.extraItems.map((item) => item.url)).toContain(
+        'https://example.com/page-3',
+      ),
+    )
+
+    expect(
+      querySpy.mock.calls.filter((call) => call[0].page === 4),
+    ).toHaveLength(1)
+  })
+
   test('idle scroll direction keeps the original single-page prefetch (no +2 warmup)', async () => {
     const querySpy = vi
       .spyOn(backend, 'queryHistory')
@@ -624,3 +845,14 @@ describe('useExplorerInfinitePages', () => {
     expect(result.current.loadingMore).toBe(false)
   })
 })
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  let reject: (error: unknown) => void = () => {}
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+
+  return { promise, reject, resolve }
+}
