@@ -352,9 +352,24 @@ silently drops any visit whose `source_url_id` is not already in
 `visits()` batches for the same URL. Any future refactor that changes
 batching order will cause silent data loss. This current silent-skip behavior is
 now pinned by
-[`chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map`](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs):
+[`chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map`](../../../src-tauri/crates/vault-core/src/archive/ingest/core_tests.rs):
 no canonical visit row is inserted, skipped progress increments, and the visit
 watermark marker does not advance.
+
+### Ingest facade responsibility map
+
+`archive::ingest::mod` is now a 637-line production facade after moving its
+embedded low-level regression suite to
+[`core_tests.rs`](../../../src-tauri/crates/vault-core/src/archive/ingest/core_tests.rs).
+The current owner boundaries are:
+
+| Owner                      | Responsibility                                                                                                                                                   | Split decision                                                                                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mod.rs`                   | Public ingest entrypoints, profile selection, browser-family stream dispatch, watermark advancement, source-evidence plan persistence, and tiny marker helpers.  | Keep together for now: these functions share transaction-owned state and keeping them adjacent avoids widening hot-path visibility. Revisit if it approaches 1000 lines again. |
+| `parser.rs`                | Snapshot preview counts, watermark load/save, and checkpoint eligibility helpers.                                                                                | Already focused; no split required.                                                                                                                                            |
+| `writes.rs`                | Canonical URL/visit/download/search-term/favicon writes plus URL visit-bound synchronization.                                                                    | Already below threshold; no split in this block.                                                                                                                               |
+| `core_tests.rs`            | Low-level regression tests for `ArchiveChunkConsumer`, skipped-profile helpers, stream dispatch helpers, summary assembly, and source-evidence plan persistence. | Split out in `WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A` so production facade stays reviewable without changing behavior.                                                        |
+| `dedup_scenarios*` modules | Browser-family, sidecar, Takeout, edge-case, and cross-profile scenario matrices.                                                                                | Already separate owner modules; no action here.                                                                                                                                |
 
 ---
 

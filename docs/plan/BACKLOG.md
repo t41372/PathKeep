@@ -197,7 +197,14 @@
   - 驗收：edge-case tests split into focused owner modules, vault-core lib tests
     and `bun run check` stay green, and audit §6 links still resolve.
 
-- [ ] **WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A** — Review oversized ingest orchestrator module
+- [x] **WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A** — Review oversized ingest orchestrator module
+  - 2026-05-26 closeout: Reviewed the ingest owner map and split the embedded
+    low-level regression suite into `archive/ingest/core_tests.rs`. The
+    production facade dropped from 1249 to 637 lines while keeping
+    `ArchiveChunkConsumer`, stream dispatch, watermark advancement, and
+    source-evidence plan persistence adjacent in `mod.rs` to avoid widening
+    hot-path visibility. `core_tests` owns the 7 low-level orchestration tests;
+    browser scenario matrices remain in their existing focused modules.
   - 2026-05-26 note: `src-tauri/crates/vault-core/src/archive/ingest/mod.rs`
     reached 1247 lines while adding the parser-ordering contract pin. Per
     AGENTS.md >1200-line rule, review whether `ArchiveChunkConsumer`,

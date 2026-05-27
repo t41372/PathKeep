@@ -2094,3 +2094,16 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
   at its new owner file.
 - Verification: targeted edge-case module test passes; full checkpoint gate is
   recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A
+
+- Reviewed the ingest orchestrator owner boundaries and documented the
+  responsibility map in `import-dedup-audit.md`.
+- Split the embedded low-level regression suite out of `ingest/mod.rs` into
+  `archive/ingest/core_tests.rs`.
+- Kept `ArchiveChunkConsumer`, stream dispatch, watermark advancement, and
+  source-evidence plan persistence together in the production facade to avoid
+  widening hot-path visibility. The facade is now 637 lines; `core_tests.rs` is
+  617 lines.
+- Verification: targeted `archive::ingest::core_tests` passes; full checkpoint
+  gate is recorded in `TEST_PLAN.md`.
