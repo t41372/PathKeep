@@ -137,7 +137,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
      branches; recent BROWSE-VIRT changes make this a mutation-priority module.
    - Behavior focus: no duplicate in-flight fetches, no prefetch past pageCount,
      cache-token reset, silent background prefetch failure, load guards.
-2. `[ ]` `src/pages/explorer/index.tsx`
+2. `[x]` `src/pages/explorer/index.tsx`
    - Main route orchestrator; many branches likely need integration-level route
      tests instead of shallow render assertions.
 3. `[ ]` `src/components/explorer-paper/paper-contact-sheet.tsx`
@@ -161,10 +161,11 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 
 ## Bug / Drift Register
 
-| ID         | Status | Evidence                                                                             | Action                                                                                                        |
-| ---------- | ------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100. | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                |
-| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                         | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone. |
+| ID         | Status | Evidence                                                                                                                                                                                                                                                                         | Action                                                                                                                                       |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                             | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                               |
+| QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                     | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                |
+| QA-GAP-003 | open   | `src/pages/explorer/index.tsx` still builds a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount. | Confirm whether the legacy paginated time-view branch should be deleted or restored as an intentional mode; do not add a fake coverage seam. |
 
 ## Checkpoint Log
 
@@ -218,3 +219,41 @@ Suspected bugs: none. The uncovered residual is mostly the hard
 exporting a test seam or driving hundreds of `loadMore()` transitions. Keep it
 queued for a dedicated cap-boundary test rather than adding an artificial
 coverage-only assertion.
+
+### Module 2: `src/pages/explorer/index.tsx`
+
+Added 4 route-shell behavior tests and tightened the paper-surface mocks:
+
+- Paper filter strip apply trims filled values, deletes blank values, clears
+  stale `page`, removes individual chips through `updateParam`, and delegates
+  clear-all to the URL-state hook.
+- Legacy `config.ogImage.fetchEnabled = false` is folded into `fetchMode:
+'off'` before the route calls `useExplorerOgImages`.
+- Search-result URLs such as Google SERPs suppress misleading og:image
+  hydration even when the row/cache advertises an image.
+- Detail panel "All of domain" resets the URL to a domain-only Browse state,
+  dropping search/date/profile/pagination context.
+
+Commands:
+
+```sh
+bunx vitest run src/pages/explorer/index.test.tsx
+bunx vitest run src/pages/explorer/index.test.tsx --coverage --coverage.include=src/pages/explorer/index.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+bun run typecheck
+```
+
+Actual output:
+
+```text
+Test Files  1 passed (1)
+Tests       17 passed (17)
+
+index.tsx targeted coverage from this test file:
+statements 86.54 | branches 79.82 | functions 65.3 | lines 86.25
+uncovered lines include 606, 659-698, 867-933
+```
+
+Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-003`: the
+paginated `PaperExplorerView` prop branch appears unreachable under the current
+route grammar, so it should be resolved as product-code cleanup or restored as
+an intentional mode rather than covered with artificial tests.

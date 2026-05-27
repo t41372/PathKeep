@@ -29,6 +29,7 @@ const {
   selectedAiProviderMock,
   useExplorerDataMock,
   useExplorerFaviconsMock,
+  useExplorerOgImagesMock,
   useExplorerUrlStateMock,
   useProfileScopeMock,
   useShellDataMock,
@@ -38,6 +39,7 @@ const {
   selectedAiProviderMock: vi.fn(),
   useExplorerDataMock: vi.fn(),
   useExplorerFaviconsMock: vi.fn(),
+  useExplorerOgImagesMock: vi.fn(),
   useExplorerUrlStateMock: vi.fn(),
   useProfileScopeMock: vi.fn(),
   useShellDataMock: vi.fn(),
@@ -92,6 +94,10 @@ vi.mock('./hooks/use-explorer-favicons', () => ({
   useExplorerFavicons: useExplorerFaviconsMock,
 }))
 
+vi.mock('./hooks/use-explorer-og-images', () => ({
+  useExplorerOgImages: useExplorerOgImagesMock,
+}))
+
 vi.mock('./hooks/use-explorer-url-state', () => ({
   useExplorerUrlState: useExplorerUrlStateMock,
 }))
@@ -116,16 +122,105 @@ vi.mock('./panels/detail-panel', () => ({
   ExplorerDetailPanel: () => <div data-testid="detail-panel">detail</div>,
 }))
 
+vi.mock('../../components/explorer-paper', () => ({
+  PaperFilterStrip: (props: {
+    onApply: (next: {
+      domain: string
+      browserKind: string
+      profileId: string
+      start: string
+      end: string
+      regexMode: boolean
+    }) => void
+    onRemove: (id: string) => void
+    onClearAll: () => void
+  }) => (
+    <div data-testid="paper-filter-strip">
+      <button
+        type="button"
+        data-testid="paper-filter-apply-filled"
+        onClick={() =>
+          props.onApply({
+            domain: ' example.com ',
+            browserKind: ' chromium ',
+            profileId: ' chrome:Default ',
+            start: ' 2026-04-01 ',
+            end: ' 2026-04-30 ',
+            regexMode: true,
+          })
+        }
+      >
+        apply-filled
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-apply-empty"
+        onClick={() =>
+          props.onApply({
+            domain: ' ',
+            browserKind: '',
+            profileId: ' ',
+            start: '',
+            end: ' ',
+            regexMode: false,
+          })
+        }
+      >
+        apply-empty
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-remove-domain"
+        onClick={() => props.onRemove('domain')}
+      >
+        remove
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-clear"
+        onClick={() => props.onClearAll()}
+      >
+        clear
+      </button>
+    </div>
+  ),
+}))
+
 // Mock the paper surfaces so each test can fire their callbacks via
 // dedicated trigger buttons. The real components are exhaustively tested
 // in src/components/explorer-paper/.
 vi.mock('./paper-view', () => ({
   PaperExplorerView: (props: {
+    entries: Array<{
+      id: number
+      favicon?: string | null
+      ogImage?: string | null
+    }>
+    filterStripSlot?: React.ReactNode
+    infiniteScroll?: {
+      loadingMore: boolean
+      canLoadMore: boolean
+      totalPages: number
+      totalRows: number
+    }
     onSelectEntry: (entry: { id: number }) => void
     onJumpToDate: (iso: string) => void
     onClearTarget: () => void
   }) => (
     <div data-testid="explorer-paper-view">
+      {props.filterStripSlot}
+      <span data-testid="paper-view-entry-count">{props.entries.length}</span>
+      <span data-testid="paper-view-first-og-image">
+        {props.entries[0]?.ogImage ?? 'none'}
+      </span>
+      <span data-testid="paper-view-first-favicon">
+        {props.entries[0]?.favicon ?? 'none'}
+      </span>
+      <span data-testid="paper-view-infinite-state">
+        {props.infiniteScroll
+          ? `infinite:${props.infiniteScroll.totalRows}/${props.infiniteScroll.totalPages}`
+          : 'paginated'}
+      </span>
       <button
         type="button"
         data-testid="paper-view-select"
@@ -155,6 +250,7 @@ vi.mock('./paper-detail-panel-mount', () => ({
   PaperDetailPanelMount: (props: {
     onClose: () => void
     onOpen: (url: string) => void
+    onOpenDomain: (domain: string) => void
   }) => (
     <div data-testid="paper-detail-mount">
       <button
@@ -170,6 +266,13 @@ vi.mock('./paper-detail-panel-mount', () => ({
         onClick={() => props.onOpen('https://example.com/open')}
       >
         open
+      </button>
+      <button
+        type="button"
+        data-testid="paper-detail-open-domain"
+        onClick={() => props.onOpenDomain('example.com')}
+      >
+        domain
       </button>
     </div>
   ),
@@ -265,6 +368,7 @@ describe('ExplorerPage route shell', () => {
     useShellDataMock.mockReturnValue(defaultShellData())
     useProfileScopeMock.mockReturnValue({ activeProfileId: 'chrome:Default' })
     useExplorerFaviconsMock.mockReturnValue({ faviconCache: new Map() })
+    useExplorerOgImagesMock.mockReturnValue({ ogImageCache: new Map() })
     useExplorerUrlStateMock.mockReturnValue(defaultUrlState())
     useExplorerDataMock.mockImplementation(defaultExplorerData)
   })
@@ -549,6 +653,117 @@ describe('ExplorerPage route shell', () => {
     expect(cleared.get('source')).toBeNull()
   })
 
+  test('paper filter strip trims filled values and deletes empty values from URL state', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    const updateParam = vi.fn()
+    const clearAllFilters = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        activeFilters: [{ id: 'domain', label: 'example.com' }],
+        clearAllFilters,
+        searchParams: new URLSearchParams(
+          'domain=old.test&browserKind=chrome&profileId=chrome%3AOld&start=2026-03-01&end=2026-03-31&regex=1&page=4',
+        ),
+        setSearchParams,
+        updateParam,
+      }),
+    )
+
+    renderExplorer()
+
+    await user.click(screen.getByTestId('paper-filter-apply-filled'))
+    const filled = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(filled.get('domain')).toBe('example.com')
+    expect(filled.get('browserKind')).toBe('chromium')
+    expect(filled.get('profileId')).toBe('chrome:Default')
+    expect(filled.get('start')).toBe('2026-04-01')
+    expect(filled.get('end')).toBe('2026-04-30')
+    expect(filled.get('regex')).toBe('1')
+    expect(filled.get('page')).toBeNull()
+
+    await user.click(screen.getByTestId('paper-filter-apply-empty'))
+    const emptied = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(emptied.get('domain')).toBeNull()
+    expect(emptied.get('browserKind')).toBeNull()
+    expect(emptied.get('profileId')).toBeNull()
+    expect(emptied.get('start')).toBeNull()
+    expect(emptied.get('end')).toBeNull()
+    expect(emptied.get('regex')).toBeNull()
+    expect(emptied.get('page')).toBeNull()
+
+    await user.click(screen.getByTestId('paper-filter-remove-domain'))
+    expect(updateParam).toHaveBeenCalledWith('domain', null)
+
+    await user.click(screen.getByTestId('paper-filter-clear'))
+    expect(clearAllFilters).toHaveBeenCalled()
+  })
+
+  test('legacy og:image fetch kill switch is folded into off mode for the hook', () => {
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          config: {
+            ...defaultShellData().snapshot.config,
+            ogImage: {
+              fetchEnabled: false,
+              fetchMode: 'on_demand',
+            },
+          },
+        },
+      }),
+    )
+
+    renderExplorer()
+
+    expect(useExplorerOgImagesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchMode: 'off' }),
+    )
+  })
+
+  test('search-result URLs suppress misleading og:image hydration in Browse rows', () => {
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: null,
+            requestKey: options.requestKey,
+            results: {
+              items: [
+                {
+                  favicon: null,
+                  id: 42,
+                  ogImage: 'https://cdn.example.com/wrong-entity.png',
+                  profileId: 'chrome:Default',
+                  title: 'Search results',
+                  url: 'https://www.google.com/search?q=yoshinoya',
+                  visitTime: '2026-04-25T12:00:00.000Z',
+                },
+              ],
+              page: 1,
+              pageCount: 1,
+              total: 1,
+            },
+          },
+        }),
+    )
+    useExplorerOgImagesMock.mockReturnValue({
+      ogImageCache: new Map([
+        [
+          'https://www.google.com/search?q=yoshinoya',
+          'https://cdn.example.com/cached-wrong-entity.png',
+        ],
+      ]),
+    })
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-view-first-og-image')).toHaveTextContent(
+      'none',
+    )
+  })
+
   test('paper detail mount onClose hides the panel and onOpen forwards to handleVisit', async () => {
     const user = userEvent.setup()
     const handleVisit = vi.fn()
@@ -575,6 +790,10 @@ describe('ExplorerPage route shell', () => {
     // onOpen forwards through handleVisit.
     await user.click(screen.getByTestId('paper-detail-open'))
     expect(handleVisit).toHaveBeenCalledWith('https://example.com/open')
+
+    await user.click(screen.getByTestId('paper-detail-open-domain'))
+    const nextParams = setSearchParamsMockFromLatestUrlState()
+    expect(nextParams.toString()).toBe('domain=example.com')
 
     // onClose drops the mount.
     await user.click(screen.getByTestId('paper-detail-close'))
@@ -733,6 +952,13 @@ function defaultUrlState(overrides: Record<string, unknown> = {}) {
     view: 'time',
     ...overrides,
   }
+}
+
+function setSearchParamsMockFromLatestUrlState() {
+  const state = useExplorerUrlStateMock.mock.results.at(-1)?.value as {
+    setSearchParams: ReturnType<typeof vi.fn>
+  }
+  return state.setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
 }
 
 function defaultExplorerData(
