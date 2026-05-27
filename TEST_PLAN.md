@@ -140,7 +140,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 2. `[x]` `src/pages/explorer/index.tsx`
    - Main route orchestrator; many branches likely need integration-level route
      tests instead of shallow render assertions.
-3. `[ ]` `src/components/explorer-paper/paper-contact-sheet.tsx`
+3. `[x]` `src/components/explorer-paper/paper-contact-sheet.tsx`
    - Virtualization/render-state branches; must assert mounted/recycled/session
      behavior rather than DOM snapshots alone.
 4. `[ ]` `src/components/explorer-paper/paper-detail-panel.tsx`
@@ -166,6 +166,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 | QA-GAP-001 | open   | JS coverage command passes at 99/98/99/99 while quality matrix says 100/100/100/100.                                                                                                                                                                                             | Close residual branches, then raise `vitest.config.ts` thresholds back to 100.                                                               |
 | QA-GAP-002 | open   | Rust coverage verifier has no branch metric.                                                                                                                                                                                                                                     | Use focused boundary/error tests plus `cargo mutants`; do not claim Rust branch coverage from llvm-cov alone.                                |
 | QA-GAP-003 | open   | `src/pages/explorer/index.tsx` still builds a paginated `PaperExplorerView` prop, but the current render grammar routes every `infiniteDisabled` condition to Search, grouped views, invalid-regex callout, or locked/uninitialized states before `PaperExplorerView` can mount. | Confirm whether the legacy paginated time-view branch should be deleted or restored as an intentional mode; do not add a fake coverage seam. |
+| QA-GAP-004 | open   | `src/components/explorer-paper/paper-contact-sheet.tsx` retains two defensive guards that targeted behavior cannot naturally hit: toolbar ref missing after mount and `canLoadMore` false after the sentinel exists.                                                             | Keep as defensive code unless product logic changes; avoid synthetic seams. If ref/sentinel grammar changes, add direct regression tests.    |
 
 ## Checkpoint Log
 
@@ -257,3 +258,54 @@ Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-003`: the
 paginated `PaperExplorerView` prop branch appears unreachable under the current
 route grammar, so it should be resolved as product-code cleanup or restored as
 an intentional mode rather than covered with artificial tests.
+
+### Module 3: `src/components/explorer-paper/paper-contact-sheet.tsx`
+
+Added a focused behavior test file with 10 assertions over the contact-sheet
+branches most likely to survive mutation:
+
+- Cards-mode frame numbers continue across day boundaries, so virtualization
+  extraction cannot reset the filmstrip counter per day.
+- Sticky day headers use the measured toolbar height both with and without
+  `ResizeObserver`, including when filter chips wrap the toolbar.
+- Invalid visit timestamps render `--:--`; malformed/unrepresentable day keys
+  render raw labels instead of crashing.
+- Null page titles fall back to sanitized URL text in both cards and list mode.
+- Target clear is safe when the caller omits `onClearTarget`.
+- Infinite-scroll cap guidance, non-intersecting sentinel, and load-error alert
+  states render with the intended copy and side effects.
+
+Commands:
+
+```sh
+bunx vitest run src/components/explorer-paper/paper-contact-sheet.behavior.test.tsx
+bunx vitest run src/components/explorer-paper/paper-contact-sheet.test.tsx src/components/explorer-paper/paper-contact-sheet.behavior.test.tsx src/components/explorer-paper/paper-contact-sheet.virt.test.tsx src/components/explorer-paper/paper-contact-sheet.spike.test.tsx --coverage --coverage.include=src/components/explorer-paper/paper-contact-sheet.tsx --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Behavior test file:
+Test Files  1 passed (1)
+Tests       10 passed (10)
+
+All paper-contact-sheet focused files:
+Test Files  4 passed (4)
+Tests       45 passed (45)
+
+paper-contact-sheet.tsx targeted coverage:
+statements 98.14 | branches 98.18 | functions 100 | lines 100
+uncovered lines: 279, 677
+
+Full checkpoint gate:
+bun run check
+JS coverage: statements 99.27 | branches 98.24 | functions 99.66 | lines 99.69
+Rust coverage: 100% for 35246 instrumented source lines and 1634 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-004`: the
+remaining guards are defensive branches that current render grammar does not
+make observable through user behavior.
