@@ -583,6 +583,49 @@ ingest queue; the current same-profile guarantee is SQLite writer-lock
 serialization after `upsert_source_profile`, documented in
 `import-dedup-audit.md` §4.1.
 
+### Module 8E: `WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A`
+
+Maintained the import edge-case scenario safety net while reducing the oversized
+owner file:
+
+- `dedup_scenarios_edge_cases.rs` now holds only shared fixture/env helpers and
+  child module declarations.
+- Test bodies moved into focused owners:
+  `chromium_contracts`, `empty_and_resilience`, `time_and_nullable`,
+  `unicode_and_flags`, and `minor_data_integrity`.
+- All 19 existing edge-case test names and assertions were preserved.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core archive::ingest::dedup_scenarios_edge_cases --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib
+```
+
+Actual output:
+
+```text
+edge-case targeted: 19 passed; 0 failed; 643 filtered out
+vault-core lib: 662 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: 277 files passed; 2076 tests passed
+JS desktop contract: 5 files passed; 26 tests passed; coverage 100% statements/branches/functions/lines
+JS coverage: statements 99.37%; branches 98.59%; functions 99.66%; lines 99.72%
+Rust workspace tests: vault-core 662 passed in base; vault-core 663 passed under coverage cfg
+Rust coverage: 100% for 35835 instrumented source lines and 1660 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 score; 64 mutants; 0 survived; 0 timed out
+```
+
+Suspected product bugs: none confirmed. This was a maintainability-only split;
+audit §4 / §6 links now point at the focused owner modules.
+
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
 Added 15 behavior assertions across the global shell and shell chrome:

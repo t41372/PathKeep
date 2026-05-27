@@ -2081,3 +2081,16 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
   app-level ingest queue.
 - Verification: targeted concurrency unit test passes; full checkpoint gate is
   recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A
+
+- Split the oversized `dedup_scenarios_edge_cases.rs` scenario owner from 1250
+  lines into a 311-line shared fixture harness plus five child modules:
+  `chromium_contracts`, `empty_and_resilience`, `time_and_nullable`,
+  `unicode_and_flags`, and `minor_data_integrity`.
+- Preserved all 19 edge-case test names and assertions; this was a
+  maintainability-only split with no ingest behavior changes.
+- Updated `import-dedup-audit.md` §4 / §6 links so each edge-case contract points
+  at its new owner file.
+- Verification: targeted edge-case module test passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.

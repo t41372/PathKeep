@@ -177,7 +177,13 @@
   - 契約：第一階段 audit-only（read + analysis），第二階段才寫測試；不修 product code；發現 bug 寫 BACKLOG entry 不直接 fix。
   - 驗收：audit doc 新增 §4.1 "concurrent ingest safety analysis" 子章節；至少 1 個 integration test 證明 same-profile concurrent flow 是 serialized；任何發現的真實 race condition 寫獨立 BACKLOG block。
 
-- [ ] **WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A** — Split oversized import edge-case scenario module
+- [x] **WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A** — Split oversized import edge-case scenario module
+  - 2026-05-26 closeout: Split the 1250-line
+    `dedup_scenarios_edge_cases.rs` into a 311-line shared helper harness plus
+    five focused child modules: `chromium_contracts`, `empty_and_resilience`,
+    `time_and_nullable`, `unicode_and_flags`, and `minor_data_integrity`. Test
+    names and assertions were preserved; audit §4 / §6 links now point at the
+    new owner files. No ingest behavior changed.
   - 2026-05-26 note: `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases.rs`
     reached 1250 lines while adding E10-E14. Per AGENTS.md >1200-line
     rule, review the module boundary and split E-series / resilience / empty-DB
