@@ -755,7 +755,7 @@ fn validate_bundle_relative_path(raw: &str) -> Result<PathBuf> {
         anyhow::bail!("bundle entry path {raw} has a drive-letter prefix");
     }
     let mut out = PathBuf::new();
-    for segment in raw.split(|c: char| c == '/' || c == '\\') {
+    for segment in raw.split(['/', '\\']) {
         match segment {
             "" => {
                 // Empty segment from a repeated separator like
