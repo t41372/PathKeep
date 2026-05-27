@@ -14,6 +14,7 @@ const DEFAULTS: PaperPreferences = {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   window.localStorage.clear()
   document.documentElement.removeAttribute('data-theme')
   document.documentElement.removeAttribute('data-fonts')
@@ -23,6 +24,12 @@ afterEach(() => {
 })
 
 describe('readPaperPreferences', () => {
+  test('returns defaults when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(readPaperPreferences()).toEqual(DEFAULTS)
+    })
+  })
+
   test('returns defaults when localStorage is empty', () => {
     expect(readPaperPreferences()).toEqual(DEFAULTS)
   })
@@ -40,6 +47,15 @@ describe('readPaperPreferences', () => {
     })
   })
 
+  test('defaults unrecognized stored values back to the shipped appearance', () => {
+    window.localStorage.setItem('pathkeep.theme', 'sepia')
+    window.localStorage.setItem('pathkeep.fonts', 'remote')
+    window.localStorage.setItem('pathkeep.density', 'dense')
+    window.localStorage.setItem('pathkeep.paperTexture', 'maybe')
+
+    expect(readPaperPreferences()).toEqual(DEFAULTS)
+  })
+
   test('returns defaults when localStorage.getItem throws', () => {
     const original = window.localStorage.getItem.bind(window.localStorage)
     window.localStorage.getItem = vi.fn(() => {
@@ -54,6 +70,12 @@ describe('readPaperPreferences', () => {
 })
 
 describe('persistPaperPreferences', () => {
+  test('does nothing when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(() => persistPaperPreferences(DEFAULTS)).not.toThrow()
+    })
+  })
+
   test('writes each key into localStorage', () => {
     persistPaperPreferences({
       theme: 'dark',
@@ -86,6 +108,19 @@ describe('persistPaperPreferences', () => {
 })
 
 describe('applyPaperPreferences', () => {
+  test('returns the candidate without touching globals when window and document are unavailable', () => {
+    const candidate: PaperPreferences = {
+      theme: 'dark',
+      fonts: 'system',
+      density: 'compact',
+      paperTexture: false,
+    }
+
+    withWindowAndDocumentUnavailable(() => {
+      expect(applyPaperPreferences(candidate)).toEqual(candidate)
+    })
+  })
+
   test('reads stored prefs when no candidate is supplied', () => {
     window.localStorage.setItem('pathkeep.theme', 'dark')
     const applied = applyPaperPreferences(null)
@@ -148,6 +183,39 @@ describe('applyPaperPreferences', () => {
     }
   })
 
+  test('still applies document attributes and dispatches when persistence fails', () => {
+    const original = window.localStorage.setItem.bind(window.localStorage)
+    window.localStorage.setItem = vi.fn(() => {
+      throw new Error('storage full')
+    })
+    const events: PaperPreferences[] = []
+    const listener = (e: Event) => {
+      events.push(
+        (e as CustomEvent<{ preferences: PaperPreferences }>).detail
+          .preferences,
+      )
+    }
+    window.addEventListener('pathkeep.paperPreferencesChanged', listener)
+    try {
+      const candidate: PaperPreferences = {
+        theme: 'dark',
+        fonts: 'system',
+        density: 'compact',
+        paperTexture: false,
+      }
+      expect(applyPaperPreferences(candidate)).toEqual(candidate)
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+      expect(document.documentElement.getAttribute('data-fonts')).toBe('system')
+      expect(document.documentElement.getAttribute('data-density')).toBe(
+        'compact',
+      )
+      expect(events).toEqual([candidate])
+    } finally {
+      window.removeEventListener('pathkeep.paperPreferencesChanged', listener)
+      window.localStorage.setItem = original
+    }
+  })
+
   test('persists and returns the resolved bundle', () => {
     const candidate: PaperPreferences = {
       theme: 'dark',
@@ -163,3 +231,26 @@ describe('applyPaperPreferences', () => {
     expect(window.localStorage.getItem('pathkeep.paperTexture')).toBe('on')
   })
 })
+
+function withWindowUnavailable(assertion: () => void) {
+  const originalWindow = globalThis.window
+  vi.stubGlobal('window', undefined)
+  try {
+    assertion()
+  } finally {
+    vi.stubGlobal('window', originalWindow)
+  }
+}
+
+function withWindowAndDocumentUnavailable(assertion: () => void) {
+  const originalWindow = globalThis.window
+  const originalDocument = globalThis.document
+  vi.stubGlobal('window', undefined)
+  vi.stubGlobal('document', undefined)
+  try {
+    assertion()
+  } finally {
+    vi.stubGlobal('document', originalDocument)
+    vi.stubGlobal('window', originalWindow)
+  }
+}

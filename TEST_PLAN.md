@@ -146,7 +146,7 @@ gaps are therefore behavioral, branch, concurrency, I/O, and mutation gaps.
 4. `[x]` `src/components/explorer-paper/paper-detail-panel.tsx`
    - Notes/tags persistence UX; assert disabled/error/loading states and
      mutation-prone handler behavior.
-5. `[ ]` `src/lib/explorer-preferences.ts` and `src/lib/paper-preferences.ts`
+5. `[x]` `src/lib/explorer-preferences.ts` and `src/lib/paper-preferences.ts`
    - Persistent local preference parse/fallback failure paths.
 6. `[ ]` `src/app/shell.tsx` and `src/components/shell/*`
    - Route history and global shell state branches.
@@ -353,3 +353,49 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 Suspected product bugs: none confirmed. Drift recorded as `QA-GAP-005`: the
 remaining branches are defensive paths that the current public render grammar
 does not expose through user behavior.
+
+### Module 5: `src/lib/explorer-preferences.ts` and `src/lib/paper-preferences.ts`
+
+Added 9 behavior assertions over persistent local preference fallbacks:
+
+- Explorer view mode and clock format return defaults and no-op safely when
+  `window` is unavailable.
+- Explorer read helpers return defaults when localStorage read access throws.
+- Re-persisting the current clock format skips storage writes and does not emit
+  a redundant live-update event.
+- Paper preferences return defaults and no-op safely when `window` is
+  unavailable.
+- Unrecognized paper preference values normalize back to the shipped appearance.
+- `applyPaperPreferences` returns the supplied candidate without touching
+  globals when both `window` and `document` are unavailable.
+- `applyPaperPreferences` still updates document attributes and dispatches the
+  live-update event when localStorage persistence fails.
+
+Commands:
+
+```sh
+bunx vitest run src/lib/explorer-preferences.test.ts src/lib/paper-preferences.test.ts --coverage --coverage.include=src/lib/explorer-preferences.ts --coverage.include=src/lib/paper-preferences.ts --coverage.thresholds.lines=0 --coverage.thresholds.branches=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+```
+
+Actual output:
+
+```text
+Test Files  2 passed (2)
+Tests       37 passed (37)
+
+explorer-preferences.ts targeted coverage:
+statements 100 | branches 100 | functions 100 | lines 100
+
+paper-preferences.ts targeted coverage:
+statements 100 | branches 100 | functions 100 | lines 100
+
+Full checkpoint gate:
+bun run check
+JS coverage: statements 99.34 | branches 98.35 | functions 99.66 | lines 99.71
+Rust coverage: 100% for 35246 instrumented source lines and 1634 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Suspected product bugs: none confirmed.

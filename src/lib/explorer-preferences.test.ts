@@ -20,6 +20,7 @@ import {
 } from './explorer-preferences'
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   window.localStorage.clear()
   vi.restoreAllMocks()
 })
@@ -49,6 +50,12 @@ describe('Explorer background prefetch preferences', () => {
 // ── Browse view-mode persistence ──────────────────────────────────────
 
 describe('readExplorerViewMode', () => {
+  test('returns the cards default when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(readExplorerViewMode()).toBe(defaultExplorerViewMode)
+    })
+  })
+
   test('returns "cards" when localStorage is empty', () => {
     expect(readExplorerViewMode()).toBe('cards')
   })
@@ -64,14 +71,19 @@ describe('readExplorerViewMode', () => {
   })
 
   test('returns default when localStorage.getItem throws', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('storage disabled')
+    withThrowingLocalStorageGetItem(() => {
+      expect(readExplorerViewMode()).toBe(defaultExplorerViewMode)
     })
-    expect(readExplorerViewMode()).toBe(defaultExplorerViewMode)
   })
 })
 
 describe('persistExplorerViewMode', () => {
+  test('does nothing when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(() => persistExplorerViewMode('list')).not.toThrow()
+    })
+  })
+
   test('writes mode to localStorage', () => {
     persistExplorerViewMode('list')
     expect(window.localStorage.getItem('pathkeep.explorerViewMode')).toBe(
@@ -97,6 +109,12 @@ describe('persistExplorerViewMode', () => {
 // ── Clock format persistence ──────────────────────────────────────────
 
 describe('readClockFormat', () => {
+  test('returns the 12h default when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(readClockFormat()).toBe(defaultClockFormat)
+    })
+  })
+
   test('returns "12h" when localStorage is empty', () => {
     expect(readClockFormat()).toBe('12h')
   })
@@ -112,14 +130,19 @@ describe('readClockFormat', () => {
   })
 
   test('returns default when localStorage.getItem throws', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('storage disabled')
+    withThrowingLocalStorageGetItem(() => {
+      expect(readClockFormat()).toBe(defaultClockFormat)
     })
-    expect(readClockFormat()).toBe(defaultClockFormat)
   })
 })
 
 describe('persistClockFormat', () => {
+  test('does nothing when window is unavailable', () => {
+    withWindowUnavailable(() => {
+      expect(() => persistClockFormat('24h')).not.toThrow()
+    })
+  })
+
   test('writes format to localStorage and dispatches event', () => {
     const events: string[] = []
     const listener = (e: Event) => {
@@ -139,8 +162,19 @@ describe('persistClockFormat', () => {
   test('skips write when current format already matches', () => {
     window.localStorage.setItem('pathkeep.clockFormat', '24h')
     const spy = vi.spyOn(Storage.prototype, 'setItem')
-    persistClockFormat('24h')
-    expect(spy).not.toHaveBeenCalled()
+    const events: string[] = []
+    const listener = (e: Event) => {
+      const detail = (e as CustomEvent<{ format: string }>).detail
+      events.push(detail.format)
+    }
+    window.addEventListener(CLOCK_FORMAT_EVENT, listener)
+    try {
+      persistClockFormat('24h')
+      expect(spy).not.toHaveBeenCalled()
+      expect(events).toEqual([])
+    } finally {
+      window.removeEventListener(CLOCK_FORMAT_EVENT, listener)
+    }
   })
 
   test('swallows localStorage.setItem errors but still dispatches event', () => {
@@ -173,3 +207,29 @@ describe('persistClockFormat', () => {
     }
   })
 })
+
+function withWindowUnavailable(assertion: () => void) {
+  const originalWindow = globalThis.window
+  vi.stubGlobal('window', undefined)
+  try {
+    assertion()
+  } finally {
+    vi.stubGlobal('window', originalWindow)
+  }
+}
+
+function withThrowingLocalStorageGetItem(assertion: () => void) {
+  const originalWindow = globalThis.window
+  vi.stubGlobal('window', {
+    localStorage: {
+      getItem: () => {
+        throw new Error('storage disabled')
+      },
+    },
+  })
+  try {
+    assertion()
+  } finally {
+    vi.stubGlobal('window', originalWindow)
+  }
+}
