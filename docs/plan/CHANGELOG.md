@@ -2052,3 +2052,18 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
 - Updated `import-dedup-audit.md` §6 with E10-E14 rows.
 - Verification: targeted E1/E10-E14 filter passes; full checkpoint gate is
   recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-PARSER-ORDERING-A
+
+- Added
+  `chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map` in
+  `archive::ingest::tests` to pin the Visit→URL ordering dependency directly
+  against `ArchiveChunkConsumer::visits`.
+- The test asserts the current behavior is silent skip, not fail-fast: no visit
+  row lands, skipped progress increments, duplicate/imported progress stays at
+  zero, and the skipped visit does not advance `last_visit_id`.
+- Updated `import-dedup-audit.md` §4 with a cross-reference to the test and
+  added the required maintainability follow-up for the now-1247-line
+  `ingest/mod.rs`.
+- Verification: targeted parser-ordering unit test passes; full checkpoint gate
+  is recorded in `TEST_PLAN.md`.

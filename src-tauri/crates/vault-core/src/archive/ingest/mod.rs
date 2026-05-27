@@ -864,6 +864,52 @@ mod tests {
         assert_eq!(favicon_count, 1);
     }
 
+    /// Pins `import-dedup-audit.md` section 4's Visit-to-URL ordering dependency:
+    /// parser streams must emit URL batches before visits. Current ingest
+    /// behavior is intentionally silent skip, not fail-fast, when a visit
+    /// arrives before its source URL has populated `url_id_map`.
+    #[test]
+    fn chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map() {
+        let dir = tempdir().expect("tempdir");
+        let paths = test_paths(dir.path());
+        let config = test_config();
+        let mut archive = open_archive_connection(&paths, &config, None).expect("archive");
+        let profile = profile("chromium", "chrome:VisitBeforeUrl");
+        let transaction = archive.transaction().expect("transaction");
+        seed_run(&transaction, 43);
+        let source_profile_id =
+            upsert_source_profile(&transaction, &profile).expect("source profile");
+        let mut progress_events = Vec::new();
+
+        {
+            let mut consumer = ArchiveChunkConsumer::new(
+                &transaction,
+                43,
+                source_profile_id,
+                &profile,
+                Some(Box::new(|progress| progress_events.push(progress))),
+            );
+            consumer.visits(vec![parsed_visit(1, 99, 1_000)]).expect("visits");
+            let progress = consumer.finish().expect("finish");
+            assert_eq!(progress.new_visits, 0);
+            assert_eq!(progress.skipped_visits, 1);
+            assert_eq!(
+                progress.last_visit_id, 0,
+                "skipped visits must not advance the visit watermark marker"
+            );
+        }
+
+        assert_eq!(progress_events.len(), 1);
+        assert_eq!(progress_events[0].processed_records, 1);
+        assert_eq!(progress_events[0].imported_records, 0);
+        assert_eq!(progress_events[0].duplicate_records, 0);
+        assert_eq!(progress_events[0].skipped_records, 1);
+        let visit_count: i64 = transaction
+            .query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))
+            .expect("visit count");
+        assert_eq!(visit_count, 0);
+    }
+
     #[test]
     fn skipped_profile_and_marker_helpers_cover_family_edges() {
         let readable = profile("chromium", "chrome:Default");

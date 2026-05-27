@@ -142,7 +142,13 @@
   - 契約：不修 product code；每個 test < 80 lines；不擴展 fixture API（用現有 fields）；audit doc §6 同步更新。
   - 驗收：5 個新 test 全綠；`cargo test -p vault-core` + `bun run check`；audit doc §6 contract table 新增 5 rows；CHANGELOG 紀錄這批 pins。
 
-- [ ] **WORK-IMPORT-TEST-PARSER-ORDERING-A** — Visit-Before-URL Parser Ordering Contract
+- [x] **WORK-IMPORT-TEST-PARSER-ORDERING-A** — Visit-Before-URL Parser Ordering Contract
+  - 2026-05-26 closeout: Added
+    `chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map`,
+    a direct `ArchiveChunkConsumer::visits` unit test that pins current
+    visit-before-url behavior as silent skip: no canonical visit row, no
+    `new_visits`, one skipped progress record, and no visit watermark marker
+    advancement. No product bugs confirmed.
   - 讀先：
     `docs/plan/program/import-dedup-audit.md` (§4 — "Visit→URL ordering dependency" + §5.3)
     `src-tauri/crates/vault-core/src/archive/ingest/mod.rs` (lines 155-158 — `ArchiveChunkConsumer::visits` silently drops visit if url_id_map miss)
@@ -176,6 +182,23 @@
     Rust module visibility forces a local rename with doc traceability.
   - 驗收：edge-case tests split into focused owner modules, vault-core lib tests
     and `bun run check` stay green, and audit §6 links still resolve.
+
+- [ ] **WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A** — Review oversized ingest orchestrator module
+  - 2026-05-26 note: `src-tauri/crates/vault-core/src/archive/ingest/mod.rs`
+    reached 1247 lines while adding the parser-ordering contract pin. Per
+    AGENTS.md >1200-line rule, review whether `ArchiveChunkConsumer`,
+    source-evidence persistence, and test-only helpers should move behind
+    focused owner modules before more ingest behavior is added here.
+  - 讀先：
+    `docs/plan/program/import-dedup-audit.md`
+    `src-tauri/crates/vault-core/src/archive/ingest/mod.rs`
+    `src-tauri/crates/vault-core/src/archive/ingest/writes.rs`
+    `src-tauri/crates/vault-core/src/archive/ingest/parser.rs`
+  - 契約：maintainability-only；不改 ingest semantics, watermark behavior,
+    or public backup/import contracts.
+  - 驗收：produce a responsibility map and, if still justified, split
+    orchestrator/test owners so `cargo test -p vault-core --lib` and
+    `bun run check` stay green.
 
 - [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
   - 讀先：

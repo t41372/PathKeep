@@ -497,6 +497,49 @@ Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
 
 Suspected product bugs: none confirmed.
 
+### Module 8C: `WORK-IMPORT-TEST-PARSER-ORDERING-A`
+
+Added 1 focused Rust behavior test:
+
+- `chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map` asserts
+  the current `ArchiveChunkConsumer::visits` contract when a parser emits a
+  visit before its URL batch: the visit is skipped silently, no canonical visit
+  row is inserted, skipped progress increments, imported/duplicate progress
+  stays at zero, and `last_visit_id` is not advanced.
+
+Commands:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map --lib
+cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib
+```
+
+Actual output:
+
+```text
+parser-ordering targeted: 1 passed; 0 failed; 660 filtered out
+vault-core lib: 661 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Full checkpoint gate:
+
+```text
+bun run check
+JS unit: Test Files 277 passed (277), Tests 2076 passed (2076)
+JS coverage: statements 99.37 | branches 98.59 | functions 99.66 | lines 99.72
+Rust coverage: 100% for 35835 instrumented source lines and 1649 source functions
+Browser E2E: 4 passed
+Desktop bridge E2E: 3 passed
+Desktop contract mutation: 100.00 mutation score, 64 mutants, 0 survived
+```
+
+Gate note: the first full `bun run check` attempt hit a non-reproducible
+existing `settings-shell-b` navigation timing failure under `coverage:js`.
+The targeted test passed without and with coverage, standalone `coverage:js`
+passed, and the subsequent full `bun run check` passed.
+
+Suspected product bugs: none confirmed.
+
 ### Module 6: `src/app/shell.tsx` and `src/components/shell/*`
 
 Added 15 behavior assertions across the global shell and shell chrome:

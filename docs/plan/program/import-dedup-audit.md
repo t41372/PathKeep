@@ -324,7 +324,11 @@ queue serialization is not under audit here — flag for harness coverage.
 silently drops any visit whose `source_url_id` is not already in
 `url_id_map`. The parser is expected to emit `urls()` batches before
 `visits()` batches for the same URL. Any future refactor that changes
-batching order will cause silent data loss — must be pinned by test.
+batching order will cause silent data loss. This current silent-skip behavior is
+now pinned by
+[`chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map`](../../../src-tauri/crates/vault-core/src/archive/ingest/mod.rs):
+no canonical visit row is inserted, skipped progress increments, and the visit
+watermark marker does not advance.
 
 ---
 
