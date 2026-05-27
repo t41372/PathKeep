@@ -13,6 +13,7 @@ import { act, render, screen } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { useRouteHistoryNav } from './use-route-history-nav'
+import { StrictMode } from 'react'
 
 function NavHarness({
   onMount,
@@ -118,6 +119,26 @@ describe('useRouteHistoryNav', () => {
     act(() => {
       screen.getByTestId('harness-push').click()
     })
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('y')
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+  })
+
+  test('StrictMode duplicate mount keeps the same location key from moving the stack twice', () => {
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/']}>
+          <NavHarness onMount={() => {}} />
+        </MemoryRouter>
+      </StrictMode>,
+    )
+
+    expect(screen.getByTestId('harness-can-back')).toHaveTextContent('n')
+    expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
+
+    act(() => {
+      screen.getByTestId('harness-push').click()
+    })
+
     expect(screen.getByTestId('harness-can-back')).toHaveTextContent('y')
     expect(screen.getByTestId('harness-can-forward')).toHaveTextContent('n')
   })

@@ -131,6 +131,13 @@ describe('readEpigraphIndex', () => {
     expect(result).toBe(0)
   })
 
+  test('rotates when the stored value omits the index separator', () => {
+    const storage = makeStorage({ k: '2026-05-20' })
+    const result = readEpigraphIndex('k', 6, storage, reference, () => 0.25)
+    expect(result).toBe(1)
+    expect(storage.getItem('k')).toBe('2026-05-20:1')
+  })
+
   test('rotates when no value has been stored yet', () => {
     const storage = makeStorage()
     const result = readEpigraphIndex('k', 6, storage, reference, () => 0.99)

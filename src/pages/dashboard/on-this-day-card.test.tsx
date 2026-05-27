@@ -9,10 +9,11 @@
  * - Cover the summary-present branch so the trailing fallback note hides.
  */
 
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { I18nProvider } from '@/lib/i18n'
+import { i18nStorageKey } from '@/lib/i18n/context'
 import { DashboardOnThisDay } from './on-this-day-card'
 import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
 
@@ -55,6 +56,11 @@ function renderCard(
 }
 
 describe('DashboardOnThisDay', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    window.localStorage.removeItem(i18nStorageKey)
+  })
+
   test('renders the loading skeleton when loading', () => {
     const { container } = renderCard({ loading: true })
     expect(container.querySelector('.pk-skeleton')).not.toBeNull()
@@ -91,5 +97,24 @@ describe('DashboardOnThisDay', () => {
     // count-based fallback contains the count number formatted via i18n
     expect(screen.getByText('2023')).toBeInTheDocument()
     expect(screen.getByText('2023-05-19')).toBeInTheDocument()
+  })
+
+  test('formats the target date with the resolved non-English locale', () => {
+    const seenLocales: Intl.LocalesArgument[] = []
+    vi.spyOn(Date.prototype, 'toLocaleDateString').mockImplementation(function (
+      this: Date,
+      locales?: Intl.LocalesArgument,
+    ) {
+      seenLocales.push(locales)
+      return 'localized target'
+    })
+    window.localStorage.setItem(i18nStorageKey, 'zh-CN')
+
+    renderCard()
+
+    expect(
+      screen.getByRole('button', { name: /localized target/i }),
+    ).toBeInTheDocument()
+    expect(seenLocales).toContain('zh-CN')
   })
 })

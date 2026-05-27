@@ -279,6 +279,26 @@ describe('dashboard route fallback', () => {
     expect(securityStatusSpy).toHaveBeenCalledTimes(2)
   })
 
+  test('cancels the queued fallback clear when normal route state unmounts', async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined)
+
+    const { unmount } = renderHook(() =>
+      useDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: null,
+        refreshKey: 0,
+        snapshot: null,
+      }),
+    )
+
+    unmount()
+    await Promise.resolve()
+
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+  })
+
   test('ignores archive-access fallback probes that resolve after cleanup', async () => {
     let resolveStatus: (status: SecurityStatus) => void = () => {}
     const statusPromise = new Promise<SecurityStatus>((resolve) => {

@@ -168,6 +168,7 @@ describe('App shell', () => {
     const {
       appScreens,
       appRoutes,
+      findAppScreen,
       onboardingScreen,
       readRouteHandle,
       sidebarSections,
@@ -201,6 +202,7 @@ describe('App shell', () => {
       },
     ])
     expect(onboardingScreen).toEqual(expectedOnboardingScreen)
+    expect(findAppScreen('search')).toEqual(expectedAppShellScreens[2])
     expect(routeDescriptors(appRoutes, readRouteHandle)).toEqual([
       {
         path: '/',
@@ -466,6 +468,14 @@ describe('App shell', () => {
         children: [],
       },
     ])
+  })
+
+  test('rejects route handles that reference an unknown screen id', async () => {
+    const { findAppScreen } = await import('../router')
+
+    expect(() =>
+      findAppScreen('__missing__' as Parameters<typeof findAppScreen>[0]),
+    ).toThrow('Unknown app screen id: __missing__')
   })
 
   test('creates a desktop router and validates route handles', async () => {

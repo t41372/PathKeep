@@ -185,7 +185,7 @@ export function PKSearchPalette({
 function domainAbbreviation(domain: string): string {
   if (!domain) return '??'
   const cleaned = domain.replace(/^www\./, '')
-  const root = cleaned.split('.')[0] ?? cleaned
+  const root = cleaned.split('.')[0]
   if (root.length <= 2) return root.toUpperCase()
   return root.substring(0, 2).toUpperCase()
 }

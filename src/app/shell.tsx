@@ -60,8 +60,8 @@ const EPIGRAPH_KEY = 'pathkeep.epigraph'
  * runs *after* this module is evaluated. Capturing the reference statically
  * would freeze it to the pre-mock object and silently miss test mutations.
  */
-function shellStorage(): Storage | null {
-  return typeof window !== 'undefined' ? window.localStorage : null
+function shellStorage(): Storage {
+  return window.localStorage
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -188,7 +188,6 @@ export function AppShell() {
   const handleSearchQuery = useCallback(
     async (query: string): Promise<PaletteResult[]> => {
       const trimmed = query.trim()
-      if (!trimmed) return []
       try {
         const response = await backend.queryHistory({
           q: trimmed,
@@ -280,7 +279,7 @@ export function AppShell() {
         buildVersion={buildVersion}
         buildRevision={buildRevision}
         buildTitle={buildTitle}
-        archiveHealthy={archiveHealthy ?? false}
+        archiveHealthy={archiveHealthy}
       />
       <div className="bg-paper flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
         <PKTopbar

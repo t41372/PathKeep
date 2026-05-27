@@ -84,6 +84,24 @@ describe('PKSearchPalette', () => {
     expect(screen.getByPlaceholderText(/find/i)).toBeInTheDocument()
   })
 
+  test('whitespace-only queries stay on the empty branch and do not search', async () => {
+    const onSearch = vi.fn().mockResolvedValue(sampleResults)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    renderPalette({ onSearch })
+
+    const input = screen.getByPlaceholderText(/find/i)
+    await user.type(input, '   ')
+    await act(async () => {
+      vi.advanceTimersByTime(300)
+      await Promise.resolve()
+    })
+
+    expect(onSearch).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText('Nothing here yet. Memory is patient.'),
+    ).not.toBeInTheDocument()
+  })
+
   test('runs onSearch after the debounce and renders results', async () => {
     const onSearch = vi.fn().mockResolvedValue(sampleResults)
     const onSelect = vi.fn()

@@ -234,7 +234,7 @@ export const appScreens = [...appShellScreens, onboardingScreen]
  * desync `appShellScreens[N]` callsites — the bug pattern that bit us
  * when the `search` entry landed between `explorer` and `intelligence`.
  */
-function screen(id: AppRouteId): AppScreen {
+export function findAppScreen(id: AppRouteId): AppScreen {
   const match = appScreens.find((entry) => entry.id === id)
   if (!match) {
     throw new Error(`Unknown app screen id: ${id}`)
@@ -281,7 +281,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/dashboard')
       return { Component: module.DashboardPage }
     },
-    handle: withHandle(screen('dashboard')),
+    handle: withHandle(findAppScreen('dashboard')),
   },
   {
     path: 'explorer',
@@ -290,7 +290,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/explorer')
       return { Component: module.ExplorerPage }
     },
-    handle: withHandle(screen('explorer')),
+    handle: withHandle(findAppScreen('explorer')),
   },
   {
     // `/search` mounts the same ExplorerPage component as `/explorer`, but
@@ -308,11 +308,11 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/explorer')
       return { Component: module.ExplorerPage }
     },
-    handle: withHandle(screen('search')),
+    handle: withHandle(findAppScreen('search')),
   },
   {
     path: 'intelligence',
-    handle: withHandle(screen('intelligence')),
+    handle: withHandle(findAppScreen('intelligence')),
     ErrorBoundary: ShellRouteErrorBoundary,
     children: [
       {
@@ -387,7 +387,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/assistant')
       return { Component: module.AssistantPage }
     },
-    handle: withHandle(screen('assistant')),
+    handle: withHandle(findAppScreen('assistant')),
   },
   {
     path: 'import',
@@ -395,7 +395,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/import')
       return { Component: module.ImportPage }
     },
-    handle: withHandle(screen('import')),
+    handle: withHandle(findAppScreen('import')),
   },
   {
     path: 'audit',
@@ -403,7 +403,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/audit')
       return { Component: module.AuditPage }
     },
-    handle: withHandle(screen('audit')),
+    handle: withHandle(findAppScreen('audit')),
   },
   {
     path: 'jobs',
@@ -412,7 +412,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/jobs')
       return { Component: module.JobsPage }
     },
-    handle: withHandle(screen('jobs')),
+    handle: withHandle(findAppScreen('jobs')),
   },
   {
     path: 'schedule',
@@ -420,7 +420,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/schedule')
       return { Component: module.SchedulePage }
     },
-    handle: withHandle(screen('schedule')),
+    handle: withHandle(findAppScreen('schedule')),
   },
   {
     path: 'integrations',
@@ -428,7 +428,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/integrations')
       return { Component: module.IntegrationsPage }
     },
-    handle: withHandle(screen('integrations')),
+    handle: withHandle(findAppScreen('integrations')),
   },
   {
     path: 'security',
@@ -436,7 +436,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/security')
       return { Component: module.SecurityPage }
     },
-    handle: withHandle(screen('security')),
+    handle: withHandle(findAppScreen('security')),
   },
   {
     path: 'maintenance',
@@ -444,7 +444,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/maintenance')
       return { Component: module.MaintenancePage }
     },
-    handle: withHandle(screen('maintenance')),
+    handle: withHandle(findAppScreen('maintenance')),
   },
   {
     path: 'settings',
@@ -452,7 +452,7 @@ const appRouteChildren: RouteObject[] = [
       const module = await import('../pages/settings')
       return { Component: module.SettingsPage }
     },
-    handle: withHandle(screen('settings')),
+    handle: withHandle(findAppScreen('settings')),
   },
 ]
 
