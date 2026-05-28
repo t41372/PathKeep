@@ -39,6 +39,17 @@
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
 > 2026-05-25 BROWSE-VIRT closeout：`WORK-FEEDBACK-0525-BROWSE-VIRT` 已完成並 append 到 `CHANGELOG.md`。viewport-driven day recycling (IntersectionObserver) + directional prefetch (RAF-sampled scroll direction with 4-frame hysteresis) + MAX_ACCUMULATED_PAGES 100 → 500 (originally 1 000；review §3 trade-off：incremental aggregator 未做，先把 cap 降到 500 避免 O(N) aggregation 在 ~25k entries 時毛刺) 都已 ship；sticky day header / cards-grid / sessions / a11y 契約都保留。residual follow-ups: LRU page eviction、real Chrome devtools FPS trace、Playwright e2e on 14M-row fixture、`docs/features/explorer-browse.md` 寫一份正式 feature spec、incremental aggregator（升回更大 cap 的前置條件）。
 > 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
+> 2026-05-27 parser mutation hardening note：行為安全網補測把 `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` 推到 1544 行。這次只補測試、不新增業務邏輯；但該檔已超過 1400 行硬限制，後續不得再往此檔新增 parser 業務邏輯，需用 dedicated 維護窗口做 owner split 審查。
+
+- [ ] **WORK-MAINT-PARSER-CHROMIUM-A** — Split oversized Chromium parser owner
+  - 讀先：
+    `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`
+    `src-tauri/crates/browser-history-parser/src/types.rs`
+    `src-tauri/crates/browser-history-parser/src/observation.rs`
+    `docs/plan/program/repo-baseline.md`
+  - 目標：先做審查階段，產出 Chromium parser 的職責地圖、streaming row owners、source-evidence/capability owners、fixture/test owner 邊界；確認覆蓋與 mutation evidence 後，再執行 behavior-preserving split。
+  - 契約：maintainability-only；不改 Chromium parse/stream/capability/source-evidence semantics；不在審查階段改產品碼；拆分前後 `cargo test -p browser-history-parser` 與 Rust coverage/mutation parser slice 必須保持綠。
+  - 驗收：`chromium/mod.rs` 降回合理 facade 尺寸，測試拆到 focused owner module 或 test helper；無 public parser contract 變動；CHANGELOG 記錄拆分邊界與驗證輸出。
 
 - [x] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
   - 2026-05-25 closeout: audit + fixture crate + 12 e2e scenarios (9 contract, 3 `#[should_panic]` bug repros) + TODO for sub-ms Chrome collision. B5 scale test deferred to WORK-IMPORT-SCALE-TEST-A. See CHANGELOG for full details.

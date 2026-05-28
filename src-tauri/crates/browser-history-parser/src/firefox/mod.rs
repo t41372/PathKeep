@@ -626,6 +626,126 @@ mod tests {
     }
 
     #[test]
+    fn incremental_url_query_does_not_take_the_first_import_fast_path_with_one_cursor_zero() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    8_i64,
+                    "https://example.com/firefox-stale",
+                    "Firefox stale",
+                    1_i64,
+                    0_i64,
+                    1_000_000_i64,
+                ],
+            )
+            .expect("insert stale place");
+        drop(connection);
+
+        let parsed_with_url_cursor =
+            parse_history(&history_path, 0, 1_744_146_000_000).expect("parse url cursor only");
+        assert!(
+            parsed_with_url_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/firefox-stale"),
+            "url-cursor-only incremental imports must exclude stale places without new visits",
+        );
+
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    9_i64,
+                    "https://example.com/firefox-negative",
+                    "Firefox negative",
+                    1_i64,
+                    0_i64,
+                    -1_i64,
+                ],
+            )
+            .expect("insert negative-date place");
+        drop(connection);
+
+        let parsed_with_visit_cursor =
+            parse_history(&history_path, 50, 0).expect("parse visit cursor only");
+        assert!(
+            parsed_with_visit_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/firefox-negative"),
+            "visit-cursor-only incremental imports must still use the bounded URL query",
+        );
+    }
+
+    #[test]
+    fn stream_history_batches_rows_and_reports_firefox_evidence_counts() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        for id in 8_i64..=9 {
+            connection
+                .execute(
+                    "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        id,
+                        format!("https://example.com/firefox-{id}"),
+                        format!("Firefox {id}"),
+                        1_i64,
+                        0_i64,
+                        1_744_146_000_000_000_i64 + id,
+                    ],
+                )
+                .expect("insert place");
+        }
+        let visits = [
+            (12_i64, 8_i64, Some(11_i64), Option::<i64>::None),
+            (13_i64, 9_i64, Option::<i64>::None, Some(2_i64)),
+        ];
+        for (visit_id, place_id, from_visit, visit_type) in visits {
+            connection
+                .execute(
+                    "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        visit_id,
+                        place_id,
+                        1_744_146_000_000_000_i64 + visit_id,
+                        from_visit,
+                        visit_type,
+                    ],
+                )
+                .expect("insert visit");
+        }
+        drop(connection);
+
+        let mut consumer = RecordingConsumer::default();
+        let streamed =
+            stream_history(&history_path, 0, 0, 2, &mut consumer).expect("stream firefox");
+
+        assert_eq!(consumer.url_batches, vec![2, 1]);
+        assert_eq!(consumer.visit_batches, vec![2, 1]);
+        assert_eq!(streamed.typed_evidence.navigation.len(), 3);
+        assert_eq!(streamed.typed_evidence.context.len(), 3);
+        let capability = |key: &str| {
+            streamed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
+        };
+        assert_eq!(capability("nav.from_visit").populated_rows, 1);
+        assert_eq!(capability("nav.from_visit").total_rows, 3);
+        assert_eq!(capability("nav.transition").populated_rows, 3);
+        assert_eq!(capability("nav.transition").total_rows, 3);
+    }
+
+    #[test]
     fn stream_history_can_move_optional_native_tables_out_of_the_returned_report() {
         let directory = tempdir().expect("tempdir");
         let history_path = directory.path().join("places.sqlite");

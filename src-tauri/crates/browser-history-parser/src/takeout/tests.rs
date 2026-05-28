@@ -2,10 +2,14 @@
 
 use super::*;
 use crate::types::{
-    HistoryBatchConsumer, ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit,
+    CapabilityCoverage, ContextEvidence, DatabaseInspection, HistoryBatchConsumer, NativeEntity,
+    NavigationEvidence, ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon,
+    ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence,
+    StreamedHistory, TypedEvidenceBatch,
 };
 use serde_json::Value;
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     path::PathBuf,
@@ -160,6 +164,10 @@ fn classify_payload_path_handles_localized_history_and_review_only_paths() {
     assert_eq!(english.locale, Some("en"));
     assert_eq!(english.disposition, TakeoutPathDisposition::WillImport);
 
+    let direct_english = classify_payload_path("History.json");
+    assert_eq!(direct_english.recognized_kind, Some(KIND_BROWSER_JSON));
+    assert_eq!(direct_english.locale, Some("en"));
+
     let spaced_backslash = classify_payload_path(" Chrome\\BrowserHistory.json ");
     assert_eq!(spaced_backslash.recognized_kind, Some(KIND_BROWSER_JSON));
     assert_eq!(spaced_backslash.locale, Some("en"));
@@ -245,9 +253,20 @@ fn classify_payload_path_covers_takeout_scope_matrix() {
     let normalized_spaces = classify_payload_path("Google  Fotos/metadata.json");
     assert_eq!(normalized_spaces.locale, Some("de"));
 
+    let normalized_tab = classify_payload_path("Google\tFotos/metadata.json");
+    assert_eq!(normalized_tab.locale, Some("de"));
+
     let unknown_history = classify_payload_path("some/random/history-export.txt");
     assert_eq!(unknown_history.family, "unknown-history-like");
     assert_eq!(unknown_history.disposition, TakeoutPathDisposition::NeedsReview);
+
+    let unknown_browser = classify_payload_path("some/random/browser-export.txt");
+    assert_eq!(unknown_browser.family, "unknown-history-like");
+    assert_eq!(unknown_browser.disposition, TakeoutPathDisposition::NeedsReview);
+
+    let unknown_activity = classify_payload_path("some/random/myactivity.txt");
+    assert_eq!(unknown_activity.family, "unknown-history-like");
+    assert_eq!(unknown_activity.disposition, TakeoutPathDisposition::NeedsReview);
 
     let outside = classify_payload_path("some/random/file.txt");
     assert_eq!(outside.family, "outside-scope");
@@ -317,6 +336,39 @@ fn source_discovery_handles_empty_sources_direct_noise_and_zip_sniffing() {
     let zip_bytes = source::read_takeout_file(&zip_path, &files[0]).expect("read zip entry");
     assert!(String::from_utf8_lossy(&zip_bytes).contains("Browser History"));
 
+    let recognized_missing_file =
+        classify_payload_path_with_sniff(empty_dir.path(), "Chrome/History.json", false)
+            .expect("recognized history paths do not need sniffing");
+    assert_eq!(recognized_missing_file.recognized_kind, Some(KIND_BROWSER_JSON));
+
+    let late_marker = empty_dir.path().join("late-marker.json");
+    fs::write(
+        &late_marker,
+        format!(
+            "{}{}",
+            " ".repeat(2_048),
+            browser_history_payload(&[
+                r#"{"url":"https://example.com/late","title":"Late","time_usec":1711965600000000}"#,
+            ])
+        ),
+    )
+    .expect("write late marker history");
+    let late_marker_match =
+        classify_payload_path_with_sniff(&late_marker, &late_marker.display().to_string(), false)
+            .expect("sniff late marker");
+    assert_eq!(late_marker_match.recognized_kind, Some(KIND_BROWSER_JSON));
+
+    let incomplete_marker = empty_dir.path().join("incomplete-marker.json");
+    fs::write(&incomplete_marker, r#"{"Browser History":[{"url":"https://example.com"}]}"#)
+        .expect("write incomplete marker");
+    let incomplete_marker_match = classify_payload_path_with_sniff(
+        &incomplete_marker,
+        &incomplete_marker.display().to_string(),
+        false,
+    )
+    .expect("sniff incomplete marker");
+    assert_eq!(incomplete_marker_match.recognized_kind, None);
+
     let non_history = empty_dir.path().join("whatever.json");
     fs::write(&non_history, r#"{"not":"browser history"}"#).expect("write non-history");
     let no_sniff_match =
@@ -328,6 +380,11 @@ fn source_discovery_handles_empty_sources_direct_noise_and_zip_sniffing() {
         classify_payload_path_with_sniff(empty_dir.path(), "Chrome/notes.txt", false)
             .expect("classify non-json");
     assert_eq!(non_json_match.recognized_kind, None);
+
+    let outside_chrome_json =
+        classify_payload_path_with_sniff(empty_dir.path(), "Drive/anything.json", false)
+            .expect("outside-chrome json does not sniff");
+    assert_eq!(outside_chrome_json.recognized_kind, None);
 
     let missing_zip = empty_dir.path().join("missing.zip");
     let missing_zip_error =
@@ -424,6 +481,7 @@ fn parse_payload_extracts_browser_history_records() {
     assert_eq!(report.history.visits.len(), 1);
     assert_eq!(report.history.urls.len(), 1);
     assert_eq!(report.history.native_entities.len(), 1);
+    assert!(report.history.warnings.is_empty());
     assert!(
         report
             .history
@@ -531,8 +589,9 @@ fn stream_payload_batches_browser_history_rows() {
         "BrowserHistory.json",
         KIND_BROWSER_JSON,
         browser_history_payload(&[
-            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000}"#,
-            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000}"#,
+            r#"{"url":"https://example.com/one","title":"One","time_usec":1711965600000000,"client_id":"alpha"}"#,
+            r#"{"url":"https://example.com/two","title":"Two","time_usec":1711969200000000,"page_transition":"LINK"}"#,
+            r#"{"url":"https://example.com/missing-time","title":"Missing"}"#,
         ])
         .as_bytes(),
         1,
@@ -543,6 +602,25 @@ fn stream_payload_batches_browser_history_rows() {
     assert_eq!(report.counts.urls, 2);
     assert_eq!(report.counts.visits, 2);
     assert_eq!(report.record_count, 2);
+    assert_eq!(report.skipped_missing_visit_time, 1);
+    assert_eq!(report.earliest_visit_iso.as_deref(), Some("2024-04-01T10:00:00+00:00"));
+    assert_eq!(report.latest_visit_iso.as_deref(), Some("2024-04-01T11:00:00+00:00"));
+    assert_eq!(report.history.schema_observation.tables[0].row_count, Some(3));
+    assert!(
+        report.history.schema_observation.tables[0]
+            .columns
+            .iter()
+            .any(|column| column.name == "client_id")
+    );
+    let context_capability = report
+        .history
+        .capability_snapshot
+        .items
+        .iter()
+        .find(|item| item.key == "context.takeout.browser_history")
+        .expect("context capability");
+    assert_eq!(context_capability.populated_rows, 2);
+    assert_eq!(context_capability.total_rows, 2);
     assert_eq!(consumer.urls.len(), 2);
     assert_eq!(consumer.visits.len(), 2);
     assert_eq!(consumer.visits.iter().map(Vec::len).sum::<usize>(), 2);
@@ -666,10 +744,16 @@ fn parse_payload_preserves_typed_url_and_session_payloads_as_native_entities() {
         br#"{"Session":[{"sessionTag":"device-1","tab":[{"navigation":[{"virtual_url":"https://example.com"}]}]}]}"#,
     )
     .expect("parse session");
+    let fallback =
+        parse_payload("TypedUrl.json", KIND_TYPED_URL_JSON, br#"{"TypedUrl":[{"other":true}]}"#)
+            .expect("parse fallback native key");
 
     assert!(typed.history.visits.is_empty());
     assert_eq!(typed.history.native_entities.len(), 1);
+    assert_eq!(typed.history.native_entities[0].native_primary_key, "https://example.com");
     assert_eq!(session.history.native_entities.len(), 1);
+    assert_eq!(session.history.native_entities[0].native_primary_key, "device-1");
+    assert_eq!(fallback.history.native_entities[0].native_primary_key, "row-0");
 }
 
 #[test]
@@ -883,6 +967,132 @@ fn parse_history_returns_payload_parse_errors_from_streaming_path() {
 }
 
 #[test]
+fn merge_stream_reports_sums_counts_and_preserves_evidence_metadata() {
+    fn payload_report(index: usize, available: bool) -> TakeoutPayloadStreamReport {
+        TakeoutPayloadStreamReport {
+            kind: format!("kind-{index}"),
+            history: StreamedHistory {
+                inspection: DatabaseInspection {
+                    table_names: vec![format!("kind-{index}")],
+                    warnings: Vec::new(),
+                },
+                schema_observation: SchemaObservation {
+                    tables: vec![ObservedTable {
+                        name: format!("table-{index}"),
+                        present: true,
+                        required: false,
+                        row_count: Some(index as i64),
+                        columns: vec![ObservedColumn {
+                            name: format!("column-{index}"),
+                            data_type: Some("TEXT".to_string()),
+                            not_null: false,
+                            primary_key_ordinal: 0,
+                        }],
+                    }],
+                },
+                capability_snapshot: crate::types::CapabilitySnapshot {
+                    items: vec![CapabilityCoverage {
+                        key: "shared.capability".to_string(),
+                        available,
+                        populated_rows: index,
+                        total_rows: index + 10,
+                        notes: vec![format!("note-{index}")],
+                    }],
+                },
+                typed_evidence: TypedEvidenceBatch {
+                    search: vec![SearchEvidence {
+                        source_visit_id: Some(index as i64),
+                        source_url_id: Some((index * 10) as i64),
+                        evidence_key: format!("search-{index}"),
+                        evidence_value: "pathkeep".to_string(),
+                        normalized_value: Some("pathkeep".to_string()),
+                        source_field: "term".to_string(),
+                    }],
+                    navigation: vec![NavigationEvidence {
+                        source_visit_id: index as i64,
+                        edge_kind: "from_visit".to_string(),
+                        target_visit_id: Some((index + 1) as i64),
+                        target_url: None,
+                        transition: Some(index as i64),
+                        source_field: "from_visit".to_string(),
+                    }],
+                    engagement: Vec::new(),
+                    context: vec![ContextEvidence {
+                        source_visit_id: Some(index as i64),
+                        source_url_id: Some((index * 10) as i64),
+                        context_key: format!("context-{index}"),
+                        value_json: "true".to_string(),
+                        source_field: "field".to_string(),
+                    }],
+                },
+                native_entities: vec![NativeEntity {
+                    entity_kind: "takeout-native".to_string(),
+                    native_primary_key: format!("native-{index}"),
+                    parent_native_primary_key: None,
+                    payload_json: "{}".to_string(),
+                    metadata: BTreeMap::new(),
+                }],
+                warnings: vec![ParserWarning {
+                    code: format!("warning-{index}"),
+                    message: format!("warning {index}"),
+                }],
+            },
+            counts: TakeoutPayloadCounts {
+                urls: index,
+                visits: index + 1,
+                downloads: index + 2,
+                search_terms: index + 3,
+                favicons: index + 4,
+            },
+            record_count: index + 5,
+            skipped_missing_visit_time: index,
+            earliest_visit_iso: Some(format!("earliest-{index}")),
+            latest_visit_iso: Some(format!("latest-{index}")),
+        }
+    }
+
+    let inspection = DatabaseInspection {
+        table_names: vec!["takeout".to_string()],
+        warnings: vec![ParserWarning {
+            code: "source-warning".to_string(),
+            message: "source warning".to_string(),
+        }],
+    };
+
+    let merged = merge_stream_reports(
+        inspection.clone(),
+        vec![payload_report(1, false), payload_report(2, true)],
+    );
+
+    assert_eq!(merged.history.inspection, inspection);
+    assert_eq!(merged.history.schema_observation.tables.len(), 2);
+    assert_eq!(merged.history.typed_evidence.search.len(), 2);
+    assert_eq!(merged.history.typed_evidence.navigation.len(), 2);
+    assert_eq!(merged.history.typed_evidence.context.len(), 2);
+    assert_eq!(merged.history.native_entities.len(), 2);
+    assert_eq!(merged.history.warnings.len(), 2);
+    assert_eq!(merged.counts.urls, 3);
+    assert_eq!(merged.counts.visits, 5);
+    assert_eq!(merged.counts.downloads, 7);
+    assert_eq!(merged.counts.search_terms, 9);
+    assert_eq!(merged.counts.favicons, 11);
+    assert_eq!(merged.record_count, 13);
+    assert_eq!(merged.skipped_missing_visit_time, 3);
+
+    let capability = merged
+        .history
+        .capability_snapshot
+        .items
+        .iter()
+        .find(|item| item.key == "shared.capability")
+        .expect("merged capability");
+    assert!(capability.available);
+    assert_eq!(capability.populated_rows, 3);
+    assert_eq!(capability.total_rows, 23);
+    assert_eq!(capability.notes, vec!["note-1".to_string(), "note-2".to_string()]);
+}
+
+#[test]
 fn parse_history_merges_reports_and_adapter_passthrough_edges() {
     let dir = tempdir().expect("tempdir");
     let chrome_dir = dir.path().join("Chrome");
@@ -910,8 +1120,42 @@ fn parse_history_merges_reports_and_adapter_passthrough_edges() {
     assert_eq!(parsed.urls[0].title.as_deref(), Some("Second"));
     assert_eq!(parsed.visits.len(), 2);
 
-    let mut collector = TakeoutHistoryCollector::default();
-    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: &mut collector };
+    #[derive(Default)]
+    struct PassthroughRecorder {
+        downloads: usize,
+        search_terms: usize,
+        favicons: usize,
+    }
+
+    impl HistoryBatchConsumer for PassthroughRecorder {
+        type Error = std::convert::Infallible;
+
+        fn urls(&mut self, _batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn visits(&mut self, _batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+            self.downloads += batch.len();
+            Ok(())
+        }
+
+        fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+            self.search_terms += batch.len();
+            Ok(())
+        }
+
+        fn favicons(&mut self, batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+            self.favicons += batch.len();
+            Ok(())
+        }
+    }
+
+    let mut recorder = PassthroughRecorder::default();
+    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: &mut recorder };
     adapter
         .downloads(vec![ParsedDownload {
             source_download_id: 1,
@@ -947,4 +1191,7 @@ fn parse_history_merges_reports_and_adapter_passthrough_edges() {
             image_data: None,
         }])
         .expect("favicon passthrough");
+    assert_eq!(recorder.downloads, 1);
+    assert_eq!(recorder.search_terms, 1);
+    assert_eq!(recorder.favicons, 1);
 }
