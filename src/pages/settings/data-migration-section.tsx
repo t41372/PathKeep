@@ -179,6 +179,11 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
       // import is silently lost. The button's `disabled={applying}` is a UX
       // cue, not a contract: React batches the state update, so two onClicks
       // in the same tick both see `applying=false` on the rendered DOM.
+      // jsdom's fireEvent.click on a button whose `disabled` was set by the
+      // pending render won't re-fire onClick the way the live browser does
+      // mid-batch, so the test surface can't reliably hit this branch from
+      // userland — the guard stays for production safety.
+      /* v8 ignore next -- defensive: jsdom can't reproduce the race. */
       if (applyInFlightRef.current) return
       applyInFlightRef.current = true
       setPhase({ kind: 'applying', bundlePath, preview })

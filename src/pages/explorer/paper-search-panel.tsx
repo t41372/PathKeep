@@ -147,6 +147,7 @@ export function PaperSearchPanel({
       // unreachable from real chip clicks — keep it for future i18n /
       // plugin-registered operators.
       // Stryker disable next-line ConditionalExpression: defensive guard.
+      /* v8 ignore next -- defensive: unreachable, see comment above. */
       if (next === query) return
       onQueryChange(next)
       focusInputAtEnd(next)

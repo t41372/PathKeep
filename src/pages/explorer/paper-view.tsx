@@ -401,7 +401,10 @@ export function PaperExplorerView({
     // future a11y flow). The visual `disabled` attribute is a UX cue, not
     // a data contract — the invariant `activeDate ∈ [firstIso, lastIso]`
     // is enforced here so onJumpToDate never persists an out-of-archive
-    // date into the URL.
+    // date into the URL. activeDate is clamped on init via
+    // `clampDateToBounds`, so production callers always see in-bounds
+    // input; the guard is unreachable from current dayNav buttons.
+    /* v8 ignore next -- defensive: unreachable, see comment above. */
     if (next < bounds.firstIso || next > bounds.lastIso) return
     setActiveDate(next)
     onJumpToDate?.(next)

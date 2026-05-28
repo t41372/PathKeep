@@ -194,6 +194,7 @@ export function AppShell() {
       // performance contract. PKSearchPalette also guards upstream, so
       // this branch is unreachable from current production callers.
       // Stryker disable next-line ConditionalExpression: defensive guard.
+      /* v8 ignore next -- defensive: unreachable, see comment above. */
       if (!trimmed) return []
       try {
         const response = await backend.queryHistory({

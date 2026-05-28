@@ -157,6 +157,7 @@ function highlightQuery(text: string, query: string | undefined): ReactNode {
   // strings for non-empty input, so this branch is unreachable from real
   // input — keep it as a safety net if the escape pipeline ever changes.
   // Stryker disable next-line ConditionalExpression: defensive guard.
+  /* v8 ignore next -- defensive: unreachable, see comment above. */
   if (tokens.length === 0) return text
   let pattern: RegExp
   try {

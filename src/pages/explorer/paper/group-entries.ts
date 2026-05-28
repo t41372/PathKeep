@@ -84,6 +84,7 @@ function splitIntoSessions(entries: HistoryEntry[]): PaperSession[] {
   // forEach that always pushes ≥1 entry — so the empty path is unreachable
   // from production. Keep the guard so a future caller or refactor handing
   // an empty array doesn't deref `entries[0]` and crash with TypeError.
+  /* v8 ignore next -- defensive: unreachable, see comment above. */
   if (entries.length === 0) return []
   const gapMs = SESSION_GAP_MINUTES * 60 * 1000
   const sessions: HistoryEntry[][] = []
