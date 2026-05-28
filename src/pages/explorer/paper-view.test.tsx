@@ -269,6 +269,38 @@ describe('PaperExplorerView', () => {
     expect(onJump).toHaveBeenCalledWith('2026-05-16')
   })
 
+  test('a stale targetDate beyond lastIso is clamped to the archive boundary and Next day stays disabled', () => {
+    const onJump = vi.fn()
+    render(
+      <PaperExplorerView
+        entries={sampleEntries()}
+        targetDate="2099-01-01"
+        archiveBounds={{
+          firstIso: '2026-05-15',
+          lastIso: '2026-05-17',
+          firstYear: 2026,
+          lastYear: 2026,
+          totalDays: 3,
+        }}
+        copy={COPY}
+        todayIso="2026-05-17"
+        onJumpToDate={onJump}
+        testId="px-clamp-target"
+      />,
+    )
+
+    // The stale URL pointed past the archive; activeDate must have been
+    // clamped to lastIso=2026-05-17. Without the clamp, stepDay(-1) would
+    // walk to 2098-12-31 (the original bug) instead of into 2026-05-16.
+    const nav = screen.getByTestId('paper-contact-sheet-day-nav')
+    const nextButton = within(nav).getByRole<HTMLButtonElement>('button', {
+      name: 'Next day',
+    })
+    expect(nextButton.disabled).toBe(true)
+    fireEvent.click(within(nav).getByRole('button', { name: 'Previous day' }))
+    expect(onJump).toHaveBeenCalledWith('2026-05-16')
+  })
+
   test('Previous day clamps at the first archive day', () => {
     const onJump = vi.fn()
     render(

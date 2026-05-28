@@ -19,6 +19,30 @@ export function pickInitialDate(
   return today
 }
 
+/**
+ * Clamp a YYYY-MM-DD ISO date string into the archive's `[firstIso, lastIso]`
+ * window. Used to recover from stale `?date=...` URLs that point past the
+ * archive: without clamping, the day-nav prev/next buttons stay enabled
+ * (their disabled prop is a string-compare against bounds that does not
+ * detect "already outside" cases) and clicking them would walk the user
+ * further away from any data.
+ *
+ * Returns `iso` unchanged when it sits inside `[firstIso, lastIso]` or
+ * when it doesn't look like a YYYY-MM-DD string — the day-nav already
+ * handles unparseable values gracefully (it displays the raw text), and
+ * silently transforming them would surprise callers that pass legacy
+ * fixtures or non-ISO sentinels.
+ */
+export function clampDateToBounds(
+  iso: string,
+  bounds: { firstIso: string; lastIso: string },
+): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  if (iso < bounds.firstIso) return bounds.firstIso
+  if (iso > bounds.lastIso) return bounds.lastIso
+  return iso
+}
+
 export function buildPerDayDensity(
   days: PaperDay[],
   overrides: ReadonlyMap<string, number> | undefined,

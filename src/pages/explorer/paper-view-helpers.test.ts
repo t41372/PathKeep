@@ -5,6 +5,7 @@ import type { PaperDay } from '@/pages/explorer/paper/group-entries'
 import {
   buildPerDayDensity,
   buildPerYearDensity,
+  clampDateToBounds,
   inferBounds,
   pickInitialDate,
 } from './paper-view-helpers'
@@ -140,5 +141,39 @@ describe('inferBounds', () => {
     // round-down case.
     const bounds = inferBounds([makeDay('2025-09-30')], '2026-05-21')
     expect(bounds.totalDays).toBe(2)
+  })
+})
+
+describe('clampDateToBounds', () => {
+  const bounds = { firstIso: '2020-01-01', lastIso: '2026-05-27' }
+
+  it('returns the input unchanged when it sits inside the archive bounds', () => {
+    expect(clampDateToBounds('2024-03-15', bounds)).toBe('2024-03-15')
+    expect(clampDateToBounds('2020-01-01', bounds)).toBe('2020-01-01')
+    expect(clampDateToBounds('2026-05-27', bounds)).toBe('2026-05-27')
+  })
+
+  it('clamps a date before firstIso up to firstIso (stale ?date= pointing pre-archive)', () => {
+    expect(clampDateToBounds('1999-12-31', bounds)).toBe('2020-01-01')
+  })
+
+  it('clamps a date after lastIso down to lastIso (stale ?date= pointing past archive)', () => {
+    // The original bug: ?date=2099-01-01 left the user outside the archive
+    // with an enabled prev button (string-compare bounds check missed it),
+    // and clicking prev walked them further away. clampDateToBounds is the
+    // anchor that keeps activeDate inside [firstIso, lastIso].
+    expect(clampDateToBounds('2099-01-01', bounds)).toBe('2026-05-27')
+  })
+
+  it('passes through non-ISO sentinels (the day-nav handles them downstream)', () => {
+    // The day-nav has its own graceful handling for unparseable dates
+    // (raw-text fallback). Silently coercing them to firstIso/lastIso
+    // would surprise callers — e.g. the `'not-a-calendar-date'` fixture
+    // that the route uses to exercise the empty / invalid path.
+    expect(clampDateToBounds('not-a-calendar-date', bounds)).toBe(
+      'not-a-calendar-date',
+    )
+    expect(clampDateToBounds('', bounds)).toBe('')
+    expect(clampDateToBounds('2024-13-45', bounds)).toBe('2024-13-45')
   })
 })

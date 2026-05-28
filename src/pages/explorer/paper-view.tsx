@@ -66,6 +66,7 @@ import {
 import {
   buildPerDayDensity,
   buildPerYearDensity,
+  clampDateToBounds,
   inferBounds,
   pickInitialDate,
 } from './paper-view-helpers'
@@ -332,14 +333,16 @@ export function PaperExplorerView({
   )
 
   // Active date — prefer the explicit target, else the newest loaded day,
-  // else fall back to today.
+  // else fall back to today. Clamp into archive bounds so a stale
+  // `?date=2099-01-01` URL doesn't strand the user outside the archive
+  // with an enabled prev/next that walks them further away.
   const [activeDate, setActiveDate] = useState<string>(() =>
-    pickInitialDate(targetDate, days, today),
+    clampDateToBounds(pickInitialDate(targetDate, days, today), bounds),
   )
 
   useEffect(() => {
-    if (targetDate) setActiveDate(targetDate)
-  }, [targetDate])
+    if (targetDate) setActiveDate(clampDateToBounds(targetDate, bounds))
+  }, [targetDate, bounds])
 
   // Sync activeDate to the newest loaded day if it drifts out of range.
   useEffect(() => {
@@ -393,6 +396,13 @@ export function PaperExplorerView({
 
   function stepDay(delta: number) {
     const next = addDaysIso(activeDate, delta)
+    // Refuse to step past the archive bounds even if a caller bypasses the
+    // disabled prop on prev/next (keyboard shortcut, programmatic call,
+    // future a11y flow). The visual `disabled` attribute is a UX cue, not
+    // a data contract — the invariant `activeDate ∈ [firstIso, lastIso]`
+    // is enforced here so onJumpToDate never persists an out-of-archive
+    // date into the URL.
+    if (next < bounds.firstIso || next > bounds.lastIso) return
     setActiveDate(next)
     onJumpToDate?.(next)
   }
