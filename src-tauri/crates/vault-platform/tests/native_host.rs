@@ -5,15 +5,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tempfile::tempdir;
-use vault_core::{AppLockBiometricState, ProjectPaths, S3CredentialInput};
+use vault_core::{AppLockBiometricState, ProjectPaths};
 #[cfg(target_os = "macos")]
 use vault_platform::test_support::TEST_LAUNCH_AGENTS_DIR_ENV;
 use vault_platform::test_support::{TEST_KEYRING_SERVICE_ENV, TEST_SCHEDULE_LABEL_ENV};
 use vault_platform::{
     ScheduleParameters, app_lock_biometric_state, discover_browser_profiles,
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
-    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
-    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
+    keyring_get_provider_api_key, keyring_set_database_key, keyring_set_provider_api_key,
     keyring_status, open_external_url, open_path_in_file_manager, preview_schedule,
 };
 #[cfg(target_os = "macos")]
@@ -64,6 +63,11 @@ fn host_denied(error: &str) -> bool {
         || normalized.contains("bootstrap failed: 5")
         || normalized.contains("input/output error")
         || normalized.contains("secret service: no result found")
+        // gnome-keyring on a headless box returns this when the default
+        // collection isn't unlocked (gcr-prompter has no display to ask
+        // the user). It's the post-timeout "give up" path for the same
+        // dev-VM scenario the wall-clock budget guards against.
+        || normalized.contains("locked collection")
 }
 
 #[test]
@@ -143,49 +147,74 @@ fn native_keyring_roundtrip(service: &str) {
         std::env::set_var(TEST_KEYRING_SERVICE_ENV, service);
     }
 
-    let result = (|| -> anyhow::Result<()> {
-        keyring_clear_database_key()?;
-        keyring_clear_s3_credentials()?;
-        keyring_clear_provider_api_key("integration-openai")?;
+    // Wall-clock cap on the whole roundtrip. On headless Linux dev VMs
+    // (XDG_SESSION_TYPE=tty, DISPLAY set but unreachable),
+    // gnome-keyring-daemon activates on first secret-service write and
+    // spawns gcr-prompter to ask the user to unlock the default
+    // collection. The prompter dies trying to open the display, but the
+    // daemon waits for it for ~2 hours before returning an error — long
+    // enough to wreck any reasonable per-commit gate. macOS Keychain and
+    // Windows Credential Manager both finish their roundtrip in well
+    // under a second, so 30 s is a generous upper bound for a healthy
+    // backend.
+    let result = run_keyring_body_with_timeout(std::time::Duration::from_secs(30));
 
-        let status = keyring_status();
-        if !status.available {
-            anyhow::bail!("native keyring backend is unavailable on this host");
-        }
-
-        keyring_set_database_key("native-db-secret")?;
-        assert_eq!(keyring_get_database_key()?, Some("native-db-secret".to_string()));
-
-        let credentials = S3CredentialInput {
-            access_key_id: "access".to_string(),
-            secret_access_key: "secret".to_string(),
-        };
-        keyring_set_s3_credentials(&credentials)?;
-        assert_eq!(keyring_get_s3_credentials()?, Some(credentials));
-
-        keyring_set_provider_api_key("integration-openai", "provider-secret")?;
-        assert_eq!(
-            keyring_get_provider_api_key("integration-openai")?,
-            Some("provider-secret".to_string())
-        );
-
-        keyring_clear_database_key()?;
-        keyring_clear_s3_credentials()?;
-        keyring_clear_provider_api_key("integration-openai")?;
-        assert_eq!(keyring_get_database_key()?, None);
-        Ok(())
-    })();
     restore_env(TEST_KEYRING_SERVICE_ENV, original_service);
 
     match result {
-        Ok(()) => {}
-        Err(error) if host_denied(&error.to_string()) => {
+        Some(Ok(())) => {}
+        Some(Err(error)) if host_denied(&error.to_string()) => {
             eprintln!(
                 "Skipping native keyring smoke because the host denied secure-store access: {error:#}"
             );
         }
-        Err(error) => panic!("native keyring roundtrip failed: {error:#}"),
+        Some(Err(error)) => panic!("native keyring roundtrip failed: {error:#}"),
+        None => {
+            eprintln!(
+                "Skipping native keyring smoke: native backend did not complete within 30s — likely a headless host where gnome-keyring-daemon is waiting on an unreachable unlock prompt."
+            );
+        }
     }
+}
+
+/// Runs the roundtrip body on a detached worker thread and waits up to
+/// `budget` for it to finish. Returns `None` if the budget elapses (the
+/// worker keeps running and is reaped when the test binary exits — fine
+/// for an integration-only test). The caller still holds `env_lock` and
+/// `TEST_KEYRING_SERVICE_ENV` for the full budget, which serializes
+/// against `launcher_smoke_uses_path_shims_for_host_invocation`.
+fn run_keyring_body_with_timeout(budget: std::time::Duration) -> Option<anyhow::Result<()>> {
+    use std::sync::mpsc;
+
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(keyring_roundtrip_body());
+    });
+    receiver.recv_timeout(budget).ok()
+}
+
+fn keyring_roundtrip_body() -> anyhow::Result<()> {
+    keyring_clear_database_key()?;
+    keyring_clear_provider_api_key("integration-openai")?;
+
+    let status = keyring_status();
+    if !status.available {
+        anyhow::bail!("native keyring backend is unavailable on this host");
+    }
+
+    keyring_set_database_key("native-db-secret")?;
+    assert_eq!(keyring_get_database_key()?, Some("native-db-secret".to_string()));
+
+    keyring_set_provider_api_key("integration-openai", "provider-secret")?;
+    assert_eq!(
+        keyring_get_provider_api_key("integration-openai")?,
+        Some("provider-secret".to_string())
+    );
+
+    keyring_clear_database_key()?;
+    keyring_clear_provider_api_key("integration-openai")?;
+    assert_eq!(keyring_get_database_key()?, None);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

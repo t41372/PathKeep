@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import type { DateRange } from '../../lib/core-intelligence'
+import { describeError } from '../../lib/errors'
 import {
   loadIntelligencePrimaryOverview,
   loadIntelligenceSecondaryOverview,
@@ -123,8 +124,10 @@ export function useStagedIntelligenceOverview(
                 ...stateForScope(current, nextScopeKey, nextCachedState),
                 secondaryReady: hasSecondaryCache,
                 secondaryLoading: false,
-                secondaryError:
-                  error instanceof Error ? error.message : String(error),
+                secondaryError: describeError(
+                  error,
+                  'load_intelligence_secondary',
+                ),
               }))
             })
         })
@@ -149,7 +152,7 @@ export function useStagedIntelligenceOverview(
         setState((current) => ({
           ...stateForScope(current, nextScopeKey, nextCachedState),
           primaryReady: true,
-          primaryError: error instanceof Error ? error.message : String(error),
+          primaryError: describeError(error, 'load_intelligence_primary'),
         }))
       })
 
@@ -182,7 +185,7 @@ export function useStagedIntelligenceOverview(
         setState({
           ...nextCachedState,
           primaryReady: true,
-          primaryError: error instanceof Error ? error.message : String(error),
+          primaryError: describeError(error, 'load_intelligence_primary'),
           secondaryReady: true,
           secondaryLoading: false,
           secondaryError: null,

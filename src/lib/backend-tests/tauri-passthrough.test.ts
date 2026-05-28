@@ -155,8 +155,6 @@ describe('backend facade Tauri passthrough', () => {
     ).resolves.toEqual({ ok: true })
     await expect(backend.keyringStatus()).resolves.toEqual({ ok: true })
     await expect(backend.securityStatus()).resolves.toEqual({ ok: true })
-    await expect(backend.previewRemoteBackup()).resolves.toEqual({ ok: true })
-    await expect(backend.runRemoteBackup()).resolves.toEqual({ ok: true })
     await expect(backend.previewImportBatch(7)).resolves.toEqual({ ok: true })
     await expect(backend.revertImportBatch(7)).resolves.toEqual({ ok: true })
     await expect(backend.restoreImportBatch(7)).resolves.toEqual({ ok: true })
@@ -189,30 +187,24 @@ describe('backend facade Tauri passthrough', () => {
     })
     expect(invoke).toHaveBeenNthCalledWith(6, 'keyring_status', undefined)
     expect(invoke).toHaveBeenNthCalledWith(7, 'security_status', undefined)
-    expect(invoke).toHaveBeenNthCalledWith(
-      8,
-      'preview_remote_backup',
-      undefined,
-    )
-    expect(invoke).toHaveBeenNthCalledWith(9, 'run_remote_backup', undefined)
-    expect(invoke).toHaveBeenNthCalledWith(10, 'preview_import_batch', {
+    expect(invoke).toHaveBeenNthCalledWith(8, 'preview_import_batch', {
       batchId: 7,
     })
-    expect(invoke).toHaveBeenNthCalledWith(11, 'revert_import_batch', {
+    expect(invoke).toHaveBeenNthCalledWith(9, 'revert_import_batch', {
       batchId: 7,
     })
-    expect(invoke).toHaveBeenNthCalledWith(12, 'restore_import_batch', {
+    expect(invoke).toHaveBeenNthCalledWith(10, 'restore_import_batch', {
       batchId: 7,
     })
     expect(invoke).toHaveBeenNthCalledWith(
-      13,
+      11,
       'preview_ai_integrations',
       undefined,
     )
-    expect(invoke).toHaveBeenNthCalledWith(14, 'open_path_in_file_manager', {
+    expect(invoke).toHaveBeenNthCalledWith(12, 'open_path_in_file_manager', {
       path: '/tmp/pathkeep',
     })
-    expect(invoke).toHaveBeenNthCalledWith(15, 'open_external_url', {
+    expect(invoke).toHaveBeenNthCalledWith(13, 'open_external_url', {
       url: 'https://example.com/pathkeep',
     })
   })

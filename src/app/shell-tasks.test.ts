@@ -581,6 +581,5 @@ function backupReportFixture({
     manifestPath: null,
     gitCommit: null,
     warnings,
-    remoteBackup: null,
   }
 }

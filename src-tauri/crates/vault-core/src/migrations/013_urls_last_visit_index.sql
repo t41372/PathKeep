@@ -1,0 +1,26 @@
+-- Migration 013 — index `urls.last_visit_ms` for og:image prefetch sweep.
+--
+-- The post-backup "warm new visits" pass + the Settings → Rebuild now
+-- action both run:
+--
+--   SELECT u.url FROM urls u
+--   LEFT JOIN og_images o ON o.page_url = u.url
+--   WHERE o.id IS NULL AND u.url LIKE 'https://%'
+--   ORDER BY u.last_visit_ms DESC
+--   LIMIT ?
+--
+-- Without an index that supports the `ORDER BY last_visit_ms DESC LIMIT`
+-- clause the planner does `SCAN u` + `USE TEMP B-TREE FOR ORDER BY`, a
+-- full-table scan plus a sort over every URL. On the user's 149k-row
+-- archive that already lands as the slowest fetch on a backup; the
+-- 1440 M-row target the architecture pins would make the unindexed
+-- plan unusable.
+--
+-- The existing `idx_urls_profile_last_visit (source_profile_id,
+-- last_visit_ms DESC)` is a multi-column index whose left-most column
+-- has to be filtered on for the index to be useful — the prefetch
+-- sweep deliberately runs unscoped (all profiles), so it cannot use
+-- that index. This adds a single-column index that the planner can
+-- walk directly.
+CREATE INDEX IF NOT EXISTS idx_urls_last_visit_ms
+  ON urls(last_visit_ms DESC);

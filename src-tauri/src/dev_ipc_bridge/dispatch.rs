@@ -131,11 +131,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
-            json_value!(worker_bridge::run_backup_now_impl(
-                payload.due_only,
-                session_key(&state.session).as_deref(),
-                std::mem::drop::<vault_core::BackupProgressEvent>,
-            )?)
+            let key = session_key(&state.session);
+            json_value!(backup_now_off_thread(payload.due_only, key).await?)
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
@@ -151,9 +148,115 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "load_history_og_images" => {
+            let payload = parse_payload::<HistoryOgImagePayload>(payload)?;
+            json_value!(worker_bridge::load_history_og_images_impl(
+                payload.entries,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "mark_og_images_shown" => {
+            let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
+            json_value!(worker_bridge::mark_og_images_shown_impl(
+                payload.urls,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "trigger_og_image_refetch" => {
+            let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
+            let session_key = session_key(&state.session);
+            // refetch builds a reqwest::blocking::Client whose internal tokio runtime
+            // panics if dropped from inside another async runtime (Tauri commands wrap
+            // in spawn_blocking via run_blocking_command; the dev bridge must mirror it).
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::refetch_og_images_impl(payload.urls, session_key.as_deref())
+            })
+            .await
+            .map_err(|error| format!("trigger_og_image_refetch join failed: {error}"))??;
+            json_value!(result)
+        }
+        "get_og_image_storage_stats" => {
+            json_value!(worker_bridge::og_image_storage_stats_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "clear_og_image_cache" => {
+            json_value!(worker_bridge::clear_og_image_cache_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "run_og_image_cleanup" => {
+            json_value!(worker_bridge::run_og_image_cleanup_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_url_annotation" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(worker_bridge::get_annotation_impl(
+                session_key(&state.session).as_deref(),
+                &payload.url,
+            )?)
+        }
+        "set_url_notes" => {
+            let payload = parse_payload::<SetNotesPayload>(payload)?;
+            json_value!(worker_bridge::set_notes_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "replace_url_tags" => {
+            let payload = parse_payload::<ReplaceTagsPayload>(payload)?;
+            json_value!(worker_bridge::replace_tags_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "list_url_annotations" => {
+            let payload = parse_payload::<AnnotationLimitPayload>(payload)?;
+            json_value!(worker_bridge::list_annotations_impl(
+                session_key(&state.session).as_deref(),
+                payload.limit,
+            )?)
+        }
+        "search_url_annotations" => {
+            let payload = parse_payload::<AnnotationSearchPayload>(payload)?;
+            json_value!(worker_bridge::search_annotations_impl(
+                session_key(&state.session).as_deref(),
+                &payload.query,
+                payload.limit,
+            )?)
+        }
+        "export_app_data" => {
+            let payload = parse_payload::<ExportAppDataPayload>(payload)?;
+            json_value!(worker_bridge::export_app_data_impl(
+                session_key(&state.session).as_deref(),
+                std::path::PathBuf::from(payload.target_path),
+            )?)
+        }
+        "preview_app_data_import" => {
+            let payload = parse_payload::<PreviewAppDataImportPayload>(payload)?;
+            json_value!(worker_bridge::preview_app_data_import_impl(std::path::PathBuf::from(
+                payload.bundle_path
+            ),)?)
+        }
+        "apply_app_data_import" => {
+            let payload = parse_payload::<ApplyAppDataImportPayload>(payload)?;
+            json_value!(worker_bridge::apply_app_data_import_impl(
+                session_key(&state.session).as_deref(),
+                std::path::PathBuf::from(payload.bundle_path),
+                payload.options,
+            )?)
+        }
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(
                 session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_browse_day_insights" => {
+            let payload = parse_payload::<BrowseDayInsightsPayload>(payload)?;
+            json_value!(worker_bridge::browse_day_insights_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
             )?)
         }
         "load_audit_run_detail" => {
@@ -167,19 +270,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<ExportPayload>(payload)?;
             json_value!(worker_bridge::export_history_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
-            )?)
-        }
-        "preview_remote_backup" => json_value!(worker_bridge::preview_remote_backup_impl()?),
-        "run_remote_backup" => {
-            json_value!(worker_bridge::run_remote_backup_impl(
-                session_key(&state.session).as_deref()
-            )?)
-        }
-        "verify_remote_backup" => {
-            let payload = parse_payload::<BundlePathPayload>(payload)?;
-            json_value!(worker_bridge::verify_remote_backup_impl(
-                payload.bundle_path,
                 session_key(&state.session).as_deref()
             )?)
         }
@@ -274,15 +364,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "keyring_clear_database_key" => {
             json_value!(worker_bridge::keyring_clear_database_key_impl()?)
         }
-        "store_s3_credentials" => {
-            let payload = parse_payload::<CredentialsPayload>(payload)?;
-            worker_bridge::store_s3_credentials_impl(payload.credentials)?;
-            Ok(Value::Null)
-        }
-        "clear_s3_credentials" => {
-            worker_bridge::clear_s3_credentials_impl()?;
-            Ok(Value::Null)
-        }
         "store_ai_provider_api_key" => {
             let payload = parse_payload::<AiProviderSecretPayload>(payload)?;
             json_value!(worker_bridge::store_ai_provider_api_key_impl(
@@ -298,22 +379,31 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "test_ai_provider_connection" => {
+            // Same panic mechanism as `run_backup_now` before f580761:
+            // the worker builds a fresh `tokio::runtime::Runtime` via
+            // `Runtime::new()` and calls `block_on(...)` on the provider
+            // probe. Dropping that runtime inside the dev-IPC bridge's
+            // async context panics with "Cannot drop a runtime in a
+            // context where blocking is not allowed", crashes the bridge
+            // thread, and clients see `socket hang up`. Production Tauri
+            // commands sidestep this via `run_blocking_command`; the
+            // dev bridge must mirror it. Claude review findings #1–4
+            // (the four AI arms below all share this root cause).
             let payload =
                 parse_payload::<WrappedRequest<AiProviderConnectionTestRequest>>(payload)?;
-            json_value!(worker_bridge::test_ai_provider_connection_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            json_value!(test_ai_provider_connection_off_thread(payload.request, key).await?)
         }
         "load_ai_queue_status" => json_value!(worker_bridge::load_ai_queue_status_impl(
             session_key(&state.session).as_deref()
         )?),
         "run_ai_queue_jobs" => {
+            // Drains queued AI jobs synchronously and calls block_on
+            // inside each `complete_claimed_*_job`. Same panic mechanism
+            // as the arms above; hop off the async thread.
             let payload = parse_payload::<MaxJobsPayload>(payload)?;
-            json_value!(worker_bridge::run_ai_queue_jobs_impl(
-                payload.max_jobs,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            json_value!(run_ai_queue_jobs_off_thread(payload.max_jobs, key).await?)
         }
         "replay_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
@@ -344,18 +434,21 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "search_ai_history" => {
+            // `run_semantic_search` calls `block_on` against the embedding
+            // provider; same panic mechanism as the AI arms above.
             let payload = parse_payload::<WrappedRequest<AiSearchRequest>>(payload)?;
-            json_value!(worker_bridge::search_ai_history_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            json_value!(search_ai_history_off_thread(payload.request, key).await?)
         }
         "ask_ai_assistant" => {
+            // When `job_queue_paused=false`, `ask_ai_assistant` runs the
+            // assistant job synchronously and reaches `block_on` via
+            // `complete_claimed_assistant_job`. The paused path is safe
+            // (it only stages the job), but we wrap unconditionally so
+            // the panic cannot fire on a config flip.
             let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
-            json_value!(worker_bridge::ask_ai_assistant_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let key = session_key(&state.session);
+            json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
@@ -777,6 +870,94 @@ fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, String> {
 
 fn to_json_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| error.to_string())
+}
+
+/// Hops `run_backup_now_impl` onto the tokio blocking thread pool.
+///
+/// The post-backup tick inside `run_backup_now` fires the og:image refetch
+/// and prefetch passes, which build a `reqwest::blocking::Client` whose
+/// internal tokio runtime panics if dropped from inside another async
+/// runtime. Production Tauri commands wrap synchronous worker calls in
+/// `tauri::async_runtime::spawn_blocking` via `run_blocking_command`; the
+/// dev IPC bridge must mirror it. Without this hop the dev-IPC HTTP
+/// server thread crashes mid-response and the client sees a
+/// `socket hang up` with no body.
+async fn backup_now_off_thread(
+    due_only: bool,
+    key: Option<String>,
+) -> Result<vault_core::BackupReport, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::run_backup_now_impl(
+            due_only,
+            key.as_deref(),
+            std::mem::drop::<vault_core::BackupProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("run_backup_now join failed: {error}")))
+}
+
+/// Hops `test_ai_provider_connection_impl` onto the tokio blocking
+/// thread pool. The worker builds a fresh `tokio::runtime::Runtime`
+/// internally and calls `block_on` on the provider-connection probe;
+/// dropping that runtime inside the dev-IPC bridge's async context
+/// panics ("Cannot drop a runtime in a context where blocking is not
+/// allowed"). Same shape as `backup_now_off_thread`.
+async fn test_ai_provider_connection_off_thread(
+    request: vault_core::AiProviderConnectionTestRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiProviderConnectionTestReport, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::test_ai_provider_connection_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("test_ai_provider_connection join failed: {error}")))
+}
+
+/// Hops `run_ai_queue_jobs_impl` onto the tokio blocking thread pool.
+/// The synchronous drain loop calls `block_on` inside each
+/// `complete_claimed_index_job` / `complete_claimed_assistant_job`,
+/// so the bridge thread cannot host it directly.
+async fn run_ai_queue_jobs_off_thread(
+    max_jobs: Option<u32>,
+    key: Option<String>,
+) -> Result<vault_core::AiQueueStatus, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("run_ai_queue_jobs join failed: {error}")))
+}
+
+/// Hops `search_ai_history_impl` onto the tokio blocking thread pool.
+/// `run_semantic_search` calls `block_on` against the embedding
+/// provider; same panic mechanism if dropped inside the bridge's
+/// async context.
+async fn search_ai_history_off_thread(
+    request: vault_core::AiSearchRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiSearchResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::search_ai_history_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("search_ai_history join failed: {error}")))
+}
+
+/// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
+/// When `job_queue_paused=false`, the assistant job runs synchronously
+/// and reaches `block_on` via `complete_claimed_assistant_job`. The
+/// paused path is safe (it only stages the job) but we wrap
+/// unconditionally so the panic cannot fire on a config flip.
+async fn ask_ai_assistant_off_thread(
+    request: vault_core::AiAssistantRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiAssistantResponse, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("ask_ai_assistant join failed: {error}")))
 }
 
 #[cfg(test)]

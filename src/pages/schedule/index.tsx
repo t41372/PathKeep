@@ -87,19 +87,27 @@ export function SchedulePage() {
 
   if (loading || uiState === 'CHECKING') {
     return (
-      <section className="page-shell schedule-page" data-testid="schedule-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+        data-testid="schedule-page"
+      >
         <ScheduleHeader t={t} />
-        <div className="schedule-state-panel">
+        <div className="border-border-light bg-paper rounded-paper flex flex-col items-start gap-2 border px-4 py-4">
           <LoadingState label={t('schedule.detectingStatus')} />
-          <p className="dashboard-next-action">{t('schedule.detectingBody')}</p>
+          <p className="text-ink-muted m-0 font-mono text-[11px]">
+            {t('schedule.detectingBody')}
+          </p>
         </div>
-      </section>
+      </div>
     )
   }
 
   if (!plan || !status) {
     return (
-      <section className="page-shell schedule-page" data-testid="schedule-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+        data-testid="schedule-page"
+      >
         <ScheduleHeader t={t} />
         <StatusCallout
           tone="blocked"
@@ -107,7 +115,7 @@ export function SchedulePage() {
           body={error ?? t('schedule.unavailableBody')}
           actions={
             <button
-              className="btn-primary"
+              className="border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
               type="button"
               onClick={() => {
                 void detectSchedule('detect')
@@ -117,12 +125,15 @@ export function SchedulePage() {
             </button>
           }
         />
-      </section>
+      </div>
     )
   }
 
   return (
-    <section className="page-shell schedule-page" data-testid="schedule-page">
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+      data-testid="schedule-page"
+    >
       <ScheduleHeader t={t} />
       <ScheduleStatusBar
         actionResult={actionResult}
@@ -260,7 +271,7 @@ export function SchedulePage() {
           t={t}
         />
       ) : null}
-    </section>
+    </div>
   )
 }
 

@@ -25,6 +25,7 @@
 
 import { useEffect, useState } from 'react'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { waitForNextPaint } from '../../lib/wait-for-next-paint'
 import type { ArchiveMode, RekeyPreview, RekeyRequest } from '../../lib/types'
 import type { SecurityLoadState, SecurityTranslate } from './helpers'
@@ -77,10 +78,7 @@ export function useSecurityWorkflow({
         if (!cancelled) {
           setLoadState({
             status: null,
-            error:
-              nextError instanceof Error
-                ? nextError.message
-                : t('security.unavailableBody'),
+            error: describeError(nextError, 'security_status'),
           })
         }
       }
@@ -125,11 +123,7 @@ export function useSecurityWorkflow({
       await waitForNextPaint()
       return await fn()
     } catch (nextError) {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
+      setActionError(describeError(nextError, 'security_action'))
     } finally {
       setBusy(null)
     }

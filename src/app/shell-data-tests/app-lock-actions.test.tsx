@@ -25,7 +25,6 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
-import { createTranslator } from '../../lib/i18n'
 import {
   getDefaultBuildInfo,
   renderShellProbe,
@@ -263,7 +262,6 @@ describe('ShellDataProvider', () => {
               run: null,
               profiles: [],
               warnings: [],
-              remoteBackup: null,
             })
         }),
     )
@@ -377,7 +375,6 @@ describe('ShellDataProvider', () => {
   })
 
   test('surfaces idle-timeout lock failures without clearing the loaded shell state', async () => {
-    const translator = createTranslator('en')
     const { dashboard, snapshot } = await seedSnapshot()
     const unlockedStatus = {
       ...snapshot.appLockStatus,
@@ -455,9 +452,7 @@ describe('ShellDataProvider', () => {
       vi.useRealTimers()
 
       await waitFor(() =>
-        expect(screen.getByTestId('error')).toHaveTextContent(
-          translator('shell.lockAppFailed'),
-        ),
+        expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
       )
       expect(screen.getByTestId('snapshot-language')).not.toHaveTextContent(
         'none',
@@ -472,7 +467,6 @@ describe('ShellDataProvider', () => {
 
   test('surfaces app lock action failures with both explicit and fallback errors', async () => {
     const user = userEvent.setup()
-    const translator = createTranslator('en')
     const { dashboard, snapshot } = await seedSnapshot()
     const unlockedStatus = {
       ...snapshot.appLockStatus,
@@ -527,9 +521,7 @@ describe('ShellDataProvider', () => {
     )
     await user.click(screen.getByRole('button', { name: 'set-passcode' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.setAppLockPasscodeFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'clear-passcode' }))
@@ -540,9 +532,7 @@ describe('ShellDataProvider', () => {
     )
     await user.click(screen.getByRole('button', { name: 'clear-passcode' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.clearAppLockPasscodeFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'lock' }))
@@ -551,9 +541,7 @@ describe('ShellDataProvider', () => {
     )
     await user.click(screen.getByRole('button', { name: 'lock' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.lockAppFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'unlock' }))
@@ -562,9 +550,7 @@ describe('ShellDataProvider', () => {
     )
     await user.click(screen.getByRole('button', { name: 'unlock' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.unlockAppFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
   })
 })

@@ -541,6 +541,37 @@ export function formatTakeoutLocaleLabel(
   }
 }
 
+/**
+ * Picks a label for the "Detected layout" badge.
+ *
+ * The backend only fills `detectedLocale` for actual Google Takeout zips, where
+ * the bundle locale identifies which folder layout to expect. Dedicated Chrome
+ * history files (e.g. exported `History.json`) have no Takeout layout and so
+ * arrive with `detectedLocale = null`, which used to render as "Unknown" — a
+ * scary status badge for a file that was actually classified perfectly. We
+ * fall back to the dominant `will-import` file kind label so the badge stays
+ * informative ("Chrome history payload") instead of misleading.
+ */
+export function formatTakeoutLayoutLabel(
+  detectedLocale: string | null | undefined,
+  recognizedFiles: TakeoutFileReport[],
+  t: ImportTranslate,
+) {
+  if (detectedLocale && detectedLocale !== 'mixed') {
+    return formatTakeoutLocaleLabel(detectedLocale, t)
+  }
+  if (detectedLocale === 'mixed') {
+    return formatTakeoutLocaleLabel('mixed', t)
+  }
+  const importable = recognizedFiles.find(
+    (report) => report.classification === 'will-import',
+  )
+  if (importable) {
+    return takeoutFileKindLabel(importable, t)
+  }
+  return formatTakeoutLocaleLabel(null, t)
+}
+
 export function hasTakeoutReasonCode(
   reports: TakeoutFileReport[],
   reasonCode: string,

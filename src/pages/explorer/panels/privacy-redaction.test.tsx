@@ -3,13 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-import type { ReviewCopyFeedback } from '../../../components/review'
+import { PaperListRow } from '../../../components/explorer-paper/paper-list-row'
+import { PaperSearchResult } from '../../../components/explorer-paper/paper-search-result'
 import { createNamespaceTranslator } from '../../../lib/i18n'
-import type { HistoryQueryResponse } from '../../../lib/types'
 import * as api from '../../../lib/core-intelligence/api'
 import { ExplorerDetailPanel } from './detail-panel'
 import { NavigationTracer } from './navigation-tracer'
-import { ExplorerResultsPanel } from './results-panel'
 import { SessionGroupPanel } from './session-group'
 import { TrailGroupPanel } from './trail-group'
 
@@ -22,71 +21,42 @@ describe('Explorer privacy redaction', () => {
     vi.restoreAllMocks()
   })
 
-  test('redacts callback URLs in the results list and the detail rail', () => {
+  test('redacts callback URLs across paper Browse and Search surfaces', () => {
     const callbackUrl =
       'http://localhost:1455/success?id_token=secret-token&email=test@example.com'
-    const results: HistoryQueryResponse = {
-      total: 1,
-      items: [
-        {
-          id: 1,
-          profileId: 'chrome:Default',
-          url: callbackUrl,
-          title: `Sign into Codex ${callbackUrl}`,
-          domain: 'localhost',
-          favicon: null,
-          visitedAt: '2026-04-18T12:00:00Z',
-          visitTime: Date.parse('2026-04-18T12:00:00Z'),
-          durationMs: null,
-          transition: null,
-          sourceVisitId: 0,
-          appId: null,
-        },
-      ],
-      page: 0,
-      pageSize: 50,
-      pageCount: 1,
-      hasPrevious: false,
-      hasNext: false,
-      nextCursor: null,
+    const entry = {
+      id: 1,
+      title: `Sign into Codex ${callbackUrl}`,
+      url: callbackUrl,
+      domain: 'localhost',
+      time: '12:00',
     }
-    const item = results.items[0]
 
-    render(
-      <MemoryRouter>
-        <ExplorerResultsPanel
-          actionError={null}
-          commonT={commonT}
-          copyFeedback={null as ReviewCopyFeedback | null}
-          explorerT={explorerT}
-          exportResult={null}
-          handleCopyExportPath={vi.fn(async () => {})}
-          handleExport={vi.fn(async () => {})}
-          handleFirstHistoryPage={vi.fn()}
-          handleHistoryPageJump={vi.fn()}
-          handleLastHistoryPage={vi.fn()}
-          handleNextHistoryPage={vi.fn()}
-          handleOpenExportPath={vi.fn(async () => {})}
-          handlePreviousHistoryPage={vi.fn()}
-          handleVisit={vi.fn(async () => {})}
-          historyBlockedByInvalidRegex={false}
-          historyPage={1}
-          historyPageCount={1}
-          historyPageInput="1"
-          historyPageSize={50}
-          intelligenceT={intelligenceT}
-          language="en"
-          loading={false}
-          onHistoryPageInputChange={vi.fn()}
-          onHistoryPageSizeChange={vi.fn()}
-          onSelectHistory={vi.fn()}
-          results={results}
-          selectedEntry={item}
-        />
-      </MemoryRouter>,
+    const { unmount } = render(
+      <PaperListRow
+        entry={entry}
+        domainColor="#222"
+        domainAbbr="LOC"
+        testId="paper-list-redaction"
+      />,
     )
 
-    expect(screen.getAllByText('localhost/success').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/localhost\/success/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/id_token=/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/test@example\.com/i)).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <PaperSearchResult
+        entry={{ ...entry, transitionType: 'link' }}
+        domainColor="#222"
+        domainAbbr="LOC"
+        query=""
+        testId="paper-search-result-redaction"
+      />,
+    )
+
+    expect(screen.getAllByText(/localhost\/success/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/id_token=/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/test@example\.com/i)).not.toBeInTheDocument()
   })

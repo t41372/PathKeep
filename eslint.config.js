@@ -17,6 +17,7 @@ export default defineConfig([
     'playwright-report',
     'reports',
     '.stryker-tmp',
+    '.claude',
     'src-tauri/target',
     'src-tauri/**/target',
     'var',
@@ -71,6 +72,15 @@ export default defineConfig([
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
+    },
+  },
+  // shadcn primitives are scaffolded templates and export companion non-component
+  // utilities (cva variants, helpers). React-refresh's "components only" rule is
+  // about HMR ergonomics rather than correctness — relax it for this directory.
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])

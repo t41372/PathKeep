@@ -26,16 +26,15 @@ use std::{
     path::{Path, PathBuf},
 };
 use vault_core::{
-    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, S3CredentialInput,
-    archive, archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
+    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, archive,
+    archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
 #[cfg(not(coverage))]
 use vault_platform::authenticate_app_lock_biometric;
 use vault_platform::{
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
-    keyring_get_database_key, keyring_set_database_key, keyring_set_provider_api_key,
-    keyring_set_s3_credentials, keyring_status,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
+    keyring_set_database_key, keyring_set_provider_api_key, keyring_status,
 };
 
 type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
@@ -379,16 +378,6 @@ fn remove_file_if_exists(path: &Path) -> Result<()> {
 /// Returns the current native keyring status snapshot.
 pub fn keyring_report() -> KeyringStatusReport {
     keyring_status()
-}
-
-/// Stores S3 credentials in the native keyring.
-pub fn store_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
-    keyring_set_s3_credentials(credentials)
-}
-
-/// Removes stored S3 credentials from the native keyring.
-pub fn clear_s3_credentials() -> Result<()> {
-    keyring_clear_s3_credentials()
 }
 
 /// Stores an AI provider secret and returns a refreshed app snapshot.

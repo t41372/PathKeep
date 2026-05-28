@@ -450,6 +450,13 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: safari_time_to_unix_ms(last_visit_time),
         last_visit_iso: safari_time_to_iso(last_visit_time),
         hidden: false,
+        // Safari's MAX(visit_time) subquery yields a float in safari_time
+        // (seconds-since-2001). The watermark is stored as unix_ms and
+        // converted via `unix_ms_to_safari_time` at query time, which loses
+        // sub-ms precision the same way Firefox does. Leaving the marker
+        // unset preserves the legacy contract; the Safari cursor unit
+        // migration is tracked in BACKLOG.md alongside Firefox.
+        source_last_visit_marker: None,
     })
 }
 
@@ -685,7 +692,10 @@ mod tests {
     struct NonRetainingEvidenceSink {
         urls: usize,
         visits: usize,
+        url_batches: Vec<usize>,
+        visit_batches: Vec<usize>,
         source_evidence_chunks: usize,
+        source_evidence_native_batches: Vec<usize>,
         navigation_evidence: usize,
         engagement_evidence: usize,
         context_evidence: usize,
@@ -696,17 +706,20 @@ mod tests {
         type Error = Infallible;
 
         fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            self.url_batches.push(batch.len());
             self.urls += batch.len();
             Ok(())
         }
 
         fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visit_batches.push(batch.len());
             self.visits += batch.len();
             Ok(())
         }
 
         fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
             self.source_evidence_chunks += 1;
+            self.source_evidence_native_batches.push(chunk.native_entities.len());
             self.navigation_evidence += chunk.typed_evidence.navigation.len();
             self.engagement_evidence += chunk.typed_evidence.engagement.len();
             self.context_evidence += chunk.typed_evidence.context.len();
@@ -868,6 +881,32 @@ mod tests {
         assert!(parsed.typed_evidence.context.iter().any(|item| {
             item.context_key == "safari.load_successful" && item.value_json == "false"
         }));
+        assert!(parsed.typed_evidence.context.iter().any(|item| {
+            item.context_key == "safari.origin"
+                && item.source_field == "history_visits.origin"
+                && item.value_json == "1"
+        }));
+        assert!(parsed.typed_evidence.context.iter().any(|item| {
+            item.context_key == "safari.generation"
+                && item.source_field == "history_visits.generation"
+                && item.value_json == "3"
+        }));
+        assert!(parsed.typed_evidence.context.iter().any(|item| {
+            item.context_key == "safari.attributes"
+                && item.source_field == "history_visits.attributes"
+                && item.value_json == "8"
+        }));
+        assert!(parsed.typed_evidence.navigation.iter().any(|item| {
+            item.edge_kind == "safari.redirect_source"
+                && item.source_field == "history_visits.redirect_source"
+        }));
+        assert!(parsed.typed_evidence.navigation.iter().any(|item| {
+            item.edge_kind == "safari.redirect_destination"
+                && item.source_field == "history_visits.redirect_destination"
+        }));
+        assert!(parsed.typed_evidence.engagement.iter().all(|item| {
+            item.metric_key == "safari.score" && item.source_field == "history_visits.score"
+        }));
         assert!(parsed.native_entities.iter().any(|entity| {
             entity.entity_kind == "safari-history-visit-row"
                 && entity.payload_json.contains("load_successful")
@@ -876,6 +915,14 @@ mod tests {
         assert!(parsed.capability_snapshot.items.iter().any(|item| {
             item.key == "safari.redirect_edges" && item.available && item.populated_rows == 2
         }));
+        let capability = |key: &str| {
+            parsed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
+        };
+        assert_eq!(capability("canonical.history_visits").populated_rows, 2);
+        assert_eq!(capability("safari.load_outcome").populated_rows, 2);
+        assert_eq!(capability("safari.http_method").populated_rows, 2);
+        assert_eq!(capability("safari.synthesized").populated_rows, 2);
+        assert_eq!(capability("safari.score").populated_rows, 2);
     }
 
     #[test]
@@ -905,6 +952,75 @@ mod tests {
                 .iter()
                 .any(|item| { item.key == "safari.redirect_edges" && item.populated_rows == 2 })
         );
+    }
+
+    #[test]
+    fn stream_history_batches_rows_and_optional_native_tables() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History.db");
+        write_current_schema_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        for id in 6_i64..=7 {
+            connection
+                .execute(
+                    "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
+                    params![id, format!("https://example.com/safari-{id}")],
+                )
+                .expect("insert history item");
+            connection
+                .execute(
+                    "INSERT INTO history_visits (
+                       id, history_item, title, visit_time, load_successful,
+                       http_non_get, synthesized, redirect_source, redirect_destination,
+                       origin, generation, attributes, score
+                     )
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    params![
+                        id + 10,
+                        id,
+                        format!("Safari {id}"),
+                        765_838_800.0_f64 + id as f64,
+                        1_i64,
+                        0_i64,
+                        0_i64,
+                        Option::<i64>::None,
+                        Option::<i64>::None,
+                        1_i64,
+                        1_i64,
+                        1_i64,
+                        0.5_f64,
+                    ],
+                )
+                .expect("insert visit");
+        }
+        connection
+            .execute(
+                "INSERT INTO history_tombstones (id, reason) VALUES (?1, ?2)",
+                params![103_i64, "local"],
+            )
+            .expect("insert third tombstone");
+        drop(connection);
+
+        let mut sink = NonRetainingEvidenceSink::default();
+        let streamed = stream_history(&history_path, 0, 0, 2, &mut sink).expect("stream safari");
+
+        assert_eq!(sink.url_batches, vec![2, 1]);
+        assert_eq!(sink.visit_batches, vec![2, 2]);
+        assert_eq!(sink.source_evidence_native_batches, vec![2, 1, 2, 2, 2, 1]);
+        assert_eq!(sink.urls, 3);
+        assert_eq!(sink.visits, 4);
+        assert_eq!(sink.navigation_evidence, 2);
+        assert_eq!(sink.engagement_evidence, 4);
+        assert_eq!(sink.context_evidence, 24);
+        assert!(streamed.native_entities.is_empty());
+        let capability = |key: &str| {
+            streamed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
+        };
+        assert_eq!(capability("canonical.history_visits").populated_rows, 4);
+        assert_eq!(capability("safari.load_outcome").populated_rows, 4);
+        assert_eq!(capability("safari.http_method").populated_rows, 4);
+        assert_eq!(capability("safari.synthesized").populated_rows, 4);
+        assert_eq!(capability("safari.score").populated_rows, 4);
     }
 
     #[test]

@@ -1,17 +1,30 @@
 # UX 設計原則
 
 > 從 [vision-and-requirements.md](../vision-and-requirements.md) 抽出。
+> v0.3 paper-redesign aesthetic 詳細色票與字體規範見 [design-tokens.md](./design-tokens.md)。
 
 ---
 
 ## 1. 視覺設計方向
 
-- 追求現代、精緻、有科技感的視覺風格。
-- Dashboard 和洞察頁面可以做得炫酷和花哨 — 用漂亮的數據視覺化、流暢的動畫、動態圖表讓用戶覺得好看好用。
-- 暗色模式優先，但也要支持淺色模式。
-- 信息密度適中，不要太空也不要太擠。
-- 桌面優先，但保留窄視窗可用性。
+PathKeep 的視覺方向是 **「Paper + Archival」**——一本你在週日午後願意打開的書，談的是你自己。設計拒絕了 Linear / Raycast / Vercel 那條 SaaS-tech consensus，朝向 editorial、書本感的方向。
+
+- **預設淺色 ("paper")**，深色稱為 "darkroom"。淺色配 cream paper 紙感（`#ece7de` / `#f6f3ed` / `#fdfcf9`），深色配深棕底（`#110f0d` / `#191614` / `#201c18`）。
+- 單一 accent：slate blue（`#3d5a80` 淺、`#7a9cc7` 深），不是橙色。
+- 三套字體系統：
+  - Newsreader serif → 編輯體標題、敘述體 body、靜態氛圍 copy。
+  - 系統 sans → UI chrome、按鈕、列表標題、密集 labels。
+  - JetBrains Mono → 純 ASCII evidence、path、ID、command、mono badge。
+  - CJK 永遠 fall back 到系統字體；bundled fonts 只負責 Latin subsets。
+- 圓角 `--radius: 3px`（不是 brutalist 的 0 px，也不是 Material 的 12 px），介於「銳利檔案」與「友善紙片」之間。
+- 紙感材質：約 2.8 % 紙噪 + 12 % darkroom vignette（深色模式）。Settings → Appearance 可關閉。
+- Dashboard、Intelligence、On This Day、Year Heatmap 可以使用編輯體的鋪陳與排版節奏，但不靠閃爍動畫或裝飾性圖表來營造「炫」；視覺重量永遠回到內容本身。
+- 信息密度走 editorial side：寧可留白，也不要把卡片塞滿。Settings → Appearance "Density" 提供 `comfortable`（預設）/ `compact` 兩段切換。
+- 桌面優先，但保留窄視窗可用性。Sidebar 216 px 展開 / 56 px 收合。
 - 需要操作透明性的地方（audit ledger、排程設定、導入流程）保持清晰嚴謹，但不需要整個 app 都像帳本。
+
+> 詳細色票、字體 stack、spacing、motion、radius token 規範請見 [design-tokens.md](./design-tokens.md)。
+> 從 v0.2 brutalist 轉向的歷史與決策過程見 [[feedback-brutalist-radius]] 與 [[project-v0-3-redesign]] memory。
 
 ---
 

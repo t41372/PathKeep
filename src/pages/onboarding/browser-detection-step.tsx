@@ -13,6 +13,13 @@
  * - 不決定 onboarding 下一步是否合法。
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { browserRetentionMeta } from '../../lib/browser-retention'
 import { BrowserIcon } from '../../lib/browser-icons'
 import { useI18n } from '../../lib/i18n'
@@ -77,143 +84,150 @@ export function BrowserDetectionStep({
         </span>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('detectedProfiles')}</span>
-          <span className="panel-action">
-            {t('found').replace('{count}', String(browserProfiles.length))}
-          </span>
-        </div>
-        <div className="panel-body" style={{ padding: 0 }}>
-          <div className="profile-list">
-            {[...readableProfiles, ...attentionProfiles].map((profile) => {
-              const selected = selectedProfileIds.includes(profile.profileId)
-              const retention = browserRetentionMeta(profile, commonT)
-              const ready = isBrowserProfileReadable(profile)
-              const accessIssue = hasBrowserProfileAccessIssue(profile)
-              const historyFileLabel =
-                profile.historyFileName ||
-                profile.historyPath?.split(/[\\/]/).pop() ||
-                profile.profileName
-              const statusLabel = ready
-                ? t('historyFound')
-                : accessIssue
-                  ? t('permissionRequired')
-                  : t('actionRequired')
-              const statusClass = ready
-                ? 'status-completed'
-                : accessIssue
-                  ? 'status-warning'
-                  : 'status-pending'
-              const detail = ready
-                ? t('browserEngineLabel', {
-                    version: profile.browserVersion ?? t('versionUnknown'),
-                    engine: engineLabel(profile.browserFamily),
-                  })
-                : accessIssue
-                  ? profile.browserFamily === 'safari'
-                    ? t('safariAccessHint')
-                    : t('browserProfileAccessHint')
-                  : profile.browserFamily === 'safari'
-                    ? t('safariAccessHint')
-                    : t('cannotReadHint').replace(
-                        '{fileName}',
-                        historyFileLabel,
-                      )
+      <div className="mt-4">
+        <PaperCard testId="onboarding-browser-detection-profiles">
+          <PaperCardHeader
+            title={t('detectedProfiles')}
+            right={
+              <PaperCardBadge>
+                {t('found').replace('{count}', String(browserProfiles.length))}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="p-0">
+            <div className="profile-list">
+              {[...readableProfiles, ...attentionProfiles].map((profile) => {
+                const selected = selectedProfileIds.includes(profile.profileId)
+                const retention = browserRetentionMeta(profile, commonT)
+                const ready = isBrowserProfileReadable(profile)
+                const accessIssue = hasBrowserProfileAccessIssue(profile)
+                const historyFileLabel =
+                  profile.historyFileName ||
+                  profile.historyPath?.split(/[\\/]/).pop() ||
+                  profile.profileName
+                const statusLabel = ready
+                  ? t('historyFound')
+                  : accessIssue
+                    ? t('permissionRequired')
+                    : t('actionRequired')
+                const statusClass = ready
+                  ? 'status-completed'
+                  : accessIssue
+                    ? 'status-warning'
+                    : 'status-pending'
+                const detail = ready
+                  ? t('browserEngineLabel', {
+                      version: profile.browserVersion ?? t('versionUnknown'),
+                      engine: engineLabel(profile.browserFamily),
+                    })
+                  : accessIssue
+                    ? profile.browserFamily === 'safari'
+                      ? t('safariAccessHint')
+                      : t('browserProfileAccessHint')
+                    : profile.browserFamily === 'safari'
+                      ? t('safariAccessHint')
+                      : t('cannotReadHint').replace(
+                          '{fileName}',
+                          historyFileLabel,
+                        )
 
-              return (
-                <label
-                  className="profile-item"
-                  key={profile.profileId}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <input
-                    aria-label={`${profile.browserName} / ${profile.profileName}`}
-                    checked={selected}
-                    className="sr-only"
-                    type="checkbox"
-                    onChange={() => onToggleProfile(profile.profileId)}
-                  />
-                  <div className={`checkbox ${selected ? 'active' : ''}`}>
-                    {selected ? '✓' : ''}
-                  </div>
-                  <div className="browser-icon">
-                    <BrowserIcon browserName={profile.browserName} />
-                  </div>
-                  <div className="profile-info">
-                    <div className="profile-name">
-                      {profile.browserName} / {profile.profileName}
+                return (
+                  <label
+                    className="profile-item"
+                    key={profile.profileId}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <input
+                      aria-label={`${profile.browserName} / ${profile.profileName}`}
+                      checked={selected}
+                      className="sr-only"
+                      type="checkbox"
+                      onChange={() => onToggleProfile(profile.profileId)}
+                    />
+                    <div className={`checkbox ${selected ? 'active' : ''}`}>
+                      {selected ? '✓' : ''}
                     </div>
-                    <div className="profile-path dim mono">
-                      {historyFileLabel}
+                    <div className="browser-icon">
+                      <BrowserIcon browserName={profile.browserName} />
                     </div>
-                  </div>
-                  <div className="profile-detection">
-                    <span className={`status-badge ${statusClass}`}>
-                      {statusLabel}
-                    </span>
-                    <span
-                      className="mono dim"
-                      style={{
-                        display: 'block',
-                        fontSize: '10px',
-                        marginTop: '2px',
-                      }}
-                    >
-                      {detail}
-                    </span>
-                    {ready ? (
-                      <>
-                        <span
-                          className="mono dim"
-                          style={{
-                            display: 'block',
-                            fontSize: '10px',
-                            marginTop: '2px',
-                          }}
-                        >
-                          {retention.label}
-                        </span>
-                        <span
-                          className="mono dim"
-                          style={{
-                            display: 'block',
-                            fontSize: '10px',
-                            marginTop: '2px',
-                          }}
-                        >
-                          {commonT('browserRetentionArchiveBoundary')}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                </label>
-              )
-            })}
-          </div>
-        </div>
+                    <div className="profile-info">
+                      <div className="profile-name">
+                        {profile.browserName} / {profile.profileName}
+                      </div>
+                      <div className="profile-path dim mono">
+                        {historyFileLabel}
+                      </div>
+                    </div>
+                    <div className="profile-detection">
+                      <span className={`status-badge ${statusClass}`}>
+                        {statusLabel}
+                      </span>
+                      <span
+                        className="mono dim"
+                        style={{
+                          display: 'block',
+                          fontSize: '10px',
+                          marginTop: '2px',
+                        }}
+                      >
+                        {detail}
+                      </span>
+                      {ready ? (
+                        <>
+                          <span
+                            className="mono dim"
+                            style={{
+                              display: 'block',
+                              fontSize: '10px',
+                              marginTop: '2px',
+                            }}
+                          >
+                            {retention.label}
+                          </span>
+                          <span
+                            className="mono dim"
+                            style={{
+                              display: 'block',
+                              fontSize: '10px',
+                              marginTop: '2px',
+                            }}
+                          >
+                            {commonT('browserRetentionArchiveBoundary')}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       {browserProfiles.some(
         (profile) => profile.browserFamily !== 'chromium',
       ) ? (
-        <div className="ob-info-box">
-          <span className="info-icon">ℹ</span>
-          <span className="info-text">{t('firefoxSafariInfo')}</span>
+        <div className="mt-4">
+          <StatusCallout tone="info" title={t('firefoxSafariInfo')} />
         </div>
       ) : null}
 
       {selectedAccessIssueCount > 0 ? (
-        <div className="ob-info-box ob-info-box--warning">
-          <span className="info-icon">!</span>
-          <span className="info-text">{t('selectedProfilesNeedAccess')}</span>
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={onOpenFullDiskAccessSettings}
-          >
-            {t('openFullDiskAccessSettings')}
-          </button>
+        <div className="mt-4">
+          <StatusCallout
+            tone="warning"
+            title={t('selectedProfilesNeedAccess')}
+            actions={
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={onOpenFullDiskAccessSettings}
+              >
+                {t('openFullDiskAccessSettings')}
+              </button>
+            }
+          />
         </div>
       ) : null}
 

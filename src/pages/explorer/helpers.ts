@@ -231,6 +231,108 @@ export function historyFaviconLookupKey(
   return `${profileId}\n${url}\n${visitTime ?? 0}`
 }
 
+/**
+ * Builds the cache key used by the og:image hydration hook. og:images are
+ * page-level (no profile / visit-time scoping) so the key is just the URL.
+ */
+export function historyOgImageLookupKey(url: string) {
+  return url
+}
+
+/**
+ * Hosts whose result pages serve a knowledge-panel `<meta og:image>` that
+ * does NOT identify the search page itself (Google shows the top entity's
+ * brand image, Bing shows the answer-card image, etc.). The Browse row
+ * must NOT show this as the page icon — that's where the "Google search
+ * for 吉野家 → Yoshinoya logo" cross-contamination came from.
+ *
+ * Kept in sync with `vault-core::visit_taxonomy::url::is_search_engine_host`.
+ * If this list changes, update the Rust list (and vice versa) so the UI
+ * suppression and Rust-side SERP detection agree row-for-row.
+ */
+const SERP_REGISTRABLE_DOMAINS = new Set([
+  'baidu.com',
+  'bing.com',
+  'brave.com',
+  'duckduckgo.com',
+  'google.com',
+  'sogou.com',
+  'so.com',
+  'yahoo.com',
+  'yandex.ru',
+])
+
+/**
+ * Two-label public suffixes the naive `host.split('.').slice(-2)` heuristic
+ * gets wrong (`google.co.uk` → `co.uk`). Kept in sync with
+ * `vault-core::visit_taxonomy::url::COMMON_MULTI_LABEL_PUBLIC_SUFFIXES`.
+ */
+const COMMON_MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  'co.jp',
+  'co.kr',
+  'co.uk',
+  'com.au',
+  'com.cn',
+  'com.hk',
+  'com.sg',
+  'com.tr',
+  'com.tw',
+  'net.cn',
+  'org.cn',
+])
+
+function registrableDomainForHost(host: string): string {
+  const segments = host.split('.')
+  if (segments.length <= 2) return host
+  const lastTwo = `${segments[segments.length - 2]}.${segments[segments.length - 1]}`
+  if (COMMON_MULTI_LABEL_PUBLIC_SUFFIXES.has(lastTwo)) {
+    return segments.slice(-3).join('.')
+  }
+  return lastTwo
+}
+
+/**
+ * Returns true when the URL is a search-engine result page (host on the
+ * SERP list AND a query parameter present). Callers use this to suppress
+ * the og:image-as-icon fallback for SERP rows, because the og:image on a
+ * SERP describes the top entity, not the search page itself.
+ *
+ * The query-key list mirrors `SEARCH_QUERY_KEYS` in `vault-core` so a row
+ * the Rust pipeline classifies as a SERP also fails the icon-fallback
+ * gate here.
+ */
+export function isSearchResultUrl(url: string | null | undefined): boolean {
+  if (typeof url !== 'string' || url.length === 0) return false
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
+    if (host.length === 0) return false
+    const registrable = registrableDomainForHost(host)
+    if (
+      !SERP_REGISTRABLE_DOMAINS.has(registrable) &&
+      !host.startsWith('www.google.') &&
+      host !== 'search.brave.com'
+    ) {
+      return false
+    }
+    if (parsed.searchParams.size === 0) return false
+    return [
+      'q',
+      'query',
+      'query_text',
+      'search_query',
+      'p',
+      'wd',
+      'word',
+      'text',
+      'keyword',
+      'k',
+    ].some((key) => parsed.searchParams.has(key))
+  } catch {
+    return false
+  }
+}
+
 function compactMiddle(text: string, maxLength: number) {
   if (text.length <= maxLength) return text
 

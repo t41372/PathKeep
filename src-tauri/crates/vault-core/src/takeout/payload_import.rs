@@ -133,11 +133,22 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                    payload_hash,
                    recorded_at
                  )
-                 VALUES (?1, ?2, 1, 0, ?3, ?4, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-                   url = excluded.url,
-                   title = excluded.title,
-                   hidden = excluded.hidden,
+                   url = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
+                     ELSE urls.url
+                   END,
+                   title = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.title
+                     ELSE urls.title
+                   END,
+                   visit_count = MAX(urls.visit_count, excluded.visit_count),
+                   typed_count = MAX(urls.typed_count, excluded.typed_count),
+                   hidden = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.hidden
+                     ELSE urls.hidden
+                   END,
                    last_visit_ms = CASE
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
                      ELSE urls.last_visit_ms
@@ -146,12 +157,20 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
                      ELSE urls.last_visit_iso
                    END,
-                   payload_hash = excluded.payload_hash,
-                   recorded_at = excluded.recorded_at
+                   payload_hash = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.payload_hash
+                     ELSE urls.payload_hash
+                   END,
+                   recorded_at = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
+                     ELSE urls.recorded_at
+                   END
                  RETURNING id",
                 params![
                     url.url,
                     url.title,
+                    url.visit_count.max(1),
+                    url.typed_count.max(0),
                     url.last_visit_ms,
                     url.last_visit_iso,
                     self.source_profile_id,

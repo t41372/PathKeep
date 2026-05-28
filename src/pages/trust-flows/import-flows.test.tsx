@@ -252,9 +252,7 @@ describe('trust flows/import flows', () => {
     await user.click(
       screen.getByRole('button', { name: importT('chooseHistoryFile') }),
     )
-    expect(
-      await screen.findByText(importT('filePickerUnavailable')),
-    ).toBeVisible()
+    expect(await screen.findByText('picker unavailable')).toBeVisible()
   })
 
   test('auto-recovers Browser Direct source selection after the manual path is cleared', async () => {

@@ -1,6 +1,6 @@
 //! Canonical archive read/write models.
 
-use super::{ProgressLogEvent, RemoteBackupResult};
+use super::ProgressLogEvent;
 use serde::{Deserialize, Serialize};
 
 /// Storage mode for the canonical archive database.
@@ -97,7 +97,6 @@ pub struct BackupReport {
     pub manifest_path: Option<String>,
     pub git_commit: Option<String>,
     pub warnings: Vec<String>,
-    pub remote_backup: Option<RemoteBackupResult>,
 }
 
 /// Progress event streamed during a running backup.
@@ -171,6 +170,14 @@ pub struct DashboardSnapshot {
     pub total_visits: usize,
     pub total_downloads: usize,
     pub last_successful_backup_at: Option<String>,
+    /// Earliest visit_time_iso across every visible visit, or `None` when the
+    /// archive has zero rows. The dashboard "Span" stat reads this to label
+    /// archive coverage (e.g. "1y 2m") instead of the time since last backup,
+    /// which was confusing for users with imported historical data.
+    pub earliest_visit_at: Option<String>,
+    /// Latest visit_time_iso across every visible visit. Pairs with
+    /// `earliest_visit_at`; both are populated together or both are `None`.
+    pub latest_visit_at: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
     pub storage: StorageSummary,
     pub next_action: Option<String>,
@@ -298,6 +305,68 @@ pub struct HistoryFaviconLookupResult {
     pub url: String,
     pub visit_time: i64,
     pub favicon: Option<HistoryFavicon>,
+}
+
+/// One og:image payload returned alongside a card-mode history row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImage {
+    pub data_url: String,
+}
+
+/// One batch og:image lookup entry used by the card-mode hydration path.
+///
+/// Unlike favicon lookup the lookup key is page-URL only — there is no
+/// visit-time scoping because the og:image describes the page itself, and
+/// no profile partitioning because the cache is shared across browsers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImageLookupEntry {
+    pub url: String,
+}
+
+/// One resolved og:image payload returned by the lazy card-mode lookup command.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryOgImageLookupResult {
+    pub url: String,
+    pub og_image: Option<HistoryOgImage>,
+    pub fetch_status: String,
+}
+
+/// Counts and bytes reported by the og:image storage stats command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageStorageStats {
+    pub row_count: i64,
+    pub blob_count: i64,
+    pub total_bytes: i64,
+    pub oldest_fetched_at: Option<String>,
+}
+
+/// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
+/// and only manual "Clear cache" clears it.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum OgImageCleanupMode {
+    #[default]
+    Off,
+    /// Delete rows older than `max_age_days`.
+    TimeTtl { max_age_days: u32 },
+    /// Delete oldest-fetched rows until total bytes drop below `max_bytes`.
+    SizeCap { max_bytes: u64 },
+    /// Delete least-recently-shown rows until total bytes drop below `max_bytes`.
+    Lru { max_bytes: u64 },
+}
+
+/// Outcome of one cleanup pass — reported back to the UI so the user sees
+/// how many rows/blobs were evicted and how many bytes were reclaimed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageCleanupReport {
+    pub deleted_rows: i64,
+    pub deleted_blobs: i64,
+    pub reclaimed_bytes: i64,
 }
 
 /// One visible visit row returned by archive recall.

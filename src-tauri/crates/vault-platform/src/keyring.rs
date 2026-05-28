@@ -18,12 +18,11 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use vault_core::{KeyringStatusReport, S3CredentialInput};
+use vault_core::KeyringStatusReport;
 #[cfg(all(not(coverage), target_os = "windows"))]
 use windows_native_keyring_store::Store as NativeKeyringStore;
 
 const KEYRING_DATABASE_USER: &str = "database-key";
-const KEYRING_S3_USER: &str = "remote-s3";
 
 fn provider_keyring_user(provider_id: &str) -> String {
     format!("ai-provider::{provider_id}")
@@ -196,92 +195,6 @@ pub fn keyring_clear_database_key() -> Result<()> {
 }
 
 #[cfg(coverage)]
-/// Reads stored S3 credentials from the file-backed coverage backend.
-pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
-    test_keyring_get(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)?
-        .map(|value| serde_json::from_str(&value).context("parsing stored S3 credentials"))
-        .transpose()
-}
-
-#[cfg(not(coverage))]
-/// Reads stored S3 credentials from the current backend.
-pub fn keyring_get_s3_credentials() -> Result<Option<S3CredentialInput>> {
-    if let Some(path) = test_keyring_dir() {
-        return test_keyring_get(&path, KEYRING_S3_USER)?
-            .map(|value| serde_json::from_str(&value).context("parsing stored S3 credentials"))
-            .transpose();
-    }
-
-    ensure_native_keyring_store().ok();
-    let entry = keyring_entry(KEYRING_S3_USER)?;
-    match entry.get_password() {
-        Ok(value) => {
-            Ok(Some(serde_json::from_str(&value).context("parsing stored S3 credentials")?))
-        }
-        Err(_) => Ok(None),
-    }
-}
-
-#[cfg(coverage)]
-/// Stores S3 credentials in the file-backed coverage backend.
-pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
-    test_keyring_set(
-        &test_keyring_dir().expect("coverage keyring dir"),
-        KEYRING_S3_USER,
-        &serde_json::to_string(credentials)?,
-    )
-}
-
-#[cfg(not(coverage))]
-/// Stores S3 credentials in the current backend.
-pub fn keyring_set_s3_credentials(credentials: &S3CredentialInput) -> Result<()> {
-    if let Some(path) = test_keyring_dir() {
-        return test_keyring_set(&path, KEYRING_S3_USER, &serde_json::to_string(credentials)?);
-    }
-
-    ensure_native_keyring_store()?;
-    let entry = keyring_entry(KEYRING_S3_USER)?;
-    entry.set_password(&serde_json::to_string(credentials)?)?;
-    Ok(())
-}
-
-#[cfg(coverage)]
-/// Removes stored S3 credentials from the file-backed coverage backend.
-pub fn keyring_clear_s3_credentials() -> Result<()> {
-    test_keyring_clear(&test_keyring_dir().expect("coverage keyring dir"), KEYRING_S3_USER)
-}
-
-#[cfg(not(coverage))]
-/// Removes stored S3 credentials from the current backend.
-pub fn keyring_clear_s3_credentials() -> Result<()> {
-    if let Some(path) = test_keyring_dir() {
-        return test_keyring_clear(&path, KEYRING_S3_USER);
-    }
-
-    ensure_native_keyring_store().ok();
-    let entry = keyring_entry(KEYRING_S3_USER)?;
-    let _ = entry.delete_credential();
-    Ok(())
-}
-
-/// Returns whether S3 credentials are currently stored in the active backend.
-pub fn s3_credentials_saved() -> bool {
-    #[cfg(coverage)]
-    {
-        keyring_get_s3_credentials().ok().flatten().is_some()
-    }
-
-    #[cfg(not(coverage))]
-    {
-        if let Some(path) = test_keyring_dir() {
-            return test_keyring_path(&path, KEYRING_S3_USER).exists();
-        }
-
-        keyring_entry_exists_for_service(&keyring_service(), KEYRING_S3_USER)
-    }
-}
-
-#[cfg(coverage)]
 /// Reads an AI provider API key from the file-backed coverage backend.
 pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>> {
     let user = provider_keyring_user(provider_id);
@@ -418,14 +331,6 @@ mod tests {
         );
         assert!(keyring_status().stored_secret);
 
-        let credentials = S3CredentialInput {
-            access_key_id: "abc".to_string(),
-            secret_access_key: "def".to_string(),
-        };
-        keyring_set_s3_credentials(&credentials).expect("set s3");
-        assert_eq!(keyring_get_s3_credentials().expect("get s3"), Some(credentials));
-        assert!(s3_credentials_saved());
-
         keyring_set_provider_api_key("openai-primary", "provider-secret").expect("set provider");
         assert_eq!(
             keyring_get_provider_api_key("openai-primary").expect("get provider"),
@@ -434,7 +339,6 @@ mod tests {
         assert!(provider_api_key_saved("openai-primary"));
 
         keyring_clear_database_key().expect("clear db");
-        keyring_clear_s3_credentials().expect("clear s3");
         keyring_clear_provider_api_key("openai-primary").expect("clear provider");
         assert!(!provider_api_key_saved("openai-primary"));
 
@@ -454,7 +358,6 @@ mod tests {
         }
 
         assert_eq!(keyring_get_database_key().expect("missing db key"), None);
-        assert_eq!(keyring_get_s3_credentials().expect("missing s3"), None);
         assert_eq!(
             keyring_get_provider_api_key("missing-provider").expect("missing provider"),
             None
@@ -466,8 +369,40 @@ mod tests {
                 .contains("sample-user")
         );
         keyring_clear_database_key().expect("clear empty db key");
-        keyring_clear_s3_credentials().expect("clear empty s3 creds");
         keyring_clear_provider_api_key("missing-provider").expect("clear empty provider key");
+
+        restore_env_var(TEST_KEYRING_DIR_ENV, original_keyring_dir.as_deref());
+        restore_env_var(TEST_KEYRING_SERVICE_ENV, original_keyring_service.as_deref());
+    }
+
+    #[test]
+    fn provider_key_does_not_satisfy_database_key_status_or_clear_database_secret() {
+        let _guard = env_lock().lock().expect("env lock");
+        let dir = tempdir().expect("tempdir");
+        let original_keyring_dir = std::env::var_os(TEST_KEYRING_DIR_ENV);
+        let original_keyring_service = std::env::var_os(TEST_KEYRING_SERVICE_ENV);
+        unsafe {
+            std::env::set_var(TEST_KEYRING_DIR_ENV, dir.path());
+            std::env::set_var(TEST_KEYRING_SERVICE_ENV, "com.yi-ting.pathkeep.tests");
+        }
+
+        keyring_set_provider_api_key("openai-primary", "provider-secret").expect("set provider");
+        assert!(provider_api_key_saved("openai-primary"));
+        assert!(
+            !keyring_status().stored_secret,
+            "provider API keys must not make the database key look saved",
+        );
+
+        keyring_set_database_key("database-secret").expect("set db");
+        assert!(keyring_status().stored_secret);
+
+        keyring_clear_provider_api_key("openai-primary").expect("clear provider");
+        assert_eq!(
+            keyring_get_database_key().expect("get db"),
+            Some("database-secret".to_string()),
+            "clearing a provider key must not clear the database key",
+        );
+        assert!(!provider_api_key_saved("openai-primary"));
 
         restore_env_var(TEST_KEYRING_DIR_ENV, original_keyring_dir.as_deref());
         restore_env_var(TEST_KEYRING_SERVICE_ENV, original_keyring_service.as_deref());

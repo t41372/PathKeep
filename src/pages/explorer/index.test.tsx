@@ -18,6 +18,7 @@
  */
 
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ExplorerPage } from './index'
@@ -25,18 +26,26 @@ import { ExplorerPage } from './index'
 const {
   aiStatusMetaMock,
   optionalAiFeaturesAvailableState,
+  desktopCommandTransportAvailable,
+  desktopAnnotationsMock,
+  localAnnotationsMock,
   selectedAiProviderMock,
   useExplorerDataMock,
   useExplorerFaviconsMock,
+  useExplorerOgImagesMock,
   useExplorerUrlStateMock,
   useProfileScopeMock,
   useShellDataMock,
 } = vi.hoisted(() => ({
   aiStatusMetaMock: vi.fn(),
+  desktopAnnotationsMock: vi.fn(),
+  desktopCommandTransportAvailable: { value: false },
+  localAnnotationsMock: vi.fn(),
   optionalAiFeaturesAvailableState: { value: false },
   selectedAiProviderMock: vi.fn(),
   useExplorerDataMock: vi.fn(),
   useExplorerFaviconsMock: vi.fn(),
+  useExplorerOgImagesMock: vi.fn(),
   useExplorerUrlStateMock: vi.fn(),
   useProfileScopeMock: vi.fn(),
   useShellDataMock: vi.fn(),
@@ -65,12 +74,19 @@ vi.mock('../../lib/release-capabilities', () => ({
   },
 }))
 
+vi.mock('../../lib/runtime', () => ({
+  hasDesktopCommandTransport: () => desktopCommandTransportAvailable.value,
+}))
+
 vi.mock('../../lib/backend-client', () => ({
   backend: {
     cancelAiJob: vi.fn(),
     openPathInFileManager: vi.fn(),
     replayAiJob: vi.fn(),
     runAiQueueJobs: vi.fn(),
+    loadHistoryOgImages: vi.fn().mockResolvedValue([]),
+    markOgImagesShown: vi.fn().mockResolvedValue(undefined),
+    triggerOgImageRefetch: vi.fn().mockResolvedValue(0),
   },
 }))
 
@@ -88,12 +104,20 @@ vi.mock('./hooks/use-explorer-favicons', () => ({
   useExplorerFavicons: useExplorerFaviconsMock,
 }))
 
+vi.mock('./hooks/use-explorer-og-images', () => ({
+  useExplorerOgImages: useExplorerOgImagesMock,
+}))
+
 vi.mock('./hooks/use-explorer-url-state', () => ({
   useExplorerUrlState: useExplorerUrlStateMock,
 }))
 
-vi.mock('./panels/results-panel', () => ({
-  ExplorerResultsPanel: () => <div data-testid="results-panel">results</div>,
+vi.mock('./use-local-annotations', () => ({
+  useLocalAnnotations: localAnnotationsMock,
+}))
+
+vi.mock('./use-desktop-annotations', () => ({
+  useDesktopAnnotations: desktopAnnotationsMock,
 }))
 
 vi.mock('./panels/runtime-panel', () => ({
@@ -116,19 +140,250 @@ vi.mock('./panels/detail-panel', () => ({
   ExplorerDetailPanel: () => <div data-testid="detail-panel">detail</div>,
 }))
 
-vi.mock('./query-filters-panel', () => ({
-  ExplorerQueryFiltersPanel: () => (
-    <div data-testid="filters-panel">filters</div>
+vi.mock('../../components/explorer-paper', () => ({
+  PaperFilterStrip: (props: {
+    onApply: (next: {
+      domain: string
+      browserKind: string
+      profileId: string
+      start: string
+      end: string
+      regexMode: boolean
+    }) => void
+    onRemove: (id: string) => void
+    onClearAll: () => void
+  }) => (
+    <div data-testid="paper-filter-strip">
+      <button
+        type="button"
+        data-testid="paper-filter-apply-filled"
+        onClick={() =>
+          props.onApply({
+            domain: ' example.com ',
+            browserKind: ' chromium ',
+            profileId: ' chrome:Default ',
+            start: ' 2026-04-01 ',
+            end: ' 2026-04-30 ',
+            regexMode: true,
+          })
+        }
+      >
+        apply-filled
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-apply-empty"
+        onClick={() =>
+          props.onApply({
+            domain: ' ',
+            browserKind: '',
+            profileId: ' ',
+            start: '',
+            end: ' ',
+            regexMode: false,
+          })
+        }
+      >
+        apply-empty
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-remove-domain"
+        onClick={() => props.onRemove('domain')}
+      >
+        remove
+      </button>
+      <button
+        type="button"
+        data-testid="paper-filter-clear"
+        onClick={() => props.onClearAll()}
+      >
+        clear
+      </button>
+    </div>
   ),
 }))
 
-vi.mock('./timeline-bar', () => ({
-  ExplorerTimelineBar: () => <div data-testid="timeline-bar">timeline</div>,
+// Mock the paper surfaces so each test can fire their callbacks via
+// dedicated trigger buttons. The real components are exhaustively tested
+// in src/components/explorer-paper/.
+vi.mock('./paper-view', () => ({
+  PaperExplorerView: (props: {
+    entries: Array<{
+      id: number
+      favicon?: string | null
+      ogImage?: string | null
+    }>
+    filterStripSlot?: React.ReactNode
+    infiniteScroll?: {
+      loadingMore: boolean
+      canLoadMore: boolean
+      totalPages: number
+      totalRows: number
+    }
+    onSelectEntry: (entry: { id: number }) => void
+    onJumpToDate: (iso: string) => void
+    onClearTarget: () => void
+  }) => (
+    <div data-testid="explorer-paper-view">
+      {props.filterStripSlot}
+      <span data-testid="paper-view-entry-count">{props.entries.length}</span>
+      <span data-testid="paper-view-first-og-image">
+        {props.entries[0]?.ogImage ?? 'none'}
+      </span>
+      <span data-testid="paper-view-first-favicon">
+        {props.entries[0]?.favicon ?? 'none'}
+      </span>
+      <span data-testid="paper-view-infinite-state">
+        {props.infiniteScroll
+          ? `infinite:${props.infiniteScroll.totalRows}/${props.infiniteScroll.totalPages}`
+          : 'paginated'}
+      </span>
+      <button
+        type="button"
+        data-testid="paper-view-select"
+        onClick={() => props.onSelectEntry({ id: 42 })}
+      >
+        select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-view-jump"
+        onClick={() => props.onJumpToDate('2026-04-15')}
+      >
+        jump
+      </button>
+      <button
+        type="button"
+        data-testid="paper-view-clear-target"
+        onClick={() => props.onClearTarget()}
+      >
+        clear
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('./paper-detail-panel-mount', () => ({
+  PaperDetailPanelMount: (props: {
+    annotations: {
+      notesFor: (url: string) => string
+    }
+    onClose: () => void
+    onOpen: (url: string) => void
+    onOpenDomain: (domain: string) => void
+  }) => (
+    <div
+      data-testid="paper-detail-mount"
+      data-annotation-source={props.annotations.notesFor('__source__')}
+    >
+      <button
+        type="button"
+        data-testid="paper-detail-close"
+        onClick={() => props.onClose()}
+      >
+        close
+      </button>
+      <button
+        type="button"
+        data-testid="paper-detail-open"
+        onClick={() => props.onOpen('https://example.com/open')}
+      >
+        open
+      </button>
+      <button
+        type="button"
+        data-testid="paper-detail-open-domain"
+        onClick={() => props.onOpenDomain('example.com')}
+      >
+        domain
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('./paper-search-panel', () => ({
+  PaperSearchPanel: (props: {
+    onQueryChange: (next: string) => void
+    onModeChange: (next: { mode: string; regexMode: boolean }) => void
+    onSubmit: (query: string) => void
+    onSelectEntry: (id: number) => void
+    onSeeInContext: (entry: { id: string }, dayDate: string) => void
+    aboveResultsCallout?: {
+      tone: string
+      eyebrow: string
+      title: string
+      body: string
+    } | null
+  }) => (
+    <div data-testid="paper-search-panel">
+      {props.aboveResultsCallout ? (
+        <div data-testid="paper-search-above-results-callout">
+          <span data-testid="paper-search-callout-title">
+            {props.aboveResultsCallout.title}
+          </span>
+          <span data-testid="paper-search-callout-body">
+            {props.aboveResultsCallout.body}
+          </span>
+          <span data-testid="paper-search-callout-tone">
+            {props.aboveResultsCallout.tone}
+          </span>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        data-testid="paper-search-change"
+        onClick={() => props.onQueryChange('next-query')}
+      >
+        change
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-mode"
+        onClick={() =>
+          props.onModeChange({ mode: 'semantic', regexMode: true })
+        }
+      >
+        mode
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-mode-keyword"
+        onClick={() =>
+          props.onModeChange({ mode: 'keyword', regexMode: false })
+        }
+      >
+        keyword
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-submit"
+        onClick={() => props.onSubmit('committed')}
+      >
+        submit
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-select"
+        onClick={() => props.onSelectEntry(7)}
+      >
+        select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-see-in-context"
+        onClick={() => props.onSeeInContext({ id: '17' }, '2026-04-15')}
+      >
+        see-in-context
+      </button>
+    </div>
+  ),
 }))
 
 describe('ExplorerPage route shell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    desktopCommandTransportAvailable.value = false
     optionalAiFeaturesAvailableState.value = false
     aiStatusMetaMock.mockReturnValue({ label: 'AI ready', tone: 'info' })
     selectedAiProviderMock.mockReturnValue({
@@ -137,7 +392,10 @@ describe('ExplorerPage route shell', () => {
     })
     useShellDataMock.mockReturnValue(defaultShellData())
     useProfileScopeMock.mockReturnValue({ activeProfileId: 'chrome:Default' })
+    localAnnotationsMock.mockReturnValue(annotationStore('local'))
+    desktopAnnotationsMock.mockReturnValue(annotationStore('desktop'))
     useExplorerFaviconsMock.mockReturnValue({ faviconCache: new Map() })
+    useExplorerOgImagesMock.mockReturnValue({ ogImageCache: new Map() })
     useExplorerUrlStateMock.mockReturnValue(defaultUrlState())
     useExplorerDataMock.mockImplementation(defaultExplorerData)
   })
@@ -154,7 +412,7 @@ describe('ExplorerPage route shell', () => {
     renderExplorer()
 
     expect(screen.getByText('explorer.regexInvalid')).toBeVisible()
-    expect(screen.queryByTestId('results-panel')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
   })
 
   test('renders query errors and empty history branches', () => {
@@ -194,7 +452,8 @@ describe('ExplorerPage route shell', () => {
 
   test('renders time, session, and trail branches', () => {
     const { rerender } = renderExplorer()
-    expect(screen.getByTestId('results-panel')).toBeVisible()
+    // Time view defaults to the paper contact-sheet now.
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
 
     useExplorerUrlStateMock.mockReturnValue(
       defaultUrlState({ view: 'session' }),
@@ -214,6 +473,400 @@ describe('ExplorerPage route shell', () => {
     rerender(<ExplorerWrapper />)
     expect(screen.queryByTestId('trail-panel')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-panel')).not.toBeInTheDocument()
+  })
+
+  test('defaults to the paper contact-sheet view as the only Browse surface', () => {
+    renderExplorer()
+
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
+  })
+
+  test('shows the paper Search panel when surface=search is in the URL', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search'),
+      }),
+    )
+
+    renderExplorer()
+
+    // The PaperSearchPanel renders its own paper-search-view shell instead
+    // of the contact-sheet Browse layout.
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+  })
+
+  test('mounts the paper Search panel at /search even without ?surface=search', () => {
+    // `/search` should mount the same ExplorerPage component but treat
+    // the route pathname as the search-surface signal — without this,
+    // clicking the sidebar Search item silently fell back to the
+    // contact-sheet Browse layout.
+    renderExplorer({ initialPath: '/search' })
+
+    expect(screen.queryByTestId('explorer-paper-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+  })
+
+  test('zero-result search keeps the composer mounted (no full-screen EmptyState hijack)', () => {
+    // feedback-2026-05-25 §3.2 B — previously the empty-result branch
+    // unmounted PaperSearchPanel and replaced it with a full-screen
+    // EmptyState that trapped the user (they could not edit the
+    // misspelt query because the composer was gone).
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=missspelled'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: null,
+            requestKey: options.requestKey,
+            results: {
+              items: [],
+              page: 1,
+              pageCount: 1,
+              total: 0,
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(
+      screen.queryByText('explorer.noMatchesTitle'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('query error on the search surface renders an in-place callout, not a full-screen ErrorState', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=boom'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: 'query exploded',
+            requestKey: options.requestKey,
+            results: null,
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-search-callout-body')).toHaveTextContent(
+      'query exploded',
+    )
+    expect(screen.getByTestId('paper-search-callout-tone')).toHaveTextContent(
+      'blocked',
+    )
+  })
+
+  test('invalid regex on the search surface renders an in-place callout, not a full-screen StatusCallout', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: '(',
+        regexMode: true,
+        regexValid: false,
+        searchParams: new URLSearchParams('surface=search&q=('),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-search-callout-title')).toHaveTextContent(
+      'explorer.regexInvalid',
+    )
+  })
+
+  test('PaperSearchPanel callbacks drive the route url-state + selection setters', async () => {
+    const user = userEvent.setup()
+    const setQueryInput = vi.fn()
+    const updateParam = vi.fn()
+    const setSearchParams = vi.fn()
+    const setSelectedId = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=initial'),
+        setQueryInput,
+        updateParam,
+        setSearchParams,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          setSelectedId,
+        }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-search-change'))
+    expect(setQueryInput).toHaveBeenCalledWith('next-query')
+    expect(updateParam).toHaveBeenCalledWith('q', 'next-query')
+
+    await user.click(screen.getByTestId('paper-search-mode'))
+    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).toHaveBeenCalledWith('regex', '1')
+
+    await user.click(screen.getByTestId('paper-search-mode-keyword'))
+    // keyword mode collapses back to the default (passes null on both).
+    expect(updateParam).toHaveBeenCalledWith('mode', null)
+    expect(updateParam).toHaveBeenCalledWith('regex', null)
+
+    await user.click(screen.getByTestId('paper-search-submit'))
+    expect(setQueryInput).toHaveBeenCalledWith('committed')
+    expect(updateParam).toHaveBeenCalledWith('q', 'committed')
+
+    await user.click(screen.getByTestId('paper-search-select'))
+    expect(setSelectedId).toHaveBeenCalledWith(7)
+
+    await user.click(screen.getByTestId('paper-search-see-in-context'))
+    expect(setSearchParams).toHaveBeenCalled()
+    const nextParams = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(nextParams.get('date')).toBe('2026-04-15')
+    expect(nextParams.get('source')).toBe('search')
+    expect(nextParams.get('q')).toBeNull()
+    expect(nextParams.get('surface')).toBeNull()
+    expect(setSelectedId).toHaveBeenCalledWith(17)
+  })
+
+  test('PaperExplorerView callbacks drive the route selection + url-state setters', async () => {
+    const user = userEvent.setup()
+    const setSelectedId = vi.fn()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('date=2026-04-01&source=search'),
+        setSearchParams,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          setSelectedId,
+        }),
+    )
+    renderExplorer()
+    expect(screen.getByTestId('explorer-paper-view')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(setSelectedId).toHaveBeenCalledWith(42)
+
+    await user.click(screen.getByTestId('paper-view-jump'))
+    const jumpedParams = setSearchParams.mock.calls.at(
+      -1,
+    )?.[0] as URLSearchParams
+    expect(jumpedParams.get('date')).toBe('2026-04-15')
+    // Sticky filters from earlier links (Dashboard's "On this day", palette
+    // search) must NOT survive a calendar jump — the user expects the full
+    // day, not the 50-row filtered slice.
+    expect(jumpedParams.get('source')).toBeNull()
+    expect(jumpedParams.get('q')).toBeNull()
+
+    await user.click(screen.getByTestId('paper-view-clear-target'))
+    const cleared = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(cleared.get('date')).toBeNull()
+    expect(cleared.get('source')).toBeNull()
+  })
+
+  test('paper filter strip trims filled values and deletes empty values from URL state', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    const updateParam = vi.fn()
+    const clearAllFilters = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        activeFilters: [{ id: 'domain', label: 'example.com' }],
+        clearAllFilters,
+        searchParams: new URLSearchParams(
+          'domain=old.test&browserKind=chrome&profileId=chrome%3AOld&start=2026-03-01&end=2026-03-31&regex=1&page=4',
+        ),
+        setSearchParams,
+        updateParam,
+      }),
+    )
+
+    renderExplorer()
+
+    await user.click(screen.getByTestId('paper-filter-apply-filled'))
+    const filled = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(filled.get('domain')).toBe('example.com')
+    expect(filled.get('browserKind')).toBe('chromium')
+    expect(filled.get('profileId')).toBe('chrome:Default')
+    expect(filled.get('start')).toBe('2026-04-01')
+    expect(filled.get('end')).toBe('2026-04-30')
+    expect(filled.get('regex')).toBe('1')
+    expect(filled.get('page')).toBeNull()
+
+    await user.click(screen.getByTestId('paper-filter-apply-empty'))
+    const emptied = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(emptied.get('domain')).toBeNull()
+    expect(emptied.get('browserKind')).toBeNull()
+    expect(emptied.get('profileId')).toBeNull()
+    expect(emptied.get('start')).toBeNull()
+    expect(emptied.get('end')).toBeNull()
+    expect(emptied.get('regex')).toBeNull()
+    expect(emptied.get('page')).toBeNull()
+
+    await user.click(screen.getByTestId('paper-filter-remove-domain'))
+    expect(updateParam).toHaveBeenCalledWith('domain', null)
+
+    await user.click(screen.getByTestId('paper-filter-clear'))
+    expect(clearAllFilters).toHaveBeenCalled()
+  })
+
+  test('legacy og:image fetch kill switch is folded into off mode for the hook', () => {
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          config: {
+            ...defaultShellData().snapshot.config,
+            ogImage: {
+              fetchEnabled: false,
+              fetchMode: 'on_demand',
+            },
+          },
+        },
+      }),
+    )
+
+    renderExplorer()
+
+    expect(useExplorerOgImagesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchMode: 'off' }),
+    )
+  })
+
+  test('enabled og:image settings forward the configured fetch mode to the hook', () => {
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          config: {
+            ...defaultShellData().snapshot.config,
+            ogImage: {
+              fetchEnabled: true,
+              fetchMode: 'on_demand',
+            },
+          },
+        },
+      }),
+    )
+
+    renderExplorer()
+
+    expect(useExplorerOgImagesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchMode: 'on_demand' }),
+    )
+  })
+
+  test('search-result URLs suppress misleading og:image hydration in Browse rows', () => {
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          queryState: {
+            error: null,
+            requestKey: options.requestKey,
+            results: {
+              items: [
+                {
+                  favicon: null,
+                  id: 42,
+                  ogImage: 'https://cdn.example.com/wrong-entity.png',
+                  profileId: 'chrome:Default',
+                  title: 'Search results',
+                  url: 'https://www.google.com/search?q=yoshinoya',
+                  visitTime: '2026-04-25T12:00:00.000Z',
+                },
+              ],
+              page: 1,
+              pageCount: 1,
+              total: 1,
+            },
+          },
+        }),
+    )
+    useExplorerOgImagesMock.mockReturnValue({
+      ogImageCache: new Map([
+        [
+          'https://www.google.com/search?q=yoshinoya',
+          'https://cdn.example.com/cached-wrong-entity.png',
+        ],
+      ]),
+    })
+
+    renderExplorer()
+
+    expect(screen.getByTestId('paper-view-first-og-image')).toHaveTextContent(
+      'none',
+    )
+  })
+
+  test('paper detail mount onClose hides the panel and onOpen forwards to handleVisit', async () => {
+    const user = userEvent.setup()
+    const handleVisit = vi.fn()
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          handleVisit,
+          // The route now refuses to bind the detail panel to a row that
+          // isn't in the rendered pool (the `?? items[0]` fallback was
+          // dropped on purpose so a filter mid-edit can't silently rebind
+          // notes to the wrong URL). Preseed `selectedId` so the click on
+          // the mock paper-view-select button actually opens the mount
+          // against a real entry rather than getting auto-closed.
+          selectedId: 42,
+        }),
+    )
+
+    renderExplorer()
+
+    // Selecting an entry in the paper view opens the detail mount.
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(screen.getByTestId('paper-detail-mount')).toBeVisible()
+
+    // onOpen forwards through handleVisit.
+    await user.click(screen.getByTestId('paper-detail-open'))
+    expect(handleVisit).toHaveBeenCalledWith('https://example.com/open')
+
+    await user.click(screen.getByTestId('paper-detail-open-domain'))
+    const nextParams = setSearchParamsMockFromLatestUrlState()
+    expect(nextParams.toString()).toBe('domain=example.com')
+
+    // onClose drops the mount.
+    await user.click(screen.getByTestId('paper-detail-close'))
+    expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
+  })
+
+  test('desktop command transport selects the desktop annotation store for paper details', async () => {
+    const user = userEvent.setup()
+    desktopCommandTransportAvailable.value = true
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          selectedId: 42,
+        }),
+    )
+
+    renderExplorer()
+
+    await user.click(screen.getByTestId('paper-view-select'))
+    expect(screen.getByTestId('paper-detail-mount')).toHaveAttribute(
+      'data-annotation-source',
+      'desktop',
+    )
   })
 
   test('shows the deferred semantic callout when optional AI is unavailable', () => {
@@ -278,13 +931,13 @@ describe('ExplorerPage route shell', () => {
   })
 })
 
-function renderExplorer() {
-  return render(<ExplorerWrapper />)
+function renderExplorer(options: { initialPath?: string } = {}) {
+  return render(<ExplorerWrapper initialPath={options.initialPath} />)
 }
 
-function ExplorerWrapper() {
+function ExplorerWrapper({ initialPath }: { initialPath?: string }) {
   return (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath ?? '/']}>
       <ExplorerPage />
     </MemoryRouter>
   )
@@ -370,6 +1023,22 @@ function defaultUrlState(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function setSearchParamsMockFromLatestUrlState() {
+  const state = useExplorerUrlStateMock.mock.results.at(-1)?.value as {
+    setSearchParams: ReturnType<typeof vi.fn>
+  }
+  return state.setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+}
+
+function annotationStore(source: string) {
+  return {
+    notesFor: () => source,
+    tagsFor: () => [],
+    updateNotes: vi.fn(),
+    updateTags: vi.fn(),
+  }
+}
+
 function defaultExplorerData(
   options: { requestKey: string; semanticRequestKey: string },
   overrides: Record<string, unknown> = {},
@@ -395,7 +1064,12 @@ function defaultExplorerData(
         items: [
           {
             favicon: null,
-            id: 'visit-1',
+            // Matches the id the mock paper-view emits via
+            // `onSelectEntry({ id: 42 })` — without this, the route's
+            // strict "entry must be in the rendered pool" lookup (no more
+            // `?? items[0]` fallback) leaves `selectedEntry` null and the
+            // auto-close guard immediately drops the detail mount.
+            id: 42,
             profileId: 'chrome:Default',
             title: 'SQLite notes',
             url: 'https://example.test/sqlite',

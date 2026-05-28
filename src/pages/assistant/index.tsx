@@ -21,6 +21,7 @@ import { ErrorState } from '../../components/primitives/error-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import { useI18n } from '../../lib/i18n'
 import {
   aiStatusMeta,
@@ -42,6 +43,7 @@ import {
   type AssistantConversationMessage,
 } from './conversation-panel'
 import { AssistantQueueSidebar, AssistantRuntimePanels } from './runtime-panels'
+import { PaperAssistantPanel } from './paper-assistant-panel'
 
 /**
  * Explains how message id works.
@@ -177,11 +179,7 @@ export function AssistantPage() {
     try {
       await refreshQueue()
     } catch (error) {
-      setPageError(
-        error instanceof Error
-          ? error.message
-          : assistantT('loadingQueueAction'),
-      )
+      setPageError(describeError(error, 'refresh_ai_queue'))
     } finally {
       setQueueAction(null)
     }
@@ -202,11 +200,7 @@ export function AssistantPage() {
       })
       setProviderProbe(probe)
     } catch (error) {
-      setPageError(
-        error instanceof Error
-          ? error.message
-          : assistantT('testingProviderAction'),
-      )
+      setPageError(describeError(error, 'test_ai_provider_connection'))
     } finally {
       setQueueAction(null)
     }
@@ -225,11 +219,7 @@ export function AssistantPage() {
       upsertAssistantMessage(jobId, response)
       await Promise.all([refreshQueue(), refreshAppData()])
     } catch (error) {
-      setPageError(
-        error instanceof Error
-          ? error.message
-          : assistantT('loadingQueuedAnswerAction'),
-      )
+      setPageError(describeError(error, 'load_ai_assistant_job'))
     } finally {
       setQueueAction(null)
     }
@@ -248,11 +238,7 @@ export function AssistantPage() {
       await refreshQueue()
       await handleLoadQueuedJob(jobId)
     } catch (error) {
-      setPageError(
-        error instanceof Error
-          ? error.message
-          : assistantT('runningQueuedJobsAction'),
-      )
+      setPageError(describeError(error, 'run_ai_queue_jobs'))
     } finally {
       setQueueAction(null)
     }
@@ -272,11 +258,7 @@ export function AssistantPage() {
       upsertAssistantMessage(jobId, response)
       await Promise.all([refreshQueue(), refreshAppData()])
     } catch (error) {
-      setPageError(
-        error instanceof Error
-          ? error.message
-          : assistantT('cancellingAssistantJobAction'),
-      )
+      setPageError(describeError(error, 'cancel_ai_job'))
     } finally {
       setQueueAction(null)
     }
@@ -310,24 +292,17 @@ export function AssistantPage() {
       upsertAssistantMessage(response.jobId, response)
       await refreshQueue()
     } catch (error) {
-      setPageError(
-        error instanceof Error ? error.message : assistantT('failedResponse'),
-      )
+      const message = describeError(error, 'ask_ai_assistant')
+      setPageError(message)
       setMessages((current) => [
         ...current,
         {
           id: messageId('assistant'),
           role: 'assistant',
-          content:
-            error instanceof Error
-              ? error.message
-              : assistantT('failedResponse'),
+          content: message,
           response: {
             state: 'failed',
-            answer:
-              error instanceof Error
-                ? error.message
-                : assistantT('failedResponse'),
+            answer: message,
             jobId: null,
             runId: null,
             providerId: llmProvider?.id ?? '',
@@ -490,27 +465,46 @@ export function AssistantPage() {
       ) : null}
 
       <div className="assistant-layout">
-        <AssistantConversationPanel
-          assistantT={assistantT}
-          handleCancelJob={handleCancelJob}
-          handleDrainQueue={handleDrainQueue}
-          handleLoadQueuedJob={handleLoadQueuedJob}
-          input={input}
-          language={language}
-          messages={messages}
-          onInputChange={setInput}
-          onPromptPick={setInput}
-          onSend={() => {
-            void handleSend()
-          }}
-          queueAction={queueAction}
-          responseMetaFor={(response) =>
-            assistantResponseMeta(response, intelligenceT)
-          }
-          sending={sending}
-          suggestedQuestions={suggestedQuestions}
-          t={t}
-        />
+        {searchParams.get('layout') === 'paper' ? (
+          <PaperAssistantPanel
+            assistantT={assistantT}
+            input={input}
+            messages={messages}
+            onInputChange={setInput}
+            onSend={() => {
+              void handleSend()
+            }}
+            providerLabel={
+              llmProvider
+                ? `${llmProvider.name} / ${llmProvider.defaultModel}`
+                : null
+            }
+            sending={sending}
+            userByline={assistantT('paperUserByline')}
+          />
+        ) : (
+          <AssistantConversationPanel
+            assistantT={assistantT}
+            handleCancelJob={handleCancelJob}
+            handleDrainQueue={handleDrainQueue}
+            handleLoadQueuedJob={handleLoadQueuedJob}
+            input={input}
+            language={language}
+            messages={messages}
+            onInputChange={setInput}
+            onPromptPick={setInput}
+            onSend={() => {
+              void handleSend()
+            }}
+            queueAction={queueAction}
+            responseMetaFor={(response) =>
+              assistantResponseMeta(response, intelligenceT)
+            }
+            sending={sending}
+            suggestedQuestions={suggestedQuestions}
+            t={t}
+          />
+        )}
 
         <AssistantQueueSidebar
           assistantT={assistantT}

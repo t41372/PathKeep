@@ -30,6 +30,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../components/review'
 import { backend } from '../../lib/backend-client'
+import { describeError } from '../../lib/errors'
 import type {
   HealthReport,
   ImportBatchDetail,
@@ -116,16 +117,9 @@ export function useImportReviewState({
     setSearchParams(nextParams, { replace: true })
   }, [searchParams, selectedBatchId, setSearchParams])
 
-  const reportActionError = useCallback(
-    (nextError: unknown) => {
-      setActionError(
-        nextError instanceof Error
-          ? nextError.message
-          : t('common.unavailable'),
-      )
-    },
-    [t],
-  )
+  const reportActionError = useCallback((nextError: unknown) => {
+    setActionError(describeError(nextError, 'import_review_action'))
+  }, [])
 
   const clearActionError = useCallback(() => {
     setActionError(null)

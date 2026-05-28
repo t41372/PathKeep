@@ -184,6 +184,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn schema_observation_marks_required_missing_tables_and_column_nullability() {
+        let connection = Connection::open_in_memory().expect("open memory db");
+        connection
+            .execute(
+                "CREATE TABLE present_required (
+                    id INTEGER PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    optional_note TEXT
+                )",
+                [],
+            )
+            .expect("create required table");
+        connection
+            .execute("CREATE TABLE optional_table (flag INTEGER)", [])
+            .expect("create optional table");
+        connection
+            .execute(
+                "INSERT INTO present_required (title, optional_note) VALUES ('Example', NULL)",
+                [],
+            )
+            .expect("insert required row");
+
+        let observation = inspect_schema(&connection, &["present_required", "missing_required"])
+            .expect("inspect schema");
+
+        let table = |name: &str| {
+            observation.tables.iter().find(|table| table.name == name).expect("table observed")
+        };
+        let present_required = table("present_required");
+        assert!(present_required.present);
+        assert!(present_required.required);
+        assert_eq!(present_required.row_count, Some(1));
+        let title = present_required
+            .columns
+            .iter()
+            .find(|column| column.name == "title")
+            .expect("title column");
+        assert!(title.not_null);
+        assert_eq!(title.primary_key_ordinal, 0);
+        let id =
+            present_required.columns.iter().find(|column| column.name == "id").expect("id column");
+        assert_eq!(id.primary_key_ordinal, 1);
+
+        let optional_table = table("optional_table");
+        assert!(optional_table.present);
+        assert!(!optional_table.required);
+        assert_eq!(optional_table.row_count, Some(0));
+        assert!(!optional_table.columns[0].not_null);
+
+        let missing_required = table("missing_required");
+        assert!(!missing_required.present);
+        assert!(missing_required.required);
+        assert_eq!(missing_required.row_count, None);
+        assert!(missing_required.columns.is_empty());
+    }
+
+    #[test]
     fn native_value_conversion_preserves_non_text_keys() {
         assert_eq!(value_ref_to_json(ValueRef::Blob(&[0xab, 0xcd])), json!("abcd"));
         assert_eq!(value_to_key(&Value::Null), "null");

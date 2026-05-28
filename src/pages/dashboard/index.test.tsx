@@ -1,597 +1,585 @@
 /**
- * @file index.test.tsx
- * @description Route-level coverage for Dashboard data gating and next-action copy.
- * @module pages/dashboard
+ * Smoke tests for the v0.3 paper-redesign Dashboard route.
  *
- * ## Responsibilities
- * - Verify DashboardPage chooses zero-state versus ready panels from shell data.
- * - Protect On This Day success/error handling and next-action localization.
+ * Covers:
+ * - Loading state path through the existing route-fallback.
+ * - Ready state renders hero band, On This Day card, This Week card, year
+ *   heatmap, active threads, archive card, and the local-first footer.
  *
- * ## Not responsible for
- * - Re-testing every dashboard panel's layout.
- * - Re-testing shell bootstrap providers.
- *
- * ## Dependencies
- * - Wraps DashboardPage in the same shell, profile-scope, router, and i18n contexts it reads.
- * - Mocks panel children so this suite stays focused on route orchestration.
- *
- * ## Performance notes
- * - Fixtures are small clones of the preview state, so no route test walks real archive data.
+ * Out of scope:
+ * - Deep wiring of On This Day backend (covered by core-intelligence tests).
+ * - Heatmap density correctness (covered by year-heatmap test).
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { I18nProvider } from '@/lib/i18n'
 import {
   ShellDataContext,
   type ShellDataContextValue,
-} from '../../app/shell-data-context'
-import { createMockState } from '../../lib/backend-preview-state'
-import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
-import { I18nProvider } from '../../lib/i18n'
-import { ProfileScopeContext } from '../../lib/profile-scope-context'
-import type {
-  AppSnapshot,
-  BrowserProfile,
-  BackupRunOverview,
-  DashboardSnapshot,
-  StorageSummary,
-} from '../../lib/types'
+} from '@/app/shell-data-context'
+import { ProfileScopeProvider } from '@/lib/profile-scope'
+import type * as CoreIntelligenceApi from '@/lib/core-intelligence/api'
+import type * as ReactRouter from 'react-router-dom'
 import { DashboardPage } from './index'
+import type { AppSnapshot, DashboardSnapshot } from '@/lib/types'
 
-vi.mock('../../components/primitives/status-callout', () => ({
-  StatusCallout: ({
-    body,
-    eyebrow,
-    title,
-  }: {
-    body?: string
-    eyebrow?: string
-    title: string
-  }) => (
-    <div>
-      {eyebrow ? <span>{eyebrow}</span> : null}
-      <strong>{title}</strong>
-      {body ? <p>{body}</p> : null}
-    </div>
-  ),
+const navigateMock = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof ReactRouter>('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  }
+})
+
+vi.mock('@/lib/core-intelligence/api', () => ({
+  getOnThisDay: vi.fn().mockResolvedValue({
+    data: [],
+    meta: {
+      sectionId: 'on-this-day',
+      window: { kind: 'calendar-day-history', referenceDate: '2026-05-20' },
+      moduleIds: [],
+      sourceTables: [],
+      includesEnrichment: false,
+      state: 'ready',
+      notes: [],
+    },
+  }),
+  getPathFlows: vi.fn().mockResolvedValue({
+    data: [],
+    meta: { state: 'ready' },
+  }),
+  getDiscoveryTrend: vi.fn().mockResolvedValue({
+    data: { points: [], availableYears: [] },
+    meta: { state: 'ready' },
+  }),
 }))
 
-vi.mock('./zero-state', () => ({
-  DashboardZeroState: ({
-    snapshotInitialized,
-  }: {
-    snapshotInitialized: boolean
-  }) => (
-    <div data-testid="dashboard-zero-state">
-      {snapshotInitialized ? 'initialized' : 'not initialized'}
-    </div>
-  ),
-}))
-
-vi.mock('./panels', () => ({
-  DashboardArchiveBoundaryPanel: () => <div>archive boundary</div>,
-  DashboardIntelligencePanel: ({
-    backgroundQueueCount,
-  }: {
-    backgroundQueueCount: number | null
-  }) => <div>queue:{backgroundQueueCount ?? 'none'}</div>,
-  DashboardOnThisDayPanel: ({
-    activeOnThisDay,
-    activeOnThisDayError,
-    onThisDayLoading,
-  }: {
-    activeOnThisDay: Array<{ summary?: string | null }>
-    activeOnThisDayError: string | null
-    onThisDayLoading: boolean
-  }) => (
-    <div>
-      <span>today-loading:{String(onThisDayLoading)}</span>
-      <span>today-error:{activeOnThisDayError ?? 'none'}</span>
-      {activeOnThisDay.map((entry) => (
-        <span key={entry.summary ?? 'entry'}>{entry.summary}</span>
-      ))}
-    </div>
-  ),
-  DashboardRecentRunsPanel: () => <div>recent runs</div>,
-  DashboardRhythmPanel: () => <div>rhythm</div>,
-  DashboardStatsRow: () => <div>stats row</div>,
-  DashboardStorageFootprintPanel: () => <div>storage footprint</div>,
-  DashboardTrustActionsPanel: () => <div>trust actions</div>,
-}))
-
-describe('DashboardPage', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  test('renders zero state and skips On This Day loading before initialization', () => {
-    const snapshot = snapshotFixture({ initialized: false })
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
-      data: [],
-      meta: onThisDayMeta(),
-    })
-
-    renderDashboard({
-      dashboard: dashboardFixture({ recentRuns: [] }),
-      snapshot,
-    })
-
-    expect(screen.getByTestId('dashboard-zero-state')).toHaveTextContent(
-      'not initialized',
+describe('DashboardPage (paper redesign)', () => {
+  beforeEach(async () => {
+    navigateMock.mockReset()
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
     )
-    expect(coreIntelligenceApi.getOnThisDay).not.toHaveBeenCalled()
+    vi.mocked(api.getOnThisDay).mockReset()
+    vi.mocked(api.getOnThisDay).mockResolvedValue({
+      data: [],
+      meta: readyOnThisDayMeta(),
+    })
+    vi.mocked(api.getPathFlows).mockReset()
+    vi.mocked(api.getPathFlows).mockResolvedValue({
+      data: [],
+      meta: { state: 'ready' },
+    } as never)
+    vi.mocked(api.getDiscoveryTrend).mockReset()
+    vi.mocked(api.getDiscoveryTrend).mockResolvedValue({
+      data: { points: [], availableYears: [] },
+      meta: { state: 'ready' },
+    } as never)
   })
 
-  test('loads On This Day and localizes initialization next actions', async () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  test('renders the loading fallback when dashboard data is not yet ready', () => {
+    renderDashboard({ dashboard: null, dashboardLoading: true })
+    // The ready layout's bespoke cards are absent during the fallback.
+    expect(screen.queryByTestId('dashboard-on-this-day')).toBeNull()
+    expect(screen.queryByTestId('dashboard-archive-card')).toBeNull()
+  })
+
+  test('renders the paper layout when snapshot + dashboard are ready', () => {
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    expect(screen.getByTestId('dashboard-page')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-on-this-day')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-this-week')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-active-threads')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-archive-card')).toBeInTheDocument()
+  })
+
+  test('uses the em-dash span placeholder when no successful backup recorded', () => {
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: { ...makeDashboard(), earliestVisitAt: null },
+    })
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+
+  test('uses the current day as the archive span end when latest visit is missing', () => {
+    vi.setSystemTime(new Date(2026, 4, 20, 12, 0, 0))
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: {
+        ...makeDashboard(),
+        earliestVisitAt: '2026-04-19T00:00:00Z',
+        latestVisitAt: null,
+      },
+    })
+    expect(screen.getByText('Span').previousElementSibling).toHaveTextContent(
+      '1m',
+    )
+  })
+
+  test('renders archive span, zero-size fallback, source count, and missing manifest state from read models', async () => {
+    renderDashboard({
+      snapshot: {
+        ...makeSnapshot(),
+        browserProfiles: [
+          { profileId: 'chrome:Default' },
+          { profileId: 'firefox:default' },
+        ],
+        archiveStatus: {
+          ...makeSnapshot().archiveStatus,
+          databasePath: '',
+        },
+        config: {
+          ...makeSnapshot().config,
+          archiveMode: 'Encrypted',
+        },
+      } as AppSnapshot,
+      dashboard: {
+        ...makeDashboard(),
+        earliestVisitAt: '2026-05-18T00:00:00Z',
+        latestVisitAt: '2026-05-18T12:00:00Z',
+        recentRuns: [{ ...makeDashboard().recentRuns[0], manifestHash: null }],
+        storage: zeroStorage(),
+      },
+    })
+
+    expect(
+      await screen.findByText('No archived pages exactly one year ago.'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByTestId('dashboard-active-threads-empty'),
+    ).toBeInTheDocument()
+
+    const archiveCard = screen.getByTestId('dashboard-archive-card')
+    expect(screen.getByText('today')).toBeInTheDocument()
+    expect(screen.getAllByText('0 B').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('Sources').previousElementSibling,
+    ).toHaveTextContent('2')
+    expect(archiveCard).toHaveTextContent('Encrypted')
+    expect(archiveCard).toHaveTextContent('Awaiting first run')
+    expect(archiveCard).toHaveTextContent('----…----')
+    expect(archiveCard).toHaveTextContent('~/PathKeep/archive.db')
+  })
+
+  test('on-this-day null data renders the empty state instead of stale entries', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getOnThisDay).mockResolvedValueOnce({
+      data: null,
+      meta: readyOnThisDayMeta(),
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    await waitFor(() => expect(api.getOnThisDay).toHaveBeenCalled())
+    expect(
+      await screen.findByText('No archived pages exactly one year ago.'),
+    ).toBeInTheDocument()
+  })
+
+  test('discarding a stale successful on-this-day response prevents late entries from appearing', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    let resolveRequest:
+      | ((
+          value: Awaited<ReturnType<typeof CoreIntelligenceApi.getOnThisDay>>,
+        ) => void)
+      | undefined
+    const pending = new Promise<
+      Awaited<ReturnType<typeof CoreIntelligenceApi.getOnThisDay>>
+    >((resolve) => {
+      resolveRequest = resolve
+    })
+    vi.mocked(api.getOnThisDay).mockReturnValueOnce(pending)
+    const { rerenderDashboard } = renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    await waitFor(() => expect(api.getOnThisDay).toHaveBeenCalled())
+
+    rerenderDashboard({
+      snapshot: { ...makeSnapshot(), config: { initialized: false } as never },
+      dashboard: makeDashboard(),
+    })
+    resolveRequest?.({
       data: [
         {
-          date: '2026-04-25',
-          deepDiveSessions: 1,
-          summary: 'Read about local-first storage',
-          topDomains: ['sqlite.org'],
-          totalVisits: 12,
-          year: 2025,
-        },
-      ],
-      meta: onThisDayMeta(),
-    })
-
-    renderDashboard({
-      dashboard: dashboardFixture({
-        nextAction: 'Initialize the archive before running backups.',
-      }),
-      snapshot: snapshotFixture({ initialized: true }),
-    })
-
-    expect(
-      screen.getByText(
-        'Initialize the archive before running your first manual backup.',
-      ),
-    ).toBeVisible()
-    expect(
-      await screen.findByText('Read about local-first storage'),
-    ).toBeVisible()
-    expect(screen.getByText('today-error:none')).toBeVisible()
-  })
-
-  test('surfaces On This Day errors and localizes first-backup next actions', async () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockRejectedValue(
-      new Error('on-this-day failed'),
-    )
-
-    renderDashboard({
-      dashboard: dashboardFixture({
-        nextAction:
-          'Run a manual backup to create the first manifest and snapshot artifacts.',
-      }),
-      snapshot: snapshotFixture({ initialized: true }),
-    })
-
-    expect(
-      screen.getByText(
-        'Run a manual backup to create the first manifest and snapshot artifacts.',
-      ),
-    ).toBeVisible()
-    expect(
-      await screen.findByText('today-error:on-this-day failed'),
-    ).toBeVisible()
-  })
-
-  test('preserves unknown dashboard next-action copy as backend-authored text', () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
-      data: [],
-      meta: onThisDayMeta(),
-    })
-
-    renderDashboard({
-      dashboard: dashboardFixture({
-        nextAction: 'Review browser permissions before the next backup.',
-      }),
-      snapshot: snapshotFixture({ initialized: true }),
-    })
-
-    expect(
-      screen.getByText('Review browser permissions before the next backup.'),
-    ).toBeVisible()
-  })
-
-  test('renders active profile scope in zero state', () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
-      data: [],
-      meta: onThisDayMeta(),
-    })
-
-    renderDashboard({
-      activeProfileId: 'chrome:Default',
-      dashboard: dashboardFixture({ recentRuns: [] }),
-      snapshot: snapshotFixture({ initialized: true }),
-    })
-
-    expect(screen.getByText('Profile scope')).toBeVisible()
-    expect(screen.getByText('Default')).toBeVisible()
-    expect(screen.getByTestId('dashboard-zero-state')).toHaveTextContent(
-      'initialized',
-    )
-  })
-
-  test('renders security and Safari callouts with missing background queues', async () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
-      data: [],
-      meta: onThisDayMeta(),
-    })
-    const snapshot = snapshotFixture({ initialized: true })
-    const safariProfile = safariProfileFixture()
-
-    renderDashboard({
-      activeProfileId: 'safari:Personal',
-      dashboard: dashboardFixture(),
-      shellOverrides: {
-        runtimeStatus: {
-          aiQueue: null,
-          error: null,
-          intelligence: null,
-          loading: false,
-        },
-      },
-      snapshot: {
-        ...snapshot,
-        browserProfiles: [safariProfile],
-        config: {
-          ...snapshot.config,
-          archiveMode: 'Encrypted',
-          rememberDatabaseKeyInKeyring: true,
-          selectedProfileIds: [safariProfile.profileId],
-        },
-        keyringStatus: {
-          ...snapshot.keyringStatus,
-          storedSecret: false,
-        },
-      },
-    })
-
-    expect(screen.getByText('Personal')).toBeVisible()
-    expect(screen.getByText('System keychain not available')).toBeVisible()
-    expect(screen.getByText('Safari needs Full Disk Access')).toBeVisible()
-    expect(screen.getByText('queue:none')).toBeVisible()
-    expect(await screen.findByText('today-error:none')).toBeVisible()
-  })
-
-  test('renders each dashboard repair callout independently', () => {
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay').mockResolvedValue({
-      data: [],
-      meta: onThisDayMeta(),
-    })
-    const snapshot = snapshotFixture({ initialized: true })
-    const safariProfile = safariProfileFixture()
-
-    const safariOnly = renderDashboard({
-      activeProfileId: 'safari:Personal',
-      dashboard: dashboardFixture(),
-      snapshot: {
-        ...snapshot,
-        browserProfiles: [safariProfile],
-        config: {
-          ...snapshot.config,
-          archiveMode: 'Plaintext',
-          rememberDatabaseKeyInKeyring: false,
-          selectedProfileIds: [safariProfile.profileId],
-        },
-        keyringStatus: {
-          ...snapshot.keyringStatus,
-          storedSecret: false,
-        },
-      },
-    })
-    expect(screen.queryByText('System keychain not available')).toBeNull()
-    expect(screen.getByText('Safari needs Full Disk Access')).toBeVisible()
-    safariOnly.unmount()
-
-    renderDashboard({
-      dashboard: dashboardFixture(),
-      snapshot: {
-        ...snapshot,
-        browserProfiles: [],
-        config: {
-          ...snapshot.config,
-          archiveMode: 'Encrypted',
-          rememberDatabaseKeyInKeyring: true,
-          selectedProfileIds: [],
-        },
-        keyringStatus: {
-          ...snapshot.keyringStatus,
-          storedSecret: false,
-        },
-      },
-    })
-    expect(screen.getByText('System keychain not available')).toBeVisible()
-    expect(screen.queryByText('Safari needs Full Disk Access')).toBeNull()
-  })
-
-  test('uses fallback copy for non-error On This Day failures and ignores late completions', async () => {
-    const onThisDay =
-      deferred<Awaited<ReturnType<typeof coreIntelligenceApi.getOnThisDay>>>()
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay')
-      .mockRejectedValueOnce('offline')
-      .mockReturnValueOnce(onThisDay.promise)
-
-    const dashboard = dashboardFixture()
-    const snapshot = snapshotFixture({ initialized: true })
-    const firstRender = renderDashboard({ dashboard, snapshot })
-
-    expect(
-      await screen.findByText(
-        'today-error:No history found for this date in past years.',
-      ),
-    ).toBeVisible()
-    firstRender.unmount()
-
-    const secondRender = renderDashboard({
-      dashboard,
-      snapshot,
-      shellOverrides: { refreshKey: 2 },
-    })
-    secondRender.unmount()
-    await onThisDay.resolve({
-      data: [
-        {
-          date: '2026-04-25',
-          deepDiveSessions: 0,
-          summary: 'Late entry',
-          topDomains: [],
-          totalVisits: 1,
           year: 2024,
+          date: '2024-05-19',
+          totalVisits: 7,
+          deepDiveSessions: 1,
+          topDomains: ['github.com'],
+          summary: 'Stale summary',
         },
       ],
-      meta: onThisDayMeta(),
+      meta: readyOnThisDayMeta(),
     })
+    await pending
+
+    expect(screen.queryByText('Stale summary')).not.toBeInTheDocument()
   })
 
-  test('handles empty On This Day payloads and late rejected loads without callout noise', async () => {
-    const lateFailure =
-      deferred<Awaited<ReturnType<typeof coreIntelligenceApi.getOnThisDay>>>()
-    vi.spyOn(coreIntelligenceApi, 'getOnThisDay')
-      .mockResolvedValueOnce({
-        data: null,
-        meta: onThisDayMeta(),
-      } as unknown as Awaited<
-        ReturnType<typeof coreIntelligenceApi.getOnThisDay>
-      >)
-      .mockReturnValueOnce(lateFailure.promise)
+  test('discarding a stale failed on-this-day response prevents late errors from appearing', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    let rejectRequest: ((error: Error) => void) | undefined
+    const pending = new Promise<never>((_, reject) => {
+      rejectRequest = reject
+    })
+    vi.mocked(api.getOnThisDay).mockReturnValueOnce(pending)
+    const { rerenderDashboard } = renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    await waitFor(() => expect(api.getOnThisDay).toHaveBeenCalled())
 
-    const snapshot = snapshotFixture({ initialized: true })
-    const dashboard = dashboardFixture()
-    const firstRender = renderDashboard({
-      dashboard,
-      snapshot: {
-        ...snapshot,
-        browserProfiles: [],
-        config: {
-          ...snapshot.config,
-          archiveMode: 'Plaintext',
-          rememberDatabaseKeyInKeyring: false,
-          selectedProfileIds: [],
+    rerenderDashboard({
+      snapshot: { ...makeSnapshot(), config: { initialized: false } as never },
+      dashboard: makeDashboard(),
+    })
+    rejectRequest?.(new Error('late failure'))
+    await pending.catch(() => undefined)
+
+    expect(
+      screen.queryByText('Could not load entries for this day.'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('falls back to the translated on-this-day error key on non-Error rejection', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getOnThisDay).mockRejectedValueOnce('string-rejection')
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    await waitFor(() => expect(api.getOnThisDay).toHaveBeenCalled())
+    // The route's catch branch sets onThisDayError; the card surfaces it.
+    expect(
+      await screen.findByText('Could not load entries for this day.'),
+    ).toBeInTheDocument()
+  })
+
+  test('clicking the On This Day entry fires the route-level openEntry + jumpToDate handlers', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getOnThisDay).mockResolvedValueOnce({
+      data: [
+        {
+          year: 2024,
+          date: '2024-05-19',
+          totalVisits: 7,
+          deepDiveSessions: 1,
+          topDomains: ['github.com'],
+          summary: 'A year ago summary',
         },
-        keyringStatus: {
-          ...snapshot.keyringStatus,
-          storedSecret: false,
-        },
-      },
+      ],
+      meta: readyOnThisDayMeta(),
     })
 
-    expect(await screen.findByText('today-error:none')).toBeVisible()
-    expect(screen.queryByText('System keychain not available')).toBeNull()
-    expect(screen.queryByText('Safari needs Full Disk Access')).toBeNull()
-    firstRender.unmount()
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    // The entry button is the only path that fires the route's onOpenEntry
+    // callback (line 156-160). The card displays the summary as its title.
+    await screen.findByText('A year ago summary')
+    await user.click(screen.getByText('A year ago summary'))
+    expect(navigateMock).toHaveBeenLastCalledWith(
+      '/explorer?date=2024-05-19&source=on-this-day',
+    )
+    // The card's header right-slot button fires onJumpToDate (line 152-155);
+    // its label is the localised "month day" target string.
+    const headerButton = screen
+      .getByTestId('dashboard-on-this-day')
+      .querySelector('header button')
+    if (!headerButton) throw new Error('on-this-day jumpToDate trigger missing')
+    const targetDate = new Date()
+    targetDate.setFullYear(targetDate.getFullYear() - 1)
+    const targetIso = targetDate.toISOString().slice(0, 10)
+    await user.click(headerButton)
+    expect(navigateMock).toHaveBeenLastCalledWith(
+      `/explorer?date=${encodeURIComponent(targetIso)}&source=on-this-day`,
+    )
+  })
 
-    const secondRender = renderDashboard({ dashboard, snapshot })
-    secondRender.unmount()
-    lateFailure.reject(new Error('late failure'))
-    await Promise.resolve()
+  test('"Insights" badge in year heatmap card navigates to /intelligence', async () => {
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const badges = screen.getAllByText(/Insights/)
+    await user.click(badges[0])
+    expect(navigateMock).toHaveBeenLastCalledWith('/intelligence')
+  })
+
+  test('Active threads "All threads" badge navigates to /intelligence', async () => {
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    await user.click(screen.getByText(/All threads/))
+    expect(navigateMock).toHaveBeenLastCalledWith('/intelligence')
+  })
+
+  test('clicking an Active Threads row fires the route onOpenThread navigate', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getPathFlows).mockResolvedValueOnce({
+      data: [
+        {
+          flowId: 'flow-1',
+          stepCount: 3,
+          occurrenceCount: 4,
+          steps: [
+            { index: 0, label: 'github.com' },
+            { index: 1, label: 'docs.rs' },
+            { index: 2, label: 'crates.io' },
+          ],
+        },
+      ],
+      meta: { state: 'ready' },
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const row = await screen.findByTestId('dashboard-active-threads-row-flow-1')
+    await user.click(row)
+    expect(navigateMock).toHaveBeenLastCalledWith('/intelligence')
+  })
+
+  test('renders the morning greeting branch when hour is before noon', () => {
+    vi.setSystemTime(new Date(2026, 4, 20, 9, 0, 0))
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    expect(screen.getByText('Good morning')).toBeInTheDocument()
+  })
+
+  test('renders the afternoon greeting branch when hour falls between 12 and 18', () => {
+    // Pin time to 14:00 local so useMemoGreeting takes the `hour < 18` arm.
+    vi.setSystemTime(new Date(2026, 4, 20, 14, 0, 0))
+    try {
+      renderDashboard({
+        snapshot: makeSnapshot(),
+        dashboard: makeDashboard(),
+      })
+      expect(screen.getByText('Good afternoon')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('renders the evening greeting branch when hour is >= 18', () => {
+    vi.setSystemTime(new Date(2026, 4, 20, 21, 0, 0))
+    try {
+      renderDashboard({
+        snapshot: makeSnapshot(),
+        dashboard: makeDashboard(),
+      })
+      expect(screen.getByText('Good evening')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('clicking a Year Heatmap day cell fires the route onSelectDate navigate', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getDiscoveryTrend).mockResolvedValueOnce({
+      data: {
+        points: [{ dateKey: '2026-04-20', totalVisits: 8 }],
+        availableYears: [2026],
+      },
+      meta: { state: 'ready' },
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const cell = await screen.findByRole('button', {
+      name: /2026-04-20/,
+    })
+    await user.click(cell)
+    expect(navigateMock).toHaveBeenLastCalledWith(
+      '/explorer?date=2026-04-20&source=on-this-day',
+    )
   })
 })
 
-function renderDashboard({
-  activeProfileId = null,
-  dashboard,
-  shellOverrides = {},
-  snapshot,
-}: {
-  activeProfileId?: string | null
-  dashboard: DashboardSnapshot | null
-  shellOverrides?: Partial<ShellDataContextValue>
-  snapshot: AppSnapshot | null
-}) {
-  return render(
-    <MemoryRouter>
-      <I18nProvider>
-        <ProfileScopeContext.Provider
-          value={{ activeProfileId, setActiveProfileId: vi.fn() }}
-        >
-          <ShellDataContext.Provider
-            value={{
-              ...shellValue({ dashboard, snapshot }),
-              ...shellOverrides,
-            }}
-          >
+function renderDashboard(overrides: Partial<ShellDataContextValue>) {
+  const view = render(dashboardTree(overrides))
+  return {
+    ...view,
+    rerenderDashboard: (nextOverrides: Partial<ShellDataContextValue>) => {
+      view.rerender(dashboardTree(nextOverrides))
+    },
+  }
+}
+
+function dashboardTree(overrides: Partial<ShellDataContextValue>) {
+  return (
+    <I18nProvider>
+      <ProfileScopeProvider>
+        <MemoryRouter>
+          <ShellDataContext.Provider value={makeShellValue(overrides)}>
             <DashboardPage />
           </ShellDataContext.Provider>
-        </ProfileScopeContext.Provider>
-      </I18nProvider>
-    </MemoryRouter>,
+        </MemoryRouter>
+      </ProfileScopeProvider>
+    </I18nProvider>
   )
 }
 
-function shellValue({
-  dashboard,
-  snapshot,
-}: {
-  dashboard: DashboardSnapshot | null
-  snapshot: AppSnapshot | null
-}): ShellDataContextValue {
+function makeShellValue(
+  overrides: Partial<ShellDataContextValue>,
+): ShellDataContextValue {
   return {
-    appLockStatus: snapshot?.appLockStatus ?? null,
     buildInfo: null,
+    appLockStatus: null,
+    snapshot: null,
+    dashboard: null,
+    dashboardLoading: false,
+    loading: false,
     busyAction: null,
     busyOverlay: null,
-    clearAppLockPasscode: vi.fn(),
-    clearNotice: vi.fn(),
-    dashboard,
-    dashboardLoading: false,
     error: null,
-    initializeArchive: vi.fn(),
-    loading: false,
-    lockAppSession: vi.fn(),
     notice: null,
-    refreshAppData: vi.fn(),
-    refreshKey: 1,
+    refreshKey: 0,
+    refreshAppData: vi.fn().mockResolvedValue(undefined),
     refreshRuntimeStatus: vi.fn(),
-    runBackup: vi.fn(),
-    runtimeStatus: {
-      aiQueue: {
-        failed: 1,
-        paused: false,
-        queued: 2,
-        running: 3,
-      },
-      error: null,
-      intelligence: {
-        generatedAt: '2026-04-25T12:00:00Z',
-        modules: [],
-        queue: {
-          failed: 1,
-          queued: 1,
-          running: 1,
-        },
-      },
-      loading: false,
-    },
     saveConfig: vi.fn(),
+    initializeArchive: vi.fn(),
+    runBackup: vi.fn().mockResolvedValue({}),
     setAppLockPasscode: vi.fn(),
-    snapshot,
+    clearAppLockPasscode: vi.fn(),
+    lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
-  } as unknown as ShellDataContextValue
-}
-
-function snapshotFixture({
-  initialized,
-}: {
-  initialized: boolean
-}): AppSnapshot {
-  const state = createMockState()
-  return {
-    ...state.snapshot,
-    config: {
-      ...state.snapshot.config,
-      initialized,
-      selectedProfileIds: ['chrome:Default'],
-    },
-    recentRuns: [runFixture()],
-  }
-}
-
-function dashboardFixture(
-  overrides: Partial<DashboardSnapshot> = {},
-): DashboardSnapshot {
-  return {
-    generatedAt: '2026-04-25T12:00:00Z',
-    lastSuccessfulBackupAt: '2026-04-25T11:00:00Z',
-    nextAction: null,
-    recentRuns: [runFixture()],
-    storage: storageFixture(),
-    totalDownloads: 1,
-    totalProfiles: 1,
-    totalUrls: 8,
-    totalVisits: 12,
+    clearNotice: vi.fn(),
     ...overrides,
-  }
+  } as ShellDataContextValue
 }
 
-function runFixture(): BackupRunOverview {
+function readyOnThisDayMeta(): Awaited<
+  ReturnType<typeof CoreIntelligenceApi.getOnThisDay>
+>['meta'] {
   return {
-    finishedAt: '2026-04-25T11:05:00Z',
-    id: 1,
-    manifestHash: 'sha256:run',
-    newDownloads: 0,
-    newUrls: 4,
-    newVisits: 6,
-    profileScope: ['chrome:Default'],
-    profilesProcessed: 1,
-    runType: 'backup',
-    startedAt: '2026-04-25T11:00:00Z',
-    status: 'success',
-    trigger: 'manual',
-  }
-}
-
-function storageFixture(): StorageSummary {
-  return {
-    archiveDatabaseBytes: 1,
-    exportBytes: 0,
-    intelligenceBlobBytes: 0,
-    intelligenceDatabaseBytes: 0,
-    manifestBytes: 1,
-    quarantineBytes: 0,
-    searchDatabaseBytes: 0,
-    semanticSidecarBytes: 0,
-    snapshotBytes: 1,
-    sourceEvidenceDatabaseBytes: 1,
-    stagingBytes: 0,
-  }
-}
-
-function safariProfileFixture(): BrowserProfile {
-  return {
-    accessIssue: 'Full Disk Access is required.',
-    browserFamily: 'safari',
-    browserName: 'Safari',
-    faviconsBytes: 0,
-    faviconsPath: null,
-    historyBytes: 1024,
-    historyExists: true,
-    historyFileName: 'History.db',
-    historyPath: '/Users/test/Library/Safari/History.db',
-    historyReadable: false,
-    profileId: 'safari:Personal',
-    profileName: 'Personal',
-    profilePath: '/Users/test/Library/Safari',
-    retentionBoundary: { kind: 'macos-safari', localDays: null },
-    supportingBytes: 0,
-    userName: 'test',
-  }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((nextResolve, nextReject) => {
-    resolve = nextResolve
-    reject = nextReject
-  })
-  return {
-    promise,
-    reject,
-    resolve: (value: T) => {
-      resolve(value)
-      return promise
-    },
-  }
-}
-
-function onThisDayMeta() {
-  return {
-    generatedAt: '2026-04-25T12:00:00Z',
-    includesEnrichment: false,
-    moduleIds: ['on-this-day'],
-    notes: [],
     sectionId: 'on-this-day',
-    sourceTables: ['daily_rollups'],
-    state: 'ready' as const,
-    stateReason: null,
-    window: {
-      dateRange: { start: '2026-04-25', end: '2026-04-25' },
-      kind: 'date-range' as const,
+    window: { kind: 'calendar-day-history', referenceDate: '2026-05-20' },
+    moduleIds: [],
+    sourceTables: [],
+    includesEnrichment: false,
+    state: 'ready',
+    notes: [],
+  }
+}
+
+function makeSnapshot(): AppSnapshot {
+  return {
+    directories: {} as AppSnapshot['directories'],
+    runtimeDiagnostics: {} as AppSnapshot['runtimeDiagnostics'],
+    config: {
+      initialized: true,
+      archiveMode: 'Plaintext',
+      selectedProfileIds: [],
+      rememberDatabaseKeyInKeyring: false,
+      ai: {},
+    } as unknown as AppSnapshot['config'],
+    archiveStatus: {
+      initialized: true,
+      encrypted: false,
+      unlocked: true,
+      databasePath: '~/PathKeep/archive.db',
+      lastSuccessfulBackupAt: '2026-05-18T14:23:00Z',
+      warning: null,
     },
+    appLockStatus: {} as AppSnapshot['appLockStatus'],
+    keyringStatus: {} as AppSnapshot['keyringStatus'],
+    aiStatus: {} as AppSnapshot['aiStatus'],
+    intelligenceStatus: {} as AppSnapshot['intelligenceStatus'],
+    browserProfiles: [],
+    recentRuns: [],
+    recentImportBatches: [],
+  }
+}
+
+function zeroStorage(): DashboardSnapshot['storage'] {
+  return {
+    archiveDatabaseBytes: 0,
+    sourceEvidenceDatabaseBytes: 0,
+    searchDatabaseBytes: 0,
+    intelligenceDatabaseBytes: 0,
+    manifestBytes: 0,
+    snapshotBytes: 0,
+    exportBytes: 0,
+    stagingBytes: 0,
+    quarantineBytes: 0,
+    semanticSidecarBytes: 0,
+    intelligenceBlobBytes: 0,
+  }
+}
+
+function makeDashboard(): DashboardSnapshot {
+  return {
+    generatedAt: '2026-05-19T00:00:00Z',
+    totalProfiles: 1,
+    totalUrls: 1000,
+    totalVisits: 2500,
+    totalDownloads: 0,
+    lastSuccessfulBackupAt: '2026-05-18T14:23:00Z',
+    recentRuns: [
+      {
+        id: 1,
+        startedAt: '2026-05-18T14:00:00Z',
+        finishedAt: '2026-05-18T14:23:00Z',
+        status: 'completed',
+        manifestHash: 'abcdef1234567890',
+        profilesProcessed: 1,
+        newVisits: 12,
+        newUrls: 4,
+        newDownloads: 0,
+      },
+    ],
+    storage: {
+      archiveDatabaseBytes: 8 * 1024 * 1024 * 1024,
+      sourceEvidenceDatabaseBytes: 0,
+      searchDatabaseBytes: 1 * 1024 * 1024 * 1024,
+      intelligenceDatabaseBytes: 200 * 1024 * 1024,
+      manifestBytes: 8 * 1024 * 1024,
+      snapshotBytes: 800 * 1024 * 1024,
+      exportBytes: 0,
+      stagingBytes: 0,
+      quarantineBytes: 0,
+      semanticSidecarBytes: 0,
+      intelligenceBlobBytes: 0,
+    },
+    nextAction: null,
   }
 }

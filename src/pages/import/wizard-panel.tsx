@@ -35,7 +35,7 @@ import type { BrowserProfile, TakeoutInspection } from '../../lib/types'
 import { ImportSelectStep } from './select-step'
 import {
   countTakeoutFilesByClassification,
-  formatTakeoutLocaleLabel,
+  formatTakeoutLayoutLabel,
   formatTakeoutPreviewRange,
   groupTakeoutFileReports,
   hasTakeoutReasonCode,
@@ -248,7 +248,11 @@ export function ImportWizardPanel({
               <div className="import-preview-meta">
                 <span className="status-badge">
                   {t('import.detectedLocaleLabel')}:{' '}
-                  {formatTakeoutLocaleLabel(inspection.detectedLocale, t)}
+                  {formatTakeoutLayoutLabel(
+                    inspection.detectedLocale,
+                    inspection.recognizedFiles,
+                    t,
+                  )}
                 </span>
                 <span className="mono-support">
                   {t('import.ignoredFilesInline', {

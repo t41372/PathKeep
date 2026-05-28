@@ -16,10 +16,11 @@
 import './intelligence.css'
 
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { TimeRangeSelector } from '../../components/intelligence/time-range-selector'
 import { peekIntelligencePrimaryOverview } from '../../lib/core-intelligence'
+import { PaperIntelligencePanel } from './paper-intelligence-panel'
 import {
   compareSetInsightsHref,
   dayInsightsHref,
@@ -39,7 +40,9 @@ import { intelligenceText } from './copy'
  * Renders the `/intelligence` route.
  */
 export function IntelligencePage() {
-  const { language, t } = useI18n('intelligence')
+  const { language, t, ns } = useI18n('intelligence')
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { dashboard, snapshot } = useShellData()
   const {
     dateRange,
@@ -146,6 +149,15 @@ export function IntelligencePage() {
         initialized={Boolean(snapshot?.config.initialized)}
         unlocked={Boolean(snapshot?.archiveStatus.unlocked)}
       />
+
+      {searchParams.get('layout') === 'paper' ? (
+        <PaperIntelligencePanel
+          primaryOverview={primaryOverview}
+          dashboard={dashboard}
+          onSelectDomain={(domain) => void navigate(domainHref(domain))}
+          explorerT={ns('explorer')}
+        />
+      ) : null}
 
       {stagedOverview.primaryReady ? (
         <IntelligenceSections

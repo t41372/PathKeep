@@ -88,8 +88,18 @@ export function deriveExplorerUrlParamState(
   const profileId = explicitProfileId ?? activeProfileId
   const browserKind = searchParams.get('browserKind')
   const domain = searchParams.get('domain')
-  const start = searchParams.get('start')
-  const end = searchParams.get('end')
+  // The Paper Browse day-nav writes `?date=YYYY-MM-DD` when the user jumps to
+  // a specific day via the rail, calendar, or "see in context" action. The
+  // legacy filter UI uses explicit `start` / `end`. When `date` is set
+  // without an explicit range we synthesize both bounds from it so the
+  // query layer actually narrows to that day — otherwise jumping days in
+  // Paper would visibly look like it worked while showing the unchanged
+  // results set.
+  const explicitStart = searchParams.get('start')
+  const explicitEnd = searchParams.get('end')
+  const dateParam = searchParams.get('date')
+  const start = explicitStart ?? dateParam
+  const end = explicitEnd ?? dateParam
   const explicitSort = searchParams.get('sort')
   const sort =
     explicitSort === 'relevance' ||

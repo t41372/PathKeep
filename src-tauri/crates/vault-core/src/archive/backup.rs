@@ -379,7 +379,6 @@ where
         manifest_path: Some(manifest_path.display().to_string()),
         git_commit,
         warnings,
-        remote_backup: None,
     })
 }
 

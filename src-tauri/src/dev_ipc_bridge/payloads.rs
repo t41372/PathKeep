@@ -25,8 +25,9 @@
 
 use serde::Deserialize;
 use vault_core::{
-    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
-    ExportRequest, HistoryFaviconLookupEntry, HistoryQuery, S3CredentialInput, SchedulePlan,
+    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
+    BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
+    HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
     TakeoutRequest,
 };
 
@@ -80,6 +81,22 @@ pub(super) struct HistoryFaviconPayload {
     pub(super) entries: Vec<HistoryFaviconLookupEntry>,
 }
 
+/// Mirrors the favicon lookup batching for og:image hydration so the
+/// dev bridge can exercise the card-mode hydration path under Playwright.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HistoryOgImagePayload {
+    pub(super) entries: Vec<HistoryOgImageLookupEntry>,
+}
+
+/// Carries a flat list of page URLs for the og:image mark-shown,
+/// trigger-refetch, and (future) selective-clear bridge endpoints.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OgImageUrlsPayload {
+    pub(super) urls: Vec<String>,
+}
+
 /// Identifies an audit or job run for detail lookups without exposing archive
 /// internals through the localhost bridge.
 #[derive(Deserialize)]
@@ -93,13 +110,6 @@ pub(super) struct RunIdPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ExportPayload {
     pub(super) request: ExportRequest,
-}
-
-/// Points a verifier command at an already-built bundle artifact on disk.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct BundlePathPayload {
-    pub(super) bundle_path: String,
 }
 
 /// Carries Google Takeout scan or import options through the dev mirror.
@@ -136,14 +146,6 @@ pub(super) struct PlatformPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct PlanPayload {
     pub(super) plan: SchedulePlan,
-}
-
-/// Carries remote backup credentials only for the command invocation that stores
-/// them in the configured local secret backend.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct CredentialsPayload {
-    pub(super) credentials: S3CredentialInput,
 }
 
 /// Carries an AI provider secret update without leaking provider-specific fields
@@ -235,6 +237,57 @@ pub(super) struct PathPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct UrlPayload {
     pub(super) url: String,
+}
+
+/// Bridge envelope for the annotation-search command — the desktop signature
+/// takes both a non-optional query string and an optional row cap.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AnnotationSearchPayload {
+    pub(super) query: String,
+    pub(super) limit: Option<usize>,
+}
+
+/// Bridge envelope for the annotation-list command — mirrors the desktop
+/// signature's optional row cap.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AnnotationLimitPayload {
+    pub(super) limit: Option<usize>,
+}
+
+/// Bridge envelope for set_url_notes / replace_url_tags — both desktop
+/// commands group their typed input under a `request` field.
+pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
+pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
+
+/// Bridge envelope for get_browse_day_insights — the desktop command
+/// groups its typed input under `request`.
+pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsRequest>;
+
+/// Bridge envelope for export_app_data — the desktop command takes the
+/// user-chosen target path as a single string field.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportAppDataPayload {
+    pub(super) target_path: String,
+}
+
+/// Bridge envelope for preview_app_data_import — carries the bundle path
+/// the user picked from the OS file picker.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PreviewAppDataImportPayload {
+    pub(super) bundle_path: String,
+}
+
+/// Bridge envelope for apply_app_data_import — carries the bundle path
+/// plus the confirm-overwrite acknowledgement the Settings PME captured.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ApplyAppDataImportPayload {
+    pub(super) bundle_path: String,
+    pub(super) options: vault_core::ApplyImportOptions,
 }
 
 /// Provides an optional human-readable reason for locking the app session.

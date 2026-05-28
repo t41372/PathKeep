@@ -94,6 +94,7 @@
   - 每季 checkpoint
 - 記錄每次備份的瀏覽器版本、schema 指紋、profile metadata。
 - `favicons` 保存來源觀測到的 page-level favicon facts，包含 `page_url`、normalized `page_host`、`page_registrable_domain`、`last_updated_ms` 與去重後的 `image_blob_hash`；實際 icon bytes 由 `favicon_blobs` content-addressed 儲存去重。Explorer 只在 lazy hydration path 讀 favicon：不晚於 visit time 的 exact page icon 優先，其次才用 indexed host / registrable-domain fallback；fallback 必須是 miss-only staged lookup，每級用 indexed `LIMIT 1` 先縮到單一候選後才讀 blob，不得合成會排序大量候選或提前 join blob 的 monolithic SQL。這個 read-time fallback 不改寫 canonical visit 或舊 favicon fact，也不得在 archive open / schema bootstrap 時同步回填舊 favicon metadata。
+- `og_images` 保存每張卡片模式預覽圖的 fetch 結果（migration 012），包含 `page_url`、診斷用的 `page_host`、解析到的 `source_og_url`、`fetch_status` / `http_status`、`fetched_at`、`last_shown_at`（LRU 訊號）與 `refetch_after`（負緩存退避）。實際 image bytes 由 `og_image_blobs` 以 `sha256_hex(bytes)` content-addressed 去重儲存；不同 page 共用同一張預覽時只佔一份。**讀路徑明確不做 host fallback** — GitHub 與 Medium 同 host 不同 page 的社交卡截然不同，所以 lookup 一律是 exact-page-url。負緩存（`fetch_status='missing'` / `'http_error'` 等）也是正當 row，避免 retry storm。og:image 快取是 derived，**不進 backup export**，restore 後 lazy 重建；詳見 `docs/features/og-images.md`。
 
 ### Storage planes
 
@@ -177,19 +178,19 @@
 - `compare_set_id` 現在是 compare-page aggregate 的 canonical reusable identity，`get_compare_set_detail` 會從這個 id 還原 compare-set summary、related trail/session context、pages 與 recent days；`path_flows` 則必須帶 stable `flow_id` 與 typed `steps`，前端不得再從 human-readable pattern label 逆推 route target。
 - `get_intelligence_embed_cards`、`get_intelligence_widget_snapshot`、`get_intelligence_public_snapshot` 現在屬於 read-only backend payload providers。它們已經接到 Settings 的 manual review / copy-export surface，並作為 `preview_intelligence_local_host` / `build_intelligence_local_host` 的唯一資料來源；這仍不等於 OS widget、localhost API、或其他完整 embed/widget/public host integration 已完成。
 - trusted external-output payload 現在可帶 structured `primaryTarget` / `secondaryTargets` 供 Settings 與 trusted local host 復用 app-link；`public snapshot` 則必須維持 redacted，不得下放 `family_id`、`trail_id`、`compare_set_id`、`canonical_url` 等 internal reusable IDs。
-- `preview_intelligence_local_host` 只在記憶體中 materialize 可 review 的 artifact；`build_intelligence_local_host` 則固定把 `browser-snippet-v1` 寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/{index.html,bundle.json}`。這兩個檔案都是 rebuildable local artifact，不屬於 canonical archive、source-evidence archive、或 remote backup bundle contract。
+- `preview_intelligence_local_host` 只在記憶體中 materialize 可 review 的 artifact；`build_intelligence_local_host` 則固定把 `browser-snippet-v1` 寫到 `app_root/integrations/core-intelligence/browser-snippet-v1/{index.html,bundle.json}`。這兩個檔案都是 rebuildable local artifact，不屬於 canonical archive 或 source-evidence archive 的 contract。
 - `bundle.json` 是 trusted local host 的 typed machine contract：至少包含 `bundleVersion`、`hostId`、`generatedAt`、`locale`、`dateRange`、`profileId`、`embedCards`、`widgetSnapshot`、`publicSnapshot`、`trustedOnlyCardIds`、`trustedOnlyCardCount` 與 `boundaryNotes`；`index.html` 直接內嵌同一份 bundle data 靜態渲染，不再從 `file://` 另行 fetch JSON。
 - `deterministic_module_runtime` 是 module-registry trace table，不是 canonical truth。它只保存 module version、status、dependencies、derived tables、last run / built / invalidated time、stale reason 與 notes，供 Settings / Insights 誠實顯示 rebuild-required state。
 - derived clear / rebuild 絕不能修改 canonical `visits`、`downloads`、`search_terms`、`runs`、`manifests` 或 rollback visibility 欄位。任何 derived maintenance 都只能留下 trace，不可改寫 source facts。2026-04-12 起，deterministic rebuild 的 live snapshot 也不得先清空再等待後續 commit；同 scope 的 derived rows、snapshot payload 與 module runtime 必須在同一個 intelligence transaction 內替換完成，避免留下半清空狀態。
 - refetch freshness / fetch status / snippet / readable text 都屬 future derived evidence，而不是 source of truth。v0.2.0 不抓取網頁正文；後續版本若啟用，這些資料可因 plugin disable、full rebuild、clear derived state 或 pipeline version 升級而被重新計算或刪除。
 
-### Remote backup bundle contract
+### Data migration bundle contract (`.pathkeep-bundle`)
 
-- M4-A 的 remote backup artifact 是 `pathkeep.remote-backup.v1` zip bundle，不是直接把 live archive path 指向 object storage。bundle 至少包含 `archive/history-vault.sqlite`、`archive/source-evidence.sqlite`、`config/config.json`、`metadata/bundle-manifest.json`、`metadata/bundle-manifest.sha256`，並在存在時附帶 `audit/manifests/` 與 scheduler artifacts；derived search / intelligence DB 與 sidecars 都屬 rebuildable state，不進 canonical remote bundle。
-- `bundle-manifest.json` 是 bundle 內的 restore contract：必須記錄 `bundleVersion`、`appVersion`、`createdAt`、`archiveMode`、`bucket`、`objectKey` 與每個 entry 的 `relativePath` / `sha256` / `sizeBytes`。
-- Verify 不只檢查 zip 能不能打開；它還必須驗證 bundle version、required entries、manifest 宣告的 entry set 是否與實際 zip entry set 一致、detached manifest checksum 是否吻合、每個 manifest file 的 checksum / size，並嘗試用本機 restore path 打開打包後的 SQLite archive。encrypted bundle 驗證需要 session key；plaintext bundle 要留下明確 warning。
-- `bundle-manifest.sha256` 與 entry-set 檢查在 v1 的定位是 corruption / drift detection，不是 detached signing 或 remote authenticity attestation；PathKeep 目前仍不宣稱 bundle 已具備 cryptographic publisher proof。
-- remote object lifecycle 在 v1 仍是 manual-first。PathKeep 可以記錄 `lastUploadedAt`、`lastUploadedObjectKey`、`lastError` 與 verify report，但不在未完成 restore rehearsal 前自動 prune bucket 內容。
+- 整機 Export / Import 的 artifact 是 `.pathkeep-bundle` zip，由 `vault-core::migration` 寫入 / 讀回。zip 至少包含 `pathkeep-export-manifest.json`、`pathkeep-export-manifest.sha256` sidecar、`config/config.json`、`archive/history-vault.sqlite`（透過 `sqlcipher_export` 保留來源加密 key）以及 `archive/source-evidence.sqlite`；如果本機有 `derived/`、`audit/`、`raw-snapshots/`、`sidecars/intelligence-blobs/`、`sidecars/semantic-index/`，也一併打包。derived projections 屬 rebuildable，但 bundle 仍然會帶上以加速目標機 first-paint。
+- 明確排除：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包）。`EXPORT_EXCLUSIONS_DOC` 把這份清單透傳到 UI，使用者匯入前能看到什麼東西不會跟過來。
+- `pathkeep-export-manifest.json` 是 import 的 restore contract：記錄 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、`exportedAt`、`exporterHostname`，以及每個 entry 的 `path` / `sha256` / `sizeBytes`。獨立的 `pathkeep-export-manifest.sha256` sidecar 提供 manifest 反竄改 hash。
+- Apply 路徑：先 re-validate manifest sha256；對每個 entry extract 到 staging 並重算 sha256；確認 `archiveSchemaVersion ≤ max_schema_version()`（refuse 來自更新 PathKeep 版本的 bundle）；rename 既有 target subtree 為 `*.bak-<timestamp>` sibling 保留；atomic-move staged 進 live tree；對 imported archive 跑 forward schema migrations。
+- 這條 contract 取代了 2026-05-25 移除的 S3-based remote backup bundle（`pathkeep.remote-backup.v1`）。PathKeep 不再做 cloud upload；跨機器搬遷只走使用者主動發起、寫到使用者選的本地 `.pathkeep` 檔的 Export / Import bundle。
 
 ---
 

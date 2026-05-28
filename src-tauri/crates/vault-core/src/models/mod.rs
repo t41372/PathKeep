@@ -4,6 +4,7 @@
 //! and canonical backend modules. They should stay descriptive and transport
 //! friendly rather than smuggling behavior.
 
+pub mod annotations;
 pub mod app;
 pub mod archive;
 pub mod audit;
@@ -11,14 +12,13 @@ pub mod core_intelligence;
 pub mod import;
 pub mod intelligence;
 pub mod progress;
-pub mod remote;
 pub mod schedule;
 pub mod security;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
-    app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*, progress::*,
-    remote::*, schedule::*, security::*,
+    annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*,
+    progress::*, schedule::*, security::*,
 };
 
 #[cfg(test)]
@@ -174,5 +174,118 @@ mod tests {
         assert_eq!(config.deterministic.modules.len(), 8);
         assert!(config.ai.enrichment_enabled);
         assert_eq!(config.explorer_background_prefetch_pages, 10);
+    }
+
+    // ─── OgImage settings / fetch-mode coverage ──────────────────────
+
+    #[test]
+    fn og_image_fetch_mode_default_is_background() {
+        // Background is the user-friendly default: it warms the cache
+        // without surprising fetch bursts. The other variants are
+        // explicit user opt-ins so a regression on the default would
+        // silently downgrade everyone to OnDemand.
+        let mode = super::OgImageFetchMode::default();
+        assert_eq!(mode, super::OgImageFetchMode::Background);
+    }
+
+    #[test]
+    fn og_image_fetch_mode_serializes_as_snake_case() {
+        let pairs = [
+            (super::OgImageFetchMode::Off, "\"off\""),
+            (super::OgImageFetchMode::OnDemand, "\"on_demand\""),
+            (super::OgImageFetchMode::Background, "\"background\""),
+        ];
+        for (mode, expected) in pairs {
+            let json = serde_json::to_string(&mode).expect("serialize mode");
+            assert_eq!(json, expected, "{mode:?} should serialize to {expected}");
+            let round_trip: super::OgImageFetchMode =
+                serde_json::from_str(&json).expect("deserialize mode");
+            assert_eq!(round_trip, mode);
+        }
+    }
+
+    #[test]
+    fn og_image_fetch_mode_rejects_unknown_variants() {
+        let bad = serde_json::from_str::<super::OgImageFetchMode>("\"hyperdrive\"");
+        assert!(bad.is_err(), "unknown mode tag must fail to deserialize");
+    }
+
+    #[test]
+    fn og_image_settings_default_matches_doc_contract() {
+        // Defaults reach the user as the Settings UI starting state and
+        // as the value the post-backup tick uses when config.json is
+        // missing — they're load-bearing in two places, so pin them.
+        let defaults = super::OgImageSettings::default();
+        assert!(defaults.fetch_enabled);
+        assert_eq!(defaults.fetch_mode, super::OgImageFetchMode::Background);
+        assert_eq!(defaults.daily_refetch_budget, 50);
+        assert_eq!(defaults.new_visit_prefetch_budget, 100);
+        assert!(defaults.blocked_hosts.is_empty());
+    }
+
+    #[test]
+    fn og_image_settings_effective_mode_truth_table() {
+        // (fetch_enabled, fetch_mode) → expected effective_mode
+        let cases = [
+            (true, super::OgImageFetchMode::Background, super::OgImageFetchMode::Background),
+            (true, super::OgImageFetchMode::OnDemand, super::OgImageFetchMode::OnDemand),
+            (true, super::OgImageFetchMode::Off, super::OgImageFetchMode::Off),
+            // Kill switch wins regardless of mode.
+            (false, super::OgImageFetchMode::Background, super::OgImageFetchMode::Off),
+            (false, super::OgImageFetchMode::OnDemand, super::OgImageFetchMode::Off),
+            (false, super::OgImageFetchMode::Off, super::OgImageFetchMode::Off),
+        ];
+        for (fetch_enabled, fetch_mode, expected) in cases {
+            let settings = super::OgImageSettings {
+                fetch_enabled,
+                fetch_mode,
+                ..super::OgImageSettings::default()
+            };
+            assert_eq!(
+                settings.effective_mode(),
+                expected,
+                "fetch_enabled={fetch_enabled} fetch_mode={fetch_mode:?} should resolve to {expected:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn og_image_settings_deserializes_empty_object_to_defaults() {
+        // Older saved configs were written before fetch_mode +
+        // daily_refetch_budget existed. Serde must fall through to the
+        // Default impl for every missing field so the upgrade path is
+        // silent — we use `#[serde(default)]` on the struct for exactly
+        // this reason; the test pins that behaviour from regressing.
+        let parsed: super::OgImageSettings =
+            serde_json::from_str("{}").expect("deserialize empty og:image settings");
+        assert_eq!(parsed, super::OgImageSettings::default());
+    }
+
+    #[test]
+    fn og_image_settings_round_trips_through_json() {
+        let original = super::OgImageSettings {
+            fetch_enabled: false,
+            fetch_mode: super::OgImageFetchMode::OnDemand,
+            daily_refetch_budget: 123,
+            new_visit_prefetch_budget: 456,
+            blocked_hosts: vec!["a.test".to_string(), "b.test".to_string()],
+            cleanup: super::OgImageCleanupMode::default(),
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: super::OgImageSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn og_image_settings_partial_json_keeps_explicit_fields() {
+        // Mix of explicit overrides + defaults via `#[serde(default)]`.
+        let json = r#"{ "fetchEnabled": false, "newVisitPrefetchBudget": 7 }"#;
+        let parsed: super::OgImageSettings =
+            serde_json::from_str(json).expect("deserialize partial");
+        assert!(!parsed.fetch_enabled);
+        assert_eq!(parsed.new_visit_prefetch_budget, 7);
+        // Unspecified fields fall back to defaults.
+        assert_eq!(parsed.fetch_mode, super::OgImageFetchMode::Background);
+        assert_eq!(parsed.daily_refetch_budget, 50);
     }
 }

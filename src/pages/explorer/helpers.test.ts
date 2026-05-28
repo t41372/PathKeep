@@ -12,6 +12,7 @@ import {
   endOfDayMs,
   explorerPageSizeStorageKey,
   historyFaviconLookupKey,
+  isSearchResultUrl,
   loadRecentSearches,
   loadStoredKeywordPageSize,
   parseKeywordPageSize,
@@ -197,5 +198,76 @@ describe('Explorer helper contracts', () => {
 
   test('returns null for malformed end-of-day dates', () => {
     expect(endOfDayMs('not-a-date')).toBeNull()
+  })
+})
+
+describe('isSearchResultUrl', () => {
+  test('matches Google / Bing / Baidu search-result pages', () => {
+    expect(isSearchResultUrl('https://www.google.com/search?q=吉野家')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://www.bing.com/search?q=pathkeep')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://www.baidu.com/s?wd=foo&rsv_idx=1')).toBe(
+      true,
+    )
+    expect(isSearchResultUrl('https://duckduckgo.com/?q=anything&ia=web')).toBe(
+      true,
+    )
+  })
+
+  test('does not match non-SERP URLs on the same hosts', () => {
+    expect(isSearchResultUrl('https://www.google.com/')).toBe(false)
+    expect(isSearchResultUrl('https://news.google.com/articles/abc')).toBe(
+      false,
+    )
+    expect(isSearchResultUrl('https://www.bing.com/news')).toBe(false)
+  })
+
+  test('does not match non-SERP hosts even with a `q=` parameter', () => {
+    expect(isSearchResultUrl('https://example.com/article?q=foo')).toBe(false)
+    expect(isSearchResultUrl('https://github.com/search?q=pathkeep')).toBe(
+      false,
+    )
+  })
+
+  test('returns false for null / undefined / unparseable input', () => {
+    expect(isSearchResultUrl(null)).toBe(false)
+    expect(isSearchResultUrl(undefined)).toBe(false)
+    expect(isSearchResultUrl('')).toBe(false)
+    expect(isSearchResultUrl('not a url')).toBe(false)
+  })
+
+  test('returns false for URLs with an empty hostname (e.g. file://)', () => {
+    // `new URL('file:///etc/hosts').hostname` is the empty string;
+    // without the empty-host guard the SERP check would happily run on
+    // a zero-length registrable and silently mis-bucket.
+    expect(isSearchResultUrl('file:///etc/hosts?q=foo')).toBe(false)
+  })
+
+  test('uses public-suffix-aware registrable-domain detection for ccTLDs', () => {
+    // Naive `slice(-2)` would yield `co.uk` and miss the SERP entirely;
+    // the public-suffix-aware path collapses to `google.co.uk` and matches
+    // via the `www.google.` prefix.
+    expect(
+      isSearchResultUrl('https://www.google.co.uk/search?q=pathkeep'),
+    ).toBe(true)
+    // ditto for a fake brand that LOOKS like google.co.uk but isn't a SERP
+    expect(isSearchResultUrl('https://nope.co.uk/?q=foo')).toBe(false)
+  })
+
+  test('matches the broader Rust SEARCH_QUERY_KEYS list', () => {
+    expect(isSearchResultUrl('https://www.baidu.com/s?word=sqlite')).toBe(true)
+    expect(isSearchResultUrl('https://www.so.com/s?keyword=pathkeep')).toBe(
+      true,
+    )
+  })
+
+  test('does not match retired allowlist hosts (kagi/startpage) — Rust would say false', () => {
+    expect(isSearchResultUrl('https://kagi.com/search?q=foo')).toBe(false)
+    expect(isSearchResultUrl('https://startpage.com/do/search?q=foo')).toBe(
+      false,
+    )
   })
 })

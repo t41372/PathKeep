@@ -43,8 +43,17 @@ const expectedAppShellScreens: AppScreen[] = [
     labelKey: 'navigation.explorerLabel',
     titleKey: 'navigation.explorerTitle',
     subtitleKey: 'navigation.explorerSubtitle',
-    icon: 'search',
+    icon: 'auto_stories',
     href: '/explorer',
+    section: 'CORE',
+  },
+  {
+    id: 'search',
+    labelKey: 'navigation.searchLabel',
+    titleKey: 'navigation.searchTitle',
+    subtitleKey: 'navigation.searchSubtitle',
+    icon: 'search',
+    href: '/search',
     section: 'CORE',
   },
   {
@@ -159,6 +168,7 @@ describe('App shell', () => {
     const {
       appScreens,
       appRoutes,
+      findAppScreen,
       onboardingScreen,
       readRouteHandle,
       sidebarSections,
@@ -192,6 +202,7 @@ describe('App shell', () => {
       },
     ])
     expect(onboardingScreen).toEqual(expectedOnboardingScreen)
+    expect(findAppScreen('search')).toEqual(expectedAppShellScreens[2])
     expect(routeDescriptors(appRoutes, readRouteHandle)).toEqual([
       {
         path: '/',
@@ -220,6 +231,16 @@ describe('App shell', () => {
             element: null,
             hydrateFallback: null,
             handleId: 'explorer',
+            children: [],
+          },
+          {
+            path: 'search',
+            index: false,
+            lazy: true,
+            errorBoundary: true,
+            element: null,
+            hydrateFallback: null,
+            handleId: 'search',
             children: [],
           },
           {
@@ -449,6 +470,14 @@ describe('App shell', () => {
     ])
   })
 
+  test('rejects route handles that reference an unknown screen id', async () => {
+    const { findAppScreen } = await import('../router')
+
+    expect(() =>
+      findAppScreen('__missing__' as Parameters<typeof findAppScreen>[0]),
+    ).toThrow('Unknown app screen id: __missing__')
+  })
+
   test('creates a desktop router and validates route handles', async () => {
     const { onboardingScreen, readRouteHandle } = await import('../router')
     const { createDesktopRouter } = await import('../router-factory')
@@ -473,6 +502,7 @@ describe('App shell', () => {
     expect(lazyRoutes.map((route) => route.path ?? 'index')).toEqual([
       'index',
       'explorer',
+      'search',
       'index',
       'domain/:domain',
       'query-family/:familyId',

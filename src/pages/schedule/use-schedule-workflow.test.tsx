@@ -124,11 +124,11 @@ describe('useScheduleWorkflow', () => {
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false)
-      expect(result.current.error).toBe('schedule.unavailableBody')
+      expect(result.current.error).toBe('bridge unavailable')
     })
     expect(result.current.actionResult).toMatchObject({
       kind: 'detect',
-      message: 'schedule.unavailableBody',
+      message: 'bridge unavailable',
       status: 'error',
     })
   })
@@ -314,7 +314,7 @@ describe('useScheduleWorkflow', () => {
 
     expect(result.current.actionResult).toMatchObject({
       kind: 'copy-diagnostics',
-      message: 'schedule.diagnosticsCopyFailed',
+      message: 'clipboard denied',
       status: 'error',
     })
   })

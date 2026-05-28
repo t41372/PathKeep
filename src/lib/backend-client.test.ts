@@ -288,6 +288,84 @@ describe('backend client', () => {
         args: { entries: [request] },
       },
       {
+        run: () =>
+          backend.loadHistoryOgImages([{ url: 'https://example.test' }]),
+        command: 'load_history_og_images',
+        args: { entries: [{ url: 'https://example.test' }] },
+      },
+      {
+        run: () => backend.markOgImagesShown(['https://example.test']),
+        command: 'mark_og_images_shown',
+        args: { urls: ['https://example.test'] },
+      },
+      {
+        run: () => backend.triggerOgImageRefetch(['https://example.test']),
+        command: 'trigger_og_image_refetch',
+        args: { urls: ['https://example.test'] },
+      },
+      {
+        run: () => backend.prefetchOgImages(500),
+        command: 'prefetch_og_images',
+        args: { budget: 500 },
+      },
+      {
+        run: () => backend.getOgImageStorageStats(),
+        command: 'get_og_image_storage_stats',
+        args: {},
+      },
+      {
+        run: () => backend.clearOgImageCache(),
+        command: 'clear_og_image_cache',
+        args: {},
+      },
+      {
+        run: () => backend.runOgImageCleanup(),
+        command: 'run_og_image_cleanup',
+        args: {},
+      },
+      {
+        run: () => backend.getUrlAnnotation('https://example.test'),
+        command: 'get_url_annotation',
+        args: { url: 'https://example.test' },
+      },
+      {
+        run: () =>
+          backend.setUrlNotes({ url: 'https://example.test', notes: 'note' }),
+        command: 'set_url_notes',
+        args: { request: { url: 'https://example.test', notes: 'note' } },
+      },
+      {
+        run: () =>
+          backend.replaceUrlTags({
+            url: 'https://example.test',
+            tags: ['t1', 't2'],
+          }),
+        command: 'replace_url_tags',
+        args: {
+          request: { url: 'https://example.test', tags: ['t1', 't2'] },
+        },
+      },
+      {
+        run: () => backend.listUrlAnnotations(),
+        command: 'list_url_annotations',
+        args: { limit: null },
+      },
+      {
+        run: () => backend.listUrlAnnotations(20),
+        command: 'list_url_annotations',
+        args: { limit: 20 },
+      },
+      {
+        run: () => backend.searchUrlAnnotations('keyword'),
+        command: 'search_url_annotations',
+        args: { query: 'keyword', limit: null },
+      },
+      {
+        run: () => backend.searchUrlAnnotations('keyword', 10),
+        command: 'search_url_annotations',
+        args: { query: 'keyword', limit: 10 },
+      },
+      {
         run: () => backend.loadDashboardSnapshot(),
         command: 'load_dashboard_snapshot',
       },
@@ -300,16 +378,6 @@ describe('backend client', () => {
         run: () => backend.exportHistory(request),
         command: 'export_history',
         args: { request },
-      },
-      {
-        run: () => backend.previewRemoteBackup(),
-        command: 'preview_remote_backup',
-      },
-      { run: () => backend.runRemoteBackup(), command: 'run_remote_backup' },
-      {
-        run: () => backend.verifyRemoteBackup('/tmp/bundle.zip'),
-        command: 'verify_remote_backup',
-        args: { bundlePath: '/tmp/bundle.zip' },
       },
       {
         run: () => backend.inspectTakeout(request),
@@ -335,6 +403,27 @@ describe('backend client', () => {
         run: () => backend.previewImportBatch(7),
         command: 'preview_import_batch',
         args: { batchId: 7 },
+      },
+      {
+        run: () => backend.exportAppData('/tmp/pk.pathkeep'),
+        command: 'export_app_data',
+        args: { targetPath: '/tmp/pk.pathkeep' },
+      },
+      {
+        run: () => backend.previewAppDataImport('/tmp/pk.pathkeep'),
+        command: 'preview_app_data_import',
+        args: { bundlePath: '/tmp/pk.pathkeep' },
+      },
+      {
+        run: () =>
+          backend.applyAppDataImport('/tmp/pk.pathkeep', {
+            confirmOverwrite: true,
+          }),
+        command: 'apply_app_data_import',
+        args: {
+          bundlePath: '/tmp/pk.pathkeep',
+          options: { confirmOverwrite: true },
+        },
       },
       {
         run: () => backend.revertImportBatch(7),
@@ -387,15 +476,6 @@ describe('backend client', () => {
       {
         run: () => backend.keyringClearDatabaseKey(),
         command: 'keyring_clear_database_key',
-      },
-      {
-        run: () => backend.storeS3Credentials(request),
-        command: 'store_s3_credentials',
-        args: { credentials: request },
-      },
-      {
-        run: () => backend.clearS3Credentials(),
-        command: 'clear_s3_credentials',
       },
       {
         run: () => backend.storeAiProviderApiKey(request),

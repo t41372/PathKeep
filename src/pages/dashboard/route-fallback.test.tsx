@@ -106,6 +106,26 @@ describe('dashboard route fallback', () => {
     ).toEqual({ kind: 'unlock-required' })
   })
 
+  test('resolves read-error when an error landed but the archive is reachable and initialized', () => {
+    // Encrypted=false, initialized=true, unlocked=true → no unlock needed; the
+    // resolver must fall through to the generic read-error branch so the user
+    // sees the underlying message.
+    expect(
+      resolveDashboardRouteFallback({
+        archiveAccessFallback: {
+          encrypted: false,
+          initialized: true,
+          unlocked: true,
+        },
+        dashboard: null,
+        dashboardLoading: false,
+        error: 'disk read failed',
+        loading: false,
+        snapshot: null,
+      }),
+    ).toEqual({ description: 'disk read failed', kind: 'read-error' })
+  })
+
   test('resolves archive-unavailable when bootstrap has no ready snapshot pair', () => {
     expect(
       resolveDashboardRouteFallback({
@@ -117,6 +137,21 @@ describe('dashboard route fallback', () => {
         snapshot: null,
       }),
     ).toEqual({ kind: 'archive-unavailable' })
+  })
+
+  test('resolves onboarding zero-state when snapshot exists but the archive has not been initialized yet', () => {
+    expect(
+      resolveDashboardRouteFallback({
+        archiveAccessFallback: null,
+        dashboard: null,
+        dashboardLoading: false,
+        error: null,
+        loading: false,
+        snapshot: {
+          config: { initialized: false },
+        } as never,
+      }),
+    ).toEqual({ kind: 'onboarding-zero-state' })
   })
 
   test('renders the onboarding and security actions for non-ready fallback states', () => {
@@ -242,6 +277,26 @@ describe('dashboard route fallback', () => {
 
     await waitFor(() => expect(result.current).toBeNull())
     expect(securityStatusSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('cancels the queued fallback clear when normal route state unmounts', async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined)
+
+    const { unmount } = renderHook(() =>
+      useDashboardArchiveAccessFallback({
+        dashboard: null,
+        error: null,
+        refreshKey: 0,
+        snapshot: null,
+      }),
+    )
+
+    unmount()
+    await Promise.resolve()
+
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
   })
 
   test('ignores archive-access fallback probes that resolve after cleanup', async () => {

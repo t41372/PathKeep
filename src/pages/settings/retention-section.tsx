@@ -22,12 +22,18 @@
  */
 
 import { Link } from 'react-router-dom'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import { formatBytes } from '../../lib/format'
 import type { RetentionPreview, RetentionPruneResult } from '../../lib/types'
 import { useI18n } from '../../lib/i18n'
+import { cn } from '../../lib/cn'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+const BUTTON_SECONDARY =
+  'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+const BUTTON_DANGER =
+  'border-danger text-danger hover:bg-danger-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * Defines the route-owned retention review state consumed by this section.
@@ -56,8 +62,10 @@ export interface RetentionSectionProps {
 /**
  * Renders the retention preview and prune controls from route-owned state.
  *
- * The section keeps the visual review surface local while destructive work
- * remains centralized in the route hook.
+ * Paper aesthetic: PaperCard wrapper with mono "selected" chip in the header
+ * right slot; retention bar uses bg-accent-soft / bg-accent fills; bucket
+ * checkboxes are native inputs in a flex column; warnings get a paper
+ * StatusCallout. Destructive button uses BUTTON_DANGER.
  */
 export function RetentionSection({ navItem, state }: RetentionSectionProps) {
   const { language, t } = useI18n()
@@ -78,39 +86,40 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
     : []
 
   return (
-    <div className="panel panel--critical" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-        <span className="panel-action">
-          {t('settings.retentionSelected', {
-            size: formatBytes(selectedBytes, language),
-          })}
-        </span>
-      </div>
-      <div className="panel-body">
-        <p className="dashboard-next-action">
+    <PaperCard testId={navItem.id}>
+      <PaperCardHeader
+        title={navItem.label}
+        right={
+          <span className="text-ink-faint font-mono text-[10.5px]">
+            {t('settings.retentionSelected', {
+              size: formatBytes(selectedBytes, language),
+            })}
+          </span>
+        }
+      />
+      <PaperCardBody>
+        <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.retentionDescription')}
         </p>
 
         {needsUnlock ? (
-          <StatusCallout
-            tone="warning"
-            title={t('settings.retentionUnlockTitle')}
-            body={t('settings.retentionUnlockBody')}
-            actions={
-              <Link className="btn-secondary" to="/security">
-                {t('navigation.securityLabel')}
-              </Link>
-            }
-          />
+          <div className="mb-3">
+            <StatusCallout
+              tone="warning"
+              title={t('settings.retentionUnlockTitle')}
+              body={t('settings.retentionUnlockBody')}
+              actions={
+                <Link className={BUTTON_SECONDARY} to="/security">
+                  {t('navigation.securityLabel')}
+                </Link>
+              }
+            />
+          </div>
         ) : null}
 
         {preview ? (
           <>
-            <div className="retention-bar">
+            <div className="bg-border-light rounded-paper mb-3 flex h-2 w-full overflow-hidden">
               {preview.buckets.map((bucket) => {
                 const totalBytes = preview.buckets.reduce(
                   (sum, currentBucket) => sum + currentBucket.bytes,
@@ -120,7 +129,10 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
                   totalBytes > 0 ? (bucket.bytes / totalBytes) * 100 : 0
                 return (
                   <div
-                    className={`retention-bar__segment ${selection[bucket.id] ? 'retention-bar__segment--selected' : ''}`}
+                    className={cn(
+                      'h-full transition-colors',
+                      selection[bucket.id] ? 'bg-accent' : 'bg-accent-soft',
+                    )}
                     key={bucket.id}
                     style={{ width: `${Math.max(percentage, 2)}%` }}
                     title={`${bucket.id}: ${formatBytes(bucket.bytes, language)}`}
@@ -128,9 +140,12 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
                 )
               })}
             </div>
-            <div className="settings-field-grid">
+            <div className="flex flex-col gap-2">
               {preview.buckets.map((bucket) => (
-                <label className="checkbox-row" key={bucket.id}>
+                <label
+                  className="text-ink flex items-center gap-2 font-sans text-[12px]"
+                  key={bucket.id}
+                >
                   <input
                     checked={Boolean(selection[bucket.id])}
                     type="checkbox"
@@ -146,7 +161,11 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
                         : bucket.id === 'staging'
                           ? t('settings.retentionStaging')
                           : t('settings.retentionQuarantine')}
-                    {` · ${formatBytes(bucket.bytes, language)} · ${bucket.itemCount.toLocaleString(language)} ${t('settings.retentionItems')}`}
+                    <span className="text-ink-faint ml-2 font-mono text-[10.5px]">
+                      {formatBytes(bucket.bytes, language)} ·{' '}
+                      {bucket.itemCount.toLocaleString(language)}{' '}
+                      {t('settings.retentionItems')}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -160,29 +179,33 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
           />
         )}
 
-        {preview?.warnings.map((warning) => {
-          const localizedWarning =
-            warning ===
-            'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.'
-              ? t('settings.retentionSnapshotPruneWarning')
-              : warning ===
-                  'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.'
-                ? t('settings.retentionExportPruneWarning')
-                : warning
+        {preview?.warnings.length ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {preview.warnings.map((warning) => {
+              const localizedWarning =
+                warning ===
+                'Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.'
+                  ? t('settings.retentionSnapshotPruneWarning')
+                  : warning ===
+                      'Export pruning only removes local files under the PathKeep data directory. Remote objects are unchanged.'
+                    ? t('settings.retentionExportPruneWarning')
+                    : warning
 
-          return (
-            <div className="warning-box" key={warning}>
-              <div className="warning-icon">
-                <Glyph icon="warning" filled />
-              </div>
-              <div className="warning-text">{localizedWarning}</div>
-            </div>
-          )
-        })}
+              return (
+                <StatusCallout
+                  key={warning}
+                  tone="warning"
+                  title={t('common.warning')}
+                  body={localizedWarning}
+                />
+              )
+            })}
+          </div>
+        ) : null}
 
-        <div className="wizard-actions">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
-            className="btn-secondary"
+            className={BUTTON_SECONDARY}
             type="button"
             onClick={() => {
               void onRefresh()
@@ -191,7 +214,7 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
             {t('settings.retentionRefresh')}
           </button>
           <button
-            className="btn-danger"
+            className={BUTTON_DANGER}
             type="button"
             disabled={
               needsUnlock || Boolean(action) || selectedBuckets.length === 0
@@ -205,28 +228,21 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
         </div>
 
         {result ? (
-          <div
-            className="inline-note-list"
-            style={{ marginTop: 'var(--space-3)' }}
-          >
-            <div className="result-row">
-              <p>
-                {t('settings.retentionDeletedBytes', {
-                  size: formatBytes(result.deletedBytes, language),
-                })}
-              </p>
-            </div>
-            <div className="result-row">
-              <p>
-                {t('settings.retentionDeletedFiles', {
-                  count: result.deletedFiles,
-                })}
-              </p>
-            </div>
+          <div className="border-border-light mt-4 flex flex-col gap-2 border-t pt-3">
+            <p className="text-ink-muted m-0 font-mono text-[11.5px]">
+              {t('settings.retentionDeletedBytes', {
+                size: formatBytes(result.deletedBytes, language),
+              })}
+            </p>
+            <p className="text-ink-muted m-0 font-mono text-[11.5px]">
+              {t('settings.retentionDeletedFiles', {
+                count: result.deletedFiles,
+              })}
+            </p>
             {result.runId ? (
-              <div className="result-row">
+              <div>
                 <Link
-                  className="btn-secondary"
+                  className={BUTTON_SECONDARY}
                   to={`/audit?run=${result.runId}`}
                 >
                   {t('settings.retentionOpenAudit')}
@@ -237,11 +253,14 @@ export function RetentionSection({ navItem, state }: RetentionSectionProps) {
         ) : null}
 
         {error ? (
-          <p className="inline-error" role="alert">
+          <p
+            className="text-danger m-0 mt-3 font-mono text-[11px]"
+            role="alert"
+          >
             {error}
           </p>
         ) : null}
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

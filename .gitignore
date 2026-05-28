@@ -13,6 +13,7 @@ dist-ssr
 coverage
 playwright-report
 .playwright-mcp
+.playwright-cli
 reports
 src-tauri/mutants.out
 src-tauri/mutants.out.old
@@ -54,3 +55,6 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Local agent worktrees and runtime metadata
+.claude/

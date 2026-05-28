@@ -47,6 +47,14 @@ export interface BusyOverlayState {
   steps?: string[]
   activeStep?: number
   logLines?: string[]
+  /**
+   * When `true`, the shell should render the progress as an unobtrusive
+   * bottom-bar strip instead of a full-screen blocking overlay. Set this
+   * for long-running but user-deferrable actions (manual backup, scheduled
+   * scans) so the rest of the app stays usable. Blocking actions (archive
+   * unlock, irreversible derived rebuilds) leave it `false` / unset.
+   */
+  background?: boolean
 }
 
 export interface ShellRuntimeStatus {

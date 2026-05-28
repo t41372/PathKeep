@@ -180,6 +180,56 @@ describe('intelligence surfaces', () => {
     window.localStorage.removeItem('pathkeep.profile-scope')
   })
 
+  test('renders paper assistant layout and sends through the paper composer', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    const askAssistant = vi.spyOn(backend, 'askAiAssistant').mockResolvedValue({
+      state: 'completed',
+      answer: 'Paper answer.',
+      jobId: null,
+      runId: null,
+      providerId: 'llm-local',
+      embeddingProviderId: 'embed-local',
+      citations: [],
+      notes: [],
+    })
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant?layout=paper',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('paper-assistant-panel')).toBeVisible()
+    const input = screen.getByTestId('paper-assistant-input')
+    await user.type(input, 'paper question{enter}')
+
+    expect(await screen.findByText('Paper answer.')).toBeVisible()
+    expect(askAssistant).toHaveBeenCalledWith({
+      question: 'paper question',
+      profileId: null,
+    })
+  })
+
+  test('paper assistant layout keeps providerless attribution explicit', async () => {
+    const { snapshot } = await seedArchiveState()
+    const assistantT = createNamespaceTranslator('en', 'assistant')
+    enableAi(snapshot)
+    snapshot.config.ai.llmProviderId = null
+    snapshot.config.ai.llmProviders = []
+
+    renderSurface(<AssistantPage />, {
+      route: '/assistant?layout=paper',
+      snapshot,
+    })
+
+    expect(await screen.findByTestId('paper-assistant-panel')).toBeVisible()
+    expect(
+      screen.getAllByText(assistantT('paperComposerAttributionFallback'))
+        .length,
+    ).toBeGreaterThan(0)
+  })
+
   test('renders assistant setup, lock, and disabled gates truthfully', async () => {
     const { snapshot } = await seedArchiveState()
     const assistantT = createNamespaceTranslator('en', 'assistant')
@@ -327,9 +377,7 @@ describe('intelligence surfaces', () => {
       name: assistantT('refreshQueue'),
     })
     await user.click(refreshButton)
-    expect(
-      await screen.findByText(assistantT('loadingQueueAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('refresh unavailable')).toBeVisible()
 
     const input = await screen.findByLabelText(assistantT('inputLabel'))
     expect(input).toHaveValue('seeded question')
@@ -394,9 +442,7 @@ describe('intelligence surfaces', () => {
 
     await user.clear(input)
     await user.type(input, 'force failure{enter}')
-    expect(
-      (await screen.findAllByText(assistantT('failedResponse')))[0],
-    ).toBeVisible()
+    expect((await screen.findAllByText('assistant offline'))[0]).toBeVisible()
     expect(askAssistant).toHaveBeenLastCalledWith({
       question: 'force failure',
       profileId: null,
@@ -496,9 +542,7 @@ describe('intelligence surfaces', () => {
     await user.click(
       screen.getByRole('button', { name: assistantT('checkStatus') }),
     )
-    expect(
-      await screen.findByText(assistantT('loadingQueuedAnswerAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('queued status unavailable')).toBeVisible()
 
     await user.clear(input)
     await user.type(input, 'run fallback{enter}')
@@ -508,9 +552,7 @@ describe('intelligence surfaces', () => {
         .getAllByRole('button', { name: assistantT('runQueuedJob') })
         .at(-1)!,
     )
-    expect(
-      await screen.findByText(assistantT('runningQueuedJobsAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('run unavailable')).toBeVisible()
 
     await user.clear(input)
     await user.type(input, 'cancel fallback{enter}')
@@ -518,9 +560,7 @@ describe('intelligence surfaces', () => {
     await user.click(
       screen.getAllByRole('button', { name: assistantT('cancel') }).at(-1)!,
     )
-    expect(
-      await screen.findByText(assistantT('cancellingAssistantJobAction')),
-    ).toBeVisible()
+    expect(await screen.findByText('cancel unavailable')).toBeVisible()
   })
 
   test('surfaces provider, assistant, and runtime queue fallback states', async () => {
@@ -559,7 +599,7 @@ describe('intelligence surfaces', () => {
       screen.getByRole('button', { name: assistantT('testProvider') }),
     )
     expect(
-      await screen.findByText(assistantT('testingProviderAction')),
+      await screen.findByText('provider returned a non-error failure'),
     ).toBeVisible()
 
     const input = await screen.findByLabelText(assistantT('inputLabel'))
@@ -611,7 +651,7 @@ describe('intelligence surfaces', () => {
     const input = await screen.findByLabelText(assistantT('inputLabel'))
     await user.type(input, 'ask without providers{enter}')
     expect(
-      (await screen.findAllByText(assistantT('failedResponse'))).length,
+      (await screen.findAllByText('providerless failure')).length,
     ).toBeGreaterThan(0)
   })
 

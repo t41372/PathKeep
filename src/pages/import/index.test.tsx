@@ -19,6 +19,7 @@
  */
 
 import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
@@ -62,6 +63,12 @@ vi.mock('../../lib/i18n', () => ({
     language: 'en',
     t: (key: string, vars?: Record<string, string | number>) =>
       vars ? `${key}:${JSON.stringify(vars)}` : key,
+    ns:
+      (namespace: string) =>
+      (key: string, vars?: Record<string, string | number>) =>
+        vars
+          ? `${namespace}.${key}:${JSON.stringify(vars)}`
+          : `${namespace}.${key}`,
   }),
 }))
 
@@ -157,6 +164,23 @@ describe('ImportPage route owner', () => {
     })
 
     expect(latestWorkflowProps().importTask).toBe(task)
+  })
+
+  test('paper layout renders method cards and normalizes file selection to takeout workflow', async () => {
+    const user = userEvent.setup()
+
+    renderPage({ route: '/import?layout=paper' })
+
+    expect(screen.getByTestId('paper-import-panel')).toBeVisible()
+    expect(screen.getByTestId('paper-import-view')).toBeVisible()
+
+    await user.click(screen.getByTestId('paper-import-method-file'))
+
+    await waitFor(() => expect(latestWorkflowProps().method).toBe('takeout'))
+
+    await user.click(screen.getByTestId('paper-import-method-browser'))
+
+    await waitFor(() => expect(latestWorkflowProps().method).toBe('browser'))
   })
 
   test('filters validated browser profiles and handles method/profile source defaults', async () => {
@@ -306,7 +330,7 @@ describe('ImportPage route owner', () => {
       await latestWorkflowProps().onBrowseSource({ directory: false })
     })
     expect(latestReviewState().reportedErrors.at(-1)?.message).toBe(
-      'import.filePickerUnavailable',
+      'dialog unavailable',
     )
 
     openMock.mockRejectedValueOnce(new Error('native dialog failed'))
@@ -660,10 +684,12 @@ describe('ImportPage route owner', () => {
 
 function renderPage({
   refreshAppData = vi.fn().mockResolvedValue(undefined),
+  route = '/import',
   shellOverrides = {},
   snapshot = snapshotFixture(),
 }: {
   refreshAppData?: () => Promise<void>
+  route?: string
   shellOverrides?: Partial<ReturnType<typeof shellFixture>>
   snapshot?: ReturnType<typeof snapshotFixture> | null
 } = {}) {
@@ -675,7 +701,7 @@ function renderPage({
     }),
   )
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[route]}>
       <ImportPage />
     </MemoryRouter>,
   )

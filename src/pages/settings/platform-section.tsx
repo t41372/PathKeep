@@ -22,8 +22,8 @@
  */
 
 import { Link } from 'react-router-dom'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
-import { Glyph } from '../../components/ui'
 import { useI18n } from '../../lib/i18n'
 import {
   hasSafariAccessIssue,
@@ -35,6 +35,9 @@ import {
 import type { AppSnapshot } from '../../lib/types'
 import type { SupportState } from './helpers'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+const LINK_BUTTON_CLASS =
+  'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors'
 
 /**
  * Groups the stable section anchor descriptor with the support snapshot needed
@@ -49,9 +52,9 @@ export interface PlatformSectionProps {
 /**
  * Renders the platform troubleshooting review surface.
  *
- * The section keeps derived booleans local because they are presentational and
- * cheap, while the underlying support snapshot still has one canonical owner
- * in the route hook.
+ * Paper aesthetic: PaperCard wrapper with intro line + a stack of
+ * StatusCallout entries (preserved as-is — Callout's tone tokens are
+ * already paper-aware).
  */
 export function PlatformSection({
   navItem,
@@ -69,64 +72,61 @@ export function PlatformSection({
   const keyringWarning = keyringNeedsReview(supportState.securityStatus)
 
   return (
-    <div className="panel" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-      </div>
-      <div className="panel-body settings-support-grid">
-        <p className="dashboard-next-action">
+    <PaperCard testId={navItem.id}>
+      <PaperCardHeader title={navItem.label} />
+      <PaperCardBody>
+        <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.platformDescription')}
         </p>
-        <StatusCallout
-          tone={scheduleNeedsHelp ? 'warning' : 'info'}
-          title={t(platformLabelKey(platform))}
-          body={t(platformSummaryKey(platform))}
-          actions={
-            <Link className="btn-secondary" to="/schedule">
-              {t('settings.reviewSchedule')}
-            </Link>
-          }
-        />
-        {safariNeedsAccess ? (
+        <div className="flex flex-col gap-3">
           <StatusCallout
-            tone="blocked"
-            title={t('platform.safariAccessTitle')}
-            body={t('platform.safariAccessBody')}
+            tone={scheduleNeedsHelp ? 'warning' : 'info'}
+            title={t(platformLabelKey(platform))}
+            body={t(platformSummaryKey(platform))}
             actions={
-              <Link className="btn-secondary" to="/import">
-                {t('settings.reviewImports')}
-              </Link>
-            }
-          />
-        ) : null}
-        {keyringWarning ? (
-          <StatusCallout
-            tone="warning"
-            title={t('platform.keyringTitle')}
-            body={t('platform.keyringBody')}
-            actions={
-              <Link className="btn-secondary" to="/security">
-                {t('settings.reviewSecurity')}
-              </Link>
-            }
-          />
-        ) : null}
-        {scheduleNeedsHelp ? (
-          <StatusCallout
-            tone="blocked"
-            title={t('platform.schedulerMismatchTitle')}
-            body={t('platform.schedulerMismatchBody')}
-            actions={
-              <Link className="btn-secondary" to="/schedule">
+              <Link className={LINK_BUTTON_CLASS} to="/schedule">
                 {t('settings.reviewSchedule')}
               </Link>
             }
           />
-        ) : null}
-      </div>
-    </div>
+          {safariNeedsAccess ? (
+            <StatusCallout
+              tone="blocked"
+              title={t('platform.safariAccessTitle')}
+              body={t('platform.safariAccessBody')}
+              actions={
+                <Link className={LINK_BUTTON_CLASS} to="/import">
+                  {t('settings.reviewImports')}
+                </Link>
+              }
+            />
+          ) : null}
+          {keyringWarning ? (
+            <StatusCallout
+              tone="warning"
+              title={t('platform.keyringTitle')}
+              body={t('platform.keyringBody')}
+              actions={
+                <Link className={LINK_BUTTON_CLASS} to="/security">
+                  {t('settings.reviewSecurity')}
+                </Link>
+              }
+            />
+          ) : null}
+          {scheduleNeedsHelp ? (
+            <StatusCallout
+              tone="blocked"
+              title={t('platform.schedulerMismatchTitle')}
+              body={t('platform.schedulerMismatchBody')}
+              actions={
+                <Link className={LINK_BUTTON_CLASS} to="/schedule">
+                  {t('settings.reviewSchedule')}
+                </Link>
+              }
+            />
+          ) : null}
+        </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

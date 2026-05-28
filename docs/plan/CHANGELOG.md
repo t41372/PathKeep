@@ -1387,3 +1387,723 @@
   - Data boundary：新增 aggregate-only `bun run preview:showcase:shape` script，僅 read-only 讀取本機 archive 的總量、月份、活躍時段、來源族群與 search/run counts 作形狀參考；repo / bundle 不包含 raw browser history、URL、title、search term、profile path、username 或 secret。Tauri / desktop runtime path 不接入 showcase fixture。
   - 同步回寫 [`docs/plan/STATUS.md`](STATUS.md)、[`docs/architecture/desktop-command-surface.md`](../architecture/desktop-command-surface.md)、[`package.json`](../../package.json)、[`vite.config.ts`](../../vite.config.ts)、[`vercel.json`](../../vercel.json) 與 browser-preview fixture / test source。
   - 驗收結果：targeted preview / showcase tests、`PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build`、Playwright static preview smoke（Dashboard / Explorer / Intelligence）與完整 `bun run check` 通過；`bun run check` 包含 100% JS/Rust coverage、browser-preview E2E、desktop-bridge truth gate 與 desktop-contract mutation gate。
+
+- [x] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival route sweep + backend annotations (Browse → Settings + notes/tags)
+  - 讀先：
+    `docs/design/handoff/paper-redesign/` (全套設計 + tokens + JSX)
+    `docs/plan/STATUS.md`
+    `docs/features/annotations.md`
+    `src/components/explorer-paper/` (43 個 paper primitives)
+  - 目標：讓 v0.3 paper redesign 的 7 個畫面（Browse / Search / Intelligence / Assistant / Import / Audit / Settings）全部在 `?layout=paper` opt-in 下能渲染、接到真實後端，並把 Browse detail panel 的 notes / tags 從 localStorage 升級到 canonical archive。
+  - 2026-05-19 closeout：
+    - **Route opt-in 完成**：`?layout=paper` 在 7 個 route 上都會渲染 paper view。Search 用 `?layout=paper&surface=search` 子 surface，分享 Explorer queryInput / mode / regex / results。Intelligence / Assistant / Import / Audit / Settings 各自有對應的 PaperPanel adapter；i18n 三語齊備。
+    - **i18n catalog**：2,757 keys × 3 locales，100% parity（含 paperBrowse / paperIntelligence / paperSearchView / paperAssistant / paperImport / paperAudit / paperSettings 等 sub-block）。
+    - **Backend annotations**：migration 011_notes_tags.sql；`vault-core::annotations`（get / set_notes / replace_tags / list / search）+ 9 tests；`vault-worker::annotations`；5 個 Tauri commands；typed front-end client + `useDesktopAnnotations` hook（optimistic cache + write-through）+ `hasDesktopCommandTransport` 切換；feature spec `docs/features/annotations.md`。
+    - **Test 修復**：3 個 stale v0.2 topbar tests 全部重寫成 paper-shell expected（`getByTestId('app-scroll')` 取代 `.workspace-scroll`、Notifications 斷言改成不存在、新增 `Find a page` palette opener 斷言、Dashboard route-fallback-state 新增 `snapshot.config.initialized === false → onboarding-zero-state` 分支）。
+    - **驗收結果**：JS unit suite 1,485 / 1,485 pass；Rust vault-core 454 / 454 + vault-worker 33 / 33；typecheck / lint / i18n parity 全部清零。完整 `bun run check` + `bun run verify` mutation / e2e / desktop-bridge truth gate 待後續 push 跑完。
+    - **後續 backlog**：section-panel paper restyle（Settings 各 section、Schedule / Security / Maintenance / Jobs / Integrations / Onboarding / Lock），`?layout=paper` 翻成預設，design-tokens / screens-and-nav / ux-principles / ui-review-guardrails / typography-and-font-fallback / data-model 文檔重寫，memory 三條轉向記錄。
+
+- [x] **WORK-V03-OG-IMAGE-A** — Card-mode og:image cache for paper Browse (per-URL key + content-hash dedup + opt-out posture)
+  - 讀先：
+    `.claude/plans/indexed-giggling-ullman.md` (plan + policy decisions)
+    `docs/features/og-images.md` (feature spec)
+    `docs/architecture/data-model.md` §`og_images` paragraph
+    `src-tauri/crates/vault-core/src/archive/history/og_images.rs` + `og_images_fetch.rs`
+  - 目標：讓 paper Browse 卡片模式渲染每個 page 的 og:image，使用者可以從 Settings 隨時關掉 fetch、看 cache 大小、清空 cache。
+  - 2026-05-19 closeout：
+    - **List-mode favicon (C1)**：`paper-list-row.tsx` 新增 16 px `<img>` slot，fallback 仍是 domain swatch。`PaperContactSheet.toListEntry` 透傳 `entry.favicon?.dataUrl`。+3 primitive tests。
+    - **Schema (C2)**：migration `012_og_images.sql` 新增 `og_images` (per-page-URL) + `og_image_blobs` (sha256_hex content-addressed dedup)。`schema.rs` 註冊 v12，四個 migration 測試 asserts 從 11 → 12。`vault-core::archive::history::og_images` 模組曝露 upsert / load / mark_shown / storage_stats / clear_cache / run_cleanup，四種驅逐模式（Off / TimeTtl / SizeCap / Lru）。新增 13 vault-core tests，含 `lookup_returns_none_for_unknown_page_with_known_host` 負斷言守 user 的 no-host-fallback 規則。
+    - **Fetch pipeline (C3)**：`og_images_fetch.rs` — reqwest blocking client（HTTPS-only、無 Referer、靜態 UA、2 MiB image cap、1 MiB HTML cap、12 s timeout、1 redirect、scraper 解析 og:image:secure*url → og:image → twitter:image → twitter:image:src）；`FetchedOgImage::as_insert()` 把 owned bytes 借進 `OgImageInsert<'*>`。`AppConfig`新增`OgImageSettings { fetch_enabled (default true), blocked_hosts, cleanup (default Off) }`。+15 mockito 測試。
+    - **Tauri commands + frontend hook (C4)**：六個 commands（`load_history_og_images` / `mark_og_images_shown` / `trigger_og_image_refetch` / `get_og_image_storage_stats` / `clear_og_image_cache` / `run_og_image_cleanup`），全在 `run_blocking_command`；vault-worker / worker_bridge / invoke_handler / dev IPC mirror 全到位；`backend-client/explorer.ts` + `backend.ts` typed 方法；`use-explorer-og-images.ts` hook（dedup + inflight + 1 s debounced mark_shown）。+7 hook tests。
+    - **Card render + Settings (C5)**：`paper-contact-frame.tsx` 渲染優先級 og:image > favicon > swatch，加頂底 scrim 保 index / transition token 可讀；Explorer route 在 `renderedTimeResults` 合併 ogImageCache；新增 Settings → Link previews 子 section（toggle / stats / Run cleanup / Clear all 含 `window.confirm` guard），三語 i18n keys 齊備。+2 contact frame tests +4 settings tests。
+    - **Docs sweep (C6)**：`docs/features/og-images.md` 新文；`docs/architecture/data-model.md` 加上 `og_images` 段落（強調 no-host-fallback 與 derived / 不入 backup 屬性）；STATUS + CHANGELOG + research-and-decisions 同步寫回；plan file 保存在 `.claude/plans/indexed-giggling-ullman.md`。
+    - **驗收結果**：JS unit suite 1,576 / 1,576 pass；vault-core 482 / 482 pass（C2 +13、C3 +15 = +28 new）；cargo workspace build clean；typecheck / lint / i18n parity 三語齊備。完整 `bun run check` + `bun run verify` mutation / e2e / desktop-bridge truth gate 待後續 push 跑完。
+    - **後續 backlog**：blocklist textarea UI、eviction-mode picker UI（TimeTtl / SizeCap / Lru 數值輸入）、per-host rate limit + 多 worker、daily schedule.rs tick 接 `run_og_image_cleanup`、negative-cache TTL auto-refetch worker、與 `WORK-READABLE-CONTENT-V03-A` 對齊的離線抓取整合。
+
+- [x] **WORK-V03-OG-IMAGE-FOLLOWUP-A** — og:image §6 backlog closeout (Phase 1.1–1.4)
+  - 讀先：
+    `docs/features/og-images.md` §6
+    `docs/dev/HANDOFF-2026-05-19-paper-redesign.md` §4.3
+    `src/pages/settings/link-previews-section.tsx`
+    `src-tauri/crates/vault-worker/src/archive_flows.rs`
+    `src-tauri/crates/vault-core/src/archive/history/og_images.rs`
+  - 目標：把 `WORK-V03-OG-IMAGE-A` closeout 留下的五個 §6 follow-up backlog
+    條目收掉（Settings 完整版、worker parallelism + per-host rate limit、
+    daily schedule tick、negative-cache TTL auto-refetch）。Width/height
+    image-dimension probe 與 readable-content batch import 延伸保留在
+    §6，原因是 dependency-surface 與另一個 work block 對齊。
+  - 2026-05-20 closeout：- **Phase 1.1 — Settings 完整 UI** (`feat(settings): link-previews
+blocklist + eviction mode picker (Phase 1.1)` + helper extract +
+    i18n)：blocklist textarea 連 Save/Reset，eviction-mode segmented
+    control（Off / TimeTtl / SizeCap / LRU）連數值 input（max age days /
+    max bytes MB），全部寫回 AppConfig.ogImage；canonicalize 走
+    lowercase + trim + de-dupe + drop `#` comments；clampNumber 在
+    [1, 3650] / [1, 65 536 MB] 區間裁。新增 paper-form-primitives
+    shared 模組（Field / Toggle / SegmentedControl），appearance-section
+    跟 link-previews-section 共用，Phase 3 後續會從這層繼續鋪。三語 21
+    個新 i18n keys，2 783 keys × 3 locales × 0 missing。+10 unit tests
+    （5 helper + 5 component），既有 4 個 link-previews tests + 4 個
+    appearance tests 全部保留通過。- **Phase 1.2 — Worker parallelism + per-host rate limit** (`feat(archive):
+og:image worker pool + per-host rate limit (Phase 1.2)`)：
+    `refetch_og_images` 改成 2-worker pool；workers 從 shared `Mutex<Vec<_>>`
+    pop URL，用 `Arc<Mutex<HashMap<host, Instant>>>` 強制每個 host
+    ≥ 500 ms 間距；fetch outcome 走 mpsc 回主 thread 寫 SQLite（rusqlite
+    不能跨 thread 共用）。reqwest Client + blocked_hosts 用 Arc 共用。
+    host_throttle_wait 抽到 module scope 直接單測，+5 worker tests（first
+    call zero、同 host 串行 ~500 ms、不同 host 不交叉、case-variant 合併、
+    空 URL skip）。- **Phase 1.3 — Daily backup-tick cleanup hook** (`feat(archive): daily
+og:image cache hygiene via backup tick (Phase 1.3)`)：
+    `run_backup_now_with_progress` 在每個非 due-skipped backup 結束時
+    呼叫 `run_og_image_cleanup`，結果走既有 `report.warnings` 通道
+    （成功 + 有實際清掉東西時 annotate "removed N rows / M orphan blobs /
+    reclaimed X bytes"，失敗時 surface "cache hygiene failed"，
+    no-op 則 silent）。即使 user 把 eviction mode 設成 Off，run_cleanup
+    仍會 GC orphan blobs，保住 cache 一致性。+3 helper unit tests。- **Phase 1.4 — Negative-cache TTL auto-refetch** (`feat(archive):
+negative-cache TTL auto-refetch (Phase 1.4)`)：vault-core 新增
+    `list_urls_due_for_refetch(connection, limit)`，oldest-first
+    回最多 limit 個 `refetch_after <= now` 的 page_url；vault-worker
+    `try_refetch_due_og_images` 用既有 `refetch_og_images` 重抓
+    （Phase 1.2 worker pool + per-host throttle 自動繼承），每日預算
+    `NEGATIVE_CACHE_DAILY_BUDGET = 50`（worst-case 25 s wall-clock at
+    same-host distribution / 2 workers）。同樣 fold 進 backup
+    `report.warnings`：no-op silent / 重試結果 annotate / 失敗 warning。
+    +4 vault-core tests +3 vault-worker tests。`og_image.fetch_enabled
+== false` 時整段 short-circuit，尊重 user 全域關閉的意願。- **驗收結果**：cargo test -p vault-core --lib og_images:: 18 / 18，
+    cargo test -p vault-worker --lib archive_flows::tests 12 / 12，
+    cargo clippy -p vault-core -p vault-worker --all-targets -- -D
+    warnings clean，typecheck / lint / i18n parity 全清，bun run
+    test:unit -- src/pages/settings/link-previews-section.test.tsx
+    15 / 15。完整 `bun run check` 在這個 closeout 後重新跑了一遍
+    （見後續 Phase 0 close-out commit 的 verification）。- **後續 backlog**（保留在 `docs/features/og-images.md` §6）：image
+    dimension probe（depends on pure-Rust image crate, 純資訊性低
+    價值）、readable-content 對齊的批量 import 抓取。
+
+- [x] `WORK-FEEDBACK-0525-BROWSE-VIRT` — Browse sliding-window DOM recycling + directional prefetch (2026-05-25)
+  - Spike measurement (`feat`-tagged `test(explorer): BROWSE-VIRT spike`):
+    `paper-contact-sheet.spike.test.tsx` baselined the un-virtualised
+    DOM cost: list mode = 6.25 nodes / row, cards mode = 14.25 nodes
+    / row, 100-page cap = 31 k (list) / 71 k (cards) DOM nodes — the
+    71 k figure is the regime where Chrome's compositor goes
+    non-linear on the 4-core / 8 GB target box, matching the user's
+    "scrolls froze" report. Sizing decisions documented in
+    `docs/plan/program/browse-virt-spike-2026-05-25.md` (window ≈ 400
+    list / 580 cards nodes, cache cap 50 k entries, directional
+    prefetch +2 down / +1 up, MAX_ACCUMULATED_PAGES 100 → 1 000).
+  - Impl (`feat(explorer): BROWSE-VIRT`): replaced the
+    `days.map` block in `PaperContactSheet` with a
+    `PaperDayBlock` wrapper that owns a new
+    `useViewportMount` hook (IntersectionObserver-driven render
+    gating; one screen rootMargin buffer; captures
+    `measuredHeight` before recycling so the placeholder
+    preserves scroll position). Day content unmounts when out of
+    view and remounts on re-entry; the `data-virt-state`
+    attribute flips between `mounted` / `recycled` so tests
+    observe the lifecycle. `disableVirtualization` opt-out keeps
+    the spike harness honest. `useScrollDirection` (RAF-deduped
+    `window.scrollY` sampler with 4-frame hysteresis) feeds the
+    `useExplorerInfinitePages` hook, which now warms `target + 2`
+    in the background when the user is sustaining a downward
+    scroll. `MAX_ACCUMULATED_PAGES` raised 100 → 1 000 (cap is
+    now memory-driven, not DOM-driven). 1947 / 1947 vitest pass
+    (1928 + 19 new). i18n parity 100%.
+  - Why not `@tanstack/react-virtual`: it positions virtual items
+    with `transform: translateY()`, which per CSS spec breaks
+    `position: sticky` semantics inside the transformed parent. The
+    Browse day separator MUST stay pinned (per
+    `feedback-explorer-sticky-day-header` and STATUS.md history), so
+    a transform-based virtualiser would have to abandon CSS sticky
+    or add a custom sticky-overlay layer. The BACKLOG spec listed
+    "自寫" (custom) as a valid choice alongside react-virtuoso /
+    react-virtual, so the IO-gated route was taken which preserves
+    every existing CSS contract (sticky day header, cards grid
+    auto-fill, document scroll, target-banner anchoring).
+  - Residual follow-ups (NOT user-blocking):
+    - LRU page-eviction at the cache cap — currently the cap is
+      hard (capReached flag fires); LRU only matters once users
+      regularly hit the 50 k-entry boundary.
+    - Real Chrome devtools FPS trace on the populated archive +
+      a Playwright e2e with a 14 M-row preview fixture were called
+      out in the original BACKLOG 驗收 — both need real-desktop
+      session time and are deferred until the next deep-gate pass.
+    - `docs/features/explorer-browse.md` was listed as 讀先 but
+      doesn't exist; spike doc + STATUS notes cover the v0.3 truth
+      until a Browse feature spec is written.
+
+## Import Data Integrity
+
+- [x] **WORK-IMPORT-TEST-HARNESS-A** — Browser History Import Test Harness Foundation
+  - 2026-05-25 closeout:
+    - **Architecture audit** (`docs/plan/program/import-dedup-audit.md`): full
+      code-level audit of the ingest dedup pipeline — dedup keys, per-family
+      watermark strategies, fingerprint partial index, 6 bugs identified
+      (B1–B6). Three audit claims corrected by empirical test findings:
+      B2 Safari refuted (MAX on-the-fly, no cached column), B3 simple-case
+      refuted (fingerprint partial index catches renamed-file identical
+      records), B4 reframed from "bug" to "design constraint."
+    - **Fixture crate** (`src-tauri/crates/browser-history-fixtures`): four
+      family writers (Chromium, Firefox, Safari, Takeout) that produce
+      schema-correct SQLite / JSON fixtures from deterministic seeds.
+      Time helpers (`unix_ms_to_chrome_time`, etc.) encapsulate each
+      family's epoch convention. 15 parser round-trip self-validation tests
+      across 4 files prove every generated fixture parses correctly through
+      the real PathKeep parser.
+    - **Scenario library** (`vault-core::archive::ingest::dedup_scenarios`):
+      12 end-to-end scenarios driving `process_profile_snapshot` and
+      `import_takeout` against the real archive DB:
+      - Contract (pass today, guard against regression): C1, C2, C3, S2,
+        T1, T2, T3, T5, X1.
+      - Bugs with `#[should_panic]` (flip to `#[test]` when fix lands):
+        C4 (B1), F2 (B2), T2b (B3 narrow case).
+    - **TODO markers**: sub-millisecond Chrome visit collision (C_SUB_MS)
+      flagged in both audit doc §4 and dedup_scenarios.rs for follow-up.
+    - **Spec doc** (`docs/plan/program/import-test-harness-spec.md`):
+      32 scenarios across 6 priority tiers, fixture generator API,
+      acceptance criteria. Section 6 "Scenarios Now Backed By Tests"
+      tracks coverage.
+    - **Not done (by design)**: B5 scale test deferred to dedicated
+      `WORK-IMPORT-SCALE-TEST-A` block (needs million-record fixture
+      infrastructure). No product code fixes — harness only exposes bugs.
+    - **Verification**: `bun run check` green (format + lint + typecheck +
+      i18n + unit tests + coverage + build + e2e + desktop-bridge truth +
+      desktop-contract mutation).
+
+- [x] **WORK-IMPORT-TEST-HARNESS-A (follow-up)** — Bug Fixes + SQLite-Level Audit Hardening
+  - 2026-05-25 closeout: B1/B2/B3 ingest dedup bugs fixed, 22-finding audit
+    implemented with 13 new Rust tests.
+  - **Bug fixes** (commit 6884c10d):
+    - B1: URL upsert now uses `MAX()` for visit_count/typed_count and
+      `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for title/hidden.
+    - B2: Firefox URL stream gets the same OR-fallback clause Chromium uses
+      (`OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)`).
+    - B3: Takeout `source_visit_id` now derived from `url:visit_time_micros`
+      instead of `source_path:ordinal:url`.
+    - C4/F2/T2b flipped from `#[should_panic]` to plain `#[test]`.
+  - **Audit hardening** (commit 3b7c14f7):
+    - Round-trip tests: Safari extra-column assertions (typed_evidence for
+      load_successful/synthesized/redirect/score), Firefox full-field assertions
+      (typed_count, visit_duration_ms, is_known_to_sync, etc.), Takeout
+      client_id/favicon_url/page_transition context evidence assertions.
+    - New baseline scenarios: F1 (Firefox) and S1 (Safari) happy-path imports
+      in `dedup_scenarios_baselines.rs` (646 lines).
+    - Chromium fingerprint dedup scenario: re-import with different
+      source_visit_ids asserts event_fingerprint partial index catches dupes.
+    - Edge cases: CJK URL/title round-trip, Safari pre-1970 timestamp clamping
+      (lossy `.max(0)` behaviour documented), Firefox NULL visit_count/last_visit_date.
+    - C4 expanded: third import pass with strictly older last_visit_ms verifying
+      title/hidden don't regress.
+    - writes.rs: fingerprint source_kind contract test, url_bounds no-change test.
+    - Audit doc updated: B1/B2/B3 marked FIXED, F1/S1/fingerprint-dedup added.
+  - **Not done (deferred to BACKLOG)**:
+    - Takeout `ptoken` field fixture + assertion.
+    - Takeout `visitedAt` ISO format fixture.
+    - E-series URL canonicalization scenarios (E6 fragment/trailing-slash).
+    - C_SUB_MS sub-millisecond Chrome visit collision scenario.
+    - `dedup_scenarios.rs` maintainability review (1278 lines, >1200 threshold).
+  - **Verification**: Rust 100% (33,956 lines / 1,604 functions), JS 99%+
+    (99.05/98.01/99.54/99.53), 787 Rust + 1906 JS tests pass. `bun run check`
+    green except pre-existing flaky desktop-bridge e2e (`socket hang up` on
+    `run_backup_now` — verified same failure on clean tree).
+
+---
+
+### WORK-IMPORT-TEST-HARNESS-B — Edge-case & cross-family dedup scenario expansion
+
+- **Date**: 2026-05-25
+- **Commit**: 728c1b88
+- **Scope**: Filling assessment gaps — raised spec coverage from ~40% (12/30
+  scenarios) toward ~63% (19/30) by adding 9 new test scenarios across 2 files.
+
+#### New tests
+
+1. **`dedup_scenarios_edge_cases.rs`** (NEW, 564 lines) — 7 tests:
+   - **C_SUB_MS (E5)**: Sub-millisecond Chrome visit collision — pins the
+     known limitation that two visits to the same URL within the same ms are
+     collapsed by the fingerprint partial unique index.
+   - **E6**: URL canonicalization contract — trailing slash, fragment, mixed
+     case all stored verbatim as separate URLs (no normalization).
+   - **Empty DB × 3 families**: Chromium, Firefox, Safari zero-row fixtures
+     import without error, summary reports 0/0.
+   - **R1a**: Corrupt random bytes file → `Err`, not panic.
+   - **R1b**: Valid SQLite DB missing required browser tables → `Err`, not panic.
+
+2. **`dedup_scenarios_baselines.rs`** (+160 lines → 806 total) — 2 tests:
+   - **F_C2**: Firefox incremental no-new-data (watermark prevents re-import).
+   - **S_C2**: Safari incremental no-new-data (same pattern).
+
+#### Doc updates
+
+- `import-dedup-audit.md` §4: sub-millisecond TODO replaced with implemented
+  test cross-reference; URL canonicalization section updated with E6 reference.
+- `import-dedup-audit.md` §6: 9 new scenarios added to contract scenarios table.
+- `dedup_scenarios.rs`: C_SUB_MS TODO replaced with cross-reference to edge_cases.
+
+#### Remaining gaps (still in BACKLOG)
+
+- **R2/R3**: Crash rollback, batch revert — requires transaction-abort
+  test infrastructure not yet built.
+- **E1-E4**: Time boundary edge cases (epoch, year-2038, far-future, DST).
+- **T4**: Takeout hash collision at scale (needs million-record fixture infra).
+- **Download/SearchTerm/Favicon minimal E2E**: Completely untested at scenario
+  level (covered by unit tests in `writes.rs` and chunk_consumer integration).
+
+#### Verification
+
+- 598 vault-core tests pass (24 dedup scenarios across 3 modules).
+- Rust coverage: 100% (34,423 lines / 1,611 functions).
+- `cargo fmt --all` clean.
+
+### WORK-IMPORT-TEST-REMAINING-A (partial) — Time boundaries + Takeout ptoken/visitedAt coverage
+
+> 2026-05-25 · commit 30febcab · `feat/import-data-integrity-tests`
+
+Fills the remaining "easy" gaps identified in the WORK-IMPORT-TEST-REMAINING-A
+audit checklist. All items that don't require new infra (transaction-abort
+hooks, million-record fixtures) are now covered.
+
+#### New tests
+
+1. **`dedup_scenarios_edge_cases.rs`** (+162 lines → 895 total) — 4 tests:
+   - **E1**: Epoch timestamp (visit_time_ms = 0) stores and round-trips as 0.
+   - **E2**: Year-2038 boundary (2,147,483,647,000 ms) round-trips correctly.
+   - **E3**: Far-future timestamp (year 9999) stores without overflow.
+   - **E4**: Negative timestamp from source DB clamped to 0 by all parsers.
+
+2. **`browser-history-fixtures/src/takeout/mod.rs`** (+26 lines → 248 total):
+   - Added `ptoken: Option<String>` field with serialization + unit test.
+
+3. **`browser-history-fixtures/tests/takeout_roundtrip.rs`** (+74 lines → 311 total) — 3 additions:
+   - ptoken evidence assertion in existing standard roundtrip test.
+   - **`takeout_visited_at_iso_string_parsed_correctly`**: hand-crafted JSON
+     with `visitedAt` RFC-3339 strings verifies the parser's ISO fallback path.
+   - **`takeout_record_without_time_field_is_skipped`**: record without any time
+     field silently dropped; only time-bearing records produce URL + visit rows.
+
+4. **`dedup_scenarios.rs`** (+1 line) — fix compilation: `ptoken: None` added
+   to `takeout_record` helper after fixture API change.
+
+#### Doc updates
+
+- `import-dedup-audit.md` §6: 7 new scenarios added to contract table
+  (E1-E4, Takeout ptoken/visitedAt/missing-time).
+
+#### Remaining gaps (still in BACKLOG)
+
+- **`dedup_scenarios.rs` maintainability refactor** (1274 lines, >1200 threshold):
+  review phase complete (split proposal documented), execution phase not started.
+- **R2/R3**: Crash rollback / batch revert — still needs transaction-abort
+  test infrastructure.
+- **B5 / T4**: Takeout hash collision at scale — still needs million-record
+  fixture infra.
+
+#### Verification
+
+- 602 vault-core tests pass (28 dedup scenarios across 3 modules).
+- 9 fixture crate tests pass (5 integration + 4 unit).
+- Rust coverage: 100% (34,535 lines / 1,611 functions).
+- `cargo fmt --all` clean.
+
+### WORK-IMPORT-TEST-REMAINING-A (closeout) — dedup_scenarios.rs maintainability refactor
+
+> 2026-05-25 · commit 0f41e7f7 · `feat/import-data-integrity-tests`
+
+Executes the documented split proposal for `dedup_scenarios.rs` (1274 lines,
+above the 1200-line maintainability threshold). Behavior-preserving
+extraction — zero test behavior changes, all 602 vault-core tests pass.
+
+#### Changes
+
+- **New `dedup_scenarios_takeout.rs`** (561 lines): T1, T2, T2b, T3, T5 +
+  Takeout-specific helpers + duplicated shared test infrastructure.
+- **`dedup_scenarios_baselines.rs`** (806 → 980 lines): gained F2 (Firefox
+  long-tail revisit B2) + S2 (Safari long-tail revisit refutation).
+- **`dedup_scenarios.rs`** (1274 → 641 lines): now Chromium-only (C1-C4, X1).
+  Removed 8 unused fixture imports, updated module doc to reference
+  companion modules.
+- Registered `dedup_scenarios_takeout` in `mod.rs`.
+
+#### File size summary
+
+| Module                          | Lines | Status        |
+| ------------------------------- | ----- | ------------- |
+| `dedup_scenarios.rs`            | 641   | ✅ under 800  |
+| `dedup_scenarios_baselines.rs`  | 980   | ✅ under 1200 |
+| `dedup_scenarios_edge_cases.rs` | 726   | ✅ under 800  |
+| `dedup_scenarios_takeout.rs`    | 561   | ✅ under 800  |
+
+#### Remaining blocked gaps (tracked in BACKLOG)
+
+- **R2/R3**: Crash rollback / batch revert — needs transaction-abort test infra.
+- **B5 / T4**: Takeout hash collision at scale — needs million-record fixture infra.
+
+### Import test harness expansion — provenance, incremental, schema, multi-profile
+
+> 2026-05-25 · commits ec95f4f0 / 325d4dc4 / cd6b65d5 · `feat/import-data-integrity-tests`
+
+Closes the remaining unblocked §5 contract gaps after the maintainability
+refactor. Adds 4 new Chromium-family scenarios; brings total dedup
+scenarios to 31 across 4 modules.
+
+#### New tests
+
+1. **X2 — Atlas / Comet provenance** (`x2_chromium_family_products_preserve_browser_product_identity`):
+   imports 3 Chromium-family profiles (Atlas, Comet, Chrome); asserts each
+   `browser_product` and `browser_kind` round-trips verbatim. Pins playbook
+   §156-161 (ChatGPT Atlas / Perplexity Comet must not collapse to "Google Chrome").
+
+2. **C5 — Append-new-rows incremental** (`c5_chromium_incremental_append_new_urls_and_visits`):
+   re-import where second pass adds 2 wholly new URLs + 2 new visits (no
+   overlap with first pass). Watermark lets only new rows land; originals
+   stay deduplicated. Pins §5.1 "re-import after appending new rows" — the
+   most common real-world incremental import shape.
+
+3. **C6 — Schema tolerance** (`c6_chromium_extra_columns_on_source_db_do_not_break_ingest`):
+   uses `ALTER TABLE` to add 4 real Chrome columns (`favicon_id`,
+   `segment_id`, `opener_visit`, `originator_cache_guid`) with synthetic
+   non-null data, then ingests. Verifies parser's explicit-column-list
+   discipline tolerates Chrome's schema evolution. Pins §5.1 "re-import
+   after schema migration"; catches accidental `SELECT *` regressions.
+
+4. **X3 — Multi-profile per browser** (`x3_multiple_profiles_within_same_browser_stay_independent`):
+   imports same URL+visit under chrome:Default and chrome:Profile 1; asserts
+   the fingerprint partial index is per-profile (no cross-profile dedup),
+   then re-imports Profile 1 with new content asserting Default's watermark
+   advance didn't affect Profile 1's incremental cursor. Pins per-profile
+   isolation on all 3 axes (source_profiles row, fingerprint scope, watermark).
+
+#### Audit doc updates
+
+- `import-dedup-audit.md` §6: 4 new scenario rows added (X2, C5, C6, X3).
+
+#### File size impact
+
+- `dedup_scenarios.rs`: 641 → 1170 lines (approaching 1200 review threshold).
+  Subsequent Chromium-only scenarios should go to satellite modules or
+  trigger a second split round.
+
+#### Verification
+
+- 606 vault-core tests pass (31 dedup scenarios across 4 modules).
+- 9 fixture crate tests pass.
+- `cargo fmt --all` clean.
+
+#### Contract coverage status
+
+All audit §5 contracts that are testable without blocked infrastructure
+are now pinned. Remaining gaps are infrastructure-blocked:
+
+- **R2/R3 crash rollback** — needs transaction-abort test infra.
+- **B5/T4 hash collision at scale** — needs million-record fixture infra.
+- **Parser visit-before-URL ordering** — would require an artificial
+  parser; low value at this layer.
+
+### Data-integrity edge cases — NULL handling and Unicode round-trip
+
+> 2026-05-25 · commit aaf71c19 · `feat/import-data-integrity-tests`
+
+Adds two real-world data-integrity scenarios that complement the §5
+contract pins.
+
+#### New tests
+
+1. **E7** (`e7_null_title_imports_with_null_archive_title`): NULL source
+   `title` must project as NULL in archive, not empty string. Sibling
+   non-NULL title round-trips normally. Real Chrome routinely produces
+   NULL titles (pages that never loaded, binary downloads).
+
+2. **E8** (`e8_unicode_urls_and_titles_round_trip_byte_identical`): three
+   Unicode shapes (CJK Traditional Chinese title with em-dash,
+   percent-encoded path with `%E6%B8%AC%E8%A9%A6`, emoji 🚀 in title)
+   round-trip byte-identical. Pins NO NFC/NFD normalization, NO case
+   folding, NO percent-decoding. Critical for international users.
+
+#### Final test harness state
+
+- **34 dedup scenarios** across 4 modules:
+  - `dedup_scenarios.rs` (1170 lines): C1-C6, X1-X3
+  - `dedup_scenarios_baselines.rs` (980 lines): F1, S1, F2, S2, F_C2, S_C2, fingerprint dedup
+  - `dedup_scenarios_edge_cases.rs` (902 lines): E1-E8, C_SUB_MS, Empty DB×3, R1a/R1b
+  - `dedup_scenarios_takeout.rs` (561 lines): T1, T2, T2b, T3, T5
+- 608 vault-core tests pass; 9 fixture crate tests pass.
+- All §5 audit contracts pinned (except infrastructure-blocked items).
+- Rust workspace compiles clean across all targets.
+
+### Final session entry — E9 hidden flag + future-work BACKLOG additions
+
+> 2026-05-25 · commits 8bc8b5ce + (this) · `feat/import-data-integrity-tests`
+
+#### One more focused scenario
+
+**E9** (`e9_hidden_url_flag_round_trips_for_both_true_and_false`) in
+`dedup_scenarios_edge_cases.rs`: pins that `hidden = true` source URL
+(Chrome redirect intermediates) lands non-zero in archive and
+`hidden = false` lands as 0. C-series only exercised `hidden: false`,
+and C4 (B1 fix) only used `hidden: true` in regression-prevention
+context — first-time-import preservation was not pinned.
+
+#### Final state
+
+- **35 dedup scenarios** across 4 modules (added E9).
+- 609 vault-core tests pass.
+- Rust coverage 100% (34,985 instrumented lines / 1,616 functions).
+- `bun run check:base` green; `bun run coverage:rust` green.
+- `bun run check` failed on **one unrelated E2E flake** —
+  `tests/e2e/desktop-bridge.spec.ts:223` ("runs a live backup and core
+  intelligence flow through the desktop command bridge") returned
+  `socket hang up` on `POST /commands/run_backup_now`. This is a
+  network-level desktop-bridge test failure with no connection to
+  Rust-only test additions in this branch.
+
+#### Future work documented in BACKLOG
+
+Four new work blocks added to BACKLOG for the follow-up work the user
+flagged as "do later":
+
+1. **WORK-IMPORT-FIXTURE-SIDECARS-A** — Extend Chromium fixture to
+   write `downloads` / `keyword_search_terms` / `favicons` /
+   `favicon_bitmaps` / `icon_mapping` tables, plus T6-T9 end-to-end
+   scenarios. Currently the parser supports these tables and writes.rs
+   has `insert_download` / `insert_search_term` / `insert_favicon`,
+   but no scenario covers them end-to-end.
+
+2. **WORK-IMPORT-TEST-MINOR-A** — 5 narrow contract pins as E10-E14:
+   visit_count edges, from_visit referential integrity, visit_duration
+   round-trip, Safari synthesized flag, Firefox visit_type enum.
+
+3. **WORK-IMPORT-TEST-PARSER-ORDERING-A** — Unit test the
+   `ArchiveChunkConsumer::visits` silent-skip behavior for visits with
+   missing url_id_map entries (audit §4 contract).
+
+4. **WORK-IMPORT-TEST-CONCURRENCY-A** — Audit + integration test for
+   same-profile concurrent ingest safety (audit §4 watermark race).
+
+### Code review against feat/v0.3-redesign-2 — 10 fixes applied
+
+> 2026-05-26 · commits 6587865d / b377f394 / 4992769a / cafac470 / b4e77f7f / 25c90253 / 014db312 · `feat/import-data-integrity-tests`
+
+A max-effort code review (5 finder angles × 8 candidates, then 1-vote
+verification + gap sweep) against the merge-target branch surfaced 15
+findings. Of these, 10 were verified valid with a worthwhile trade-off
+and were fixed before merge; the remaining 5 were design trade-offs
+(MAX visit_count semantics — the B1 fix was intentional) or already
+documented contracts that didn't need behavior change.
+
+#### Correctness fixes
+
+1. **B1 still live in two Takeout code paths** (commit 6587865d) —
+   `vault-core/src/takeout/browser_history.rs` and
+   `vault-core/src/takeout/payload_import.rs` URL upserts unconditionally
+   overwrote `title` / `hidden` from the latest record. The original B1
+   fix (commit 6884c10d) only touched `archive/ingest/writes.rs`.
+   Mirrored the same CASE-WHEN gates plus `MAX(visit_count)` / `MAX(typed_count)`.
+   `payload_import.rs` also had `visit_count` / `typed_count` missing
+   from the UPDATE clause entirely (INSERT VALUES hardcoded `1, 0`),
+   so Takeout URLs stayed frozen at the first import's count — fixed.
+
+2. **B1 `>=` tie-break clobbered title with NULL at equal timestamps**
+   (commit 6587865d) — `writes.rs` upsert used `excluded.last_visit_ms >=
+urls.last_visit_ms` for title / hidden, which silently overwrote
+   captured non-NULL title with NULL whenever last_visit_ms tied.
+   Firefox bookmark-only URLs (last_visit_date IS NULL → 0) tripped this
+   on every re-import. Tightened to `>`; added `url` and `payload_hash`
+   and `recorded_at` to the same strict-newer gate.
+
+3. **`track_url_visit_bounds` widened bounds from dropped visits**
+   (commit 6587865d) — `ingest/mod.rs:183` called the bounds tracker
+   unconditionally after `insert_visit`. When INSERT OR IGNORE silently
+   dropped a visit (clock-corrected re-import), `urls.first_visit_ms` /
+   `last_visit_ms` widened from a row that was never stored, leaving
+   the canonical URL claiming bounds with no matching visit. Gated on
+   `inserted > 0`.
+
+4. **B3 ordinal-tiebreaker for Takeout source_visit_id** (commit b377f394)
+   — The B3 fix changed `source_visit_id` to `{url}:{visit_time_micros}`
+   for cross-path stability but lost per-record uniqueness. Multiple
+   Takeout records at the same URL+microsecond collided on the
+   `(source_profile_id, source_visit_id)` UNIQUE index. Restored the
+   `ordinal` parameter as a tiebreaker — Google's Takeout JSON is a
+   deterministic export so ordinals are stable across re-imports.
+
+5. **`stable_key_i64` could return negative for `i64::MIN` input**
+   (commit b377f394) — `.abs()` on `i64::MIN` returns `i64::MIN` (no
+   positive representation) and panics in debug builds. Added explicit
+   corner-case branch mapping `i64::MIN → i64::MAX`. Smoke test pins
+   non-negativity across assorted inputs.
+
+6. **og:image Bilibili API memory DoS** (commits cafac470 / 014db312)
+   — `resolve_image_url_via_api_with_base` called `response.bytes()`
+   then checked size, so a multi-GB hostile/MITM response OOM-killed
+   the worker before the 64 KiB cap could fire. Now: Content-Length
+   fast-path + generic `read_with_cap<R: Read>` streaming helper that
+   aborts at the cap. Refactored the helper to take `R: Read` so the
+   cap-exceeded and read-error branches are unit-testable without
+   standing up a chunked-encoding mockito server.
+
+7. **Browser-back stranded canGoForward** (commit b4e77f7f) — the Pop
+   branch of `use-route-history-nav.ts` only decremented stackIndex,
+   so browser-back (which bypasses the in-app `goBack` callback) left
+   the topbar forward chevron disabled even though forward navigation
+   was available. Added `expectingForwardPopRef` to distinguish
+   goForward-initiated Pops from external Pops; external Pops now set
+   `forwardAvailable=true`.
+
+#### Performance
+
+8. **Firefox first-import OR-subquery O(N×M) regression** (commit 4992769a)
+   — B2 fix added `OR id IN (SELECT DISTINCT place_id FROM moz_historyvisits ...)`
+   to Firefox URLS_SQL. On the AGENTS.md target ceiling (14.4M visits,
+   first import with watermarks=0), SQLite still materializes the full
+   DISTINCT subquery even though the first predicate matches every row.
+   Added `URLS_FULL_SQL` + `first_import` branch matching the Chromium
+   pattern at `chromium/mod.rs:383-384`.
+
+#### Test/doc hygiene
+
+9. **Watermark assertions strengthened in C2 / C5 / X3** (commit 6587865d)
+   — the new scenarios asserted row counts that the fingerprint partial
+   index satisfies whether the watermark works or not. Added direct
+   `profile_watermarks.last_visit_id` assertions so a watermark
+   regression (cross-profile bleed, lost cursor advance) fails the test
+   immediately instead of silently passing through the canonical-layer
+   dedup.
+
+10. **Misleading comments + unused dep** (commits 25c90253 / 6587865d) —
+    `writes.rs` fingerprint comment claimed "Takeout dedup relies on
+    fingerprints matching Chromium's"; actual Takeout flows use
+    different source_kind and time encoding, so this contract didn't
+    exist. Rewrote to describe the real per-source-profile scoping.
+    F2 doc comment in `dedup_scenarios_baselines.rs` still claimed the
+    Firefox OR fallback was missing and the test was `#[should_panic]`;
+    both untrue since 6884c10d. `chrono` dep declared in fixtures
+    `Cargo.toml` but unused — removed plus updated lib.rs doc comment.
+    Fixture `chrome_time_to_unix_ms` aligned with production's `.max(0)`
+    clamp.
+
+#### New regression tests added
+
+- **C7** (`c7_tied_last_visit_ms_does_not_overwrite_title_hidden_or_payload_hash`)
+- **T6** (`t6_takeout_payload_import_url_upsert_protects_against_older_snapshot_regression`)
+- **T7** (`t7_takeout_same_url_same_microsecond_records_land_as_distinct_visits`)
+- **stable_key_tests** module (smoke test for non-negativity)
+- **og:image** read_with_cap × 3 (under-cap success, cap-exceeded, read-error)
+- **use-route-history-nav** browser-back-enables-forward
+- **fixture time.rs** pre-Unix-epoch chrome time clamps to 0
+
+#### Verification
+
+- 616 vault-core tests pass (was 609 → 616 with C7/T6/T7).
+- 46 browser-history-parser tests pass (stable_key_tests added).
+- 41 vault-core og_images_synth tests pass.
+- 15 use-route-history-nav tests pass.
+- Rust coverage 100% (35,184 instrumented lines / 1,630 functions).
+- `cargo fmt --all` clean.
+- `bun run check:base` green.
+- Full `bun run check` fails on the same pre-existing E2E flake
+  documented in the prior session
+  (`tests/e2e/desktop-bridge.spec.ts:223` —
+  `apiRequestContext.post: socket hang up` on
+  `POST /commands/run_backup_now`). **Verified independent of these
+  fixes**: reverting just `writes.rs` + `ingest/mod.rs` to the
+  pre-fix state (b249ea78) and re-running yields the same socket
+  hang-up failure. The desktop-bridge process closes the connection
+  during the backup; the Rust changes only touch SQL inside the
+  transaction and per-visit bookkeeping, neither of which can affect
+  the dev-IPC HTTP server. Tracked as a pre-existing flake; not
+  blocking this branch.
+
+#### Findings not actioned
+
+- **MAX(visit_count) prevents Chrome history-clear from reducing counts**
+  — flagged as a possible behavior surprise but the B1 audit explicitly
+  prioritized "never lose visit_count". This is a documented product
+  trade-off; no change.
+- Other findings were either already-documented contracts (T5 B6
+  fingerprint open question) or no-ops once the misleading comments
+  were corrected.
+
+## 2026-05-26 — WORK-IMPORT-FIXTURE-SIDECARS-A
+
+- Extended `browser-history-fixtures::ChromiumHistoryFixture` so generated
+  Chromium fixtures can write `downloads`, `keyword_search_terms`, and a
+  companion `Favicons` database (`favicons`, `favicon_bitmaps`, `icon_mapping`)
+  without reading any real browser data.
+- Added Chromium fixture self-validation for downloads, keyword search terms,
+  favicon bitmap bytes, and icon mapping through the production parser.
+- Added four vault-core end-to-end ingest scenarios:
+  - T6 `chromium_downloads_round_trip_to_archive_downloads_table`
+  - T7 `chromium_keyword_search_terms_land_with_term_text_preserved`
+  - T8 `chromium_favicons_link_to_canonical_url_rows_with_blob_dedup`
+  - T9 `chromium_icon_mapping_resolves_url_to_favicon`
+- Updated `import-dedup-audit.md` §3 / §6 to record the new sidecar coverage.
+- Verification: targeted fixture + vault-core tests pass; full checkpoint gate
+  is recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-MINOR-A
+
+- Added five minor import data-integrity contract pins in
+  `dedup_scenarios_edge_cases.rs`:
+  - E10 `e10_chromium_visit_counts_round_trip_for_zero_and_nonzero_urls`
+  - E11 `e11_chromium_dangling_from_visit_is_preserved_verbatim`
+  - E12 `e12_chromium_visit_duration_value_is_preserved_verbatim`
+  - E13 `e13_safari_synthesized_context_evidence_persists_boolean_value`
+  - E14 `e14_firefox_visit_type_enum_lands_as_transition_type_without_normalization`
+- Added a scenario helper that persists deferred source-evidence plans so Safari
+  context evidence is verified against the cold source-evidence DB, not only
+  parser memory.
+- Updated `import-dedup-audit.md` §6 with E10-E14 rows.
+- Verification: targeted E1/E10-E14 filter passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-PARSER-ORDERING-A
+
+- Added
+  `chunk_consumer_skips_visits_when_url_batch_has_not_populated_the_map` in
+  `archive::ingest::tests` to pin the Visit→URL ordering dependency directly
+  against `ArchiveChunkConsumer::visits`.
+- The test asserts the current behavior is silent skip, not fail-fast: no visit
+  row lands, skipped progress increments, duplicate/imported progress stays at
+  zero, and the skipped visit does not advance `last_visit_id`.
+- Updated `import-dedup-audit.md` §4 with a cross-reference to the test and
+  added the required maintainability follow-up for the now-1247-line
+  `ingest/mod.rs`.
+- Verification: targeted parser-ordering unit test passes; full checkpoint gate
+  is recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-IMPORT-TEST-CONCURRENCY-A
+
+- Added `archive::ingest::concurrency_tests` with
+  `same_profile_writer_waits_for_committed_watermark`.
+- The test uses two real archive connections against the same temp DB: the first
+  writer holds a same-profile watermark update open, the second writer is
+  blocked from reading that watermark until commit, and then observes the
+  committed cursor.
+- Updated `import-dedup-audit.md` §4.1 to document that current serialization
+  comes from SQLite's writer lock after `upsert_source_profile`, not from an
+  app-level ingest queue.
+- Verification: targeted concurrency unit test passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-MAINT-IMPORT-EDGE-CASES-SPLIT-A
+
+- Split the oversized `dedup_scenarios_edge_cases.rs` scenario owner from 1250
+  lines into a 311-line shared fixture harness plus five child modules:
+  `chromium_contracts`, `empty_and_resilience`, `time_and_nullable`,
+  `unicode_and_flags`, and `minor_data_integrity`.
+- Preserved all 19 edge-case test names and assertions; this was a
+  maintainability-only split with no ingest behavior changes.
+- Updated `import-dedup-audit.md` §4 / §6 links so each edge-case contract points
+  at its new owner file.
+- Verification: targeted edge-case module test passes; full checkpoint gate is
+  recorded in `TEST_PLAN.md`.
+
+## 2026-05-26 — WORK-MAINT-IMPORT-INGEST-FACADE-SPLIT-A
+
+- Reviewed the ingest orchestrator owner boundaries and documented the
+  responsibility map in `import-dedup-audit.md`.
+- Split the embedded low-level regression suite out of `ingest/mod.rs` into
+  `archive/ingest/core_tests.rs`.
+- Kept `ArchiveChunkConsumer`, stream dispatch, watermark advancement, and
+  source-evidence plan persistence together in the production facade to avoid
+  widening hot-path visibility. The facade is now 637 lines; `core_tests.rs` is
+  617 lines.
+- Verification: targeted `archive::ingest::core_tests` passes; full checkpoint
+  gate is recorded in `TEST_PLAN.md`.

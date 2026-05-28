@@ -158,6 +158,18 @@ vi.mock('./security-step', () => ({
       >
         security-password-match
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          onUpdateSecurityDraft({
+            confirmPassword: 'secret',
+            masterPassword: 'secret',
+            rememberKey: false,
+          })
+        }
+      >
+        security-password-match-no-remember
+      </button>
     </section>
   ),
 }))
@@ -484,11 +496,7 @@ describe('OnboardingPage', () => {
     )
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
 
-    expect(
-      await screen.findByText(
-        "Couldn't preview the schedule. You can set this up later in Settings.",
-      ),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('scheduler fallback')).toBeInTheDocument()
   })
 
   test('ignores schedule preview success and failure after leaving the schedule step', async () => {
@@ -585,11 +593,7 @@ describe('OnboardingPage', () => {
 
     await advanceToReady(user)
     await user.click(screen.getByRole('button', { name: 'finish' }))
-    expect(
-      await screen.findByText(
-        'Something went wrong during setup. You can try again.',
-      ),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('disk exploded')).toBeInTheDocument()
   })
 
   test('skips schedule setup without applying a native schedule', async () => {
@@ -711,6 +715,217 @@ describe('OnboardingPage', () => {
 
     expect(initializeArchive).not.toHaveBeenCalled()
     expect(runBackup).toHaveBeenCalledTimes(1)
+  })
+
+  test('surfaces the keychain-specific error when storing the database key fails after a successful archive init', async () => {
+    // Reproduces the "keyring went unavailable between probe and use" race
+    // (locked Secret Service, sudden logout, etc). initializeArchive
+    // already succeeded so the archive itself is fine — the user just
+    // needs the keychain-specific copy, not the generic finish error.
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    vi.spyOn(backend, 'keyringStoreDatabaseKey').mockRejectedValueOnce(
+      new Error('keychain locked'),
+    )
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+    })
+    renderPage()
+
+    await advanceToReady(user)
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(
+      await screen.findByText(
+        'PathKeep could not write the password to the system keychain. Uncheck the option to continue without it, or open Settings → Security after setup to retry.',
+      ),
+    ).toBeInTheDocument()
+    expect(initializeArchive).toHaveBeenCalledTimes(1)
+    // The catch arm must short-circuit before the schedule install / backup
+    // path so the user can retry without re-running the whole pipeline.
+    expect(backend.applySchedule).not.toHaveBeenCalled()
+    expect(runBackup).not.toHaveBeenCalled()
+  })
+
+  test('blocks the browser step continue when no profile is selected and steers the message by access state', async () => {
+    // handleBrowsersContinue is the only place the "select a profile" gate
+    // fires in mid-flow (advanceing past the welcome step). We need both
+    // arms of the access-issue ternary so the message tells the user
+    // whether to grant permission or pick a different profile.
+    const user = userEvent.setup()
+    shellData.current = shellDataFixture({
+      snapshot: snapshotFixture({ selectedProfileIds: [] }),
+    })
+    const { rerender } = renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    expect(
+      screen.getByText('Pick at least one browser profile to back up.'),
+    ).toBeInTheDocument()
+
+    shellData.current = shellDataFixture({
+      snapshot: snapshotWithBlockedProfile({
+        selectedProfileIds: ['safari:Blocked'],
+      }),
+    })
+    rerender(pageElement())
+    // Even with one selected profile, if it's not readable yet the
+    // continue gate must fire with the Full-Disk-Access copy instead.
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    expect(
+      screen.getByText(
+        'The selected browser profiles are not readable yet. Grant access first, or go back and choose a readable source.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  test('blocks security continue when encrypted mode has an empty master password', async () => {
+    // handleSecurityContinue must catch the empty-password case before
+    // routing to the schedule step. Without this guard the user would
+    // discover the failure only at finish time, after running the
+    // schedule preview fan-out for nothing.
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+
+    expect(
+      screen.getByText('Enter a master password to use encrypted mode.'),
+    ).toBeInTheDocument()
+    // We never advanced to the schedule step, so the preview must not run.
+    expect(backend.previewSchedule).not.toHaveBeenCalled()
+  })
+
+  test('adds a newly selected profile rather than overwriting the existing selection', async () => {
+    // The existing toggle test takes the "remove" arm because the fixture
+    // already has chrome:Default selected. We need the inverse so the
+    // ternary's "add" arm is hit too — without this guard the route owner
+    // could silently overwrite the selection list with a single entry.
+    const user = userEvent.setup()
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({
+        ...snapshotFixture(),
+        config,
+      }),
+    )
+    shellData.current = shellDataFixture({
+      saveConfig,
+      snapshot: snapshotFixture({
+        // Pre-populate with a different profile so the toggle on
+        // chrome:Default takes the "add" arm.
+        selectedProfileIds: ['firefox:OtherProfile'],
+      }),
+    })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'toggle-profile' }))
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedProfileIds: ['firefox:OtherProfile', 'chrome:Default'],
+      }),
+    )
+  })
+
+  test('initializes a plaintext archive with a null master password and skips the keyring write', async () => {
+    // handleFinish must pass `null` (not the typed-but-unused password) to
+    // initializeArchive when the user picked Plaintext, and must skip the
+    // keyring call entirely. This is the only path through the ternary on
+    // L287 — every other test takes the Encrypted arm.
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+      snapshot: snapshotFixture({
+        archiveMode: 'Plaintext',
+        initialized: false,
+        selectedProfileIds: ['chrome:Default'],
+      }),
+    })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(initializeArchive).toHaveBeenCalledWith(
+      expect.objectContaining({ archiveMode: 'Plaintext' }),
+      null,
+    )
+    expect(backend.keyringStoreDatabaseKey).not.toHaveBeenCalled()
+    expect(runBackup).toHaveBeenCalledTimes(1)
+  })
+
+  test('skips keyring storage when encrypted mode is selected but the user did not opt into the keychain', async () => {
+    // Covers the encrypted-without-remember branch: handleFinish should
+    // initialize with the password but skip backend.keyringStoreDatabaseKey
+    // entirely. Without this guard the route would touch the keychain even
+    // for users who explicitly declined the "remember" option.
+    const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({
+      initializeArchive,
+      runBackup,
+    })
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    // Set matching passwords WITHOUT rememberKey using the dedicated mock
+    // button so the encrypted-finish flow takes the
+    // `if (encrypted && rememberKey)` false branch.
+    await user.click(
+      screen.getByRole('button', {
+        name: 'security-password-match-no-remember',
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+
+    expect(initializeArchive).toHaveBeenCalledWith(
+      expect.objectContaining({ archiveMode: 'Encrypted' }),
+      'secret',
+    )
+    expect(backend.keyringStoreDatabaseKey).not.toHaveBeenCalled()
+    expect(runBackup).toHaveBeenCalledTimes(1)
+  })
+
+  test('returns from the schedule step back to the security step via the step header', async () => {
+    // The route owner wires schedule-step `onBack` to `setStep(3)`. This
+    // path is the only way to walk from step 4 → step 3 without going
+    // through the stepper buttons, so it deserves its own guard.
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+
+    await user.click(screen.getByRole('button', { name: 'schedule-back' }))
+    expect(
+      screen.getByRole('button', { name: 'security-continue' }),
+    ).toBeInTheDocument()
   })
 })
 

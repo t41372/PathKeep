@@ -26,6 +26,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { backend } from '../lib/backend-client'
+import { describeError } from '../lib/errors'
 import type { AppSnapshot } from '../lib/types'
 import type { ShellRuntimeStatus } from './shell-data-context'
 import {
@@ -53,7 +54,6 @@ interface ShellRuntimeStatusOptions {
 export function useShellRuntimeStatus({
   snapshot,
   refreshKey,
-  t,
 }: ShellRuntimeStatusOptions) {
   const [runtimeStatus, setRuntimeStatus] =
     useState<ShellRuntimeStatus>(emptyRuntimeStatus)
@@ -121,10 +121,7 @@ export function useShellRuntimeStatus({
           return nextStatus
         })
         .catch((nextError) => {
-          const message =
-            nextError instanceof Error
-              ? nextError.message
-              : t('common.notAvailable')
+          const message = describeError(nextError, 'load_runtime_status')
           const nextStatus: ShellRuntimeStatus = {
             aiQueue: null,
             intelligence: null,
@@ -146,7 +143,7 @@ export function useShellRuntimeStatus({
       runtimeRefreshPromiseRef.current = nextRequest
       return nextRequest
     },
-    [snapshot, t],
+    [snapshot],
   )
 
   useEffect(() => {

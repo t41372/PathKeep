@@ -19,6 +19,16 @@ use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
+/// Incremental URL ingest query used by re-imports after at least one
+/// previous import. Mirrors the Chromium `INGEST_URLS_SQL` pattern:
+///
+/// - `last_visit_date >= ?1` catches every place whose most recent visit
+///   landed at or after the URL cursor (the common path).
+/// - `id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)`
+///   widens the set to any place referenced by a new visit beyond the visit
+///   cursor, even when Firefox didn't bump `moz_places.last_visit_date`.
+///   Without this OR, long-tail revisited pages lose their new visits to
+///   `skipped_visits++` because the URL is absent from `url_id_map` (B2).
 const URLS_SQL: &str = r#"
 SELECT
   moz_places.id,
@@ -29,6 +39,29 @@ SELECT
   COALESCE(moz_places.last_visit_date, 0)
 FROM moz_places
 WHERE COALESCE(moz_places.last_visit_date, 0) >= ?1
+   OR moz_places.id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)
+ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
+"#;
+
+/// First-import URL ingest query. When both watermarks are at zero, the
+/// `last_visit_date >= 0` predicate already matches every moz_places row,
+/// so the OR's `SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > 0`
+/// subquery is pure waste — it forces SQLite to scan the entire
+/// `moz_historyvisits` table and materialize an ephemeral B-tree of every
+/// distinct place_id before the outer filter runs. On a 14.4M-visit Firefox
+/// profile that's a multi-GB transient plus multi-minute stall added to
+/// the very first import. Mirrors the Chromium `INGEST_URLS_FULL_SQL`
+/// optimization — stripping the OR removes the hazard without losing any
+/// rows.
+const URLS_FULL_SQL: &str = r#"
+SELECT
+  moz_places.id,
+  moz_places.url,
+  moz_places.title,
+  moz_places.visit_count,
+  COALESCE(moz_places.hidden, 0),
+  COALESCE(moz_places.last_visit_date, 0)
+FROM moz_places
 ORDER BY COALESCE(moz_places.last_visit_date, 0) ASC
 "#;
 const VISITS_SQL: &str = r#"
@@ -180,11 +213,25 @@ where
     let mut source_evidence_chunk = SourceEvidenceChunk::default();
 
     {
-        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
+        // First-import branch: when both watermarks are zero, the OR
+        // subquery in URLS_SQL is wasted work over potentially millions
+        // of moz_historyvisits rows. Use URLS_FULL_SQL (no OR clause,
+        // no bound params) to skip the materialization. Matches the
+        // Chromium pattern at `chromium/mod.rs:383-384`.
+        let first_import = after_visit_id == 0 && after_url_last_visit_ms == 0;
+        let sql = if first_import { URLS_FULL_SQL } else { URLS_SQL };
+        let mut statement = stream_sql(connection.prepare(sql))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
         let mut rows =
-            stream_sql(statement.query(params![unix_ms_to_firefox_time(after_url_last_visit_ms)]))?;
+            if first_import {
+                stream_sql(statement.query([]))?
+            } else {
+                stream_sql(statement.query(params![
+                    unix_ms_to_firefox_time(after_url_last_visit_ms),
+                    after_visit_id
+                ]))?
+            };
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             batch.push(stream_sql(parsed_url_from_row(row))?);
@@ -341,6 +388,14 @@ fn validate_required_tables(inspection: &DatabaseInspection) -> Result<(), Parse
 
 fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
     let last_visit_date = row.get::<_, i64>(5)?;
+    // Firefox's `moz_places.last_visit_date` is microseconds-since-Unix.
+    // `last_visit_ms` truncates that to ms; today's incremental watermark
+    // is also stored in ms and converted back to firefox_time via
+    // `unix_ms_to_firefox_time` (* 1000) at query time, which means the
+    // same sub-ms precision loss the Chromium path used to have. Leaving
+    // `source_last_visit_marker` unset (None) keeps the legacy watermark
+    // semantic until the Firefox cursor unit migration ships; see
+    // BACKLOG.md for the planned follow-up.
     Ok(ParsedUrl {
         source_url_id: row.get(0)?,
         url: row.get(1)?,
@@ -350,6 +405,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: firefox_time_to_unix_ms(last_visit_date),
         last_visit_iso: firefox_time_to_iso(last_visit_date),
         hidden: row.get::<_, i64>(4)? != 0,
+        source_last_visit_marker: None,
     })
 }
 
@@ -576,6 +632,126 @@ mod tests {
                 entity.entity_kind == "firefox-moz-places-metadata-search-queries"
             })
         );
+    }
+
+    #[test]
+    fn incremental_url_query_does_not_take_the_first_import_fast_path_with_one_cursor_zero() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    8_i64,
+                    "https://example.com/firefox-stale",
+                    "Firefox stale",
+                    1_i64,
+                    0_i64,
+                    1_000_000_i64,
+                ],
+            )
+            .expect("insert stale place");
+        drop(connection);
+
+        let parsed_with_url_cursor =
+            parse_history(&history_path, 0, 1_744_146_000_000).expect("parse url cursor only");
+        assert!(
+            parsed_with_url_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/firefox-stale"),
+            "url-cursor-only incremental imports must exclude stale places without new visits",
+        );
+
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    9_i64,
+                    "https://example.com/firefox-negative",
+                    "Firefox negative",
+                    1_i64,
+                    0_i64,
+                    -1_i64,
+                ],
+            )
+            .expect("insert negative-date place");
+        drop(connection);
+
+        let parsed_with_visit_cursor =
+            parse_history(&history_path, 50, 0).expect("parse visit cursor only");
+        assert!(
+            parsed_with_visit_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/firefox-negative"),
+            "visit-cursor-only incremental imports must still use the bounded URL query",
+        );
+    }
+
+    #[test]
+    fn stream_history_batches_rows_and_reports_firefox_evidence_counts() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("places.sqlite");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        for id in 8_i64..=9 {
+            connection
+                .execute(
+                    "INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        id,
+                        format!("https://example.com/firefox-{id}"),
+                        format!("Firefox {id}"),
+                        1_i64,
+                        0_i64,
+                        1_744_146_000_000_000_i64 + id,
+                    ],
+                )
+                .expect("insert place");
+        }
+        let visits = [
+            (12_i64, 8_i64, Some(11_i64), Option::<i64>::None),
+            (13_i64, 9_i64, Option::<i64>::None, Some(2_i64)),
+        ];
+        for (visit_id, place_id, from_visit, visit_type) in visits {
+            connection
+                .execute(
+                    "INSERT INTO moz_historyvisits (id, place_id, visit_date, from_visit, visit_type)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        visit_id,
+                        place_id,
+                        1_744_146_000_000_000_i64 + visit_id,
+                        from_visit,
+                        visit_type,
+                    ],
+                )
+                .expect("insert visit");
+        }
+        drop(connection);
+
+        let mut consumer = RecordingConsumer::default();
+        let streamed =
+            stream_history(&history_path, 0, 0, 2, &mut consumer).expect("stream firefox");
+
+        assert_eq!(consumer.url_batches, vec![2, 1]);
+        assert_eq!(consumer.visit_batches, vec![2, 1]);
+        assert_eq!(streamed.typed_evidence.navigation.len(), 3);
+        assert_eq!(streamed.typed_evidence.context.len(), 3);
+        let capability = |key: &str| {
+            streamed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
+        };
+        assert_eq!(capability("nav.from_visit").populated_rows, 1);
+        assert_eq!(capability("nav.from_visit").total_rows, 3);
+        assert_eq!(capability("nav.transition").populated_rows, 3);
+        assert_eq!(capability("nav.transition").total_rows, 3);
     }
 
     #[test]

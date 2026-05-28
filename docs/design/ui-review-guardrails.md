@@ -36,7 +36,7 @@
    - 理由：要承接 `Summary / Artifacts / Warnings` 與 open / copy path，屬 review surface。
 4. **Jobs 的主要 queue / recovery review surface**
    - 例如 hero card、queue family overview、需要看 phase / heartbeat / recovery note 的大面板。
-5. **Maintenance / Integrations 裡的 artifact、cleanup、remote backup verify 類 review surface**
+5. **Settings / Maintenance / Integrations 裡的 artifact、cleanup、Data migration import preview 類 review surface**
    - 前提：它承載的是 artifact review / payload review / verify 結果，不是單純宣傳或摘要。
 
 除此之外：

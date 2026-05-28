@@ -333,7 +333,7 @@ describe('update helpers', () => {
     ).resolves.toMatchObject({
       phase: 'error',
       version: '0.3.0',
-      message: 'PathKeep could not install 0.3.0.',
+      message: 'offline',
     })
   })
 

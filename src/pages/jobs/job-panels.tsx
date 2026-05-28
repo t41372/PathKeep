@@ -21,6 +21,11 @@
  * - Render-only panels that work from already-loaded queue snapshots; they do not trigger additional reads.
  */
 
+import {
+  PaperCard,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { ReviewSection } from '../../components/review'
 import { formatDateTime, formatRelativeTime } from '../../lib/format'
 import {
@@ -65,11 +70,9 @@ export function JobPanel({
   title,
 }: JobPanelProps) {
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{title}</span>
-      </div>
-      <div className="panel-body intelligence-job-list">
+    <PaperCard>
+      <PaperCardHeader title={title} />
+      <PaperCardBody className="intelligence-job-list">
         {jobs.length === 0 ? (
           <p className="mono-support">{emptyLabel}</p>
         ) : (
@@ -133,8 +136,8 @@ export function JobPanel({
             </ReviewSection>
           ))
         )}
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }
 
@@ -166,11 +169,9 @@ export function RuntimeJobPanel({
   title,
 }: RuntimeJobPanelProps) {
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">{title}</span>
-      </div>
-      <div className="panel-body intelligence-job-list">
+    <PaperCard>
+      <PaperCardHeader title={title} />
+      <PaperCardBody className="intelligence-job-list">
         {jobs.length === 0 ? (
           <p className="mono-support">{emptyLabel}</p>
         ) : (
@@ -267,7 +268,7 @@ export function RuntimeJobPanel({
             </ReviewSection>
           ))
         )}
-      </div>
-    </div>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

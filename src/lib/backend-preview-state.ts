@@ -43,7 +43,6 @@ import type {
   AppLockStatus,
   AppSnapshot,
   ImportBatchDetail,
-  S3CredentialInput,
   SchedulePlan,
   ScheduleStatus,
 } from './types'
@@ -59,7 +58,6 @@ export interface MockBackendState {
   snapshot: AppSnapshot
   history: typeof mockHistory
   keyringSecret: string | null
-  s3Credentials: S3CredentialInput | null
   appLockPasscode: string | null
   appLockRecoveryHint: string | null
   biometricState: AppLockStatus['biometricState']
@@ -74,7 +72,6 @@ export interface MockBackendState {
   queueJobs: AiQueueJob[]
   nextAiJobId: number
   nextImportBatchId: number
-  lastRemoteBundlePath: string | null
   derivedStateCleared: boolean
   searchEngineRules: SearchEngineRule[]
   showcaseTotals: PreviewShowcaseTotals | null
@@ -139,10 +136,7 @@ function buildMockSearchEngineRules(): SearchEngineRule[] {
  * This protects browser-preview from drifting into impossible config states after tests or
  * command handlers mutate the in-memory fixture.
  */
-export function normalizeMockConfig(
-  config: AppConfig,
-  s3Credentials: S3CredentialInput | null = null,
-): AppConfig {
+export function normalizeMockConfig(config: AppConfig): AppConfig {
   return {
     ...config,
     explorerBackgroundPrefetchPages: normalizeExplorerBackgroundPrefetchPages(
@@ -156,10 +150,6 @@ export function normalizeMockConfig(
       ),
     },
     enrichment: resolveEnrichmentSettings(config.enrichment),
-    remoteBackup: {
-      ...config.remoteBackup,
-      credentialsSaved: Boolean(s3Credentials),
-    },
   }
 }
 
@@ -410,7 +400,6 @@ export function createMockState(): MockBackendState {
     snapshot: structuredClone(mockSnapshot),
     history: structuredClone(mockHistory),
     keyringSecret: null,
-    s3Credentials: null,
     appLockPasscode: null,
     appLockRecoveryHint: null,
     biometricState: 'unsupported',
@@ -458,15 +447,11 @@ export function createMockState(): MockBackendState {
         ],
     nextAiJobId: 3,
     nextImportBatchId: 1,
-    lastRemoteBundlePath: null,
     derivedStateCleared: false,
     searchEngineRules: buildMockSearchEngineRules(),
     showcaseTotals: showcaseMode ? showcaseTotals() : null,
   }
-  state.snapshot.config = normalizeMockConfig(
-    state.snapshot.config,
-    state.s3Credentials,
-  )
+  state.snapshot.config = normalizeMockConfig(state.snapshot.config)
   syncMockAppLockState(state)
   syncMockAiStatus(state)
   syncMockIntelligenceRuntime(state)

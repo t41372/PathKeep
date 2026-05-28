@@ -451,7 +451,9 @@ describe('intelligence surfaces', () => {
       ),
     )
 
-    const aiPanel = screen.getByText(jobsT('recentAiJobs')).closest('.panel')
+    const aiPanel = screen
+      .getByText(jobsT('recentAiJobs'))
+      .closest('section, .panel')
     expect(aiPanel).not.toBeNull()
     if (!(aiPanel instanceof HTMLElement)) {
       throw new Error('expected recent ai jobs panel')
@@ -463,7 +465,7 @@ describe('intelligence surfaces', () => {
 
     const runtimePanel = screen
       .getByText(jobsT('recentRuntimeJobs'))
-      .closest('.panel')
+      .closest('section, .panel')
     expect(runtimePanel).not.toBeNull()
     if (!(runtimePanel instanceof HTMLElement)) {
       throw new Error('expected recent runtime jobs panel')
@@ -874,7 +876,7 @@ describe('intelligence surfaces', () => {
     })
 
     const aiPanel = (await screen.findByText(jobsT('recentAiJobs'))).closest(
-      '.panel',
+      'section, .panel',
     )
     expect(aiPanel).not.toBeNull()
     if (!(aiPanel instanceof HTMLElement)) {
@@ -887,7 +889,7 @@ describe('intelligence surfaces', () => {
 
     const runtimePanel = screen
       .getByText(jobsT('recentRuntimeJobs'))
-      .closest('.panel')
+      .closest('section, .panel')
     expect(runtimePanel).not.toBeNull()
     if (!(runtimePanel instanceof HTMLElement)) {
       throw new Error('expected runtime jobs panel')
@@ -927,7 +929,6 @@ describe('intelligence surfaces', () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     const jobsT = createNamespaceTranslator('en', 'jobs')
-    const commonT = createNamespaceTranslator('en', 'common')
     const runtime = runtimeFixture({
       recentJobs: [
         runtimeJobFixture({
@@ -967,7 +968,7 @@ describe('intelligence surfaces', () => {
 
     const runtimePanel = (
       await screen.findByText(jobsT('recentRuntimeJobs'))
-    ).closest('.panel')
+    ).closest('section, .panel')
     expect(runtimePanel).not.toBeNull()
     if (!(runtimePanel instanceof HTMLElement)) {
       throw new Error('expected runtime jobs panel')
@@ -975,12 +976,12 @@ describe('intelligence surfaces', () => {
     await user.click(
       within(runtimePanel).getByRole('button', { name: jobsT('retryJob') }),
     )
-    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+    expect(await screen.findByText('retry fallback')).toBeVisible()
 
     await user.click(
       within(runtimePanel).getByRole('button', { name: jobsT('cancelJob') }),
     )
-    expect(await screen.findByText(commonT('notAvailable'))).toBeVisible()
+    expect(await screen.findByText('cancel fallback')).toBeVisible()
   })
 
   test('renders active and stale archive write tasks in Jobs', async () => {

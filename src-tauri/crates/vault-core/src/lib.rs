@@ -15,6 +15,7 @@
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;
+pub mod annotations;
 pub mod app_lock;
 pub mod archive;
 mod browser_retention;
@@ -28,8 +29,8 @@ mod intelligence_blobs;
 mod intelligence_catalog;
 pub mod intelligence_runtime;
 mod intelligence_sections;
+pub mod migration;
 pub mod models;
-pub mod remote;
 pub mod takeout;
 pub mod utils;
 pub mod visit_taxonomy;
@@ -41,6 +42,9 @@ pub use ai::{
     provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
     semantic_search_history, test_provider_connection,
 };
+pub use annotations::{
+    get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
+};
 pub use app_lock::{
     app_lock_status, app_lock_status_with_biometric, clear_app_lock_passcode,
     ensure_app_lock_unlocked, hydrate_app_lock_config, initialize_app_lock_session,
@@ -48,8 +52,10 @@ pub use app_lock::{
     validate_app_lock_config, validate_app_lock_config_with_biometric,
 };
 pub use archive::{
-    archive_status, doctor, ensure_archive_initialized, export_history, list_history,
-    load_audit_run_detail, load_dashboard_snapshot, load_history_favicons, load_recent_runs,
+    BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
+    BrowseDayTopUrl, archive_status, doctor, ensure_archive_initialized, export_history,
+    get_browse_day_insights, list_history, load_audit_run_detail, load_dashboard_snapshot,
+    load_history_favicons, load_recent_runs, og_images, og_images_fetch,
     open_source_evidence_connection, preview_retention, preview_snapshot_restore, rekey_archive,
     repair_health_issues, run_backup, run_backup_with_progress, run_retention_prune,
     run_snapshot_restore,
@@ -79,8 +85,12 @@ pub use intelligence_runtime::{
     retry_intelligence_job, update_intelligence_job_artifact,
 };
 pub use intelligence_sections::build_core_intelligence_section_meta;
+pub use migration::{
+    ApplyImportOptions, EXPORT_FORMAT_VERSION, ExportManifest, ExportManifestFile, ExportedBundle,
+    ImportExclusionNote, ImportPreview, ImportResult, apply_import, export_app_data,
+    preview_import,
+};
 pub use models::*;
-pub use remote::{preview_remote_backup, run_remote_backup, verify_remote_backup};
 pub use takeout::{
     import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,

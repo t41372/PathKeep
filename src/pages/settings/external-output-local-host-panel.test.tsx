@@ -184,7 +184,7 @@ describe('SettingsExternalOutputLocalHostPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('copiedNotice')
   })
 
-  test('surfaces non-error build failures with the localized unavailable copy', async () => {
+  test('surfaces non-error build failures with the underlying message', async () => {
     const user = userEvent.setup()
     previewIntelligenceLocalHostMock.mockResolvedValue(
       createPreview({ installedHost: createInstalledHost() }),
@@ -199,9 +199,7 @@ describe('SettingsExternalOutputLocalHostPanel', () => {
       }),
     )
 
-    expect(
-      await screen.findByText('externalOutputsLocalHostUnavailableBody'),
-    ).toBeVisible()
+    expect(await screen.findByText('nope')).toBeVisible()
   })
 
   test('covers fallback preview, build, error, and timestamp branches', async () => {

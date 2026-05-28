@@ -25,21 +25,21 @@ use vault_core::{
     AiAssistantRequest, AiIndexRequest, AiProviderConfig, AiProviderPurpose, AiProviderSecretInput,
     AiRequestFormat, AiSearchResponse, AppConfig, ArchiveMode, BrowserHistoryImportRequest,
     ExportFormat, ExportRequest, HealthReport, HistoryQuery, PagedDateRangeRequest,
-    S3CredentialInput, SetAppLockPasscodeRequest, TakeoutRequest, UnlockAppSessionRequest,
-    project_paths, utils::iso_to_chrome_time_micros,
+    SetAppLockPasscodeRequest, TakeoutRequest, UnlockAppSessionRequest, project_paths,
+    utils::iso_to_chrome_time_micros,
 };
 #[cfg(coverage)]
 use vault_core::{
     AiIndexReport, AiProviderConnectionTestRequest, AiQueueStatus, AiRunControl, AiSearchRequest,
-    CoreIntelligenceRebuildRequest, RemoteBackupResult,
+    CoreIntelligenceRebuildRequest,
 };
 use vault_platform::keyring_set_provider_api_key;
 
-const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
+pub(crate) const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
 const FIREFOX_PROFILES_OVERRIDE_ENV: &str = "CHB_FIREFOX_PROFILES_DIR";
 const SAFARI_ROOT_OVERRIDE_ENV: &str = "CHB_SAFARI_ROOT";
-const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
+pub(crate) const TEST_KEYRING_OVERRIDE_ENV: &str = "CHB_TEST_KEYRING_DIR";
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -50,7 +50,7 @@ pub(crate) fn lock_env() -> MutexGuard<'static, ()> {
     env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
+pub(crate) fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
     unsafe {
         if let Some(value) = value {
             std::env::set_var(name, value);
@@ -838,11 +838,7 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
-    let mut config = initialized_config();
-    config.remote_backup.enabled = true;
-    config.remote_backup.bucket = "worker-tests".to_string();
-    config.remote_backup.region = "us-west-2".to_string();
-    config.remote_backup.prefix = "archives".to_string();
+    let config = initialized_config();
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save user config");
     run_backup_now(None, false).expect("backup");
@@ -951,17 +947,6 @@ fn worker_support_helpers_cover_schedule_takeout_and_keyring_flows() {
             .iter()
             .any(|warning| { warning.contains("target mode matches the current mode") })
     );
-
-    store_s3_credentials(&S3CredentialInput {
-        access_key_id: "akid".to_string(),
-        secret_access_key: "secret".to_string(),
-    })
-    .expect("store s3");
-    let remote_preview = preview_remote_backup_bundle().expect("remote preview");
-    assert!(remote_preview.upload_url.contains("worker-tests"));
-    clear_s3_credentials().expect("clear s3");
-    let remote_error = upload_remote_backup_bundle(None).expect_err("remote backup should fail");
-    assert!(remote_error.to_string().contains("S3 credentials"));
 
     let paths = project_paths().expect("project paths");
     fs::write(&paths.stronghold_path, "hold").expect("write stronghold");
@@ -1087,11 +1072,6 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     }
 
     let mut config = configured_ai_config();
-    config.remote_backup.enabled = true;
-    config.remote_backup.bucket = "worker-tests".to_string();
-    config.remote_backup.region = "us-west-2".to_string();
-    config.remote_backup.prefix = "archives".to_string();
-    config.remote_backup.upload_after_backup = true;
     config.ai.auto_index_after_backup = true;
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
@@ -1112,14 +1092,8 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         None,
     )
     .expect("store llm key");
-    store_s3_credentials(&S3CredentialInput {
-        access_key_id: "akid".to_string(),
-        secret_access_key: "secret".to_string(),
-    })
-    .expect("store s3 creds");
 
-    let backup = run_backup_now(None, false).expect("backup with follow-up tasks");
-    assert!(backup.remote_backup.is_some());
+    run_backup_now(None, false).expect("backup with follow-up tasks");
 
     let index = build_ai_index_now(None, &AiIndexRequest::default()).expect("build ai index");
     assert!(!index.provider_id.is_empty());
@@ -1189,11 +1163,6 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     .expect("routed search history");
     assert!(routed_search.0.total >= 1);
 
-    let remote_json = run_worker_cli(&["remote-backup".to_string()]).expect("remote backup cli");
-    let remote: RemoteBackupResult =
-        serde_json::from_str(&remote_json).expect("parse remote result");
-    assert!(remote.uploaded);
-
     let index_json = run_worker_cli(&["ai-index".to_string()]).expect("ai-index cli");
     let index_report: AiIndexReport =
         serde_json::from_str(&index_json).expect("parse ai index report");
@@ -1232,17 +1201,12 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
     }
 
     let mut config = configured_ai_config();
-    config.remote_backup.enabled = true;
-    config.remote_backup.bucket = "worker-tests".to_string();
-    config.remote_backup.region = "us-west-2".to_string();
-    config.remote_backup.upload_after_backup = true;
     config.ai.auto_index_after_backup = true;
     config.ai.embedding_provider_id = None;
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 
     let report = run_backup_now(None, false).expect("backup with missing follow-ups");
-    assert!(report.warnings.iter().any(|warning| warning.contains("S3 credentials")));
     assert!(report.warnings.iter().any(|warning| warning.contains("embedding provider")));
 
     unsafe {
@@ -2035,10 +1999,6 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
     }
 
     let mut config = configured_ai_config();
-    config.remote_backup.enabled = true;
-    config.remote_backup.bucket = "worker-tests".to_string();
-    config.remote_backup.region = "us-west-2".to_string();
-    config.remote_backup.upload_after_backup = true;
     config.ai.auto_index_after_backup = true;
     config.ai.embedding_providers[0].default_model.clear();
     initialize_archive_database(&config, None).expect("initialize archive");
@@ -2052,16 +2012,8 @@ fn coverage_run_backup_now_surfaces_remote_and_index_failures_as_warnings() {
         None,
     )
     .expect("store embed key");
-    store_s3_credentials(&S3CredentialInput {
-        access_key_id: "akid".to_string(),
-        secret_access_key: "secret".to_string(),
-    })
-    .expect("store s3 creds");
 
-    let report = run_backup_now(None, false).expect("backup with failing follow-up tasks");
-    let remote = report.remote_backup.expect("remote backup report");
-    assert!(!remote.uploaded);
-    assert!(report.warnings.iter().any(|warning| warning.contains("upload failed from worker")));
+    run_backup_now(None, false).expect("backup with failing follow-up tasks");
     let mut queue = load_ai_queue(None).expect("load ai queue");
     for _ in 0..50 {
         if queue.failed > 0 {

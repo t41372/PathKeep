@@ -71,11 +71,35 @@ struct VisitCapabilityStats {
     engagement_evidence_count: usize,
 }
 
-/// Incremental URL ingest query used by the archive pipeline.
+/// Incremental URL ingest query used by re-imports after at least one
+/// previous import. Filters URLs by both watermarks intentionally:
+///
+/// - `last_visit_time >= ?1` catches every URL whose most recent visit
+///   landed at or after the URL cursor (the common path).
+/// - `id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)` widens the
+///   set to any URL referenced by a new visit beyond the visit cursor,
+///   even when Chrome didn't bump `urls.last_visit_time` for that URL.
+///   Without this OR, long-tail revisited pages (Zhihu answer pages are
+///   the canonical example) lost their new visits to `skipped_visits++`
+///   because the URL was absent from the in-memory `url_id_map`.
 pub const INGEST_URLS_SQL: &str =
     "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
      FROM urls
      WHERE last_visit_time >= ?1
+        OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)
+     ORDER BY last_visit_time ASC";
+
+/// First-import URL ingest query. When both watermarks are at zero, the
+/// `last_visit_time >= 0` predicate already matches every URL row, so
+/// the OR's `SELECT DISTINCT url FROM visits WHERE id > 0` subquery is
+/// pure waste — it forces SQLite to scan the entire `visits` table and
+/// materialize an ephemeral B-tree of every URL id before the outer
+/// filter runs. On a 14.4M-visit history that's a multi-GB transient
+/// plus multi-minute stall added to the very first import. Stripping the
+/// OR removes the hazard without losing any rows.
+pub const INGEST_URLS_FULL_SQL: &str =
+    "SELECT id, url, title, visit_count, typed_count, last_visit_time, hidden
+     FROM urls
      ORDER BY last_visit_time ASC";
 /// Incremental visit ingest query used by the archive pipeline.
 pub const INGEST_VISITS_SQL: &str =
@@ -188,6 +212,7 @@ where
     stream_url_batches(
         &history,
         cursor.after_url_last_visit_time,
+        cursor.after_visit_id,
         chunk_size,
         consumer,
         retain_source_evidence,
@@ -340,6 +365,7 @@ where
 fn stream_url_batches<C>(
     connection: &Connection,
     last_visit_time: i64,
+    last_visit_id: i64,
     chunk_size: usize,
     consumer: &mut C,
     retain_source_evidence: bool,
@@ -349,10 +375,21 @@ fn stream_url_batches<C>(
 where
     C: HistoryBatchConsumer,
 {
-    let mut statement = stream_sql(connection.prepare(INGEST_URLS_SQL))?;
+    // First-import path: both watermarks at zero means the OR's
+    // `visits.id > 0` subquery wouldn't filter anything beyond what
+    // `last_visit_time >= 0` already returns. Use the OR-free variant
+    // to skip a multi-GB DISTINCT-over-visits materialisation on the
+    // 14.4M-row ceiling.
+    let first_import = last_visit_time == 0 && last_visit_id == 0;
+    let sql = if first_import { INGEST_URLS_FULL_SQL } else { INGEST_URLS_SQL };
+    let mut statement = stream_sql(connection.prepare(sql))?;
     let column_names =
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-    let mut rows = stream_sql(statement.query(params![last_visit_time]))?;
+    let mut rows = if first_import {
+        stream_sql(statement.query(params![]))?
+    } else {
+        stream_sql(statement.query(params![last_visit_time, last_visit_id]))?
+    };
     let mut batch = Vec::with_capacity(chunk_size);
     let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
@@ -724,6 +761,12 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: chrome_time_to_unix_ms(last_visit_time),
         last_visit_iso: chrome_time_to_iso(last_visit_time),
         hidden: row.get::<_, i64>(6)? != 0,
+        // Expose the raw chrome_micros timestamp so the ingest watermark
+        // keeps sub-millisecond precision. Without this, the round-trip
+        // unix_ms → chrome_micros in `url_last_visit_marker` truncates up
+        // to 999 µs and the next incremental ingest's
+        // `WHERE last_visit_time >= ?1` predicate re-matches the same URL.
+        source_last_visit_marker: Some(last_visit_time),
     })
 }
 
@@ -798,9 +841,17 @@ mod tests {
         visits: usize,
         downloads: usize,
         search_terms: usize,
+        favicons: usize,
+        url_batches: Vec<usize>,
+        visit_batches: Vec<usize>,
+        download_batches: Vec<usize>,
+        search_term_batches: Vec<usize>,
+        favicon_batches: Vec<usize>,
         source_evidence_chunks: usize,
         search_evidence: usize,
+        navigation_evidence: usize,
         engagement_evidence: usize,
+        context_evidence: usize,
         native_entities: usize,
     }
 
@@ -808,29 +859,41 @@ mod tests {
         type Error = Infallible;
 
         fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
+            self.url_batches.push(batch.len());
             self.urls += batch.len();
             Ok(())
         }
 
         fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
+            self.visit_batches.push(batch.len());
             self.visits += batch.len();
             Ok(())
         }
 
         fn downloads(&mut self, batch: Vec<ParsedDownload>) -> Result<(), Self::Error> {
+            self.download_batches.push(batch.len());
             self.downloads += batch.len();
             Ok(())
         }
 
         fn search_terms(&mut self, batch: Vec<ParsedSearchTerm>) -> Result<(), Self::Error> {
+            self.search_term_batches.push(batch.len());
             self.search_terms += batch.len();
+            Ok(())
+        }
+
+        fn favicons(&mut self, batch: Vec<ParsedFavicon>) -> Result<(), Self::Error> {
+            self.favicon_batches.push(batch.len());
+            self.favicons += batch.len();
             Ok(())
         }
 
         fn source_evidence(&mut self, chunk: SourceEvidenceChunk) -> Result<(), Self::Error> {
             self.source_evidence_chunks += 1;
             self.search_evidence += chunk.typed_evidence.search.len();
+            self.navigation_evidence += chunk.typed_evidence.navigation.len();
             self.engagement_evidence += chunk.typed_evidence.engagement.len();
+            self.context_evidence += chunk.typed_evidence.context.len();
             self.native_entities += chunk.native_entities.len();
             Ok(())
         }
@@ -1022,6 +1085,166 @@ mod tests {
     }
 
     #[test]
+    fn parse_history_includes_urls_whose_last_visit_time_is_below_cursor_when_new_visits_arrive() {
+        // Models the long-tail revisit case: a Zhihu-style answer page whose
+        // urls.last_visit_time was set in a previous import (so it's below
+        // the next URL cursor), but a fresh visit arrives whose id is above
+        // the visit cursor. The URL pass must still pick the URL up so the
+        // visit pass can attribute the visit to it instead of bumping
+        // skipped_visits++.
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute_batch(
+                "CREATE TABLE urls (
+                   id INTEGER PRIMARY KEY,
+                   url TEXT NOT NULL,
+                   title TEXT,
+                   visit_count INTEGER NOT NULL,
+                   typed_count INTEGER NOT NULL,
+                   last_visit_time INTEGER NOT NULL,
+                   hidden INTEGER NOT NULL
+                 );
+                 CREATE TABLE visits (
+                   id INTEGER PRIMARY KEY,
+                   url INTEGER NOT NULL,
+                   visit_time INTEGER NOT NULL,
+                   from_visit INTEGER,
+                   transition INTEGER,
+                   visit_duration INTEGER,
+                   is_known_to_sync INTEGER,
+                   visited_link_id INTEGER,
+                   external_referrer_url TEXT,
+                   app_id TEXT
+                 );",
+            )
+            .expect("create minimal schema");
+        // URL's last_visit_time intentionally sits *below* the URL cursor
+        // we'll pass in. Pre-fix, this URL would not appear in the URL pass.
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    42_i64,
+                    "https://www.zhihu.com/question/12345/answer/67890",
+                    "如何理解...",
+                    3_i64,
+                    0_i64,
+                    13_000_000_000_000_000_i64,
+                    0_i64
+                ],
+            )
+            .expect("insert zhihu url");
+        // Visit id 99 lives ABOVE the visit cursor (50) we'll pass in.
+        connection
+            .execute(
+                "INSERT INTO visits (id, url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![99_i64, 42_i64, 13_000_000_000_900_000_i64, Option::<i64>::None, 0_i64, 1000_i64, 1_i64, 0_i64, Option::<&str>::None, Option::<&str>::None],
+            )
+            .expect("insert new visit");
+
+        // URL cursor at 13_000_000_001_000_000 (above the URL's last_visit_time),
+        // visit cursor at 50 (below the new visit id).
+        let parsed = parse_history(
+            &HistoryDatabaseSet { history_path, favicons_path: None },
+            ChromiumReadCursor {
+                after_url_last_visit_time: 13_000_000_001_000_000_i64,
+                after_visit_id: 50_i64,
+                after_download_id: 0,
+                after_favicon_last_updated: 0,
+            },
+        )
+        .expect("parse history with split cursors");
+
+        assert_eq!(parsed.urls.len(), 1, "url must be widened in via the visit cursor");
+        assert_eq!(parsed.urls[0].url, "https://www.zhihu.com/question/12345/answer/67890");
+        assert_eq!(parsed.visits.len(), 1, "new visit must land, not be skipped");
+        assert_eq!(parsed.visits[0].source_visit_id, 99);
+        assert_eq!(parsed.visits[0].source_url_id, 42);
+    }
+
+    #[test]
+    fn incremental_url_query_does_not_take_the_first_import_fast_path_with_one_cursor_zero() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        write_history_fixture(&history_path);
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    2_i64,
+                    "https://example.com/stale-no-visit",
+                    "Stale no visit",
+                    1_i64,
+                    0_i64,
+                    12_000_000_000_000_000_i64,
+                    0_i64
+                ],
+            )
+            .expect("insert stale url without visits");
+        drop(connection);
+
+        let parsed_with_url_cursor = parse_history(
+            &HistoryDatabaseSet { history_path: history_path.clone(), favicons_path: None },
+            ChromiumReadCursor {
+                after_url_last_visit_time: 12_500_000_000_000_000_i64,
+                after_visit_id: 0,
+                after_download_id: 0,
+                after_favicon_last_updated: 0,
+            },
+        )
+        .expect("parse with url cursor only");
+        assert!(
+            parsed_with_url_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/stale-no-visit"),
+            "url-cursor-only incremental imports must not include stale URLs without new visits",
+        );
+
+        let connection = Connection::open(&history_path).expect("open fixture");
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    3_i64,
+                    "https://example.com/invalid-negative-time",
+                    "Negative time",
+                    1_i64,
+                    0_i64,
+                    -1_i64,
+                    0_i64
+                ],
+            )
+            .expect("insert negative-time url");
+        drop(connection);
+
+        let parsed_with_visit_cursor = parse_history(
+            &HistoryDatabaseSet { history_path, favicons_path: None },
+            ChromiumReadCursor {
+                after_url_last_visit_time: 0,
+                after_visit_id: 50,
+                after_download_id: 0,
+                after_favicon_last_updated: 0,
+            },
+        )
+        .expect("parse with visit cursor only");
+        assert!(
+            parsed_with_visit_cursor
+                .urls
+                .iter()
+                .all(|url| url.url != "https://example.com/invalid-negative-time"),
+            "visit-cursor-only incremental imports must still use the bounded URL query",
+        );
+    }
+
+    #[test]
     fn parse_history_returns_incremental_rows_from_provided_paths() {
         let directory = tempdir().expect("tempdir");
         let history_path = directory.path().join("History");
@@ -1070,7 +1293,9 @@ mod tests {
         assert_eq!(sink.search_terms, 1);
         assert!(sink.source_evidence_chunks >= 4);
         assert_eq!(sink.search_evidence, 1);
+        assert_eq!(sink.navigation_evidence, 1);
         assert_eq!(sink.engagement_evidence, 1);
+        assert_eq!(sink.context_evidence, 3);
         assert!(sink.native_entities >= 4);
         assert!(streamed.native_entities.is_empty());
         assert!(streamed.typed_evidence.search.is_empty());
@@ -1084,6 +1309,172 @@ mod tests {
                 .iter()
                 .any(|item| { item.key == "search.native_terms" && item.populated_rows == 1 })
         );
+    }
+
+    #[test]
+    fn stream_history_batches_rows_and_reports_chromium_evidence_counts() {
+        let directory = tempdir().expect("tempdir");
+        let history_path = directory.path().join("History");
+        let favicons_path = directory.path().join("Favicons");
+        write_history_fixture(&history_path);
+        write_favicons_fixture(&favicons_path);
+        let connection = Connection::open(&history_path).expect("open history fixture");
+        for id in 2_i64..=3 {
+            connection
+                .execute(
+                    "INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        id,
+                        format!("https://example.com/article-{id}"),
+                        format!("Article {id}"),
+                        id,
+                        id - 1,
+                        13_000_000_000_000_000_i64 + id,
+                        0_i64,
+                    ],
+                )
+                .expect("insert url");
+        }
+        let visits = [
+            (
+                11_i64,
+                2_i64,
+                Some(10_i64),
+                Option::<i64>::None,
+                Option::<&str>::None,
+                0_i64,
+                Option::<i64>::None,
+            ),
+            (
+                12_i64,
+                3_i64,
+                Option::<i64>::None,
+                Option::<i64>::None,
+                Some("https://referrer-only.example.com"),
+                0_i64,
+                Option::<i64>::None,
+            ),
+            (
+                13_i64,
+                3_i64,
+                Option::<i64>::None,
+                Some(1_i64),
+                Option::<&str>::None,
+                1_i64,
+                Some(99_i64),
+            ),
+        ];
+        for (visit_id, url_id, from_visit, duration, referrer, sync, visited_link_id) in visits {
+            connection
+                .execute(
+                    "INSERT INTO visits (id, url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        visit_id,
+                        url_id,
+                        13_000_000_000_500_000_i64 + visit_id,
+                        from_visit,
+                        Option::<i64>::None,
+                        duration,
+                        sync,
+                        visited_link_id,
+                        referrer,
+                        Option::<&str>::None,
+                    ],
+                )
+                .expect("insert visit");
+        }
+        for id in 5_i64..=6 {
+            connection
+                .execute(
+                    "INSERT INTO downloads (id, guid, current_path, target_path, start_time, received_bytes, total_bytes, state, mime_type, original_mime_type)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        id,
+                        format!("download-guid-{id}"),
+                        format!("/tmp/example-{id}.part"),
+                        format!("/tmp/example-{id}.zip"),
+                        13_000_000_001_000_000_i64 + id,
+                        128_i64,
+                        256_i64,
+                        1_i64,
+                        "application/zip",
+                        "application/octet-stream",
+                    ],
+                )
+                .expect("insert download");
+            connection
+                .execute(
+                    "INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![id, id - 3, format!("PathKeep {id}"), format!("pathkeep-{id}")],
+                )
+                .expect("insert search term");
+        }
+        drop(connection);
+
+        let favicon_connection = Connection::open(&favicons_path).expect("open favicons fixture");
+        for id in 4_i64..=5 {
+            favicon_connection
+                .execute(
+                    "INSERT INTO favicons (id, url, icon_type) VALUES (?1, ?2, ?3)",
+                    params![id, format!("https://example.com/favicon-{id}.ico"), 1_i64],
+                )
+                .expect("insert favicon");
+            favicon_connection
+                .execute(
+                    "INSERT INTO icon_mapping (page_url, icon_id) VALUES (?1, ?2)",
+                    params![format!("https://example.com/article-{id}"), id],
+                )
+                .expect("insert mapping");
+            favicon_connection
+                .execute(
+                    "INSERT INTO favicon_bitmaps (icon_id, width, height, last_updated, image_data)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id, 16_i64, 16_i64, 13_000_000_002_000_000_i64 + id, vec![id as u8]],
+                )
+                .expect("insert bitmap");
+        }
+        drop(favicon_connection);
+
+        let mut sink = NonRetainingEvidenceSink::default();
+        let streamed = stream_history(
+            &HistoryDatabaseSet { history_path, favicons_path: Some(favicons_path) },
+            ChromiumReadCursor::default(),
+            2,
+            &mut sink,
+        )
+        .expect("stream history");
+
+        assert_eq!(sink.url_batches, vec![2, 1]);
+        assert_eq!(sink.visit_batches, vec![2, 2]);
+        assert_eq!(sink.download_batches, vec![2, 1]);
+        assert_eq!(sink.search_term_batches, vec![2, 1]);
+        assert_eq!(sink.favicon_batches, vec![2, 1]);
+        assert_eq!(sink.urls, 3);
+        assert_eq!(sink.visits, 4);
+        assert_eq!(sink.downloads, 3);
+        assert_eq!(sink.search_terms, 3);
+        assert_eq!(sink.favicons, 3);
+        assert_eq!(sink.search_evidence, 3);
+        assert_eq!(sink.navigation_evidence, 3);
+        assert_eq!(sink.engagement_evidence, 2);
+        assert_eq!(sink.context_evidence, 5);
+        assert!(sink.native_entities >= 13);
+        let capability = |key: &str| {
+            streamed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
+        };
+        assert_eq!(capability("search.native_terms").populated_rows, 3);
+        assert_eq!(capability("nav.from_visit").populated_rows, 1);
+        assert_eq!(capability("nav.from_visit").total_rows, 4);
+        assert_eq!(capability("nav.external_referrer").populated_rows, 2);
+        assert_eq!(capability("nav.external_referrer").total_rows, 4);
+        assert!(capability("engagement.visit_duration_ms").available);
+        assert_eq!(capability("engagement.visit_duration_ms").populated_rows, 2);
+        assert_eq!(capability("engagement.visit_duration_ms").total_rows, 4);
+        assert_eq!(capability("context.sync_state").populated_rows, 2);
+        assert_eq!(capability("context.sync_state").total_rows, 4);
     }
 
     #[test]

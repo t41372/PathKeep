@@ -186,22 +186,16 @@
 - 匯出只包含**當前可見** query 結果；已回滾或 hidden 的 facts 不會進入 artifact。
 - 匯出報告記入審計日誌。
 
-### 遠端備份
+### 整機資料遷移（Export / Import）
 
-- 支援備份到 S3 相容的對象存儲。
-- day-one provider scope 是 S3-compatible bucket，並支援自訂 endpoint、object prefix 與 path-style URL，讓使用者能對 AWS S3 和常見相容服務做同一套配置審查。
-- 用戶在設定中配置 endpoint、bucket、region、prefix、credentials。
-- 遠端備份是明確的用戶操作，不會自動上傳。
-- v1 遠端備份必須走完整 PME：
-  - Preview：先顯示 `bundlePath`、`objectKey`、`uploadUrl`、warnings 與 preview curl command。
-  - Manual：保留 manual upload steps、retention reminder 與 restore checklist，避免把遠端物件存儲變成黑盒。
-  - Execute：只有在 config 已 review 且 credential 已儲存時才允許上傳；成功 / 失敗都要回寫 last uploaded object key、時間與錯誤訊息。
-  - Verify：對實際生成的 bundle 重算 checksums、檢查 bundle version / required entries、核對 zip entry set、驗證 detached manifest checksum，並做本地 restore readiness 驗證，不能只把 upload 成功當作 restore 成功。
-- v1 bundle format 是 `pathkeep.remote-backup.v1` zip，至少包含 `archive/history-vault.sqlite`、`config/config.json`、`metadata/bundle-manifest.json` 與 `metadata/bundle-manifest.sha256`；如果本地已有 audit manifests / scheduler artifacts，也應一併打包。manifest 需記錄 `createdAt`、`appVersion`、`archiveMode`、`objectKey`，以及每個 entry 的 `sha256` / `sizeBytes`。
-- remote verify 的 manifest hash / entry-set 檢查屬於 **corruption / drift detection**，不是 detached signing 或 cryptographic authenticity proof；v1 仍不宣稱已提供 remote-trust attestation。
-- Verify 對 plaintext archive bundle 必須提出明確 warning；encrypted archive 的 verify / restore 則必須要求使用者先用相同資料庫金鑰解鎖 PathKeep。
-- v1 的 retention / prune / retry 仍是 manual-first：PathKeep 提供 guidance 與 upload / verify trace，但不在使用者尚未信任 bundle format 與 restore workflow 前自動清理遠端物件。
-- remote backup 的 support / diagnostics 預設只收集 metadata：bundle path、object key、bundle version、checksum / restore-readiness 結果、app version、run id。不得把 credentials、secret values 或 bundle 內容默認視為 support payload。
+PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Data migration 的 `.pathkeep-bundle` 流程：
+
+- **Export**：把當前 project tree（config、archive databases via `sqlcipher_export`、derived projections、audit ledger、raw snapshots、intelligence / semantic sidecars）打包成單一 `.pathkeep-bundle` zip。Manifest 含 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、每個 file 的 `sha256` / `sizeBytes`，外加獨立 sha256 sidecar 做反竄改。
+- **Import → Preview → Apply** PME：Preview 驗 manifest sha256、refuse newer-than-this-binary 的 archive schema；Apply 需 explicit `confirmOverwrite=true`，extract 到 staging 後 per-file sha256 再驗、把現有 target subtree 移到 `.bak-<timestamp>` sibling、atomic-swap 進去，再對 imported archive 跑 forward schema migrations。
+- **明確排除**（surfaced to UI via `EXPORT_EXCLUSIONS_DOC`）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包先前 bundle）。
+- 加密 archive 的 bundle 保留來源 key（透過 `sqlcipher_export` 寫進去）。目標機使用者需用同一把 key 解鎖；之後可以走既有的 Settings → Security 重 key 流程改鑰。
+
+舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。
 
 ---
 

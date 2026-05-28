@@ -974,6 +974,13 @@ mod tests {
         let plan =
             preview_schedule(Some("macos"), Path::new("/tmp/chb"), &paths, &params).expect("plan");
         let result = apply_schedule(&plan, &paths).expect("apply failing macos plan");
+        let status = schedule_status(Some("macos"), Path::new("/tmp/chb"), &paths, &params)
+            .expect("status after failed bootstrap");
+        let audit_path = result.audit_path.clone().expect("audit path");
+        let audit: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&audit_path).expect("read failed-bootstrap audit"),
+        )
+        .expect("failed-bootstrap audit json");
 
         restore_env_var(TEST_LAUNCH_AGENTS_DIR_ENV, original_launch_agents.as_deref());
         restore_env_var(TEST_LAUNCHCTL_SUCCESS_ENV, original_launchctl_success.as_deref());
@@ -981,7 +988,27 @@ mod tests {
         restore_env_var(macos::loaded_labels_env_name(), original_loaded_labels.as_deref());
 
         assert!(!result.applied);
+        assert_eq!(result.files.len(), 1);
+        assert!(Path::new(&result.files[0]).exists());
+        assert!(Path::new(&audit_path).exists());
         assert!(result.message.contains("did not report success"));
+        assert_eq!(result.step_results[0].status, "error");
+        assert_eq!(result.step_results[0].detail_key, "schedule.verifyMacosBootstrapFailed");
+        assert_eq!(audit["action"].as_str(), Some("apply"));
+        assert_eq!(audit["platform"].as_str(), Some("macos"));
+        assert_eq!(audit["label"].as_str(), Some("com.yi-ting.pathkeep.tests"));
+        assert!(audit["status"].as_str().expect("audit status").contains("stub bootstrap"));
+        assert_eq!(status.install_state, "permission-warning");
+        assert!(status.detected_files.contains(&result.files[0]));
+        assert!(status.issues.iter().any(|issue| {
+            issue.code == "macos-launch-agent-not-loaded"
+                && issue.repair_action.as_deref() == Some("reinstall")
+        }));
+        assert!(status.verification_checks.iter().any(|check| {
+            check.key == "macos-launch-agent-loaded"
+                && check.status == "error"
+                && check.detail_key == "schedule.verifyMacosLoadedFailed"
+        }));
     }
 
     #[test]

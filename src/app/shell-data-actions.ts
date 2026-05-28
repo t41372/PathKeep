@@ -21,6 +21,7 @@
  */
 
 import { backend } from '../lib/backend-client'
+import { describeError } from '../lib/errors'
 import { subscribeToBackupProgress } from '../lib/ipc/backup-progress'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
@@ -75,18 +76,16 @@ function incrementRefreshKey(setRefreshKey: StateSetter<number>) {
 
 function formatShellActionError(
   nextError: unknown,
-  fallback: string,
+  command: string,
   t: ShellTranslator,
 ) {
-  if (!(nextError instanceof Error)) {
-    return fallback
-  }
-
-  if (isSafariAccessIssueMessage(nextError.message)) {
+  if (
+    nextError instanceof Error &&
+    isSafariAccessIssueMessage(nextError.message)
+  ) {
     return t('shell.safariFullDiskAccessBackupError')
   }
-
-  return nextError.message
+  return describeError(nextError, command)
 }
 
 function isSafariAccessIssueMessage(message: string) {
@@ -154,11 +153,7 @@ export function createShellDataActions({
         void refreshDashboardSnapshot(nextSnapshot)
         return nextSnapshot
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.savingSettingsFailed'),
-        )
+        setError(describeError(nextError, 'save_config'))
         throw nextError
       } finally {
         clearBusyOverlay()
@@ -194,11 +189,7 @@ export function createShellDataActions({
         void refreshDashboardSnapshot(nextSnapshot)
         return nextSnapshot
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.initializeArchiveFailed'),
-        )
+        setError(describeError(nextError, 'initialize_archive'))
         throw nextError
       } finally {
         clearBusyOverlay()
@@ -223,6 +214,7 @@ export function createShellDataActions({
         progressValue: null,
         steps: backupSteps,
         activeStep: 0,
+        background: true,
       })
       setNotice(null)
       setError(null)
@@ -251,6 +243,7 @@ export function createShellDataActions({
           progressValue: null,
           steps: backupSteps,
           activeStep: 1,
+          background: true,
         })
         const report = await backend.runBackupNow(false)
         if (taskId) {
@@ -263,16 +256,13 @@ export function createShellDataActions({
           progressValue: 100,
           steps: backupSteps,
           activeStep: 2,
+          background: true,
         })
         void refreshAppData(false)
         setNotice(backupCompletionNotice(report, t))
         return report
       } catch (nextError) {
-        const message = formatShellActionError(
-          nextError,
-          t('shell.manualBackupFailed'),
-          t,
-        )
+        const message = formatShellActionError(nextError, 'run_backup_now', t)
         setError(message)
         if (taskId) {
           archiveTasks?.failBackupTask(taskId, message)
@@ -306,11 +296,7 @@ export function createShellDataActions({
         void refreshAppData(false)
         return nextStatus
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.setAppLockPasscodeFailed'),
-        )
+        setError(describeError(nextError, 'set_app_lock_passcode'))
         throw nextError
       } finally {
         clearBusyOverlay()
@@ -336,11 +322,7 @@ export function createShellDataActions({
         void refreshAppData(false)
         return nextStatus
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.clearAppLockPasscodeFailed'),
-        )
+        setError(describeError(nextError, 'clear_app_lock_passcode'))
         throw nextError
       } finally {
         clearBusyOverlay()
@@ -367,11 +349,7 @@ export function createShellDataActions({
         incrementRefreshKey(setRefreshKey)
         return nextStatus
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.lockAppFailed'),
-        )
+        setError(describeError(nextError, 'lock_app_session'))
         throw nextError
       } finally {
         clearBusyOverlay()
@@ -397,11 +375,7 @@ export function createShellDataActions({
         void refreshAppData(false)
         return nextStatus
       } catch (nextError) {
-        setError(
-          nextError instanceof Error
-            ? nextError.message
-            : t('shell.unlockAppFailed'),
-        )
+        setError(describeError(nextError, 'unlock_app_session'))
         throw nextError
       } finally {
         clearBusyOverlay()

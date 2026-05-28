@@ -2,13 +2,19 @@
 //!
 //! ## Responsibilities
 //! - Resolve favicon payloads for already-visible history rows.
-//! - Preserve exact page, host, and registrable-domain fallback precedence.
+//! - Preserve exact page → same-host fallback precedence. Cross-host
+//!   fallbacks at the registrable-domain level are intentionally
+//!   forbidden — `tim.github.io` must not borrow `nick.github.io`'s
+//!   icon, and a Chronicle entry on `tim.dev` must not borrow GitHub's
+//!   icon just because they share a registrable suffix.
 //! - Deduplicate repeated lookup entries before touching SQLite.
 //!
 //! ## Not responsible for
 //! - Selecting visible history rows.
 //! - Importing favicon source tables.
 //! - Rendering image data in the frontend.
+//! - Inventing icons when neither the exact page URL nor the same FQDN
+//!   carries one — that's the fallback card's job (PaperContactFrame).
 //!
 //! ## Dependencies
 //! - Archive connections and favicon URL metadata from the archive schema.
@@ -17,6 +23,10 @@
 //! ## Performance notes
 //! - The lookup path prepares each statement once per request and relies on
 //!   dedicated favicon indexes. It must not degrade back to full-table scans.
+//! - The registrable-domain indexes (`idx_favicons_registrable*`) still
+//!   exist in the schema for forward-compatibility but are dormant. The
+//!   per-row write cost is acceptable; revisiting their removal would
+//!   require a schema migration.
 
 use super::super::{open_archive_connection, schema::favicon_url_metadata};
 use crate::{
@@ -101,39 +111,16 @@ LEFT JOIN favicon_blobs
   ON favicon_blobs.blob_hash = favicon_match.image_blob_hash
 "#;
 
-pub(crate) const LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL: &str = r#"
-SELECT COALESCE(favicon_blobs.image_data, favicon_match.image_data)
-FROM (
-  SELECT image_blob_hash, image_data
-  FROM favicons INDEXED BY idx_favicons_registrable_profile_lookup
-  WHERE source_profile_id = ?1
-    AND page_registrable_domain = ?2
-    AND page_url != ?3
-    AND (?4 <= 0 OR last_updated_ms <= ?4)
-    AND (image_blob_hash IS NOT NULL OR image_data IS NOT NULL)
-  ORDER BY last_updated_ms DESC, width DESC, height DESC, id DESC
-  LIMIT 1
-) AS favicon_match
-LEFT JOIN favicon_blobs
-  ON favicon_blobs.blob_hash = favicon_match.image_blob_hash
-"#;
-
-pub(crate) const LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL: &str = r#"
-SELECT COALESCE(favicon_blobs.image_data, favicon_match.image_data)
-FROM (
-  SELECT image_blob_hash, image_data
-  FROM favicons INDEXED BY idx_favicons_registrable_lookup
-  WHERE source_profile_id != ?1
-    AND page_registrable_domain = ?2
-    AND page_url != ?3
-    AND (?4 <= 0 OR last_updated_ms <= ?4)
-    AND (image_blob_hash IS NOT NULL OR image_data IS NOT NULL)
-  ORDER BY last_updated_ms DESC, width DESC, height DESC, id DESC
-  LIMIT 1
-) AS favicon_match
-LEFT JOIN favicon_blobs
-  ON favicon_blobs.blob_hash = favicon_match.image_blob_hash
-"#;
+// NOTE: registrable-domain fallback queries used to live here. They were
+// removed when the fallback chain proved to leak icons across unrelated
+// sites that share a registrable suffix (e.g. `*.github.io`,
+// `*.vercel.app`, country-code TLDs missed by the public-suffix table).
+// The dormant `idx_favicons_registrable*` indexes are kept until a
+// dedicated schema migration cleans them up.
+//
+// Test that pinned the old behaviour:
+//   archive::tests::lazy_history_favicon_lookup_respects_fallback_order
+//   (the registrable-domain assertions now expect `None`).
 
 /// Keeps the history query payload small by hydrating favicon bytes only for
 /// rows the Explorer has already chosen to render.
@@ -155,10 +142,6 @@ pub fn load_history_favicons(
     let mut same_profile_host_statement = connection.prepare(LOAD_FAVICON_SAME_PROFILE_HOST_SQL)?;
     let mut cross_profile_host_statement =
         connection.prepare(LOAD_FAVICON_CROSS_PROFILE_HOST_SQL)?;
-    let mut same_profile_registrable_statement =
-        connection.prepare(LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL)?;
-    let mut cross_profile_registrable_statement =
-        connection.prepare(LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL)?;
     let mut profile_ids = HashMap::<String, Option<i64>>::new();
     let mut seen = HashSet::new();
     let mut results = Vec::with_capacity(entries.len());
@@ -186,13 +169,10 @@ pub fn load_history_favicons(
                 &mut cross_profile_page_statement,
                 &mut same_profile_host_statement,
                 &mut cross_profile_host_statement,
-                &mut same_profile_registrable_statement,
-                &mut cross_profile_registrable_statement,
                 source_profile_id,
                 &entry.url,
                 entry.visit_time,
                 metadata.host.as_deref(),
-                metadata.registrable_domain.as_deref(),
             )?
         } else {
             None
@@ -212,19 +192,15 @@ pub fn load_history_favicons(
     Ok(results)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn load_entry_favicon(
     same_profile_page_statement: &mut Statement<'_>,
     cross_profile_page_statement: &mut Statement<'_>,
     same_profile_host_statement: &mut Statement<'_>,
     cross_profile_host_statement: &mut Statement<'_>,
-    same_profile_registrable_statement: &mut Statement<'_>,
-    cross_profile_registrable_statement: &mut Statement<'_>,
     source_profile_id: i64,
     url: &str,
     visit_time: i64,
     host: Option<&str>,
-    registrable_domain: Option<&str>,
 ) -> Result<Option<Vec<u8>>> {
     if let Some(image_data) = query_favicon_statement(
         same_profile_page_statement,
@@ -240,6 +216,11 @@ fn load_entry_favicon(
     }
 
     if let Some(host) = host {
+        // Same-FQDN fallback only. Different pages on the same host share
+        // an icon, so this is safe. Cross-FQDN guessing
+        // (registrable-domain / parent domain / referer) was intentionally
+        // removed — it leaked icons across unrelated sites that share a
+        // public suffix.
         if let Some(image_data) = query_favicon_statement(
             same_profile_host_statement,
             params![source_profile_id, host, url, visit_time],
@@ -249,21 +230,6 @@ fn load_entry_favicon(
         if let Some(image_data) = query_favicon_statement(
             cross_profile_host_statement,
             params![source_profile_id, host, url, visit_time],
-        )? {
-            return Ok(Some(image_data));
-        }
-    }
-
-    if let Some(registrable_domain) = registrable_domain.filter(|domain| Some(*domain) != host) {
-        if let Some(image_data) = query_favicon_statement(
-            same_profile_registrable_statement,
-            params![source_profile_id, registrable_domain, url, visit_time],
-        )? {
-            return Ok(Some(image_data));
-        }
-        if let Some(image_data) = query_favicon_statement(
-            cross_profile_registrable_statement,
-            params![source_profile_id, registrable_domain, url, visit_time],
         )? {
             return Ok(Some(image_data));
         }

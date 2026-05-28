@@ -1,16 +1,18 @@
-/*
- * This stylesheet provides global browser resets and host-page guardrails before shell-specific CSS takes over.
- *
- * Why this file exists:
- * - It handles page-level defaults that should apply no matter which route is active.
- * - Keeping these rules separate prevents shell styling from also having to act like a reset layer.
- *
- * Source-of-truth notes:
- * - Visual tokens still come from `docs/design/design-tokens.md` and `src/styles/tokens.css`.
- * - Trust-critical layout and route presentation belong in `src/styles/app.css`, not here.
+/**
+ * Global stylesheet entry. The order below matters:
+ * 1. tokens.css declares every CSS variable used downstream.
+ * 2. fonts.css pulls bundled Newsreader + JetBrains Mono Latin subsets.
+ * 3. tailwind.css is the Tailwind v4 entry; its @theme reads from tokens.css.
+ * 4. paper.css adds materiality layers (noise, vignette, animations) on top.
+ * 5. app.css is the legacy v0.2 shell stylesheet, retained until every page is
+ *    rewritten into the paper redesign; it consumes the compatibility aliases
+ *    defined at the bottom of tokens.css.
  */
 
 @import './styles/tokens.css';
+@import './styles/fonts.css';
+@import './styles/tailwind.css';
+@import './styles/paper.css';
 @import './styles/app.css';
 
 *,
@@ -30,17 +32,17 @@ html {
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
   overscroll-behavior: none;
 }
 
 body {
-  margin: 0;
-  font-family: var(--font-body);
+  font-family: var(--font-sans);
   line-height: 1.5;
-  background: var(--bg);
-  color: var(--text);
-  overflow: hidden;
+  background: var(--bg-page);
+  color: var(--ink);
 }
 
 button,
@@ -54,16 +56,7 @@ button {
   cursor: pointer;
 }
 
-::selection {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  color: var(--text-bright);
-}
-
 a {
   color: inherit;
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  text-decoration: none;
 }

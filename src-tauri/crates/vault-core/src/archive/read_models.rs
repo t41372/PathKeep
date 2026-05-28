@@ -99,8 +99,24 @@ pub fn load_dashboard_snapshot(
     }
 
     let connection = open_archive_connection(paths, config, key)?;
-    let totals = load_cached_archive_totals(&connection)?
-        .unwrap_or(count_visible_archive_totals(&connection)?);
+    // Dashboard "Span" reads `earliest_visit_at`/`latest_visit_at` so the
+    // user sees "1y 2m of archive" instead of the misleading "today" you
+    // used to get when the last backup completed minutes ago but the
+    // imported data spans a year. Both bounds live alongside the totals
+    // in the cached stats payload — at 14.4M visits, paying a fresh
+    // MIN/MAX scan on every dashboard render would dominate page load.
+    //
+    // Backfill defence: pre-bounds-cache backups wrote stats_json with
+    // counts but no `earliestVisitAt` / `latestVisitAt`. Upgrading users
+    // would otherwise see a blank Span on every dashboard load until the
+    // next backup overwrites the cache. When the cached totals say
+    // "visits exist but bounds are None", treat it as an incomplete
+    // cache hit and fall through to the live MIN/MAX (one-time cost
+    // until the next backup writes the new shape).
+    let totals = match load_cached_archive_totals(&connection)? {
+        Some(cached) if cache_bounds_present_or_archive_empty(&cached) => cached,
+        _ => count_visible_archive_totals(&connection)?,
+    };
     let last_successful_backup_at = connection
         .query_row(
             "SELECT finished_at
@@ -127,6 +143,8 @@ pub fn load_dashboard_snapshot(
         total_visits: totals.total_visits,
         total_downloads: totals.total_downloads,
         last_successful_backup_at,
+        earliest_visit_at: totals.earliest_visit_at,
+        latest_visit_at: totals.latest_visit_at,
         recent_runs,
         storage: storage_summary(paths),
         next_action,
@@ -374,6 +392,22 @@ pub(super) fn load_cached_archive_totals(
     Ok(None)
 }
 
+/// Returns `true` when the cached totals can stand in for a live
+/// `count_visible_archive_totals` call. The visible-row counts are
+/// stable across `count_visible_archive_totals` and the cached stats
+/// shape, but the coverage bounds were added later — a pre-bounds-cache
+/// payload reports `Some(totals)` with `None` bounds, and using that as-is
+/// would silently blank the dashboard's Span stat for every upgrading
+/// user until their next backup overwrites the cache. Falling through to
+/// the live read in that case repairs the display at the cost of one
+/// MIN/MAX scan per dashboard load until the cache is repopulated.
+fn cache_bounds_present_or_archive_empty(cached: &ArchiveVisibleTotals) -> bool {
+    if cached.total_visits == 0 {
+        return true;
+    }
+    cached.earliest_visit_at.is_some() && cached.latest_visit_at.is_some()
+}
+
 /// Rebuilds cached visible totals from a stored stats payload when possible.
 fn archive_totals_from_stats(stats: &Value) -> Option<ArchiveVisibleTotals> {
     Some(ArchiveVisibleTotals {
@@ -381,5 +415,11 @@ fn archive_totals_from_stats(stats: &Value) -> Option<ArchiveVisibleTotals> {
         total_urls: stats.get("totalUrls")?.as_u64()? as usize,
         total_visits: stats.get("totalVisits")?.as_u64()? as usize,
         total_downloads: stats.get("totalDownloads")?.as_u64()? as usize,
+        earliest_visit_at: stats
+            .get("earliestVisitAt")
+            .and_then(|value| value.as_str().map(str::to_string)),
+        latest_visit_at: stats
+            .get("latestVisitAt")
+            .and_then(|value| value.as_str().map(str::to_string)),
     })
 }

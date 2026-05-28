@@ -73,6 +73,33 @@ describe('explorer url-state derivations', () => {
     })
   })
 
+  test('synthesizes start/end from `date` when no explicit range is set', () => {
+    const state = deriveExplorerUrlParamState(
+      new URLSearchParams('date=2026-05-17'),
+      null,
+    )
+    expect(state.start).toBe('2026-05-17')
+    expect(state.end).toBe('2026-05-17')
+  })
+
+  test('explicit start/end win over the `date` shorthand', () => {
+    const state = deriveExplorerUrlParamState(
+      new URLSearchParams('date=2026-05-17&start=2026-04-01&end=2026-04-30'),
+      null,
+    )
+    expect(state.start).toBe('2026-04-01')
+    expect(state.end).toBe('2026-04-30')
+  })
+
+  test('keeps keyword grouped views and positive explicit pages', () => {
+    const state = deriveExplorerUrlParamState(
+      new URLSearchParams('view=trail&page=2'),
+      null,
+    )
+    expect(state.view).toBe('trail')
+    expect(state.explicitPage).toBe(2)
+  })
+
   test('defaults keyword searches to relevance when sort is not explicit', () => {
     expect(
       deriveExplorerUrlParamState(new URLSearchParams('q=github'), null).sort,
@@ -137,6 +164,34 @@ describe('explorer url-state derivations', () => {
     )
 
     expect(
+      buildExplorerHistoryQuery({
+        browserKind: null,
+        cursor: 'cursor-1',
+        deferredQuery: '',
+        domain: null,
+        end: null,
+        explicitPage: null,
+        pageSize: 50,
+        profileId: null,
+        regexMode: false,
+        sort: 'newest',
+        start: null,
+      }),
+    ).toEqual({
+      q: null,
+      profileId: null,
+      browserKind: null,
+      domain: null,
+      startTimeMs: null,
+      endTimeMs: null,
+      sort: 'newest',
+      limit: 50,
+      page: null,
+      cursor: 'cursor-1',
+      regexMode: false,
+    })
+
+    expect(
       buildExplorerSemanticQuery({
         deferredQuery: '  local recall  ',
         domain: 'example.com',
@@ -166,6 +221,22 @@ describe('explorer url-state derivations', () => {
         view: 'time',
       }),
     ).toContain('"q":"sqlite"')
+
+    expect(
+      buildExplorerHistoryQuerySignature({
+        browserKind: null,
+        domain: null,
+        end: null,
+        mode: 'keyword',
+        pageSize: 50,
+        profileId: null,
+        rawQuery: '',
+        regexMode: false,
+        sort: 'newest',
+        start: null,
+        view: 'time',
+      }),
+    ).toContain('"q":null')
 
     expect(
       buildExplorerSemanticQuerySignature({
@@ -247,6 +318,21 @@ describe('explorer url-state derivations', () => {
       { id: 'profileId', label: 'PROFILE', value: 'chrome:Default' },
       { id: 'browserKind', label: 'BROWSER', value: 'chrome' },
     ])
+
+    expect(
+      buildExplorerActiveFilters({
+        end: null,
+        explorerT,
+        mode: 'semantic',
+        regexMode: false,
+        searchParams: new URLSearchParams(),
+        start: null,
+        view: 'session',
+      }),
+    ).toEqual([
+      { id: 'mode', label: 'MODE', value: 'Semantic' },
+      { id: 'view', label: 'View by', value: 'Session' },
+    ])
   })
 
   test('builds recent-search labels from display-ready params', () => {
@@ -293,6 +379,25 @@ describe('explorer url-state derivations', () => {
     expect(fallbackDateLabel).toBe(
       'Hybrid · Search Trail · All time - All time',
     )
+
+    const bareKeywordLabel = buildExplorerRecentSearchLabel({
+      explorerT,
+      formatRecentDate: () => {
+        throw new Error('date formatter should not run without a date range')
+      },
+      params: {
+        mode: 'keyword',
+        view: 'time',
+        regex: null,
+        q: '  sqlite  ',
+        domain: '  example.org  ',
+        profileId: null,
+        browserKind: null,
+        start: null,
+        end: null,
+      },
+    })
+    expect(bareKeywordLabel).toBe('sqlite · example.org')
   })
 
   test('resolves grouped date windows and active shortcuts from calendar dates', () => {
@@ -325,6 +430,22 @@ describe('explorer url-state derivations', () => {
         new Date('2026-04-20T12:00:00Z'),
       ),
     ).toBe('day')
+
+    expect(
+      resolveExplorerActiveDateShortcut(
+        null,
+        '2026-04-20',
+        new Date('2026-04-20T12:00:00Z'),
+      ),
+    ).toBeNull()
+
+    expect(
+      resolveExplorerActiveDateShortcut(
+        '2026-04-20',
+        null,
+        new Date('2026-04-20T12:00:00Z'),
+      ),
+    ).toBeNull()
 
     expect(
       resolveExplorerActiveDateShortcut(

@@ -505,6 +505,29 @@ describe('SidebarBackgroundStatus', () => {
     })
   })
 
+  test('uses AI queue totals when the intelligence runtime snapshot is absent', () => {
+    renderStatus({
+      ...idleRuntimeStatus(),
+      aiQueue: {
+        ...idleRuntimeStatus().aiQueue!,
+        queued: 2,
+        running: 0,
+        failed: 3,
+      },
+      intelligence: null,
+    })
+
+    expectStatus({
+      actionHref: '/jobs',
+      actionLabel: 'Jobs',
+      detail: 'Open Jobs',
+      indeterminate: false,
+      summary: '3 need review',
+      tone: 'warning',
+      width: '100%',
+    })
+  })
+
   test('shows runtime progress details, clamped width, and last activity idle copy', () => {
     const { rerender } = render(
       <I18nProvider>

@@ -4,6 +4,9 @@
  * @module pages/onboarding
  */
 
+import { useEffect, useState } from 'react'
+import { backend } from '../../lib/backend'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'
 import type { SecurityDraftState } from './shared'
@@ -35,6 +38,44 @@ export function SecurityStep({
   securityDraft,
 }: SecurityStepProps) {
   const { t } = useI18n('onboarding')
+
+  // Probe the native keyring once when the encrypted card mounts. We don't
+  // want users to discover headless-Linux / locked-keychain failures only
+  // after they click "Create archive" — by then `initializeArchive` already
+  // ran and the retry path is confusing. When the backend reports the
+  // keyring is unavailable we disable the "remember in keychain" checkbox
+  // and surface a short explanation instead of a generic setup-failed alert.
+  // `null` while the probe is in flight so the checkbox doesn't flicker.
+  const [keyringAvailable, setKeyringAvailable] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    backend
+      .keyringStatus()
+      .then((status) => {
+        if (cancelled) return
+        setKeyringAvailable(status.available)
+        // If the keyring is unavailable, clear the draft so users don't ship
+        // an unsatisfiable "remember it" flag into the create-archive call.
+        if (!status.available && securityDraft.rememberKey) {
+          onUpdateSecurityDraft({ rememberKey: false })
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        // Treat any RPC failure as "no keyring" — better to disable a
+        // hopeful option than to silently fail later. The user can still
+        // enter a password; they just type it on each launch.
+        setKeyringAvailable(false)
+        if (securityDraft.rememberKey) {
+          onUpdateSecurityDraft({ rememberKey: false })
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+    // We intentionally probe only once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="ob-panel-container">
@@ -115,6 +156,7 @@ export function SecurityStep({
                 <label className="form-checkbox-row">
                   <input
                     checked={securityDraft.rememberKey}
+                    disabled={keyringAvailable === false}
                     type="checkbox"
                     onChange={(event) =>
                       onUpdateSecurityDraft({
@@ -124,6 +166,14 @@ export function SecurityStep({
                   />
                   <span>{t('storeInKeyring')}</span>
                 </label>
+                {keyringAvailable === false ? (
+                  <p
+                    className="text-ink-faint mt-1 text-xs"
+                    data-testid="onboarding-keyring-unavailable"
+                  >
+                    {t('storeInKeyringUnavailable')}
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -173,12 +223,12 @@ export function SecurityStep({
         </div>
       </div>
 
-      <div className="warning-box">
-        <span className="warning-icon">⚠</span>
-        <span className="warning-text">
-          <strong>{t('passwordWarningTitle')}</strong>{' '}
-          {t('passwordWarningBody')}
-        </span>
+      <div className="mt-4">
+        <StatusCallout
+          tone="warning"
+          title={t('passwordWarningTitle')}
+          body={t('passwordWarningBody')}
+        />
       </div>
 
       {localError ? (

@@ -23,7 +23,6 @@
  */
 
 import type { ProgressLogEvent } from './import'
-import type { RemoteBackupResult } from './remote'
 
 /**
  * Enumerates the supported archive modes.
@@ -126,7 +125,6 @@ export interface BackupReport {
   manifestPath?: string | null
   gitCommit?: string | null
   warnings: string[]
-  remoteBackup?: RemoteBackupResult | null
 }
 
 /**
@@ -187,6 +185,14 @@ export interface DashboardSnapshot {
   totalVisits: number
   totalDownloads: number
   lastSuccessfulBackupAt?: string | null
+  /**
+   * Earliest visible visit_time across the archive. Populated together with
+   * `latestVisitAt`; both `null` when the archive has zero rows. The dashboard
+   * "Span" stat uses these to label archive coverage rather than the time
+   * since last backup.
+   */
+  earliestVisitAt?: string | null
+  latestVisitAt?: string | null
   recentRuns: BackupRunOverview[]
   storage: StorageSummary
   nextAction?: string | null
@@ -298,6 +304,13 @@ export interface HistoryEntry {
   favicon?: {
     dataUrl: string
   } | null
+  /**
+   * Page-level og:image preview hydrated by the card-mode lookup hook.
+   * Distinct from {@link favicon}; either may be present independently.
+   */
+  ogImage?: {
+    dataUrl: string
+  } | null
   visitedAt: string
   visitTime: number
   durationMs?: number | null
@@ -332,6 +345,77 @@ export interface HistoryFaviconLookupResult {
   favicon?: {
     dataUrl: string
   } | null
+}
+
+/**
+ * Defines one batch og:image lookup entry. Card-mode hydration keys by page
+ * URL only — og:image describes the page itself, not the visit, and the
+ * cache is shared across browser profiles.
+ */
+export interface HistoryOgImageLookupEntry {
+  url: string
+}
+
+/**
+ * Defines one resolved og:image payload returned by the lazy card-mode lookup.
+ *
+ * `fetchStatus` is one of `ok | missing | http_error | parse_error |
+ * too_large | unsupported_mime | blocked | pending`. The frontend renders
+ * the og:image bytes only when status is `ok`; other statuses tell the UI
+ * whether to fall back to the favicon, the domain swatch, or a "block
+ * lifted" hint.
+ */
+export interface HistoryOgImageLookupResult {
+  url: string
+  ogImage?: {
+    dataUrl: string
+  } | null
+  fetchStatus: string
+}
+
+/** Cache footprint reported by `get_og_image_storage_stats`. */
+export interface OgImageStorageStats {
+  rowCount: number
+  blobCount: number
+  totalBytes: number
+  oldestFetchedAt?: string | null
+}
+
+/** Outcome of one cleanup pass. */
+export interface OgImageCleanupReport {
+  deletedRows: number
+  deletedBlobs: number
+  reclaimedBytes: number
+}
+
+/** User-pickable eviction mode for the og:image cache. Default is Off. */
+export type OgImageCleanupMode =
+  | { mode: 'off' }
+  | { mode: 'timeTtl'; maxAgeDays: number }
+  | { mode: 'sizeCap'; maxBytes: number }
+  | { mode: 'lru'; maxBytes: number }
+
+/**
+ * How aggressively the og:image worker fetches link-preview bytes.
+ * Mirrors `vault_core::OgImageFetchMode`.
+ *
+ * - `off`        — no fetching anywhere.
+ * - `on_demand`  — fetch only when a card-mode row scrolls into view.
+ * - `background` — `on_demand` + per-backup new-visit prefetch + the
+ *                  daily negative-cache retry. (Default.)
+ */
+export type OgImageFetchMode = 'off' | 'on_demand' | 'background'
+
+/** Persisted Settings → Storage → Link previews block. */
+export interface OgImageSettings {
+  fetchEnabled: boolean
+  fetchMode: OgImageFetchMode
+  /** Per-day cap on negative-cache retry sweeps. Default 50. */
+  dailyRefetchBudget: number
+  /** Per-backup cap on the new-visit prefetch sweep. Default 100; 0 disables. */
+  newVisitPrefetchBudget: number
+  blockedHosts: string[]
+  cleanup: OgImageCleanupMode
 }
 
 /**

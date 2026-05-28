@@ -4,8 +4,11 @@
  * @module pages/settings
  */
 
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
+import { mockSnapshot } from '../../lib/backend-preview-fixtures'
 import { I18nProvider } from '../../lib/i18n'
 import {
   DerivedStateSection,
@@ -30,6 +33,39 @@ describe('DerivedStateSection', () => {
     )
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  test('rebuild + clear buttons fire their state handlers', async () => {
+    const user = userEvent.setup()
+    const onRebuildDerivedState = vi.fn().mockResolvedValue(undefined)
+    const onClearDerivedState = vi.fn().mockResolvedValue(undefined)
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DerivedStateSection
+            navItem={{
+              id: 'settings-derived',
+              icon: 'memory',
+              key: 'derived',
+              label: 'Derived state',
+            }}
+            snapshot={structuredClone(mockSnapshot)}
+            state={{
+              ...stateFixture(),
+              onRebuildDerivedState,
+              onClearDerivedState,
+            }}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+    const rebuildButton = screen.getByRole('button', { name: 'Rebuild' })
+    await user.click(rebuildButton)
+    expect(onRebuildDerivedState).toHaveBeenCalledTimes(1)
+
+    const clearButton = screen.getByRole('button', { name: 'Clear all' })
+    await user.click(clearButton)
+    expect(onClearDerivedState).toHaveBeenCalledTimes(1)
   })
 })
 

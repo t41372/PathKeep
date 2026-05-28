@@ -26,9 +26,9 @@ import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import { DerivedStateSection } from '../settings/derived-state-section'
 import { PlatformSection } from '../settings/platform-section'
-import { RemoteBackupSection } from '../settings/remote-backup-section'
 import { RetentionSection } from '../settings/retention-section'
 import {
   createSettingsSectionNavItems,
@@ -42,6 +42,11 @@ import { DiagnosticsSection } from './diagnostics-section'
 
 /**
  * Renders advanced Maintenance workflows after the Settings hard cutover.
+ *
+ * Paper aesthetic: every workflow group lives in its own PaperCard with a
+ * PaperCardHeader carrying the group label. The inner workflow sections
+ * keep their existing chrome until Phase 3 sweeps the Settings sub-section
+ * primitives.
  */
 export function MaintenancePage() {
   const {
@@ -78,7 +83,6 @@ export function MaintenancePage() {
     'updater',
     'retention',
     'derived',
-    'remote',
     'platform',
   ])
   const maintenanceSection = (key: SettingsSectionKey) =>
@@ -87,17 +91,26 @@ export function MaintenancePage() {
   if (!snapshot) {
     if (loading || !routeState.supportStateLoaded) {
       return (
-        <section className="page-shell">
+        <div
+          className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+          data-testid="maintenance-page"
+        >
           <LoadingState label={t('settings.loadingModules')} />
-        </section>
+        </div>
       )
     }
 
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="maintenance-page"
+      >
         <EmptyState
           action={
-            <Link className="btn-primary" to="/security">
+            <Link
+              className="border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px]"
+              to="/security"
+            >
               {t('dashboard.reviewSecurity')}
             </Link>
           }
@@ -105,13 +118,13 @@ export function MaintenancePage() {
           eyebrow={t('navigation.maintenanceLabel')}
           title={t('settings.maintenanceUnavailableTitle')}
         />
-      </section>
+      </div>
     )
   }
 
   return (
-    <section
-      className="page-shell settings-page maintenance-page"
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
       data-testid="maintenance-page"
     >
       <SettingsSectionNav
@@ -119,85 +132,86 @@ export function MaintenancePage() {
         label={t('navigation.maintenanceLabel')}
       />
 
-      <div className="settings-overview" aria-labelledby="maintenance-overview">
-        <div className="settings-overview__intro">
-          <h2 id="maintenance-overview">{t('settings.maintenanceTitle')}</h2>
-          <p>{t('settings.maintenanceBody')}</p>
-        </div>
-        <div className="settings-advanced-grid">
-          <Link className="settings-workflow-link-card" to="/jobs">
-            <span className="settings-workflow-link-card__title">
-              {t('navigation.jobsLabel')}
-            </span>
-            <span>{t('settings.openJobsBody')}</span>
-          </Link>
-          <Link className="settings-workflow-link-card" to="/settings">
-            <span className="settings-workflow-link-card__title">
-              {t('navigation.settingsLabel')}
-            </span>
-            <span>{t('settings.backToSettingsBody')}</span>
-          </Link>
-        </div>
-      </div>
+      <PaperCard>
+        <PaperCardHeader title={t('settings.maintenanceTitle')} />
+        <PaperCardBody>
+          <p
+            id="maintenance-overview"
+            className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic"
+          >
+            {t('settings.maintenanceBody')}
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Link
+              to="/jobs"
+              className="border-border-default hover:border-ink-muted hover:bg-hover rounded-paper flex flex-col gap-1 border px-3 py-2 transition-colors"
+              data-testid="maintenance-jobs-link"
+            >
+              <span className="text-ink font-sans text-[12.5px] font-medium">
+                {t('navigation.jobsLabel')}
+              </span>
+              <span className="text-ink-muted font-sans text-[11.5px]">
+                {t('settings.openJobsBody')}
+              </span>
+            </Link>
+            <Link
+              to="/settings"
+              className="border-border-default hover:border-ink-muted hover:bg-hover rounded-paper flex flex-col gap-1 border px-3 py-2 transition-colors"
+              data-testid="maintenance-back-to-settings-link"
+            >
+              <span className="text-ink font-sans text-[12.5px] font-medium">
+                {t('navigation.settingsLabel')}
+              </span>
+              <span className="text-ink-muted font-sans text-[11.5px]">
+                {t('settings.backToSettingsBody')}
+              </span>
+            </Link>
+          </div>
+        </PaperCardBody>
+      </PaperCard>
 
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupMaintenance')}
-        </div>
-        <UpdaterSection
-          navItem={maintenanceSection('updater')}
-          state={routeState.updater}
-        />
-        <RetentionSection
-          navItem={maintenanceSection('retention')}
-          state={routeState.retention}
-        />
-      </div>
+      <PaperCard>
+        <PaperCardHeader title={t('settings.groupMaintenance')} />
+        <PaperCardBody>
+          <UpdaterSection
+            navItem={maintenanceSection('updater')}
+            state={routeState.updater}
+          />
+          <RetentionSection
+            navItem={maintenanceSection('retention')}
+            state={routeState.retention}
+          />
+        </PaperCardBody>
+      </PaperCard>
 
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupDerivedData')}
-        </div>
-        <DerivedStateSection
-          navItem={maintenanceSection('derived')}
-          snapshot={snapshot}
-          state={routeState.derived}
-        />
-      </div>
+      <PaperCard>
+        <PaperCardHeader title={t('settings.groupDerivedData')} />
+        <PaperCardBody>
+          <DerivedStateSection
+            navItem={maintenanceSection('derived')}
+            snapshot={snapshot}
+            state={routeState.derived}
+          />
+        </PaperCardBody>
+      </PaperCard>
 
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupBackupSync')}
-        </div>
-        <RemoteBackupSection
-          credentialsSaved={snapshot.config.remoteBackup.credentialsSaved}
-          lastError={snapshot.config.remoteBackup.lastError ?? null}
-          lastUploadedAt={snapshot.config.remoteBackup.lastUploadedAt ?? null}
-          lastUploadedObjectKey={
-            snapshot.config.remoteBackup.lastUploadedObjectKey ?? null
-          }
-          navItem={maintenanceSection('remote')}
-          state={routeState.remote}
-        />
-      </div>
-
-      <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupDiagnostics')}
-        </div>
-        <DiagnosticsSection
-          buildInfo={buildInfo}
-          copyFeedback={routeState.general.supportCopyFeedback}
-          onCopyPath={routeState.general.onCopyPath}
-          onOpenPath={routeState.general.onOpenPath}
-          snapshot={snapshot}
-        />
-        <PlatformSection
-          navItem={maintenanceSection('platform')}
-          snapshot={snapshot}
-          supportState={routeState.supportState}
-        />
-      </div>
-    </section>
+      <PaperCard>
+        <PaperCardHeader title={t('settings.groupDiagnostics')} />
+        <PaperCardBody>
+          <DiagnosticsSection
+            buildInfo={buildInfo}
+            copyFeedback={routeState.general.supportCopyFeedback}
+            onCopyPath={routeState.general.onCopyPath}
+            onOpenPath={routeState.general.onOpenPath}
+            snapshot={snapshot}
+          />
+          <PlatformSection
+            navItem={maintenanceSection('platform')}
+            snapshot={snapshot}
+            supportState={routeState.supportState}
+          />
+        </PaperCardBody>
+      </PaperCard>
+    </div>
   )
 }

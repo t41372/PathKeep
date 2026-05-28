@@ -22,12 +22,11 @@ pub use biometric::{app_lock_biometric_state, authenticate_app_lock_biometric};
 pub use discovery::discover_browser_profiles;
 /// Returns the normalized platform name used in schedule and diagnostics UIs.
 pub use host_capability::current_platform_name;
-/// Native keyring operations used for database keys, provider secrets, and S3 credentials.
+/// Native keyring operations used for database keys and AI provider secrets.
 pub use keyring::{
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_clear_s3_credentials,
-    keyring_get_database_key, keyring_get_provider_api_key, keyring_get_s3_credentials,
-    keyring_set_database_key, keyring_set_provider_api_key, keyring_set_s3_credentials,
-    keyring_status, provider_api_key_saved, s3_credentials_saved,
+    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
+    keyring_get_provider_api_key, keyring_set_database_key, keyring_set_provider_api_key,
+    keyring_status, provider_api_key_saved,
 };
 /// Opens URLs and filesystem paths using the host shell.
 pub use launcher::{open_external_url, open_path_in_file_manager};

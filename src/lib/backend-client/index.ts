@@ -13,6 +13,7 @@
  * - This layer should stay typed, boring, and free of user-facing copy so routes can keep ownership of UX decisions.
  */
 
+export * from './annotations'
 export * from './app'
 export * from './archive'
 export * from './audit'
@@ -20,13 +21,14 @@ export * from './dashboard'
 export * from './explorer'
 export * from './import'
 export * from './intelligence'
-export * from './remote'
+export * from './migration'
 export * from './schedule'
 export * from './security'
 export * from './shared'
 export * from './support'
 export * from './update'
 
+import { annotationsClient } from './annotations'
 import { appClient } from './app'
 import { archiveClient } from './archive'
 import { auditClient } from './audit'
@@ -34,7 +36,7 @@ import { dashboardClient } from './dashboard'
 import { explorerClient } from './explorer'
 import { importClient } from './import'
 import { intelligenceClient } from './intelligence'
-import { remoteClient } from './remote'
+import { migrationClient } from './migration'
 import { scheduleClient } from './schedule'
 import { securityClient } from './security'
 import { supportClient } from './support'
@@ -68,12 +70,25 @@ export const backend = {
   runBackupNow: archiveClient.runBackupNow,
   queryHistory: explorerClient.queryHistory,
   loadHistoryFavicons: explorerClient.loadHistoryFavicons,
+  loadHistoryOgImages: explorerClient.loadHistoryOgImages,
+  markOgImagesShown: explorerClient.markOgImagesShown,
+  triggerOgImageRefetch: explorerClient.triggerOgImageRefetch,
+  prefetchOgImages: explorerClient.prefetchOgImages,
+  getOgImageStorageStats: explorerClient.getOgImageStorageStats,
+  clearOgImageCache: explorerClient.clearOgImageCache,
+  runOgImageCleanup: explorerClient.runOgImageCleanup,
+  getBrowseDayInsights: explorerClient.getBrowseDayInsights,
+  getUrlAnnotation: annotationsClient.getUrlAnnotation,
+  setUrlNotes: annotationsClient.setUrlNotes,
+  replaceUrlTags: annotationsClient.replaceUrlTags,
+  listUrlAnnotations: annotationsClient.listUrlAnnotations,
+  searchUrlAnnotations: annotationsClient.searchUrlAnnotations,
+  exportAppData: migrationClient.exportAppData,
+  previewAppDataImport: migrationClient.previewAppDataImport,
+  applyAppDataImport: migrationClient.applyAppDataImport,
   loadDashboardSnapshot: dashboardClient.getSnapshot,
   loadAuditRunDetail: auditClient.getRunDetail,
   exportHistory: archiveClient.exportHistory,
-  previewRemoteBackup: remoteClient.previewBackup,
-  runRemoteBackup: remoteClient.runBackup,
-  verifyRemoteBackup: remoteClient.verifyBackup,
   inspectTakeout: importClient.inspectTakeout,
   importTakeout: importClient.importTakeout,
   inspectBrowserHistory: importClient.inspectBrowserHistory,
@@ -93,8 +108,6 @@ export const backend = {
   keyringGetDatabaseKey: securityClient.getDatabaseKey,
   keyringStoreDatabaseKey: securityClient.storeDatabaseKey,
   keyringClearDatabaseKey: securityClient.clearDatabaseKey,
-  storeS3Credentials: remoteClient.storeCredentials,
-  clearS3Credentials: remoteClient.clearCredentials,
   storeAiProviderApiKey: intelligenceClient.storeProviderApiKey,
   clearAiProviderApiKey: intelligenceClient.clearProviderApiKey,
   testAiProviderConnection: intelligenceClient.testProviderConnection,

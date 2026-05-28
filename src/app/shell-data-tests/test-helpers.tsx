@@ -69,19 +69,6 @@ const baseConfig: AppConfig = {
     passcodeConfigured: false,
     recoveryHint: null,
   },
-  remoteBackup: {
-    enabled: false,
-    bucket: '',
-    region: 'us-east-1',
-    endpoint: null,
-    prefix: 'pathkeep',
-    pathStyle: true,
-    uploadAfterBackup: false,
-    credentialsSaved: false,
-    lastUploadedAt: null,
-    lastUploadedObjectKey: null,
-    lastError: null,
-  },
   enrichment: {
     plugins: [
       {
@@ -245,6 +232,9 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       </div>
       <div data-testid="notification-count">
         {shell.notifications?.length.toString() ?? '0'}
+      </div>
+      <div data-testid="notification-titles">
+        {shell.notifications?.map((entry) => entry.title).join('|') ?? ''}
       </div>
       <button
         type="button"

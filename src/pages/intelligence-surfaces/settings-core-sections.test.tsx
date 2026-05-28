@@ -130,18 +130,16 @@ describe('intelligence surfaces settings core sections', () => {
     expect(
       document.getElementById('settings-external-outputs'),
     ).not.toBeInTheDocument()
-    const remotePanel = document.getElementById('settings-remote')
-    if (!(remotePanel instanceof HTMLElement)) {
-      throw new Error('expected settings remote preferences panel')
+    const migrationPanel = document.getElementById('settings-migration')
+    if (!(migrationPanel instanceof HTMLElement)) {
+      throw new Error('expected settings data migration panel')
     }
     expect(
-      within(remotePanel).getByLabelText(settingsT('bucketLabel')),
+      within(migrationPanel).getByTestId('settings-migration-export'),
     ).toBeVisible()
     expect(
-      within(remotePanel).queryByRole('button', {
-        name: settingsT('previewRemoteBackup'),
-      }),
-    ).not.toBeInTheDocument()
+      within(migrationPanel).getByTestId('settings-migration-import'),
+    ).toBeVisible()
     expect(
       screen
         .getAllByRole('link', {
@@ -194,8 +192,8 @@ describe('intelligence surfaces settings core sections', () => {
     const profilesNavLink = within(nav).getByRole('link', {
       name: settingsT('browserProfiles'),
     })
-    const remoteNavLink = within(nav).getByRole('link', {
-      name: settingsT('remoteBackup'),
+    const migrationNavLink = within(nav).getByRole('link', {
+      name: settingsT('migrationTitle'),
     })
     expect(generalNavLink).toHaveAttribute(
       'href',
@@ -205,21 +203,24 @@ describe('intelligence surfaces settings core sections', () => {
       'href',
       '#/settings#settings-profiles',
     )
-    expect(remoteNavLink).toHaveAttribute('href', '#/settings#settings-remote')
+    expect(migrationNavLink).toHaveAttribute(
+      'href',
+      '#/settings#settings-migration',
+    )
 
-    const remotePanel = document.getElementById('settings-remote')
-    if (!(remotePanel instanceof HTMLElement)) {
-      throw new Error('expected settings remote panel')
+    const migrationPanel = document.getElementById('settings-migration')
+    if (!(migrationPanel instanceof HTMLElement)) {
+      throw new Error('expected settings migration panel')
     }
     const scrollDoubles = installImmediateSectionScrollDoubles()
     try {
-      await user.click(remoteNavLink)
+      await user.click(migrationNavLink)
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
           block: 'start',
         }),
       )
-      expect(remotePanel).toHaveAttribute('tabindex', '-1')
+      expect(migrationPanel).toHaveAttribute('tabindex', '-1')
       expect(scrollDoubles.focus).toHaveBeenCalled()
     } finally {
       scrollDoubles.restore()

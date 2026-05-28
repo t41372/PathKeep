@@ -185,6 +185,65 @@ describe('SecurityPage route shell', () => {
     expect(() => renderPage('/security#unlock-archive')).not.toThrow()
     expect(screen.getByText('unlock field unavailable')).toBeVisible()
   })
+
+  test('skips the scrollIntoView nudge when the host environment lacks the API', async () => {
+    // Branch coverage for L94 `typeof unlockInput.scrollIntoView === 'function'`.
+    // jsdom doesn't ship scrollIntoView; the test setup installs a noop in
+    // `beforeAll` so most assertions can rely on it. To cover the falsy
+    // branch we replace the prototype property with a non-function value
+    // for the duration of one render, then restore it.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      'scrollIntoView',
+    )
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+
+    try {
+      workflowMock.mockReturnValue(
+        workflowFixture({
+          status: securityStatusFixture({
+            encrypted: true,
+            initialized: true,
+            unlocked: false,
+          }),
+        }),
+      )
+
+      renderPage('/security#unlock-archive')
+
+      // Even without scrollIntoView available, the focus call still lands —
+      // the route shell must not throw or short-circuit unrelated work.
+      await waitFor(() =>
+        expect(screen.getByLabelText('unlock-input')).toHaveFocus(),
+      )
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(
+          Element.prototype,
+          'scrollIntoView',
+          originalDescriptor,
+        )
+      } else {
+        Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+      }
+    }
+  })
+
+  test('renders the busy overlay while a security workflow is in flight', () => {
+    workflowMock.mockReturnValue(
+      workflowFixture({
+        busy: 'Unlocking archive…',
+      }),
+    )
+
+    renderPage()
+
+    expect(screen.getByText('Unlocking archive…')).toBeVisible()
+  })
 })
 
 function renderPage(route = '/security') {
@@ -221,7 +280,7 @@ function workflowFixture(
 function workflowBase() {
   return {
     actionError: null,
-    busy: null,
+    busy: null as string | null,
     handleClearKeyring: vi.fn(),
     handleExecuteRekey: vi.fn(),
     handleLockArchive: vi.fn(),

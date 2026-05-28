@@ -33,9 +33,22 @@ export default defineConfig({
         'src/**/test-helpers.ts',
         'src/**/test-helpers.tsx',
         'src/lib/types/**',
+        'src/components/cards/index.ts',
+        'src/components/explorer-paper/index.ts',
         'src/components/intelligence/workbench/index.ts',
         'src/components/intelligence/workbench/review-surface.tsx',
         'src/components/review/index.ts',
+        'src/components/shell/index.ts',
+        // shadcn-derived primitives that survive only because the paper shell
+        // search-palette and status-bar still wrap them. We exercise the
+        // exact code paths in use through pk-search-palette / pk-status-bar
+        // tests; the rest is upstream variant logic we don't ship. Treat as
+        // third-party shim surface, same precedent as
+        // intelligence/workbench/review-surface.tsx.
+        'src/components/ui/button.tsx',
+        'src/components/ui/command.tsx',
+        'src/components/ui/dialog.tsx',
+        'src/components/ui/popover.tsx',
         'src/lib/core-intelligence/api.ts',
         'src/lib/core-intelligence/index.ts',
         'src/lib/core-intelligence/api/index.ts',
@@ -48,6 +61,10 @@ export default defineConfig({
         'src/pages/intelligence/promoted-entity-routes.tsx',
         'src/pages/intelligence/sections/secondary-sections.tsx',
       ],
+      // Runtime JS/TS coverage is a hard gate. TEST_PLAN.md Module 10G closes
+      // the residual sweep and confirms lcov has no uncovered lines, branches,
+      // or functions. Do not lower thresholds without a matching bug/drift
+      // entry and a documented rollback reason.
       thresholds: {
         lines: 100,
         functions: 100,

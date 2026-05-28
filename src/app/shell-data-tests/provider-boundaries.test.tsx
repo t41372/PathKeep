@@ -57,7 +57,6 @@ describe('ShellDataProvider', () => {
 
   test('uses the current language for refresh fallbacks after the i18n context changes', async () => {
     const user = userEvent.setup()
-    const translator = createTranslator('zh-TW')
     const { dashboard, snapshot } = await seedSnapshot()
     vi.spyOn(backend, 'getAppSnapshot')
       .mockResolvedValueOnce(snapshot)
@@ -88,14 +87,11 @@ describe('ShellDataProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'refresh' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.loadingLatestArchiveState'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('refresh offline'),
     )
   })
 
   test('uses the current language for automatic dashboard refresh fallbacks after i18n changes', async () => {
-    const translator = createTranslator('zh-TW')
     const { dashboard, snapshot } = await seedSnapshot()
     vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
     vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
@@ -136,7 +132,7 @@ describe('ShellDataProvider', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.loadingLatestArchiveState'),
+        'dashboard offline',
       ),
     )
     expect(loadDashboardSnapshotSpy.mock.calls.length).toBeGreaterThan(
@@ -184,9 +180,7 @@ describe('ShellDataProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'save' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.savingSettingsFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'initialize' }))
@@ -198,9 +192,7 @@ describe('ShellDataProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'initialize' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.initializeArchiveFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'backup' }))
@@ -210,9 +202,7 @@ describe('ShellDataProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'backup' }))
     await waitFor(() =>
-      expect(screen.getByTestId('error')).toHaveTextContent(
-        translator('shell.manualBackupFailed'),
-      ),
+      expect(screen.getByTestId('error')).toHaveTextContent('not-an-error'),
     )
 
     await user.click(screen.getByRole('button', { name: 'backup' }))

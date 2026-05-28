@@ -71,7 +71,6 @@ describe('ShellDataProvider', () => {
       },
       profiles: [],
       warnings: [],
-      remoteBackup: null,
     }
     const unsubscribe = vi.fn()
     let resolveInitialize: ((value: AppSnapshot) => void) | null = null
@@ -156,7 +155,6 @@ describe('ShellDataProvider', () => {
         run: null,
         profiles: [],
         warnings: [],
-        remoteBackup: null,
       })
       .mockResolvedValueOnce({
         dueSkipped: true,
@@ -164,14 +162,12 @@ describe('ShellDataProvider', () => {
         run: null,
         profiles: [],
         warnings: [],
-        remoteBackup: null,
       })
       .mockResolvedValueOnce({
         dueSkipped: false,
         run: null,
         profiles: [],
         warnings: [],
-        remoteBackup: null,
       })
       .mockResolvedValueOnce({
         dueSkipped: false,
@@ -192,7 +188,6 @@ describe('ShellDataProvider', () => {
         warnings: [
           'Skipped `safari:default` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.',
         ],
-        remoteBackup: null,
       })
       .mockResolvedValueOnce({
         dueSkipped: false,
@@ -211,7 +206,6 @@ describe('ShellDataProvider', () => {
         },
         profiles: [],
         warnings: ['Full Disk Access is still required for Safari.'],
-        remoteBackup: null,
       })
 
     renderShellProbe()
@@ -276,7 +270,6 @@ describe('ShellDataProvider', () => {
       run: null,
       profiles: [],
       warnings: [],
-      remoteBackup: null,
     })
 
     renderShellProbe()
@@ -502,7 +495,6 @@ describe('ShellDataProvider', () => {
         },
         profiles: [],
         warnings: [],
-        remoteBackup: null,
       })
     })
 

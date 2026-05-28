@@ -27,6 +27,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
+import { describeError } from '../../../lib/errors'
 import { normalizeExplorerBackgroundPrefetchPages } from '../../../lib/explorer-preferences'
 import { waitForNextPaint } from '../../../lib/wait-for-next-paint'
 import {
@@ -410,8 +411,7 @@ export function useExplorerData({
         setQueryState({
           requestKey,
           results: null,
-          error:
-            error instanceof Error ? error.message : request.queryFailedTitle,
+          error: describeError(error, 'query_history'),
         })
       }
     }
@@ -463,10 +463,7 @@ export function useExplorerData({
         setSemanticState({
           requestKey: semanticRequestKey,
           results: null,
-          error:
-            error instanceof Error
-              ? error.message
-              : currentRequest.semanticRecallDegradedTitle,
+          error: describeError(error, 'search_ai_history'),
         })
       }
     }
@@ -507,9 +504,7 @@ export function useExplorerData({
       await action()
       await Promise.all([refreshAppData(), refreshQueueStatus()])
     } catch (error) {
-      setIntelligenceError(
-        error instanceof Error ? error.message : labels.loadingArchive,
-      )
+      setIntelligenceError(describeError(error, 'queue_action'))
     } finally {
       setQueueAction(null)
     }
@@ -533,11 +528,7 @@ export function useExplorerData({
       })
       await Promise.all([refreshAppData(), refreshQueueStatus()])
     } catch (error) {
-      setIntelligenceError(
-        error instanceof Error
-          ? error.message
-          : labels.semanticRecallDegradedTitle,
-      )
+      setIntelligenceError(describeError(error, 'build_ai_index'))
     } finally {
       setIndexAction(null)
     }
@@ -560,11 +551,7 @@ export function useExplorerData({
       })
       setProviderProbe(probe)
     } catch (error) {
-      setIntelligenceError(
-        error instanceof Error
-          ? error.message
-          : labels.semanticRecallDegradedTitle,
-      )
+      setIntelligenceError(describeError(error, 'test_ai_provider_connection'))
     } finally {
       setQueueAction(null)
     }
@@ -584,9 +571,7 @@ export function useExplorerData({
       })
       setExportResult(nextResult)
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : labels.exportFailed,
-      )
+      setActionError(describeError(error, 'export_history'))
     }
   }
 
@@ -612,9 +597,7 @@ export function useExplorerData({
     try {
       await backend.openExternalUrl(url)
     } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : labels.visitFailed,
-      )
+      setActionError(describeError(error, 'open_external_url'))
     }
   }
 

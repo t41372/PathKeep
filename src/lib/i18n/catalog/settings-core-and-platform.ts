@@ -56,6 +56,101 @@ export const settingsCoreAndPlatformNamespace = {
     preferencesOverview: 'Preferences',
     preferencesOverviewBody:
       'Use this page for persistent choices. Workflows that inspect files, generate artifacts, install updates, or rebuild data now live on their own pages.',
+    paperHeaderEyebrow: 'Preferences',
+    paperHeaderTitle: 'Settle the page before you read.',
+    paperHeaderSubtitle:
+      'Typography, language, locks, providers, and backup destinations. Persistent choices live here — workflows live on their own pages.',
+    paperJumpLabel: 'Jump to',
+    // ── Paper-redesign appearance ──
+    appearanceTitle: 'Appearance',
+    appearanceIntro:
+      'Light or darkroom, the typography of a book, and how much paper materiality you want under the ink.',
+    appearanceTheme: 'Theme',
+    appearanceThemeLight: 'Paper · light',
+    appearanceThemeDark: 'Darkroom · dark',
+    appearanceFonts: 'Typography',
+    appearanceFontsHelp:
+      'Bundled fonts ship offline; system fonts skip the bundle and use what your OS already provides. CJK always falls back to system fonts either way.',
+    appearanceFontBundled: 'Bundled · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: 'Default · ~400 KB of Latin subsets',
+    appearanceFontSystem: 'System fonts only',
+    appearanceFontSystemHint: 'Georgia / SF Mono / system sans',
+    appearanceDensity: 'Density',
+    appearanceDensityComfortable: 'Comfortable',
+    appearanceDensityCompact: 'Compact',
+    appearancePaperTexture: 'Paper materiality',
+    appearancePaperTextureHelp:
+      'Subtle paper noise overlay and the dark-mode darkroom vignette. Turn off for a flatter surface.',
+    appearancePaperOn: 'Texture on',
+    appearancePaperOff: 'Texture off',
+    appearanceClockLabel: 'Time format',
+    appearanceClockHelp:
+      'Used everywhere except sparkline / chart axes, which always show 24-hour for compactness.',
+    appearanceClock12h: '12-hour (3:14 PM)',
+    appearanceClock24h: '24-hour (15:14)',
+    // ── Link previews (og:image cache) ──
+    linkPreviewsTitle: 'Link previews',
+    linkPreviewsIntro:
+      'Card-mode Browse fetches each page’s og:image preview when one is available. Bytes are cached locally and deduplicated; nothing is sent off-machine besides the GET to the page itself.',
+    linkPreviewsFetchToggleLabel: 'Fetch link previews from the web',
+    linkPreviewsFetchToggleHint:
+      'When off, card mode falls back to the favicon or the domain swatch. Already-cached previews still render.',
+    linkPreviewsFetchOn: 'Fetching on',
+    linkPreviewsFetchOff: 'Fetching off',
+    linkPreviewsFetchModeLabel: 'Fetch policy',
+    linkPreviewsFetchModeHint:
+      'Background uses the per-backup tick to pre-warm new visits + retry transient failures. On-demand only fetches when you scroll a card into view. Off disables all fetching while keeping the cache intact.',
+    linkPreviewsFetchModeOff: 'Off',
+    linkPreviewsFetchModeOffHint: 'No fetching anywhere.',
+    linkPreviewsFetchModeOnDemand: 'On demand',
+    linkPreviewsFetchModeOnDemandHint:
+      'Fetches only when a card scrolls into view.',
+    linkPreviewsFetchModeBackground: 'Background',
+    linkPreviewsFetchModeBackgroundHint:
+      'On-demand + per-backup pre-warm + daily retry. Recommended.',
+    linkPreviewsBudgetsLabel: 'Per-backup budgets',
+    linkPreviewsBudgetsHint:
+      'Caps how many URLs the daily retry pass and the new-visit pre-warm sweep enqueue at most. Lower values keep outbound HTTP bounded; zero disables that pass.',
+    linkPreviewsDailyRefetchBudgetLabel: 'Retry budget / day',
+    linkPreviewsPrefetchBudgetLabel: 'Pre-warm budget / backup',
+    linkPreviewsRebuildAction: 'Rebuild now ({budget})',
+    linkPreviewsRebuildHint:
+      'Sweeps up to {budget} of the most recently visited URLs without a cached preview (worker hard-caps any single pass at {cap}).',
+    linkPreviewsRebuildSummary: 'Enqueued {enqueued}, succeeded {succeeded}.',
+    linkPreviewsStatsLabel: 'Cache footprint',
+    linkPreviewsStatsRows: '{rows} rows · {blobs} blobs · {bytes}',
+    linkPreviewsStatsEmpty: 'No previews cached yet.',
+    linkPreviewsCleanupLabel: 'Maintenance',
+    linkPreviewsRunCleanupAction: 'Run cleanup now',
+    linkPreviewsClearAllAction: 'Clear all link previews',
+    linkPreviewsClearConfirm:
+      'Delete every cached link preview? This is reversible only by re-fetching each page.',
+    linkPreviewsCleanupSummary:
+      'Deleted {rows} rows, {blobs} blobs, reclaimed {bytes}.',
+    linkPreviewsBlocklistLabel: 'Domain blocklist',
+    linkPreviewsBlocklistHint:
+      'One host per line — every page on these domains skips og:image fetching. Lines starting with # are treated as comments.',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# private corporate intranet\nintranet.example.local',
+    linkPreviewsBlocklistSave: 'Save blocklist',
+    linkPreviewsBlocklistReset: 'Reset',
+    linkPreviewsCleanupModeLabel: 'Eviction policy',
+    linkPreviewsCleanupModeHint:
+      'Off keeps every preview forever; pick another mode to let PathKeep prune the cache automatically on the daily maintenance tick.',
+    linkPreviewsCleanupModeOff: 'Off',
+    linkPreviewsCleanupModeOffHint: 'Cache grows unbounded.',
+    linkPreviewsCleanupModeTimeTtl: 'Age',
+    linkPreviewsCleanupModeTimeTtlHint: 'Drop rows older than the limit.',
+    linkPreviewsCleanupModeSizeCap: 'Size cap',
+    linkPreviewsCleanupModeSizeCapHint:
+      'Drop the oldest rows until the total fits.',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      'Drop the least-recently-shown rows until the total fits.',
+    linkPreviewsMaxAgeDaysLabel: 'Maximum age',
+    linkPreviewsMaxAgeDaysUnit: 'days',
+    linkPreviewsMaxBytesLabel: 'Maximum total',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: 'Open Maintenance',
     openMaintenanceBody:
       'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
@@ -197,9 +292,102 @@ export const settingsCoreAndPlatformNamespace = {
     externalReviewBadge: '仅复核',
     general: '通用',
     generalDescription: '语言和 Explorer 性能偏好。',
+    paperHeaderEyebrow: '偏好设置',
+    paperHeaderTitle: '在阅读之前,先安顿好这一页。',
+    paperHeaderSubtitle:
+      '排版、语言、锁、AI 提供方、备份目的地。这里只放持久选项 — 流程都在各自的页面。',
+    paperJumpLabel: '跳转到',
     preferencesOverview: '偏好设置',
     preferencesOverviewBody:
       '这里只放长期保存的选择。检查文件、生成产物、安装更新或重建数据的流程已经移到独立页面。',
+    appearanceTitle: '外观',
+    appearanceIntro:
+      '选择纸面（亮色）还是暗房（深色），调整书一般的字体，并决定要不要在墨水之下保留纸张的质感。',
+    appearanceTheme: '主题',
+    appearanceThemeLight: '纸面 · 亮色',
+    appearanceThemeDark: '暗房 · 深色',
+    appearanceFonts: '字体',
+    appearanceFontsHelp:
+      '内置字体支持离线运行；系统字体跳过内置包，直接使用系统已有的字体。中日韩文字始终回退到系统字体。',
+    appearanceFontBundled: '内置 · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: '默认 · 约 400 KB Latin 子集',
+    appearanceFontSystem: '仅使用系统字体',
+    appearanceFontSystemHint: 'Georgia / SF Mono / 系统无衬线',
+    appearanceDensity: '密度',
+    appearanceDensityComfortable: '舒适',
+    appearanceDensityCompact: '紧凑',
+    appearancePaperTexture: '纸张质感',
+    appearancePaperTextureHelp:
+      '极轻的纸纹遮罩和深色模式下的暗房光晕。关闭即可得到纯平表面。',
+    appearancePaperOn: '已开启',
+    appearancePaperOff: '已关闭',
+    appearanceClockLabel: '时间格式',
+    appearanceClockHelp:
+      '除了图表轴线之外，所有时间均按此格式显示。图表始终用 24 小时制以保持紧凑。',
+    appearanceClock12h: '12 小时制（下午 3:14）',
+    appearanceClock24h: '24 小时制（15:14）',
+    // ── 链接预览（og:image 缓存）──
+    linkPreviewsTitle: '链接预览',
+    linkPreviewsIntro:
+      '卡片模式的 Browse 会在能取到 og:image 时抓取页面预览。字节缓存在本地、内容相同则只存一份；除了访问页面本身的 GET 之外，不会把数据传出本机。',
+    linkPreviewsFetchToggleLabel: '从网络抓取链接预览',
+    linkPreviewsFetchToggleHint:
+      '关闭后，卡片模式会退回 favicon 或域名色块；已经缓存的预览依然会显示。',
+    linkPreviewsFetchOn: '抓取已开启',
+    linkPreviewsFetchOff: '抓取已关闭',
+    linkPreviewsFetchModeLabel: '抓取策略',
+    linkPreviewsFetchModeHint:
+      '"后台" 模式：每次备份后扫描新访问 URL 预抓 + 重试暂时性失败。"按需" 仅在你滚到卡片时才抓。"关闭" 暂停抓取但保留缓存。',
+    linkPreviewsFetchModeOff: '关闭',
+    linkPreviewsFetchModeOffHint: '完全不抓取。',
+    linkPreviewsFetchModeOnDemand: '按需',
+    linkPreviewsFetchModeOnDemandHint: '只在卡片滚入视口时抓取。',
+    linkPreviewsFetchModeBackground: '后台',
+    linkPreviewsFetchModeBackgroundHint:
+      '按需 + 每次备份预抓 + 每日重试。推荐。',
+    linkPreviewsBudgetsLabel: '每次备份预算',
+    linkPreviewsBudgetsHint:
+      '限制每日重试和新访问预抓单次入队的 URL 数量上限，避免短时间内大量对外请求。设为 0 即停用该项。',
+    linkPreviewsDailyRefetchBudgetLabel: '每日重试上限',
+    linkPreviewsPrefetchBudgetLabel: '每次备份预抓上限',
+    linkPreviewsRebuildAction: '立即重建 ({budget})',
+    linkPreviewsRebuildHint:
+      '扫描最近访问且尚未有预览的 URL，最多 {budget} 条（worker 单次硬上限 {cap}）。',
+    linkPreviewsRebuildSummary: '入队 {enqueued} 条，成功 {succeeded} 条。',
+    linkPreviewsStatsLabel: '缓存大小',
+    linkPreviewsStatsRows: '{rows} 行 · {blobs} 个文件 · {bytes}',
+    linkPreviewsStatsEmpty: '尚未缓存任何预览。',
+    linkPreviewsCleanupLabel: '维护',
+    linkPreviewsRunCleanupAction: '立即清理',
+    linkPreviewsClearAllAction: '清空所有链接预览',
+    linkPreviewsClearConfirm:
+      '删除所有缓存的链接预览？只能通过重新抓取每个页面恢复。',
+    linkPreviewsCleanupSummary:
+      '已删除 {rows} 行、{blobs} 个文件，释放 {bytes}。',
+    linkPreviewsBlocklistLabel: '域名屏蔽列表',
+    linkPreviewsBlocklistHint:
+      '一行一个域名，列表内域名的页面将不抓取链接预览。以 # 开头的行视为注释。',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# 公司内网\nintranet.example.local',
+    linkPreviewsBlocklistSave: '保存屏蔽列表',
+    linkPreviewsBlocklistReset: '重置',
+    linkPreviewsCleanupModeLabel: '清理策略',
+    linkPreviewsCleanupModeHint:
+      '"关闭" 保留全部预览；选择其他模式时 PathKeep 会在每日维护时自动按规则清理。',
+    linkPreviewsCleanupModeOff: '关闭',
+    linkPreviewsCleanupModeOffHint: '缓存不限制增长。',
+    linkPreviewsCleanupModeTimeTtl: '按时长',
+    linkPreviewsCleanupModeTimeTtlHint: '删除早于阈值的行。',
+    linkPreviewsCleanupModeSizeCap: '按总量',
+    linkPreviewsCleanupModeSizeCapHint:
+      '按抓取时间最早的优先删除，直到总量低于阈值。',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      '按最近一次显示的时间最旧的优先删除，直到总量低于阈值。',
+    linkPreviewsMaxAgeDaysLabel: '最大保留',
+    linkPreviewsMaxAgeDaysUnit: '天',
+    linkPreviewsMaxBytesLabel: '总量上限',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
@@ -338,9 +526,102 @@ export const settingsCoreAndPlatformNamespace = {
     externalReviewBadge: '僅複核',
     general: '一般',
     generalDescription: '語言和 Explorer 效能偏好。',
+    paperHeaderEyebrow: '偏好設定',
+    paperHeaderTitle: '在閱讀之前，先安頓好這一頁。',
+    paperHeaderSubtitle:
+      '排版、語言、鎖、AI 供應方、備份目的地。這裡只放持久選項 — 流程都在各自的頁面。',
+    paperJumpLabel: '跳轉到',
     preferencesOverview: '偏好設定',
     preferencesOverviewBody:
       '這裡只放長期保存的選擇。檢查檔案、生成產物、安裝更新或重建資料的流程已經移到獨立頁面。',
+    appearanceTitle: '外觀',
+    appearanceIntro:
+      '選擇紙面（亮色）或暗房（深色），調整像書一般的字體，再決定要不要在墨水之下保留紙張的質感。',
+    appearanceTheme: '主題',
+    appearanceThemeLight: '紙面 · 亮色',
+    appearanceThemeDark: '暗房 · 深色',
+    appearanceFonts: '字體',
+    appearanceFontsHelp:
+      '內建字體支援離線執行；系統字體會略過內建包，直接使用系統已有的字體。中日韓文字始終回退到系統字體。',
+    appearanceFontBundled: '內建 · Newsreader + JetBrains Mono',
+    appearanceFontBundledHint: '預設 · 約 400 KB Latin 子集',
+    appearanceFontSystem: '僅使用系統字體',
+    appearanceFontSystemHint: 'Georgia / SF Mono / 系統無襯線',
+    appearanceDensity: '密度',
+    appearanceDensityComfortable: '舒適',
+    appearanceDensityCompact: '緊湊',
+    appearancePaperTexture: '紙張質感',
+    appearancePaperTextureHelp:
+      '極輕的紙紋遮罩與深色模式下的暗房光暈。關閉即可得到純平表面。',
+    appearancePaperOn: '已開啟',
+    appearancePaperOff: '已關閉',
+    appearanceClockLabel: '時間格式',
+    appearanceClockHelp:
+      '除了圖表軸線之外，所有時間均依此格式顯示。圖表保留 24 小時制以維持緊湊。',
+    appearanceClock12h: '12 小時制（下午 3:14）',
+    appearanceClock24h: '24 小時制（15:14）',
+    // ── 連結預覽（og:image 快取）──
+    linkPreviewsTitle: '連結預覽',
+    linkPreviewsIntro:
+      '卡片模式的 Browse 會在能取到 og:image 時擷取頁面預覽。位元組快取在本機、內容相同就只存一份；除了訪問頁面本身的 GET 之外，不會把資料傳出本機。',
+    linkPreviewsFetchToggleLabel: '從網路擷取連結預覽',
+    linkPreviewsFetchToggleHint:
+      '關閉之後，卡片模式會退回 favicon 或網域色塊；已經快取的預覽仍會顯示。',
+    linkPreviewsFetchOn: '擷取已開啟',
+    linkPreviewsFetchOff: '擷取已關閉',
+    linkPreviewsFetchModeLabel: '擷取策略',
+    linkPreviewsFetchModeHint:
+      '「背景」模式：每次備份完掃描新訪問 URL 預抓 + 重試暫時性失敗。「按需」只在你滑到卡片時才抓。「關閉」暫停擷取但保留快取。',
+    linkPreviewsFetchModeOff: '關閉',
+    linkPreviewsFetchModeOffHint: '完全不擷取。',
+    linkPreviewsFetchModeOnDemand: '按需',
+    linkPreviewsFetchModeOnDemandHint: '只在卡片滑入視口時擷取。',
+    linkPreviewsFetchModeBackground: '背景',
+    linkPreviewsFetchModeBackgroundHint:
+      '按需 + 每次備份預抓 + 每日重試。推薦。',
+    linkPreviewsBudgetsLabel: '每次備份預算',
+    linkPreviewsBudgetsHint:
+      '限制每日重試和新訪問預抓單次入佇列的 URL 數量上限，避免短時間內大量對外請求。設為 0 即停用該項。',
+    linkPreviewsDailyRefetchBudgetLabel: '每日重試上限',
+    linkPreviewsPrefetchBudgetLabel: '每次備份預抓上限',
+    linkPreviewsRebuildAction: '立即重建 ({budget})',
+    linkPreviewsRebuildHint:
+      '掃描最近訪問且尚未有預覽的 URL，最多 {budget} 條（worker 單次硬上限 {cap}）。',
+    linkPreviewsRebuildSummary: '入佇列 {enqueued} 條，成功 {succeeded} 條。',
+    linkPreviewsStatsLabel: '快取大小',
+    linkPreviewsStatsRows: '{rows} 列 · {blobs} 個檔案 · {bytes}',
+    linkPreviewsStatsEmpty: '尚未快取任何預覽。',
+    linkPreviewsCleanupLabel: '維護',
+    linkPreviewsRunCleanupAction: '立即清理',
+    linkPreviewsClearAllAction: '清空所有連結預覽',
+    linkPreviewsClearConfirm:
+      '刪除所有快取的連結預覽？只能透過重新擷取每個頁面恢復。',
+    linkPreviewsCleanupSummary:
+      '已刪除 {rows} 列、{blobs} 個檔案，釋放 {bytes}。',
+    linkPreviewsBlocklistLabel: '網域封鎖列表',
+    linkPreviewsBlocklistHint:
+      '一行一個網域，名單內網域的頁面不會抓取連結預覽。以 # 開頭的行視為註解。',
+    linkPreviewsBlocklistPlaceholder:
+      'example.com\nbanking.example.org\n# 公司內網\nintranet.example.local',
+    linkPreviewsBlocklistSave: '儲存封鎖列表',
+    linkPreviewsBlocklistReset: '重置',
+    linkPreviewsCleanupModeLabel: '清理策略',
+    linkPreviewsCleanupModeHint:
+      '「關閉」保留全部預覽；選擇其他模式時 PathKeep 會在每日維護時依規則自動清理。',
+    linkPreviewsCleanupModeOff: '關閉',
+    linkPreviewsCleanupModeOffHint: '快取不限增長。',
+    linkPreviewsCleanupModeTimeTtl: '按時長',
+    linkPreviewsCleanupModeTimeTtlHint: '刪除早於閾值的列。',
+    linkPreviewsCleanupModeSizeCap: '按總量',
+    linkPreviewsCleanupModeSizeCapHint:
+      '依擷取時間最早優先刪除，直到總量低於閾值。',
+    linkPreviewsCleanupModeLru: 'LRU',
+    linkPreviewsCleanupModeLruHint:
+      '依最近一次顯示時間最久遠優先刪除，直到總量低於閾值。',
+    linkPreviewsMaxAgeDaysLabel: '最長保留',
+    linkPreviewsMaxAgeDaysUnit: '天',
+    linkPreviewsMaxBytesLabel: '總量上限',
+    linkPreviewsMaxBytesUnit: 'MB',
     openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',

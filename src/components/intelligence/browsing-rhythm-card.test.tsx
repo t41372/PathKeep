@@ -42,6 +42,41 @@ describe('BrowsingRhythmCard', () => {
 
     expect(screen.getByText('trend unavailable')).toBeVisible()
   })
+
+  test('renders the ready calendar with range hint and selection prompt', () => {
+    renderCard({
+      visibleRangeHint: 'Showing Apr 2026',
+    })
+
+    expect(screen.getByTestId('browsing-rhythm-summary')).toHaveTextContent(
+      '3 visits',
+    )
+    expect(screen.getByText('Showing Apr 2026')).toBeVisible()
+    expect(screen.getByText('rhythmSelectDayPrompt')).toBeVisible()
+  })
+
+  test('omits the selection prompt when the visible calendar has no visits', () => {
+    const emptyCell = {
+      date: new Date('2026-04-25T12:00:00Z'),
+      dateKey: '2026-04-25',
+      inRange: true,
+      newDomainCount: 0,
+      totalVisits: 0,
+    }
+
+    renderCard({
+      calendarDays: [emptyCell],
+      calendarWeeks: [[emptyCell]],
+      hasCalendarVisits: true,
+      maxVisits: 0,
+      visitSummary: '0 visits',
+    })
+
+    expect(screen.getByTestId('browsing-rhythm-summary')).toHaveTextContent(
+      '0 visits',
+    )
+    expect(screen.queryByText('rhythmSelectDayPrompt')).toBeNull()
+  })
 })
 
 function renderCard(overrides: Partial<BrowsingRhythmCardState> = {}) {

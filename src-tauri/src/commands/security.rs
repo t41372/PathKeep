@@ -46,22 +46,6 @@ pub(crate) fn keyring_clear_database_key() -> Result<vault_core::KeyringStatusRe
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Stores S3 credentials in the native keyring.
-pub(crate) fn store_s3_credentials(
-    credentials: vault_core::S3CredentialInput,
-) -> Result<(), String> {
-    worker_bridge::store_s3_credentials_impl(credentials)
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Removes stored S3 credentials from the native keyring.
-pub(crate) fn clear_s3_credentials() -> Result<(), String> {
-    worker_bridge::clear_s3_credentials_impl()
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 /// Clears PathKeep's local secret vault after explicit user confirmation.
 pub(crate) fn reset_local_secret_vault() -> Result<(), String> {
     worker_bridge::reset_local_secret_vault_impl()

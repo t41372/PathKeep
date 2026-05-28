@@ -33,6 +33,7 @@ import {
 import { useAuditData } from './hooks/use-audit-data'
 import { AuditRunDetailPanel } from './panels/run-detail'
 import type { AuditFilterState } from './types'
+import { PaperAuditPanel } from './paper-audit-panel'
 
 /**
  * Renders the audit route.
@@ -48,7 +49,8 @@ export function AuditPage() {
     runBackup,
     snapshot,
   } = useShellData()
-  const { language, t } = useI18n()
+  const { language, t, ns } = useI18n()
+  const auditT = ns('audit')
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState<AuditFilterState>({
     runType: 'all',
@@ -430,6 +432,15 @@ export function AuditPage() {
 
   return (
     <section className="page-shell audit-page" data-testid="audit-page">
+      {searchParams.get('layout') === 'paper' ? (
+        <PaperAuditPanel
+          recentRuns={snapshot.recentRuns}
+          currentRunId={runId}
+          onSelectRun={(id) => selectRun(id)}
+          auditT={auditT}
+        />
+      ) : null}
+
       <StatusCallout
         tone={
           severityCounts.blocked > 0

@@ -124,6 +124,10 @@ export const onboardingNamespaceCatalog = {
     confirmPasswordPlaceholder: 'Enter the same password again',
     storeInKeyring:
       'Remember password in system keychain (required for scheduled backup)',
+    storeInKeyringUnavailable:
+      'No keychain backend is available on this system. PathKeep cannot remember the password — write it down somewhere safe and you will type it on each launch.',
+    storeInKeyringFailed:
+      'PathKeep could not write the password to the system keychain. Uncheck the option to continue without it, or open Settings → Security after setup to retry.',
     plaintextOption: 'No encryption',
     plaintextSelectLabel: 'Skip encryption',
     plaintextDesc:
@@ -208,7 +212,8 @@ export const onboardingNamespaceCatalog = {
     initStep2Action: 'Save your settings',
     initStep2Detail: 'Starts the audit trail',
     initStep3Action: 'Run the first backup',
-    initStep3Detail: 'Back up history from {count} profile{plural}',
+    initStep3DetailSingular: 'Back up history from {count} profile',
+    initStep3DetailPlural: 'Back up history from {count} profiles',
     initButton: 'Create Archive & Back Up →',
   },
   'zh-CN': {
@@ -304,6 +309,10 @@ export const onboardingNamespaceCatalog = {
     confirmPasswordLabel: '确认密码',
     confirmPasswordPlaceholder: '再次输入密码',
     storeInKeyring: '保存密码到系统钥匙串（定时备份必需）',
+    storeInKeyringUnavailable:
+      '当前系统没有可用的钥匙串后端。PathKeep 无法记住密码，请妥善记录，每次启动都需手动输入。',
+    storeInKeyringFailed:
+      'PathKeep 无法将密码写入系统钥匙串。请取消勾选继续，或在设置 → 安全中稍后重试。',
     plaintextOption: '不加密',
     plaintextSelectLabel: '跳过加密',
     plaintextDesc:
@@ -385,7 +394,8 @@ export const onboardingNamespaceCatalog = {
     initStep2Action: '保存设置',
     initStep2Detail: '同时创建审计日志',
     initStep3Action: '运行首次备份',
-    initStep3Detail: '从 {count} 个浏览器备份历史记录',
+    initStep3DetailSingular: '从 {count} 个浏览器备份历史记录',
+    initStep3DetailPlural: '从 {count} 个浏览器备份历史记录',
     initButton: '创建存档并备份 →',
   },
   'zh-TW': {
@@ -481,6 +491,10 @@ export const onboardingNamespaceCatalog = {
     confirmPasswordLabel: '確認密碼',
     confirmPasswordPlaceholder: '再次輸入密碼',
     storeInKeyring: '儲存密碼到系統鑰匙圈（定時備份必需）',
+    storeInKeyringUnavailable:
+      '此系統沒有可用的鑰匙圈後端。PathKeep 無法記住密碼，請妥善記錄；每次啟動皆需手動輸入。',
+    storeInKeyringFailed:
+      'PathKeep 無法將密碼寫入系統鑰匙圈。請取消勾選後繼續，或於設定 → 安全稍後重試。',
     plaintextOption: '不加密',
     plaintextSelectLabel: '略過加密',
     plaintextDesc:
@@ -562,7 +576,8 @@ export const onboardingNamespaceCatalog = {
     initStep2Action: '儲存設定',
     initStep2Detail: '同時建立稽核日誌',
     initStep3Action: '執行首次備份',
-    initStep3Detail: '從 {count} 個瀏覽器備份歷史紀錄',
+    initStep3DetailSingular: '從 {count} 個瀏覽器備份歷史紀錄',
+    initStep3DetailPlural: '從 {count} 個瀏覽器備份歷史紀錄',
     initButton: '建立封存並備份 →',
   },
 } as const

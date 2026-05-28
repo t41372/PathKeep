@@ -4,6 +4,13 @@
  * @module pages/onboarding
  */
 
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
+import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import { backupIntervalHoursToMinutes } from '../../lib/schedule-options'
 
@@ -50,112 +57,118 @@ export function ReadyStep({
         <p className="ob-desc">{t('readyDesc')}</p>
       </div>
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('configSummary')}</span>
-          <span className="panel-action">{t('reviewBeforeInit')}</span>
-        </div>
-        <div className="panel-body">
-          <div className="summary-config">
-            <div className="config-row">
-              <span className="config-label">{t('configProfiles')}</span>
-              <span className="config-value">
-                {t('configProfilesValue').replace(
-                  '{count}',
-                  String(selectedCount),
-                )}
-              </span>
+      <div className="mt-4">
+        <PaperCard testId="onboarding-ready-config-summary">
+          <PaperCardHeader
+            title={t('configSummary')}
+            right={<PaperCardBadge>{t('reviewBeforeInit')}</PaperCardBadge>}
+          />
+          <PaperCardBody>
+            <div className="summary-config">
+              <div className="config-row">
+                <span className="config-label">{t('configProfiles')}</span>
+                <span className="config-value">
+                  {t('configProfilesValue').replace(
+                    '{count}',
+                    String(selectedCount),
+                  )}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configStorage')}</span>
+                <span className="config-value">{appRoot}</span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configEncryption')}</span>
+                <span className="config-value">
+                  {archiveMode === 'Encrypted'
+                    ? commonT('modeEncrypted')
+                    : commonT('modePlaintext')}
+                </span>
+              </div>
+              <div className="config-row">
+                <span className="config-label">{t('configSchedule')}</span>
+                <span className="config-value">
+                  {scheduleSetupMode === 'skip'
+                    ? t('configScheduleSkippedValue')
+                    : scheduleValue}
+                </span>
+              </div>
             </div>
-            <div className="config-row">
-              <span className="config-label">{t('configStorage')}</span>
-              <span className="config-value">{appRoot}</span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('configEncryption')}</span>
-              <span className="config-value">
-                {archiveMode === 'Encrypted'
-                  ? commonT('modeEncrypted')
-                  : commonT('modePlaintext')}
-              </span>
-            </div>
-            <div className="config-row">
-              <span className="config-label">{t('configSchedule')}</span>
-              <span className="config-value">
-                {scheduleSetupMode === 'skip'
-                  ? t('configScheduleSkippedValue')
-                  : scheduleValue}
-              </span>
-            </div>
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       {scheduleSetupMode === 'skip' ? (
-        <div className="ob-info-box">
-          <span className="info-icon">i</span>
-          <span className="info-text">
-            <strong>{t('scheduleSkippedTitle')}</strong>
-            <br />
-            {t('scheduleSkippedBody')}
-          </span>
+        <div className="mt-4">
+          <StatusCallout
+            tone="info"
+            title={t('scheduleSkippedTitle')}
+            body={t('scheduleSkippedBody')}
+          />
         </div>
       ) : null}
 
-      <div className="panel" style={{ marginTop: 'var(--space-4)' }}>
-        <div className="panel-header">
-          <span className="panel-title">{t('initSteps')}</span>
-          <span className="panel-action">{t('whatHappensNext')}</span>
-        </div>
-        <div className="panel-body">
-          <div className="init-steps">
-            <div className="init-step">
-              <span className="init-num">1.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep1Action')}</span>
-                <span className="init-detail">
-                  {archiveMode === 'Encrypted'
-                    ? t('initStep1DetailEncrypted')
-                    : t('initStep1DetailPlaintext')}
-                </span>
+      <div className="mt-4">
+        <PaperCard testId="onboarding-ready-init-steps">
+          <PaperCardHeader
+            title={t('initSteps')}
+            right={<PaperCardBadge>{t('whatHappensNext')}</PaperCardBadge>}
+          />
+          <PaperCardBody>
+            <div className="init-steps">
+              <div className="init-step">
+                <span className="init-num">1.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep1Action')}</span>
+                  <span className="init-detail">
+                    {archiveMode === 'Encrypted'
+                      ? t('initStep1DetailEncrypted')
+                      : t('initStep1DetailPlaintext')}
+                  </span>
+                </div>
+              </div>
+              <div className="init-step">
+                <span className="init-num">2.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep2Action')}</span>
+                  <span className="init-detail">{t('initStep2Detail')}</span>
+                </div>
+              </div>
+              <div className="init-step">
+                <span className="init-num">3.</span>
+                <div className="init-info">
+                  <span className="init-action">{t('initStep3Action')}</span>
+                  <span className="init-detail">
+                    {t(
+                      selectedCount === 1
+                        ? 'initStep3DetailSingular'
+                        : 'initStep3DetailPlural',
+                    ).replace('{count}', String(selectedCount))}
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="init-step">
-              <span className="init-num">2.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep2Action')}</span>
-                <span className="init-detail">{t('initStep2Detail')}</span>
-              </div>
-            </div>
-            <div className="init-step">
-              <span className="init-num">3.</span>
-              <div className="init-info">
-                <span className="init-action">{t('initStep3Action')}</span>
-                <span className="init-detail">
-                  {t('initStep3Detail')
-                    .replace('{count}', String(selectedCount))
-                    .replace('{plural}', selectedCount !== 1 ? 's' : '')}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+          </PaperCardBody>
+        </PaperCard>
       </div>
 
       {selectedAccessIssueCount > 0 ? (
-        <div className="ob-info-box ob-info-box--warning">
-          <span className="info-icon">!</span>
-          <span className="info-text">
-            <strong>{t('readyAccessWarningTitle')}</strong>
-            <br />
-            {t('readyAccessWarningBody')}
-          </span>
-          <button
-            className="btn-secondary"
-            type="button"
-            onClick={onOpenFullDiskAccessSettings}
-          >
-            {t('openFullDiskAccessSettings')}
-          </button>
+        <div className="mt-4">
+          <StatusCallout
+            tone="warning"
+            title={t('readyAccessWarningTitle')}
+            body={t('readyAccessWarningBody')}
+            actions={
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={onOpenFullDiskAccessSettings}
+              >
+                {t('openFullDiskAccessSettings')}
+              </button>
+            }
+          />
         </div>
       ) : null}
 

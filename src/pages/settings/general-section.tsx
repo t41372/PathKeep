@@ -11,14 +11,18 @@
  * - `GeneralSection`
  */
 
-import { Glyph } from '../../components/ui'
+import { PaperCard, PaperCardBody, PaperCardHeader } from '@/components/cards'
 import {
   explorerBackgroundPrefetchPageOptions,
   normalizeExplorerBackgroundPrefetchPages,
 } from '../../lib/explorer-preferences'
 import { languageLabel, supportedLanguages, useI18n } from '../../lib/i18n'
 import type { AppSnapshot } from '../../lib/types'
+import { Field } from './paper-form-primitives'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+const SELECT_CLASS =
+  'border-border-default rounded-paper bg-paper text-ink font-sans text-[12.5px] px-2 py-1 focus:border-accent focus:outline-none disabled:opacity-60'
 
 /**
  * Props for the extracted general Settings section.
@@ -38,8 +42,10 @@ export interface GeneralSectionProps {
 /**
  * Renders the general Settings panel from route-owned state and callbacks.
  *
- * This keeps diagnostics rows, language controls, and build metadata in a
- * dedicated render module while the route retains the actual mutation logic.
+ * Paper aesthetic: wraps the panel in PaperCard with PaperCardHeader carrying
+ * the navItem label, and uses the shared `Field` primitive for each row. The
+ * native `<select>` controls get paper-token styling inline (border-border-
+ * default / rounded-paper / bg-paper / font-sans).
  */
 export function GeneralSection({
   explorerBackgroundPrefetchPages,
@@ -52,24 +58,17 @@ export function GeneralSection({
   const { language, t } = useI18n()
 
   return (
-    <div className="panel" id={navItem.id}>
-      <div className="panel-header">
-        <span className="panel-title">
-          <Glyph icon={navItem.icon} filled />
-          <span>{navItem.label}</span>
-        </span>
-      </div>
-      <div className="panel-body panel-body--compact">
-        <p className="dashboard-next-action">
+    <PaperCard testId={navItem.id}>
+      <PaperCardHeader title={navItem.label} />
+      <PaperCardBody>
+        <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.generalDescription')}
         </p>
-        <div className="config-row">
-          <span className="config-label">
-            {t('settings.interfaceLanguage')}
-          </span>
+
+        <Field label={t('settings.interfaceLanguage')}>
           <select
             aria-label={t('settings.interfaceLanguage')}
-            className="settings-select"
+            className={SELECT_CLASS}
             disabled={saving}
             value={snapshot.config.preferredLanguage}
             onChange={(event) => {
@@ -83,20 +82,21 @@ export function GeneralSection({
               </option>
             ))}
           </select>
-        </div>
-        <div className="config-row">
-          <span className="config-label">{t('settings.currentLanguage')}</span>
-          <span className="config-value">
+        </Field>
+
+        <Field label={t('settings.currentLanguage')}>
+          <span className="text-ink-muted font-mono text-[11.5px]">
             {languageLabel(language, language)}
           </span>
-        </div>
-        <div className="config-row">
-          <span className="config-label">
-            {t('settings.explorerBackgroundPrefetchPages')}
-          </span>
+        </Field>
+
+        <Field
+          label={t('settings.explorerBackgroundPrefetchPages')}
+          help={t('settings.explorerBackgroundPrefetchBody')}
+        >
           <select
             aria-label={t('settings.explorerBackgroundPrefetchPages')}
-            className="settings-select"
+            className={SELECT_CLASS}
             disabled={saving}
             value={normalizeExplorerBackgroundPrefetchPages(
               explorerBackgroundPrefetchPages,
@@ -117,11 +117,8 @@ export function GeneralSection({
               </option>
             ))}
           </select>
-        </div>
-        <p className="dashboard-next-action">
-          {t('settings.explorerBackgroundPrefetchBody')}
-        </p>
-      </div>
-    </div>
+        </Field>
+      </PaperCardBody>
+    </PaperCard>
   )
 }

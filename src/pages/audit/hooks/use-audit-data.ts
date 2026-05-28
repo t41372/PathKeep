@@ -19,6 +19,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
+import { describeError } from '../../../lib/errors'
 import { auditSeverity } from '../../../lib/trust-review'
 import type {
   AuditRunDetail,
@@ -114,10 +115,7 @@ export function useAuditData({
         setDetailState({
           runId,
           detail: null,
-          error:
-            error instanceof Error
-              ? error.message
-              : labels.runDetailUnavailable,
+          error: describeError(error, 'load_audit_run_detail'),
         })
       }
     }
@@ -125,7 +123,7 @@ export function useAuditData({
     return () => {
       cancelled = true
     }
-  }, [labels.runDetailUnavailable, refreshKey, runId])
+  }, [refreshKey, runId])
 
   useEffect(() => {
     if (!recentRuns.length) {
@@ -214,11 +212,7 @@ export function useAuditData({
       } catch (error) {
         if (cancelled) return
         setRelatedBatchDetail(null)
-        setRelatedBatchError(
-          error instanceof Error
-            ? error.message
-            : labels.importPreviewUnavailable,
-        )
+        setRelatedBatchError(describeError(error, 'preview_import_batch'))
       }
     }
 
@@ -226,7 +220,7 @@ export function useAuditData({
     return () => {
       cancelled = true
     }
-  }, [labels.importPreviewUnavailable, relatedImportBatch])
+  }, [relatedImportBatch])
 
   /**
    * Handles copy path.
@@ -269,9 +263,7 @@ export function useAuditData({
       )
       await refreshAppData()
     } catch (error) {
-      setBatchActionError(
-        error instanceof Error ? error.message : labels.commonUnavailable,
-      )
+      setBatchActionError(describeError(error, `${action}_import_batch`))
     }
   }
 
@@ -289,9 +281,7 @@ export function useAuditData({
       setRestorePreview(preview)
     } catch (error) {
       setRestorePreview(null)
-      setRestoreError(
-        error instanceof Error ? error.message : labels.commonUnavailable,
-      )
+      setRestoreError(describeError(error, 'preview_snapshot_restore'))
     } finally {
       setRestoreBusy(false)
     }
@@ -319,9 +309,7 @@ export function useAuditData({
         selectRun(report.run.id)
       }
     } catch (error) {
-      setRestoreError(
-        error instanceof Error ? error.message : labels.commonUnavailable,
-      )
+      setRestoreError(describeError(error, 'run_snapshot_restore'))
     } finally {
       setRestoreBusy(false)
     }

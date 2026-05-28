@@ -5,22 +5,44 @@
 //! session-state lookups, transient key updates, progress callbacks, and
 //! uniform string error shaping.
 
+mod annotations;
 mod app;
 mod archive;
 mod import;
 mod intelligence;
-mod remote;
+mod migration;
 mod schedule;
 mod security;
 
-pub(crate) use self::{
-    app::*, archive::*, import::*, intelligence::*, remote::*, schedule::*, security::*,
-};
+// `annotations::*` is exercised only via the production command facade
+// (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
+// yet, so the glob is unused in test builds. Splitting it out keeps the noise
+// localized — every sibling `_impl` already carries its own
+// #[cfg_attr(test, allow(dead_code))] on the definition.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::annotations::*;
+// `migration::*` follows the same cfg-cleanliness pattern as annotations:
+// the worker_bridge test block does not yet drive Export/Import (the
+// integration tests live in `vault_core::migration::tests`), so each
+// `_impl` already carries its own #[cfg_attr(test, allow(dead_code))]
+// and the glob is only loaded for production builds.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::migration::*;
+pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
-fn worker_result<T, E: ToString>(result: Result<T, E>) -> Result<T, String> {
+///
+/// Uses the `{:#}` alternate Display formatter so `anyhow::Error` chains
+/// surface as `"top: cause: root"` instead of just the top-level summary.
+/// PathKeep is a local-only app and the user is *also* the bug reporter —
+/// hiding the cause behind a generic frontend fallback ("…failed for an
+/// unknown reason.") strips the one piece of information that would let
+/// them file an actionable bug. Non-anyhow types fall back to plain
+/// Display, which `{:#}` reduces to for any type that does not honour the
+/// alternate flag.
+fn worker_result<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, String> {
     result.map_err(|error| {
-        let message = error.to_string();
+        let message = format!("{error:#}");
         log::warn!(target: "pathkeep::worker_bridge", "{message}");
         message
     })
@@ -321,38 +343,6 @@ mod tests {
             Some("session-secret".to_string())
         );
         assert!(!keyring_clear_database_key_impl().expect("clear keyring key").stored_secret);
-
-        store_s3_credentials_impl(S3CredentialInput {
-            access_key_id: "test-access".to_string(),
-            secret_access_key: "test-secret".to_string(),
-        })
-        .expect("store s3 credentials");
-
-        let mut remote_config = config.clone();
-        remote_config.remote_backup.enabled = true;
-        remote_config.remote_backup.bucket = "pathkeep-tests".to_string();
-        remote_config.remote_backup.region = "us-west-2".to_string();
-        remote_config.remote_backup.prefix = "archives".to_string();
-        let saved_snapshot =
-            save_config_impl(remote_config.clone(), session_key(&session).as_deref())
-                .expect("save remote config");
-        assert!(saved_snapshot.config.remote_backup.credentials_saved);
-
-        let remote_preview = preview_remote_backup_impl().expect("preview remote backup");
-        assert!(remote_preview.preview_command.contains("curl"));
-        let remote_verify_error = verify_remote_backup_impl(
-            "/tmp/pathkeep-missing-bundle.zip".to_string(),
-            session_key(&session).as_deref(),
-        )
-        .expect_err("missing bundle should fail verification");
-        assert!(
-            remote_verify_error.contains("opening")
-                && remote_verify_error.contains("pathkeep-missing-bundle.zip")
-        );
-        clear_s3_credentials_impl().expect("clear s3 credentials");
-        let remote_error = run_remote_backup_impl(session_key(&session).as_deref())
-            .expect_err("remote backup should require stored credentials");
-        assert!(remote_error.contains("S3"));
 
         let provider_snapshot = store_ai_provider_api_key_impl(
             AiProviderSecretInput {
@@ -880,6 +870,175 @@ mod tests {
     }
 
     #[test]
+    fn annotations_and_og_image_impls_cover_local_desktop_flows() {
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let session = SessionState::default();
+        let config = initialized_config();
+        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+
+        // Annotations PME loop: set notes, replace tags, read back, list, search.
+        let url = "https://example.com/seed";
+        assert!(
+            super::get_annotation_impl(session_key(&session).as_deref(), url)
+                .expect("read missing annotation")
+                .is_none(),
+            "fresh archive must not have annotations",
+        );
+
+        super::set_notes_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetNotesRequest {
+                url: url.to_string(),
+                notes: "rust internals research".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("set notes");
+
+        super::replace_tags_impl(
+            session_key(&session).as_deref(),
+            vault_core::ReplaceTagsRequest {
+                url: url.to_string(),
+                tags: vec!["rust".to_string(), "tokio".to_string()],
+                source_profile: None,
+            },
+        )
+        .expect("replace tags");
+
+        let after = super::get_annotation_impl(session_key(&session).as_deref(), url)
+            .expect("read after writes")
+            .expect("annotation present");
+        assert_eq!(after.notes, "rust internals research");
+        assert!(after.tags.iter().any(|tag| tag == "rust"));
+
+        let listed = super::list_annotations_impl(session_key(&session).as_deref(), Some(10))
+            .expect("list annotations");
+        assert!(listed.iter().any(|record| record.url == url));
+
+        let searched =
+            super::search_annotations_impl(session_key(&session).as_deref(), "internals", Some(10))
+                .expect("search annotations");
+        assert!(searched.iter().any(|record| record.url == url));
+
+        // Og:image impls — every PME boundary except the network refetch
+        // (covered by og_images_fetch unit tests). Empty + no-blob inputs
+        // exercise the bulk path; stats / cleanup / clear close the loop.
+        let empty_lookup =
+            super::load_history_og_images_impl(Vec::new(), session_key(&session).as_deref())
+                .expect("empty og:image lookup");
+        assert!(empty_lookup.is_empty());
+
+        super::mark_og_images_shown_impl(vec![url.to_string()], session_key(&session).as_deref())
+            .expect("mark og:image shown for URL with no cached blob");
+
+        let _initial_stats = super::og_image_storage_stats_impl(session_key(&session).as_deref())
+            .expect("og:image storage stats");
+
+        let _cleanup = super::run_og_image_cleanup_impl(session_key(&session).as_deref())
+            .expect("og:image cleanup pass");
+
+        let _cleared = super::clear_og_image_cache_impl(session_key(&session).as_deref())
+            .expect("clear og:image cache");
+
+        // Refetch impl: empty URL list + blocked-host path + fetch_enabled=false fast-path.
+        let zero = super::refetch_og_images_impl(Vec::new(), session_key(&session).as_deref())
+            .expect("refetch with empty url list");
+        assert_eq!(zero, 0);
+
+        // Block a host in the user's config so the refetch worker takes
+        // the blocked_outcome branch instead of hitting the network.
+        let mut blocked_config = initialized_config();
+        blocked_config.og_image.blocked_hosts = vec!["blocked.example.test".to_string()];
+        save_config_impl(blocked_config, session_key(&session).as_deref())
+            .expect("save blocked-hosts config");
+        let blocked_count = super::refetch_og_images_impl(
+            vec!["https://blocked.example.test/post".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect("refetch with a blocked host");
+        assert_eq!(blocked_count, 0, "blocked host should not count as success");
+
+        let mut disabled_config = initialized_config();
+        disabled_config.og_image.fetch_enabled = false;
+        save_config_impl(disabled_config, session_key(&session).as_deref())
+            .expect("save og-image-disabled config");
+        let disabled = super::refetch_og_images_impl(
+            vec!["https://example.com/some-page".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect("refetch with fetch_enabled=false");
+        assert_eq!(disabled, 0);
+
+        // fetch_mode = Off with fetch_enabled = true is the modern policy
+        // for "no network fetches anywhere". The implicit on-demand IPC
+        // path (this fn) must short-circuit even though the legacy kill
+        // switch is on. Settings copy promises Off = "No fetching anywhere",
+        // and that promise lives here.
+        let mut off_mode_config = initialized_config();
+        off_mode_config.og_image.fetch_enabled = true;
+        off_mode_config.og_image.fetch_mode = vault_core::OgImageFetchMode::Off;
+        save_config_impl(off_mode_config, session_key(&session).as_deref())
+            .expect("save fetch_mode=Off config");
+        let off_mode = super::refetch_og_images_impl(
+            vec!["https://example.com/another-page".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect("refetch with fetch_mode=Off");
+        assert_eq!(off_mode, 0);
+
+        // Drive the `Err(error) => return Err(error.to_string())` arm
+        // of `refetch_og_images_impl`. The outer `effective_og_image_fetch_mode`
+        // helper hydrates config through `load_unlocked_config`, which
+        // refuses to return a hydrated `AppConfig` when an enabled App
+        // Lock is currently locked. Configure that state, lock the
+        // session, and the bridge surface refuses the implicit on-
+        // demand fetch with a typed error string instead of silently
+        // initiating outbound HTTP.
+        let mut locked_config = initialized_config();
+        locked_config.app_lock.enabled = true;
+        set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
+            passcode: "1357".to_string(),
+            recovery_hint: None,
+        })
+        .expect("set app lock passcode for refetch err-arm coverage");
+        save_config_impl(locked_config, session_key(&session).as_deref())
+            .expect("save app-lock-enabled config");
+        lock_app_session_impl(Some("manual".to_string()))
+            .expect("lock app session for refetch err-arm coverage");
+        let err = super::refetch_og_images_impl(
+            vec!["https://example.com/while-locked".to_string()],
+            session_key(&session).as_deref(),
+        )
+        .expect_err("refetch must surface lock error from effective_mode helper");
+        assert!(
+            err.contains("currently locked"),
+            "expected locked-session error context, got {err:?}",
+        );
+        // Restore the unlocked-baseline so subsequent assertions in this
+        // test (and other tests sharing the env override) see a normal
+        // unlocked state.
+        clear_app_lock_passcode_impl().expect("clear app lock for follow-up tests");
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
     fn app_lock_bridge_guards_desktop_read_models_until_unlock() {
         let _guard = lock_env();
         let dir = tempdir().expect("tempdir");
@@ -946,6 +1105,94 @@ mod tests {
         let cleared = clear_app_lock_passcode_impl().expect("clear app lock passcode");
         assert!(!cleared.enabled);
         assert!(!cleared.passcode_configured);
+
+        unsafe {
+            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+            std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        }
+    }
+
+    #[test]
+    fn migration_and_browse_insights_impls_cover_local_desktop_flows() {
+        // Drives the Settings → Data Migration wrappers (export / preview /
+        // apply) and the Browse-day insights / og:image prefetch wrappers
+        // through their `_impl` entry points. These are thin adapters over
+        // `vault_worker::*` whose only desktop-layer behaviour is the
+        // string-error transport shape (`worker_result`). We need a real
+        // initialised project root so the worker's `load_unlocked_config`
+        // call succeeds — otherwise the wrappers short-circuit before
+        // touching the bundle / aggregation paths we care about for
+        // coverage.
+        let _guard = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let chrome_root = chrome_user_data_fixture(dir.path());
+        let keyring_root = dir.path().join("test-keyring");
+
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+            std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+
+        let session = SessionState::default();
+        let config = initialized_config();
+        initialize_archive_impl(config.clone(), None, &session).expect("initialize archive");
+        save_config_impl(config, session_key(&session).as_deref()).expect("save config");
+        run_backup_now_impl(false, session_key(&session).as_deref(), |_| {}).expect("backup");
+
+        // Browse-day insights: aggregates one local calendar day from the
+        // archive. The seeded Chrome fixture emits a single visit dated
+        // "today" in the host's local zone, so the request only needs to
+        // succeed — we don't depend on a specific count here.
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let insights = super::browse_day_insights_impl(
+            session_key(&session).as_deref(),
+            BrowseDayInsightsRequest { date: today.clone(), profile_id: None },
+        )
+        .expect("browse day insights wrapper");
+        assert_eq!(insights.date, today);
+        assert_eq!(insights.hour_buckets.len(), 24);
+
+        // og:image on-demand prefetch: budget=0 takes the fast-path inside
+        // the worker (no network, no archive scan) so this is safe inside
+        // the test harness even with the seed fixture present. The wrapper
+        // still exercises `worker_result` around the `(u32, u32)` return.
+        let prefetch = super::prefetch_og_images_impl(0, session_key(&session).as_deref())
+            .expect("prefetch og images wrapper");
+        assert_eq!(prefetch, (0, 0));
+
+        // Export / Import round-trip. Re-uses the just-initialised project
+        // as the export source; importing it back onto the same tree
+        // exercises the `confirm_overwrite=true` overwrite branch.
+        let bundle_target = dir.path().join("bundle.pathkeep");
+        let exported =
+            super::export_app_data_impl(session_key(&session).as_deref(), bundle_target.clone())
+                .expect("export app data wrapper");
+        assert_eq!(exported.bundle_path, bundle_target);
+        assert!(bundle_target.exists(), "bundle file should land at the chosen target path");
+
+        let preview = super::preview_app_data_import_impl(bundle_target.clone())
+            .expect("preview app data import wrapper");
+        assert!(
+            preview.will_overwrite_existing,
+            "preview should flag overwrite because the source tree is already initialised",
+        );
+
+        let applied = super::apply_app_data_import_impl(
+            session_key(&session).as_deref(),
+            bundle_target.clone(),
+            vault_core::ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+        )
+        .expect("apply app data import wrapper");
+        assert_eq!(applied.final_schema_version, vault_core::archive::max_schema_version());
+
+        // Error transport: a missing bundle should surface through
+        // `worker_result` as a non-empty string carrying the cause chain.
+        let bogus = dir.path().join("does-not-exist.pathkeep");
+        let preview_err = super::preview_app_data_import_impl(bogus)
+            .expect_err("missing bundle should surface as a string error");
+        assert!(!preview_err.is_empty());
 
         unsafe {
             std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

@@ -35,7 +35,6 @@ import type {
   EnrichmentSettings,
   IntelligenceStatus,
 } from './intelligence'
-import type { RemoteBackupConfig } from './remote'
 import type { KeyringStatusReport } from './security'
 
 /**
@@ -130,10 +129,40 @@ export interface AppConfig {
   appAutostart: boolean
   explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
-  remoteBackup: RemoteBackupConfig
   enrichment: EnrichmentSettings
   deterministic: DeterministicSettings
   ai: AiSettings
+  /**
+   * Optional in TS because legacy test fixtures predate the C3 backend
+   * AppConfig extension. The backend's serde default ensures the runtime
+   * shape always carries an `ogImage` value, even from older configs.
+   */
+  ogImage?: OgImageSettingsConfig
+}
+
+/**
+ * How aggressively the og:image worker fetches link-preview bytes.
+ * Mirror of the same enum in archive.ts and `vault_core::OgImageFetchMode`.
+ */
+export type OgImageFetchModeConfig = 'off' | 'on_demand' | 'background'
+
+/**
+ * og:image fetch + cache settings persisted as part of AppConfig. Defaults:
+ * fetch_enabled = true, fetch_mode = background, daily_refetch_budget = 50,
+ * new_visit_prefetch_budget = 100, blocked_hosts = [], cleanup mode = off.
+ * Surfaced in Settings → Link previews.
+ */
+export interface OgImageSettingsConfig {
+  fetchEnabled: boolean
+  fetchMode: OgImageFetchModeConfig
+  dailyRefetchBudget: number
+  newVisitPrefetchBudget: number
+  blockedHosts: string[]
+  cleanup:
+    | { mode: 'off' }
+    | { mode: 'timeTtl'; maxAgeDays: number }
+    | { mode: 'sizeCap'; maxBytes: number }
+    | { mode: 'lru'; maxBytes: number }
 }
 
 /**

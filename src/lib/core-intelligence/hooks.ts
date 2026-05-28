@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { describeError } from '../errors'
 import type { DateRange, TimeRangePreset } from './types'
 
 // ---------------------------------------------------------------------------
@@ -158,7 +159,7 @@ export function useAsyncData<T>(
         if (requestIdRef.current !== requestId) {
           return
         }
-        const message = err instanceof Error ? err.message : String(err)
+        const message = describeError(err, 'core_intelligence_fetch')
         setState((prev) =>
           prev.data === null
             ? { ...prev, loading: false, error: message }

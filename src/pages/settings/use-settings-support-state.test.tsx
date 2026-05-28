@@ -278,7 +278,7 @@ describe('useSettingsSupportState', () => {
       await result.current.retention.onPrune()
     })
 
-    expect(result.current.retention.error).toBe('Not available')
+    expect(result.current.retention.error).toBe('prune fallback')
     expect(result.current.retention.action).toBeNull()
   })
 
@@ -421,7 +421,7 @@ describe('useSettingsSupportState', () => {
     await act(async () => {
       await result.current.retention.onRefresh()
     })
-    expect(result.current.retention.error).toBe('Not available')
+    expect(result.current.retention.error).toBe('not an error')
 
     previewPrune.mockRejectedValueOnce(new Error('refresh offline'))
     await act(async () => {
@@ -475,7 +475,7 @@ describe('useSettingsSupportState', () => {
     )
 
     await waitFor(() =>
-      expect(result.current.retention.error).toBe('Not available'),
+      expect(result.current.retention.error).toBe('retention fallback'),
     )
   })
 

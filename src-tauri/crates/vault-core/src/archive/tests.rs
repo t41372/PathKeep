@@ -809,6 +809,124 @@ fn history_keyword_query_supports_google_like_local_operators() {
     );
 }
 
+#[test]
+fn history_keyword_query_supports_tag_and_note_operators_against_annotations() {
+    // feedback-2026-05-25 §3.3 A — annotations existed but the search
+    // surface only saw title / URL. This pins the new `tag:` /
+    // `note:` operators end-to-end: parser → SQL → archive results.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+
+    // Two extra URLs that only differ by their annotations — neither
+    // mentions "rust" or "design" in title or URL, so any match must
+    // come from the new tag/note filters.
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        20,
+        "https://example.test/page-with-rust-tag",
+        "Generic page A",
+        20_000,
+        "2026-05-01T00:00:20+00:00",
+    );
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        21,
+        "https://example.test/page-with-design-note",
+        "Generic page B",
+        21_000,
+        "2026-05-01T00:00:21+00:00",
+    );
+    insert_lexical_history_row(
+        &paths,
+        &config,
+        22,
+        "https://example.test/page-with-no-annotations",
+        "Generic page C",
+        22_000,
+        "2026-05-01T00:00:22+00:00",
+    );
+
+    // Seed annotations via the public surface so we exercise the same
+    // schema the detail panel writes to.
+    crate::annotations::replace_tags(
+        &paths,
+        &config,
+        None,
+        crate::ReplaceTagsRequest {
+            url: "https://example.test/page-with-rust-tag".to_string(),
+            tags: vec!["Rust".to_string()],
+            source_profile: None,
+        },
+    )
+    .expect("replace tags");
+    crate::annotations::set_notes(
+        &paths,
+        &config,
+        None,
+        crate::SetNotesRequest {
+            url: "https://example.test/page-with-design-note".to_string(),
+            notes: "Initial design doc for the cache layer".to_string(),
+            source_profile: None,
+        },
+    )
+    .expect("set notes");
+
+    // `tag:rust` — only the page tagged Rust matches (and the case is
+    // folded so the user can type either `tag:Rust` or `tag:rust`).
+    let tag_hit = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("tag:rust".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("tag query");
+    assert_eq!(tag_hit.total, 1);
+    assert_eq!(tag_hit.items[0].url, "https://example.test/page-with-rust-tag",);
+
+    // `note:design` — substring match on `url_annotations.notes`,
+    // case-insensitive.
+    let note_hit = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("note:\"design doc\"".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("note query");
+    assert_eq!(note_hit.total, 1);
+    assert_eq!(note_hit.items[0].url, "https://example.test/page-with-design-note",);
+
+    // `-tag:rust` — exclude any URL tagged Rust. Both Generic page B
+    // and Generic page C survive (along with every other seed row).
+    let tag_negated = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("-tag:rust".to_string()), ..HistoryQuery::default() },
+    )
+    .expect("negated tag query");
+    assert!(
+        !tag_negated
+            .items
+            .iter()
+            .any(|entry| entry.url == "https://example.test/page-with-rust-tag"),
+        "expected -tag:rust to exclude the Rust-tagged row",
+    );
+    // And the un-tagged Generic page C is still in the result set,
+    // pinning that the exclusion is a soft filter (not "only show
+    // rows that have any tag").
+    assert!(
+        tag_negated
+            .items
+            .iter()
+            .any(|entry| { entry.url == "https://example.test/page-with-no-annotations" }),
+        "expected -tag:rust to keep un-tagged rows",
+    );
+}
+
 fn seed_firefox_fixture(root: &Path) -> PathBuf {
     let firefox_root = root.join("firefox");
     let profiles_dir = firefox_root.join("Profiles");
@@ -1318,9 +1436,14 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         }],
     )
     .expect("same-profile registrable favicon lookup");
+    // The registrable-domain fallback used to fire here; it was removed
+    // because it leaked icons across unrelated sites that share a public
+    // suffix (e.g. `*.github.io`). The exact page URL and same FQDN are
+    // the only safe sources, so a different host on the same registrable
+    // domain must now resolve to `None`.
     assert!(
-        same_profile_registrable_lookup[0].favicon.is_some(),
-        "expected registrable-domain fallback when the exact host differs inside the same profile"
+        same_profile_registrable_lookup[0].favicon.is_none(),
+        "registrable-domain fallback is disabled — different hosts on the same registrable domain must not borrow each other's icons"
     );
     connection
         .execute(
@@ -1443,9 +1566,11 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         }],
     )
     .expect("cross-profile registrable favicon lookup");
+    // Same rationale as the same-profile case above: cross-host borrowing
+    // at the registrable-domain level was removed to stop icon bleed.
     assert!(
-        cross_profile_registrable_lookup[0].favicon.is_some(),
-        "expected registrable-domain fallback to cross profiles after same-profile misses"
+        cross_profile_registrable_lookup[0].favicon.is_none(),
+        "registrable-domain fallback is disabled across profiles too"
     );
     connection
         .execute("UPDATE visits SET source_profile_id = 2 WHERE id = 2", [])
@@ -1727,18 +1852,9 @@ fn canonical_backup_pipeline_writes_runs_manifests_snapshots_and_queries() {
         "idx_favicons_host_lookup",
         params![1_i64, "example.com", "https://example.com/archive", visit_time],
     );
-    assert_favicon_plan_uses(
-        &connection,
-        super::history::LOAD_FAVICON_SAME_PROFILE_REGISTRABLE_SQL,
-        "idx_favicons_registrable_profile_lookup",
-        params![1_i64, "example.org", "https://example.com/archive", visit_time],
-    );
-    assert_favicon_plan_uses(
-        &connection,
-        super::history::LOAD_FAVICON_CROSS_PROFILE_REGISTRABLE_SQL,
-        "idx_favicons_registrable_lookup",
-        params![1_i64, "example.org", "https://example.com/archive", visit_time],
-    );
+    // Registrable-domain fallback queries were removed; their dormant
+    // indexes still exist in the schema but are no longer reached by the
+    // lookup pipeline. See favicons.rs for rationale (icon-bleed guard).
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
 }
@@ -1804,6 +1920,91 @@ fn dashboard_read_models_cover_uninitialized_storage_and_cached_totals_edges() {
     assert_eq!(totals.total_urls, 3);
     assert_eq!(totals.total_visits, 5);
     assert_eq!(totals.total_downloads, 7);
+}
+
+#[test]
+fn dashboard_snapshot_reports_archive_coverage_bounds_for_imported_visits() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Empty archive → both bounds are None and the FE renders an em-dash.
+    let empty = load_dashboard_snapshot(&paths, &config, None).expect("empty snapshot");
+    assert_eq!(empty.earliest_visit_at, None);
+    assert_eq!(empty.latest_visit_at, None);
+
+    // Seed two real-ish visits a year apart; mark one as reverted to prove
+    // we use the same visible filter the totals query uses (rolled-back
+    // visits must not widen the span).
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection
+        .execute_batch(
+            r#"
+            INSERT INTO runs (id, run_type, trigger, started_at, finished_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+              VALUES (1, 'backup', 'manual', '2026-04-14T00:00:00Z', '2026-04-14T00:00:01Z', 'UTC', 'success', '[]', '[]', '{}', 0);
+            INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+              VALUES (1, 'chrome', 'Default', '/tmp', '2026-04-14T00:00:00Z', 1, 'chrome:Default', '2026-04-14T00:00:00Z');
+            INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, recorded_at)
+              VALUES (1, 'https://example.com', 'Example', 1, 0, 0, '2025-04-22T00:00:00Z', 0, '2025-04-22T00:00:00Z', 1, 1, '2026-04-14T00:00:00Z');
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
+              VALUES (1, 1, 1745280000000, '2025-04-22T00:00:00Z', 1, 1);
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id)
+              VALUES (2, 1, 1776816000000, '2026-04-22T00:00:00Z', 1, 1);
+            INSERT INTO visits (id, url_id, visit_time_ms, visit_time_iso, source_profile_id, created_by_run_id, reverted_at)
+              VALUES (3, 1, 2208988800000, '2040-01-01T00:00:00Z', 1, 1, '2026-04-23T00:00:00Z');
+            "#,
+        )
+        .expect("seed archive");
+    drop(connection);
+
+    let populated = load_dashboard_snapshot(&paths, &config, None).expect("populated snapshot");
+    assert_eq!(populated.earliest_visit_at.as_deref(), Some("2025-04-22T00:00:00Z"));
+    assert_eq!(populated.latest_visit_at.as_deref(), Some("2026-04-22T00:00:00Z"));
+}
+
+#[test]
+fn load_recent_runs_excludes_compat_seed_baseline_row() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // The 002 migration seeds id=0/run_type='system'/trigger='compat'. It
+    // must exist on disk (legacy foreign keys depend on it) but never appear
+    // in the dashboard or audit ledger.
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    let seed_exists: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM runs WHERE id = 0 AND run_type = 'system' AND trigger = 'compat'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count seed");
+    assert_eq!(seed_exists, 1, "002 migration should seed the compat baseline");
+    drop(connection);
+
+    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs");
+    assert!(
+        recent_runs.iter().all(|run| run.id != 0),
+        "compat seed must be filtered from the recent-runs read model"
+    );
+
+    // A real backup row (even id=1) must still appear in the ledger so the
+    // user can see their actual runs.
+    let connection = Connection::open(&paths.archive_database_path).expect("open archive");
+    connection
+        .execute(
+            "INSERT INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [],
+        )
+        .expect("insert real run");
+    drop(connection);
+
+    let recent_runs = load_recent_runs(&paths, &config, None).expect("recent runs after backup");
+    assert!(recent_runs.iter().any(|run| run.id == 1));
+    assert!(recent_runs.iter().all(|run| run.id != 0));
 }
 
 #[test]

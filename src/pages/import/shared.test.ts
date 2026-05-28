@@ -31,6 +31,7 @@ import {
   buildImportWorkflowSteps,
   countTakeoutFilesByClassification,
   formatTakeoutPreviewRange,
+  formatTakeoutLayoutLabel,
   formatTakeoutLocaleLabel,
   deriveActiveImportBatchDetail,
   groupTakeoutFileReports,
@@ -310,6 +311,43 @@ describe('Import shared helpers', () => {
     )
     expect(formatTakeoutLocaleLabel('mixed', t)).toBe('import.localeMixed')
     expect(formatTakeoutLocaleLabel(null, t)).toBe('import.localeUnknown')
+  })
+
+  test('formatTakeoutLayoutLabel falls back to file kind when locale is unknown', () => {
+    const chromeFile: TakeoutFileReport = {
+      path: '/tmp/History.json',
+      kind: 'browser-json',
+      status: 'ready',
+      records: 264388,
+      classification: 'will-import',
+      reasonCode: null,
+      reasonDetail: null,
+      detectedLocale: null,
+    }
+    expect(formatTakeoutLayoutLabel(null, [chromeFile], t)).toBe(
+      'import.kindBrowserHistory',
+    )
+    expect(formatTakeoutLayoutLabel(undefined, [chromeFile], t)).toBe(
+      'import.kindBrowserHistory',
+    )
+    // When locale IS meaningful (real Takeout zip), keep showing it.
+    expect(formatTakeoutLayoutLabel('en', [chromeFile], t)).toBe(
+      'import.localeEnglish',
+    )
+    // No will-import files → still "Unknown".
+    expect(formatTakeoutLayoutLabel(null, [], t)).toBe('import.localeUnknown')
+    // Quarantined files don't trigger the fallback either.
+    const quarantined: TakeoutFileReport = {
+      ...chromeFile,
+      classification: 'needs-review',
+    }
+    expect(formatTakeoutLayoutLabel(null, [quarantined], t)).toBe(
+      'import.localeUnknown',
+    )
+    // Mixed-locale Takeouts keep the mixed label.
+    expect(formatTakeoutLayoutLabel('mixed', [chromeFile], t)).toBe(
+      'import.localeMixed',
+    )
   })
 
   test('localizes import progress details, labels, logs, and numeric progress', () => {

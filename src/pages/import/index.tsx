@@ -14,8 +14,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import { PaperImportPanel } from './paper-import-panel'
 import { copyReviewValue } from '../../components/review'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -83,7 +84,9 @@ export function ImportPage() {
     runImport,
     snapshot,
   } = useShellData()
-  const { language, t } = useI18n()
+  const { language, t, ns } = useI18n()
+  const [searchParams] = useSearchParams()
+  const importT = ns('import')
   const [method, setMethod] = useState<ImportMethod>('takeout')
   const [step, setStep] = useState<WizardStep>('select')
   const [sourcePath, setSourcePath] = useState('')
@@ -320,11 +323,7 @@ export function ImportPage() {
         setManualPathExpanded(false)
       }
     } catch (nextError) {
-      reportActionError(
-        nextError instanceof Error
-          ? nextError
-          : new Error(t('import.filePickerUnavailable')),
-      )
+      reportActionError(nextError)
     }
   }
 
@@ -435,6 +434,17 @@ export function ImportPage() {
 
   return (
     <section className="page-shell import-page" data-testid="import-page">
+      {searchParams.get('layout') === 'paper' ? (
+        <PaperImportPanel
+          activeMethod={method}
+          onSelectMethod={(id) =>
+            handleMethodChange(id === 'browser' ? 'browser' : 'takeout')
+          }
+          stepIndex={stepIndex}
+          importT={importT}
+        />
+      ) : null}
+
       <ImportWorkflowPanel
         detectedBrowserProfiles={detectedBrowserProfiles}
         importing={importing}
