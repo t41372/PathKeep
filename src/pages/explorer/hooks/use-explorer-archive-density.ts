@@ -176,8 +176,6 @@ function buildBounds(
   sortedYears: number[],
   perDay: ReadonlyMap<string, number>,
 ): ExplorerArchiveDensity['bounds'] {
-  const firstYear = sortedYears[0]
-  const lastYear = sortedYears[sortedYears.length - 1]
   // Walk the real data once and pick the actual earliest / latest dates
   // that have a rollup row. The previous tighten-toward-edges loop never
   // assigned anything because its `dateKey < firstIso` / `dateKey > lastIso`
@@ -189,6 +187,23 @@ function buildBounds(
   for (const dateKey of perDay.keys()) {
     if (earliest === null || dateKey < earliest) earliest = dateKey
     if (latest === null || dateKey > latest) latest = dateKey
+  }
+  // Derive firstYear / lastYear from the *real* per-day keys when present,
+  // so the calendar year rail only exposes years that actually land inside
+  // [firstIso, lastIso]. Pulling firstYear from `availableYears` (which can
+  // include backend-known years outside the 20-year rollup window) used to
+  // let the rail offer e.g. "2010" while perDay only carried 2018+; clicking
+  // 2010 jumped to 2010-01-01 below firstIso and stranded the user on an
+  // empty contact sheet. Fall back to `sortedYears` only when perDay is
+  // empty (no rollups loaded yet).
+  let firstYear: number
+  let lastYear: number
+  if (earliest !== null && latest !== null) {
+    firstYear = Number.parseInt(earliest.slice(0, 4), 10)
+    lastYear = Number.parseInt(latest.slice(0, 4), 10)
+  } else {
+    firstYear = sortedYears[0]
+    lastYear = sortedYears[sortedYears.length - 1]
   }
   const firstIso = earliest ?? `${firstYear.toString().padStart(4, '0')}-01-01`
   const lastIso = latest ?? `${lastYear.toString().padStart(4, '0')}-12-31`
