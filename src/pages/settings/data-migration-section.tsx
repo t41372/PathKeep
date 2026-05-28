@@ -30,7 +30,7 @@
  * - `useI18n` for the three-locale copy contract.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useI18n } from '@/lib/i18n'
 import { backend } from '@/lib/backend-client'
 import {
@@ -109,6 +109,13 @@ function defaultBundleName(now: Date = new Date()): string {
 export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
   const { t } = useI18n()
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
+  // Synchronous re-entrance lock for handleApplyImport: React's `applying`
+  // state doesn't commit until after the current render, so two fast clicks
+  // on Confirm (or any future control that bypasses the disabled prop) can
+  // dispatch two onClicks within one tick before phase updates. A `phase`
+  // closure check would still see the stale 'previewed' value; the ref
+  // flips synchronously and shuts the gate inside the same tick.
+  const applyInFlightRef = useRef(false)
 
   const handleExport = useCallback(async () => {
     setPhase({ kind: 'exporting' })
@@ -165,6 +172,15 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
       preview: ImportPreview,
       sourceArchiveKey?: string,
     ) => {
+      // Synchronous re-entrance lock: refuse to start a second apply while
+      // one is in flight. Without this guard, two backend.applyAppDataImport
+      // calls race on the live archive's `.bak-*` rename and the second
+      // one's staged content overwrites the first one's install — one
+      // import is silently lost. The button's `disabled={applying}` is a UX
+      // cue, not a contract: React batches the state update, so two onClicks
+      // in the same tick both see `applying=false` on the rendered DOM.
+      if (applyInFlightRef.current) return
+      applyInFlightRef.current = true
       setPhase({ kind: 'applying', bundlePath, preview })
       try {
         const result = await backend.applyAppDataImport(bundlePath, {
@@ -179,6 +195,8 @@ export function DataMigrationSection({ navItem }: DataMigrationSectionProps) {
           bundlePath,
           preview,
         })
+      } finally {
+        applyInFlightRef.current = false
       }
     },
     [],

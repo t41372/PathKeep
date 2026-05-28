@@ -19,7 +19,7 @@
  * dynamic imports inside the component resolve to spies the test owns.
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '@/lib/i18n'
@@ -414,6 +414,45 @@ describe('DataMigrationSection', () => {
       expect(screen.getByTestId('settings-migration-applied')).toBeVisible(),
     )
     expect(applySpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('handleApplyImport refuses a second concurrent invocation while an apply is in flight (double-click guard)', async () => {
+    // Two fast Confirm clicks in the same tick — before React commits the
+    // 'applying' phase that disables the button — must NOT fire two
+    // applyAppDataImport calls. Without the synchronous re-entrance lock
+    // the second call races on the live archive's `.bak-*` rename and one
+    // import gets silently lost.
+    dialogOpenMock.mockResolvedValue('/tmp/bundle.pathkeep')
+    vi.spyOn(backend, 'previewAppDataImport').mockResolvedValue(mockPreview())
+    let resolveApply!: (value: ImportResult) => void
+    const deferredApply = new Promise<ImportResult>((resolve) => {
+      resolveApply = resolve
+    })
+    const applySpy = vi
+      .spyOn(backend, 'applyAppDataImport')
+      .mockReturnValueOnce(deferredApply)
+      .mockResolvedValueOnce(mockResult())
+
+    renderSection()
+    await userEvent.click(screen.getByTestId('settings-migration-import'))
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-preview')).toBeVisible(),
+    )
+
+    const confirm = screen.getByTestId('settings-migration-confirm')
+    // Synchronous double-click — fireEvent bypasses userEvent's per-click
+    // microtask drain so both clicks land within the same React batch,
+    // exactly the race the in-flight ref protects against.
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    // Resolve the deferred apply so the first call completes; the second
+    // click must NOT have triggered another applyAppDataImport call.
+    resolveApply(mockResult())
+    await waitFor(() =>
+      expect(screen.getByTestId('settings-migration-applied')).toBeVisible(),
+    )
+    expect(applySpy).toHaveBeenCalledTimes(1)
   })
 
   test('preview renders without exporter hostname suffix when manifest omits it', async () => {
