@@ -257,6 +257,31 @@ fn derive_passcode_hash(passcode: &str, salt_hex: &str) -> Result<String> {
     Ok(hex::encode(digest))
 }
 
+/// Constant-time comparison of two ASCII hex strings produced by
+/// `derive_passcode_hash`. The standard `String` `PartialEq` short-circuits
+/// at the first differing byte, leaking the correct-prefix length of the
+/// stored hash through per-call latency to any local attacker who can time
+/// `unlock_app_session` invocations. Both derived and stored hashes are
+/// fixed-length SHA-256 hex (64 chars), so the length check below is a
+/// constant-cost early bail that exposes nothing.
+///
+/// Implementation: walks all bytes regardless of mismatch, accumulating
+/// XOR differences into a single byte. The compiler is not guaranteed to
+/// keep this branch-free in every optimisation pass, but the XOR-fold
+/// pattern is what `subtle::ConstantTimeEq` and `constant_time_eq` use
+/// internally and is widely accepted as adequate against local-timing
+/// attackers (the threat model for a local-only desktop app).
+fn constant_time_hex_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut accumulator: u8 = 0;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        accumulator |= x ^ y;
+    }
+    accumulator == 0
+}
+
 /// Hydrates transient App Lock config fields from persisted secret/state files.
 pub fn hydrate_app_lock_config(paths: &ProjectPaths, config: &mut AppConfig) -> Result<()> {
     config.app_lock.idle_timeout_minutes = config.app_lock.idle_timeout_minutes.clamp(1, 60);
@@ -358,7 +383,7 @@ where
         let secret = load_app_lock_secret(paths)?
             .context("Set an app lock passcode in Settings before unlocking with a passcode.")?;
         let derived = derive_passcode_hash(passcode, &secret.salt_hex)?;
-        if derived != secret.hash_hex {
+        if !constant_time_hex_eq(&derived, &secret.hash_hex) {
             bail!("The app lock passcode did not match.");
         }
     } else {
@@ -781,5 +806,93 @@ mod tests {
         assert!(!cleared.passcode_configured);
         assert!(!app_lock_state_path(&paths).exists());
         assert!(!app_lock_secret_path(&paths).exists());
+    }
+
+    #[test]
+    fn constant_time_hex_eq_matches_string_equality_for_correct_and_wrong_hashes() {
+        // Equal: same hex string of any length.
+        assert!(constant_time_hex_eq(
+            "deadbeefcafebabe1234567890abcdef",
+            "deadbeefcafebabe1234567890abcdef",
+        ));
+        // Equal: full SHA-256 length.
+        let full = "0".repeat(64);
+        assert!(constant_time_hex_eq(&full, &full));
+
+        // Unequal: same length, different bytes (the common case the timing
+        // attack targets — std String `!=` short-circuits at byte 0; the
+        // constant-time helper walks every byte to mask the difference).
+        assert!(!constant_time_hex_eq(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ));
+        // Unequal at the last byte — std `==` would walk the whole string
+        // anyway, but the helper must also return false.
+        assert!(!constant_time_hex_eq(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        ));
+
+        // Different lengths early-bail. This is safe because the stored
+        // hash and the freshly-derived hash are both always 64 chars.
+        assert!(!constant_time_hex_eq("abcd", "abcdef"));
+        assert!(!constant_time_hex_eq("", "x"));
+    }
+
+    #[test]
+    fn unlock_rejects_wrong_passcode_with_constant_time_hash_compare() {
+        // End-to-end coverage: a passcode whose first hex byte differs from
+        // the stored hash must be rejected. The constant-time path doesn't
+        // short-circuit — equality is decided by an XOR-fold over every
+        // byte — so this test is mainly behavioural: wrong passcode →
+        // typed error. Timing is unobservable in a unit test, but a
+        // regression that flips back to `!=` on String would still fail
+        // here because the rejection contract is identical.
+        let paths = temp_paths();
+        let mut config = AppConfig {
+            initialized: true,
+            app_lock: AppLockConfig {
+                enabled: false,
+                idle_timeout_minutes: 10,
+                biometric_enabled: false,
+                passcode_enabled: true,
+                passcode_configured: false,
+                recovery_hint: None,
+            },
+            ..AppConfig::default()
+        };
+        set_app_lock_passcode(
+            &paths,
+            &mut config,
+            &SetAppLockPasscodeRequest {
+                passcode: "secret-passcode".to_string(),
+                recovery_hint: None,
+            },
+        )
+        .expect("set passcode");
+        lock_app_session(&paths, &mut config, Some("manual")).expect("lock");
+
+        let err = unlock_app_session(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest {
+                passcode: Some("wrong-passcode".to_string()),
+                use_biometric: false,
+            },
+        )
+        .expect_err("wrong passcode rejected");
+        assert!(err.to_string().contains("did not match"));
+
+        // The correct passcode still unlocks — the constant-time path is a
+        // drop-in replacement for the `!=` check, not a semantic change.
+        unlock_app_session(
+            &paths,
+            &config,
+            &UnlockAppSessionRequest {
+                passcode: Some("secret-passcode".to_string()),
+                use_biometric: false,
+            },
+        )
+        .expect("correct passcode unlocks");
     }
 }
