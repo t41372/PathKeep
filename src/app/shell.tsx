@@ -188,6 +188,13 @@ export function AppShell() {
   const handleSearchQuery = useCallback(
     async (query: string): Promise<PaletteResult[]> => {
       const trimmed = query.trim()
+      // Defense-in-depth: never let an empty query reach queryHistory.
+      // The backend treats q='' as "no text filter", which on a populated
+      // archive forces a full relevance scan that violates the AGENTS.md
+      // performance contract. PKSearchPalette also guards upstream, so
+      // this branch is unreachable from current production callers.
+      // Stryker disable next-line ConditionalExpression: defensive guard.
+      if (!trimmed) return []
       try {
         const response = await backend.queryHistory({
           q: trimmed,

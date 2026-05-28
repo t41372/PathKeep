@@ -143,7 +143,8 @@ export function PaperSearchResult({
 /**
  * Wrap any whitespace-separated tokens from `query` inside the title with
  * `<mark>` so the design's accent-tinted highlight kicks in. Returns the
- * input verbatim when the query is empty or the regex compile fails.
+ * input verbatim when the query is empty, every token escapes to nothing,
+ * or the regex compile fails — render must never throw on user input.
  */
 function highlightQuery(text: string, query: string | undefined): ReactNode {
   const trimmed = query?.trim()
@@ -152,7 +153,17 @@ function highlightQuery(text: string, query: string | undefined): ReactNode {
     .split(/\s+/)
     .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .filter(Boolean)
-  const pattern = new RegExp(`(${tokens.join('|')})`, 'gi')
+  // `trim()` strips outer whitespace and `split(/\s+/)` never yields empty
+  // strings for non-empty input, so this branch is unreachable from real
+  // input — keep it as a safety net if the escape pipeline ever changes.
+  // Stryker disable next-line ConditionalExpression: defensive guard.
+  if (tokens.length === 0) return text
+  let pattern: RegExp
+  try {
+    pattern = new RegExp(`(${tokens.join('|')})`, 'gi')
+  } catch {
+    return text
+  }
   const parts = text.split(pattern)
   return parts.map((part, index) =>
     pattern.test(part) ? (

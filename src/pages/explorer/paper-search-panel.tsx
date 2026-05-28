@@ -139,6 +139,15 @@ export function PaperSearchPanel({
   const appendFilterOperator = useCallback(
     (operator: string) => {
       const next = appendOperator(query, operator)
+      // `appendOperator` returns the query verbatim when the operator name
+      // fails its `^[a-z]+$` check. Suppress the spurious state setter +
+      // caret refocus so an invalid chip click doesn't disrupt an open
+      // dropdown or in-progress IME composition. The only production
+      // callers pass literal 'tag' / 'note', so this branch is currently
+      // unreachable from real chip clicks — keep it for future i18n /
+      // plugin-registered operators.
+      // Stryker disable next-line ConditionalExpression: defensive guard.
+      if (next === query) return
       onQueryChange(next)
       focusInputAtEnd(next)
     },
