@@ -870,7 +870,13 @@ mod tests {
             },
         )
         .expect("set passcode");
-        lock_app_session(&paths, &mut config, Some("manual")).expect("lock");
+        hydrate_app_lock_config(&paths, &mut config).expect("hydrate");
+        // Enabling the lock is required before lock/unlock take effect —
+        // `lock_app_session` and `unlock_app_session` both early-return when
+        // `app_lock.enabled` is false, so without this the wrong-passcode
+        // branch is never reached.
+        config.app_lock.enabled = true;
+        lock_app_session(&paths, &config, Some("manual")).expect("lock");
 
         let err = unlock_app_session(
             &paths,
