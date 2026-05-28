@@ -35,23 +35,67 @@ describe('useExplorerArchiveDensity', () => {
     expect(mockedGetDiscoveryTrend).not.toHaveBeenCalled()
   })
 
-  test('cancels the deferred empty reset when the not-ready render unmounts', async () => {
-    const { result, unmount } = renderHook(() =>
-      useExplorerArchiveDensity({
-        archiveReady: false,
-        profileId: null,
-      }),
-    )
+  test('defers the not-ready reset via queueMicrotask so the effect does not write state synchronously during commit', () => {
+    const scheduled: Array<() => void> = []
+    const queueMicrotaskSpy = vi
+      .spyOn(globalThis, 'queueMicrotask')
+      .mockImplementation((cb: () => void) => {
+        scheduled.push(cb)
+      })
 
-    unmount()
-    await act(async () => {
-      await Promise.resolve()
-    })
+    try {
+      renderHook(() =>
+        useExplorerArchiveDensity({
+          archiveReady: false,
+          profileId: null,
+        }),
+      )
+      // The not-ready branch must defer its setState through a microtask,
+      // not call setDensity inline (which would trip the
+      // `react-hooks/set-state-in-effect` lint and synchronously re-render
+      // during commit). A regression that drops queueMicrotask would leave
+      // `scheduled` empty.
+      expect(scheduled).toHaveLength(1)
+      expect(typeof scheduled[0]).toBe('function')
+    } finally {
+      queueMicrotaskSpy.mockRestore()
+    }
+  })
 
-    expect(result.current.perDay.size).toBe(0)
-    expect(result.current.perYear.size).toBe(0)
-    expect(result.current.bounds).toBeNull()
-    expect(mockedGetDiscoveryTrend).not.toHaveBeenCalled()
+  test('the deferred reset body is a no-op after the not-ready render unmounts (cancellation guard)', () => {
+    const scheduled: Array<() => void> = []
+    const queueMicrotaskSpy = vi
+      .spyOn(globalThis, 'queueMicrotask')
+      .mockImplementation((cb: () => void) => {
+        scheduled.push(cb)
+      })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      const { unmount } = renderHook(() =>
+        useExplorerArchiveDensity({
+          archiveReady: false,
+          profileId: null,
+        }),
+      )
+      expect(scheduled).toHaveLength(1)
+
+      // Cleanup must flip the closure's cancelledReset flag so the still-
+      // queued body short-circuits instead of calling setDensity on an
+      // unmounted component (which logs a React dev-mode warning).
+      unmount()
+      expect(() => scheduled[0]()).not.toThrow()
+      const reactWarnings = errorSpy.mock.calls.filter((args) =>
+        args.some(
+          (arg) =>
+            typeof arg === 'string' && /unmounted component/i.test(arg),
+        ),
+      )
+      expect(reactWarnings).toHaveLength(0)
+    } finally {
+      queueMicrotaskSpy.mockRestore()
+      errorSpy.mockRestore()
+    }
   })
 
   test('aggregates daily points into per-day + per-year maps and derives bounds from availableYears', async () => {
@@ -100,6 +144,49 @@ describe('useExplorerArchiveDensity', () => {
     // jumps to Dec 31 of the future and falls into the empty state.
     expect(result.current.bounds?.firstIso).toBe('2024-12-31')
     expect(result.current.bounds?.lastIso).toBe('2025-06-16')
+  })
+
+  test('firstYear/lastYear track the real perDay range when availableYears reports pre-window years', async () => {
+    // Backend reports years stretching back to 2010 (covered by the
+    // discovery_trend rollup table) but the 20-year query window only
+    // returns points for 2018+. The calendar year rail must only expose
+    // years that actually land inside [firstIso, lastIso] — otherwise
+    // clicking 2010 jumps to 2010-01-01 below firstIso and strands the
+    // user on an empty contact sheet.
+    mockedGetDiscoveryTrend.mockResolvedValue({
+      data: {
+        points: [
+          {
+            dateKey: '2018-01-15',
+            totalVisits: 4,
+            newDomainCount: 0,
+            discoveryRate: 0,
+          },
+          {
+            dateKey: '2025-06-15',
+            totalVisits: 12,
+            newDomainCount: 0,
+            discoveryRate: 0,
+          },
+        ],
+        availableYears: [2010, 2018, 2025],
+      },
+      meta: { state: 'ready' },
+    } as never)
+    const { result } = renderHook(() =>
+      useExplorerArchiveDensity({
+        archiveReady: true,
+        profileId: null,
+      }),
+    )
+    await waitFor(() => expect(result.current.bounds).not.toBeNull())
+    expect(result.current.bounds?.firstIso).toBe('2018-01-15')
+    expect(result.current.bounds?.lastIso).toBe('2025-06-15')
+    // firstYear/lastYear must match the perDay range, NOT availableYears.
+    // The old code returned firstYear=2010 from availableYears[0]; the year
+    // rail rendered 2010 as clickable and jumped activeDate below firstIso.
+    expect(result.current.bounds?.firstYear).toBe(2018)
+    expect(result.current.bounds?.lastYear).toBe(2025)
   })
 
   test('falls back to empty density when the backend rejects', async () => {

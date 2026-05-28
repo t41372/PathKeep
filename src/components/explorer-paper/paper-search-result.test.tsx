@@ -70,11 +70,15 @@ describe('PaperSearchResult', () => {
 
     const row = screen.getByTestId('result-mark')
     const marks = row.querySelectorAll('mark')
+    // Title is 'tokio-rs/tokio: rust async runtime'; 'rust' and 'async' each
+    // appear exactly once, so the highlight must produce exactly two <mark>s.
+    // Pin the count so a regression that double-wraps or wraps adjacent
+    // punctuation is caught.
+    expect(marks).toHaveLength(2)
     const markTexts = Array.from(marks).map((node) =>
       node.textContent?.toLowerCase(),
     )
-    expect(markTexts).toContain('rust')
-    expect(markTexts).toContain('async')
+    expect(markTexts).toEqual(['rust', 'async'])
   })
 
   test('clicking the row surfaces the entry via onSelect', () => {
@@ -224,18 +228,55 @@ describe('PaperSearchResult', () => {
     ).toBe(0)
   })
 
-  test('survives a malformed query gracefully', () => {
+  test('escapes regex metacharacters in the query so an unclosed bracket renders verbatim with zero matches', () => {
     expect(() =>
       render(
         <PaperSearchResult
           entry={makeEntry()}
           domainColor="#24292e"
           domainAbbr="GIT"
-          // Unclosed character class — would throw if not handled.
+          // `[` is a regex metachar; without escaping `new RegExp('([)', 'gi')`
+          // would throw. The escape pipeline turns it into a literal `[`,
+          // which the title does not contain, so the assertion below pins
+          // the contract: zero marks AND the row still renders.
           query="["
           testId="result-bad-query"
         />,
       ),
     ).not.toThrow()
+    const row = screen.getByTestId('result-bad-query')
+    expect(row.querySelectorAll('mark')).toHaveLength(0)
+  })
+
+  test('returns the title verbatim when the regex compile throws (defensive fallback)', () => {
+    // Force `new RegExp` to throw to exercise the try/catch fallback. This
+    // path is unreachable via user input today because the escape pipeline
+    // catches every metachar, but the fallback is the docstring's contract
+    // and a future tweak to the escape regex could expose it.
+    const realRegExp = globalThis.RegExp
+    let calls = 0
+    // @ts-expect-error - intentional reassignment for the test.
+    globalThis.RegExp = function FakeRegExp(...args: [string, string?]) {
+      calls += 1
+      if (calls === 1) throw new SyntaxError('forced for test')
+      return new realRegExp(...args)
+    }
+    try {
+      expect(() =>
+        render(
+          <PaperSearchResult
+            entry={makeEntry()}
+            domainColor="#24292e"
+            domainAbbr="GIT"
+            query="rust"
+            testId="result-regex-throws"
+          />,
+        ),
+      ).not.toThrow()
+      const row = screen.getByTestId('result-regex-throws')
+      expect(row.querySelectorAll('mark')).toHaveLength(0)
+    } finally {
+      globalThis.RegExp = realRegExp
+    }
   })
 })

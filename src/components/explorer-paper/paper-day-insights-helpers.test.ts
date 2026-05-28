@@ -742,6 +742,8 @@ describe('aggregateDayInsights', () => {
   })
 
   test('formats exact-hour durations without a trailing zero-minute unit', () => {
-    expect(formatDuration(2 * 60 * 60_000, 'en')).toMatch(/2.*hr|2h/i)
+    // Whole-hour input must produce '2h' with no trailing zero-minute unit;
+    // pin the exact string so '2h 0m' / '2 hr 0 min' regressions fail loudly.
+    expect(formatDuration(2 * 60 * 60_000, 'en')).toBe('2h')
   })
 })

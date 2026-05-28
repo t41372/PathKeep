@@ -87,9 +87,10 @@ describe('ExplorerDetailPanel', () => {
       </MemoryRouter>,
     )
 
-    expect(
-      screen.getAllByText('example.com/missing-metadata'),
-    ).not.toHaveLength(0)
+    // URL fallback renders twice — once as the heading replacement when
+    // there's no title, once as the canonical URL line below. Pin the
+    // count so a regression that duplicates or drops one is caught.
+    expect(screen.getAllByText('example.com/missing-metadata')).toHaveLength(2)
     expect(screen.getAllByText('notAvailable')).toHaveLength(2)
     expect(screen.queryByText('openDomainInsights')).toBeNull()
   })

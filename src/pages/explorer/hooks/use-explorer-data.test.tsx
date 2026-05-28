@@ -551,9 +551,17 @@ describe('useExplorerData', () => {
       }),
     )
 
+    // Exercise the setter on a different value so the assertion proves the
+    // wiring actually mutates state (the prior version called setSelectedId
+    // with the already-current value, so a noop setter would have passed).
+    act(() => {
+      result.current.setSelectedId(202)
+    })
+    expect(result.current.selectedId).toBe(202)
     act(() => {
       result.current.setSelectedId(101)
     })
+    expect(result.current.selectedId).toBe(101)
     rerender({
       ...options,
       requestKey: `${historyRequestKey(query, 1)}:cached-rerun`,
