@@ -79,6 +79,12 @@ function toSingleBlocks(entries: HistoryEntry[]): PaperBlock[] {
 }
 
 function splitIntoSessions(entries: HistoryEntry[]): PaperSession[] {
+  // Stryker disable next-line ConditionalExpression: defensive guard.
+  // Today only groupEntriesByDay calls this, and it builds buckets via a
+  // forEach that always pushes ≥1 entry — so the empty path is unreachable
+  // from production. Keep the guard so a future caller or refactor handing
+  // an empty array doesn't deref `entries[0]` and crash with TypeError.
+  if (entries.length === 0) return []
   const gapMs = SESSION_GAP_MINUTES * 60 * 1000
   const sessions: HistoryEntry[][] = []
   let current: HistoryEntry[] = [entries[0]]
