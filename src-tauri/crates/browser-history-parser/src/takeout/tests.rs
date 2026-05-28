@@ -136,6 +136,7 @@ fn collected_urls_merge_counts_and_keep_the_newest_title() {
         last_visit_ms: 100,
         last_visit_iso: "1970-01-01T00:00:00Z".to_string(),
         hidden: false,
+        source_last_visit_marker: None,
     };
     let newer = ParsedUrl {
         source_url_id: 7,
@@ -146,6 +147,7 @@ fn collected_urls_merge_counts_and_keep_the_newest_title() {
         last_visit_ms: 200,
         last_visit_iso: "1970-01-01T00:00:01Z".to_string(),
         hidden: false,
+        source_last_visit_marker: None,
     };
 
     merge_collected_url(&mut existing, &newer);

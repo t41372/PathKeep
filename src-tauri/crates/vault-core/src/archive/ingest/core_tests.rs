@@ -68,6 +68,7 @@ fn parsed_url(source_url_id: i64, last_visit_ms: i64) -> ParsedUrl {
         last_visit_ms,
         last_visit_iso: "2026-04-05T11:00:00+00:00".to_string(),
         hidden: false,
+        source_last_visit_marker: None,
     }
 }
 
@@ -327,6 +328,29 @@ fn skipped_profile_and_marker_helpers_cover_family_edges() {
     let firefox = profile("firefox", "firefox:Default");
     assert_eq!(url_last_visit_marker(&firefox, &parsed_url(7, 123)), 123);
     assert_eq!(favicon_last_updated_marker(&firefox, &parsed_favicon(456)), 456);
+
+    // Chromium watermark precision: when the parser exposes the raw
+    // chrome_micros value via `source_last_visit_marker`, the marker MUST
+    // return it verbatim. The legacy path round-tripped through
+    // `last_visit_ms` (`/1000` then `*1000`) which truncated up to 999 µs
+    // per URL and caused every incremental ingest's `WHERE last_visit_time
+    // >= ?1` predicate to re-match the same URL row.
+    let chromium = profile("chromium", "chrome:Default");
+    let mut precise = parsed_url(11, 1_355_526_400_500); // ms-precision parsed value
+    let raw_chrome_micros = 13_000_000_000_500_123_i64; // arbitrary sub-ms chrome_time
+    precise.source_last_visit_marker = Some(raw_chrome_micros);
+    assert_eq!(url_last_visit_marker(&chromium, &precise), raw_chrome_micros);
+
+    // Legacy chromium path (no native marker exposed): falls back to the
+    // truncating round-trip so existing serialised ParsedUrl payloads keep
+    // their pre-fix behaviour. Use a deterministic mid-range value to make
+    // the conversion easy to read.
+    let mut legacy = parsed_url(13, 1_500);
+    legacy.source_last_visit_marker = None;
+    let recovered = url_last_visit_marker(&chromium, &legacy);
+    // `unix_micros_to_chrome_time(1_500 * 1_000) = 1_500_000 + OFFSET`.
+    let expected_legacy = 1_500_i64 * 1_000 + 11_644_473_600_000_000_i64;
+    assert_eq!(recovered, expected_legacy);
 
     let snapshot = snapshot_with_history(tempdir().expect("tempdir"), readable);
     let source_hashes = snapshot_source_hashes(&snapshot);

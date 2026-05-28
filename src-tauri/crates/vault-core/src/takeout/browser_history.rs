@@ -925,6 +925,7 @@ mod tests {
             last_visit_ms: 1_767_222_000_000 + source_url_id,
             last_visit_iso: "2026-01-01T00:00:00Z".to_string(),
             hidden: false,
+            source_last_visit_marker: None,
         }
     }
 

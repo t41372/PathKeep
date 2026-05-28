@@ -388,6 +388,14 @@ fn validate_required_tables(inspection: &DatabaseInspection) -> Result<(), Parse
 
 fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
     let last_visit_date = row.get::<_, i64>(5)?;
+    // Firefox's `moz_places.last_visit_date` is microseconds-since-Unix.
+    // `last_visit_ms` truncates that to ms; today's incremental watermark
+    // is also stored in ms and converted back to firefox_time via
+    // `unix_ms_to_firefox_time` (* 1000) at query time, which means the
+    // same sub-ms precision loss the Chromium path used to have. Leaving
+    // `source_last_visit_marker` unset (None) keeps the legacy watermark
+    // semantic until the Firefox cursor unit migration ships; see
+    // BACKLOG.md for the planned follow-up.
     Ok(ParsedUrl {
         source_url_id: row.get(0)?,
         url: row.get(1)?,
@@ -397,6 +405,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: firefox_time_to_unix_ms(last_visit_date),
         last_visit_iso: firefox_time_to_iso(last_visit_date),
         hidden: row.get::<_, i64>(4)? != 0,
+        source_last_visit_marker: None,
     })
 }
 

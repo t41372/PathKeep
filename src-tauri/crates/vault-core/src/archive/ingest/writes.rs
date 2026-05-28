@@ -641,6 +641,7 @@ mod tests {
             last_visit_ms: 1000,
             last_visit_iso: "2026-01-01T00:00:01+00:00".to_string(),
             hidden: false,
+            source_last_visit_marker: None,
         };
         let url_id = upsert_url(&transaction, 1, source_profile_id, &profile, &url, "hash-1")
             .expect("upsert url");

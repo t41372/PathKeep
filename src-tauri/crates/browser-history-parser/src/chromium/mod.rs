@@ -761,6 +761,12 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: chrome_time_to_unix_ms(last_visit_time),
         last_visit_iso: chrome_time_to_iso(last_visit_time),
         hidden: row.get::<_, i64>(6)? != 0,
+        // Expose the raw chrome_micros timestamp so the ingest watermark
+        // keeps sub-millisecond precision. Without this, the round-trip
+        // unix_ms → chrome_micros in `url_last_visit_marker` truncates up
+        // to 999 µs and the next incremental ingest's
+        // `WHERE last_visit_time >= ?1` predicate re-matches the same URL.
+        source_last_visit_marker: Some(last_visit_time),
     })
 }
 

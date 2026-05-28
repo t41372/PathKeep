@@ -90,6 +90,17 @@ pub struct ParsedUrl {
     pub last_visit_ms: i64,
     pub last_visit_iso: String,
     pub hidden: bool,
+    /// Raw native timestamp from the source schema, in the unit the
+    /// browser-specific SQL predicate expects (chrome_micros for Chromium,
+    /// unix_micros for Firefox `moz_places.last_visit_date`, etc.). Used by
+    /// `archive/ingest::url_last_visit_marker` to store the incremental
+    /// cursor at sub-millisecond precision so the next ingest's
+    /// `WHERE last_visit_time >= ?1` predicate doesn't re-match the same
+    /// URL. None when the parser hasn't been migrated to expose it; the
+    /// marker then falls back to `last_visit_ms` (legacy behaviour, still
+    /// loses up to 999 µs per URL).
+    #[serde(default)]
+    pub source_last_visit_marker: Option<i64>,
 }
 
 /// Parsed browser visit row before archive ingest.

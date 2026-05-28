@@ -87,8 +87,7 @@ describe('useExplorerArchiveDensity', () => {
       expect(() => scheduled[0]()).not.toThrow()
       const reactWarnings = errorSpy.mock.calls.filter((args) =>
         args.some(
-          (arg) =>
-            typeof arg === 'string' && /unmounted component/i.test(arg),
+          (arg) => typeof arg === 'string' && /unmounted component/i.test(arg),
         ),
       )
       expect(reactWarnings).toHaveLength(0)

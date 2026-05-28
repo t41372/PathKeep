@@ -367,6 +367,11 @@ fn parsed_url_from_record(record: &ParsedBrowserRecord) -> ParsedUrl {
         last_visit_ms: micros_to_unix_ms(record.visit_time_micros),
         last_visit_iso: chrome_time_to_rfc3339(record.visit_time_micros),
         hidden: false,
+        // Takeout records don't carry a chromium-style native cursor —
+        // they ingest as a one-shot import, not an incremental stream —
+        // so leaving the marker unset keeps the watermark off the
+        // takeout path entirely.
+        source_last_visit_marker: None,
     }
 }
 

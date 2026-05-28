@@ -450,6 +450,13 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
         last_visit_ms: safari_time_to_unix_ms(last_visit_time),
         last_visit_iso: safari_time_to_iso(last_visit_time),
         hidden: false,
+        // Safari's MAX(visit_time) subquery yields a float in safari_time
+        // (seconds-since-2001). The watermark is stored as unix_ms and
+        // converted via `unix_ms_to_safari_time` at query time, which loses
+        // sub-ms precision the same way Firefox does. Leaving the marker
+        // unset preserves the legacy contract; the Safari cursor unit
+        // migration is tracked in BACKLOG.md alongside Firefox.
+        source_last_visit_marker: None,
     })
 }
 
