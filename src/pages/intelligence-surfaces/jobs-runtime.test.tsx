@@ -984,6 +984,123 @@ describe('intelligence surfaces', () => {
     expect(await screen.findByText('cancel fallback')).toBeVisible()
   })
 
+  test('surfaces genuine AI job mutation failures and refreshes on stale-state races', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+    const aiQueue = queueFixture({
+      queued: 1,
+      failed: 1,
+      recentJobs: [
+        {
+          id: 821,
+          jobType: 'index-build',
+          state: 'failed',
+          priority: 10,
+          attempt: 2,
+          maxAttempts: 3,
+          runId: null,
+          summary: 'Provider quota window has not reset yet.',
+          queuedAt: '2026-04-07T18:00:00Z',
+          availableAt: '2026-04-07T18:00:00Z',
+          startedAt: '2026-04-07T18:01:00Z',
+          finishedAt: '2026-04-07T18:02:00Z',
+          heartbeatAt: '2026-04-07T18:01:30Z',
+          errorCode: 'rate-limited',
+          errorMessage: '429',
+        },
+        {
+          id: 822,
+          jobType: 'assistant',
+          state: 'queued',
+          priority: 10,
+          attempt: 1,
+          maxAttempts: 3,
+          runId: null,
+          summary: 'Queued assistant answer',
+          queuedAt: '2026-04-07T18:03:00Z',
+          availableAt: '2026-04-07T18:03:00Z',
+          startedAt: null,
+          finishedAt: null,
+          heartbeatAt: null,
+          errorCode: null,
+          errorMessage: null,
+        },
+      ],
+    })
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue,
+      intelligence: runtimeFixture(),
+      loading: false,
+      error: null,
+    }
+    shellValue.refreshAppData = vi.fn().mockResolvedValue(undefined)
+    shellValue.refreshRuntimeStatus = vi
+      .fn()
+      .mockResolvedValue(shellValue.runtimeStatus)
+    const replaySpy = vi
+      .spyOn(backend, 'replayAiJob')
+      .mockRejectedValueOnce(
+        new Error(
+          'Only failed, cancelled, stale, or paused AI jobs can be replayed.',
+        ),
+      )
+      .mockRejectedValueOnce(new Error('replay exploded'))
+    const cancelSpy = vi
+      .spyOn(backend, 'cancelAiJob')
+      .mockRejectedValueOnce(
+        new Error("AI job 822 is in state 'running' and cannot be cancelled."),
+      )
+      .mockRejectedValueOnce(new Error('cancel exploded'))
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    const aiPanel = (await screen.findByText(jobsT('recentAiJobs'))).closest(
+      'section, .panel',
+    )
+    expect(aiPanel).not.toBeNull()
+    if (!(aiPanel instanceof HTMLElement)) {
+      throw new Error('expected AI jobs panel')
+    }
+
+    // Stale-state replay race refreshes truth instead of alarming the user.
+    await user.click(
+      within(aiPanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    await waitFor(() => expect(replaySpy).toHaveBeenCalledWith(821))
+    await waitFor(() =>
+      expect(shellValue.refreshRuntimeStatus).toHaveBeenCalled(),
+    )
+    expect(screen.queryByText(/can be replayed/)).toBeNull()
+
+    // Genuine replay failure surfaces the real backend message.
+    await user.click(
+      within(aiPanel).getByRole('button', { name: jobsT('retryJob') }),
+    )
+    await waitFor(() => expect(replaySpy).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('replay exploded')).toBeVisible()
+
+    // Stale-state cancel race refreshes truth instead of raising a new banner.
+    await user.click(
+      within(aiPanel).getByRole('button', { name: jobsT('cancelJob') }),
+    )
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(822))
+    expect(screen.queryByText(/cannot be cancelled/)).toBeNull()
+
+    // Genuine cancel failure surfaces the real backend message.
+    await user.click(
+      within(aiPanel).getByRole('button', { name: jobsT('cancelJob') }),
+    )
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('cancel exploded')).toBeVisible()
+  })
+
   test('renders active and stale archive write tasks in Jobs', async () => {
     const { snapshot } = await seedArchiveState()
     const jobsT = createNamespaceTranslator('en', 'jobs')

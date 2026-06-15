@@ -54,6 +54,14 @@ pub fn export_history(
 }
 
 /// Re-queries history until all visible matches are collected for export.
+///
+/// Note: in regex recall mode the underlying `list_history` path scans a bounded
+/// window (`REGEX_SCAN_CAP`, 50k rows) rather than the whole visits table, so a
+/// regex export with more than ~50k matches emits only the matches inside that
+/// window. This is the same bound the Browse/Search surfaces honour and is
+/// strictly safer than the former unbounded scan (which would OOM on a large
+/// archive before producing any output); narrow the date/profile/domain filter
+/// to export a regex result set larger than the window.
 fn collect_history_for_export(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -110,21 +118,43 @@ fn render_export_content(results: &HistoryQueryResponse, format: &ExportFormat) 
 }
 
 /// Renders export output as a minimal HTML artifact.
+///
+/// Page titles and URLs originate from imported browser history and are fully
+/// attacker-controlled (a visited page chooses its own `<title>`), so every
+/// interpolated value is HTML-escaped and the link target is scheme-filtered.
+/// Without this a crafted title such as `<img src=x onerror=…>` would execute
+/// when the user opens the exported report in a browser.
 fn render_html_export(results: &HistoryQueryResponse) -> String {
     let body = results
         .items
         .iter()
         .map(|item| {
+            let title = crate::utils::escape_html(item.title.as_deref().unwrap_or(&item.url));
+            let visited_at = crate::utils::escape_html(&item.visited_at);
+            let link_text = crate::utils::escape_html(&item.url);
+            let href = safe_href(&item.url);
             format!(
-                "<article><h2>{}</h2><p><a href=\"{url}\">{url}</a></p><p>{}</p></article>",
-                item.title.clone().unwrap_or_else(|| item.url.clone()),
-                item.visited_at,
-                url = item.url,
+                "<article><h2>{title}</h2><p><a href=\"{href}\">{link_text}</a></p><p>{visited_at}</p></article>"
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
     format!("<html><body>{body}</body></html>")
+}
+
+/// Returns an escaped, scheme-filtered `href` for the export anchor. Only
+/// `http(s)`/`mailto` targets are linkable; anything else (e.g. `javascript:`)
+/// collapses to `#` so the report can never carry an executable link.
+fn safe_href(url: &str) -> String {
+    let scheme = url.trim_start().to_ascii_lowercase();
+    if scheme.starts_with("http://")
+        || scheme.starts_with("https://")
+        || scheme.starts_with("mailto:")
+    {
+        crate::utils::escape_html(url)
+    } else {
+        "#".to_string()
+    }
 }
 
 /// Renders export output as Markdown.
@@ -159,4 +189,55 @@ fn render_text_export(results: &HistoryQueryResponse) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::HistoryEntry;
+
+    fn entry(url: &str, title: Option<&str>, visited_at: &str) -> HistoryEntry {
+        HistoryEntry {
+            id: 1,
+            profile_id: "profile".to_string(),
+            url: url.to_string(),
+            title: title.map(str::to_string),
+            domain: "example.com".to_string(),
+            favicon: None,
+            visited_at: visited_at.to_string(),
+            visit_time: 0,
+            duration_ms: None,
+            transition: None,
+            source_visit_id: 0,
+            app_id: None,
+        }
+    }
+
+    #[test]
+    fn html_export_escapes_untrusted_fields_and_neutralizes_dangerous_hrefs() {
+        let response = HistoryQueryResponse {
+            items: vec![
+                entry(
+                    "https://example.com/?a=1&b=2",
+                    Some("<img src=x onerror=\"alert('xss')\">"),
+                    "2024-01-01T00:00:00+00:00",
+                ),
+                entry("javascript:alert(1)", Some("evil"), "<b>when</b>"),
+            ],
+            total: 2,
+            ..HistoryQueryResponse::default()
+        };
+        let html = render_html_export(&response);
+
+        // Title markup is escaped, never emitted as live tags.
+        assert!(html.contains("&lt;img src=x onerror=&quot;alert(&#39;xss&#39;)&quot;&gt;"));
+        assert!(!html.contains("<img src=x"));
+        // The ampersand in the URL is escaped in href and link text.
+        assert!(html.contains("https://example.com/?a=1&amp;b=2"));
+        // A javascript: URL is neutralized to '#'; no executable href survives.
+        assert!(html.contains("href=\"#\""));
+        assert!(!html.contains("href=\"javascript:"));
+        // The visited_at field is escaped too.
+        assert!(html.contains("&lt;b&gt;when&lt;/b&gt;"));
+    }
 }

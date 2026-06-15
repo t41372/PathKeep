@@ -131,7 +131,7 @@ export const dashboardNamespaceCatalog = {
     thisWeekFallbackHint:
       'For now, the counts below come straight from the archive — no inference.',
     weekStatPages: 'Pages',
-    weekStatUrls: 'New URLs',
+    weekStatSites: 'New sites',
     weekStatRuns: 'Runs',
     // ── Year heatmap ──
     yearInPagesTitle: 'A year in pages',
@@ -262,7 +262,7 @@ export const dashboardNamespaceCatalog = {
     thisWeekFallbackHeadline: '配置本地 LLM 即可生成每周编辑摘要。',
     thisWeekFallbackHint: '目前以下统计直接来自存档，未经推断。',
     weekStatPages: '页面',
-    weekStatUrls: '新增 URL',
+    weekStatSites: '新网站',
     weekStatRuns: '备份次数',
     yearInPagesTitle: '过去一年',
     yearInPagesEmpty: '运行第一次备份后，年度热图就会开始填充。',
@@ -386,7 +386,7 @@ export const dashboardNamespaceCatalog = {
     thisWeekFallbackHeadline: '設定本地 LLM 即可生成每週編輯摘要。',
     thisWeekFallbackHint: '目前以下統計直接來自封存，未經推斷。',
     weekStatPages: '頁面',
-    weekStatUrls: '新增 URL',
+    weekStatSites: '新網站',
     weekStatRuns: '備份次數',
     yearInPagesTitle: '過去一年',
     yearInPagesEmpty: '執行第一次備份後，年度熱圖就會開始填充。',

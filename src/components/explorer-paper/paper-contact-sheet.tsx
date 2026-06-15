@@ -25,7 +25,13 @@
  * - Paper Browse primitives + DayNavControl + CalendarPopover.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react'
 import { cn } from '@/lib/cn'
 import type { HistoryEntry } from '@/lib/types/archive'
 import type { PaperBlock, PaperDay } from '@/pages/explorer/paper/group-entries'
@@ -262,25 +268,33 @@ export function PaperContactSheet({
   className,
   testId,
 }: PaperContactSheetProps) {
+  const sectionRef = useRef<HTMLElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
-  // Day separator sticks below the sticky toolbar. The toolbar height
-  // is no longer the legacy hard-coded 44 px — once the filter strip
-  // landed inside the sticky container, the toolbar grew to ~80 px
-  // (and varies as chips wrap onto a second line). The day header was
-  // briefly hiding behind the filter strip because its `top` was still
-  // pinned at 44. We observe the actual rendered height with a
-  // ResizeObserver and forward the value to every PaperDayHeader.
-  // Memory `feedback-explorer-sticky-day-header` traces the user
-  // requirement: day separator MUST stay pinned, multiple regressions
-  // ago. Don't revert.
-  const [toolbarHeight, setToolbarHeight] = useState(44)
-  useEffect(() => {
-    const node = toolbarRef.current as HTMLDivElement
-    const update = () => setToolbarHeight(node.getBoundingClientRect().height)
+  // Day separators stick below the sticky toolbar. The toolbar is no longer the
+  // legacy hard-coded 44 px — once the filter strip moved inside the sticky
+  // container the toolbar grew to ~80 px and now *varies as chips wrap onto a
+  // second line*. We keep the live height in the `--pk-toolbar-h` CSS custom
+  // property on the section root; every PaperDayHeader reads it for its sticky
+  // `top`. Writing the property imperatively from the ResizeObserver (instead
+  // of React state threaded down as a prop) means the offset updates within the
+  // same layout/paint frame the observer fires in — there is no render-cycle
+  // gap during which a header pins at a stale height and tucks under the filter
+  // strip. Memory `feedback-explorer-sticky-day-header` traces the user
+  // requirement: the day separator MUST stay pinned, across multiple
+  // regressions. Don't revert to the measured-prop approach.
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current as HTMLDivElement
+    const section = sectionRef.current as HTMLElement
+    const update = () => {
+      section.style.setProperty(
+        '--pk-toolbar-h',
+        `${toolbar.getBoundingClientRect().height}px`,
+      )
+    }
     update()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(update)
-    observer.observe(node)
+    observer.observe(toolbar)
     return () => observer.disconnect()
   }, [])
   const viewOptions = useMemo<PaperViewToggleOption<PaperViewMode>[]>(
@@ -312,6 +326,7 @@ export function PaperContactSheet({
 
   return (
     <section
+      ref={sectionRef}
       data-testid={testId}
       className={cn('relative flex w-full flex-col', className)}
     >
@@ -401,7 +416,6 @@ export function PaperContactSheet({
             language={language}
             hour12={hour12}
             copy={copy}
-            toolbarHeight={toolbarHeight}
             disableVirtualization={disableVirtualization}
             virtualizationRootMargin={virtualizationRootMargin}
           />
@@ -434,7 +448,6 @@ interface PaperDayBlockProps {
   language: string
   hour12: boolean
   copy: PaperContactSheetCopy
-  toolbarHeight: number
   disableVirtualization: boolean
   virtualizationRootMargin?: string
 }
@@ -469,7 +482,6 @@ function PaperDayBlock({
   language,
   hour12,
   copy,
-  toolbarHeight,
   disableVirtualization,
   virtualizationRootMargin,
 }: PaperDayBlockProps) {
@@ -507,7 +519,6 @@ function PaperDayBlock({
           language={language}
           hour12={hour12}
           copy={copy}
-          toolbarHeight={toolbarHeight}
         />
       ) : null}
     </div>
@@ -528,7 +539,6 @@ function PaperDayBlockContent({
   language,
   hour12,
   copy,
-  toolbarHeight,
 }: Omit<
   PaperDayBlockProps,
   'disableVirtualization' | 'virtualizationRootMargin'
@@ -554,7 +564,6 @@ function PaperDayBlockContent({
           .replace('{sessions}', String(day.sessions.length))}
         rightIndex={copy.dayIndex.replace('{n}', String(totalDays - dayIndex))}
         active={target?.date === day.date}
-        toolbarOffsetPx={toolbarHeight}
       />
 
       {dayInsightsCopy ? (

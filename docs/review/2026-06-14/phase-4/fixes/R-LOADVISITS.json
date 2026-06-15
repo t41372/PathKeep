@@ -1,0 +1,20 @@
+{
+  "id": "R-LOADVISITS",
+  "track": "rust",
+  "sev": "major",
+  "title": "load_visible_visits materializes all profile visits before trimming",
+  "files": [
+    "src-tauri/crates/vault-core/src/intelligence/intelligence_visit_records.rs"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "PERF-RISK",
+      "file": "src-tauri/crates/vault-core/src/intelligence/intelligence_visit_records.rs",
+      "lineRange": "38-66",
+      "description": "load_visible_visits loads ALL visible visits for one profile into a Vec<VisitRecord> before the limit parameter trims to the tail. On a 14.4M archive with a single profile, this collects the entire table into memory. Even with the limit parameter, it first collects all rows then calls split_off to keep only the last `limit` entries (line 68-76 trim_visits_to_limit). The production rebuild path calls this at intelligence_rebuild.rs:284 for 'scoped debug fallback' rebuilds.",
+      "suggestedFix": "Push the LIMIT into the SQL ORDER BY ... DESC LIMIT ?2 and reverse in Rust, or use the existing batched load_profile_derived_visit_batch path. The scoped-debug path should use the same bounded loading as the production incremental path.",
+      "codeSnippet": "let rows = statement.query_map([profile_id], visit_from_row)?;\nlet mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;\nhydrate_search_terms(connection, &mut visits)?;\nOk(trim_visits_to_limit(visits, limit))"
+    }
+  ]
+}

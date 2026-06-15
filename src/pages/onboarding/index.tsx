@@ -126,7 +126,10 @@ export function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [step, snapshot, t])
+    // `t` is intentionally NOT a dependency: the effect body never reads it, so
+    // including it re-ran the schedule preview (two backend calls) on every
+    // i18n context change / re-render that re-created the translator.
+  }, [step, snapshot])
 
   if (loading && !snapshot) {
     return (

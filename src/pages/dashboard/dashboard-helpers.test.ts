@@ -1,14 +1,41 @@
 import { describe, expect, test } from 'vitest'
-import type { StorageSummary } from '@/lib/types'
+import type { BackupRunOverview, StorageSummary } from '@/lib/types'
+import type { DiscoveryTrendPoint, PathFlow } from '@/lib/core-intelligence'
 import {
   compactNumber,
+  countRunsInRange,
   dashboardHeatmapRange,
   dashboardThreadsRange,
+  dashboardWeekRange,
+  firstRegistrableDomainStep,
   formatSpan,
   humanizeBytes,
   isoDateOnly,
   sumStorageBytes,
+  sumWeekTrend,
 } from './dashboard-helpers'
+
+/**
+ * Builds an ISO timestamp pinned to local noon on the given YYYY-MM-DD so the
+ * `countRunsInRange` local-date comparison stays stable regardless of the test
+ * machine's timezone (a UTC-midnight ISO string would slip a day in negative
+ * offsets and flip the boundary assertions).
+ */
+function isoLocalNoon(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day, 12, 0, 0).toISOString()
+}
+
+function makeFlow(steps: PathFlow['steps']): PathFlow {
+  return {
+    flowId: 'flow-test',
+    flowPattern: steps.map((step) => step.label).join(' → '),
+    stepCount: steps.length,
+    occurrenceCount: 1,
+    lastSeenAt: '2026-05-20T00:00:00Z',
+    steps,
+  }
+}
 
 describe('dashboard-helpers', () => {
   describe('isoDateOnly', () => {
@@ -37,11 +64,142 @@ describe('dashboard-helpers', () => {
     })
   })
 
+  describe('firstRegistrableDomainStep', () => {
+    test('returns the first step that carries a registrable domain', () => {
+      const flow = makeFlow([
+        { index: 0, label: 'Search: rust', registrableDomain: null },
+        { index: 1, label: 'docs.rs', registrableDomain: 'docs.rs' },
+        { index: 2, label: 'crates.io', registrableDomain: 'crates.io' },
+      ])
+      expect(firstRegistrableDomainStep(flow)).toBe('docs.rs')
+    })
+
+    test('skips steps with an undefined registrable domain', () => {
+      const flow = makeFlow([
+        { index: 0, label: 'Search: rust' },
+        { index: 1, label: 'github.com', registrableDomain: 'github.com' },
+      ])
+      expect(firstRegistrableDomainStep(flow)).toBe('github.com')
+    })
+
+    test('returns null when no step carries a registrable domain', () => {
+      const flow = makeFlow([
+        { index: 0, label: 'Search: rust async', registrableDomain: null },
+        { index: 1, label: 'Search: tokio', registrableDomain: undefined },
+      ])
+      expect(firstRegistrableDomainStep(flow)).toBeNull()
+    })
+
+    test('returns null for a flow with no steps', () => {
+      expect(firstRegistrableDomainStep(makeFlow([]))).toBeNull()
+    })
+  })
+
   describe('dashboardHeatmapRange', () => {
     test('returns a 365-day rolling window ending today', () => {
       const range = dashboardHeatmapRange(new Date(2026, 4, 20))
       expect(range.end).toBe('2026-05-20')
       expect(range.start).toBe('2025-05-21')
+    })
+  })
+
+  describe('dashboardWeekRange', () => {
+    test('returns the Mon→Sun ISO week containing a mid-week date', () => {
+      // Wednesday 2026-05-20 → ISO week is Mon 2026-05-18 .. Sun 2026-05-24.
+      const range = dashboardWeekRange(new Date(2026, 4, 20))
+      expect(range.start).toBe('2026-05-18')
+      expect(range.end).toBe('2026-05-24')
+    })
+
+    test('anchors a Sunday to the week that started the preceding Monday', () => {
+      // Sunday 2026-05-24 → still belongs to the Mon 2026-05-18 week, not the
+      // next one. The `getDay() || 7` mapping keeps Sunday as offset 6.
+      const range = dashboardWeekRange(new Date(2026, 4, 24))
+      expect(range.start).toBe('2026-05-18')
+      expect(range.end).toBe('2026-05-24')
+    })
+
+    test('keeps a Monday as its own week start', () => {
+      const range = dashboardWeekRange(new Date(2026, 4, 18))
+      expect(range.start).toBe('2026-05-18')
+      expect(range.end).toBe('2026-05-24')
+    })
+  })
+
+  describe('sumWeekTrend', () => {
+    const point = (
+      totalVisits: number,
+      newDomainCount: number,
+    ): DiscoveryTrendPoint => ({
+      dateKey: '2026-05-20',
+      discoveryRate: 0,
+      newDomainCount,
+      totalVisits,
+    })
+
+    test('sums visits and new domains across the week', () => {
+      expect(sumWeekTrend([point(100, 3), point(47, 5)])).toEqual({
+        totalVisits: 147,
+        newDomains: 8,
+      })
+    })
+
+    test('treats null / undefined points as a zero week', () => {
+      expect(sumWeekTrend(null)).toEqual({ totalVisits: 0, newDomains: 0 })
+      expect(sumWeekTrend(undefined)).toEqual({ totalVisits: 0, newDomains: 0 })
+      expect(sumWeekTrend([])).toEqual({ totalVisits: 0, newDomains: 0 })
+    })
+  })
+
+  describe('countRunsInRange', () => {
+    const run = (
+      id: number,
+      startedAt: string | null | undefined,
+    ): BackupRunOverview =>
+      ({
+        id,
+        startedAt: startedAt as string,
+        status: 'completed',
+        profilesProcessed: 1,
+        newVisits: 0,
+        newUrls: 0,
+        newDownloads: 0,
+      }) as BackupRunOverview
+
+    const range = { start: '2026-05-18', end: '2026-05-24' }
+
+    test('counts only runs whose start date falls inside the inclusive window', () => {
+      const runs = [
+        run(1, '2026-05-18T23:30:00Z'), // boundary start (in)
+        run(2, '2026-05-21T08:00:00Z'), // mid week (in)
+        run(3, '2026-05-24T00:00:00Z'), // boundary end (in)
+        run(4, '2026-05-17T23:59:00Z'), // before (out)
+        run(5, '2026-05-25T00:01:00Z'), // after (out)
+      ]
+      // Use local-midnight timestamps so the assertion is timezone-stable:
+      // construct via Date parts rather than UTC ISO for the boundary cases.
+      const localRuns = [
+        { ...runs[0], startedAt: isoLocalNoon('2026-05-18') },
+        { ...runs[1], startedAt: isoLocalNoon('2026-05-21') },
+        { ...runs[2], startedAt: isoLocalNoon('2026-05-24') },
+        { ...runs[3], startedAt: isoLocalNoon('2026-05-17') },
+        { ...runs[4], startedAt: isoLocalNoon('2026-05-25') },
+      ]
+      expect(countRunsInRange(localRuns, range)).toBe(3)
+    })
+
+    test('skips runs with a missing or malformed startedAt', () => {
+      const runs = [
+        run(1, isoLocalNoon('2026-05-20')),
+        run(2, null),
+        run(3, undefined),
+        run(4, 'not-a-date'),
+      ]
+      expect(countRunsInRange(runs, range)).toBe(1)
+    })
+
+    test('returns zero for an empty run list', () => {
+      expect(countRunsInRange([], range)).toBe(0)
     })
   })
 

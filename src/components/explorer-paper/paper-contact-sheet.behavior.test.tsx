@@ -137,7 +137,7 @@ describe('PaperContactSheet focused behavior', () => {
     expect(lastSecondDay).toHaveTextContent('05')
   })
 
-  test('day headers use the measured sticky toolbar height when filters wrap the toolbar', async () => {
+  test('publishes the measured toolbar height as --pk-toolbar-h when filters wrap the toolbar', async () => {
     const disconnect = vi.fn()
     class FakeResizeObserver {
       callback: ResizeObserverCallback
@@ -149,6 +149,7 @@ describe('PaperContactSheet focused behavior', () => {
           [] as unknown as ResizeObserverEntry[],
           this as unknown as ResizeObserver,
         )
+        // The observed node is the sticky toolbar, which holds the filter chips.
         expect(target).toHaveTextContent('Filter chips')
       }
       disconnect() {
@@ -165,11 +166,17 @@ describe('PaperContactSheet focused behavior', () => {
         filterStripSlot: <span>Filter chips</span>,
       })
 
+      // The toolbar height is published imperatively as a CSS custom property
+      // on the sheet root (no React render), and each day header reads it for
+      // its sticky `top` — so the offset tracks a wrapping toolbar within the
+      // same paint frame instead of unpinning for a frame.
+      const section = container.querySelector('section')
       await waitFor(() =>
-        expect(
-          container.querySelector('[data-day="2026-05-16"] > div'),
-        ).toHaveStyle({ top: '88px' }),
+        expect(section?.style.getPropertyValue('--pk-toolbar-h')).toBe('88px'),
       )
+      expect(
+        container.querySelector('[data-day="2026-05-16"] > div'),
+      ).toHaveStyle({ top: 'var(--pk-toolbar-h, 44px)' })
       unmount()
       expect(disconnect).toHaveBeenCalled()
     } finally {
@@ -180,7 +187,7 @@ describe('PaperContactSheet focused behavior', () => {
     }
   })
 
-  test('day headers still use the first toolbar measurement without ResizeObserver support', async () => {
+  test('still publishes the first toolbar measurement without ResizeObserver support', async () => {
     const previousResizeObserver = globalThis.ResizeObserver
     const restoreBoundingClientRect = installFixedBoundingClientRect(64)
     ;(
@@ -191,10 +198,9 @@ describe('PaperContactSheet focused behavior', () => {
         filterStripSlot: <span>Filter chips</span>,
       })
 
+      const section = container.querySelector('section')
       await waitFor(() =>
-        expect(
-          container.querySelector('[data-day="2026-05-16"] > div'),
-        ).toHaveStyle({ top: '64px' }),
+        expect(section?.style.getPropertyValue('--pk-toolbar-h')).toBe('64px'),
       )
     } finally {
       ;(

@@ -23,6 +23,9 @@
 //!   compact hash-map state for the current aggregates.
 //! - Path-flow and habit builders deduplicate consecutive domains/days instead
 //!   of retaining whole sessions in memory.
+//! - Refind evidence keeps only a bounded, most-recent sample of visit ids plus
+//!   a total counter, so a page revisited daily for decades cannot inflate the
+//!   accumulator or the persisted evidence JSON beyond a fixed size.
 
 use super::{
     DerivedVisitBatchCursor, HabitPatternRecord, PathFlowRecord, QueryFamilyRecord,
@@ -33,6 +36,84 @@ use anyhow::Result;
 use chrono::{NaiveDate, Utc};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// Upper bound on how many visit ids are embedded in one refind-page evidence
+/// payload.
+///
+/// The explainability panel only ever renders the first 20 ids as drill-down
+/// chips and otherwise relies on a total count, so a bounded recent sample is
+/// all the UI can use. Capping here keeps a popular page (visited every day for
+/// decades) from holding hundreds of thousands of `i64` ids in the streaming
+/// accumulator and from emitting multi-megabyte evidence blobs per row on a
+/// 14.4M-record archive. The true visit total is preserved separately as
+/// `totalVisitCount`.
+const REFIND_EVIDENCE_VISIT_SAMPLE: usize = 50;
+
+/// Bounded, recency-ordered reservoir of visit ids for one refind page.
+///
+/// ## Why this exists
+/// Refind evidence must stay O(1) in size regardless of how many times a page
+/// was visited. This keeps at most `REFIND_EVIDENCE_VISIT_SAMPLE` of the most
+/// recent `(visit_time_ms, visit_id)` pairs while counting every visit, so both
+/// the streaming accumulator and the in-memory builder can emit an identical,
+/// deterministic sample plus an exact total.
+#[derive(Debug, Clone, Default)]
+struct RecentVisitSample {
+    /// Most-recent pairs sorted descending by `(visit_time_ms, visit_id)`; never
+    /// longer than `REFIND_EVIDENCE_VISIT_SAMPLE`.
+    recent: Vec<(i64, i64)>,
+    /// Exact number of visits observed, including those evicted from the sample.
+    total: i64,
+}
+
+impl RecentVisitSample {
+    /// Records one visit, keeping the sample bounded to the most recent ids.
+    ///
+    /// Sorting is descending by visit time and then visit id so ties resolve
+    /// deterministically and the two refind builders agree on the same sample.
+    fn observe(&mut self, visit_time_ms: i64, visit_id: i64) {
+        self.total += 1;
+        let candidate = (visit_time_ms, visit_id);
+        if self.recent.len() == REFIND_EVIDENCE_VISIT_SAMPLE {
+            // Fast path once warmed: anything not newer than the current oldest
+            // kept pair can never enter the sample, so skip the insert entirely.
+            let oldest = *self.recent.last().expect("sample is full");
+            if candidate <= oldest {
+                return;
+            }
+        }
+        let position = self.recent.partition_point(|kept| *kept > candidate);
+        self.recent.insert(position, candidate);
+        self.recent.truncate(REFIND_EVIDENCE_VISIT_SAMPLE);
+    }
+
+    /// Returns the sampled visit ids most-recent first.
+    fn visit_ids(&self) -> Vec<i64> {
+        self.recent.iter().map(|(_, visit_id)| *visit_id).collect()
+    }
+}
+
+/// Builds the shared refind evidence JSON: the weighted score factors plus a
+/// bounded recent visit-id sample and the exact total visit count.
+fn refind_evidence_json(
+    cross_day_count: i64,
+    trail_count: i64,
+    search_arrival_count: i64,
+    typed_revisit_count: i64,
+    sample: &RecentVisitSample,
+) -> String {
+    json!({
+        "factors": [
+            { "signal": "cross_day_count", "rawValue": cross_day_count, "weight": 2.0, "contribution": cross_day_count as f32 * 2.0 },
+            { "signal": "trail_count", "rawValue": trail_count, "weight": 1.5, "contribution": trail_count as f32 * 1.5 },
+            { "signal": "search_arrival_count", "rawValue": search_arrival_count, "weight": 1.0, "contribution": search_arrival_count as f32 },
+            { "signal": "typed_revisit_count", "rawValue": typed_revisit_count, "weight": 1.2, "contribution": typed_revisit_count as f32 * 1.2 }
+        ],
+        "visitIds": sample.visit_ids(),
+        "totalVisitCount": sample.total
+    })
+    .to_string()
+}
 
 /// Compact accumulator state for one in-progress refind-page aggregate.
 #[derive(Debug, Clone, Default)]
@@ -48,7 +129,7 @@ struct RefindAccumulatorEntry {
     typed_revisit_count: i64,
     first_seen_ms: i64,
     last_seen_ms: i64,
-    visit_ids: Vec<i64>,
+    visit_sample: RecentVisitSample,
 }
 
 /// Streams structural aggregate state across many derived-visit batches without
@@ -98,17 +179,17 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
             if cross_day_count < 2 && trail_count < 2 && typed_revisit_count < 2 {
                 return None;
             }
-            let visit_ids = members.iter().map(|visit| visit.visit_id).collect::<Vec<_>>();
-            let evidence_json = json!({
-                "factors": [
-                    { "signal": "cross_day_count", "rawValue": cross_day_count, "weight": 2.0, "contribution": cross_day_count as f32 * 2.0 },
-                    { "signal": "trail_count", "rawValue": trail_count, "weight": 1.5, "contribution": trail_count as f32 * 1.5 },
-                    { "signal": "search_arrival_count", "rawValue": search_arrival_count, "weight": 1.0, "contribution": search_arrival_count as f32 },
-                    { "signal": "typed_revisit_count", "rawValue": typed_revisit_count, "weight": 1.2, "contribution": typed_revisit_count as f32 * 1.2 }
-                ],
-                "visitIds": visit_ids
-            })
-            .to_string();
+            let mut visit_sample = RecentVisitSample::default();
+            for visit in &members {
+                visit_sample.observe(visit.visit_time_ms, visit.visit_id);
+            }
+            let evidence_json = refind_evidence_json(
+                cross_day_count,
+                trail_count,
+                search_arrival_count,
+                typed_revisit_count,
+                &visit_sample,
+            );
             Some(RefindPageRecord {
                 profile_id: first.profile_id.clone(),
                 canonical_url,
@@ -409,7 +490,7 @@ impl StructuralAggregateAccumulator {
         }
         entry.first_seen_ms = entry.first_seen_ms.min(visit.visit_time_ms);
         entry.last_seen_ms = entry.last_seen_ms.max(visit.visit_time_ms);
-        entry.visit_ids.push(visit.visit_id);
+        entry.visit_sample.observe(visit.visit_time_ms, visit.visit_id);
     }
 
     /// Tracks session-local domain sequences for path-flow rebuilds.
@@ -469,16 +550,13 @@ fn finish_refind_pages(
             if cross_day_count < 2 && trail_count < 2 && entry.typed_revisit_count < 2 {
                 return None;
             }
-            let evidence_json = json!({
-                "factors": [
-                    { "signal": "cross_day_count", "rawValue": cross_day_count, "weight": 2.0, "contribution": cross_day_count as f32 * 2.0 },
-                    { "signal": "trail_count", "rawValue": trail_count, "weight": 1.5, "contribution": trail_count as f32 * 1.5 },
-                    { "signal": "search_arrival_count", "rawValue": entry.search_arrival_count, "weight": 1.0, "contribution": entry.search_arrival_count as f32 },
-                    { "signal": "typed_revisit_count", "rawValue": entry.typed_revisit_count, "weight": 1.2, "contribution": entry.typed_revisit_count as f32 * 1.2 }
-                ],
-                "visitIds": entry.visit_ids
-            })
-            .to_string();
+            let evidence_json = refind_evidence_json(
+                cross_day_count,
+                trail_count,
+                entry.search_arrival_count,
+                entry.typed_revisit_count,
+                &entry.visit_sample,
+            );
             Some(RefindPageRecord {
                 profile_id: entry.profile_id,
                 canonical_url: entry.canonical_url,
@@ -592,8 +670,180 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// Builds a non-search visit to one canonical URL at a chosen time so the
+    /// refind builders treat repeated calls as revisits of the same page.
+    fn refind_visit(visit_id: i64, visit_time_ms: i64) -> VisitRecord {
+        VisitRecord {
+            visit_id,
+            profile_id: "chrome:Default".to_string(),
+            source_profile_id: 1,
+            source_visit_id: visit_id,
+            source_url_id: 1,
+            url: "https://example.com/page".to_string(),
+            title: Some("Page".to_string()),
+            visit_time_ms,
+            from_visit: None,
+            transition_type: None,
+            external_referrer_url: None,
+            canonical_url: "https://example.com/page".to_string(),
+            registrable_domain: "example.com".to_string(),
+            domain_category: "docs".to_string(),
+            page_category: "article-page".to_string(),
+            search_engine: None,
+            search_query: None,
+            is_new_domain: false,
+            is_search_event: false,
+            evidence_tier: "tier-a".to_string(),
+            taxonomy_source: "test".to_string(),
+            taxonomy_pack: None,
+            taxonomy_version: None,
+            display_name: None,
+            session_id: Some("session:1".to_string()),
+            trail_id: None,
+        }
+    }
+
+    /// Reads `visitIds` and `totalVisitCount` back out of evidence JSON.
+    fn parse_visit_evidence(evidence_json: &str) -> (Vec<i64>, i64) {
+        let value: serde_json::Value = serde_json::from_str(evidence_json).expect("evidence json");
+        let visit_ids = value["visitIds"]
+            .as_array()
+            .expect("visitIds array")
+            .iter()
+            .map(|id| id.as_i64().expect("visit id"))
+            .collect::<Vec<_>>();
+        let total = value["totalVisitCount"].as_i64().expect("totalVisitCount");
+        (visit_ids, total)
+    }
+
     #[test]
     fn habit_records_without_profile_short_circuits() {
         assert!(habit_records_for_domains(None, HashMap::new(), HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn recent_visit_sample_orders_most_recent_first_and_counts_all() {
+        let mut sample = RecentVisitSample::default();
+        sample.observe(100, 1);
+        sample.observe(300, 3);
+        sample.observe(200, 2);
+
+        assert_eq!(sample.visit_ids(), vec![3, 2, 1]);
+        assert_eq!(sample.total, 3);
+    }
+
+    #[test]
+    fn recent_visit_sample_breaks_ties_by_visit_id() {
+        let mut sample = RecentVisitSample::default();
+        sample.observe(500, 7);
+        sample.observe(500, 9);
+        sample.observe(500, 8);
+
+        // Same visit time, so the highest visit id sorts first deterministically.
+        assert_eq!(sample.visit_ids(), vec![9, 8, 7]);
+    }
+
+    #[test]
+    fn recent_visit_sample_caps_to_the_most_recent_window() {
+        let mut sample = RecentVisitSample::default();
+        // Feed twice the cap, newest visit ids last, so the kept window is the
+        // most recent half and the oldest ids are evicted.
+        let observed = REFIND_EVIDENCE_VISIT_SAMPLE * 2;
+        for index in 0..observed {
+            let id = index as i64 + 1;
+            sample.observe(1_000 + id, id);
+        }
+
+        assert_eq!(sample.total, observed as i64);
+        let kept = sample.visit_ids();
+        assert_eq!(kept.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
+        // Most recent id first, down to exactly the cap-th most recent.
+        let newest = observed as i64;
+        let oldest_kept = newest - REFIND_EVIDENCE_VISIT_SAMPLE as i64 + 1;
+        assert_eq!(kept.first().copied(), Some(newest));
+        assert_eq!(kept.last().copied(), Some(oldest_kept));
+    }
+
+    #[test]
+    fn recent_visit_sample_skips_visits_older_than_the_kept_window() {
+        let mut sample = RecentVisitSample::default();
+        for index in 0..REFIND_EVIDENCE_VISIT_SAMPLE {
+            let id = index as i64 + 1;
+            sample.observe(10_000 + id, id);
+        }
+        let before = sample.visit_ids();
+
+        // An older visit once the window is full hits the early-return fast path:
+        // it is counted but never enters the kept sample.
+        sample.observe(1, 9_999);
+        assert_eq!(sample.visit_ids(), before);
+        assert_eq!(sample.total, REFIND_EVIDENCE_VISIT_SAMPLE as i64 + 1);
+
+        // A newer visit displaces the oldest kept id.
+        sample.observe(1_000_000, 9_998);
+        let after = sample.visit_ids();
+        assert_eq!(after.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
+        assert_eq!(after.first().copied(), Some(9_998));
+        assert!(!after.contains(before.last().expect("oldest kept id")));
+        assert_eq!(sample.total, REFIND_EVIDENCE_VISIT_SAMPLE as i64 + 2);
+    }
+
+    #[test]
+    fn refind_evidence_json_embeds_capped_sample_and_exact_total() {
+        let mut sample = RecentVisitSample::default();
+        for index in 0..(REFIND_EVIDENCE_VISIT_SAMPLE + 5) {
+            let id = index as i64 + 1;
+            sample.observe(1_000 + id, id);
+        }
+        let evidence = refind_evidence_json(4, 2, 3, 1, &sample);
+        let (visit_ids, total) = parse_visit_evidence(&evidence);
+
+        assert_eq!(total, REFIND_EVIDENCE_VISIT_SAMPLE as i64 + 5);
+        assert_eq!(visit_ids.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
+        // Factors still ride along in the same payload.
+        let value: serde_json::Value = serde_json::from_str(&evidence).expect("evidence json");
+        assert_eq!(value["factors"].as_array().expect("factors").len(), 4);
+    }
+
+    #[test]
+    fn build_refind_pages_caps_visit_ids_but_keeps_full_total() {
+        let observed = REFIND_EVIDENCE_VISIT_SAMPLE + 7;
+        // Spread visits across distinct days so the page qualifies as a refind.
+        let day_ms = 86_400_000_i64;
+        let visits = (0..observed)
+            .map(|index| refind_visit(index as i64 + 1, 1_700_000_000_000 + index as i64 * day_ms))
+            .collect::<Vec<_>>();
+
+        let pages = build_refind_pages(&visits);
+        assert_eq!(pages.len(), 1);
+        let (visit_ids, total) = parse_visit_evidence(&pages[0].evidence_json);
+        assert_eq!(visit_ids.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
+        assert_eq!(total, observed as i64);
+    }
+
+    #[test]
+    fn streaming_and_in_memory_refind_emit_identical_evidence() {
+        let observed = REFIND_EVIDENCE_VISIT_SAMPLE + 11;
+        let day_ms = 86_400_000_i64;
+        let visits = (0..observed)
+            .map(|index| refind_visit(index as i64 + 1, 1_700_000_000_000 + index as i64 * day_ms))
+            .collect::<Vec<_>>();
+
+        let in_memory = build_refind_pages(&visits);
+
+        let mut accumulator = StructuralAggregateAccumulator::default();
+        for visit in &visits {
+            accumulator.add_visit(visit);
+        }
+        let (streamed, _, _) = accumulator.finish();
+
+        assert_eq!(in_memory.len(), 1);
+        assert_eq!(streamed.len(), 1);
+        // Both refind builders must agree on the exact evidence payload so the
+        // streamed rebuild stays a drop-in equivalent of the in-memory builder.
+        assert_eq!(streamed[0].evidence_json, in_memory[0].evidence_json);
+        let (sample_ids, total) = parse_visit_evidence(&streamed[0].evidence_json);
+        assert_eq!(sample_ids.len(), REFIND_EVIDENCE_VISIT_SAMPLE);
+        assert_eq!(total, observed as i64);
     }
 }

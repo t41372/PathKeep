@@ -513,6 +513,13 @@ fn browser_history_payload_covers_jsonl_skips_duplicates_and_error_paths() {
         parse_payload("entries.jsonl", KIND_JSONL, b"{").expect_err("bad jsonl payload");
     assert!(bad_jsonl.to_string().contains("entries.jsonl line 1"));
 
+    // Regression: a non-UTF-8 byte in a JSONL line must surface as a graceful
+    // ReadSource error, never panic the import worker (BufRead::lines yields
+    // Err(InvalidData) on invalid UTF-8 regardless of I/O success).
+    let non_utf8_jsonl = parse_payload("entries.jsonl", KIND_JSONL, b"\xff\xfe garbage\n")
+        .expect_err("non-utf8 jsonl payload");
+    assert!(non_utf8_jsonl.to_string().contains("entries.jsonl"));
+
     let bad_browser_json =
         parse_payload("BrowserHistory.json", KIND_BROWSER_JSON, b"{").expect_err("bad json");
     assert!(bad_browser_json.to_string().contains("BrowserHistory.json"));

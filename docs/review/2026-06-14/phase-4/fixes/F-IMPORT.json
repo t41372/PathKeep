@@ -1,0 +1,20 @@
+{
+  "id": "F-IMPORT",
+  "track": "fe",
+  "sev": "minor",
+  "title": "security-step.tsx imports legacy backend module",
+  "files": [
+    "src/pages/onboarding/security-step.tsx"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "BUG",
+      "file": "src/pages/onboarding/security-step.tsx",
+      "lineRange": "8",
+      "description": "The security step imports `backend` from `../../lib/backend` (the legacy compatibility surface) instead of `../../lib/backend-client` (the canonical backend client). AGENTS.md explicitly states: 'src/lib/backend.ts is legacy / browser-preview fixture surface, not to be used for new shell contract.' Every other file in the import and onboarding scope uses `../../lib/backend-client`. While both modules expose a `keyringStatus()` method, the legacy module is documented as a deprecated surface and the two implementations may diverge in behavior or typing over time.",
+      "suggestedFix": "Change the import to `import { backend } from '../../lib/backend-client'` in both security-step.tsx and security-step.test.tsx.",
+      "codeSnippet": "import { backend } from '../../lib/backend'"
+    }
+  ]
+}

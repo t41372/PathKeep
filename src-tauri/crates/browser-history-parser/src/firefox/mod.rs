@@ -352,7 +352,9 @@ where
 
 /// Converts Firefox's microsecond timestamp format to Unix milliseconds.
 pub fn firefox_time_to_unix_ms(value: i64) -> i64 {
-    value.div_euclid(1_000).max(0)
+    // Clamp keeps the numeric `*_ms` column and the derived ISO string in
+    // agreement for corrupt/far-future source rows (see clamp_unix_millis).
+    crate::types::clamp_unix_millis(value.div_euclid(1_000))
 }
 
 /// Converts Unix milliseconds back into Firefox's microsecond timestamp format.

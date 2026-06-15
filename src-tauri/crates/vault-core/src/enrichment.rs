@@ -511,27 +511,33 @@ fn merge_site_adapter_result(
 }
 
 fn percent_decode(input: &str) -> String {
-    let mut output = String::new();
+    // Decode into a byte buffer and interpret the result as UTF-8 at the end.
+    // A percent escape encodes a single *byte*, not a Unicode scalar, so a
+    // multi-byte UTF-8 sequence like `%E4%B8%AD` (中) must be reassembled from
+    // its bytes — the previous `char::from_u32(byte)` produced one Latin-1
+    // codepoint per byte (mojibake `ä¸­`), which is wrong for this product's
+    // CJK-heavy history.
     let bytes = input.as_bytes();
+    let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
         match bytes[index] {
-            b'+' => output.push(' '),
+            b'+' => decoded.push(b' '),
             b'%' if index + 2 < bytes.len() => {
                 let hi = (bytes[index + 1] as char).to_digit(16);
                 let lo = (bytes[index + 2] as char).to_digit(16);
                 if let (Some(hi), Some(lo)) = (hi, lo) {
-                    output.push(char::from_u32(hi * 16 + lo).unwrap_or('%'));
+                    decoded.push((hi * 16 + lo) as u8);
                     index += 2;
                 } else {
-                    output.push('%');
+                    decoded.push(b'%');
                 }
             }
-            value => output.push(value as char),
+            value => decoded.push(value),
         }
         index += 1;
     }
-    output
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 fn normalize_whitespace(input: &str) -> String {
@@ -582,6 +588,16 @@ mod tests {
     };
     use rusqlite::{Connection, Row, params};
     use tempfile::tempdir;
+
+    #[test]
+    fn percent_encoded_cjk_url_slug_decodes_to_utf8_not_mojibake() {
+        // Regression: `%E4%B8%AD%E6%96%87` is the UTF-8 encoding of "中文". The
+        // decoder must reassemble the raw bytes into one string, not emit one
+        // Latin-1 codepoint per byte (which produced mojibake `ä¸­æ–‡`).
+        let enrichment =
+            title_normalization_enrichment("https://example.com/articles/%E4%B8%AD%E6%96%87", None);
+        assert_eq!(enrichment.readable_title.as_deref(), Some("中文"));
+    }
 
     #[test]
     fn build_embedding_content_includes_only_non_empty_enrichment_fields() {

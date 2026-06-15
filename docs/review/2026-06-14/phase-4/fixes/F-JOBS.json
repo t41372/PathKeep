@@ -1,0 +1,20 @@
+{
+  "id": "F-JOBS",
+  "track": "fe",
+  "sev": "major",
+  "title": "AI job retry/cancel handlers silently swallow errors",
+  "files": [
+    "src/pages/jobs/index.tsx"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "BUG",
+      "file": "src/pages/jobs/index.tsx",
+      "lineRange": "206-226",
+      "description": "The `handleReplayAiJob` and `handleCancelAiJob` functions have no `catch` block. If `backend.replayAiJob()` or `backend.cancelAiJob()` throws, the error propagates unhandled to the `finally` block (which only clears the action state), and the user sees no feedback about the failure. Compare with `handleRetryRuntimeJob` and `handleCancelRuntimeJob` directly below, which do have `catch` blocks that call `setPageError(message)`. This is an inconsistent error-handling pattern where AI job mutations fail silently while runtime job mutations surface errors.",
+      "suggestedFix": "Add a `catch` block to both handlers matching the pattern used by `handleRetryRuntimeJob`: catch the error, call `describeError()`, and set `setPageError(message)` so the user sees feedback.",
+      "codeSnippet": "async function handleReplayAiJob(jobId: number) {\n    setAction(jobsT('retryJob'))\n    try {\n      await backend.replayAiJob(jobId)\n      setPageError(null)\n      await Promise.all([refreshAppData(), refreshRuntimeStatus()])\n    } finally {\n      setAction(null)\n    }\n  }"
+    }
+  ]
+}

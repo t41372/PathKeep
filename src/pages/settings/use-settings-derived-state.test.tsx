@@ -44,6 +44,7 @@ vi.mock('../../lib/core-intelligence/api', async (importOriginal) => {
   return {
     ...actual,
     queueCoreIntelligenceRebuild: vi.fn(),
+    clearIntelligenceOverviewCache: vi.fn(),
   }
 })
 
@@ -117,6 +118,11 @@ describe('useSettingsDerivedState', () => {
     ).toHaveBeenCalledWith({ fullRebuild: true })
     expect(result.current.derived.rebuildQueueReport?.jobId).toBe(77)
     expect(refreshAppData).toHaveBeenCalledTimes(1)
+    // A rebuild invalidates the cached intelligence overview so the next
+    // /intelligence visit re-fetches instead of showing the pre-rebuild data.
+    expect(
+      coreIntelligenceApi.clearIntelligenceOverviewCache,
+    ).toHaveBeenCalled()
 
     await act(async () => {
       await result.current.derived.onClearDerivedState()

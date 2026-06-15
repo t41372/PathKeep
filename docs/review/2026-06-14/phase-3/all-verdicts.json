@@ -1,0 +1,485 @@
+[
+  {
+    "batchId": "VB-1",
+    "batchName": "Frontend Shell + Explorer",
+    "totalFindings": 12,
+    "verdictSummary": {
+      "confirmed": 3,
+      "dismissed": 4,
+      "downgraded": 3,
+      "tradeoff": 2
+    },
+    "verdicts": [
+      {
+        "originalTitle": "Topbar missing notification queue button specified in screens-and-nav.md",
+        "originalSeverity": "major",
+        "category": "DESIGN-DRIFT",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read pk-topbar.tsx (full file, 143 lines), screens-and-nav.md line 99-100, CHANGELOG.md lines 1004-1009, shell-data.tsx notification infrastructure, shell-tasks.ts notification types, git log for pk-topbar.tsx showing commits 083bedb4 (paper redesign) and 1a1b334d (latest).",
+        "reasoning": "The CHANGELOG (line 1007) documents that a notification button with ProfileSwitcher WAS in the topbar during v0.2/WORK-UI-PROGRESS-A. The v0.3 paper redesign (commit 083bedb4) intentionally created a streamlined topbar with only back/forward nav + page title + search palette trigger + Backup Now CTA. The notification data infrastructure (ShellNotification[], addShellNotification, markShellNotificationsRead, dismissShellNotification in shell-tasks.ts, and the state management in shell-data.tsx with localStorage persistence) is fully intact. The screens-and-nav.md spec does say the topbar should have a notification button, but this is a case where the living spec has not yet been updated to reflect the deliberate paper-redesign topbar simplification. The profile scope switcher was moved to the status bar as part of the same redesign. This is a documentation lag, not a missing feature -- the notification surface needs to be re-added in the paper aesthetic, but it is a known design decision not an accidental omission. Downgrading to minor because the data layer works; only the UI surface was intentionally deferred during the redesign.",
+        "fixAssessment": "The suggested fix direction is reasonable but this should be tracked as a follow-up design task, not treated as a bug. screens-and-nav.md should be updated to reflect the current paper topbar layout, and a new notification bell should be designed for the paper aesthetic."
+      },
+      {
+        "originalTitle": "Profile scope switcher is in status bar, not in topbar as specified",
+        "originalSeverity": "major",
+        "category": "DESIGN-DRIFT",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read shell.tsx lines 290-320 showing PKStatusBar receives sources/selectedSourceId/onSelectSource props. Read pk-topbar.tsx (full file) confirming no profile switcher. Read CHANGELOG line 1007 documenting the original v0.2 UI truth. Read commit 083bedb4 (paper-redesign sidebar, topbar, status bar) which created the current layout.",
+        "reasoning": "The CHANGELOG line 1007 states 'ProfileSwitcher and Backup now maintain the rightmost two controls' in the pre-paper-redesign topbar. The paper redesign (commit 083bedb4) deliberately moved the source/profile switcher to the status bar. The status bar source picker at pk-status-bar.tsx lines 147-269 is a fully functional popover with All Sources view, per-source selection, color dots, page counts, and manage-sources link. This is an intentional design decision: the paper aesthetic's topbar is meant to be minimal (nav + title + palette + CTA), while the status bar carries ambient telemetry. screens-and-nav.md line 100 has not been updated to reflect this deliberate relocation. The finding correctly notes the divergence from the doc, but the reviewer's own suggestion acknowledges this may be deliberate. The doc is the stale artifact, not the code.",
+        "fixAssessment": "Update screens-and-nav.md to document the status-bar placement as the deliberate paper-redesign decision. No code change needed."
+      },
+      {
+        "originalTitle": "Token color values diverge from design-tokens.md contract",
+        "originalSeverity": "major",
+        "category": "DESIGN-DRIFT",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read design-tokens.md lines 28-42 (light theme contract) and tokens.css lines 16-70 (light theme implementation). Compared each token value side by side.",
+        "reasoning": "I independently verified multiple divergences between design-tokens.md (declared as the contract) and tokens.css. The doc explicitly states at line 65: 'If tokens.css and this file disagree, fix tokens.css to match this contract -- not the other way around.' Confirmed divergences: (1) doc says --bg-paper=#ece7de but tokens.css has --bg-page=#ece7de and --bg-paper=#f6f3ed -- the naming/values are swapped. (2) doc says --ink=#171513 but tokens.css has --ink=#1c1814. (3) doc says --ink-secondary=#3c3a36 but tokens.css has --ink-secondary=#4a4139. (4) doc says --ink-faint=#9a948a but tokens.css has --ink-faint=#beb3a2. (5) doc says --ink-ghost=#bdb6a9 but tokens.css has --ink-ghost=#d5cdc0. (6) doc uses --bg-card-paper but tokens.css uses --bg-card. The naming scheme divergence (bg-paper vs bg-page, bg-card-paper vs bg-card) means tokens.css and design-tokens.md assign different semantic roles to the same hex values. Since the doc is the declared contract, this is a real drift that should be reconciled.",
+        "fixAssessment": "The suggested fix is correct: audit each divergence. If tokens.css was tuned for visual quality after the doc was written, update design-tokens.md. Otherwise fix tokens.css. Either way, the contract must be reconciled."
+      },
+      {
+        "originalTitle": "Most routes lack ErrorBoundary protection",
+        "originalSeverity": "major",
+        "category": "GAP",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read router.tsx lines 277-457, scanning every route definition in appRouteChildren. Counted which routes have ErrorBoundary: ShellRouteErrorBoundary and which do not. Also checked the parent route at line 464-474 for a parent-level boundary.",
+        "reasoning": "I independently verified that the following routes in appRouteChildren lack ErrorBoundary: (1) dashboard index (line 278), (2) assistant (line 385), (3) import (line 393), (4) audit (line 401), (5) schedule (line 418), (6) integrations (line 426), (7) security (line 434), (8) maintenance (line 442), (9) settings (line 450). The parent route at line 464 wraps these in RequireUnlockedShell -> AppShell but has no ErrorBoundary property. Routes that DO have ErrorBoundary: explorer (line 288), search (line 306), intelligence and all sub-routes (lines 316-382), and jobs (line 410). If any unprotected route throws during render, the error will propagate up to React's default handler and crash the shell. The ShellRouteErrorBoundary already exists and provides graceful recovery with retry, Jobs link, and Dashboard link. Adding it to the remaining routes is straightforward and low-risk.",
+        "fixAssessment": "The suggested fix is correct and low-risk: add ErrorBoundary: ShellRouteErrorBoundary to every remaining route object."
+      },
+      {
+        "originalTitle": "Regex validation falsely rejects Rust named capture groups",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read regex-validation.ts lines 25-55 (the unsupportedRustRegexFragments array and isRustRegexCompatible function). Read regex-validation.test.ts (full file, 21 lines). Checked the test at line 15 which explicitly asserts named capture groups are rejected. Read the file's doc comments about the conservative validation approach.",
+        "reasoning": "This is a PHANTOM false positive. The reviewer claims '(?<' falsely rejects Rust named capture groups like '(?<year>\\d{4})'. However, the test file at line 15 explicitly tests and expects this: `expect(isRustRegexCompatible('(?<word>github)')).toBe(false)`. This is an intentional design decision, not a bug. The file's doc comment at line 10 states the validator's purpose: 'Preserve the existing lightweight validation contract for the Explorer search input while making the dialect boundary explicit.' The module description at lines 7-8 says: 'Keep client-side regex validation from green-lighting patterns the backend will reject.' The approach is deliberately conservative: it blocks patterns that MIGHT cause issues rather than trying to implement a full Rust regex parser in TypeScript (which the doc at line 13 explicitly says is not its responsibility). While Rust's regex crate does support named groups, the JS-side validator intentionally takes the safe approach of blocking '(?<' entirely to avoid false negatives where a pattern passes client validation but fails on the backend. The test suite was written with this behavior as a deliberate contract pin.",
+        "falsePositiveType": "PHANTOM"
+      },
+      {
+        "originalTitle": "O(N) full-array map on every favicon/og-image hydration pass at scale",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read explorer/index.tsx lines 318-379 showing combinedTimeResults and renderedTimeResults memos. Read use-explorer-infinite-pages.ts lines 115-123 showing MAX_ACCUMULATED_PAGES=500 with comments explaining the cap was deliberately lowered. Read BACKLOG.md line 40 (BROWSE-VIRT closeout) confirming the incremental aggregator is a known deferred follow-up.",
+        "reasoning": "The finding is factually accurate but the severity is overstated. The BACKLOG (line 40, BROWSE-VIRT closeout from 2026-05-25) explicitly documents this as a known trade-off: 'review S3 trade-off: incremental aggregator not done, lowered cap to 500 to avoid O(N) aggregation jank at ~25k entries'. The MAX_ACCUMULATED_PAGES cap at 500 (line 123 of use-explorer-infinite-pages.ts) with the comment 'Raising further requires an incremental aggregator (append-only, not rebuild-from-scratch)' demonstrates this is a deliberate engineering decision with a documented residual. The BACKLOG lists 'incremental aggregator (precondition for raising cap)' as a known follow-up. WORK-REVIEW-0612-FOLLOWUPS-A (BACKLOG line 580) also tracks this: 'renderedTimeResults -> groupEntriesByDay on every favicon/og cache mutation does O(N log N) re-sort + rebuild on the entire accumulated set'. This is tracked, bounded, and intentionally deferred -- not an undiscovered problem.",
+        "fixAssessment": "Already tracked in BACKLOG at multiple locations. The current cap at 500 pages (~25k entries) is the mitigation."
+      },
+      {
+        "originalTitle": "Detail panel shows identical firstVisitAt and lastVisitAt for every entry",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "confirmed",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read paper-detail-panel-mount.tsx lines 69-80 confirming firstVisitAt and lastVisitAt both map from selectedEntry.visitedAt. Read recall.md lines 106-119 (Record Detail Panel spec) confirming the spec calls for 'all visit times (if same URL visited multiple times)' and 'visit count, typed count'. Read paper-detail-panel.tsx lines 114-115 confirming the component supports visitHistory and titleVersions props.",
+        "reasoning": "The finding is correct. paper-detail-panel-mount.tsx at lines 75-76 maps selectedEntry.visitedAt to both firstVisitAt and lastVisitAt, making them always identical. The recall.md spec at line 112 says the detail panel should show 'all visit times (if same URL was visited multiple times)' and line 113 says 'visit count, typed count'. The PaperDetailPanel component already supports a visitHistory prop (line 114) and renders a sparkline section when it is populated. However, the mount component never supplies distinct first/last timestamps or visitHistory data because the HistoryEntry from the browse query only carries the current visit's timestamp. This is a real gap but the severity is appropriately minor since the panel still functions and shows the visit it was opened from."
+      },
+      {
+        "originalTitle": "Detail panel visit history sparkline is always empty",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "downgraded",
+        "finalSeverity": "suggestion",
+        "verificationMethod": "Read paper-detail-panel-mount.tsx lines 69-80 confirming visitHistory prop is not supplied. Read paper-detail-panel.tsx lines 114, 333-334, 460-490 confirming the sparkline section exists but only renders when visitHistory.length > 0. Read recall.md lines 112-113.",
+        "reasoning": "The finding is factually correct: PaperDetailPanelMount does not supply visitHistory, so the sparkline is always hidden. However, this is essentially the same gap as the previous finding (firstVisitAt/lastVisitAt) -- the browse query does not return per-URL visit aggregation data. Both findings stem from the same root cause: the detail panel was built with rich data props that the current backend query shape does not populate. The sparkline rendering code is ready and working -- it just needs data. The severity should be suggestion because this is a feature-readiness gap (UI is ahead of backend data), not a broken feature. The user never sees a broken sparkline; they simply do not see the section at all."
+      },
+      {
+        "originalTitle": "Detail panel title version history is never populated",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "downgraded",
+        "finalSeverity": "suggestion",
+        "verificationMethod": "Read paper-detail-panel-mount.tsx lines 69-80 confirming titleVersions prop is not supplied. Read paper-detail-panel.tsx lines 115, 515-531 confirming the title versions section exists but only renders when titleVersions is populated. Read recall.md line 100 and line 111.",
+        "reasoning": "Same pattern as the previous two findings. The PaperDetailPanel UI component supports titleVersions (line 115) and renders a diff-style section when populated (lines 515-531), but PaperDetailPanelMount does not supply this prop. recall.md line 100 mentions 'All metadata versions (if title etc has changed)' and line 111 says 'page title (all historical versions)'. This is another case where the UI component was built ahead of the backend data enrichment. The titleVersions section gracefully hides when the prop is omitted -- there is no broken UI or misleading display. This should be tracked as a feature enhancement, not a defect. The archive schema does track metadata, but exposing it through the browse query to the detail panel requires a backend enrichment step that has not been prioritized."
+      },
+      {
+        "originalTitle": "ink-faint and ink-ghost tokens fail WCAG AA contrast requirements in both themes",
+        "originalSeverity": "major",
+        "category": "UX-QUALITY",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read tokens.css lines 21-35 (light theme) and 76-88 (dark theme). Computed contrast ratios using the actual hex values: light ink-faint (#beb3a2) on bg-paper (#f6f3ed), light ink-ghost (#d5cdc0) on bg-paper (#f6f3ed), dark ink-faint (#4f4639) on bg-paper (#191614), dark ink-muted (#6a6055) on bg-paper (#191614).",
+        "reasoning": "I independently verified the contrast ratios. Light mode: ink-faint (#beb3a2) on bg-paper (#f6f3ed) computes to approximately 1.87:1, well below WCAG AA's 4.5:1 for normal text and 3:1 for large text. ink-ghost (#d5cdc0) on bg-paper is even lower at approximately 1.42:1. Dark mode: ink-faint (#4f4639) on bg-paper (#191614) is approximately 1.94:1, also far below AA. These tokens are used for metadata text, timestamps, connected-sources counts, page-count labels, and mono kicker text -- all small text elements where AA compliance requires at least 4.5:1. The paper aesthetic's warmth is a legitimate design goal, but the current faint/ghost values are so far below AA minimums that they present a real accessibility concern. However, the suggested fix of adjusting ink-faint to ~#8a8070 would move it very close to ink-muted (#887d6e in light mode), so the adjustment needs to preserve the layered hierarchy. The finding correctly notes ink-ghost should be reserved for decorative non-text elements.",
+        "fixAssessment": "Adjust ink-faint and ink-ghost values to meet at least 3:1 for large text contexts. Audit all usages of ink-ghost to ensure it is only used on decorative elements (borders, dividers) rather than readable text. This requires visual validation to maintain the paper palette hierarchy."
+      },
+      {
+        "originalTitle": "Status bar source picker popover lacks keyboard accessibility and ARIA semantics",
+        "originalSeverity": "major",
+        "category": "UX-QUALITY",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read pk-status-bar.tsx lines 147-269. Read the Popover component at src/components/ui/popover.tsx confirming it wraps Radix UI Popover. Checked Radix Popover documentation for built-in accessibility features.",
+        "reasoning": "This is partially a PHANTOM finding. Several claims are incorrect: (1) The reviewer says 'the trigger button itself has no aria-expanded attribute' but then acknowledges 'Radix may inject this'. In fact, Radix Popover.Trigger DOES automatically inject aria-expanded, aria-haspopup, and aria-controls attributes. This is a core Radix feature and is not optional. (2) The checkmark character at lines 217 and 254 is a visual indicator inside a button that already has semantic meaning through its bg-accent-soft class and the selectedSourceId comparison. While adding aria-hidden to the checkmark and aria-selected to buttons would be nice polish, the buttons are already functional HTML buttons with clear text labels. (3) The claim about lacking 'keyboard arrow-key navigation between sources' applies to all Radix Popovers vs Radix Select/Listbox -- Popover is a general container, not a listbox. Users Tab between the buttons, which is standard behavior. The role='listbox' suggestion is valid for ideal a11y but this is a taste/polish item, not a major gap since all interactive elements are focusable buttons.",
+        "falsePositiveType": "PHANTOM"
+      },
+      {
+        "originalTitle": "O(N) re-aggregation of entire accumulated entry set on every page fetch",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read explorer/index.tsx lines 318-379 (combinedTimeResults and renderedTimeResults). Read use-explorer-infinite-pages.ts lines 350-357 (extraItems memo). Read BACKLOG.md line 40 (BROWSE-VIRT closeout). Compared this finding with finding #6 in the same batch.",
+        "reasoning": "This finding is a duplicate of finding #6 ('O(N) full-array map on every favicon/og-image hydration pass at scale') in this same batch. Both cite the same file (explorer/index.tsx), overlapping line ranges (318-379 vs 349-378), and describe the same underlying issue: combinedTimeResults spreads all items into a new array and renderedTimeResults maps over the entire combined array. Finding #6 was already reviewed and downgraded to minor with documentation that this is a known, tracked, deliberately-capped trade-off (BACKLOG BROWSE-VIRT closeout, MAX_ACCUMULATED_PAGES=500, incremental aggregator deferred). The only new claim in this finding is about extraItems in use-explorer-infinite-pages.ts line 350-357, which iterates buffered pages -- but this is also bounded by the same MAX_ACCUMULATED_PAGES cap and is a pure memo that only recomputes when accumulatedPages or pageItems changes, not 'on every page fetch' as claimed. Dismissing as duplicate.",
+        "falsePositiveType": "PHANTOM"
+      }
+    ]
+  },
+  {
+    "batchId": "VB-2",
+    "batchName": "Intelligence + Dashboard",
+    "totalFindings": 7,
+    "verdictSummary": {
+      "confirmed": 2,
+      "dismissed": 2,
+      "downgraded": 1,
+      "tradeoff": 2
+    },
+    "verdicts": [
+      {
+        "originalTitle": "Module-level caches grow without bound, never evicted",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read src/lib/core-intelligence/api/shared.ts lines 27-28 and 242. Checked BACKLOG.md line 581 under WORK-REVIEW-0612-FOLLOWUPS-A. Traced clearOverviewCache call sites in settings and import. Analyzed typical session scope-change patterns.",
+        "reasoning": "The unbounded growth is real -- readRequestCache, inflightReadRequests, and overviewCache are module-scoped Maps with no eviction. However, this was already identified in the 2026-06-12 deep review and explicitly deferred under WORK-REVIEW-0612-FOLLOWUPS-A (BACKLOG.md line 581: 'readRequestCache / overviewCache unbounded growth -- recommend LRU'). The practical impact is low: the overview cache is keyed by (dateRange, profileId), and a typical session explores at most 5-10 scope combinations, each holding a single overview payload. The readRequestCache is keyed by (command, args) and accumulates per-section reads, but these are normalized lightweight JS objects. The clearOverviewCache function is called on import completion and Settings-driven rebuild/clear actions, which are the main events that would invalidate cached data. Over a single session without reloads, growth is bounded by the finite number of scope combinations the user explores. The finding is a known deliberate deferral, not a missed defect.",
+        "fixAssessment": "LRU eviction is the right long-term fix and is already tracked. Severity should be minor because practical session-length growth is small and the cache is cleared on data-mutating operations.",
+        "falsePositiveType": "TRADEOFF-BLIND"
+      },
+      {
+        "originalTitle": "Stale cache served after scope change when warm cache exists from prior scope",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read use-staged-intelligence-overview.ts lines 82-169. Read shared.ts overviewScopeKey (line 244), cachedPrimaryOverview (line 265), peekIntelligencePrimaryOverview in overview-peek.ts (line 78). Traced the cache key derivation and lookup flow.",
+        "reasoning": "The finding claims that changing profile scope while on a sub-route causes the old scope's data to briefly render. This is incorrect. The cache is keyed by JSON.stringify({ dateRange, profileId }) at shared.ts line 244-248. When the hook runs with new scope parameters (line 92-93), peekIntelligencePrimaryOverview looks up the NEW scope key in the cache, not the old one. If the new scope has never been fetched, the peek returns null, hasPrimaryCache is false, and the hook takes the cold-start path (lines 171-193) which loads fresh data with skeletons. If the user returns to a previously-visited scope, the cached data IS the correct data for that scope (same dateRange + profileId). The finding's description says 'the hasPrimaryCache check on line 92-93 uses the NEW scope parameters to look up the cache' and then concludes stale data from the old scope is served -- but that is self-contradictory. Looking up by the NEW key returns data cached under the NEW key, which is either null (cold start) or the correct cached data for that exact scope. There is no cross-scope contamination.",
+        "falsePositiveType": "PHANTOM"
+      },
+      {
+        "originalTitle": "\"This Week\" card shows all-time totals, not actual weekly data",
+        "originalSeverity": "major",
+        "category": "UX-QUALITY",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read this-week-card.tsx lines 17-25. Read dashboard/index.tsx lines 163-167. Read DashboardSnapshot type in types/archive.ts lines 181-199. Read i18n catalog dashboard.ts lines 127-135. Read design handoff pk-views.jsx lines 131-163. Read screens-and-nav.md line 81.",
+        "reasoning": "Independently confirmed. The DashboardThisWeek component receives totalPages=readyDashboard.totalVisits and totalUrls=readyDashboard.totalUrls (dashboard/index.tsx lines 164-165). DashboardSnapshot.totalVisits and totalUrls (types/archive.ts lines 184-185) are archive-wide cumulative counts, not weekly values. The card title is 'This week' with a 'Week {week}' badge, and the i18n fallback hint says 'the counts below come straight from the archive' -- but labels like 'Pages' and 'New URLs' under a 'This week' heading mislead the user into thinking these are weekly numbers. The design handoff (pk-views.jsx lines 151-155) shows weekly-scoped numbers (1,247 Pages, 14 New domains, 83 Searches, 7 Threads), not archive totals. screens-and-nav.md line 81 explicitly requires Dashboard to 'clearly call out which sections are scoped and which KPIs are still archive-wide'. The i18n hint is too subtle -- a 14.4M all-time count under a 'This week' heading is genuinely misleading. The suggested fix option (a) -- rename to 'Archive overview' and adjust labels -- is the minimal honest approach.",
+        "fixAssessment": "Renaming the card to 'Archive overview' or adding an explicit 'Archive-wide' qualifier to the stat labels would be the minimum honest fix. Wiring real weekly queries is the long-term correct approach per the design handoff."
+      },
+      {
+        "originalTitle": "No frontend enforcement of annotation notes (16 KiB) or tag (64 bytes, 64 count) limits",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "downgraded",
+        "finalSeverity": "suggestion",
+        "verificationMethod": "Read paper-detail-panel.tsx lines 536-604, 294-328. Read annotations.md section 3 (lines 79-83). Checked backend error handling contract.",
+        "reasoning": "The gap exists -- the textarea has no maxLength attribute and the tag input has no length/count validation. However, the severity is overstated for several reasons: (1) The backend enforces hard limits (notes > 16 KiB, tag > 64 bytes, > 64 tags all return errors per annotations.md lines 81-83). (2) The frontend uses optimistic cache but the onUpdateTags callback is a replace-all operation, so a backend rejection would leave the optimistic state inconsistent until the next page load, but the panel already displays an error state (annotationError shown at line 562-568). (3) 16 KiB of text in a notes field is roughly 8,000 English words -- extremely unlikely to hit even with paste. (4) 64 tags per URL is far beyond normal usage. (5) Tag text is lowercased and trimmed (line 295), and duplicate tags are rejected (line 297). The missing frontend validation is a polish item rather than a functional gap that users would realistically encounter.",
+        "fixAssessment": "Adding maxLength={16384} to the textarea is trivial and would be a good hardening step. Tag count validation is also simple. But the backend already prevents data corruption, so this is a suggestion-level UX polish."
+      },
+      {
+        "originalTitle": "Dashboard \"Active Threads\" card links all navigate to /intelligence overview rather than specific thread",
+        "originalSeverity": "major",
+        "category": "GAP",
+        "verdict": "confirmed",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read dashboard/index.tsx line 191. Read active-threads-card.tsx lines 45-50 (interface), lines 172-174 (ThreadRow handler). Verified that onOpenThread accepts flowId but the parent callback discards it.",
+        "reasoning": "Independently confirmed. The dashboard index.tsx line 191 passes `onOpenThread={() => void navigate('/intelligence')}`, which discards the flowId argument. The component interface (line 48) and ThreadRow (line 174) correctly pass flow.flowId, but the parent ignores it. Clicking a specific thread row is functionally identical to clicking 'See all'. However, I am downgrading from major to minor because: (1) The /intelligence route is the correct destination -- the user lands on the intelligence overview which contains the same path-flow data. (2) There is no existing deep-link route like /intelligence/trail/:trailId or /intelligence/flow/:flowId implemented in the app router. The finding suggests navigating to a specific thread route, but no such route exists yet. (3) The user still gets to the relevant page -- they just don't get auto-scrolled to the specific thread. This is a missing convenience, not a broken workflow.",
+        "fixAssessment": "A proper fix would require first implementing a deep-link route or query parameter for specific path flows in the intelligence route, then threading the flowId through. This is a feature gap, not a bug in existing behavior."
+      },
+      {
+        "originalTitle": "Dashboard 'This Week' card shows aggregate counts without actionable drill-down",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "tradeoff",
+        "finalSeverity": "suggestion",
+        "verificationMethod": "Read dashboard/index.tsx lines 163-168. Read this-week-card.tsx full file. Read screens-and-nav.md line 135. Checked other dashboard cards (On This Day, Year Heatmap) for comparison.",
+        "reasoning": "The This Week card is indeed informational-only without drill-down CTAs. screens-and-nav.md line 135 says dashboard intelligence quick actions must go to Explorer, Assistant, Intelligence. However, this is a deliberate trade-off in the current implementation: the card is explicitly a fallback state ('Configure a local LLM to generate a weekly editorial summary') that exists because the LLM summary feature is not yet available (v0.3 scope, see WORK-AI-V03-A blocked in BACKLOG). The card's fallback hint text ('For now, the counts below come straight from the archive -- no inference') is transparent about this being a placeholder. Other dashboard cards (On This Day with onOpenEntry, Year Heatmap with onSelectDate) already provide drill-down patterns. The This Week card's lack of drill-down is consistent with it being a placeholder for a future LLM-generated surface. Adding a CTA while the core semantic (weekly scope) is not yet wired would compound the existing all-time-vs-weekly confusion identified in finding #3.",
+        "fixAssessment": "Adding a 'See this week in Explorer' CTA would be a nice polish, but should wait until the all-time-vs-weekly data confusion (finding #3) is resolved first, otherwise the CTA would link to a view that does not match the card's displayed data."
+      },
+      {
+        "originalTitle": "readRequestCache and overviewCache grow without eviction",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Compared this finding against finding #1 in the same batch. Both cite the same file (shared.ts) and same lines (27-85, 242-262). Verified BACKLOG.md WORK-REVIEW-0612-FOLLOWUPS-A line 581.",
+        "reasoning": "This is a duplicate of finding #1 in this same batch. Both findings cite src/lib/core-intelligence/api/shared.ts and describe unbounded growth of readRequestCache and overviewCache. Finding #1 covers lines 27-28, 242; this finding covers lines 27-85, 242-262. The description is identical in substance. The suggested fix even references BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A, acknowledging the issue is already tracked. Duplicate findings should not be counted twice.",
+        "falsePositiveType": "PHANTOM"
+      }
+    ]
+  },
+  {
+    "batchId": "VB-3",
+    "batchName": "Trust Surfaces (Settings/Security/Import)",
+    "totalFindings": 8,
+    "verdictSummary": {
+      "confirmed": 3,
+      "dismissed": 2,
+      "downgraded": 2,
+      "tradeoff": 1
+    },
+    "verdicts": [
+      {
+        "originalTitle": "schedule/index.tsx at 1308 lines exceeds 1200-line review threshold",
+        "originalSeverity": "major",
+        "category": "ARCH-SMELL",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read BACKLOG.md line 493 for WORK-SCHEDULE-PAGE-MAINT-A, verified schedule/index.tsx is exactly 1308 lines via wc -l, confirmed AGENTS.md threshold rules",
+        "reasoning": "The file is indeed 1308 lines, exceeding the 1200-line review threshold. However, this is already explicitly tracked as WORK-SCHEDULE-PAGE-MAINT-A in BACKLOG.md (line 493), marked as blocked waiting for a dedicated frontend maintainability window. The BACKLOG entry even notes the planned extraction of state-panel components into separate owner files. WORK-V03-PAPER-REMAINING-ROUTES-INNER closeout explicitly deferred Schedule state panels, noting they 'belong to the larger WORK-SCHEDULE-PAGE-MAINT-A maintainability sweep that needs to extract the state-panel components out of the route before reskinning.' This is a known, tracked, deliberately deferred item -- not a missed defect. The finding's tr field itself says 'yes'. AGENTS.md says files >1200 lines require adding a maintainability task to BACKLOG -- which was done."
+      },
+      {
+        "originalTitle": "Hardcoded English strings for backend degradation note matching in App Lock",
+        "originalSeverity": "major",
+        "category": "I18N",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read src/pages/settings/app-lock-section.tsx lines 296-315, compared with src/pages/security/helpers.ts lines 46-84 (localizeSecurityWarning pattern)",
+        "reasoning": "The finding is partially correct: the code at lines 298-305 does use exact-match English string comparison, which is more fragile than the security/helpers.ts pattern that uses both exact match AND substring fallback. However, the severity is overstated. The two matched strings ('App Lock only protects...' and 'Touch ID is available...') are stable backend constants that have not changed, and the fallback (line 305) passes through the raw English string -- the user would still see informational text, not broken UI or missing content. This is an i18n hygiene issue and code consistency issue, not a major bug. The pattern works correctly for the two known backend messages. The real risk is only if the backend adds a new degradation note in a future version, which would fall through raw -- a minor gap, not a major one. Downgrading to minor because the existing known messages ARE localized and the fallthrough is a display quality issue for hypothetical future messages."
+      },
+      {
+        "originalTitle": "Hardcoded English strings for backend retention warning matching",
+        "originalSeverity": "major",
+        "category": "I18N",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read src/pages/settings/retention-section.tsx lines 183-203, compared with security/helpers.ts pattern",
+        "reasoning": "Same pattern as the App Lock finding. The code at lines 185-192 uses exact-match English string comparison for two known retention warnings, with a raw fallthrough for unknown warnings. This is the same fragility as app-lock-section.tsx -- neither uses the substring-fallback approach from security/helpers.ts. Both known warning strings ARE localized correctly. The risk is limited to hypothetical future backend messages that would fall through raw. This is a code hygiene / consistency issue across the codebase's localization approach, not a major functional bug. Both this and the app-lock finding should be addressed together as a single cleanup pass to adopt the localizeSecurityWarning pattern consistently. Downgrading to minor."
+      },
+      {
+        "originalTitle": "security-step.tsx imports from legacy backend module instead of backend-client",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "confirmed",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read security-step.tsx line 8, grep for backend imports across all onboarding files, compared legacy backend.keyringStatus vs backend-client.keyringStatus implementations",
+        "reasoning": "The finding is factually correct: security-step.tsx imports from '../../lib/backend' (legacy) while the parent onboarding/index.tsx and all other onboarding modules import from '../../lib/backend-client'. AGENTS.md states backend.ts is a legacy/browser-preview fixture surface. However, categorizing this as 'BUG' with major severity is an overstatement. Both `backend.keyringStatus()` (legacy, line 282 of backend.ts) and `backend.keyringStatus` (backend-client/index.ts line 106 -> securityClient.getKeyringStatus at security.ts line 36) invoke the exact same Tauri command `call<KeyringStatusReport>('keyring_status')` with the exact same type parameter. The behavior is identical today and the import surface is covered by tests. This is a code hygiene inconsistency, not a functional bug. The fix is trivial (change the import path) but the impact of not fixing it is near-zero. Confirming as real but at minor severity."
+      },
+      {
+        "originalTitle": "Import confirm button not disabled when an archive-write task is already running",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read shell-data.tsx lines 175-194 (beginArchiveTask), lines 592-639 (runImport), import/index.tsx lines 349-405 (handleImport), wizard-panel.tsx line 436 (button disabled condition)",
+        "falsePositiveType": "PHANTOM",
+        "reasoning": "The reviewer missed the defense-in-depth protection already implemented at the shell level. The system IS protected against parallel archive writes. In shell-data.tsx, `beginArchiveTask()` (line 175-194) checks `findActiveArchiveTask()` and if one is running, it (1) publishes a user-facing notification with the title and a link to /jobs, and (2) returns `{ blockedBy: activeTask }`. The `runImport` function (line 615-616) checks for this return and hands back the blocking task. Back in `handleImport` (line 378-379), the `'kind' in result` check catches this case and returns early. The `finally` block resets `importing` to false. So while the button itself is not disabled at the UI level, clicking it when a task is already running results in: no second import starting, a warning notification appearing, and the UI reverting to its pre-click state. The archive.md spec at line 138 says 'must connect to the existing task and notify the user' -- which is exactly what happens via the notification. The button disabled state would be a UX polish improvement, not a bug fix. The system correctly prevents parallel writes."
+      },
+      {
+        "originalTitle": "AI job retry and cancel handlers silently swallow errors",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read jobs/index.tsx lines 206-226 (AI handlers without catch) vs lines 228-262 (runtime handlers with catch), verified handlePauseChange also lacks catch, confirmed AI job handlers are wired to live UI at lines 732-733",
+        "reasoning": "The finding is independently verified. The `handleReplayAiJob` (lines 206-214) and `handleCancelAiJob` (lines 217-226) functions have try/finally blocks but no catch block. If `backend.replayAiJob()` or `backend.cancelAiJob()` throws, the error propagates as an unhandled promise rejection. The `finally` block clears the action state but the user gets no feedback about what went wrong. Compare with `handleRetryRuntimeJob` (lines 228-243) and `handleCancelRuntimeJob` (lines 246-262) immediately below, which both have proper catch blocks that call `describeError()` and `setPageError()`. These handlers ARE wired to live UI elements (lines 732-733 in the JobPanel component). Even though AI features are currently v0.3-deferred, the code paths exist and could be exercised. The inconsistency is a genuine error-handling gap. I also note that `handlePauseChange` (lines 195-204) has the same missing-catch pattern, so the issue is broader than just AI handlers. Confirming at major because silent error swallowing in user-facing mutation handlers is a real defect."
+      },
+      {
+        "originalTitle": "Schedule page at 1,308 lines exceeds 1,200-line review threshold",
+        "originalSeverity": "major",
+        "category": "ARCH-SMELL",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Compared with finding #1 in this same batch, checked BACKLOG.md line 493 for WORK-SCHEDULE-PAGE-MAINT-A",
+        "falsePositiveType": "FEATURE-FICTION",
+        "reasoning": "This is a duplicate of finding #1 in the same batch. Both findings cite the same file (src/pages/schedule/index.tsx), the same line range (1-1308), the same category (ARCH-SMELL), and describe the same problem. Finding #1 was already addressed above as a deliberate tradeoff tracked in BACKLOG.md under WORK-SCHEDULE-PAGE-MAINT-A. This second instance adds no new information and should be dismissed as a duplicate. The description even references the same BACKLOG entry."
+      },
+      {
+        "originalTitle": "Assistant, Audit, and Security pages still use legacy page-shell / panel CSS classes, breaking paper aesthetic continuity",
+        "originalSeverity": "major",
+        "category": "DESIGN-DRIFT",
+        "verdict": "confirmed",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read assistant/index.tsx lines 323-419, audit/index.tsx lines 376-434, grep for page-shell/panel-header/panel-body in both files, checked BACKLOG WORK-V03-PAPER-REMAINING-ROUTES closeout notes and WORK-V03-PAPER-REMAINING-ROUTES-INNER scope",
+        "reasoning": "The finding is factually correct: both Assistant and Audit pages use v0.2 CSS patterns (page-shell, panel-header, panel-body, etc.) while the rest of the app has migrated to the paper aesthetic. I verified: audit/index.tsx has 11 instances of legacy CSS classes; assistant/index.tsx uses page-shell at lines 323, 340, 360, 419 and panel/panel-header/panel-body at lines 382-395. However, the severity should be minor, not major, for two reasons. First, the WORK-V03-PAPER-REMAINING-ROUTES closeout explicitly says 'Inner sub-section / step component / state-panel chrome still v0.2 per route -- that is a deeper Phase 3-shaped sweep.' The inner panel sweep (WORK-V03-PAPER-REMAINING-ROUTES-INNER) covered Security, Onboarding, and Jobs but did not scope Audit or Assistant -- those were not forgotten, they were outside the defined scope. Second, the Assistant page is explicitly v0.3-deferred (AI features disabled), so its visual consistency is lower priority. The Audit page is more visible but functionally correct. This is a known design-drift gap to address in a future paper sweep, not a major blocking issue. The Security page claim is wrong -- Security panels WERE migrated in commit cc33a92 per the BACKLOG closeout. The finding incorrectly includes Security."
+      }
+    ]
+  },
+  {
+    "batchId": "VB-4",
+    "batchName": "Rust Core (Archive + Ingest)",
+    "totalFindings": 7,
+    "verdictSummary": {
+      "confirmed": 1,
+      "dismissed": 2,
+      "downgraded": 2,
+      "tradeoff": 2
+    },
+    "verdicts": [
+      {
+        "originalTitle": "visit_event_fingerprint uses Chrome-epoch timestamp for Firefox and Safari visits",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read writes.rs:220-248, the visit_event_fingerprint function at archive/mod.rs:360-377, and the fingerprint_is_family_agnostic_within_backup_writer test at writes.rs:516-587. Also read the doc comment at writes.rs:220-240 and the import-dedup-audit.md dedup key documentation.",
+        "reasoning": "The reviewer's description is technically accurate -- the fingerprint uses Chrome-epoch timestamps for all browser families -- but this is an explicitly documented, intentionally designed, and test-pinned behavior, not a bug. The doc comment at writes.rs:220-240 explains: source_kind is hardcoded to 'chromium-history' for all browser families, the fingerprint partial unique index is scoped per source_profile_id, and cross-flow fingerprint matching is explicitly NOT a contract. The fingerprint_is_family_agnostic_within_backup_writer test at writes.rs:516-587 specifically pins this as desired behavior: all families must produce the same fingerprint so that re-imports of the same browser profile deduplicate correctly. The Chrome-epoch conversion is a deterministic bijection of the canonical visit_time_ms, so it produces unique, stable hashes. Using Unix milliseconds instead would change all existing fingerprints, breaking dedup for anyone who re-imports after the change. The suggested fix would introduce a far worse problem (dedup failure on existing archives) than the cosmetic inelegance of using Chrome epoch for non-Chrome visits.",
+        "fixAssessment": "No fix needed. The current design is intentional and test-pinned. The suggested fix (switching to Unix milliseconds) would break dedup on existing archives.",
+        "falsePositiveType": "TRADEOFF-BLIND"
+      },
+      {
+        "originalTitle": "archive/tests.rs at 3,473 lines far exceeds the 1,400-line hard limit",
+        "originalSeverity": "major",
+        "category": "ARCH-SMELL",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Ran wc -l on tests.rs (confirmed 3,473 lines). Checked BACKLOG.md for WORK-ARCHIVE-TEST-MAINT-A at line 502. Checked AGENTS.md file-size rules.",
+        "reasoning": "The line count is real (confirmed at 3,473 lines), and it does exceed the 1,400-line limit from AGENTS.md. However, this is already explicitly tracked in BACKLOG as WORK-ARCHIVE-TEST-MAINT-A (line 502), which is marked [!blocked: schedule a dedicated archive test-suite maintainability window]. The BACKLOG entry was created on 2026-05-07 (per the note at BACKLOG line 38) when the file reached 3,272 lines. The AGENTS.md rule for >1,400-line files says 'only bug fix or minimal changes, no new business logic' -- but this is a test file, not production code with business logic. AGENTS.md's file-size rules are about maintainability of production business logic; test files that are integration regression suites have a different cost/benefit profile. The finding is valid in that the file is large, but the severity is overstated because: (1) it is already tracked, (2) it is a test file not production code, and (3) the blocked status reflects a deliberate scheduling decision.",
+        "fixAssessment": "Already tracked as WORK-ARCHIVE-TEST-MAINT-A in BACKLOG. No new action needed beyond what is already planned.",
+        "falsePositiveType": "FEATURE-FICTION"
+      },
+      {
+        "originalTitle": "url_last_visit_marker stores mixed-unit watermarks without documenting the unit per family",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "tradeoff",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read ingest/mod.rs:322-344, specifically the url_last_visit_marker function and its doc comment at lines 323-335.",
+        "reasoning": "The code at mod.rs:322-344 does exactly what the finding describes: Chromium watermarks are Chrome-epoch microseconds while Firefox/Safari watermarks are Unix milliseconds. However, the finding's own description acknowledges the comment already documents this as a known limitation ('The comment already documents this as a known limitation'). The doc comment at lines 323-335 is quite thorough: it explains why the Chromium path uses native timestamps (sub-ms precision preservation), why Firefox/Safari fall through to last_visit_ms (parsers don't expose source_last_visit_marker yet), and explicitly says 'Tracking separately so the watermark unit change for those parsers can ship with a one-shot migration of stored cursors.' The watermark is always compared against the same browser family's source DB (Chromium watermarks compare against Chrome's last_visit_time, Firefox watermarks against moz_places.last_visit_date in Unix milliseconds), so cross-family comparison never happens. This is a documented, tracked trade-off awaiting the migration infrastructure, not an undocumented gap.",
+        "fixAssessment": "The code already documents the trade-off inline and tracks the migration path. Adding a watermark_unit column would be premature before the Firefox/Safari parsers expose source_last_visit_marker.",
+        "falsePositiveType": "TRADEOFF-BLIND"
+      },
+      {
+        "originalTitle": "INNER JOIN silently drops orphaned visits across all three local-browser parsers",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read chromium/mod.rs:106-112 (Chromium visits JOIN), firefox/mod.rs:76-79 (Firefox visits JOIN), safari/mod.rs:529 (Safari visits JOIN). Checked import-dedup-audit.md for any mention of orphaned visits. Checked BACKLOG for related entries.",
+        "reasoning": "The INNER JOIN behavior is technically correct for the stated purpose: all three parsers use INNER JOINs to retrieve visits with their URL data. The finding argues orphaned visits (visits whose parent URL was deleted) would be silently dropped. However: (1) Browser databases maintain referential integrity through their own internal processes -- orphaned visits in a well-formed browser DB are extremely rare and would only occur in a corrupted database. (2) An orphaned visit has no URL, no title, no meaningful navigational context -- archiving it as a 'visit to unknown URL' provides near-zero archival value. (3) A LEFT JOIN approach would require handling NULL URLs throughout the entire ingest pipeline (ParsedUrl, url_id_map, canonical_urls table), significantly increasing complexity for a scenario that is both extremely unlikely and low-value. (4) The product positions itself as archiving browser history, not as a forensic database recovery tool for corrupted DBs. The finding conflates 'completeness in the face of corruption' with 'silent data loss on valid source rows', but orphaned visits in a corrupted DB are not valid source rows in the domain sense. Downgrading to minor because while a diagnostic warning count would be a nice-to-have, changing the JOIN type would be a REVERSE-OPT.",
+        "fixAssessment": "The diagnostic count query suggestion (comparing total visits vs joined visits) is reasonable as a low-priority enhancement, but changing to LEFT JOIN would introduce unnecessary complexity for near-zero benefit.",
+        "falsePositiveType": "REVERSE-OPT"
+      },
+      {
+        "originalTitle": "Safari URL query uses correlated subqueries that scan history_visits per URL row",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read safari/mod.rs:24-58 for the full URLS_SQL query. Checked the Safari fixture schema at browser-history-fixtures/src/safari/mod.rs for indexes. Found history_visits_item_index ON history_visits(history_item) at line 203. Checked whether Safari has a URLS_FULL_SQL first-import path (it does not -- confirmed via grep).",
+        "reasoning": "The finding claims the correlated subqueries trigger 'a full scan of history_visits rows for each URL, making the query O(URLs * Visits)'. This is incorrect. Safari's History.db schema includes CREATE INDEX history_visits_item_index ON history_visits(history_item) -- an index on the exact column used in all four correlated subqueries' WHERE clauses (history_visits.history_item = history_items.id). With this index, each correlated subquery is an index-seek O(log N + K) where K is the number of visits for that specific URL, not a full table scan. The total cost is O(URLs * (log(Visits) + avg_visits_per_url)), which for typical Safari usage (where most URLs have 1-5 visits) is effectively O(URLs * log(Visits)). This is NOT O(URLs * Visits) as claimed. Furthermore: (1) Safari does not maintain pre-materialized visit_count/last_visit_time on history_items because Apple designed the schema differently from Chrome -- the parser must compute these values somehow. (2) A GROUP BY JOIN rewrite would produce essentially the same query plan given the index. (3) The claim about 14.4M visits hitting Safari is unrealistic -- the 14.4M design ceiling is the total archive across ALL browsers over 60 years; a single Safari History.db is limited by Safari's own retention policy (typically weeks to months of data). The missing URLS_FULL_SQL first-import path is a separate concern (noted) but does not make this a major perf risk.",
+        "fixAssessment": "No fix needed. The correlated subqueries use indexed lookups, not full scans. The performance characteristics are acceptable for Safari's real-world database sizes.",
+        "falsePositiveType": "PHANTOM"
+      },
+      {
+        "originalTitle": "Takeout stable_key_i64 hash function has high collision risk at scale",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read takeout/browser_history.rs:471-480, import-dedup-audit.md section B5 (lines 159-183), BACKLOG WORK-IMPORT-SCALE-TEST-A (line 96-103). Verified the hash function logic: hex-encode input bytes then fold with wrapping_mul(31).wrapping_add(byte). The audit doc explicitly calls this collision-prone with a birthday-paradox analysis.",
+        "reasoning": "This finding is independently confirmed. The stable_key_i64 function at browser_history.rs:471-480 uses a Java-style polynomial hash: it hex-encodes the input (doubling its length for no benefit), then folds with wrapping_mul(31).wrapping_add(byte as i64). The import-dedup-audit.md section B5 (line 159+) independently confirms this is a real bug with the same analysis: 'Java-style polynomial hash, folded over hex-encoded bytes... birthday collisions on a degenerate 31-bit-effective hash will hit before 2^15.5 ~ 47k records.' The collision effects are real: same source_url_id causes visits to attach to wrong URLs, same source_visit_id causes silent visit drops via INSERT OR IGNORE. This is already tracked as WORK-IMPORT-SCALE-TEST-A in BACKLOG (line 96), marked [!blocked: needs million-record fixture infrastructure + benchmark tooling]. The finding is a genuine, documented bug that the project team already identified.",
+        "fixAssessment": "Already tracked as WORK-IMPORT-SCALE-TEST-A in BACKLOG. The fix should replace the hash with SipHash or FNV-1a mapped to i64, and remove the redundant hex-encoding step."
+      },
+      {
+        "originalTitle": "Firefox optional-table SELECT * is vulnerable to schema changes and uses format! for table name",
+        "originalSeverity": "minor",
+        "category": "GAP",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read firefox/mod.rs:318-339 and safari/mod.rs:370-389. Read observation.rs:15-41 for inspect_schema. Checked what required_tables each parser passes (firefox: moz_places/moz_historyvisits; safari: history_items/history_visits).",
+        "reasoning": "The finding has two sub-claims, both of which fail on closer inspection. (1) 'SELECT * is vulnerable to schema changes': This is a feature, not a bug. The SELECT * is used in the optional-table capture path (moz_inputhistory, moz_places_metadata, etc.), whose entire purpose is cold native-entity preservation -- capturing the complete row as-is for source evidence. The finding itself acknowledges this ('This is acceptable for cold native-entity preservation'). Using explicit column lists would defeat the purpose: if Firefox adds a new column to moz_inputhistory, the parser would silently ignore it instead of preserving it. (2) 'Should feed discovered columns into schema observation': The optional tables are NOT in the required_tables list because they are optional -- they may or may not exist. The inspect_schema function at observation.rs:15-41 already observes ALL tables in the database (line 19-27: iterates all table_names), not just required ones. The optional tables' columns are already observed in the schema observation output. The suggestion to add them to required_tables would cause parse failures when they are absent, which contradicts the 'optional' semantics. (3) The format! for table names comes from a hardcoded list (moz_inputhistory, moz_places_metadata, moz_places_metadata_search_queries for Firefox; history_tombstones, history_tags, history_items_to_tags for Safari) -- the finding correctly notes SQL injection is not a risk.",
+        "fixAssessment": "No fix needed. SELECT * is the correct choice for cold native-entity preservation. The schema observation already captures optional table columns. Adding optional tables to required_tables would break the parser when they are absent.",
+        "falsePositiveType": "PHANTOM"
+      }
+    ]
+  },
+  {
+    "batchId": "VB-5",
+    "batchName": "Platform + Bridge + Performance Critical",
+    "totalFindings": 8,
+    "verdictSummary": {
+      "confirmed": 4,
+      "dismissed": 1,
+      "downgraded": 2,
+      "tradeoff": 1
+    },
+    "verdicts": [
+      {
+        "originalTitle": "archive_flows.rs exceeds the 1400-line hard limit at 1845 lines",
+        "originalSeverity": "major",
+        "category": "ARCH-SMELL",
+        "verdict": "tradeoff",
+        "finalSeverity": "suggestion",
+        "verificationMethod": "Counted lines with wc -l (confirmed 1845 lines), checked BACKLOG.md and CHANGELOG.md for existing tracking, checked AGENTS.md 1400-line rule.",
+        "reasoning": "The file is indeed 1845 lines, exceeding the 1400-line hard limit. However, this is already a known and tracked issue. The BACKLOG entry WORK-REVIEW-0612-FOLLOWUPS-A (line 567-583) already explicitly catalogs intelligence-related scale issues including those in archive_flows.rs. The STATUS.md closeout note (line 53) records that the og_images_fetch.rs and archive_flows.rs coverage residuals were previously closed with focused helper extraction (drain_one_worker_url, record_refetch_outcome, finalize_refetch_run, lock_or_recover). The file contains approximately 850 lines of tests. Per AGENTS.md, the file should only receive bug fixes -- and that constraint IS being respected as far as visible in recent commits. The finding is factually correct but is a deliberate tracked deferral, not an overlooked defect. Downgraded to suggestion since the tracking already exists.",
+        "fixAssessment": "The suggested extraction of og:image worker pool helpers is reasonable and aligns with the existing BACKLOG tracking. However, it should be done as a dedicated maintainability window per AGENTS.md's two-stage large-file refactoring rule, not as a drive-by fix."
+      },
+      {
+        "originalTitle": "worker_args[1..] slice can panic if worker_args is empty",
+        "originalSeverity": "major",
+        "category": "BUG",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read windows.rs line 93, linux.rs line 36, scheduler.rs lines 46-51 (the caller), and macos.rs lines 195-209 (the macOS handler that does guard correctly).",
+        "reasoning": "The finding is technically correct: both windows.rs (line 93: `worker_args[1..].join(\" \")`) and linux.rs (line 36: `worker_args[1..].join(\" \")`) index into worker_args without a guard. An empty slice would panic. However, the reviewer acknowledges that the single caller in scheduler.rs always constructs worker_args with 4 elements (lines 46-51: executable_path, '--worker', 'backup', '--due-only'). The function signatures are private (`pub(super)`) so they cannot be called from outside the scheduler module. The macOS handler does include a guard (lines 205-208), which shows awareness of the issue. This is a defensive programming gap, not a runtime bug. The panic cannot be triggered through any existing code path. A debug_assert would be appropriate, but this is minor severity, not major.",
+        "fixAssessment": "Adding `debug_assert!(!worker_args.is_empty())` or the suggested guard is a good defensive practice. The macOS handler already demonstrates the pattern. However, calling this 'major' overstates the risk since the functions are pub(super) with a single caller that always provides a 4-element vec."
+      },
+      {
+        "originalTitle": "Linux schedule plan does not implement status detection or repair",
+        "originalSeverity": "suggestion",
+        "category": "GAP",
+        "verdict": "dismissed",
+        "finalSeverity": "dismissed",
+        "verificationMethod": "Read linux.rs (152 lines, pure string generation), scheduler.rs lines 108-126 (install_state and warning messages), linux.rs doc header (lines 1-16 explicitly documenting 'Not responsible for: Running systemctl / Detecting installed Linux timers').",
+        "reasoning": "This is a textbook FEATURE-FICTION / TRADEOFF-BLIND false positive. The linux.rs module header (lines 8-9) explicitly documents: 'Not responsible for: Running systemctl. Detecting installed Linux timers.' The scheduler facade (line 111) deliberately returns 'manual-review' for Linux with an explicit warning message (line 126): 'Automatic install-status detection is only implemented on macOS in v1. Use the manual verification steps for this platform.' Line 220 in tests asserts `!linux.apply_supported`. This is a documented, intentional, version-scoped design decision -- not an oversight. The finding itself is marked 'tr: yes' (tradeoff) by the reviewer, and the severity is already 'suggestion', so the reviewer partially acknowledged this. But given the explicit documentation in the code, the appropriate verdict is dismissed -- this is working exactly as designed and documented.",
+        "falsePositiveType": "FEATURE-FICTION + TRADEOFF-BLIND: The asymmetry is explicitly documented in code headers, scheduler facade warning messages, and test assertions. This is a v1-scoped intentional decision."
+      },
+      {
+        "originalTitle": "36 synchronous Core Intelligence read commands run on the Tauri main thread",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read core.rs lines 1-200 (all 37 commands are sync fn, not async fn), confirmed runtime.rs lines 85-173 use async fn + run_blocking_command for the same kind of work, read blocking.rs which documents its purpose as 'avoid blocking the Tauri UI thread', counted commands with grep (37 sync commands in core.rs).",
+        "reasoning": "The finding is confirmed. All commands in core.rs are defined as synchronous `fn` (not `async fn`), which means in Tauri 2 they execute on the main thread. The runtime.rs module in the same intelligence directory explicitly uses `async fn` + `run_blocking_command` (which wraps `async_runtime::spawn_blocking`) for its overview/runtime reads, with the doc comment (line 22-23) stating: 'Overview/runtime reads can touch derived SQLite state, so they must remain off the Tauri UI thread.' The blocking.rs helper (line 1-4) is documented as 'Shared helpers for command handlers that must avoid blocking the Tauri UI thread.' The archive.rs commands also use run_blocking_command. The inconsistency is clear: core.rs commands perform the same kind of SQLite reads but lack the async wrapper. Under the 14.4M-row design ceiling this is a real performance risk. The count is 37 (not 36), but the severity assessment is correct.",
+        "fixAssessment": "Converting to async fn + run_blocking_command is the correct fix and follows the established pattern in runtime.rs and archive.rs. The worker_bridge functions can remain synchronous."
+      },
+      {
+        "originalTitle": "Regex recall path materializes entire visits table into memory",
+        "originalSeverity": "critical",
+        "category": "PERF-RISK",
+        "verdict": "confirmed",
+        "finalSeverity": "critical",
+        "verificationMethod": "Read history.rs lines 461-525. Confirmed line 486 passes `:pageLimit = -1` (unbounded), line 492 calls `.collect::<rusqlite::Result<Vec<_>>>()` materializing all rows, then line 494-498 filters with regex, then line 522 takes a page slice.",
+        "reasoning": "The finding is independently confirmed. The code at line 486 sets `:pageLimit: -1i64` which tells SQLite to return all rows with no limit. Line 492 collects ALL rows into a Vec in memory. Lines 494-498 then filter with the regex. Line 522 finally takes a page-sized slice. This means for a 14.4M-row archive, every regex search allocates a Vec containing all visible visits before any filtering happens. This is already tracked in BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A (line 577) which calls out 'History regex recall unbounded: list_history_with_regex binds :pageLimit = -1 then full-materializes then filters'. The fact that it is tracked does not diminish the severity -- this is a genuine OOM/hang risk at the design-ceiling scale. The suggested bounded scan approach is sound.",
+        "fixAssessment": "The bounded candidate scan with batch streaming is the right approach. Already tracked in BACKLOG line 577 with explicit acknowledgment of the issue."
+      },
+      {
+        "originalTitle": "Unbounded visit_ids Vec in refind-page structural aggregate accumulator",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read intelligence_structural_aggregates.rs line 51 (visit_ids: Vec<i64> in RefindAccumulatorEntry), line 412 (entry.visit_ids.push(visit.visit_id) -- unbounded push in accumulation loop), line 479 (\"visitIds\": entry.visit_ids serialized into evidence_json).",
+        "reasoning": "The finding is confirmed. Line 51 defines `visit_ids: Vec<i64>` with no capacity bound. Line 412 pushes every visit_id unconditionally during accumulation. Line 479 serializes the entire vector into JSON evidence. For a popular page visited daily over 20 years (the 14.4M-row design ceiling scenario), a single page could accumulate hundreds of thousands of visit IDs. This is already tracked in BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A (line 571): 'structural rebuild accumulator visit_ids: Vec<i64> and evidence_json visitIds are unbounded.' The UI drilldown likely only needs a sample of visit IDs, not all of them. The suggested cap at ~50 most recent with a totalVisitCount integer field is a reasonable fix.",
+        "fixAssessment": "Capping at a sample size (e.g., 50 most recent) plus a totalVisitCount is the right approach. The evidence JSON only needs enough IDs for UI drill-down. Already tracked in BACKLOG."
+      },
+      {
+        "originalTitle": "Offset-based pagination used when numbered pages are requested",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "downgraded",
+        "finalSeverity": "minor",
+        "verificationMethod": "Read history.rs lines 583-610 (lexical search path) and 788-803 (main list path). Confirmed OFFSET :pageOffset is used when requested_page.is_some(). Read paper-contact-sheet pagination model and explorer URL state to understand how pagination is actually used.",
+        "reasoning": "The finding is technically correct: when requested_page.is_some(), the code uses OFFSET-based pagination (lines 789-790, 584-585) instead of keyset/cursor pagination. However, the severity is overstated for several reasons. First, the reviewer's own example ('page 500 of a 14.4M archive, scanning ~25,000 rows') actually understates the cost -- SQLite OFFSET N discards N rows, so page 500 with 50 rows/page means scanning 25,000 rows, which with an index is still fast (sub-100ms on a 4-core machine). The real concern starts at page 10,000+ which would scan 500,000+ rows. Second, the paper redesign (v0.3) moved the Explorer to an infinite-scroll contact sheet model that does NOT use numbered pages -- it uses cursor-based pagination (the requested_page.is_none() path). The numbered page path exists for API backward compatibility but is not the primary UI flow. Third, the finding itself marks this as a tradeoff (tr: yes). The issue is real but the severity should be minor given that the primary UI path already uses cursors.",
+        "fixAssessment": "The suggested keyset translation approach is technically sound but adds complexity for a code path that is not the primary UI flow. A simpler approach would be to cap the maximum requestable page number. The primary infinite-scroll path already uses cursor-based pagination correctly."
+      },
+      {
+        "originalTitle": "load_visible_visits materializes all profile visits for scoped-debug rebuild",
+        "originalSeverity": "major",
+        "category": "PERF-RISK",
+        "verdict": "confirmed",
+        "finalSeverity": "major",
+        "verificationMethod": "Read intelligence_visit_records.rs lines 38-76 (load_visible_visits and trim_visits_to_limit), intelligence_rebuild.rs line 284 (caller with limit parameter). Confirmed the SQL has no LIMIT clause, rows are collected into Vec first (line 63), then trim_visits_to_limit (line 65) calls split_off after full materialization.",
+        "reasoning": "The finding is confirmed. The SQL query at lines 43-61 has no LIMIT clause -- it always fetches ALL visible visits for the profile. Line 63 collects all rows into a Vec. Only then does trim_visits_to_limit (lines 68-76) use split_off to keep the last N entries. This means the entire visits table for a profile is materialized in memory even when only a small subset is needed. The caller at intelligence_rebuild.rs:284 passes request.limit, but the limit is applied AFTER full materialization. This is already tracked in BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A (line 573): 'scoped-debug rebuild limit materializes + classifies before trimming.' The fix is straightforward: push LIMIT into the SQL as ORDER BY ... DESC LIMIT ?2, then reverse in Rust. The scoped-debug path is described as a 'legacy' fallback (line 265-266: 'Preserves the accepted scoped-debug rebuild behavior'), but it is still callable and represents a real OOM risk on a 14.4M-row archive.",
+        "fixAssessment": "Pushing the LIMIT into the SQL ORDER BY ... DESC LIMIT ?2 and reversing in Rust is the correct fix. The existing batched load_profile_derived_visit_batch path already demonstrates the bounded pattern. Already tracked in BACKLOG."
+      }
+    ]
+  }
+]

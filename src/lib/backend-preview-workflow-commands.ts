@@ -244,19 +244,17 @@ export function handlePreviewWorkflowCommand<T>(
         checks: [
           {
             name: 'import-artifacts',
-            status: state.snapshot.recentImportBatches.length ? 'ok' : 'info',
-            message: state.snapshot.recentImportBatches.length
+            ok: state.snapshot.recentImportBatches.length > 0,
+            detail: state.snapshot.recentImportBatches.length
               ? 'Import batch audit artifacts are present and reviewable.'
               : 'No import batches have been created yet.',
           },
           {
             name: 'visibility-state',
-            status: state.snapshot.recentImportBatches.some(
+            ok: !state.snapshot.recentImportBatches.some(
               (batch) => batch.status === 'reverted',
-            )
-              ? 'warning'
-              : 'ok',
-            message: state.snapshot.recentImportBatches.some(
+            ),
+            detail: state.snapshot.recentImportBatches.some(
               (batch) => batch.status === 'reverted',
             )
               ? 'One or more batches are reverted. Verify downstream read models after restore.'

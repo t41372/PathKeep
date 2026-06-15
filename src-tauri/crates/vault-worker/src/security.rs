@@ -233,19 +233,30 @@ pub fn load_app_lock_status() -> Result<AppLockStatus> {
 }
 
 /// Configures an App Lock passcode and returns the updated lock status.
+///
+/// Routed through `load_unlocked_config` so the passcode can only be set or
+/// changed from an unlocked session. Otherwise an actor with IPC access could
+/// overwrite the passcode with a known value while the app is locked — without
+/// proving knowledge of the current one — and then unlock. (Initial setup still
+/// works: when no lock is enabled yet, the unlock check is a no-op.)
 pub fn configure_app_lock_passcode(
     request: &vault_core::SetAppLockPasscodeRequest,
 ) -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
-    let mut config = load_hydrated_config(&paths)?;
+    let mut config = load_unlocked_config(&paths)?;
     set_app_lock_passcode(&paths, &mut config, request)?;
     resolved_app_lock_status(&paths, &config)
 }
 
 /// Clears the App Lock passcode and returns the updated lock status.
+///
+/// Routed through `load_unlocked_config` so the lock cannot be removed while the
+/// session is locked (which would otherwise bypass the lock without the
+/// passcode). Recovering a *forgotten* passcode is an explicit out-of-band flow,
+/// not this normal-path mutation.
 pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
-    let mut config = load_hydrated_config(&paths)?;
+    let mut config = load_unlocked_config(&paths)?;
     clear_app_lock_passcode(&paths, &mut config)?;
     resolved_app_lock_status(&paths, &config)
 }

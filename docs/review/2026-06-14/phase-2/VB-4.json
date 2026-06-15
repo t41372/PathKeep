@@ -1,0 +1,82 @@
+{
+  "name": "Rust Core",
+  "items": [
+    {
+      "t": "visit_event_fingerprint uses Chrome-epoch timestamp for Firefox and Safari visits",
+      "s": "major",
+      "c": "BUG",
+      "f": "src-tauri/crates/vault-core/src/archive/ingest/writes.rs",
+      "lr": "241-248",
+      "d": "insert_visit computes event_fingerprint by calling unix_micros_to_chrome_time(visit.visit_time_ms * 1000) for ALL browser families (Chromium, Firefox, Safari), as the source_kind is hardcoded to 'chromium-history'. While the doc comment at line 220-240 explains this is intentional for dedup consistency, the visit_time value fed into the fingerprint hash is a Chrome-epoch microsecond timestamp derived from the Unix millisecond visit_time_ms. For Firefox and Safari, this converts a Unix millisecond timestamp into Chrome epoch space (adding 11644473600000000 microseconds) before hashing. This mea",
+      "sf": "Consider making the fingerprint use the canonical Unix millisecond timestamp directly (visit.visit_time_ms) instead of converting to Chrome epoch first. Since the fingerprint is scoped per source_profile_id and cross-flow matching is explicitly not a contract (as documented), using the canonical tim",
+      "tr": "yes",
+      "src": "FA-ARCHIVE: Rust Archive Core "
+    },
+    {
+      "t": "archive/tests.rs at 3,473 lines far exceeds the 1,400-line hard limit",
+      "s": "major",
+      "c": "ARCH-SMELL",
+      "f": "src-tauri/crates/vault-core/src/archive/tests.rs",
+      "lr": "1-3473",
+      "d": "The archive regression test suite has grown to 3,473 lines, which is more than double the 1,400-line hard limit defined in AGENTS.md. Per project rules, files exceeding 1,400 lines should only receive bug fixes or minimal changes, with no new business logic. This file is a test file, so it does not contain business logic per se, but it still violates the spirit of the maintainability constraint -- understanding and navigating 3,473 lines of test code across mixed concerns (backup, import, rollback, doctor, export, retention, rekey, snapshot restore) is a significant maintenance burden.",
+      "sf": "Already tracked in BACKLOG as WORK-ARCHIVE-TEST-MAINT-A. The two-phase approach (audit then split) defined there is the right strategy. Priority should be elevated given the file has grown since the BACKLOG entry was created.",
+      "tr": "no",
+      "src": "FA-ARCHIVE: Rust Archive Core "
+    },
+    {
+      "t": "url_last_visit_marker stores mixed-unit watermarks without documenting the unit per family",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src-tauri/crates/vault-core/src/archive/ingest/mod.rs",
+      "lr": "322-344",
+      "d": "url_last_visit_marker returns Chrome-epoch microseconds for Chromium profiles but raw Unix milliseconds for Firefox/Safari profiles. Both values are stored in the same profile_watermarks column (last_url_last_visit_time). The watermark is later used in incremental ingest to determine which URLs have changed (WHERE last_visit_time >= ?1). For Chromium this is compared against the source DB's native Chrome-epoch timestamp. For Firefox/Safari, the watermark stores a Unix millisecond value. This means the same watermark column stores fundamentally different units depending on the browser family, b",
+      "sf": "The comment already documents this as a known limitation and mentions tracking it separately for a one-shot migration. Consider adding a watermark_unit or watermark_family column to profile_watermarks to make the unit explicit, or normalize all watermarks to Unix milliseconds.",
+      "tr": "yes",
+      "src": "FA-ARCHIVE: Rust Archive Core "
+    },
+    {
+      "t": "INNER JOIN silently drops orphaned visits across all three local-browser parsers",
+      "s": "major",
+      "c": "BUG",
+      "f": "src-tauri/crates/browser-history-parser/src/chromium/mod.rs",
+      "lr": "106-112",
+      "d": "The Chromium visit ingest query uses `JOIN urls ON urls.id = visits.url`, Firefox uses `JOIN moz_places ON moz_places.id = moz_historyvisits.place_id`, and Safari uses `JOIN history_items ON history_items.id = history_visits.history_item`. All three are INNER JOINs. If a browser database has orphaned visits (visit rows whose parent URL/place/item was deleted by the browser's own retention or a corrupted DB), these visits are silently dropped with no warning, no counter, and no log. For a product that positions itself as a 20-year archival trust tool, silent data loss on valid source rows is a ",
+      "sf": "Change to LEFT JOIN, emit visits with a null/placeholder URL when the parent row is missing, and add a parser warning when orphaned visits are detected. Alternatively, keep INNER JOIN but add a diagnostic count query comparing total visits vs joined visits and surface the difference as a ParserWarni",
+      "tr": "yes",
+      "src": "FA-INGEST: Rust Browser Parser"
+    },
+    {
+      "t": "Safari URL query uses correlated subqueries that scan history_visits per URL row",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src-tauri/crates/browser-history-parser/src/safari/mod.rs",
+      "lr": "24-58",
+      "d": "URLS_SQL contains three correlated subqueries against history_visits for each history_items row: one to get the title (with ORDER BY and LIMIT 1), one for COUNT(*) to compute visit_count, and one for MAX(visit_time) to get last_visit_time, plus another MAX(visit_time) in the WHERE clause. On a Safari History.db with many items and visits (approaching the 14.4M design ceiling), each of these correlated subqueries triggers a full scan of history_visits rows for each URL, making the query O(URLs * Visits). Unlike Chromium/Firefox where visit_count and last_visit_time are pre-materialized on the U",
+      "sf": "Consider rewriting the Safari URL query to use a single GROUP BY join pattern that reduces four per-row scans to one grouped join. Also add a URLS_FULL_SQL path for first imports like Chromium/Firefox have.",
+      "tr": "no",
+      "src": "FA-INGEST: Rust Browser Parser"
+    },
+    {
+      "t": "Takeout stable_key_i64 hash function has high collision risk at scale",
+      "s": "major",
+      "c": "BUG",
+      "f": "src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs",
+      "lr": "471-480",
+      "d": "The stable_key_i64 function is used to generate both source_url_id and source_visit_id for Takeout records. It works by hex-encoding the input bytes and then folding with wrapping_mul(31).wrapping_add(byte). This is essentially a Java-style hashCode() mapped to i64 range. While the i64::MIN corner case is handled, the fundamental algorithm is a weak hash with high collision probability at scale. For 14.4M Takeout records (the design ceiling), the birthday paradox means collisions become likely well before that threshold. A collision on source_visit_id causes INSERT OR IGNORE to silently drop a",
+      "sf": "Already tracked as WORK-IMPORT-SCALE-TEST-A in BACKLOG. The fix should replace the Java-style hash with a proper hash function (e.g., SipHash or FNV-1a mapped to i64), or use a cryptographic hash truncated to i64. The hex-encoding step before folding is also wasteful -- it doubles the input size bef",
+      "tr": "uncertain",
+      "src": "FA-INGEST: Rust Browser Parser"
+    },
+    {
+      "t": "Firefox optional-table SELECT * is vulnerable to schema changes and uses format! for table name",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src-tauri/crates/browser-history-parser/src/firefox/mod.rs",
+      "lr": "322-325",
+      "d": "The optional Firefox table capture uses format!(\"SELECT * FROM {optional_table}\") to construct SQL. While the table names come from a hardcoded list (so SQL injection is not a risk), using SELECT * means the parser will silently consume any new columns Firefox adds in future versions without schema observation or capability tracking. The same pattern exists in Safari (safari/mod.rs:373). The Chromium parser avoids this by using explicit column lists in all its queries.",
+      "sf": "This is acceptable for cold native-entity preservation (the purpose is to capture the full row), but should at minimum feed discovered columns into the schema observation. Consider adding the optional table names to the inspect_schema required_tables list so column shapes are observed.",
+      "tr": "yes",
+      "src": "FA-INGEST: Rust Browser Parser"
+    }
+  ]
+}

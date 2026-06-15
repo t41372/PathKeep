@@ -16,6 +16,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { LoadingState } from '../../components/primitives/loading-state'
@@ -373,26 +379,35 @@ export function AuditPage() {
 
   if (shellLoading && !snapshot) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="audit-page"
+      >
         <LoadingState label={t('audit.loadingLedger')} />
-      </section>
+      </div>
     )
   }
 
   if (shellError && !snapshot) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="audit-page"
+      >
         <ErrorState
           title={t('audit.unavailableTitle')}
           description={shellError}
         />
-      </section>
+      </div>
     )
   }
 
   if (!snapshot?.config.initialized) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="audit-page"
+      >
         <EmptyState
           action={
             <Link className="btn-primary" to="/onboarding">
@@ -403,13 +418,16 @@ export function AuditPage() {
           eyebrow={t('navigation.auditLabel')}
           title={t('audit.emptyLedgerTitle')}
         />
-      </section>
+      </div>
     )
   }
 
   if (snapshot.recentRuns.length === 0) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="audit-page"
+      >
         <EmptyState
           action={
             <button
@@ -426,12 +444,15 @@ export function AuditPage() {
           eyebrow={t('navigation.auditLabel')}
           title={t('audit.noRunsTitle')}
         />
-      </section>
+      </div>
     )
   }
 
   return (
-    <section className="page-shell audit-page" data-testid="audit-page">
+    <div
+      className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+      data-testid="audit-page"
+    >
       {searchParams.get('layout') === 'paper' ? (
         <PaperAuditPanel
           recentRuns={snapshot.recentRuns}
@@ -473,12 +494,12 @@ export function AuditPage() {
         actions={auditHealthActions}
       />
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('audit.filterLabel')}</span>
-          <span className="panel-action">{t('audit.filterDescription')}</span>
-        </div>
-        <div className="panel-body">
+      <PaperCard testId="audit-filter-panel">
+        <PaperCardHeader
+          title={t('audit.filterLabel')}
+          right={<PaperCardBadge>{t('audit.filterDescription')}</PaperCardBadge>}
+        />
+        <PaperCardBody>
           <div className="audit-filter-grid">
             <label className="field-stack">
               <span className="mono-kicker">{t('audit.filterRunType')}</span>
@@ -587,20 +608,20 @@ export function AuditPage() {
             </label>
           </div>
           {filtersLoading ? (
-            <p className="dashboard-next-action">{t('audit.filtersLoading')}</p>
+            <p className="mono-support">{t('audit.filtersLoading')}</p>
           ) : null}
-        </div>
-      </div>
+        </PaperCardBody>
+      </PaperCard>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('audit.manifestChain')}</span>
-          <span className="panel-action">{t('audit.verifyIntegrity')}</span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">{t('audit.timelineBody')}</p>
+      <PaperCard testId="audit-manifest-chain-panel">
+        <PaperCardHeader
+          title={t('audit.manifestChain')}
+          right={<PaperCardBadge>{t('audit.verifyIntegrity')}</PaperCardBadge>}
+        />
+        <PaperCardBody>
+          <p className="mono-support">{t('audit.timelineBody')}</p>
           {filteredRuns.length === 0 ? (
-            <p className="dashboard-next-action">{t('audit.noMatchingRuns')}</p>
+            <p className="mono-support">{t('audit.noMatchingRuns')}</p>
           ) : (
             <div
               className="chain-viz"
@@ -673,20 +694,24 @@ export function AuditPage() {
               })}
             </div>
           )}
-        </div>
-      </div>
+        </PaperCardBody>
+      </PaperCard>
 
-      <div className="panel">
-        <div className="panel-header">
-          <span className="panel-title">{t('audit.deltaTitle')}</span>
-          <span className="panel-action">
-            {previousVisibleRun
-              ? t('audit.deltaComparedToRun', { runId: previousVisibleRun.id })
-              : t('common.pending')}
-          </span>
-        </div>
-        <div className="panel-body">
-          <p className="dashboard-next-action">{t('audit.deltaBody')}</p>
+      <PaperCard testId="audit-delta-panel">
+        <PaperCardHeader
+          title={t('audit.deltaTitle')}
+          right={
+            <PaperCardBadge>
+              {previousVisibleRun
+                ? t('audit.deltaComparedToRun', {
+                    runId: previousVisibleRun.id,
+                  })
+                : t('common.pending')}
+            </PaperCardBadge>
+          }
+        />
+        <PaperCardBody>
+          <p className="mono-support">{t('audit.deltaBody')}</p>
           {deltaRows.length > 0 ? (
             <div className="manifest-stats">
               {deltaRows.map((row) => (
@@ -710,8 +735,8 @@ export function AuditPage() {
           ) : (
             <p className="dim">{t('audit.deltaUnavailable')}</p>
           )}
-        </div>
-      </div>
+        </PaperCardBody>
+      </PaperCard>
 
       {loading ? (
         <LoadingState label={t('audit.loadingRunDetail')} />
@@ -752,6 +777,6 @@ export function AuditPage() {
           title={t('audit.detailEmptyTitle')}
         />
       )}
-    </section>
+    </div>
   )
 }

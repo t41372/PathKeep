@@ -21,7 +21,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { I18nProvider } from '../../lib/i18n'
 import { SecurityStep } from './security-step'
 

@@ -1,0 +1,21 @@
+{
+  "id": "X-VISITSUMMARY",
+  "track": "cross",
+  "sev": "minor",
+  "title": "Detail panel shows identical first/last visit (needs real per-URL visit summary)",
+  "files": [
+    "src/pages/explorer/paper-detail-panel-mount.tsx",
+    "src-tauri (new command if needed)"
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "GAP",
+      "file": "src/pages/explorer/paper-detail-panel-mount.tsx",
+      "lineRange": "74-76",
+      "description": "The mount component maps `selectedEntry.visitedAt` to both `firstVisitAt` and `lastVisitAt` (lines 75-76). The HistoryEntry from the browse query contains only the current visit's timestamp, not the URL's overall first/last visit timestamps. The detail panel's design spec (recall.md section 'Record Detail Panel') calls for showing the actual first and last visit times across all visits to that URL. Currently, both fields always show the same date, which is misleading when a URL has been visited multiple times over months or years.",
+      "suggestedFix": "Fetch the full URL visit summary (first visit, last visit, total visits, typed count) from the backend when the detail panel opens. The `query_history` response already carries `visitCount` but not first/last timestamps. Either enrich the browse query response or make a separate `getUrlVisitSummary` call when the panel mounts.",
+      "codeSnippet": ""
+    }
+  ]
+}

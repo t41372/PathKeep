@@ -86,6 +86,33 @@ describe('PaperDetailPanelMount', () => {
     )
   })
 
+  test('shows the opened visit as a single "Visited" field, not duplicated First/Last dates', () => {
+    // Regression for X-VISITSUMMARY: a browse HistoryEntry is one visit row,
+    // so the mount must not stamp that single timestamp into both First and
+    // Last visit (which made every multi-visit URL look like it was seen once).
+    // It now feeds the panel's single-visit `visitedAt` field instead.
+    //
+    // Build the epoch from a local Date so the formatter's local-time output
+    // is deterministic regardless of the test runner's timezone.
+    const visitMs = new Date(2026, 4, 17, 10, 30).getTime()
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry({ visitTime: Math.floor(visitMs / 1000) })}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+      />,
+    )
+    expect(
+      screen.getByText('paperBrowse.detailVisited'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('2026-05-17 10:30')).toBeInTheDocument()
+    // The misleading First/Last labels must be gone.
+    expect(screen.queryByText('paperBrowse.detailFirstVisit')).toBeNull()
+    expect(screen.queryByText('paperBrowse.detailLastVisit')).toBeNull()
+  })
+
   test('clicking the close button forwards onClose', () => {
     const onClose = vi.fn()
     render(
@@ -337,5 +364,41 @@ describe('PaperDetailPanelMount', () => {
       'rust',
       'sqlite',
     ])
+  })
+
+  test('renders a milliseconds-epoch visitTime without double-scaling and zero-pads', () => {
+    // Production archive rows store visit_time in milliseconds (> 1e12); the
+    // mount must pass those straight through, not multiply by 1000 again.
+    // Single-digit month/hour/minute also exercise the zero-pad path.
+    const visitMs = new Date(2026, 0, 3, 4, 5).getTime()
+    expect(visitMs).toBeGreaterThan(1e12)
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry({ visitTime: visitMs })}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+      />,
+    )
+    expect(screen.getByText('2026-01-03 04:05')).toBeInTheDocument()
+  })
+
+  test('degrades an unparseable visitTime to the panel dash marker', () => {
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry({ visitTime: Number.NaN })}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+      />,
+    )
+    // The Visited field still renders, but its value collapses to a dash
+    // instead of "Invalid Date". (Other empty fields also render a dash, so
+    // assert presence-of-dash + absence-of-garbage rather than a unique match.)
+    expect(screen.getByText('paperBrowse.detailVisited')).toBeInTheDocument()
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/Invalid Date/)).toBeNull()
   })
 })

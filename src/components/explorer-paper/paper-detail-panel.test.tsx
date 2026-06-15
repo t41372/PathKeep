@@ -29,6 +29,7 @@ const COPY: PaperDetailPanelCopy = {
   lookFurtherHeading: 'Look further',
   firstVisitLabel: 'First visit',
   lastVisitLabel: 'Last visit',
+  visitedLabel: 'Visited',
   totalVisitsLabel: 'Total visits',
   typedCountLabel: 'Typed directly',
   recentVisitsLabel: 'Recent visits',
@@ -39,6 +40,7 @@ const COPY: PaperDetailPanelCopy = {
   notesPlaceholder: 'Why did this matter?',
   notesEmpty: 'Empty',
   notesSavedLocally: 'Saved · local',
+  notesSaveError: 'Not saved · retry',
   notesCharSingular: '1 char',
   notesCharPlural: '{count} chars',
   tagInputPlaceholder: '+ add tag',
@@ -126,6 +128,88 @@ describe('PaperDetailPanel', () => {
     expect(screen.getByText('Chrome / Default')).toBeVisible()
     expect(screen.getByText('link')).toBeVisible()
     expect(screen.getByText('#1847 · 2026-05-16 18:30')).toBeVisible()
+    // Default summary shows the First/Last pair, not the single-visit field.
+    expect(screen.getByText('First visit')).toBeVisible()
+    expect(screen.getByText('Last visit')).toBeVisible()
+    expect(screen.getByText('2025-11-04 09:17')).toBeVisible()
+    expect(screen.getByText('2026-05-16 21:42')).toBeVisible()
+    expect(screen.queryByText('Visited')).toBeNull()
+  })
+
+  test('collapses to a single "Visited" field when only the opened visit is known', () => {
+    // The Explorer mount has just one visit row, so it sets `visitedAt`
+    // instead of fabricating identical First/Last dates. The panel must then
+    // show one honest field and drop the First/Last pair entirely.
+    render(
+      <PaperDetailPanel
+        entry={makeEntry({
+          visitedAt: '2026-05-17 10:30',
+          firstVisitAt: undefined,
+          lastVisitAt: undefined,
+        })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        testId="panel-visited"
+      />,
+    )
+
+    expect(screen.getByText('Visited')).toBeVisible()
+    expect(screen.getByText('2026-05-17 10:30')).toBeVisible()
+    // The misleading First/Last pair must not render in single-visit mode.
+    expect(screen.queryByText('First visit')).toBeNull()
+    expect(screen.queryByText('Last visit')).toBeNull()
+  })
+
+  test('shows the single "Visited" field even when its formatted value is empty', () => {
+    // `visitedAt: ''` is a present-but-empty value (e.g. a degraded
+    // timestamp the caller already collapsed to a dash). Presence — not
+    // truthiness — selects the single-visit layout, so the First/Last pair
+    // must still be suppressed.
+    render(
+      <PaperDetailPanel
+        entry={makeEntry({
+          visitedAt: '',
+          firstVisitAt: '2025-11-04 09:17',
+          lastVisitAt: '2026-05-16 21:42',
+        })}
+        notes=""
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        copy={COPY}
+        testId="panel-visited-empty"
+      />,
+    )
+
+    expect(screen.getByText('Visited')).toBeVisible()
+    expect(screen.queryByText('First visit')).toBeNull()
+    expect(screen.queryByText('Last visit')).toBeNull()
+  })
+
+  test('surfaces a not-saved alert instead of the saved hint when a write fails', () => {
+    render(
+      <PaperDetailPanel
+        entry={makeEntry()}
+        notes="kept this for later"
+        tags={[]}
+        onClose={() => {}}
+        onUpdateNotes={() => {}}
+        onUpdateTags={() => {}}
+        annotationError="notes: archive is locked"
+        copy={COPY}
+        testId="panel-save-error"
+      />,
+    )
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Not saved · retry')
+    // The misleading "Saved · local" hint must not appear when the write failed.
+    expect(screen.queryByText('Saved · local')).toBeNull()
   })
 
   test('renders the visit-history sparkline rows', () => {

@@ -2107,3 +2107,186 @@ urls.last_visit_ms` for title / hidden, which silently overwrote
   617 lines.
 - Verification: targeted `archive::ingest::core_tests` passes; full checkpoint
   gate is recorded in `TEST_PLAN.md`.
+
+## 2026-06-12 — WORK-REVIEW-0612-HARDENING-A (cross-codebase security + correctness review)
+
+User-directed deep code review (multi-agent fan-out across archive/ingest,
+intelligence/AI, worker/IPC, parser, platform/app-lock, TS lib/i18n, React, and
+build/tooling). Findings were independently verified against the code before
+fixing; the strongest contained issues were fixed with tests, and larger
+architectural items were filed in `BACKLOG.md` (see the 2026-06-12 note there).
+
+- **Parser robustness (`browser-history-parser`)**:
+  - Why: a single non-UTF-8 byte in a Takeout `.jsonl` export panicked the
+    import worker (`BufRead::lines()` returns `Err(InvalidData)`, not only on
+    I/O); corrupt/adversarial timestamps produced internally inconsistent rows
+    (absurd `*_ms` integer paired with a 1970 ISO string) and Safari `+inf`
+    saturated to `i64::MAX`.
+  - What: `stream_browser_history_payload` maps the line error to
+    `ParseError::ReadSource` instead of `.expect()`; new
+    `types::clamp_unix_millis` bounds every converter (chromium / firefox /
+    safari / takeout) to `0..=9999-12-31` so numeric and ISO views agree;
+    `safari_time_to_unix_ms` rejects non-finite input; takeout
+    `micros_to_unix_ms` gains the `.max(0)` floor its siblings already had.
+
+- **og:image SSRF guard (`vault-core/archive/history`)**: new `net_guard`
+  module classifies a fetch target's host (loopback / RFC1918 / link-local incl.
+  `169.254.169.254` / CGNAT / IPv6 ULA+link-local / multicast / reserved) and
+  refuses the GET. Wired into the production page-URL fetch and the
+  attacker-supplied `og:image` sub-resource fetch (test entry points opt out via
+  a `guard_image_hosts` flag, mirroring the existing `upgrade_image_url` seam).
+  Why: og:image URLs come from attacker-controlled page HTML and page URLs from
+  imported history, so an unfiltered fetch let a visited page probe internal
+  services. Residual (per-redirect-hop re-validation) filed in BACKLOG.
+
+- **HTML export XSS + percent-decode mojibake (`vault-core`)**: `export.rs`
+  HTML-escapes title/url/visited_at (new shared `utils::escape_html`) and
+  scheme-filters the anchor `href` so a crafted page title can't execute when
+  the exported report is opened in a browser; `enrichment::percent_decode` now
+  reassembles percent-encoded bytes via `from_utf8_lossy` instead of emitting
+  one Latin-1 codepoint per byte (fixes `中文` → `ä¸­æ–‡` mojibake).
+
+- **Queue / worker lifecycle (`vault-worker`, `vault-core/ai_queue`)**:
+  `maybe_spawn_worker_pool` releases the claimed slot via a `Drop` guard on every
+  exit path (normal, panic-unwind, spawn failure) so a panicking worker can't
+  permanently wedge the AI/intelligence drain at its concurrency ceiling;
+  `claim_next_ai_job` parses the payload outside the row closure and quarantines
+  an unparseable row as `failed` (`error_code = 'payload-parse-error'`) instead
+  of propagating the error and starving the whole queue behind a bad head row.
+
+- **App-lock server-side enforcement (`vault-worker`)**: `configure_app_lock_passcode`,
+  `remove_app_lock_passcode`, and `save_user_config` route through
+  `load_unlocked_config`, so the passcode can't be replaced/removed and the lock
+  can't be disabled while the session is locked (initial setup and enabling the
+  lock from an unlocked session still pass the no-op check).
+
+- **Keyring release-build hardening (`vault-platform`)**: the file-backed
+  test-keyring redirect env var is honored only under `debug_assertions`
+  (`cargo test` / `tauri dev`), so a release binary can't be coerced by an
+  attacker-controlled environment into persisting the SQLCipher master key and
+  provider API keys as plaintext files instead of the OS keychain.
+
+- **Frontend trust / correctness**:
+  - `HealthCheck` IPC type aligned to the Rust contract (`{ name, ok, detail }`,
+    was `{ name, status, message }`): on real desktop every doctor check had
+    rendered as a benign "Info" with an empty body, hiding failing checks in the
+    import review surface. Helpers, the consumer, the preview fixture, and tests
+    moved to the binary pass/fail shape.
+  - The intelligence overview cache is invalidated after derived-state
+    rebuild/clear and search-engine-rule add/delete, so `/intelligence` re-fetches
+    instead of showing pre-rebuild data until app restart.
+  - The Explorer detail panel surfaces a `role="alert"` "Not saved · retry" state
+    (en/zh-CN/zh-TW) when an annotation write fails, instead of the misleading
+    "Saved · local" hint (silent data loss when the archive is locked / IPC fails).
+  - Onboarding's schedule-preview effect drops the spurious `t` dependency that
+    re-issued two backend calls on every i18n-context re-render.
+
+- Verification: `bun run typecheck` clean; `bun run coverage:js` green
+  (100%, 2172 tests); `bun run build` green; `cargo clippy --workspace
+  --all-targets -D warnings` clean; `cargo fmt --check` + Prettier clean; full
+  Rust workspace tests pass except the Linux-only
+  `migration::…_different_filesystem…` test (`/dev/shm` precondition, unrelated
+  to this work, fails on the macOS dev box). Final `coverage:rust` / e2e /
+  desktop-bridge-truth sign-off runs in the Linux CI gate; new Rust code ships
+  with per-fix unit tests.
+
+## 2026-06-13 — WORK-REVIEW-0612-FOLLOWUPS-A (sticky day-header pin)
+
+Picked up the first deferred follow-up from the 2026-06-12 review (R5), the
+sticky day-header unpin the user has flagged across multiple regressions.
+
+- Why: `PaperDayHeader`'s sticky `top` was the toolbar height measured by a
+  `ResizeObserver` and pushed through React state, then threaded down three
+  component layers as a prop. When the filter chips wrapped onto a second line
+  the toolbar grew, but the header's `top` only updated after a React render
+  cycle — a one-frame gap where it pinned at the stale height and tucked under
+  the filter strip.
+- What: publish the live toolbar height to a `--pk-toolbar-h` CSS custom
+  property on the contact-sheet root, written imperatively from the (now
+  `useLayoutEffect`) `ResizeObserver` callback — no React render in the path,
+  so the offset updates within the same layout/paint frame. `PaperDayHeader`
+  reads `top: var(--pk-toolbar-h, 44px)`; the `toolbarHeight` state and its
+  prop thread are deleted. Updated `feedback-explorer-sticky-day-header` memory
+  with the new mechanism.
+- Verification: explorer-paper suite green (307 tests); `bun run coverage:js`
+  100% (2172 tests); typecheck + Prettier clean. Tests assert the var is
+  published with the measured height (88 px / 64 px, with and without
+  `ResizeObserver`) and that the header references it. Interactive
+  chip-wrap/scroll pixel verification needs a real browser — the connected
+  tooling is computer-use only (no Chrome extension; browsers read-tier) — so
+  the final eyeball is best done in the running desktop app.
+
+## 2026-06-14 — WORK-REVIEW-0614-FULL-PIPELINE-A (milestone-level review + confirmed-finding fixes)
+
+Ran the full review pipeline defined in `docs/plan/program/review-pipeline.md`
+(a milestone-level health check, not a PR review) and then fixed every finding
+the adversarial verification pass confirmed. Artifacts under `docs/review/2026-06-14/`.
+
+- Why: the v0.3 Paper Redesign milestone has accumulated a large surface; a
+  systematic, high-recall review followed by independent verification was needed
+  to find real bugs / perf cliffs / UX-honesty gaps before they reach users —
+  not the incremental, change-set-scoped lens of a normal PR review.
+- Pipeline: Phase 1 = 13 parallel review sub-agents (10 code Focus Areas +
+  XA-PRODUCT / XA-UX / XA-PERF) → 144 findings. Phase 2 = triage/dedup → 42 sent
+  to verification (all critical+major + every GAP). Phase 3 = 5 independent
+  adversarial verifiers (defense-attorney stance) → **50% survival** (13 confirmed
+  + 8 trade-off; 11 dismissed as phantom/feature-fiction, 10 downgraded). Phase 4
+  = synthesis (`docs/review/2026-06-14/phase-4/final-report.md`). Each fix below
+  was then applied by a dedicated sub-agent and passed an **independent strict
+  review** sub-agent (fresh context); re-fix cycles where the review blocked.
+- What — confirmed fixes shipped (each fix + independent review):
+  - **R-REGEX (🔴 critical, perf)**: regex recall no longer binds `:pageLimit = -1`
+    / `collect()`s the entire visits table before filtering. `archive/history.rs`
+    now streams a bounded `REGEX_SCAN_CAP = 50_000` window via `rows.next()`,
+    keeping only matches (peak memory = matches-in-window, tens of MB worst case,
+    not multi-GB). Windowed `total`/pagination documented honestly; export inherits
+    the window (doc note). New discriminating boundary test.
+  - **R-ASYNC (perf)**: all 37 Core Intelligence read commands in
+    `commands/intelligence/core.rs` converted from sync `fn` to `async fn` +
+    `run_blocking_command` (spawn_blocking), off the Tauri UI thread — mirrors the
+    runtime.rs pattern; session key resolved before the move-closure (Send-safe).
+  - **R-VISITIDS (perf)**: unbounded `visit_ids: Vec<i64>` in the refind structural
+    aggregate replaced by a bounded 50-entry recency reservoir + exact
+    `totalVisitCount`; both builders share one evidence-JSON helper.
+  - **R-LOADVISITS (perf)**: `load_visible_visits` pushes the limit into SQL
+    (`ORDER BY visit_time_ms DESC, id DESC LIMIT ?` + reverse) instead of loading
+    the whole profile and trimming the tail in Rust.
+  - **R-HASH (bug)**: takeout `stable_key_i64` replaced the collision-prone
+    polynomial hash with SHA-256 leading-63-bits (reuses the vetted workspace
+    `sha2`). Cross-version dedup discontinuity documented in code + audit §B5
+    (see Trade-offs).
+  - **F-TOKENS (a11y/design)**: `--ink-muted` / `--ink-faint` darkened to clear
+    WCAG AA (≥4.5:1) on the reading surfaces in both themes; `--ink-ghost` reserved
+    for decorative use (5 readable usages promoted to `--ink-faint`);
+    `design-tokens.md` rewritten to match the runtime tokens exactly (naming +
+    values) with a new `tokens.contrast.test.ts` gate.
+  - **F-DASHBOARD (honesty/UX)**: the "This week" card now shows real weekly
+    figures (was all-time totals under a weekly heading); Active Threads rows now
+    deep-link to `/intelligence/domain/:domain` with path-flow focus (was a no-op
+    to the overview).
+  - **F-JOBS (bug)**: AI job retry/cancel handlers gained `catch` blocks
+    (previously swallowed backend errors silently, unlike the runtime handlers).
+  - **F-ROUTER (resilience)**: `ShellRouteErrorBoundary` added to the 9 shell
+    routes that lacked it — a render crash no longer tears down the whole shell.
+  - **F-IMPORT (red-line)**: onboarding security step moved off the legacy
+    `lib/backend` fixture surface onto `lib/backend-client`.
+  - **F-LEGACY-CSS (design)**: Assistant + Audit migrated off v0.2 `page-shell` /
+    `.panel` chrome to the paper aesthetic (PaperCard family).
+  - **X-VISITSUMMARY (honesty/UX)**: detail panel no longer shows an identical
+    `firstVisitAt == lastVisitAt` for every record; it renders one honest
+    "Visited" field for the opened visit (a real per-URL summary needs a new
+    backend read — tracked in BACKLOG).
+- Trade-off recorded (Longevity): the R-HASH algorithm change breaks takeout
+  dedup **across the version boundary** — rows written by a pre-fix binary will
+  not dedup against a post-fix re-import of the same period (old keys ≠ new keys),
+  so overlapping re-imports across the boundary can duplicate visits. No automatic
+  re-key migration is possible (the `source_visit_id` input includes an unpersisted
+  per-import `ordinal`). Accepted pre-1.0 because the old keys were already
+  collision-corrupt; documented in `import-dedup-audit.md` §B5 and the code.
+- Verification: `bunx tsc -b` clean; `bunx vitest run` **2219/2219** pass; i18n
+  parity 100% (2853 keys × 3 locales, 0 missing / 0 raw-English); `cargo check
+  --workspace --tests` clean; per-fix `cargo test`/`clippy` green. Full
+  `bun run check` (rust coverage + e2e + mutation + release rehearsal) deferred to
+  the Linux CI gate per the standing macOS `/dev/shm` migration-test limitation;
+  every new code branch ships with a unit test. Non-blocking polish + the deferred
+  backend per-URL visit summary recorded in BACKLOG (`WORK-REVIEW-0614-FOLLOWUPS-A`).

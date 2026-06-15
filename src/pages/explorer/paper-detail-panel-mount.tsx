@@ -18,6 +18,14 @@
  * - Owning annotation state — the route picks between the local and
  *   desktop hooks and hands the unified `LocalAnnotations` object in.
  * - Tracking selection state.
+ * - Computing the URL's overall first/last visit span, total visit count,
+ *   or typed count. A browse `HistoryEntry` is a single visit row carrying
+ *   only that visit's timestamp; it has no per-URL aggregate. So this mount
+ *   feeds the panel the one honest fact it has — `visitedAt`, the time of the
+ *   opened visit — via the panel's single-visit `visitedAt` field, rather
+ *   than fabricating identical First/Last dates. Surfacing the real per-URL
+ *   summary needs a backend per-URL read (none exists today) and is tracked
+ *   for the backend track.
  */
 
 import { PaperDetailPanel } from '@/components/explorer-paper'
@@ -55,6 +63,37 @@ export interface PaperDetailPanelMountProps {
   onOpenDomain?: (domain: string) => void
 }
 
+/**
+ * Format a visit timestamp into the panel's `YYYY-MM-DD HH:mm` shape.
+ *
+ * Exists so the single-visit "Visited" field reads like the rest of the
+ * detail panel (which documents formatted strings such as "2025-11-04
+ * 09:17") instead of dumping the raw RFC3339 string. The digits are a
+ * locale-neutral timestamp, not user copy, so they carry no i18n key.
+ *
+ * `visitTime` is epoch from the archive. Production rows store milliseconds
+ * while some fixtures use seconds, so this normalizes both with the same
+ * `> 1e12` heuristic the contact sheet uses. An unparseable value yields
+ * `'—'` so a corrupt row degrades to the panel's standard empty marker
+ * rather than rendering "Invalid Date".
+ *
+ * Kept module-private (not exported) so this file stays a pure
+ * component-export surface for react-refresh; its branches are covered
+ * through the rendered panel in the mount's test.
+ */
+function formatVisitTimestamp(visitTime: number): string {
+  const ms = visitTime > 1e12 ? visitTime : visitTime * 1000
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const year = date.getFullYear()
+  const month = pad(date.getMonth() + 1)
+  const day = pad(date.getDate())
+  const hour = pad(date.getHours())
+  const minute = pad(date.getMinutes())
+  return `${year}-${month}-${day} ${hour}:${minute}`
+}
+
 export function PaperDetailPanelMount({
   selectedEntry,
   annotations,
@@ -72,8 +111,7 @@ export function PaperDetailPanelMount({
         title: selectedEntry.title ?? selectedEntry.url,
         url: selectedEntry.url,
         domain: selectedEntry.domain,
-        firstVisitAt: selectedEntry.visitedAt,
-        lastVisitAt: selectedEntry.visitedAt,
+        visitedAt: formatVisitTimestamp(selectedEntry.visitTime),
         source: profileIdLabel(selectedEntry.profileId),
         faviconDataUrl: selectedEntry.favicon?.dataUrl ?? null,
         ogImageDataUrl: selectedEntry.ogImage?.dataUrl ?? null,
@@ -91,6 +129,7 @@ export function PaperDetailPanelMount({
       }}
       onUpdateNotes={(next) => annotations.updateNotes(selectedEntry.url, next)}
       onUpdateTags={(next) => annotations.updateTags(selectedEntry.url, next)}
+      annotationError={annotations.lastError}
       onOpenDomain={
         onOpenDomain
           ? (entry) => {

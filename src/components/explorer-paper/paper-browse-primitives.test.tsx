@@ -56,16 +56,12 @@ describe('PaperDayHeader', () => {
     expect(within(header).queryByText('Day')).toBeNull()
   })
 
-  test('applies the toolbar offset as a CSS top value', () => {
-    render(
-      <PaperDayHeader
-        label="May 16"
-        toolbarOffsetPx={64}
-        testId="day-offset"
-      />,
-    )
+  test('pins via the --pk-toolbar-h custom property with a 44px fallback', () => {
+    render(<PaperDayHeader label="May 16" testId="day-offset" />)
 
-    expect(screen.getByTestId('day-offset').style.top).toBe('64px')
+    expect(screen.getByTestId('day-offset').style.top).toBe(
+      'var(--pk-toolbar-h, 44px)',
+    )
   })
 })
 

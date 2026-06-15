@@ -26,6 +26,7 @@ use crate::{
     },
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufRead, BufReader},
@@ -50,7 +51,15 @@ where
     if kind == KIND_JSONL {
         let reader = BufReader::new(bytes);
         for (ordinal, line) in reader.lines().enumerate() {
-            let line = line.expect("reading lines from in-memory Takeout bytes cannot fail");
+            // `BufRead::lines()` yields `Err(InvalidData)` on any invalid UTF-8
+            // byte — independent of I/O — so an adversarial / truncated `.jsonl`
+            // Takeout export must fail gracefully here, never panic the worker.
+            let line = line.map_err(|source| {
+                StreamHistoryError::Parse(ParseError::ReadSource {
+                    path: std::path::PathBuf::from(source_path),
+                    source,
+                })
+            })?;
             if line.trim().is_empty() {
                 continue;
             }
@@ -448,7 +457,10 @@ fn value_as_i64(value: &Value) -> Option<i64> {
 }
 
 fn micros_to_unix_ms(value: i64) -> i64 {
-    value.div_euclid(1_000)
+    // Match the chromium/firefox/safari converters: floor pre-epoch sentinels at
+    // the 1970 epoch and clamp absurd far-future values so the numeric and ISO
+    // representations stay consistent.
+    crate::types::clamp_unix_millis(value.div_euclid(1_000))
 }
 
 fn chrome_time_to_rfc3339(value: i64) -> String {
@@ -457,29 +469,73 @@ fn chrome_time_to_rfc3339(value: i64) -> String {
         .to_rfc3339()
 }
 
+/// Derives a stable, non-negative `i64` dedup key from raw input bytes.
+///
+/// ## Why this exists
+/// Takeout payloads carry no native database rowid (unlike the Chromium /
+/// Firefox / Safari parsers, which read SQLite `rowid`s directly), so the
+/// canonical `source_url_id` / `source_visit_id` keys must be *synthesized*
+/// from the record's natural identity (`url`, visit time, ordinal). Those keys
+/// land in the `(source_profile_id, source_url_id)` and
+/// `(source_profile_id, source_visit_id)` UNIQUE indexes and drive
+/// `INSERT OR IGNORE` dedup plus the staging `url_id_map` lookup, so a hash
+/// collision is not cosmetic: a `source_visit_id` collision silently drops a
+/// legitimate visit, and a `source_url_id` collision merges unrelated URLs.
+///
+/// ## Why SHA-256 (not the former polynomial hash)
+/// The previous implementation hex-encoded the input and folded it with
+/// `wrapping_mul(31).wrapping_add(byte)` — a Java-style `hashCode()` whose low
+/// bits dominate and whose effective spread is far below 64 bits. Per the
+/// import-dedup audit (§B5), birthday collisions on that hash hit well before
+/// the 14.4M-record design ceiling (≈2^15.5 ≈ 47k records). We replace it with
+/// SHA-256, a uniform 256-bit digest, and keep the leading 63 bits (the sign
+/// bit is masked off below). Across that 2^63-key space the birthday collision
+/// probability at 14.4M (≈2^23.8) keys is ≈n²/(2·2^63) ≈ 1.1e-5 (≈2^-16.4) —
+/// negligible — so the dedup keys stay practically unique at scale.
+/// `sha2` is already a vetted workspace dependency (RustCrypto), used by
+/// vault-core for archive/migration digests.
+///
+/// ## Contract
+/// Total on every `&[u8]`; always returns a value in `0..=i64::MAX`. The
+/// sign bit is masked off rather than `.abs()`-ed, so there is no `i64::MIN`
+/// overflow corner to special-case. Sacrificing one bit of key space is
+/// irrelevant to the collision math above and preserves the documented
+/// non-negative key invariant. The hex pre-expansion is dropped: SHA-256
+/// consumes raw bytes directly, halving the hashed length.
+///
+/// ## Stability caveat (cross-version dedup)
+/// These keys are persisted as `source_url_id` / `source_visit_id` and are the
+/// dedup identity across separate Takeout imports. Changing this algorithm
+/// therefore breaks dedup *across the version boundary*: Takeout rows written
+/// by a pre-SHA-256 binary will not match a re-import of the same period by a
+/// post-SHA-256 binary, so overlapping re-imports across that boundary can
+/// duplicate visits. No automatic re-key migration is possible because the
+/// `source_visit_id` input includes a per-import `ordinal` that is not
+/// persisted. This is acceptable (the old keys were already collision-corrupt,
+/// so a fresh re-import is strictly more correct) but **must not be changed
+/// again without the same analysis** — see `docs/plan/program/import-dedup-audit.md` §B5.
 fn stable_key_i64(bytes: &[u8]) -> i64 {
-    let hex = hex::encode(bytes);
-    let acc = hex.bytes().fold(0_i64, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as i64));
-    // `i64::MIN.abs() == i64::MIN` per Rust's documented overflow
-    // behavior — in debug builds it panics, in release it silently
-    // returns a negative value. Either way it violates the non-negative
-    // key contract this `.abs()` was meant to enforce. Map the corner
-    // explicitly to `i64::MAX` so the function is total on i64 inputs.
-    if acc == i64::MIN { i64::MAX } else { acc.abs() }
+    let digest = Sha256::digest(bytes);
+    // SHA-256 is uniform, so any 8-byte window is an unbiased 64-bit value;
+    // take the leading bytes big-endian for a stable, endianness-independent
+    // key. Masking the top bit clears the sign without an `.abs()` overflow
+    // trap and keeps the result in the non-negative `i64` range.
+    let leading = u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 digest is 32 bytes"));
+    (leading & (i64::MAX as u64)) as i64
 }
 
 #[cfg(test)]
 mod stable_key_tests {
     use super::stable_key_i64;
+    use std::collections::HashSet;
 
-    /// Contract: `stable_key_i64` is total on `&[u8]` inputs and never
-    /// returns a negative value. The previous implementation used
-    /// `.abs()` directly, which returns `i64::MIN` (negative) for the
-    /// `i64::MIN` corner per Rust's documented overflow behavior, and
-    /// also panics in debug builds. The corner is mapped to `i64::MAX`
-    /// so the function stays non-negative across the entire input space.
+    /// Contract: `stable_key_i64` is total on `&[u8]` inputs and always
+    /// returns a value in `0..=i64::MAX`. The sign bit is masked off, so
+    /// there is no `i64::MIN` overflow corner — every input, including
+    /// empty, all-zero, all-`0xFF`, and non-UTF-8 byte runs, yields a
+    /// non-negative key without panicking.
     #[test]
-    fn stable_key_i64_never_returns_negative_for_assorted_inputs() {
+    fn stable_key_i64_is_non_negative_and_total() {
         let inputs: &[&[u8]] = &[
             b"",
             b"a",
@@ -495,22 +551,59 @@ mod stable_key_tests {
         }
     }
 
-    /// Direct corner-case proof: when the running accumulator lands on
-    /// `i64::MIN`, the function returns `i64::MAX` instead of the
-    /// stdlib's wrapping behavior. We can't easily craft real input
-    /// bytes that hash to `i64::MIN`, but the branch is small enough
-    /// that the smoke test above + a static assertion of the constant
-    /// is sufficient. This is a regression bait — if anyone replaces
-    /// the explicit corner-case branch with `.abs()`, this test fails.
+    /// The "stable" half of the contract: the same bytes must always map
+    /// to the same key, otherwise dedup across re-imports of the same
+    /// Takeout export would break.
     #[test]
-    fn stable_key_i64_overflow_corner_maps_to_i64_max() {
-        // We don't have a public hook into the inner accumulator, so
-        // this test documents the invariant rather than exercising the
-        // exact branch. The smoke test above is the live guard.
-        assert_eq!(
-            i64::MAX,
-            i64::MAX,
-            "compile-time pin that MAX is the documented corner mapping"
+    fn stable_key_i64_is_deterministic() {
+        let input = b"url::https://example.com/watch?v=abc";
+        assert_eq!(stable_key_i64(input), stable_key_i64(input));
+    }
+
+    /// Regression for B5: distinct-but-similar inputs must produce
+    /// distinct keys. The former polynomial hash let the low bits
+    /// dominate, so near-identical URL prefixes and adjacent ordinals
+    /// (exactly the shape Takeout emits for `{url}:{visit_time}:{ordinal}`
+    /// keys) collided early. SHA-256 decorrelates them. We assert no
+    /// collisions across a dense family of near-identical keys *and* that
+    /// the entropy is spread into the high bits (the bit the mask keeps),
+    /// not just the low byte.
+    #[test]
+    fn stable_key_i64_separates_near_identical_inputs() {
+        let mut keys = HashSet::new();
+        let mut high_bits = HashSet::new();
+        for ordinal in 0..2_000_i64 {
+            for url in [
+                "https://example.com/a",
+                "https://example.com/b",
+                "https://example.org/a",
+            ] {
+                let key = stable_key_i64(format!("{url}:1700000000000000:{ordinal}").as_bytes());
+                assert!(key >= 0);
+                // The leading 24 bits exercise the high end of the digest
+                // window the sign mask preserves; a hash whose spread
+                // collapses into the low bits (the old defect) would barely
+                // populate this set.
+                high_bits.insert((key >> 39) as u32);
+                assert!(keys.insert(key), "unexpected stable_key_i64 collision at ordinal {ordinal} url {url}");
+            }
+        }
+        assert_eq!(keys.len(), 6_000, "every distinct input must yield a distinct key");
+        assert!(
+            high_bits.len() > 1_000,
+            "high bits barely varied ({} distinct) — entropy is not reaching the top of the key",
+            high_bits.len()
         );
+    }
+
+    /// Avalanche: a single-byte (in fact single-bit) change to the input
+    /// must change the key. A weak hash that ignored late or low-entropy
+    /// bytes could return the same key for these two strings.
+    #[test]
+    fn stable_key_i64_single_bit_flip_changes_key() {
+        // 'A' (0x41) vs 'a' (0x61) differ by one bit in the final byte.
+        let a = stable_key_i64(b"https://example.com/A");
+        let b = stable_key_i64(b"https://example.com/a");
+        assert_ne!(a, b);
     }
 }

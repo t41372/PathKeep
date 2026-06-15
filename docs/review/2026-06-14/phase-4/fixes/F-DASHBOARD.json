@@ -1,0 +1,32 @@
+{
+  "id": "F-DASHBOARD",
+  "track": "fe",
+  "sev": "major",
+  "title": "Fix This Week card (all-time data masquerading as weekly) + Active Threads deep-link",
+  "files": [
+    "src/pages/dashboard/this-week-card.tsx",
+    "src/pages/dashboard/index.tsx",
+    "src/pages/dashboard/active-threads-card.tsx",
+    "src/lib/i18n/catalog/dashboard.ts"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "UX-QUALITY",
+      "file": "src/pages/dashboard/this-week-card.tsx",
+      "lineRange": "17-25",
+      "description": "DashboardThisWeek receives `totalPages` and `totalUrls` from the parent, which are `readyDashboard.totalVisits` and `readyDashboard.totalUrls` -- these are all-time archive-wide totals, not this-week data. The card is titled 'This week' (i18n key `dashboard.thisWeekTitle`) and shows a week badge, but the stats underneath are cumulative archive totals. The i18n label `weekStatPages` says 'Pages' and `weekStatUrls` says 'New URLs', implying these are weekly numbers. A user with 14.4M all-time visits would see '14.4M' under a 'This week' heading -- seriously misleading. Similarly `recentRunsCount` is `recentRuns.length` from the full dashboard snapshot, not filtered to this week.",
+      "suggestedFix": "Either (a) rename the card to 'Archive overview' and change the stat labels to match all-time semantics, or (b) wire a real weekly query (e.g. using `dashboardThreadsRange(now)` to get visits from the last 7 days) and show actual this-week numbers. Option (a) is the honest minimal fix; option (b) is the proper feature implementation.",
+      "codeSnippet": "// index.tsx line 164-165:\ntotalPages={readyDashboard.totalVisits}\ntotalUrls={readyDashboard.totalUrls}"
+    },
+    {
+      "severity": "major",
+      "category": "GAP",
+      "file": "src/pages/dashboard/index.tsx",
+      "lineRange": "190-192",
+      "description": "Both the `onOpenAll` and `onOpenThread` callbacks on DashboardActiveThreads navigate to the same `/intelligence` URL. The `onOpenThread` callback should take users to the specific path-flow or thread entity, but instead it drops all context and sends them to the Intelligence overview page. This means clicking on a specific thread card is indistinguishable from clicking 'See all' -- the user loses the context they wanted to drill into.",
+      "suggestedFix": "Pass the path-flow ID through `onOpenThread` and navigate to the specific shared insights route, e.g. `/intelligence/trail/:trailId` or the appropriate entity route. The DashboardActiveThreads component already renders individual thread cards with flow data; the href just needs to carry the entity identity.",
+      "codeSnippet": "onOpenAll={() => void navigate('/intelligence')}\nonOpenThread={() => void navigate('/intelligence')}"
+    }
+  ]
+}

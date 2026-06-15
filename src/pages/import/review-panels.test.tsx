@@ -65,8 +65,8 @@ describe('ImportReviewPanels', () => {
             checks: [
               {
                 name: 'manifest',
-                status: 'ok',
-                message: 'Manifest is readable.',
+                ok: true,
+                detail: 'Manifest is readable.',
               },
             ],
           }}

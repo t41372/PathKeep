@@ -28,5 +28,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Test files are owned by tsconfig.test.json, which supplies the node + vitest
+  // type sets. Excluding them here keeps this browser-only build config from
+  // type-checking them against a type set that (intentionally) lacks node.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

@@ -6,6 +6,8 @@
  * ## Responsibilities
  * - Preserve the exact sidebar information architecture grouping contract.
  * - Verify desktop-router creation keeps the onboarding route handle readable.
+ * - Assert every shell route wires the shared error boundary, including one
+ *   render-crash path that proves the boundary on a non-Core route recovers.
  * - Reuse the shared shell reset contract so split suites stay behavior-identical.
  *
  * ## Not responsible for
@@ -16,17 +18,26 @@
  * ## Dependencies
  * - Depends on `../router` for sidebar sections, onboarding metadata, and route handles.
  * - Depends on `../router-factory` for the desktop router contract.
- * - Depends on `./test-helpers` for the shared app-shell reset behavior.
+ * - Depends on `../index` for the provider stack used by the render-crash case.
+ * - Depends on `./test-helpers` for the shared app-shell reset and seed behavior.
  *
  * ## Performance notes
- * - Uses structure-only assertions so suite splitting does not add extra render or bootstrap work.
+ * - Keeps structure assertions snapshot-based; only one case mounts the shell,
+ *   so suite splitting does not multiply render or bootstrap work.
  */
 
 import { isValidElement, type ReactElement } from 'react'
+import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { RouteObject } from 'react-router-dom'
-import type { AppScreen } from '../router'
-import { resetAppShellHarness } from './test-helpers'
+import { createMemoryRouter, type RouteObject } from 'react-router-dom'
+import App from '../index'
+// Imported statically (not via the per-test `await import('../router')`) so the
+// crash case shares one module graph with `App`. `beforeEach` runs
+// `vi.resetModules()`, and a dynamically re-imported `appRoutes` would resolve a
+// fresh `ShellDataContext` that `App`'s provider never populates — the guard
+// would then throw `useShellData` before the route under test even renders.
+import { appRoutes as productionAppRoutes, type AppScreen } from '../router'
+import { commonT, resetAppShellHarness, seedArchiveRun } from './test-helpers'
 
 const expectedAppShellScreens: AppScreen[] = [
   {
@@ -217,7 +228,7 @@ describe('App shell', () => {
             path: 'index',
             index: true,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'dashboard',
@@ -338,7 +349,7 @@ describe('App shell', () => {
             path: 'assistant',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'assistant',
@@ -348,7 +359,7 @@ describe('App shell', () => {
             path: 'import',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'import',
@@ -358,7 +369,7 @@ describe('App shell', () => {
             path: 'audit',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'audit',
@@ -378,7 +389,7 @@ describe('App shell', () => {
             path: 'schedule',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'schedule',
@@ -388,7 +399,7 @@ describe('App shell', () => {
             path: 'integrations',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'integrations',
@@ -398,7 +409,7 @@ describe('App shell', () => {
             path: 'security',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'security',
@@ -408,7 +419,7 @@ describe('App shell', () => {
             path: 'maintenance',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'maintenance',
@@ -418,7 +429,7 @@ describe('App shell', () => {
             path: 'settings',
             index: false,
             lazy: true,
-            errorBoundary: false,
+            errorBoundary: true,
             element: null,
             hydrateFallback: null,
             handleId: 'settings',
@@ -528,7 +539,62 @@ describe('App shell', () => {
       expect(loaded?.Component).toEqual(expect.any(Function))
     }
   })
+
+  test('catches a render crash on a non-Core route with the shell boundary', async () => {
+    // `/settings` historically shipped without an ErrorBoundary, so a render
+    // crash there bubbled up and took the whole shell to React Router's raw
+    // developer error page. Exercise the real registry — only swapping the
+    // leaf component for a thrower — to prove the boundary now attached to that
+    // route renders the product recovery UI instead of crashing the shell.
+    await seedArchiveRun()
+    const guardedRoutes = withThrowingLeaf(productionAppRoutes, 'settings')
+    const router = createMemoryRouter(guardedRoutes, {
+      initialEntries: ['/settings'],
+    })
+
+    render(<App router={router} />)
+
+    expect(
+      await screen.findByTestId('shell-route-error-boundary'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        name: commonT('routeRenderErrorTitle'),
+      }),
+    ).toBeVisible()
+    expect(
+      screen.queryByText('Unexpected Application Error!'),
+    ).not.toBeInTheDocument()
+
+    router.dispose()
+  })
 })
+
+function ThrowingLeaf(): never {
+  throw new Error('settings route exploded')
+}
+
+/**
+ * Deep-clones the production route tree and replaces the lazy loader of the
+ * route with the given `path` with a component that throws on render, leaving
+ * every other field — crucially the `ErrorBoundary` wired by the real registry
+ * — untouched. This lets a behavior test assert the boundary attached to a
+ * specific route actually catches render crashes, instead of only snapshotting
+ * the boolean flag.
+ */
+function withThrowingLeaf(routes: RouteObject[], path: string): RouteObject[] {
+  return routes.map((route): RouteObject => {
+    if (route.path === path && !route.index) {
+      // Drop the lazy loader and mount a synchronous thrower so the render
+      // crash surfaces immediately under the route's real ErrorBoundary.
+      return { ...route, lazy: undefined, Component: ThrowingLeaf }
+    }
+    if (route.children) {
+      return { ...route, children: withThrowingLeaf(route.children, path) }
+    }
+    return route
+  })
+}
 
 interface ImportableLazyRoute {
   path?: string

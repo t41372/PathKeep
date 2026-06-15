@@ -1,0 +1,20 @@
+{
+  "id": "R-REGEX",
+  "track": "rust",
+  "sev": "critical",
+  "title": "Regex recall path materializes entire visits table into memory (OOM at scale)",
+  "files": [
+    "src-tauri/crates/vault-core/src/archive/history.rs"
+  ],
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "PERF-RISK",
+      "file": "src-tauri/crates/vault-core/src/archive/history.rs",
+      "lineRange": "461-525",
+      "description": "list_history_with_regex passes :pageLimit = -1 (unbounded) to LIST_HISTORY_SQL, collecting every visible visit row into a Vec, then post-filters with the regex in Rust. On a 14.4M-row archive this allocates ~4.3 GB of HistoryEntry objects before a single row is shown to the user. Even on the 264k-row dev archive this is already noticeable; at the target scale it will OOM or hang for many seconds.",
+      "suggestedFix": "Switch to a bounded candidate scan: stream rows in batches of 1000-5000, apply the regex filter per batch, stop once the page window is filled plus one lookahead. Add a response field like scannedRows so the frontend can show an honest 'scanned N rows, showing M matches -- narrow your filter' message in all three languages. This is already tracked in BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A as 'History regex recall unbounded'.",
+      "codeSnippet": "\":pageLimit\": -1i64,\n// ...\nlet filtered_items = rows\n    .collect::<rusqlite::Result<Vec<_>>>()?\n    .into_iter()\n    .filter(|entry| { regex.is_match(&entry.url) ... })\n    .collect::<Vec<_>>();"
+    }
+  ]
+}

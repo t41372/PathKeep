@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  aiJobMutationNeedsRefresh,
   compactInsightText,
   formatInsightCoverage,
   hostnameFromUrl,
@@ -335,5 +336,19 @@ describe('intelligence presentation helpers', () => {
       ),
     ).toBe(true)
     expect(runtimeJobMutationNeedsRefresh('429 from upstream host')).toBe(false)
+  })
+
+  test('recognizes stale AI queue mutation races that should refresh instead of erroring', () => {
+    expect(
+      aiJobMutationNeedsRefresh(
+        "AI job 77 is in state 'running' and cannot be cancelled.",
+      ),
+    ).toBe(true)
+    expect(
+      aiJobMutationNeedsRefresh(
+        'Only failed, cancelled, stale, or paused AI jobs can be replayed.',
+      ),
+    ).toBe(true)
+    expect(aiJobMutationNeedsRefresh('Provider quota exhausted.')).toBe(false)
   })
 })

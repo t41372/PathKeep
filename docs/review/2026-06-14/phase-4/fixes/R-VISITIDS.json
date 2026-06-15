@@ -1,0 +1,20 @@
+{
+  "id": "R-VISITIDS",
+  "track": "rust",
+  "sev": "major",
+  "title": "Unbounded visit_ids Vec in refind structural aggregate accumulator",
+  "files": [
+    "src-tauri/crates/vault-core/src/intelligence/intelligence_structural_aggregates.rs"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "PERF-RISK",
+      "file": "src-tauri/crates/vault-core/src/intelligence/intelligence_structural_aggregates.rs",
+      "lineRange": "51, 412, 479",
+      "description": "RefindAccumulatorEntry carries a visit_ids: Vec<i64> that grows without limit. For a popular page visited daily over 20 years the vector can hold hundreds of thousands of visit IDs. These are serialized into the evidence_json string via serde_json::json!({\"visitIds\": entry.visit_ids}). On a 14.4M archive with popular pages, this produces multi-megabyte JSON blobs per refind-page row and keeps millions of i64 values in memory across all accumulated refind pages simultaneously.",
+      "suggestedFix": "Cap visit_ids at a reasonable sample size (e.g., 50 most recent) and record totalVisitCount as a separate integer field. The evidence JSON only needs enough IDs for UI drill-down, not the full set.",
+      "codeSnippet": "entry.visit_ids.push(visit.visit_id);\n// ...\n\"visitIds\": entry.visit_ids"
+    }
+  ]
+}

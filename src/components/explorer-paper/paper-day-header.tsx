@@ -15,6 +15,12 @@
  *
  * ## Dependencies
  * - Paper tokens (`text-ink`, `bg-paper`, `border-border*`) via `src/styles/tokens.css`.
+ * - The sticky `top` reads the `--pk-toolbar-h` custom property that the
+ *   contact-sheet root keeps in sync with the live (chip-wrapping) toolbar
+ *   height. Reading a CSS variable — instead of a measured value threaded
+ *   through React state — means the offset tracks the toolbar within the same
+ *   layout/paint frame, with no render-cycle lag. Falls back to 44 px when no
+ *   ancestor sets the property (e.g. standalone use).
  *
  * ## Performance notes
  * - Pure presentation, no effects. Safe to mount per-day in long lists.
@@ -28,29 +34,20 @@ export interface PaperDayHeaderProps {
   meta?: ReactNode
   rightIndex?: ReactNode
   active?: boolean
-  toolbarOffsetPx?: number
   className?: string
   testId?: string
 }
 
 export const PaperDayHeader = forwardRef<HTMLDivElement, PaperDayHeaderProps>(
   function PaperDayHeader(
-    {
-      label,
-      meta,
-      rightIndex,
-      active = false,
-      toolbarOffsetPx = 44,
-      className,
-      testId,
-    },
+    { label, meta, rightIndex, active = false, className, testId },
     ref,
   ) {
     return (
       <div
         ref={ref}
         className={cn('bg-paper sticky z-[9] -mx-7 px-7', className)}
-        style={{ top: toolbarOffsetPx }}
+        style={{ top: 'var(--pk-toolbar-h, 44px)' }}
         data-testid={testId}
         data-active={active ? 'true' : undefined}
       >
@@ -72,7 +69,7 @@ export const PaperDayHeader = forwardRef<HTMLDivElement, PaperDayHeaderProps>(
             ) : null}
           </div>
           {rightIndex ? (
-            <span className="text-ink-ghost shrink-0 whitespace-nowrap font-mono text-[10px]">
+            <span className="text-ink-faint shrink-0 whitespace-nowrap font-mono text-[10px]">
               {rightIndex}
             </span>
           ) : null}

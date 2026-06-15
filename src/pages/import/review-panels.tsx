@@ -308,9 +308,9 @@ export function ImportReviewPanels({
                         {healthReport.checks.map((check) => (
                           <StatusCallout
                             key={check.name}
-                            tone={healthCheckStatusTone(check.status)}
-                            title={`${t(healthCheckStatusKey(check.status))} — ${check.name}`}
-                            body={check.message}
+                            tone={healthCheckStatusTone(check.ok)}
+                            title={`${t(healthCheckStatusKey(check.ok))} — ${check.name}`}
+                            body={check.detail}
                           />
                         ))}
                       </div>

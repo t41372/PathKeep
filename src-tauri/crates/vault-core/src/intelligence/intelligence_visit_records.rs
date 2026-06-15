@@ -35,12 +35,26 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 /// Loads visible visits for one optional profile scope and applies the
 /// site-dictionary classification contract before callers build higher-level
 /// deterministic state.
+///
+/// `limit` keeps only the newest visits and is pushed into SQL so a bounded
+/// scoped read never materializes a full profile (millions of rows) just to
+/// trim the tail afterwards. Rows are still returned in ascending
+/// `(visit_time_ms, id)` order so downstream deterministic builders see the
+/// same sequence regardless of the limit. `None` performs an unbounded load,
+/// which is only used by the full-recompute fallback path that must visit every
+/// row anyway.
 pub(super) fn load_visible_visits(
     connection: &Connection,
     profile_id: Option<&str>,
     limit: Option<u32>,
 ) -> Result<Vec<VisitRecord>> {
-    let mut statement = connection.prepare(
+    // Fetch the newest rows first so `LIMIT` bounds the scan to the requested
+    // tail, then reverse into ascending order below to match the contract.
+    let order = match limit {
+        Some(_) => "DESC",
+        None => "ASC",
+    };
+    let mut statement = connection.prepare(&format!(
         "SELECT visits.id,
                 source_profiles.profile_key,
                 visits.source_profile_id,
@@ -57,22 +71,24 @@ pub(super) fn load_visible_visits(
          JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
          WHERE visits.reverted_at IS NULL
            AND (?1 IS NULL OR source_profiles.profile_key = ?1)
-         ORDER BY visits.visit_time_ms ASC, visits.id ASC",
-    )?;
-    let rows = statement.query_map([profile_id], visit_from_row)?;
+         ORDER BY visits.visit_time_ms {order}, visits.id {order}
+         LIMIT ?2",
+    ))?;
+    // `Some(0)` keeps the single newest visit to preserve the historical
+    // tail-trim contract; `None` uses -1 so SQLite treats it as no limit.
+    let sql_limit = match limit {
+        Some(limit) => i64::from(limit.max(1)),
+        None => -1,
+    };
+    let rows =
+        statement.query_map(params![profile_id, sql_limit], visit_from_row)?;
     let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-    hydrate_search_terms(connection, &mut visits)?;
-    Ok(trim_visits_to_limit(visits, limit))
-}
-
-fn trim_visits_to_limit(mut visits: Vec<VisitRecord>, limit: Option<u32>) -> Vec<VisitRecord> {
-    if let Some(limit) = limit {
-        let keep = limit.max(1) as usize;
-        if visits.len() > keep {
-            visits = visits.split_off(visits.len() - keep);
-        }
+    if limit.is_some() {
+        // Restore ascending `(visit_time_ms, id)` order after the DESC fetch.
+        visits.reverse();
     }
-    visits
+    hydrate_search_terms(connection, &mut visits)?;
+    Ok(visits)
 }
 
 /// Normalizes one archive row into the unclassified `VisitRecord` shell used
@@ -308,50 +324,197 @@ fn apply_site_dictionary(
 
 #[cfg(test)]
 mod tests {
-    use super::{VisitRecord, trim_visits_to_limit};
+    use super::{VisitRecord, load_visible_visits};
+    use crate::archive::{open_archive_connection, open_intelligence_connection};
+    use crate::config::project_paths_with_root;
+    use crate::models::{AppConfig, ArchiveMode};
+    use rusqlite::Connection;
 
-    fn visit(visit_id: i64) -> VisitRecord {
-        VisitRecord {
-            visit_id,
-            profile_id: "chrome:Default".to_string(),
-            source_profile_id: 1,
-            source_visit_id: visit_id,
-            source_url_id: visit_id,
-            url: format!("https://example.com/{visit_id}"),
-            title: None,
-            visit_time_ms: visit_id,
-            from_visit: None,
-            transition_type: None,
-            external_referrer_url: None,
-            canonical_url: format!("https://example.com/{visit_id}"),
-            registrable_domain: "example.com".to_string(),
-            domain_category: "reference".to_string(),
-            page_category: "article".to_string(),
-            search_engine: None,
-            search_query: None,
-            is_new_domain: false,
-            is_search_event: false,
-            evidence_tier: "deterministic".to_string(),
-            taxonomy_source: "rules".to_string(),
-            taxonomy_pack: None,
-            taxonomy_version: None,
-            display_name: None,
-            session_id: None,
-            trail_id: None,
+    /// Inserts run id 1 so the URL/visit foreign keys on `created_by_run_id`
+    /// resolve.
+    fn seed_run(connection: &Connection) {
+        connection
+            .execute(
+                "INSERT INTO runs (
+                    id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only
+                 ) VALUES (1, 'backup', 'manual', '2026-04-14T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [],
+            )
+            .expect("insert run");
+    }
+
+    /// Inserts one archive profile so visits can resolve `profile_key`.
+    fn seed_profile(connection: &Connection, id: i64, profile_key: &str) {
+        connection
+            .execute(
+                "INSERT INTO source_profiles (
+                    id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at
+                 ) VALUES (?1, 'chrome', '1', ?2, '/tmp/profile', '2026-04-14T00:00:00Z', 1, ?2, '2026-04-14T00:00:00Z')",
+                rusqlite::params![id, profile_key],
+            )
+            .expect("insert profile");
+    }
+
+    /// Inserts one URL + visit pair (and an optional search term) for a profile.
+    #[allow(clippy::too_many_arguments)]
+    fn seed_visit(
+        connection: &Connection,
+        source_profile_id: i64,
+        visit_id: i64,
+        url: &str,
+        title: &str,
+        visit_time_ms: i64,
+        normalized_search_term: Option<&str>,
+    ) {
+        let url_id = visit_id + 100;
+        connection
+            .execute(
+                "INSERT INTO urls (
+                    id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+                    source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                 ) VALUES (?1, ?2, ?3, 1, 0, ?4, '2026-04-14T00:00:00Z', ?4, '2026-04-14T00:00:00Z', ?5, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z')",
+                rusqlite::params![url_id, url, title, visit_time_ms, source_profile_id, url_id + 1000, format!("hash-{visit_id}")],
+            )
+            .expect("insert url");
+        connection
+            .execute(
+                "INSERT INTO visits (
+                    id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
+                    source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
+                 ) VALUES (?1, ?2, ?3, ?4, '2026-04-14T00:00:00Z', 1, 0, ?5, 1, NULL, 0, ?6, ?7, '2026-04-14T00:00:00Z')",
+                rusqlite::params![visit_id, url_id, visit_id.to_string(), visit_time_ms, source_profile_id, format!("fingerprint-{visit_id}"), format!("visit-hash-{visit_id}")],
+            )
+            .expect("insert visit");
+        if let Some(term) = normalized_search_term {
+            connection
+                .execute(
+                    "INSERT INTO search_terms (
+                        id, url_id, term, normalized_term, source_profile_id, created_by_run_id, profile_id
+                     ) VALUES (?1, ?2, ?3, ?3, ?4, 1, ?5)",
+                    rusqlite::params![
+                        visit_id + 10_000,
+                        url_id,
+                        term,
+                        source_profile_id,
+                        format!("chrome:Profile{source_profile_id}"),
+                    ],
+                )
+                .expect("insert search term");
         }
     }
 
+    /// Opens an intelligence connection (archive attached) seeded with two
+    /// profiles. The default profile owns three visits in ascending time order
+    /// (ids 1-3, the first a Google search); the second profile owns two.
+    fn seeded_connection() -> (tempfile::TempDir, Connection) {
+        let root = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        seed_run(&archive);
+        seed_profile(&archive, 1, "chrome:Profile1");
+        seed_profile(&archive, 2, "chrome:Profile2");
+        seed_visit(
+            &archive,
+            1,
+            1,
+            "https://www.google.com/search?q=sqlite+wal",
+            "sqlite wal - Google Search",
+            1_711_929_600_000,
+            Some("sqlite wal"),
+        );
+        seed_visit(&archive, 1, 2, "https://example.com/two", "Two", 1_711_929_660_000, None);
+        seed_visit(&archive, 1, 3, "https://example.com/three", "Three", 1_712_016_000_000, None);
+        seed_visit(&archive, 2, 20, "https://work.example/a", "Work A", 1_712_000_000_000, None);
+        seed_visit(&archive, 2, 21, "https://work.example/b", "Work B", 1_712_000_060_000, None);
+        drop(archive);
+        let connection = open_intelligence_connection(&paths, &config, None).expect("intelligence");
+        (root, connection)
+    }
+
+    fn visit_ids(visits: &[VisitRecord]) -> Vec<i64> {
+        visits.iter().map(|visit| visit.visit_id).collect()
+    }
+
     #[test]
-    fn trim_visits_to_limit_keeps_the_newest_tail_and_treats_zero_as_one() {
-        let visits = vec![visit(1), visit(2), visit(3)];
+    fn load_visible_visits_unbounded_returns_every_profile_in_ascending_order() {
+        let (_root, connection) = seeded_connection();
 
-        let limited = trim_visits_to_limit(visits.clone(), Some(2));
-        assert_eq!(limited.iter().map(|visit| visit.visit_id).collect::<Vec<_>>(), vec![2, 3]);
+        let visits = load_visible_visits(&connection, None, None).expect("load all");
 
-        let zero = trim_visits_to_limit(visits.clone(), Some(0));
-        assert_eq!(zero.iter().map(|visit| visit.visit_id).collect::<Vec<_>>(), vec![3]);
+        // Ascending by (visit_time_ms, id) across both profiles. Visit 3 is the
+        // chronologically newest even though profile 2's ids are higher, proving
+        // ordering keys on time rather than id.
+        assert_eq!(visit_ids(&visits), vec![1, 2, 20, 21, 3]);
+    }
 
-        let unlimited = trim_visits_to_limit(visits, None);
-        assert_eq!(unlimited.len(), 3);
+    #[test]
+    fn load_visible_visits_scopes_to_one_profile() {
+        let (_root, connection) = seeded_connection();
+
+        let visits =
+            load_visible_visits(&connection, Some("chrome:Profile1"), None).expect("scoped load");
+
+        assert_eq!(visit_ids(&visits), vec![1, 2, 3]);
+        assert!(visits.iter().all(|visit| visit.profile_id == "chrome:Profile1"));
+    }
+
+    #[test]
+    fn load_visible_visits_limit_keeps_the_newest_tail_in_ascending_order() {
+        let (_root, connection) = seeded_connection();
+
+        // Newest two of the scoped profile, still ascending after the DESC fetch.
+        let limited = load_visible_visits(&connection, Some("chrome:Profile1"), Some(2))
+            .expect("limited load");
+        assert_eq!(visit_ids(&limited), vec![2, 3]);
+    }
+
+    #[test]
+    fn load_visible_visits_limit_applies_to_unscoped_reads_across_profiles() {
+        let (_root, connection) = seeded_connection();
+
+        // No profile filter: the newest two rows globally by time are visit 21
+        // (1_712_000_060_000) and visit 3 (1_712_016_000_000), returned
+        // ascending after the DESC-limited fetch.
+        let limited = load_visible_visits(&connection, None, Some(2)).expect("global limited load");
+        assert_eq!(visit_ids(&limited), vec![21, 3]);
+    }
+
+    #[test]
+    fn load_visible_visits_limit_zero_keeps_a_single_newest_visit() {
+        let (_root, connection) = seeded_connection();
+
+        // `Some(0)` preserves the historical keep-one tail-trim contract.
+        let zero =
+            load_visible_visits(&connection, Some("chrome:Profile1"), Some(0)).expect("zero load");
+        assert_eq!(visit_ids(&zero), vec![3]);
+    }
+
+    #[test]
+    fn load_visible_visits_limit_above_row_count_returns_all_rows() {
+        let (_root, connection) = seeded_connection();
+
+        let limited = load_visible_visits(&connection, Some("chrome:Profile1"), Some(999))
+            .expect("oversized limit");
+        assert_eq!(visit_ids(&limited), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn load_visible_visits_hydrates_search_terms_within_the_limit_window() {
+        let (_root, connection) = seeded_connection();
+
+        // Visit 1 is the Google search; it must classify as a search event when
+        // it falls inside the bounded window, proving hydration runs on the
+        // trimmed-in-SQL set rather than the full table.
+        let limited = load_visible_visits(&connection, Some("chrome:Profile1"), Some(3))
+            .expect("limited load");
+        let search_visit =
+            limited.iter().find(|visit| visit.visit_id == 1).expect("search visit present");
+        assert_eq!(search_visit.search_query.as_deref(), Some("sqlite wal"));
+        assert!(search_visit.is_search_event);
     }
 }

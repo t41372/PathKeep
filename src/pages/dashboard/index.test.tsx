@@ -343,7 +343,7 @@ describe('DashboardPage (paper redesign)', () => {
     expect(navigateMock).toHaveBeenLastCalledWith('/intelligence')
   })
 
-  test('clicking an Active Threads row fires the route onOpenThread navigate', async () => {
+  test('clicking an Active Threads row deep-links to the focused flow domain deep-dive', async () => {
     const api = await vi.importMock<typeof CoreIntelligenceApi>(
       '@/lib/core-intelligence/api',
     )
@@ -354,9 +354,9 @@ describe('DashboardPage (paper redesign)', () => {
           stepCount: 3,
           occurrenceCount: 4,
           steps: [
-            { index: 0, label: 'github.com' },
-            { index: 1, label: 'docs.rs' },
-            { index: 2, label: 'crates.io' },
+            { index: 0, label: 'github.com', registrableDomain: 'github.com' },
+            { index: 1, label: 'docs.rs', registrableDomain: 'docs.rs' },
+            { index: 2, label: 'crates.io', registrableDomain: 'crates.io' },
           ],
         },
       ],
@@ -369,7 +369,45 @@ describe('DashboardPage (paper redesign)', () => {
     const user = userEvent.setup()
     const row = await screen.findByTestId('dashboard-active-threads-row-flow-1')
     await user.click(row)
-    expect(navigateMock).toHaveBeenLastCalledWith('/intelligence')
+    // The row routes to the deep-dive of the flow's first registrable-domain
+    // step carrying the path-flow focus — the ONE route that actually surfaces
+    // the flow — instead of dropping the user on the generic overview.
+    expect(navigateMock).toHaveBeenLastCalledWith(
+      '/intelligence/domain/github.com?range=month&focusType=path-flow&focusId=flow-1',
+    )
+  })
+
+  test('a domain-less flow falls back to the focus-tagged overview deep-link', async () => {
+    const api = await vi.importMock<typeof CoreIntelligenceApi>(
+      '@/lib/core-intelligence/api',
+    )
+    vi.mocked(api.getPathFlows).mockResolvedValueOnce({
+      data: [
+        {
+          flowId: 'flow-2',
+          stepCount: 2,
+          occurrenceCount: 5,
+          // No step carries a registrableDomain (e.g. search-query groups), so
+          // there is no domain page to land on. The fallback still tags the
+          // overview with the path-flow focus and the month range.
+          steps: [
+            { index: 0, label: 'Search: rust async' },
+            { index: 1, label: 'Search: tokio runtime' },
+          ],
+        },
+      ],
+      meta: { state: 'ready' },
+    } as never)
+    renderDashboard({
+      snapshot: makeSnapshot(),
+      dashboard: makeDashboard(),
+    })
+    const user = userEvent.setup()
+    const row = await screen.findByTestId('dashboard-active-threads-row-flow-2')
+    await user.click(row)
+    expect(navigateMock).toHaveBeenLastCalledWith(
+      '/intelligence?range=month&focusType=path-flow&focusId=flow-2',
+    )
   })
 
   test('renders the morning greeting branch when hour is before noon', () => {
@@ -412,7 +450,11 @@ describe('DashboardPage (paper redesign)', () => {
     const api = await vi.importMock<typeof CoreIntelligenceApi>(
       '@/lib/core-intelligence/api',
     )
-    vi.mocked(api.getDiscoveryTrend).mockResolvedValueOnce({
+    // Persistent (not `…Once`): both the year-heatmap card and the this-week
+    // card fetch `getDiscoveryTrend('day')`, so a one-shot mock would race —
+    // whichever card fires first would consume the payload and the other
+    // (plus this assertion) would see the default empty result.
+    vi.mocked(api.getDiscoveryTrend).mockResolvedValue({
       data: {
         points: [{ dateKey: '2026-04-20', totalVisits: 8 }],
         availableYears: [2026],

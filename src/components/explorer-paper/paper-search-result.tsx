@@ -131,7 +131,7 @@ export function PaperSearchResult({
       <div className="text-ink-faint flex shrink-0 flex-col items-end gap-[2px] font-mono text-[10px]">
         <span>{entry.time}</span>
         {entry.transitionType ? (
-          <span className="text-ink-ghost uppercase tracking-[0.06em] text-[9px]">
+          <span className="text-ink-faint uppercase tracking-[0.06em] text-[9px]">
             {entry.transitionType}
           </span>
         ) : null}

@@ -52,11 +52,11 @@ describe('backend facade preview regressions', () => {
       checks: [
         expect.objectContaining({
           name: 'import-artifacts',
-          status: 'info',
+          ok: false,
         }),
         expect.objectContaining({
           name: 'visibility-state',
-          status: 'ok',
+          ok: true,
         }),
       ],
     })

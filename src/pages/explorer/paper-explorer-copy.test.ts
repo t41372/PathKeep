@@ -108,6 +108,8 @@ describe('buildPaperDetailPanelCopy', () => {
     expect(copy.notesHeading).toBe('Your notes')
     expect(copy.allOfDomain).toContain('{domain}')
     expect(copy.visitCountSuffix).toContain('{count}')
+    // Single-visit fallback label used by the Explorer mount.
+    expect(copy.visitedLabel).toBe('Visited')
   })
 
   test('builds the detail-panel copy for Simplified Chinese', () => {
@@ -115,6 +117,7 @@ describe('buildPaperDetailPanelCopy', () => {
     expect(copy.recordEyebrow).toBe('记录')
     expect(copy.notesHeading).toBe('你的笔记')
     expect(copy.lookFurtherHeading).toBe('看得更深')
+    expect(copy.visitedLabel).toBe('访问时间')
   })
 
   test('builds the detail-panel copy for Traditional Chinese', () => {
@@ -122,6 +125,7 @@ describe('buildPaperDetailPanelCopy', () => {
     expect(copy.recordEyebrow).toBe('紀錄')
     expect(copy.notesHeading).toBe('你的筆記')
     expect(copy.lookFurtherHeading).toBe('看得更深')
+    expect(copy.visitedLabel).toBe('造訪時間')
   })
 
   test('detail copy has no missing-key leakage across locales', () => {

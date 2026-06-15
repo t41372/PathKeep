@@ -1,0 +1,65 @@
+{
+  "duplicates": [
+    {
+      "description": "Schedule page 1308 lines",
+      "finding_indices": [
+        36,
+        112
+      ]
+    },
+    {
+      "description": "Unbounded intelligence caches",
+      "finding_indices": [
+        26,
+        135
+      ]
+    },
+    {
+      "description": "O(N) explorer re-aggregation",
+      "finding_indices": [
+        15,
+        136
+      ]
+    },
+    {
+      "description": "This Week card misleading data",
+      "finding_indices": [
+        59,
+        120
+      ]
+    }
+  ],
+  "verification_count": 42,
+  "severity_breakdown": {
+    "critical": 1,
+    "major": 33,
+    "minor_gap": 8
+  },
+  "verification_batches": [
+    {
+      "id": "VB-1",
+      "name": "Frontend Shell + Explorer",
+      "finding_count": 10
+    },
+    {
+      "id": "VB-2",
+      "name": "Intelligence + Dashboard",
+      "finding_count": 5
+    },
+    {
+      "id": "VB-3",
+      "name": "Trust Surfaces (Settings/Security/Import)",
+      "finding_count": 8
+    },
+    {
+      "id": "VB-4",
+      "name": "Rust Core (Archive + Ingest)",
+      "finding_count": 8
+    },
+    {
+      "id": "VB-5",
+      "name": "Platform + Bridge + Performance Critical",
+      "finding_count": 8
+    }
+  ]
+}

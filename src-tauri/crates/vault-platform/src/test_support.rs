@@ -80,7 +80,17 @@ pub(crate) fn test_keyring_dir() -> Option<PathBuf> {
 
 #[cfg(not(coverage))]
 /// Returns the file-backed keyring directory when tests opt into one.
+///
+/// Release builds must NEVER honor the redirect env vars: doing so would let an
+/// attacker-controlled launch environment force PathKeep to persist the
+/// SQLCipher master key and provider API keys as plaintext files instead of the
+/// OS keychain. `debug_assertions` is on for `cargo test` and `tauri dev` (the
+/// e2e/desktop-bridge harness) and off for `--release`, so the test redirect
+/// stays available where it is needed and is inert in shipped binaries.
 pub(crate) fn test_keyring_dir() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     std::env::var_os(TEST_KEYRING_DIR_ENV)
         .or_else(|| std::env::var_os(LEGACY_TEST_KEYRING_DIR_ENV))
         .map(PathBuf::from)

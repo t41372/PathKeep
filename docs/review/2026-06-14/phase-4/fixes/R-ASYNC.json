@@ -1,0 +1,20 @@
+{
+  "id": "R-ASYNC",
+  "track": "rust",
+  "sev": "major",
+  "title": "36 sync Core Intelligence read commands run on Tauri main thread",
+  "files": [
+    "src-tauri/src/commands/intelligence/core.rs"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "PERF-RISK",
+      "file": "src-tauri/src/commands/intelligence/core.rs",
+      "lineRange": "34-401",
+      "description": "All 36 Core Intelligence read-model commands in commands/intelligence/core.rs (get_sessions, get_search_trails, get_hub_pages, get_top_sites, get_domain_trend, get_refind_pages, get_activity_mix, get_digest_summary, get_browsing_rhythm, get_discovery_trend, etc.) are defined as synchronous `fn` rather than `async fn` backed by `run_blocking_command`. These commands query SQLite through vault-worker and vault-core, which means they execute on the Tauri main (UI) thread. Under the 14.4M-record design ceiling, any of these queries could take hundreds of milliseconds, freezing the WebView during the read. The runtime.rs sibling correctly uses `async fn` + `run_blocking_command` for the three overview and runtime commands, proving the pattern is known. The doc header even states: 'Commands in this file must stay as thin read-model facades ... this layer must not add full-archive materialization.' -- but the enforcement is missing because thin does not mean fast on a 14M-row archive.",
+      "suggestedFix": "Convert all 36 synchronous commands to `async fn` + `run_blocking_command`, mirroring the pattern already used in runtime.rs for get_intelligence_primary_overview and load_intelligence_runtime. The worker_bridge functions can stay synchronous -- only the Tauri command facade needs the async wrapper.",
+      "codeSnippet": "pub(crate) fn get_sessions(\n    request: vault_core::PagedDateRangeRequest,\n    state: State<'_, SessionState>,\n) -> Result<vault_core::SessionListResult, String> {\n    worker_bridge::get_sessions_impl(request, state.get_key().as_deref())\n}"
+    }
+  ]
+}

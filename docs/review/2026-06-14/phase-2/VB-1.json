@@ -1,0 +1,137 @@
+{
+  "name": "Frontend Shell + Explorer",
+  "items": [
+    {
+      "t": "Topbar missing notification queue button specified in screens-and-nav.md",
+      "s": "major",
+      "c": "DESIGN-DRIFT",
+      "f": "src/components/shell/pk-topbar.tsx",
+      "lr": "103-128",
+      "d": "screens-and-nav.md section 'Navigation' line 99-100 specifies: 'Topbar right side provides notification queue button; unread notifications use low-interference badge/highlight, opening the panel marks read, each notification has timestamp and can be individually dismissed.' The topbar implementation has no notification button, badge, or panel. The shell-data.tsx tracks notifications (with ShellNotification[], unreadNotificationCount, markNotificationsRead, dismissNotification) but there is no UI surface rendering them. Notifications are persisted to localStorage but never shown to the user.",
+      "sf": "Add a notification bell button with unread badge to PKTopbar between the search palette button and the Backup Now CTA. Wire it to a popover that renders the notification queue from useShellData(). The spec says it should be to the left of the profile scope switcher and Backup Now.",
+      "tr": "no",
+      "src": "FA-SHELL: Frontend Shell & Nav"
+    },
+    {
+      "t": "Profile scope switcher is in status bar, not in topbar as specified",
+      "s": "major",
+      "c": "DESIGN-DRIFT",
+      "f": "src/app/shell.tsx",
+      "lr": "306-316",
+      "d": "screens-and-nav.md line 100 states: 'The last two controls on the top-right must be the shared profile scope switcher and the Backup now main CTA.' The current implementation places the profile scope switcher in the PKStatusBar (bottom bar), not in the PKTopbar. The topbar right side only contains the search palette trigger and Backup Now button.",
+      "sf": "Either move the profile scope switcher to the topbar right side (between notification queue and Backup Now), or update screens-and-nav.md to reflect the current status-bar placement as a deliberate design decision.",
+      "tr": "uncertain",
+      "src": "FA-SHELL: Frontend Shell & Nav"
+    },
+    {
+      "t": "Token color values diverge from design-tokens.md contract",
+      "s": "major",
+      "c": "DESIGN-DRIFT",
+      "f": "src/styles/tokens.css",
+      "lr": "16-70",
+      "d": "design-tokens.md is declared as the contract that tokens.css implements, and explicitly states 'If tokens.css and this file disagree, fix tokens.css to match this contract -- not the other way around.' Several values diverge:\n\n- Light --bg-paper: doc says #ece7de, tokens.css has #f6f3ed (doc's --bg-paper value is actually at --bg-page in tokens.css)\n- Light --bg-card-paper: doc says #f6f3ed, tokens.css uses --bg-card: #fdfcf9 (mismatch)\n- Light --bg-page: doc says #fdfcf9, tokens.css has #ece7de (these are swapped vs doc)\n- Light --ink: doc says #171513, tokens.css has #1c1814\n- Light --ink-se",
+      "sf": "Audit each divergence: if tokens.css was tuned deliberately for visual quality, update design-tokens.md to match. If tokens.css drifted accidentally, fix tokens.css to match the doc. Also reconcile the naming scheme (--bg-paper vs --bg-card-paper vs --bg-page).",
+      "tr": "uncertain",
+      "src": "FA-SHELL: Frontend Shell & Nav"
+    },
+    {
+      "t": "Most routes lack ErrorBoundary protection",
+      "s": "major",
+      "c": "GAP",
+      "f": "src/app/router.tsx",
+      "lr": "384-456",
+      "d": "Only explorer, search, intelligence (and its sub-routes), and jobs have ErrorBoundary: ShellRouteErrorBoundary. Six routes lack it: import (line 392), audit (line 400), assistant (line 384), schedule (line 418), security (line 434), settings (line 450), integrations (line 426), and maintenance (line 442). The dashboard index route (line 277) also lacks it. If any of these routes throw during render, the entire shell crashes rather than showing the graceful ShellRouteErrorBoundary recovery UI.",
+      "sf": "Add ErrorBoundary: ShellRouteErrorBoundary to every route object in appRouteChildren. The boundary already handles route errors gracefully with retry, Jobs link, and Dashboard link.",
+      "tr": "no",
+      "src": "FA-SHELL: Frontend Shell & Nav"
+    },
+    {
+      "t": "Regex validation falsely rejects Rust named capture groups",
+      "s": "major",
+      "c": "BUG",
+      "f": "src/pages/explorer/regex-validation.ts",
+      "lr": "25-32",
+      "d": "The `unsupportedRustRegexFragments` array includes `'(?<'` to reject JS look-behind `(?<=` and `(?<!`. However, Rust's regex crate supports named capture groups via `(?<name>...)`, and this check rejects those too. A user typing `(?<year>\\d{4})` would see 'Invalid regex' even though the Rust backend would accept it. The check correctly blocks look-around (`(?<=`, `(?<!`) since those appear earlier in the array, but the fallthrough `'(?<'` is overly broad.",
+      "sf": "Remove `'(?<'` from the fragment list. The look-behind patterns `'(?<='` and `'(?<!'` already appear as separate entries and will catch those cases. Alternatively, replace the `'(?<'` entry with a negative check that only blocks `(?<` when NOT followed by an identifier char and `>` (i.e., only block",
+      "tr": "no",
+      "src": "FA-EXPLORER: Explorer / Recall"
+    },
+    {
+      "t": "O(N) full-array map on every favicon/og-image hydration pass at scale",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src/pages/explorer/index.tsx",
+      "lr": "349-378",
+      "d": "The `renderedTimeResults` memo spreads and maps the entire `combinedTimeResults.items` array on every change to `faviconCache` or `ogImageCache`. With the MAX_ACCUMULATED_PAGES at 500 and ~50 rows/page, this is ~25,000 items. Each icon lookup also calls `historyFaviconLookupKey()` (string concatenation) and `historyOgImageLookupKey()` per row. At the 500-page cap, each hydration pass does ~75,000 string ops plus ~25,000 object spreads. The BACKLOG already notes this as the reason the cap was lowered from 1,000 to 500, but even at 500 pages this will cause visible jank on the target 4-core/8GB ",
+      "sf": "Implement an incremental hydration overlay: instead of re-mapping the entire items array, maintain a separate sparse overlay Map of hydrated entries and merge at render time in the contact sheet. This is the 'incremental aggregator' the BACKLOG already identifies as the precondition for raising the ",
+      "tr": "yes",
+      "src": "FA-EXPLORER: Explorer / Recall"
+    },
+    {
+      "t": "Detail panel shows identical firstVisitAt and lastVisitAt for every entry",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src/pages/explorer/paper-detail-panel-mount.tsx",
+      "lr": "74-76",
+      "d": "The mount component maps `selectedEntry.visitedAt` to both `firstVisitAt` and `lastVisitAt` (lines 75-76). The HistoryEntry from the browse query contains only the current visit's timestamp, not the URL's overall first/last visit timestamps. The detail panel's design spec (recall.md section 'Record Detail Panel') calls for showing the actual first and last visit times across all visits to that URL. Currently, both fields always show the same date, which is misleading when a URL has been visited multiple times over months or years.",
+      "sf": "Fetch the full URL visit summary (first visit, last visit, total visits, typed count) from the backend when the detail panel opens. The `query_history` response already carries `visitCount` but not first/last timestamps. Either enrich the browse query response or make a separate `getUrlVisitSummary`",
+      "tr": "no",
+      "src": "FA-EXPLORER: Explorer / Recall"
+    },
+    {
+      "t": "Detail panel visit history sparkline is always empty",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src/pages/explorer/paper-detail-panel-mount.tsx",
+      "lr": "69-80",
+      "d": "The PaperDetailPanel supports a `visitHistory` prop (an array of date/count rows) and renders a per-visit sparkline (paper-detail-panel.tsx lines 460-490). However, PaperDetailPanelMount never supplies this prop -- the entry shape it constructs at lines 69-80 omits `visitHistory` entirely. The sparkline section is therefore always hidden, despite being fully implemented in the panel component.",
+      "sf": "When the detail panel opens, fetch the URL's visit history from the backend (e.g., a dedicated `getUrlVisitHistory(url)` command or by enriching the browse query response) and pass it as `visitHistory` to the panel entry.",
+      "tr": "no",
+      "src": "FA-EXPLORER: Explorer / Recall"
+    },
+    {
+      "t": "Detail panel title version history is never populated",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src/pages/explorer/paper-detail-panel-mount.tsx",
+      "lr": "69-80",
+      "d": "PaperDetailPanel supports `titleVersions` (array of date/title pairs) and renders them in a diff-style section (paper-detail-panel.tsx lines 515-531). PaperDetailPanelMount omits this prop, so the title version history section is always hidden. The recall.md spec calls for 'All title versions (if metadata has changed)' in the detail panel.",
+      "sf": "Supply `titleVersions` from the backend. The archive schema tracks metadata versions; expose them via a dedicated command or enrich the entry shape.",
+      "tr": "no",
+      "src": "FA-EXPLORER: Explorer / Recall"
+    },
+    {
+      "t": "ink-faint and ink-ghost tokens fail WCAG AA contrast requirements in both themes",
+      "s": "major",
+      "c": "UX-QUALITY",
+      "f": "src/styles/tokens.css",
+      "lr": "33-35 (light), 87-88 (dark)",
+      "d": "Computed contrast ratios: light mode ink-faint (#beb3a2) on bg-paper (#f6f3ed) = 1.87:1, ink-ghost (#d5cdc0) on bg-paper = 1.42:1. Dark mode ink-faint (#4f4639) on bg-paper (#191614) = 1.94:1, ink-muted (#6a6055) on bg-paper = 2.93:1. WCAG AA requires 4.5:1 for normal text and 3:1 for large text. These tokens are used for metadata, timestamps, epigraphs, build versions, and mono kickers -- all small text that falls well below the minimum. The dark mode ink-muted at 2.93:1 also fails AA for the 10-11px mono text it is frequently used at (sidebar status, filter chips, section labels).",
+      "sf": "Adjust ink-faint in light mode from #beb3a2 to approximately #8a8070 (achieving ~3.5:1 against bg-paper) and in dark mode from #4f4639 to approximately #7a6d5e. Adjust ink-ghost to be reserved only for decorative, non-text elements (aria-hidden borders, dividers) -- audit all current usages and prom",
+      "tr": "yes",
+      "src": "UX Quality Review (XA-UX) -- A"
+    },
+    {
+      "t": "Status bar source picker popover lacks keyboard accessibility and ARIA semantics",
+      "s": "major",
+      "c": "UX-QUALITY",
+      "f": "src/components/shell/pk-status-bar.tsx",
+      "lr": "147-269",
+      "d": "The source picker inside the status bar renders as a list of <button> elements inside a Radix Popover, but the container lacks role='listbox' or role='menu' semantics. There is no aria-label on the popover content area. The checkmark indicator (line 217, 254) uses a text character without aria-label or aria-checked semantics on the button. There is no keyboard arrow-key navigation between sources -- users must Tab through each option. The trigger button at line 151-175 has no aria-expanded attribute to communicate the popover state (though Radix may inject this, the trigger button itself is re",
+      "sf": "Add role='listbox' to the source list container and role='option' with aria-selected={isSelected} to each source button. Add aria-label to the PopoverContent describing its purpose (e.g., t('shell.sourcesPickerLabel')). Ensure the checkmark character is wrapped in aria-hidden='true' since the select",
+      "tr": "no",
+      "src": "UX Quality Review (XA-UX) -- A"
+    },
+    {
+      "t": "O(N) re-aggregation of entire accumulated entry set on every page fetch",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src/pages/explorer/index.tsx",
+      "lr": "318-379",
+      "d": "Every time a new page is loaded by the infinite scroll hook, combinedTimeResults spreads all items into a new array [...visibleTimeResults.items, ...infiniteExtraItems], then renderedTimeResults maps over the entire combined array to hydrate favicon/og-image lookups. At MAX_ACCUMULATED_PAGES=500 with ~50 entries per page, this is ~25,000 entries being copied and mapped on every page fetch. The extraItems memo inside use-explorer-infinite-pages.ts (line 350-357) also iterates all buffered pages on every pageItems state change.",
+      "sf": "Switch to an incremental aggregator: append new page entries to combinedTimeResults instead of rebuilding from scratch. The favicon/og hydration map lookup can be done lazily per visible row (matching the viewport recycling pattern already in place) rather than eagerly for 25k rows. This is tracked ",
+      "tr": "yes",
+      "src": "Performance & Scale Review (XA"
+    }
+  ]
+}

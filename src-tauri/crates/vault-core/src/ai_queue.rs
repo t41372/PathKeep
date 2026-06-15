@@ -203,7 +203,11 @@ pub fn claim_next_ai_job(
     let lease_expires_at = lease_expires_at(AI_JOB_LEASE_SECONDS);
 
     loop {
-        let claimed = connection
+        // Parse the payload OUTSIDE the row closure: a single unparseable row
+        // (schema drift across versions, DB corruption) must not propagate an
+        // error out of the claim and wedge the queue head forever. We read the
+        // raw columns, then quarantine a bad payload as `failed` and continue.
+        let candidate = connection
             .query_row(
                 "SELECT id, job_type, attempt, max_attempts, payload_json
                  FROM ai_jobs
@@ -213,29 +217,40 @@ pub fn claim_next_ai_job(
                  LIMIT 1",
                 [&now],
                 |row| {
-                    let job_type: String = row.get(1)?;
-                    let payload_json: String = row.get(4)?;
-                    let payload =
-                        serde_json::from_str::<AiJobPayload>(&payload_json).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                4,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
-                    Ok(StoredAiJob {
-                        id: row.get(0)?,
-                        job_type: decode_job_type(&job_type),
-                        attempt: row.get::<_, i64>(2)? as u32,
-                        max_attempts: row.get::<_, i64>(3)? as u32,
-                        payload,
-                    })
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
                 },
             )
             .optional()?;
 
-        let Some(job) = claimed else {
+        let Some((id, job_type, attempt, max_attempts, payload_json)) = candidate else {
             return Ok(None);
+        };
+
+        let payload = match serde_json::from_str::<AiJobPayload>(&payload_json) {
+            Ok(payload) => payload,
+            Err(error) => {
+                connection.execute(
+                    "UPDATE ai_jobs
+                     SET state = 'failed',
+                         updated_at = ?1,
+                         heartbeat_at = ?1,
+                         finished_at = ?1,
+                         lease_owner = NULL,
+                         lease_expires_at = NULL,
+                         error_code = 'payload-parse-error',
+                         error_message = ?2
+                     WHERE id = ?3
+                       AND state IN ('queued', 'stale')",
+                    params![now, format!("unparseable job payload: {error}"), id],
+                )?;
+                continue;
+            }
         };
 
         let updated = connection.execute(
@@ -251,10 +266,16 @@ pub fn claim_next_ai_job(
              WHERE id = ?4
                AND state IN ('queued', 'stale')
                AND available_at <= ?1",
-            params![now, lease_owner, lease_expires_at, job.id],
+            params![now, lease_owner, lease_expires_at, id],
         )?;
         if updated == 1 {
-            return Ok(Some(StoredAiJob { attempt: job.attempt + 1, ..job }));
+            return Ok(Some(StoredAiJob {
+                id,
+                job_type: decode_job_type(&job_type),
+                attempt: (attempt as u32) + 1,
+                max_attempts: max_attempts as u32,
+                payload,
+            }));
         }
     }
 }

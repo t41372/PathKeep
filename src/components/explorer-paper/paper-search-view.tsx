@@ -176,7 +176,7 @@ export function PaperSearchView({
           <div className="text-ink-faint font-serif text-[16px] italic leading-[1.5]">
             {copy.noMatchesTitle}
           </div>
-          <div className="text-ink-ghost mt-2 font-mono text-[10px]">
+          <div className="text-ink-faint mt-2 font-mono text-[10px]">
             {copy.noMatchesBody}
           </div>
         </div>

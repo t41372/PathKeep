@@ -85,11 +85,8 @@ export function importBatchStatusTone(status: string) {
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
-export function healthCheckStatusKey(status: string): TranslationKey {
-  if (status === 'warning') return 'common.statusNeedsAttention'
-  if (status === 'error' || status === 'blocked') return 'common.statusBlocked'
-  if (status === 'pending') return 'common.statusPending'
-  return status === 'ok' ? 'common.statusSuccess' : 'common.statusInfo'
+export function healthCheckStatusKey(ok: boolean): TranslationKey {
+  return ok ? 'common.statusSuccess' : 'common.statusFailed'
 }
 
 /**
@@ -97,10 +94,8 @@ export function healthCheckStatusKey(status: string): TranslationKey {
  *
  * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
  */
-export function healthCheckStatusTone(status: string) {
-  if (status === 'warning') return 'warning' as const
-  if (status === 'error' || status === 'blocked') return 'blocked' as const
-  return status === 'ok' ? ('success' as const) : ('info' as const)
+export function healthCheckStatusTone(ok: boolean) {
+  return ok ? ('success' as const) : ('blocked' as const)
 }
 
 /**

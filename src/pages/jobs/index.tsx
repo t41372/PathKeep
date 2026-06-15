@@ -33,6 +33,7 @@ import { describeError } from '../../lib/errors'
 import { formatRelativeTime } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import {
+  aiJobMutationNeedsRefresh,
   runtimeJobMutationNeedsRefresh,
   summarizeRuntimeJob,
   summarizeRuntimeJobError,
@@ -207,8 +208,15 @@ export function JobsPage() {
     setAction(jobsT('retryJob'))
     try {
       await backend.replayAiJob(jobId)
-      setPageError(null)
       await Promise.all([refreshAppData(), refreshRuntimeStatus()])
+      setPageError(null)
+    } catch (error) {
+      const message = describeError(error, 'replay_ai_job')
+      if (aiJobMutationNeedsRefresh(message)) {
+        await Promise.all([refreshAppData(), refreshRuntimeStatus()])
+        return
+      }
+      setPageError(message)
     } finally {
       setAction(null)
     }
@@ -218,8 +226,15 @@ export function JobsPage() {
     setAction(jobsT('cancelJob'))
     try {
       await backend.cancelAiJob(jobId)
-      setPageError(null)
       await Promise.all([refreshAppData(), refreshRuntimeStatus()])
+      setPageError(null)
+    } catch (error) {
+      const message = describeError(error, 'cancel_ai_job')
+      if (aiJobMutationNeedsRefresh(message)) {
+        await Promise.all([refreshAppData(), refreshRuntimeStatus()])
+        return
+      }
+      setPageError(message)
     } finally {
       setAction(null)
     }

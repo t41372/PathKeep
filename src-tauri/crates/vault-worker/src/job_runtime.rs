@@ -38,11 +38,28 @@ pub(crate) fn maybe_spawn_worker_pool<F>(
         if claim_worker_slot(active_workers, active) {
             let worker = Arc::clone(&worker);
             let thread_name = format!("{base_name}-{}", active + 1);
+            // The guard releases the claimed slot on EVERY exit path: normal
+            // return, a panic inside `worker()` (unwind drops the guard), and
+            // even spawn failure (the OS refusing the thread drops the closure,
+            // and with it the guard). The previous `worker(); fetch_sub(...)`
+            // tail leaked the slot on panic / spawn error, and once the leaked
+            // count reached `desired_workers` the pool never spawned again —
+            // wedging the AI / intelligence queue drain until process restart.
+            let guard = WorkerSlotGuard(active_workers);
             let _ = thread::Builder::new().name(thread_name).spawn(move || {
+                let _slot = guard;
                 worker();
-                active_workers.fetch_sub(1, Ordering::AcqRel);
             });
         }
+    }
+}
+
+/// Releases one worker-pool slot when dropped.
+struct WorkerSlotGuard(&'static AtomicUsize);
+
+impl Drop for WorkerSlotGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -149,6 +166,36 @@ mod tests {
         let claimed = AtomicUsize::new(0);
         assert!(claim_worker_slot(&claimed, 0));
         assert!(!claim_worker_slot(&claimed, 0));
+    }
+
+    #[test]
+    fn worker_pool_releases_slot_when_worker_panics() {
+        static ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
+        ACTIVE_WORKERS.store(0, Ordering::Release);
+        let release = Arc::new(Barrier::new(2));
+
+        maybe_spawn_worker_pool("pathkeep-panic-pool", &ACTIVE_WORKERS, 1, {
+            let release = Arc::clone(&release);
+            move || {
+                release.wait();
+                panic!("worker boom");
+            }
+        });
+
+        // Let the worker reach its panic, then confirm the slot was released so
+        // the pool is not permanently wedged at its desired-worker ceiling.
+        release.wait();
+        for _ in 0..200 {
+            if ACTIVE_WORKERS.load(Ordering::Acquire) == 0 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            ACTIVE_WORKERS.load(Ordering::Acquire),
+            0,
+            "a panicking worker must still release its pool slot"
+        );
     }
 
     #[test]

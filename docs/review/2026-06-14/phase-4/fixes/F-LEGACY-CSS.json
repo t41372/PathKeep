@@ -1,0 +1,22 @@
+{
+  "id": "F-LEGACY-CSS",
+  "track": "fe",
+  "sev": "minor",
+  "title": "Migrate Assistant/Audit/Security legacy v0.2 CSS classes to paper aesthetic",
+  "files": [
+    "src/pages/assistant/index.tsx",
+    "src/pages/audit/index.tsx",
+    "src/pages/security/panels.tsx"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "DESIGN-DRIFT",
+      "file": "src/pages/assistant/index.tsx",
+      "lineRange": "323-419",
+      "description": "While Dashboard, Explorer, Intelligence, Settings, Import, Jobs, Maintenance, Integrations, Onboarding, Lock, and Schedule all use the paper outer wrapper convention (mx-auto max-w-[1080px] flex flex-col pt-7 or PaperCard), the Assistant page at lines 323, 340, 360, and 419 still wraps all content in <section className='page-shell'> and uses .panel / .panel-header / .panel-body / .panel-action / .dashboard-next-action / .result-row / .intelligence-job-list CSS classes. The Audit page similarly uses page-shell (lines 376, 384, 395, 412, 434) with .panel class patterns. These are v0.2 CSS constructs that produce a visibly different visual rhythm -- no paper card borders, different padding, different background -- creating 'style islands' in the navigation flow.",
+      "suggestedFix": "For Audit: migrate from page-shell + panel classes to the paper outer wrapper + PaperCard composition that the other Operations routes use (Import, Jobs). For Assistant: since the AI features are v0.3-deferred and the current disabled state still displays, at minimum wrap the deferred-state callout in a PaperCard and use the paper outer wrapper container. The full active-AI conversation surface can wait for v0.3. Track in BACKLOG if not addressed this milestone.",
+      "codeSnippet": ""
+    }
+  ]
+}

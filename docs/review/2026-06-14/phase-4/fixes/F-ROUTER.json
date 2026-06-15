@@ -1,0 +1,20 @@
+{
+  "id": "F-ROUTER",
+  "track": "fe",
+  "sev": "major",
+  "title": "9 routes lack ErrorBoundary protection",
+  "files": [
+    "src/app/router.tsx"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "GAP",
+      "file": "src/app/router.tsx",
+      "lineRange": "384-456",
+      "description": "Only explorer, search, intelligence (and its sub-routes), and jobs have ErrorBoundary: ShellRouteErrorBoundary. Six routes lack it: import (line 392), audit (line 400), assistant (line 384), schedule (line 418), security (line 434), settings (line 450), integrations (line 426), and maintenance (line 442). The dashboard index route (line 277) also lacks it. If any of these routes throw during render, the entire shell crashes rather than showing the graceful ShellRouteErrorBoundary recovery UI.",
+      "suggestedFix": "Add ErrorBoundary: ShellRouteErrorBoundary to every route object in appRouteChildren. The boundary already handles route errors gracefully with retry, Jobs link, and Dashboard link.",
+      "codeSnippet": ""
+    }
+  ]
+}

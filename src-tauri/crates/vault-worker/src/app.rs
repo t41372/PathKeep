@@ -19,8 +19,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
     AppConfig, AppSnapshot, ArchiveMode, RuntimeDiagnostics, archive_status,
-    ensure_archive_initialized, hydrate_app_lock_config, load_import_batches, load_recent_runs,
-    rekey_archive, save_config, validate_app_lock_config_with_biometric,
+    ensure_app_lock_unlocked, ensure_archive_initialized, hydrate_app_lock_config,
+    load_import_batches, load_recent_runs, rekey_archive, save_config,
+    validate_app_lock_config_with_biometric,
 };
 use vault_platform::{discover_browser_profiles, keyring_status};
 
@@ -136,6 +137,11 @@ pub fn save_user_config(
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let previous_config = load_hydrated_config(&paths).unwrap_or_default();
+    // Settings (including App Lock's own enabled/biometric fields) must not be
+    // mutated while the session is locked: otherwise the lock could be disabled
+    // out from under itself without the passcode. Enabling the lock from an
+    // unlocked session, and all initial setup, still pass this no-op check.
+    ensure_app_lock_unlocked(&paths, &previous_config)?;
     let mut next_config = config.clone();
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;

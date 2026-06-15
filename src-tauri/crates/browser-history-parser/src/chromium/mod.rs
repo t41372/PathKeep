@@ -288,7 +288,11 @@ where
 
 /// Converts Chromium's microsecond timestamp format to Unix milliseconds.
 pub fn chrome_time_to_unix_ms(value: i64) -> i64 {
-    value.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS).div_euclid(1_000).max(0)
+    // Clamp keeps the numeric `*_ms` column and the derived ISO string in
+    // agreement for corrupt/far-future source rows (see clamp_unix_millis).
+    crate::types::clamp_unix_millis(
+        value.saturating_sub(CHROME_UNIX_EPOCH_OFFSET_MICROS).div_euclid(1_000),
+    )
 }
 
 /// Converts Chromium's microsecond timestamp format to RFC3339.
@@ -1546,5 +1550,10 @@ mod tests {
         assert_eq!(chrome_time_to_unix_ms(i64::MIN), 0);
         assert_eq!(chrome_time_to_iso(i64::MIN), "1970-01-01T00:00:00+00:00");
         assert!(chrome_time_to_iso(13_000_000_000_000_000_i64).starts_with("2012-"));
+        // Far-future / corrupt micros clamp to the representable ceiling so the
+        // numeric *_ms value and the ISO string agree (no year-294071 number
+        // paired with a silent 1970 ISO fallback).
+        assert_eq!(chrome_time_to_unix_ms(i64::MAX), crate::types::MAX_VALID_UNIX_MS);
+        assert!(chrome_time_to_iso(i64::MAX).starts_with("9999-"));
     }
 }

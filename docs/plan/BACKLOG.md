@@ -41,6 +41,25 @@
 > 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
 > 2026-05-27 parser mutation hardening note：行為安全網補測把 `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` 推到 1544 行。這次只補測試、不新增業務邏輯；但該檔已超過 1400 行硬限制，後續不得再往此檔新增 parser 業務邏輯，需用 dedicated 維護窗口做 owner split 審查。
 
+> 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
+
+- [ ] **WORK-REVIEW-0614-FOLLOWUPS-A** — 2026-06-14 review non-blocking follow-ups
+  - 讀先：
+    `docs/review/2026-06-14/phase-4/final-report.md`
+    `docs/review/2026-06-14/phase-3/all-verdicts.json`
+    `docs/plan/program/import-dedup-audit.md`
+  - 目標：清掉 2026-06-14 review 確認修復後，獨立 reviewer 標記為 non-blocking 的尾巴項目。皆非阻塞、非回歸。
+  - 範圍（逐項可獨立做）：
+    - **per-URL visit summary 後端讀取**（X-VISITSUMMARY 的完整版）：新增 backend command 回傳單一 URL 的 first/last visit、visit_count、typed_count，串到 detail panel，恢復 recall.md 規格的 first/last/sparkline/title-versions。目前 detail panel 只誠實顯示單次 visit。
+    - **F-LEGACY-CSS 殘留**：`src/pages/security/panels.tsx` 與 audit detail panel 仍帶 v0.2 `.panel` chrome；`PaperCardBody` 內仍用 legacy grid util（`intelligence-stack` / `intelligence-job-list`）。
+    - **F-ROUTER 殘留**：`/onboarding` route subtree 仍無 ErrorBoundary（pre-existing，超出原 finding 範圍）。
+    - **R-VISITIDS**：`totalVisitCount` 已持久化但 explainability panel 的 chip 仍從 capped array 推導；改讀 exact total。
+    - **F-TOKENS micro**：light-mode `--ink-faint` 在 `--bg-page` / `--bg-hover` 上仍略低於 normal-text AA（已過 large-text 3:1，且遠優於修前）；如要再壓需小心 muted>faint 層級。`StatusCallout` CSS 仍用 `--warning-dim`/`--error-dim` 別名（resolve 正確，屬待清理 migration debt）。
+    - **F-DASHBOARD micro**：`dashboardWeekRange(new Date())` / `isoWeek` 每 render 重算多次，可 memo；month preset 是 30-day query window 的近似。
+    - **R-LOADVISITS micro**：scoped read 仍因 `?1 IS NULL OR ...` predicate 走 full table SCAN（CPU/IO，記憶體已 bounded）；可考慮拆兩條 query 走 index。
+  - 契約：每項獨立、行為保留；動到 user-visible copy 要補三語；維持 100% coverage gate。
+  - 驗收：所選項目修復 + 測試；`bun run check` 綠（或於 Linux CI gate 綠）。
+
 - [ ] **WORK-MAINT-PARSER-CHROMIUM-A** — Split oversized Chromium parser owner
   - 讀先：
     `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`
@@ -563,6 +582,24 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 已知起點（2026-04-27）：`bun run mutation:js:full --dryRunOnly` 約 2m20s，full JS Stryker 21769 mutants，按 44m/32% 實測估算約 2-3 小時；`cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --list --json` 顯示 5869 Rust candidates，且 current copy-sandbox baseline 會因 repo-root Safari reference fixture path 缺失失敗。
   - 執行順序：先確認 `bun run check` 綠；再跑 `bun run mutation:js:full` 並從 top survivor/timeouts files 補測；Rust 先修 cargo-mutants copy-sandbox fixture contract，再用 shards 跑 `bun run mutation:rust:full` 或等價 `cargo mutants --shard n/m`，合併 survivor 清單後逐項處理。
   - 驗收：`bun run check`、`bun run mutation:js:full`、`bun run mutation:rust:full`、更新 `docs/plan/program/quality-matrix.md` / `TESTING.md` / `CHANGELOG.md` 的耗時、survivor closeout 與任何 narrow equivalent evidence。
+
+- [ ] **WORK-REVIEW-0612-FOLLOWUPS-A** — Deferred findings from the 2026-06-12 deep code review
+  - 來源：`WORK-REVIEW-0612-HARDENING-A`（見 `CHANGELOG.md`）。當輪已修掉可驗證且範圍受控的安全/正確性 bug；下列是經獨立驗證為真、但屬「大型重構 / 需 Accepted-doc 決策 / 需實機視覺驗證 / 低優先」而**刻意延後**的項目。**不要**在沒有對應 slice 與覆蓋計畫下硬塞進別的 block。
+  - **Intelligence 規模化效能（最高優先，需先做審查階段）**：以下都在 14.4M-visit 目標機上違反「禁止全量加載」。多數位於 >1000 行的 intelligence owner，必須先走大檔重構兩階段（審查→執行）：
+    - 語意 index 全量 build 把整張 visits 表收進 `Vec<IndexedVisit>`（`ai/indexing.rs`，no-limit 分支），且在 v0.3 bail 之前就分配。
+    - structural rebuild accumulator 的 `visit_ids: Vec<i64>` 與 evidence_json 的 `visitIds` 無上限（`intelligence/intelligence_structural_aggregates.rs`）。
+    - query-family 分組 O(events × families) 且每次比較重新 tokenize（`intelligence/intelligence_structural_build.rs`）。
+    - scoped-debug rebuild 的 `limit` 在全量 materialize + 分類之後才裁剪（`intelligence/intelligence_visit_records.rs`）。
+    - 增量 / fallback daily-rollup 與 phase_three/phase_four read models 把無上限 `Vec` 收進記憶體（`intelligence/intelligence_daily_rollups.rs`、`phase_three.rs`、`phase_four.rs`）；另含增量 vs fallback 對 `domain_category` 的「first-seen vs most-frequent」不一致與雙 local-day 實作。
+  - **Intelligence job lease / recovery 強化**：`recover_expired_intelligence_jobs` 無 attempt cap 地把過期 `running` job requeue（300s lease + 每 profile 才一次 heartbeat），可造成重跑 / 雙執行；enrichment job 在 claim 後失敗（`store_enrichment` 等）會被 `let _ =` 吞掉而永遠 `running`。修法：背景 heartbeat 續租或每 batch 進度、recovery 加 attempt cap、worker 端 on-Err `mark_intelligence_job_failed`。需與 lease 設計一起做並補測。
+  - **Parser（需 Accepted-doc 決策 / 語義變更）**：Chromium `visit_duration`（µs）以 `_ms` 命名 verbatim 存（E12 accepted），但 `phase_three.rs:561` 把它當真 ms 聚合 → 1000× 膨脹，需走 trade-off 文檔；`PRAGMA quick_check`（無界）每次 Browser-Direct import/preview 全庫掃描（`takeout/browser_history/staging.rs`）；orphan visit 因 INNER JOIN 靜默丟棄（chromium/firefox/safari），需 warn 或 LEFT JOIN。
+  - **History regex recall 無界**：`list_history_with_regex` 綁 `:pageLimit = -1` 後全量 materialize 再過濾（`archive/history.rs`）。修法需 bounded 候選掃描 + 三語誠實提示「已掃描前 N 筆，請縮小範圍」(en/zh-CN/zh-TW) 與 response contract 欄位。
+  - **App-lock KDF 強度（需新增依賴 + 遷移）**：passcode 走 120k 輪 SHA-256，建議改 argon2id（RustCrypto，符合 trust gate 但需依賴授權）+ 提高最小熵 + 線上 attempt 鎖定；同時 rekey 前的 plaintext snapshot（`archive/maintenance.rs`）在 Plaintext→Encrypted 後仍留明文，需加密或誠實提示並清理；`UnlockAppSessionRequest`/`SetAppLockPasscodeRequest` 的 `Debug` 應 redact passcode。
+  - **og:image SSRF 殘留**：目前 pre-flight 守住「page URL / og:image 直接指向私網」與最終 host；但 `reqwest` 仍會自動跟隨 redirect 到私網（中間 hop 仍會發 GET）。徹底封堵需自管 redirect-follow + 逐 hop 驗證（hermetic 覆蓋需可注入 resolver/transport）。
+  - **Frontend（需實機視覺驗證 / 中等）**：~~Explorer sticky day-header 的 `top` offset 由 ResizeObserver→setState 驅動，filter chips 換行時有 1 幀延遲導致短暫脫離 sticky~~ — **已修（2026-06-13，見 CHANGELOG `WORK-REVIEW-0612-FOLLOWUPS-A`）**：改用 `--pk-toolbar-h` CSS custom property，由 `useLayoutEffect` 內的 ResizeObserver 直接寫入(無 React render 中介);剩餘 interactive chip-wrap/scroll pixel 驗收待在實機 app 補眼。其餘未做：`renderedTimeResults`→`groupEntriesByDay` 在每次 favicon/og cache mutation 對整個累積集 O(N log N) 重排+重建物件（建議把 icon hydration 與 grouped data 解耦）；`useBrowseDayInsightsCache.resolve` 在 render 期間發 IPC；IntersectionObserver `root` 假設 viewport 是 scroller 但實際是 `<main>`；link-previews rebuild 在 `refreshStats()` 完成前就顯示成功。
+  - **Frontend lib（中等）**：`readRequestCache` / `overviewCache` 無界增長（建議 LRU）；`invokeCachedRead` 的 `force` 在有非 forced in-flight 時被忽略；`flattenDictionary` bare-alias 跨 namespace 葉鍵碰撞（目前無 live hit，建議加 catalog 測試斷言無碰撞，或移除 bare alias）。
+  - **Build/tooling（低）**：desktop-bridge truth gate 用 `Math.random` 端口偏移 + `retries:2`，跨 run / 殘留進程可能撞埠造成偽紅（建議 OS ephemeral port）；native-deps cache 的 broad `restore-keys` 可能在 baseline bump 後重用舊樹；rusqlite `bundled-sqlcipher-vendored-openssl` 的 vendored C compile 與 native-dependency ADR 措辭需補一句一致性說明。
+  - 契約：每一項落地時都要先確認屬於哪個 owner / slice、>1000 行檔案先走兩階段、保持 100% JS/Rust coverage 與 mutation gate；Accepted-doc 項目（visit_duration 單位、KDF/snapshot 安全模型）必須先產出 trade-off 文檔並徵得使用者同意。
 
 ---
 

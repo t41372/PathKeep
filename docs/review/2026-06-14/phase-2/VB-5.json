@@ -1,0 +1,93 @@
+{
+  "name": "Platform + Bridge + Perf",
+  "items": [
+    {
+      "t": "archive_flows.rs exceeds the 1400-line hard limit at 1845 lines",
+      "s": "major",
+      "c": "ARCH-SMELL",
+      "f": "src-tauri/crates/vault-worker/src/archive_flows.rs",
+      "lr": "1-1845",
+      "d": "archive_flows.rs is 1845 lines, well above the 1400-line hard limit defined in AGENTS.md. The file mixes backup orchestration, og:image worker pool management, import/takeout/export pass-throughs, doctor/repair wrappers, deterministic intelligence refresh helpers, and their corresponding test suite (~850 lines of tests). Per AGENTS.md rules, this file should only receive bug fixes or minimal changes, and a BACKLOG entry with high-priority maintainability review is required.",
+      "sf": "Extract the og:image worker pool and its helpers (refetch_og_images, drain_one_worker_url, host_throttle_wait, record_refetch_outcome, lock_or_recover, finalize_refetch_run, try_refetch_due_og_images, try_prefetch_new_visit_og_images, prefetch_og_images_on_demand, effective_og_image_fetch_mode, and ",
+      "tr": "no",
+      "src": "FA-PLATFORM: Rust Platform Int"
+    },
+    {
+      "t": "worker_args[1..] slice can panic if worker_args is empty",
+      "s": "major",
+      "c": "BUG",
+      "f": "src-tauri/crates/vault-platform/src/scheduler/windows.rs",
+      "lr": "93",
+      "d": "Both windows.rs (line 93) and linux.rs (line 36) index worker_args[1..] without checking that worker_args has at least one element. If worker_args is empty, this will panic at runtime with an out-of-bounds slice index. The caller in scheduler.rs currently always passes a non-empty vec (lines 46-51), but the function signatures accept &[String] with no documented precondition, making this fragile to future callers.",
+      "sf": "Either add a guard at the top of both functions: `let tail_args = if worker_args.len() > 1 { &worker_args[1..] } else { &[] };` or document the precondition explicitly with a debug_assert!(worker_args.len() >= 1). The macos.rs module already handles this correctly in macos_program_arguments (lines 2",
+      "tr": "no",
+      "src": "FA-PLATFORM: Rust Platform Int"
+    },
+    {
+      "t": "Linux schedule plan does not implement status detection or repair",
+      "s": "suggestion",
+      "c": "GAP",
+      "f": "src-tauri/crates/vault-platform/src/scheduler/linux.rs",
+      "lr": "1-151",
+      "d": "The Linux schedule module generates systemd unit files but has no status detection, apply, remove, or repair functionality. The scheduler facade returns 'manual-review' for Linux install_state with a warning about only macOS having detection. This asymmetry is documented but means Linux users get no feedback about whether their timer is actually installed and running.",
+      "sf": "Add basic status detection via systemctl --user is-active and systemctl --user cat to at least report installed/not-installed state on Linux. This would bring Linux closer to parity with macOS and Windows. Consider tracking this as a v0.3 or post-release enhancement.",
+      "tr": "yes",
+      "src": "FA-PLATFORM: Rust Platform Int"
+    },
+    {
+      "t": "36 synchronous Core Intelligence read commands run on the Tauri main thread",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src-tauri/src/commands/intelligence/core.rs",
+      "lr": "34-401",
+      "d": "All 36 Core Intelligence read-model commands in commands/intelligence/core.rs (get_sessions, get_search_trails, get_hub_pages, get_top_sites, get_domain_trend, get_refind_pages, get_activity_mix, get_digest_summary, get_browsing_rhythm, get_discovery_trend, etc.) are defined as synchronous `fn` rather than `async fn` backed by `run_blocking_command`. These commands query SQLite through vault-worker and vault-core, which means they execute on the Tauri main (UI) thread. Under the 14.4M-record design ceiling, any of these queries could take hundreds of milliseconds, freezing the WebView during t",
+      "sf": "Convert all 36 synchronous commands to `async fn` + `run_blocking_command`, mirroring the pattern already used in runtime.rs for get_intelligence_primary_overview and load_intelligence_runtime. The worker_bridge functions can stay synchronous -- only the Tauri command facade needs the async wrapper.",
+      "tr": "no",
+      "src": "FA-BRIDGE: Tauri IPC Bridge & "
+    },
+    {
+      "t": "Regex recall path materializes entire visits table into memory",
+      "s": "critical",
+      "c": "PERF-RISK",
+      "f": "src-tauri/crates/vault-core/src/archive/history.rs",
+      "lr": "461-525",
+      "d": "list_history_with_regex passes :pageLimit = -1 (unbounded) to LIST_HISTORY_SQL, collecting every visible visit row into a Vec, then post-filters with the regex in Rust. On a 14.4M-row archive this allocates ~4.3 GB of HistoryEntry objects before a single row is shown to the user. Even on the 264k-row dev archive this is already noticeable; at the target scale it will OOM or hang for many seconds.",
+      "sf": "Switch to a bounded candidate scan: stream rows in batches of 1000-5000, apply the regex filter per batch, stop once the page window is filled plus one lookahead. Add a response field like scannedRows so the frontend can show an honest 'scanned N rows, showing M matches -- narrow your filter' messag",
+      "tr": "no",
+      "src": "Performance & Scale Review (XA"
+    },
+    {
+      "t": "Unbounded visit_ids Vec in refind-page structural aggregate accumulator",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src-tauri/crates/vault-core/src/intelligence/intelligence_structural_aggregates.rs",
+      "lr": "51, 412, 479",
+      "d": "RefindAccumulatorEntry carries a visit_ids: Vec<i64> that grows without limit. For a popular page visited daily over 20 years the vector can hold hundreds of thousands of visit IDs. These are serialized into the evidence_json string via serde_json::json!({\"visitIds\": entry.visit_ids}). On a 14.4M archive with popular pages, this produces multi-megabyte JSON blobs per refind-page row and keeps millions of i64 values in memory across all accumulated refind pages simultaneously.",
+      "sf": "Cap visit_ids at a reasonable sample size (e.g., 50 most recent) and record totalVisitCount as a separate integer field. The evidence JSON only needs enough IDs for UI drill-down, not the full set.",
+      "tr": "no",
+      "src": "Performance & Scale Review (XA"
+    },
+    {
+      "t": "Offset-based pagination used when numbered pages are requested",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src-tauri/crates/vault-core/src/archive/history.rs",
+      "lr": "583-610, 788-803",
+      "d": "When the frontend requests a numbered page (requested_page.is_some()), the query falls back to OFFSET :pageOffset instead of cursor-based keyset pagination. For page N with 50 rows per page, SQLite must scan and discard (N-1)*50 rows before returning results. At page 500 of a 14.4M archive, that means scanning and discarding ~25,000 rows even with an index. The cursor path is only used when requested_page is None. The lexical search path has the same pattern.",
+      "sf": "When a numbered page is requested, translate the page number into a cursor by computing the visit_time_ms threshold from the offset via a single indexed COUNT query, then use keyset pagination from that threshold. Alternatively, limit the maximum requestable page number to a reasonable bound (e.g., ",
+      "tr": "yes",
+      "src": "Performance & Scale Review (XA"
+    },
+    {
+      "t": "load_visible_visits materializes all profile visits for scoped-debug rebuild",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src-tauri/crates/vault-core/src/intelligence/intelligence_visit_records.rs",
+      "lr": "38-66",
+      "d": "load_visible_visits loads ALL visible visits for one profile into a Vec<VisitRecord> before the limit parameter trims to the tail. On a 14.4M archive with a single profile, this collects the entire table into memory. Even with the limit parameter, it first collects all rows then calls split_off to keep only the last `limit` entries (line 68-76 trim_visits_to_limit). The production rebuild path calls this at intelligence_rebuild.rs:284 for 'scoped debug fallback' rebuilds.",
+      "sf": "Push the LIMIT into the SQL ORDER BY ... DESC LIMIT ?2 and reverse in Rust, or use the existing batched load_profile_derived_visit_batch path. The scoped-debug path should use the same bounded loading as the production incremental path.",
+      "tr": "no",
+      "src": "Performance & Scale Review (XA"
+    }
+  ]
+}

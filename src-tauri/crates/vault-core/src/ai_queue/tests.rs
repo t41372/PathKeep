@@ -377,9 +377,22 @@ fn malformed_payloads_and_terminal_edges_stay_observable() {
     let malformed_claim =
         claim_ai_job_by_id(&connection, malformed_id, 60).expect_err("malformed targeted claim");
     assert!(format!("{malformed_claim:#}").contains("line 1 column"));
-    let malformed_next_claim =
-        claim_next_ai_job(&connection, 60).expect_err("malformed next claim");
-    assert!(format!("{malformed_next_claim:#}").contains("line 1 column"));
+    // The head-of-queue claim must NOT propagate the parse error (which would
+    // wedge the queue forever): it quarantines the unparseable row as `failed`
+    // and keeps draining. Loop until the queue is empty of claimable rows.
+    while claim_next_ai_job(&connection, 60)
+        .expect("claim_next must quarantine a malformed payload instead of erroring")
+        .is_some()
+    {}
+    let (malformed_state, malformed_error): (String, String) = connection
+        .query_row(
+            "SELECT state, error_code FROM ai_jobs WHERE id = ?1",
+            params![malformed_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load quarantined malformed row");
+    assert_eq!(malformed_state, "failed");
+    assert_eq!(malformed_error, "payload-parse-error");
 
     assert_eq!(encode_job_state(AiQueueJobState::Running), "running");
     assert_eq!(encode_job_state(AiQueueJobState::Succeeded), "succeeded");

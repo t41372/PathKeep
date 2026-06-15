@@ -105,7 +105,7 @@ export function DashboardOnThisDay({
           </ul>
         )}
         {!hasSummary ? (
-          <p className="mt-2 font-mono text-[9px] text-ink-ghost">
+          <p className="mt-2 font-mono text-[9px] text-ink-faint">
             ◌ {t('dashboard.onThisDayFallbackNote')}
           </p>
         ) : null}

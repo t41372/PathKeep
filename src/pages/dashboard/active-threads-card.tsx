@@ -12,7 +12,9 @@
  *
  * ## Not responsible for
  * - Deep-link routing into Intelligence focus state — the parent route owns
- *   `onOpenThread` and `onOpenAll`.
+ *   `onOpenThread` and `onOpenAll`. The card hands the parent the whole flow
+ *   (not just its id) because choosing the deep-link target needs the flow's
+ *   step domains, and that route grammar must not leak into this render shell.
  * - Query family rendering (the secondary intelligence-sections render that;
  *   the dashboard scope stays pinned to recurring path flows so it does not
  *   duplicate the Intelligence route's search-activity surface).
@@ -44,8 +46,12 @@ import { dashboardThreadsRange } from './dashboard-helpers'
 
 export interface DashboardActiveThreadsProps {
   onOpenAll: () => void
-  /** Optional handler invoked when the user clicks a thread row. */
-  onOpenThread?: (flowId: string) => void
+  /**
+   * Optional handler invoked with the full flow when the user clicks a thread
+   * row. The parent needs the flow's steps (not just its id) to build a
+   * deep-link that actually surfaces the flow in the Intelligence route.
+   */
+  onOpenThread?: (flow: PathFlow) => void
   /** Whether the archive is ready to be queried (initialized + unlocked). */
   archiveReady: boolean
 }
@@ -166,12 +172,12 @@ export function DashboardActiveThreads({
 interface ThreadRowProps {
   flow: PathFlow
   occurrenceLabel: string
-  onOpenThread?: (flowId: string) => void
+  onOpenThread?: (flow: PathFlow) => void
 }
 
 function ThreadRow({ flow, occurrenceLabel, onOpenThread }: ThreadRowProps) {
   const handleClick = () => {
-    if (onOpenThread) onOpenThread(flow.flowId)
+    if (onOpenThread) onOpenThread(flow)
   }
   return (
     <li>

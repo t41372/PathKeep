@@ -133,7 +133,7 @@ describe('trust flows/import flows', () => {
     )
     expect(
       await screen.findByRole('heading', {
-        name: new RegExp(zhCnT('common.statusNeedsAttention')),
+        name: new RegExp(zhCnT('common.statusFailed')),
       }),
     ).toBeVisible()
 

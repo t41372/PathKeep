@@ -27,6 +27,29 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Escapes the five HTML-significant characters so untrusted text (page
+/// titles, URLs, timestamps drawn from imported browser history) can be
+/// embedded in generated HTML without enabling markup/script injection.
+///
+/// Used by any module that renders a local HTML artifact from history data
+/// (e.g. the history export report). Escaping `"` and `'` in addition to
+/// `& < >` keeps the helper safe for both element text and quoted attribute
+/// values.
+pub fn escape_html(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
 /// Computes a lowercase hex SHA-256 digest for arbitrary bytes.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -259,6 +282,16 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use tempfile::tempdir;
+
+    #[test]
+    fn escape_html_escapes_all_significant_characters() {
+        assert_eq!(
+            escape_html("<a href=\"x\" title='y'>Tom & Jerry</a>"),
+            "&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;Tom &amp; Jerry&lt;/a&gt;"
+        );
+        // Non-significant characters (incl. multibyte CJK) pass through intact.
+        assert_eq!(escape_html("普通文字 plain"), "普通文字 plain");
+    }
 
     #[test]
     fn sha_helpers_are_stable() {

@@ -146,3 +146,23 @@ export function formatInsightCoverage(
 export function runtimeJobMutationNeedsRefresh(message: string) {
   return /cannot be (cancelled|retried)/i.test(message)
 }
+
+/**
+ * Reports whether an AI-queue retry/cancel rejection is a stale-state race
+ * rather than a genuine failure worth alarming the user about.
+ *
+ * Why this exists: the Jobs panels render a queue snapshot, so a row's state
+ * can change (queued → running, failed → retried elsewhere) between paint and
+ * the user's click. When that happens the backend rejects the mutation with a
+ * deterministic "state no longer allows this" message, and the honest response
+ * is to silently re-read truth instead of surfacing a scary banner. The AI
+ * queue phrases these races differently from the deterministic runtime queue —
+ * replay says "Only ... can be replayed." and cancel says "... cannot be
+ * cancelled." — so it gets its own matcher kept honest to the actual backend
+ * wording (`vault-core::ai_queue`) rather than a broad regex that could swallow
+ * unrelated provider errors. Any other rejection (quota, provider, IO) is a
+ * real failure and must be shown.
+ */
+export function aiJobMutationNeedsRefresh(message: string) {
+  return /cannot be cancelled|can be replayed/i.test(message)
+}

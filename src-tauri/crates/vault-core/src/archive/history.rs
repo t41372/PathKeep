@@ -19,6 +19,7 @@ use super::*;
 pub mod day_insights;
 mod export;
 mod favicons;
+mod net_guard;
 pub mod og_images;
 pub mod og_images_fetch;
 pub mod og_images_synth;
@@ -151,6 +152,26 @@ OFFSET :pageOffset
 
 const FUZZY_CANDIDATE_URL_LIMIT: i64 = 200;
 const FUZZY_CANDIDATE_VISIT_LIMIT: i64 = 400;
+
+/// Upper bound on how many visible visit rows the manual regex path scans
+/// before it stops, in newest/oldest sort order.
+///
+/// Regex recall cannot be served by any index — an arbitrary pattern forces a
+/// linear scan with a per-row match in Rust. The previous implementation bound
+/// `LIST_HISTORY_SQL` to `:pageLimit = -1`, which streamed the *entire* visits
+/// table into a `Vec<HistoryEntry>` before filtering: on the 14.4M-row target
+/// archive that is multiple gigabytes of allocation and a multi-second freeze
+/// before the first row reaches the user.
+///
+/// Capping the scan keeps memory and latency bounded (at most this many rows are
+/// examined, and at most this many matched `HistoryEntry` values are held) while
+/// still covering far more than a single page. Because the scan is index-ordered
+/// by `visit_time_ms`/`id` (see migrations 005/007), the cap deterministically
+/// covers the most recent rows for `newest` and the earliest for `oldest`, so
+/// repeated page requests slice a stable window. Archives with fewer than this
+/// many visible rows behave exactly as before — the full set is scanned and the
+/// reported total is exact.
+const REGEX_SCAN_CAP: usize = 50_000;
 const ADVANCED_FILTER_TABLES: &[&str] = &[
     "history_exact_terms",
     "history_excluded_terms",
@@ -455,7 +476,11 @@ fn insert_filter_values(connection: &Connection, table: &str, values: &[String])
     Ok(())
 }
 
-/// Runs regex recall as a manual post-filter over the canonical SQL query.
+/// Runs regex recall as a manual post-filter over a bounded candidate scan.
+///
+/// Delegates to [`list_history_with_regex_capped`] with the production
+/// [`REGEX_SCAN_CAP`]; the cap is a parameter on the inner function purely so
+/// tests can exercise the truncation boundary without seeding 50k rows.
 #[allow(clippy::too_many_arguments)]
 fn list_history_with_regex(
     connection: &Connection,
@@ -470,31 +495,75 @@ fn list_history_with_regex(
     cursor: Option<HistoryCursor>,
     regex: regex::Regex,
 ) -> Result<HistoryQueryResponse> {
+    list_history_with_regex_capped(
+        connection,
+        limit_usize,
+        requested_page,
+        profile_id,
+        browser_kind,
+        domain_pattern,
+        start_time_ms,
+        end_time_ms,
+        sort,
+        cursor,
+        regex,
+        REGEX_SCAN_CAP,
+    )
+}
+
+/// Streams up to `scan_cap` ordered visit rows, regex-filtering each row as it
+/// arrives so peak memory stays bounded by the number of *matched* rows within
+/// the scan window rather than the full visits table.
+///
+/// `total` and the pagination envelope describe matches inside the scanned
+/// window. When the scan reaches `scan_cap` there may be further matches deeper
+/// in history that were not examined; callers that need an exact count for a
+/// huge archive must narrow the filter (date / profile / domain) so the visible
+/// candidate set fits under the cap.
+#[allow(clippy::too_many_arguments)]
+fn list_history_with_regex_capped(
+    connection: &Connection,
+    limit_usize: usize,
+    requested_page: Option<usize>,
+    profile_id: Option<String>,
+    browser_kind: Option<String>,
+    domain_pattern: Option<String>,
+    start_time_ms: Option<i64>,
+    end_time_ms: Option<i64>,
+    sort: String,
+    cursor: Option<HistoryCursor>,
+    regex: regex::Regex,
+    scan_cap: usize,
+) -> Result<HistoryQueryResponse> {
+    let scan_limit = i64::try_from(scan_cap).unwrap_or(i64::MAX);
     let mut statement = connection.prepare(LIST_HISTORY_SQL)?;
-    let rows = statement.query_map(
-        named_params! {
-            ":profileId": profile_id,
-            ":browserKind": browser_kind,
-            ":query": Option::<String>::None,
-            ":domainPattern": domain_pattern,
-            ":startTimeMs": start_time_ms,
-            ":endTimeMs": end_time_ms,
-            ":sort": sort,
-            ":cursorVisitTime": Option::<i64>::None,
-            ":cursorId": Option::<i64>::None,
-            ":pageLimit": -1i64,
-            ":pageOffset": 0i64,
-        },
-        history_entry_from_row,
-    )?;
-    let filtered_items = rows
-        .collect::<rusqlite::Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|entry| {
-            regex.is_match(&entry.url)
-                || entry.title.as_ref().is_some_and(|title| regex.is_match(title))
-        })
-        .collect::<Vec<_>>();
+    let mut rows = statement.query(named_params! {
+        ":profileId": profile_id,
+        ":browserKind": browser_kind,
+        ":query": Option::<String>::None,
+        ":domainPattern": domain_pattern,
+        ":startTimeMs": start_time_ms,
+        ":endTimeMs": end_time_ms,
+        ":sort": sort,
+        ":cursorVisitTime": Option::<i64>::None,
+        ":cursorId": Option::<i64>::None,
+        ":pageLimit": scan_limit,
+        ":pageOffset": 0i64,
+    })?;
+    // Stream the bounded candidate window and keep only matches. The SQL LIMIT
+    // already caps how many rows SQLite produces, so the iterator naturally
+    // stops at `scan_cap` without ever materializing the full visits table; only
+    // matched rows are retained, so peak memory is bounded by the match count
+    // inside the window rather than by the archive size.
+    let mut filtered_items: Vec<HistoryEntry> = Vec::new();
+    while let Some(row) = rows.next()? {
+        let entry = history_entry_from_row(row)?;
+        if regex.is_match(&entry.url)
+            || entry.title.as_ref().is_some_and(|title| regex.is_match(title))
+        {
+            filtered_items.push(entry);
+        }
+    }
     let total = filtered_items.len();
     let normalized_page_count = page_count(total, limit_usize);
     let page = requested_page.unwrap_or(1).min(normalized_page_count);
@@ -521,6 +590,46 @@ fn list_history_with_regex(
     let items = filtered_items.into_iter().skip(start_index).take(limit_usize).collect::<Vec<_>>();
 
     Ok(build_history_response(total, limit_usize, page, start_index, items))
+}
+
+/// Test-only seam over [`list_history_with_regex_capped`] that exposes the
+/// injectable `scan_cap` to the archive test module without widening the
+/// production surface or leaking the module-private `HistoryCursor` type.
+///
+/// It builds the regex exactly like [`list_history`] (case-insensitive) and
+/// drives the cursor-less first page, so a tiny `scan_cap` can prove the
+/// truncation boundary against the shared seeding fixtures.
+#[cfg(test)]
+pub(super) fn list_history_with_regex_capped_for_test(
+    connection: &Connection,
+    limit_usize: usize,
+    sort: &str,
+    pattern: &str,
+    scan_cap: usize,
+) -> Result<HistoryQueryResponse> {
+    let regex = RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .with_context(|| format!("invalid regex pattern `{pattern}`"))?;
+    // LIST_HISTORY_SQL references the advanced-filter temp tables, which
+    // `list_history` materializes before dispatching to the regex path. Regex
+    // mode contributes no advanced filters, so seed the empty default set here
+    // to mirror the production preconditions.
+    prepare_advanced_search_filters(connection, &ParsedHistorySearchQuery::default())?;
+    list_history_with_regex_capped(
+        connection,
+        limit_usize,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        sort.to_string(),
+        None,
+        regex,
+        scan_cap,
+    )
 }
 
 /// Runs normalized FTS-backed keyword recall.

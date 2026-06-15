@@ -1,0 +1,93 @@
+{
+  "name": "Trust Surfaces",
+  "items": [
+    {
+      "t": "schedule/index.tsx at 1308 lines exceeds 1200-line review threshold",
+      "s": "major",
+      "c": "ARCH-SMELL",
+      "f": "src/pages/schedule/index.tsx",
+      "lr": "1-1308",
+      "d": "The schedule route file is at 1308 lines, exceeding the 1200-line maintainability threshold defined in AGENTS.md. It inlines all five state-panel components (NotInstalledState, InstalledOkState, InstalledWarnState, InstalledErrorState) plus helper components (ManualMode, ScheduleSummary, IssueList, etc.) in one file. AGENTS.md requires adding a maintainability analysis task to BACKLOG.md for files exceeding 1200 lines.",
+      "sf": "Extract each state panel (NotInstalledState, InstalledOkState, InstalledWarnState, InstalledErrorState) into separate owner files under schedule/states/. The ManualMode, ScheduleSummary, IssueList, and VerificationList helper components could also be extracted into schedule/components/. This is alre",
+      "tr": "yes",
+      "src": "FA-SETTINGS: Settings / Securi"
+    },
+    {
+      "t": "Hardcoded English strings for backend degradation note matching in App Lock",
+      "s": "major",
+      "c": "I18N",
+      "f": "src/pages/settings/app-lock-section.tsx",
+      "lr": "296-315",
+      "d": "The App Lock section matches degradation notes from the backend using hardcoded English string comparisons to decide whether to localize them. The code compares note values against full English sentences ('App Lock only protects the PathKeep UI session...', 'Touch ID is available on this Mac...') and only localizes those exact matches. Any backend note that does not exactly match these two strings is rendered raw to the user. This violates the i18n shipping contract which requires all user-visible copy to be delivered in en/zh-CN/zh-TW.",
+      "sf": "Follow the same pattern used in security/helpers.ts (localizeSecurityWarning): create a dedicated localizeAppLockNote helper that matches known backend strings via stable substrings or typed codes rather than exact full-sentence equality. Better yet, request typed codes from the backend instead of r",
+      "tr": "no",
+      "src": "FA-SETTINGS: Settings / Securi"
+    },
+    {
+      "t": "Hardcoded English strings for backend retention warning matching",
+      "s": "major",
+      "c": "I18N",
+      "f": "src/pages/settings/retention-section.tsx",
+      "lr": "183-203",
+      "d": "The retention section uses the same fragile pattern as app-lock: matching full English backend warning sentences to decide localization. Two exact-match cases are handled ('Pruning snapshots removes...' and 'Export pruning only...'), but any unmatched warning string passes through raw. This is the same anti-pattern as the App Lock section but in a different trust surface.",
+      "sf": "Extract a localizeRetentionWarning helper following the security/helpers.ts pattern. Use substring matching as a fallback for each known pattern, and log/surface unknown warnings explicitly rather than passing them through silently.",
+      "tr": "no",
+      "src": "FA-SETTINGS: Settings / Securi"
+    },
+    {
+      "t": "security-step.tsx imports from legacy backend module instead of backend-client",
+      "s": "major",
+      "c": "BUG",
+      "f": "src/pages/onboarding/security-step.tsx",
+      "lr": "8",
+      "d": "The security step imports `backend` from `../../lib/backend` (the legacy compatibility surface) instead of `../../lib/backend-client` (the canonical backend client). AGENTS.md explicitly states: 'src/lib/backend.ts is legacy / browser-preview fixture surface, not to be used for new shell contract.' Every other file in the import and onboarding scope uses `../../lib/backend-client`. While both modules expose a `keyringStatus()` method, the legacy module is documented as a deprecated surface and the two implementations may diverge in behavior or typing over time.",
+      "sf": "Change the import to `import { backend } from '../../lib/backend-client'` in both security-step.tsx and security-step.test.tsx.",
+      "tr": "no",
+      "src": "FA-IMPORT: Import / Export / J"
+    },
+    {
+      "t": "Import confirm button not disabled when an archive-write task is already running",
+      "s": "major",
+      "c": "BUG",
+      "f": "src/pages/import/index.tsx",
+      "lr": "104-109, 349-405",
+      "d": "The import route correctly detects `activeImportTask` from `archiveTasks` (line 104-109), and passes it to the wizard panel for progress display. However, the 'Confirm Import' button in wizard-panel.tsx is only disabled by the local `importing` boolean state -- it does not check whether `activeImportTask` already exists. archive.md explicitly requires: 'When an archive-write task is already running, a second import/backup action must connect to the existing task and notify the user, rather than starting a parallel write.' A user could start a second import while a prior one is still in progres",
+      "sf": "Add `importTask` to the disabled condition on the confirm button: `disabled={importing || willImportFileCount === 0 || importTask !== null}`. Also show a StatusCallout when `importTask` is present on the select step, linking to /jobs.",
+      "tr": "no",
+      "src": "FA-IMPORT: Import / Export / J"
+    },
+    {
+      "t": "AI job retry and cancel handlers silently swallow errors",
+      "s": "major",
+      "c": "BUG",
+      "f": "src/pages/jobs/index.tsx",
+      "lr": "206-226",
+      "d": "The `handleReplayAiJob` and `handleCancelAiJob` functions have no `catch` block. If `backend.replayAiJob()` or `backend.cancelAiJob()` throws, the error propagates unhandled to the `finally` block (which only clears the action state), and the user sees no feedback about the failure. Compare with `handleRetryRuntimeJob` and `handleCancelRuntimeJob` directly below, which do have `catch` blocks that call `setPageError(message)`. This is an inconsistent error-handling pattern where AI job mutations fail silently while runtime job mutations surface errors.",
+      "sf": "Add a `catch` block to both handlers matching the pattern used by `handleRetryRuntimeJob`: catch the error, call `describeError()`, and set `setPageError(message)` so the user sees feedback.",
+      "tr": "no",
+      "src": "FA-IMPORT: Import / Export / J"
+    },
+    {
+      "t": "Schedule page at 1,308 lines exceeds 1,200-line review threshold",
+      "s": "major",
+      "c": "ARCH-SMELL",
+      "f": "src/pages/schedule/index.tsx",
+      "lr": "1-1308",
+      "d": "The schedule route file is a 1,308-line monolith that renders all five schedule states (CHECKING, NOT_INSTALLED, INSTALLED_OK, INSTALLED_WARN, INSTALLED_ERROR) plus interval selection, profile summaries, manual installation steps, and verification flows inline. Per AGENTS.md, files above 1,200 lines trigger a mandatory maintainability review. This is already tracked as WORK-SCHEDULE-PAGE-MAINT-A in BACKLOG (blocked on a dedicated window), but the file is only 92 lines away from the 1,400-line hard limit where no new business logic is allowed.",
+      "sf": "Prioritize WORK-SCHEDULE-PAGE-MAINT-A: extract each state panel (NotInstalledState, InstalledOkState, InstalledWarnState, etc.) into its own focused component file, leaving the route shell as a thin state-machine dispatcher. This is already the planned approach in the BACKLOG entry.",
+      "tr": "no",
+      "src": "XA-PRODUCT: Product Completene"
+    },
+    {
+      "t": "Assistant, Audit, and Security pages still use legacy page-shell / panel CSS classes, breaking paper aesthetic continuity",
+      "s": "major",
+      "c": "DESIGN-DRIFT",
+      "f": "src/pages/assistant/index.tsx",
+      "lr": "323-419",
+      "d": "While Dashboard, Explorer, Intelligence, Settings, Import, Jobs, Maintenance, Integrations, Onboarding, Lock, and Schedule all use the paper outer wrapper convention (mx-auto max-w-[1080px] flex flex-col pt-7 or PaperCard), the Assistant page at lines 323, 340, 360, and 419 still wraps all content in <section className='page-shell'> and uses .panel / .panel-header / .panel-body / .panel-action / .dashboard-next-action / .result-row / .intelligence-job-list CSS classes. The Audit page similarly uses page-shell (lines 376, 384, 395, 412, 434) with .panel class patterns. These are v0.2 CSS constr",
+      "sf": "For Audit: migrate from page-shell + panel classes to the paper outer wrapper + PaperCard composition that the other Operations routes use (Import, Jobs). For Assistant: since the AI features are v0.3-deferred and the current disabled state still displays, at minimum wrap the deferred-state callout ",
+      "tr": "uncertain",
+      "src": "UX Quality Review (XA-UX) -- A"
+    }
+  ]
+}

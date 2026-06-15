@@ -1028,7 +1028,14 @@ mod tests {
         );
         // Restore the unlocked-baseline so subsequent assertions in this
         // test (and other tests sharing the env override) see a normal
-        // unlocked state.
+        // unlocked state. Clearing the passcode now requires an unlocked
+        // session (server-side lock enforcement), so unlock with the
+        // configured passcode first.
+        unlock_app_session_impl(UnlockAppSessionRequest {
+            passcode: Some("1357".to_string()),
+            use_biometric: false,
+        })
+        .expect("unlock before clearing app lock for follow-up tests");
         clear_app_lock_passcode_impl().expect("clear app lock for follow-up tests");
 
         unsafe {

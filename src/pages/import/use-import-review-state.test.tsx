@@ -304,11 +304,11 @@ describe('useImportReviewState', () => {
       .mockResolvedValue('/tmp/two-audit.json')
     vi.spyOn(backend, 'doctor')
       .mockResolvedValueOnce({
-        checks: [{ message: 'Initial', name: 'initial', status: 'ok' }],
+        checks: [{ detail: 'Initial', name: 'initial', ok: true }],
         generatedAt: '2026-04-25T12:00:00Z',
       })
       .mockResolvedValueOnce({
-        checks: [{ message: 'Repaired', name: 'repaired', status: 'ok' }],
+        checks: [{ detail: 'Repaired', name: 'repaired', ok: true }],
         generatedAt: '2026-04-25T12:01:00Z',
       })
     vi.spyOn(backend, 'repairHealth').mockResolvedValue({

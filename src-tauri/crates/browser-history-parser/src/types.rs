@@ -8,6 +8,27 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 use thiserror::Error;
 
+/// Inclusive upper bound, in Unix milliseconds, that round-trips cleanly
+/// through `chrono`'s `timestamp_millis_opt` (`9999-12-31T23:59:59.999Z`).
+pub const MAX_VALID_UNIX_MS: i64 = 253_402_300_799_999;
+
+/// Clamps a Unix-millisecond timestamp to `0..=MAX_VALID_UNIX_MS`.
+///
+/// ## Why this exists
+/// Source rows are untrusted: a corrupt or adversarial browser DB / Takeout
+/// export can carry a timestamp far outside any real browsing history (Safari
+/// stores the field as a raw `REAL`, Chromium as a microsecond `i64`). Without
+/// an upper clamp the numeric `*_ms` column keeps an absurd year-294071 value
+/// while the derived ISO string silently collapses to the 1970 epoch (because
+/// `timestamp_millis_opt` returns `None` out of range and the converters fall
+/// back to epoch). The two representations then disagree for the same visit and
+/// the absurd number pollutes preview-range / min-max summaries. Flooring at `0`
+/// preserves the existing "0 / NULL / negative sentinel ⇒ epoch" behavior every
+/// converter already relied on.
+pub fn clamp_unix_millis(value: i64) -> i64 {
+    value.clamp(0, MAX_VALID_UNIX_MS)
+}
+
 /// File paths for a Chromium history database plus its optional favicons sidecar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryDatabaseSet {
@@ -318,6 +339,15 @@ pub enum StreamHistoryError<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clamp_unix_millis_floors_negatives_and_caps_far_future() {
+        assert_eq!(clamp_unix_millis(-1), 0);
+        assert_eq!(clamp_unix_millis(i64::MIN), 0);
+        assert_eq!(clamp_unix_millis(1_711_965_600_000), 1_711_965_600_000);
+        assert_eq!(clamp_unix_millis(MAX_VALID_UNIX_MS), MAX_VALID_UNIX_MS);
+        assert_eq!(clamp_unix_millis(i64::MAX), MAX_VALID_UNIX_MS);
+    }
 
     fn native_entity() -> NativeEntity {
         NativeEntity {

@@ -120,10 +120,11 @@ describe('DashboardActiveThreads', () => {
     ).toBeInTheDocument()
   })
 
-  test('forwards a clicked flow id to onOpenThread', async () => {
+  test('forwards the clicked flow to onOpenThread', async () => {
     const user = userEvent.setup()
+    const flow = makeFlow({ flowId: 'flow-target' })
     vi.spyOn(coreIntelligenceApi, 'getPathFlows').mockResolvedValue({
-      data: [makeFlow({ flowId: 'flow-target' })],
+      data: [flow],
       meta: { state: 'ready' },
     } as unknown as Awaited<
       ReturnType<typeof coreIntelligenceApi.getPathFlows>
@@ -133,7 +134,9 @@ describe('DashboardActiveThreads', () => {
     await user.click(
       await screen.findByTestId('dashboard-active-threads-row-flow-target'),
     )
-    expect(onOpenThread).toHaveBeenCalledWith('flow-target')
+    // The card hands the parent the whole flow (not just its id) so the parent
+    // can read the step domains when building the deep-link target.
+    expect(onOpenThread).toHaveBeenCalledWith(flow)
   })
 
   test('surfaces the raw rejection when the failure is not an Error', async () => {

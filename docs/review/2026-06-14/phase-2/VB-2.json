@@ -1,0 +1,82 @@
+{
+  "name": "Intelligence + Dashboard",
+  "items": [
+    {
+      "t": "Module-level caches grow without bound, never evicted",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src/lib/core-intelligence/api/shared.ts",
+      "lr": "27-28, 242",
+      "d": "Three module-scoped Maps (readRequestCache, inflightReadRequests, overviewCache) accumulate entries across every unique (command, args) key and every (dateRange, profileId) scope key. Each time the user changes the time range or profile scope, new entries are created but old ones are never removed. The clearOverviewCache() function exists but is only called on explicit rebuild/clear actions (from Settings/Import), not on routine scope transitions. Over an extended session where a user explores many date ranges or profiles, this will consume increasing heap memory. For the 14.4M records target ",
+      "sf": "Add a bounded eviction policy -- either a simple LRU with a maximum entry count (e.g., 20 scope keys for overview, 200 entries for section reads), or a time-based TTL that discards entries older than N minutes. The clearOverviewCache already exists; the fix is to also call it proactively or to cap t",
+      "tr": "yes",
+      "src": "FA-INTEL: Intelligence & AI Su"
+    },
+    {
+      "t": "Stale cache served after scope change when warm cache exists from prior scope",
+      "s": "major",
+      "c": "BUG",
+      "f": "src/pages/intelligence/use-staged-intelligence-overview.ts",
+      "lr": "137-169",
+      "d": "When a user returns to /intelligence from a sub-route (e.g., domain deep dive) and the previous scope's primary cache is warm, the hook immediately marks primaryReady=true and renders the cached data, then fires a background revalidation with force=true. However, if the user changed the shared profile scope while on the sub-route, the overview state will briefly render the old scope's data until revalidation completes, because the cache is keyed by (dateRange, profileId) but the hasPrimaryCache check on line 92-93 uses the NEW scope parameters to look up the cache. If the new scope has no cach",
+      "sf": "When the scope key changes in the hook, clear the previous scope from the overview cache before checking for warm cache. Alternatively, add a generation counter or version stamp from the backend rebuild report so the client can detect that cached data is stale relative to the latest rebuild.",
+      "tr": "uncertain",
+      "src": "FA-INTEL: Intelligence & AI Su"
+    },
+    {
+      "t": "\"This Week\" card shows all-time totals, not actual weekly data",
+      "s": "major",
+      "c": "UX-QUALITY",
+      "f": "src/pages/dashboard/this-week-card.tsx",
+      "lr": "17-25",
+      "d": "DashboardThisWeek receives `totalPages` and `totalUrls` from the parent, which are `readyDashboard.totalVisits` and `readyDashboard.totalUrls` -- these are all-time archive-wide totals, not this-week data. The card is titled 'This week' (i18n key `dashboard.thisWeekTitle`) and shows a week badge, but the stats underneath are cumulative archive totals. The i18n label `weekStatPages` says 'Pages' and `weekStatUrls` says 'New URLs', implying these are weekly numbers. A user with 14.4M all-time visits would see '14.4M' under a 'This week' heading -- seriously misleading. Similarly `recentRunsCount",
+      "sf": "Either (a) rename the card to 'Archive overview' and change the stat labels to match all-time semantics, or (b) wire a real weekly query (e.g. using `dashboardThreadsRange(now)` to get visits from the last 7 days) and show actual this-week numbers. Option (a) is the honest minimal fix; option (b) is",
+      "tr": "no",
+      "src": "FA-ANNOT: Annotations, Enrichm"
+    },
+    {
+      "t": "No frontend enforcement of annotation notes (16 KiB) or tag (64 bytes, 64 count) limits",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src/components/explorer-paper/paper-detail-panel.tsx",
+      "lr": "536-604",
+      "d": "Per docs/features/annotations.md section 3, the backend enforces hard limits: notes max 16 KiB after trim, tags max 64 bytes each, max 64 tags per URL. The frontend textarea has no maxLength attribute and no character counter warning as the user approaches 16 KiB. The tag input has no length validation. If a user types a very long note (unlikely but possible with paste), or adds 65+ tags, the write will silently fail on the backend and the optimistic cache will show data that was never persisted. The detail panel shows a char counter but no limit warning.",
+      "sf": "Add `maxLength={16384}` to the textarea element. Add a visual warning when the char count approaches the limit (e.g. at 15000+). For tags, check `candidate.length > 64` before calling onUpdateTags, and check `tags.length >= 64` before allowing a new tag. Show the specific rejection reason from the b",
+      "tr": "no",
+      "src": "FA-ANNOT: Annotations, Enrichm"
+    },
+    {
+      "t": "Dashboard \"Active Threads\" card links all navigate to /intelligence overview rather than specific thread",
+      "s": "major",
+      "c": "GAP",
+      "f": "src/pages/dashboard/index.tsx",
+      "lr": "190-192",
+      "d": "Both the `onOpenAll` and `onOpenThread` callbacks on DashboardActiveThreads navigate to the same `/intelligence` URL. The `onOpenThread` callback should take users to the specific path-flow or thread entity, but instead it drops all context and sends them to the Intelligence overview page. This means clicking on a specific thread card is indistinguishable from clicking 'See all' -- the user loses the context they wanted to drill into.",
+      "sf": "Pass the path-flow ID through `onOpenThread` and navigate to the specific shared insights route, e.g. `/intelligence/trail/:trailId` or the appropriate entity route. The DashboardActiveThreads component already renders individual thread cards with flow data; the href just needs to carry the entity i",
+      "tr": "no",
+      "src": "XA-PRODUCT: Product Completene"
+    },
+    {
+      "t": "Dashboard 'This Week' card shows aggregate counts without actionable drill-down",
+      "s": "minor",
+      "c": "GAP",
+      "f": "src/pages/dashboard/index.tsx",
+      "lr": "163-168",
+      "d": "The DashboardThisWeek component receives `totalPages`, `totalUrls`, and `recentRunsCount` but from the reviewed props it only displays aggregate numbers. Per the screens-and-nav.md specification, Dashboard should provide 'quick action entry points' to Explorer, Intelligence, and Settings. The This Week card appears to be informational only without deep-link CTAs that take the user to the Explorer filtered to this week's activity.",
+      "sf": "Add a 'See this week in Explorer' CTA to the This Week card that navigates to `/explorer?start=<monday>&end=<today>`, following the same pattern as On This Day's `onJumpToDate` and the year heatmap's `onSelectDate`.",
+      "tr": "no",
+      "src": "XA-PRODUCT: Product Completene"
+    },
+    {
+      "t": "readRequestCache and overviewCache grow without eviction",
+      "s": "major",
+      "c": "PERF-RISK",
+      "f": "src/lib/core-intelligence/api/shared.ts",
+      "lr": "27-85, 242-262",
+      "d": "readRequestCache and overviewCache are module-scoped Map instances that are never evicted except on explicit clearIntelligenceCache() calls. Every unique (command, args) combination adds an entry. As the user navigates different date ranges, profiles, and section views across a long session, these maps grow unboundedly. The overview cache stores full CoreIntelligencePrimaryOverview / SecondaryOverview payloads which can be sizable on large archives.",
+      "sf": "Add LRU eviction with a bounded capacity (e.g., 20-50 entries for readRequestCache, 5-10 for overviewCache). A simple approach: check size on set and evict the oldest entries. This is already noted in BACKLOG WORK-REVIEW-0612-FOLLOWUPS-A.",
+      "tr": "no",
+      "src": "Performance & Scale Review (XA"
+    }
+  ]
+}

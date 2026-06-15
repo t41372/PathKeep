@@ -305,7 +305,13 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
             http_status: None,
         };
     }
-    fetch_og_image_for_pipeline(client, page_url, true, None)
+    // SSRF guard: refuse to fetch a page whose host is (or resolves to) a
+    // non-public address. The page URL comes from imported history, so a single
+    // visited page must never be able to make PathKeep probe the local network.
+    if super::net_guard::url_target_is_blocked(page_url) {
+        return blocked_outcome(page_url);
+    }
+    fetch_og_image_for_pipeline(client, page_url, true, None, true)
 }
 
 /// True when the page URL is a search-engine result page (Google, Bing,
@@ -325,7 +331,15 @@ fn is_search_results_url(page_url: &str) -> bool {
 /// `upgrade_image_url = false` so mockito's http URLs survive intact.
 #[cfg(test)]
 pub(crate) fn fetch_og_image_for_unchecked(client: &Client, page_url: &str) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, false, None)
+    fetch_og_image_for_pipeline(client, page_url, false, None, false)
+}
+
+/// Same as `fetch_og_image_for_unchecked` but with the og:image SSRF host
+/// guard active, so tests can drive a mockito page whose `og:image` points at
+/// a loopback host through the guarded branch without TLS.
+#[cfg(test)]
+pub(crate) fn fetch_og_image_for_guarded(client: &Client, page_url: &str) -> FetchedOgImage {
+    fetch_og_image_for_pipeline(client, page_url, false, None, true)
 }
 
 /// Variant that lets tests inject a mockito base URL for the Bilibili
@@ -337,7 +351,7 @@ pub(crate) fn fetch_og_image_for_with_api_base(
     page_url: &str,
     bilibili_api_base: &str,
 ) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, false, Some(bilibili_api_base))
+    fetch_og_image_for_pipeline(client, page_url, false, Some(bilibili_api_base), false)
 }
 
 fn fetch_og_image_for_pipeline(
@@ -345,6 +359,7 @@ fn fetch_og_image_for_pipeline(
     page_url: &str,
     upgrade_image_url: bool,
     bilibili_api_base: Option<&str>,
+    guard_image_hosts: bool,
 ) -> FetchedOgImage {
     let mut outcome = FetchedOgImage {
         page_host: nonempty_host(page_url),
@@ -367,14 +382,14 @@ fn fetch_og_image_for_pipeline(
         let synth_url =
             if upgrade_image_url { upgrade_http_to_https(&synth_url) } else { synth_url };
         outcome.source_og_url = Some(synth_url.clone());
-        finish_image_fetch(client, synth_url, outcome)
+        finish_image_fetch(client, synth_url, guard_image_hosts, outcome)
     } else if let Some(api_url) = match bilibili_api_base {
         Some(base) => resolve_image_url_via_api_with_base(client, page_url, base),
         None => resolve_image_url_via_api(client, page_url),
     } {
         let api_url = if upgrade_image_url { upgrade_http_to_https(&api_url) } else { api_url };
         outcome.source_og_url = Some(api_url.clone());
-        finish_image_fetch(client, api_url, outcome)
+        finish_image_fetch(client, api_url, guard_image_hosts, outcome)
     } else if host_requires_synthesis(page_url) {
         // Recognised video host but neither synth path succeeded (e.g.
         // YouTube id failed validation or Bilibili API rejected the
@@ -384,7 +399,7 @@ fn fetch_og_image_for_pipeline(
         outcome.fetch_status = fetch_status::MISSING;
         outcome
     } else {
-        fetch_og_image_via_html(client, page_url, upgrade_image_url, outcome)
+        fetch_og_image_via_html(client, page_url, upgrade_image_url, guard_image_hosts, outcome)
     }
 }
 
@@ -394,6 +409,7 @@ fn fetch_og_image_via_html(
     client: &Client,
     page_url: &str,
     upgrade_image_url: bool,
+    guard_image_hosts: bool,
     mut outcome: FetchedOgImage,
 ) -> FetchedOgImage {
     let page = match client.get(page_url).header(ACCEPT, ACCEPT_HTML).send() {
@@ -435,7 +451,7 @@ fn fetch_og_image_via_html(
     let og_image_url =
         if upgrade_image_url { upgrade_http_to_https(&og_image_url) } else { og_image_url };
     outcome.source_og_url = Some(og_image_url.clone());
-    finish_image_fetch(client, og_image_url, outcome)
+    finish_image_fetch(client, og_image_url, guard_image_hosts, outcome)
 }
 
 /// Common image sub-resource fetch — shared by the generic-HTML path and
@@ -444,8 +460,16 @@ fn fetch_og_image_via_html(
 fn finish_image_fetch(
     client: &Client,
     og_image_url: String,
+    guard_hosts: bool,
     mut outcome: FetchedOgImage,
 ) -> FetchedOgImage {
+    // SSRF guard: the og:image URL is scraped from attacker-controlled page
+    // HTML (or a per-host synth template), so before issuing the sub-resource
+    // GET, refuse any URL whose host is (or resolves to) a non-public address.
+    if guard_hosts && super::net_guard::url_target_is_blocked(&og_image_url) {
+        outcome.fetch_status = fetch_status::BLOCKED;
+        return outcome;
+    }
     // The image sub-resource fetch uses fetch-metadata that matches a
     // real browser loading an <img> on the page: `Sec-Fetch-Dest: image`,
     // `Sec-Fetch-Mode: no-cors`, `Sec-Fetch-Site: cross-site`. CDNs that
@@ -761,6 +785,35 @@ mod tests {
         let outcome = fetch_og_image_for(&client, "https://og-image-test.invalid./");
         // DNS resolution / connect should fail; status remains None.
         assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
+        assert!(outcome.image_bytes.is_none());
+    }
+
+    #[test]
+    fn fetch_og_image_for_blocks_private_page_host_without_network() {
+        // SSRF: a page URL pointing straight at a loopback/private host must be
+        // refused before any network call, with no retry (BLOCKED).
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for(&client, "https://127.0.0.1/");
+        assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
+        assert!(outcome.image_bytes.is_none());
+        assert!(outcome.source_og_url.is_none());
+    }
+
+    #[test]
+    fn og_image_host_guard_blocks_private_image_target() {
+        // SSRF: the page is reachable, but its scraped og:image points at a
+        // loopback host. The guarded pipeline must refuse the sub-resource GET.
+        let mut page = mockito::Server::new();
+        let page_mock = page
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body(html_with_og_image("http://127.0.0.1:1/og.png"))
+            .create();
+        let client = build_fetch_client().unwrap();
+        let outcome = fetch_og_image_for_guarded(&client, &page.url());
+        page_mock.assert();
+        assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
         assert!(outcome.image_bytes.is_none());
     }
 

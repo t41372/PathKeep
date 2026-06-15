@@ -405,7 +405,16 @@ where
 
 /// Converts Safari's Cocoa timestamp format to Unix milliseconds.
 pub fn safari_time_to_unix_ms(value: f64) -> i64 {
-    (((value + SAFARI_UNIX_EPOCH_OFFSET_SECONDS) * 1_000.0).round() as i64).max(0)
+    // `history_visits.visit_time` is an untrusted `REAL`. A corrupt/adversarial
+    // row can hold `+inf` (saturates to `i64::MAX` on the float→int cast, which
+    // `.max(0)` would NOT catch) or `NaN` (casts to `0`). Reject non-finite
+    // values to the 1970 epoch, then clamp so the numeric and ISO views agree.
+    if !value.is_finite() {
+        return 0;
+    }
+    crate::types::clamp_unix_millis(
+        ((value + SAFARI_UNIX_EPOCH_OFFSET_SECONDS) * 1_000.0).round() as i64
+    )
 }
 
 /// Converts Unix milliseconds back into Safari's Cocoa timestamp format.
@@ -1143,6 +1152,15 @@ mod tests {
             "1970-01-01T00:00:00+00:00"
         );
         assert!(safari_time_to_iso(765_838_800.0).starts_with("2025-04-"));
+        // Non-finite REAL timestamps from a corrupt/adversarial DB must collapse
+        // to the epoch, not saturate to i64::MAX (+inf) or depend on NaN→0 luck.
+        assert_eq!(safari_time_to_unix_ms(f64::INFINITY), 0);
+        assert_eq!(safari_time_to_unix_ms(f64::NEG_INFINITY), 0);
+        assert_eq!(safari_time_to_unix_ms(f64::NAN), 0);
+        assert_eq!(safari_time_to_iso(f64::INFINITY), "1970-01-01T00:00:00+00:00");
+        // Absurd finite far-future clamps to the ceiling so number and ISO agree.
+        assert_eq!(safari_time_to_unix_ms(1.0e18), crate::types::MAX_VALID_UNIX_MS);
+        assert!(safari_time_to_iso(1.0e18).starts_with("9999-"));
     }
 
     #[test]

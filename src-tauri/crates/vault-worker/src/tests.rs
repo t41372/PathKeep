@@ -548,6 +548,26 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     save_user_config(&locked_config, None).expect("enable app lock");
     let locked = lock_app_ui_session(Some("manual")).expect("lock app session");
     assert!(locked.locked);
+
+    // Server-side lock enforcement: while locked, the credential-mutation and
+    // settings-save commands must be refused, so the lock cannot be replaced,
+    // removed, or disabled without first unlocking with the current passcode.
+    assert!(
+        configure_app_lock_passcode(&SetAppLockPasscodeRequest {
+            passcode: "9999".to_string(),
+            recovery_hint: None,
+        })
+        .is_err(),
+        "configuring a passcode must be refused while locked"
+    );
+    assert!(
+        remove_app_lock_passcode().is_err(),
+        "removing the passcode must be refused while locked"
+    );
+    assert!(
+        save_user_config(&locked_config, None).is_err(),
+        "saving settings must be refused while locked"
+    );
     let biometric_unlock =
         unlock_app_ui_session(&UnlockAppSessionRequest { passcode: None, use_biometric: true })
             .expect_err("unsupported biometric unlock should fail");

@@ -24,7 +24,12 @@ import { useShellData } from '@/app/shell-data-context'
 import { useI18n } from '@/lib/i18n'
 import { describeError } from '@/lib/errors'
 import * as coreIntelligenceApi from '@/lib/core-intelligence/api'
-import type { OnThisDayEntry } from '@/lib/core-intelligence/types'
+import {
+  buildIntelligenceSearchParams,
+  dateRangeFromPreset,
+  domainInsightsHref,
+} from '@/lib/core-intelligence'
+import type { OnThisDayEntry, PathFlow } from '@/lib/core-intelligence/types'
 import { useProfileScope } from '@/lib/profile-scope-context'
 import { DashboardArchiveCard } from './archive-card'
 import { DashboardOnThisDay } from './on-this-day-card'
@@ -32,6 +37,7 @@ import { DashboardThisWeek } from './this-week-card'
 import { DashboardActiveThreads } from './active-threads-card'
 import {
   compactNumber,
+  firstRegistrableDomainStep,
   formatSpan,
   humanizeBytes,
   sumStorageBytes,
@@ -161,9 +167,11 @@ export function DashboardPage() {
           }
         />
         <DashboardThisWeek
-          totalPages={readyDashboard.totalVisits}
-          totalUrls={readyDashboard.totalUrls}
-          recentRunsCount={readyDashboard.recentRuns.length}
+          archiveReady={
+            readySnapshot.config.initialized &&
+            readySnapshot.archiveStatus.unlocked
+          }
+          recentRuns={readyDashboard.recentRuns}
         />
       </div>
 
@@ -188,7 +196,7 @@ export function DashboardPage() {
               readySnapshot.archiveStatus.unlocked
             }
             onOpenAll={() => void navigate('/intelligence')}
-            onOpenThread={() => void navigate('/intelligence')}
+            onOpenThread={(flow) => void navigate(pathFlowDeepLink(flow))}
           />
         </div>
         <DashboardArchiveCard
@@ -263,4 +271,41 @@ function useMemoGreeting(
     if (hour < 18) return t('dashboard.greetingAfternoon')
     return t('dashboard.greetingEvening')
   }, [t])
+}
+
+/**
+ * Builds the deep link that opens a clicked Active Threads flow somewhere that
+ * actually surfaces it.
+ *
+ * The `/intelligence` index route parses `focusType=path-flow` but discards it —
+ * landing there is indistinguishable from "See all". The domain deep-dive
+ * (`/intelligence/domain/:domain`) is the route that genuinely consumes a
+ * path-flow focus: it loads the flows, finds the focused one, and renders the
+ * "Focused path flow" callout when that flow touches the page's domain. So we
+ * route to the flow's first registrable-domain step carrying the focus — the
+ * domain comes from the flow itself, which guarantees the callout matches.
+ *
+ * A flow whose steps are all non-domain groups has no domain page to land on;
+ * it falls back to the overview deep-link (still month-scoped and focus-tagged)
+ * because there is no better honest destination for a domain-less flow.
+ *
+ * The month preset is the closest range to the card's 30-day query window.
+ */
+function pathFlowDeepLink(flow: PathFlow): string {
+  const focus = { focusType: 'path-flow' as const, focusId: flow.flowId }
+  const focusDomain = firstRegistrableDomainStep(flow)
+  if (focusDomain) {
+    return domainInsightsHref({
+      domain: focusDomain,
+      dateRange: dateRangeFromPreset('month'),
+      preset: 'month',
+      focus,
+    })
+  }
+  const params = buildIntelligenceSearchParams({
+    dateRange: dateRangeFromPreset('month'),
+    preset: 'month',
+    focus,
+  })
+  return `/intelligence?${params.toString()}`
 }

@@ -8,8 +8,9 @@
  * ## Responsibilities
  * - Render the title, URL, and the standard action row (Open · Copy URL ·
  *   Refind · Export).
- * - Render the visit summary (first / last visit, total visits, typed-count)
- *   and a small per-visit history sparkline.
+ * - Render the visit summary (first / last visit, total visits, typed-count;
+ *   or a single honest "Visited" field when the caller only has the one
+ *   opened visit row) and a small per-visit history sparkline.
  * - Render the provenance section (source profile, transition kind,
  *   captured-in-run hash) and an optional title-version history.
  * - Host the user's Notes textarea (debounced via the parent) and Tag chip
@@ -54,6 +55,16 @@ export interface PaperDetailPanelCopy {
   /** Detail field labels. */
   firstVisitLabel: string
   lastVisitLabel: string
+  /**
+   * Label for the single-visit fallback field shown when the caller only
+   * knows the timestamp of the one visit row the user opened — not the
+   * URL's overall first/last visit span. Used by the Explorer mount, which
+   * reads per-visit rows and has no per-URL aggregate. When the entry's
+   * {@link PaperDetailPanelEntry.visitedAt} is set this replaces the
+   * First/Last pair so the panel never claims a single visit is both the
+   * first and the last.
+   */
+  visitedLabel: string
   totalVisitsLabel: string
   typedCountLabel: string
   recentVisitsLabel: string
@@ -65,6 +76,8 @@ export interface PaperDetailPanelCopy {
   notesPlaceholder: string
   notesEmpty: string
   notesSavedLocally: string
+  /** Shown in place of the saved-locally hint when the last write failed. */
+  notesSaveError: string
   /** Singular char counter, e.g. "1 char". */
   notesCharSingular: string
   /** Plural char counter, e.g. "{count} chars". */
@@ -101,6 +114,17 @@ export interface PaperDetailPanelEntry {
   firstVisitAt?: string
   /** Formatted "last visit" timestamp. */
   lastVisitAt?: string
+  /**
+   * Formatted timestamp of the single visit the user opened, e.g.
+   * "2025-11-04 09:17". Set this instead of {@link firstVisitAt} /
+   * {@link lastVisitAt} when the caller only has the one clicked visit row
+   * and cannot honestly compute the URL's first/last span (the Explorer
+   * browse query returns per-visit rows without per-URL aggregates). When
+   * present it takes precedence: the panel shows a single "Visited" field
+   * rather than a First/Last pair that would otherwise show the same date
+   * twice. When absent the First/Last pair renders as before.
+   */
+  visitedAt?: string
   visitCount?: number
   typedCount?: number
   /** Free-form source label, e.g. "Chrome / Default profile". */
@@ -144,6 +168,12 @@ export interface PaperDetailPanelProps {
   onExport?: (entry: PaperDetailPanelEntry) => void
   onUpdateNotes: (next: string) => void
   onUpdateTags: (next: string[]) => void
+  /**
+   * Last annotation-write error, if any. When set, the panel surfaces a
+   * "not saved" alert instead of the misleading "Saved · local" hint, so an
+   * archive-locked / IPC-failed write can't masquerade as a successful save.
+   */
+  annotationError?: string | null
   /** Look-further row click handlers. Optional — rows render but become inert when omitted. */
   onOpenInsights?: (entry: PaperDetailPanelEntry) => void
   onOpenDomain?: (entry: PaperDetailPanelEntry) => void
@@ -168,6 +198,7 @@ export function PaperDetailPanel({
   onExport,
   onUpdateNotes,
   onUpdateTags,
+  annotationError,
   onOpenInsights,
   onOpenDomain,
   onOpenThread,
@@ -432,12 +463,23 @@ export function PaperDetailPanel({
           <Divider />
 
           <div className="flex gap-5">
-            <DetailField label={copy.firstVisitLabel}>
-              <Mono>{entry.firstVisitAt ?? '—'}</Mono>
-            </DetailField>
-            <DetailField label={copy.lastVisitLabel}>
-              <Mono>{entry.lastVisitAt ?? '—'}</Mono>
-            </DetailField>
+            {entry.visitedAt !== undefined ? (
+              // Single-visit fallback: the caller only knows this one visit's
+              // time, so collapsing First/Last into one honest "Visited" field
+              // avoids printing the same date twice under two different labels.
+              <DetailField label={copy.visitedLabel}>
+                <Mono>{entry.visitedAt}</Mono>
+              </DetailField>
+            ) : (
+              <>
+                <DetailField label={copy.firstVisitLabel}>
+                  <Mono>{entry.firstVisitAt ?? '—'}</Mono>
+                </DetailField>
+                <DetailField label={copy.lastVisitLabel}>
+                  <Mono>{entry.lastVisitAt ?? '—'}</Mono>
+                </DetailField>
+              </>
+            )}
           </div>
           <div className="mt-[14px] flex gap-5">
             <DetailField label={copy.totalVisitsLabel}>
@@ -550,7 +592,13 @@ export function PaperDetailPanel({
                     )
                 : copy.notesEmpty}
             </span>
-            <span>{notesValue ? copy.notesSavedLocally : ''}</span>
+            {annotationError ? (
+              <span role="alert" className="text-error">
+                {copy.notesSaveError}
+              </span>
+            ) : (
+              <span>{notesValue ? copy.notesSavedLocally : ''}</span>
+            )}
           </div>
 
           <SectionTitle className="mt-[18px]">{copy.tagsHeading}</SectionTitle>

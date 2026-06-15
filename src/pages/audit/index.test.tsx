@@ -109,6 +109,40 @@ describe('AuditPage route owner', () => {
     expect(runBackup).toHaveBeenCalledTimes(1)
   })
 
+  test('wraps the ledger in the paper outer wrapper and PaperCards', () => {
+    renderPage('/audit')
+
+    const page = screen.getByTestId('audit-page')
+    expect(page.tagName).toBe('DIV')
+    expect(page).toHaveClass('max-w-[1080px]')
+    // No leftover v0.2 page-shell / panel chrome on the ledger surface.
+    expect(page.querySelector('.page-shell')).toBeNull()
+    expect(page.querySelector('.panel')).toBeNull()
+
+    expect(screen.getByTestId('audit-filter-panel')).toBeVisible()
+    expect(screen.getByTestId('audit-manifest-chain-panel')).toBeVisible()
+    expect(screen.getByTestId('audit-delta-panel')).toBeVisible()
+  })
+
+  test('keeps gate states on the paper wrapper instead of page-shell', () => {
+    shellDataMock.mockReturnValue(
+      shellFixture({
+        snapshot: snapshotFixture({
+          initialized: true,
+          recentRuns: [],
+        }),
+      }),
+    )
+
+    renderPage('/audit')
+
+    const page = screen.getByTestId('audit-page')
+    expect(page.tagName).toBe('DIV')
+    expect(page).toHaveClass('max-w-[1080px]')
+    expect(page.querySelector('.page-shell')).toBeNull()
+    expect(screen.getByText('audit.noRunsTitle')).toBeVisible()
+  })
+
   test('paper layout renders manifest chain and routes chain block selection', async () => {
     const user = userEvent.setup()
 

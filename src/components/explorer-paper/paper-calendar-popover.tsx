@@ -381,7 +381,7 @@ export function PaperCalendarPopover({
 function densityClass(tier: 0 | 1 | 2 | 3 | 4): string {
   switch (tier) {
     case 0:
-      return 'bg-page text-ink-ghost'
+      return 'bg-page text-ink-faint'
     case 1:
       return 'bg-[color-mix(in_srgb,var(--accent)_14%,var(--bg-page))] text-ink-secondary'
     case 2:

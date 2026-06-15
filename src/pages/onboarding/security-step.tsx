@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { backend } from '../../lib/backend'
+import { backend } from '../../lib/backend-client'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { useI18n } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'

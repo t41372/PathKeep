@@ -58,8 +58,14 @@ export interface AuditRunDetail {
  */
 export interface HealthCheck {
   name: string
-  status: string
-  message: string
+  /**
+   * Matches the Rust `HealthCheck` contract (`{ name, ok, detail }`): a doctor
+   * check is pass/fail. The previous `status`/`message` shape never existed on
+   * the wire, so on real desktop every check rendered as a benign "Info" with
+   * an empty body — hiding failing checks in the import review surface.
+   */
+  ok: boolean
+  detail: string
 }
 
 /**

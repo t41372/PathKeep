@@ -1,0 +1,30 @@
+{
+  "id": "F-TOKENS",
+  "track": "fe",
+  "sev": "major",
+  "title": "Reconcile design-tokens.md <-> tokens.css AND fix WCAG contrast on ink-faint/ink-ghost",
+  "files": [
+    "src/styles/tokens.css",
+    "docs/design/design-tokens.md"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "DESIGN-DRIFT",
+      "file": "src/styles/tokens.css",
+      "lineRange": "16-70",
+      "description": "design-tokens.md is declared as the contract that tokens.css implements, and explicitly states 'If tokens.css and this file disagree, fix tokens.css to match this contract -- not the other way around.' Several values diverge:\n\n- Light --bg-paper: doc says #ece7de, tokens.css has #f6f3ed (doc's --bg-paper value is actually at --bg-page in tokens.css)\n- Light --bg-card-paper: doc says #f6f3ed, tokens.css uses --bg-card: #fdfcf9 (mismatch)\n- Light --bg-page: doc says #fdfcf9, tokens.css has #ece7de (these are swapped vs doc)\n- Light --ink: doc says #171513, tokens.css has #1c1814\n- Light --ink-secondary: doc says #3c3a36, tokens.css has #4a4139\n- Light --ink-muted: doc says #6a655c, tokens.css has #887d6e\n- Light --ink-faint: doc says #9a948a, tokens.css has #beb3a2\n- Light --ink-ghost: doc says #bdb6a9, tokens.css has #d5cdc0\n- Light --border-light: doc says #e6e2d8, tokens.css has #e4ddd2\n- Light --border-default: doc says #d6d1c4, tokens.css has #d5cdc0\n- Light --accent-text: doc says #2c4360, tokens.css has var(--accent)\n- Light --danger: doc says #a03821, tokens.css uses --error: #a84040\n- Dark mode values also have multiple mismatches.\n\nThe naming scheme also diverges: doc uses --bg-paper/--bg-card-paper/--bg-page, while tokens.css uses --bg-page/--bg-paper/--bg-card.",
+      "suggestedFix": "Audit each divergence: if tokens.css was tuned deliberately for visual quality, update design-tokens.md to match. If tokens.css drifted accidentally, fix tokens.css to match the doc. Also reconcile the naming scheme (--bg-paper vs --bg-card-paper vs --bg-page).",
+      "codeSnippet": ""
+    },
+    {
+      "severity": "major",
+      "category": "UX-QUALITY",
+      "file": "src/styles/tokens.css",
+      "lineRange": "33-35 (light), 87-88 (dark)",
+      "description": "Computed contrast ratios: light mode ink-faint (#beb3a2) on bg-paper (#f6f3ed) = 1.87:1, ink-ghost (#d5cdc0) on bg-paper = 1.42:1. Dark mode ink-faint (#4f4639) on bg-paper (#191614) = 1.94:1, ink-muted (#6a6055) on bg-paper = 2.93:1. WCAG AA requires 4.5:1 for normal text and 3:1 for large text. These tokens are used for metadata, timestamps, epigraphs, build versions, and mono kickers -- all small text that falls well below the minimum. The dark mode ink-muted at 2.93:1 also fails AA for the 10-11px mono text it is frequently used at (sidebar status, filter chips, section labels).",
+      "suggestedFix": "Adjust ink-faint in light mode from #beb3a2 to approximately #8a8070 (achieving ~3.5:1 against bg-paper) and in dark mode from #4f4639 to approximately #7a6d5e. Adjust ink-ghost to be reserved only for decorative, non-text elements (aria-hidden borders, dividers) -- audit all current usages and promote text usages to ink-faint or ink-muted. Consider adding a design-tokens.md note that ink-ghost must never carry readable text.",
+      "codeSnippet": "--ink-faint: #beb3a2; /* 1.87:1 contrast on bg-paper */\n--ink-ghost: #d5cdc0; /* 1.42:1 contrast on bg-paper */"
+    }
+  ]
+}

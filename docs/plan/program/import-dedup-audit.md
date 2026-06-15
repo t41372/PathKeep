@@ -156,9 +156,9 @@ rows. **Net effect: a user who exports Chrome → Takeout once a month and
 also imports their local Chrome will see every visit recorded twice**, even
 within the same source_profile.
 
-### B5 — Takeout `stable_key_i64` is collision-prone at scale
+### B5 — Takeout `stable_key_i64` is collision-prone at scale — ✅ RESOLVED 2026-06-14
 
-[takeout/browser_history.rs:442-445](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
+**Status:** Fixed (review-pipeline 2026-06-14, finding R-HASH). The original hash:
 
 ```rust
 fn stable_key_i64(bytes: &[u8]) -> i64 {
@@ -167,20 +167,43 @@ fn stable_key_i64(bytes: &[u8]) -> i64 {
 }
 ```
 
-Java-style polynomial hash, folded over hex-encoded bytes, modded by
-`abs()`. Theoretical space ≈ 2^63 but the low bits dominate due to
-`wrapping_mul(31)` and similar URL prefixes produce similar hash prefixes.
+was a Java-style polynomial hash, folded over hex-encoded bytes, modded by
+`abs()`. Theoretical space ≈ 2^63 but the low bits dominated due to
+`wrapping_mul(31)` and similar URL prefixes produced similar hash prefixes.
 For a 14.4M-record Takeout import (the AGENTS.md design ceiling), birthday
-collisions on a degenerate 31-bit-effective hash will hit before
-2^15.5 ≈ 47k records.
+collisions on the degenerate 31-bit-effective hash hit before 2^15.5 ≈ 47k records.
 
-Collision effects:
+Collision effects (now eliminated):
 
-- Two distinct URLs map to the same `source_url_id` → the second visit's
+- Two distinct URLs mapping to the same `source_url_id` → the second visit's
   `url_id_map` lookup returns the first URL's canonical id, and its visit
   rows attach to the wrong URL.
-- Two distinct visits map to the same `source_visit_id` → second visit
-  silently dropped by INSERT OR IGNORE.
+- Two distinct visits mapping to the same `source_visit_id` → second visit
+  silently dropped by `INSERT OR IGNORE`.
+
+**Fix:** `stable_key_i64` now derives the key from SHA-256 of the raw input
+(no hex pre-expansion), taking the leading 8 digest bytes big-endian and
+masking the sign bit to stay in `0..=i64::MAX`. SHA-256 is uniform, so the
+effective key space is the full 63 bits; the birthday-collision probability
+at the 14.4M ceiling over 2^63 is ≈ 1.1e-5 (negligible). The mask removes the
+`i64::MIN` overflow corner that `.abs()` had.
+
+**⚠️ Cross-version dedup discontinuity (Longevity caveat):** the takeout
+synthetic keys (`source_url_id`, `source_visit_id`) feed the
+`(source_profile_id, source_url_id)` / `(source_profile_id, source_visit_id)`
+UNIQUE indexes that drive cross-import dedup. Because the hash algorithm
+changed, takeout visits imported by a **pre-2026-06-14 binary** will **not**
+dedup against a re-import of the same takeout period by a **post-fix binary**
+(old keys ≠ new keys), so re-importing overlapping takeout across the version
+boundary can create duplicate visits. No automated migration is possible —
+the original `source_visit_id` inputs include a per-import `ordinal`
+disambiguator that is not persisted, so existing rows cannot be re-keyed
+deterministically. This only affects users who (a) imported takeout before
+the fix **and** (b) re-import overlapping takeout after it; within a single
+hash regime dedup is exact (all tests pass). Pre-1.0 acceptance: the old keys
+were already collision-corrupted, so a fresh takeout re-import after the fix
+is strictly more correct. Recorded as a follow-up in BACKLOG should a re-key
+migration ever be warranted.
 
 ### B6 — Takeout time unit ambiguity (potentially silent)
 

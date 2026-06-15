@@ -27,12 +27,17 @@
   --bg-elevated: var(--bg-card);
   --bg-overlay: rgba(28, 24, 20, 0.16);
 
-  /* ── Ink (text) ── */
-  --ink: #1c1814;
-  --ink-secondary: #4a4139;
-  --ink-muted: #887d6e;
-  --ink-faint: #beb3a2;
-  --ink-ghost: #d5cdc0;
+  /* ── Ink (text) ──
+     Every token that can carry readable copy must clear WCAG AA (4.5:1) on the
+     paper-card surfaces (--bg-paper #f6f3ed, --bg-card #fdfcf9). Ratios below
+     are measured against --bg-paper. --ink-ghost is the only exception: it is a
+     decorative-only token (hairlines, disabled chrome) and MUST NOT hold text —
+     see docs/design/design-tokens.md. */
+  --ink: #1c1814; /* 15.9:1 on paper */
+  --ink-secondary: #4a4139; /* 9.0:1 on paper */
+  --ink-muted: #6e6556; /* 5.2:1 on paper, 5.6:1 on card */
+  --ink-faint: #726e5a; /* 4.6:1 on paper, 5.0:1 on card */
+  --ink-ghost: #d5cdc0; /* decorative only — never readable text */
 
   /* ── Borders ── */
   --border: #d5cdc0;
@@ -81,11 +86,14 @@
   --bg-elevated: var(--bg-card);
   --bg-overlay: rgba(0, 0, 0, 0.5);
 
-  --ink: #d4cbc0;
-  --ink-secondary: #a79d8e;
-  --ink-muted: #6a6055;
-  --ink-faint: #4f4639;
-  --ink-ghost: #2a2520;
+  /* Ink ramp — ratios measured against --bg-paper #191614. ink-muted/ink-faint
+     clear WCAG AA (4.5:1) on the paper-card surfaces; ink-ghost is decorative
+     only and must never hold text (see design-tokens.md). */
+  --ink: #d4cbc0; /* 11.2:1 on paper */
+  --ink-secondary: #a79d8e; /* 6.7:1 on paper */
+  --ink-muted: #928c80; /* 5.4:1 on paper, 5.1:1 on card */
+  --ink-faint: #908374; /* 4.9:1 on paper, 4.6:1 on card */
+  --ink-ghost: #2a2520; /* decorative only — never readable text */
 
   --border: #302b25;
   --border-light: #262220;

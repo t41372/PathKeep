@@ -435,6 +435,80 @@ fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
 }
 
 #[test]
+fn regex_scan_cap_truncates_window_yet_matches_full_scan_when_cap_exceeds_rows() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    // seed_lexical_archive creates source_profile id 1 plus baseline rows; the
+    // FK on visits requires that profile before insert_lexical_history_row works.
+    seed_lexical_archive(&paths, &config);
+
+    // Five contiguous, newest visits carrying a token only these rows match, so
+    // the newest-sorted scan window maps one-to-one onto matches: row count in
+    // the window == match count, with no interleaved non-matches to muddy the
+    // boundary assertion.
+    let marker_visit_times = [900_001, 900_002, 900_003, 900_004, 900_005];
+    for (offset, visit_time) in marker_visit_times.iter().enumerate() {
+        let id = 100 + offset as i64;
+        insert_lexical_history_row(
+            &paths,
+            &config,
+            id,
+            &format!("https://capmarker.test/row-{id}"),
+            "Cap marker row",
+            *visit_time,
+            &format!("2026-05-02T00:00:0{offset}+00:00"),
+        );
+    }
+
+    let connection = open_archive_connection(&paths, &config, None).expect("open archive");
+
+    // A scan_cap smaller than the match count must stop inside the window: only
+    // the two newest marker rows are scanned, so the three older matches at
+    // 900_001..=900_003 are never examined. This is the whole reason the capped
+    // inner fn exists, and it fails (total == 5) if the cap is removed.
+    let truncated = super::history::list_history_with_regex_capped_for_test(
+        &connection,
+        10,
+        "newest",
+        r"capmarker\.test",
+        2,
+    )
+    .expect("capped regex scan");
+    assert_eq!(
+        truncated.total, 2,
+        "scan_cap=2 must bound the window to the two newest matches, not all five"
+    );
+    assert_eq!(truncated.items.len(), 2, "only the scanned window is returned");
+    let returned_urls: Vec<&str> = truncated.items.iter().map(|entry| entry.url.as_str()).collect();
+    assert_eq!(
+        returned_urls,
+        vec!["https://capmarker.test/row-104", "https://capmarker.test/row-103"],
+        "the bounded scan must surface the two newest rows in newest order, nothing deeper"
+    );
+
+    // A scan_cap larger than the total visible rows recovers the old full-scan
+    // semantics: every marker row is examined and the reported total is exact.
+    let full = super::history::list_history_with_regex_capped_for_test(
+        &connection,
+        10,
+        "newest",
+        r"capmarker\.test",
+        50_000,
+    )
+    .expect("uncapped regex scan");
+    assert_eq!(
+        full.total, marker_visit_times.len(),
+        "a cap above the row count must scan every match (full-scan parity)"
+    );
+    assert_eq!(full.items.len(), marker_visit_times.len());
+    assert!(
+        full.items.iter().all(|entry| entry.url.starts_with("https://capmarker.test/row-")),
+        "the full scan must return exactly the seeded marker rows"
+    );
+}
+
+#[test]
 fn lexical_recall_expands_aliases_and_uses_bounded_fuzzy_fallback() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());

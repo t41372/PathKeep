@@ -1,0 +1,20 @@
+{
+  "id": "R-HASH",
+  "track": "rust",
+  "sev": "major",
+  "title": "Takeout stable_key_i64 hash high collision risk",
+  "files": [
+    "src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs"
+  ],
+  "findings": [
+    {
+      "severity": "major",
+      "category": "BUG",
+      "file": "src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs",
+      "lineRange": "471-480",
+      "description": "The stable_key_i64 function is used to generate both source_url_id and source_visit_id for Takeout records. It works by hex-encoding the input bytes and then folding with wrapping_mul(31).wrapping_add(byte). This is essentially a Java-style hashCode() mapped to i64 range. While the i64::MIN corner case is handled, the fundamental algorithm is a weak hash with high collision probability at scale. For 14.4M Takeout records (the design ceiling), the birthday paradox means collisions become likely well before that threshold. A collision on source_visit_id causes INSERT OR IGNORE to silently drop a legitimate visit. A collision on source_url_id causes unrelated URLs to be merged into one canonical URL row. This is already tracked as B5 in the import dedup audit and WORK-IMPORT-SCALE-TEST-A in BACKLOG.",
+      "suggestedFix": "Already tracked as WORK-IMPORT-SCALE-TEST-A in BACKLOG. The fix should replace the Java-style hash with a proper hash function (e.g., SipHash or FNV-1a mapped to i64), or use a cryptographic hash truncated to i64. The hex-encoding step before folding is also wasteful -- it doubles the input size before hashing.",
+      "codeSnippet": ""
+    }
+  ]
+}

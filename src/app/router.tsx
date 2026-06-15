@@ -277,6 +277,7 @@ function withHandle(screen: AppScreen): RouteHandle {
 const appRouteChildren: RouteObject[] = [
   {
     index: true,
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/dashboard')
       return { Component: module.DashboardPage }
@@ -383,6 +384,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'assistant',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/assistant')
       return { Component: module.AssistantPage }
@@ -391,6 +393,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'import',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/import')
       return { Component: module.ImportPage }
@@ -399,6 +402,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'audit',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/audit')
       return { Component: module.AuditPage }
@@ -416,6 +420,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'schedule',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/schedule')
       return { Component: module.SchedulePage }
@@ -424,6 +429,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'integrations',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/integrations')
       return { Component: module.IntegrationsPage }
@@ -432,6 +438,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'security',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/security')
       return { Component: module.SecurityPage }
@@ -440,6 +447,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'maintenance',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/maintenance')
       return { Component: module.MaintenancePage }
@@ -448,6 +456,7 @@ const appRouteChildren: RouteObject[] = [
   },
   {
     path: 'settings',
+    ErrorBoundary: ShellRouteErrorBoundary,
     lazy: async () => {
       const module = await import('../pages/settings')
       return { Component: module.SettingsPage }

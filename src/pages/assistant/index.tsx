@@ -16,6 +16,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
+import {
+  PaperCard,
+  PaperCardBadge,
+  PaperCardBody,
+  PaperCardHeader,
+} from '../../components/cards'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
@@ -320,7 +326,10 @@ export function AssistantPage() {
 
   if (!snapshot?.config.initialized) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="assistant-page"
+      >
         <EmptyState
           description={assistantT('archiveNotInitializedDescription')}
           eyebrow={assistantT('statusEyebrow')}
@@ -331,13 +340,16 @@ export function AssistantPage() {
             </Link>
           }
         />
-      </section>
+      </div>
     )
   }
 
   if (!snapshot.archiveStatus.unlocked) {
     return (
-      <section className="page-shell">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        data-testid="assistant-page"
+      >
         <PermissionGate
           detail={assistantT('lockedDetail')}
           eyebrow={assistantT('lockedEyebrow')}
@@ -347,7 +359,7 @@ export function AssistantPage() {
             {assistantT('reviewSecurity')}
           </Link>
         </PermissionGate>
-      </section>
+      </div>
     )
   }
 
@@ -357,7 +369,10 @@ export function AssistantPage() {
     !snapshot.config.ai.assistantEnabled
   ) {
     return (
-      <section className="page-shell assistant-page">
+      <div
+        className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+        data-testid="assistant-page"
+      >
         <StatusCallout
           tone="info"
           eyebrow={assistantT('statusEyebrow')}
@@ -379,21 +394,23 @@ export function AssistantPage() {
             ) : undefined
           }
         />
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">
-              {optionalAiFeaturesAvailable
+        <PaperCard testId="assistant-deferred-panel">
+          <PaperCardHeader
+            title={
+              optionalAiFeaturesAvailable
                 ? assistantT('emptyEyebrow')
-                : assistantT('deferredPanelEyebrow')}
-            </span>
-            <span className="panel-action">
-              {optionalAiFeaturesAvailable
-                ? assistantT('emptyTitle')
-                : assistantT('deferredBadge')}
-            </span>
-          </div>
-          <div className="panel-body intelligence-stack">
-            <p className="dashboard-next-action">
+                : assistantT('deferredPanelEyebrow')
+            }
+            right={
+              <PaperCardBadge>
+                {optionalAiFeaturesAvailable
+                  ? assistantT('emptyTitle')
+                  : assistantT('deferredBadge')}
+              </PaperCardBadge>
+            }
+          />
+          <PaperCardBody className="intelligence-stack">
+            <p className="mono-support">
               {optionalAiFeaturesAvailable
                 ? assistantT('emptyDescription')
                 : assistantT('deferredPanelBody')}
@@ -401,20 +418,27 @@ export function AssistantPage() {
             {optionalAiFeaturesAvailable ? (
               <div className="intelligence-job-list">
                 {suggestedQuestions.map((question) => (
-                  <div key={question} className="result-row">
-                    <div className="result-row__header">
-                      <strong>{question}</strong>
-                    </div>
+                  <div
+                    key={question}
+                    className="border-border-light bg-paper rounded-paper border px-4 py-3"
+                  >
+                    <strong className="text-ink">{question}</strong>
                   </div>
                 ))}
               </div>
             ) : null}
-          </div>
-        </div>
-      </section>
+          </PaperCardBody>
+        </PaperCard>
+      </div>
     )
   }
 
+  // Active-AI conversation surface. This branch is unreachable while
+  // `optionalAiFeaturesAvailable` is false (v0.2.0), and its runtime/queue
+  // children still use v0.2 `.panel` chrome. It stays on the legacy
+  // `page-shell` shell as one coherent block until the v0.3 AI sweep migrates
+  // the whole conversation experience to the paper grammar together; see
+  // F-LEGACY-CSS (docs/review/2026-06-14) for the deferred scope.
   return (
     <section className="page-shell assistant-page" data-testid="assistant-page">
       <AssistantRuntimePanels

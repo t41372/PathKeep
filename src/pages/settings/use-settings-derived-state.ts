@@ -22,7 +22,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { backend } from '../../lib/backend-client'
-import { queueCoreIntelligenceRebuild } from '../../lib/core-intelligence/api'
+import {
+  clearIntelligenceOverviewCache,
+  queueCoreIntelligenceRebuild,
+} from '../../lib/core-intelligence/api'
 import { describeError } from '../../lib/errors'
 import type {
   CoreIntelligenceQueueReport,
@@ -217,6 +220,10 @@ export function useSettingsDerivedState({
       const report = await queueCoreIntelligenceRebuild({ fullRebuild: true })
       setRebuildQueueReport(report)
       setClearReport(null)
+      // The backend will recompute all derived intelligence; drop the cached
+      // overview/section snapshots so a later /intelligence visit re-fetches
+      // instead of showing the pre-rebuild data until the app restarts.
+      clearIntelligenceOverviewCache()
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
     } finally {
@@ -234,6 +241,7 @@ export function useSettingsDerivedState({
       const report = await backend.clearDerivedIntelligence()
       setClearReport(report)
       setRebuildQueueReport(null)
+      clearIntelligenceOverviewCache()
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
     } finally {
@@ -289,6 +297,7 @@ export function useSettingsDerivedState({
       const report = await queueCoreIntelligenceRebuild({ fullRebuild: true })
       setRebuildQueueReport(report)
       setClearReport(null)
+      clearIntelligenceOverviewCache()
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
     } catch (error) {
@@ -316,6 +325,7 @@ export function useSettingsDerivedState({
       const report = await queueCoreIntelligenceRebuild({ fullRebuild: true })
       setRebuildQueueReport(report)
       setClearReport(null)
+      clearIntelligenceOverviewCache()
       await refreshAppData()
       await refreshIntelligenceRuntimeState()
     } catch (error) {

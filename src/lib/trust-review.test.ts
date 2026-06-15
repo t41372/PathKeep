@@ -53,17 +53,10 @@ describe('trust review helpers', () => {
     expect(importBatchStatusTone('reverted')).toBe('danger')
     expect(importBatchStatusTone('quarantined')).toBe('danger')
 
-    expect(healthCheckStatusKey('ok')).toBe('common.statusSuccess')
-    expect(healthCheckStatusKey('info')).toBe('common.statusInfo')
-    expect(healthCheckStatusKey('warning')).toBe('common.statusNeedsAttention')
-    expect(healthCheckStatusKey('error')).toBe('common.statusBlocked')
-    expect(healthCheckStatusKey('blocked')).toBe('common.statusBlocked')
-    expect(healthCheckStatusKey('pending')).toBe('common.statusPending')
-    expect(healthCheckStatusTone('ok')).toBe('success')
-    expect(healthCheckStatusTone('info')).toBe('info')
-    expect(healthCheckStatusTone('warning')).toBe('warning')
-    expect(healthCheckStatusTone('error')).toBe('blocked')
-    expect(healthCheckStatusTone('blocked')).toBe('blocked')
+    expect(healthCheckStatusKey(true)).toBe('common.statusSuccess')
+    expect(healthCheckStatusKey(false)).toBe('common.statusFailed')
+    expect(healthCheckStatusTone(true)).toBe('success')
+    expect(healthCheckStatusTone(false)).toBe('blocked')
   })
 
   test('maps audit helpers to translated filters and tones', () => {
