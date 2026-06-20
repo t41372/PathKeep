@@ -251,7 +251,8 @@
     orchestrator/test owners so `cargo test -p vault-core --lib` and
     `bun run check` stay green.
 
-- [!] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [!blocked: v0.3 scope decision, real provider acceptance, release-size evidence]
+- [~] **WORK-AI-V03-A** — Optional AI Runtime Re-Enablement [UNBLOCKED 2026-06-20 → 已重做為 AI-redesign-2026 並提升到 `STATUS.md`]
+  - 2026-06-20 unblock note：v0.3 scope decision 已鎖定（見 `docs/plan/program/ai-redesign-2026/02-architecture-decisions.md` D1-D8），real provider acceptance 由本機 LM Studio（`http://localhost:1234/v1`，gemma-4-26b + qwen3-embedding-0.6b）提供。此 block 已被乾淨重做的 AI-redesign-2026 取代，拆成 `STATUS.md` 的 `WORK-AI-0-FOUNDATIONS` … 等執行序（見 `04-current-state-and-execution.md`）。原 LanceDB-禁用契約仍有效（向量層改用 `VectorIndex` trait + Turbovec/flat-scan，從不恢復 LanceDB）。
   - 讀先：
     `docs/architecture/decisions/009-default-desktop-optional-intelligence-shipping.md`
     `docs/architecture/tech-stack.md`

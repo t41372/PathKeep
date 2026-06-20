@@ -2,7 +2,8 @@
 
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block；不要把 `STATUS.md` 再拆回原子 task。
 
-**當前 Milestone：M16 — v0.3 Paper Redesign**
+**當前 Milestone：M17 — AI Integration（AI-redesign-2026 實作）**
+（M16 v0.3 Paper Redesign 的 route-sweep 收尾為 carryover，見下方 `WORK-V03-PAPER-REDESIGN-A`，不阻擋 AI 工作）
 
 ---
 
@@ -12,7 +13,27 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending)
+- [ ] **WORK-AI-0-FOUNDATIONS** — AI traits / model-agnostic config / storage planes / secrets（無模型呼叫）
+  - 讀先（**第一份必讀**）：
+    `docs/plan/program/ai-redesign-2026/04-current-state-and-execution.md`（現實對齊 + 執行序 + review 協議 + file anchors）
+    `docs/plan/program/ai-redesign-2026/02-architecture-decisions.md`（§0 D1-D8、§A storage planes、§B、§C、§I 供應鏈 ledger）
+    `docs/plan/program/ai-redesign-2026/03-implementation-plan.md`（M-AI0）
+    `src-tauri/crates/vault-core/src/ai.rs` / `ai/provider.rs`（rig 用法、D4 硬編 dim 在 `provider.rs:445-528`）
+    `src-tauri/crates/vault-core/src/models/intelligence.rs:250-341`（`AiProviderConfig`/`AiSettings`，已 model-agnostic 形狀）
+    `src-tauri/crates/vault-core/src/config.rs:26-135`（paths + `ensure_paths`）
+    `src-tauri/crates/vault-core/src/intelligence/incremental.rs`（watermark = embedding fingerprint 範本）
+    `docs/plan/program/quality-matrix.md`（權威 gate；100% JS/Rust coverage、無 exclusion）
+  - 目標：立穩 AI 重做的所有後端邊界，**不做任何新模型呼叫**，關 AI 時 app 行為完全不變；既有 12 命令 + `AppSnapshot` AI 欄位契約不破。
+  - work（逐項皆需 100% 覆蓋 + 過 review pipeline）：
+    1. 在 `vault-core` 定義 `LlmProvider` / `EmbeddingProvider` / `VectorIndex` traits（純 trait + 型別，rig 型別只能出現在 adapter 內）。
+    2. **修 D4 違反**：`provider.rs` 的硬編 1536/768 dim fallback 改成**讀實際回傳向量長度**（02 §C.3 鐵律 a）；dim/pooling/normalized/instruction 改成 per-provider 描述符（runtime 偵測）。
+    3. API key in-memory 處理改 `secrecy::SecretString`（drop 清零 / log redact / 不序列化進 trace/sidecar）；沿用既有 keyring + `api_key_saved`。
+    4. 新 storage planes：`config.rs` 的 `ProjectPaths` 加 `vectors_dir`（`derived/vectors/`）、`agent_database_path`（`derived/agent.sqlite`）、`models_dir`（`<root>/models/`）；`ensure_paths` 建立；更新 path-override 測試。
+    5. embedding fingerprint 結構：`hash(provider, model_id, effective_dim, output_dtype, normalized, pooling, instruction_template, version)`，鏡像 intelligence checkpoint/watermark；先落型別 + 持久化 header，stale 偵測接口（尚不觸發重嵌）。
+  - 契約：rig/secrecy 用 `name.workspace = true`（rig **不 hard-pin**）；`secrecy` 加入後 `deny:rust` / `audit:rust` 須綠（MIT/Apache 過 license）；新 `.rs` 全進 100% 覆蓋；不擴展 `src/lib/backend.ts` preview fixture contract；改動 `src/main.tsx`/`bridge.ts` 需對齊既有 contract（本 block 預期不需碰）。
+  - 驗收：`bun run check:base` 綠（Rust fmt/clippy/test + supply-chain + i18n + typecheck）；`coverage:rust` 對新 `.rs` 100%；關 AI 時 deterministic intelligence + FTS5 行為不變；走完 review pipeline（find → verify → fix）。
+
+- [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending) — *carryover，非當前 focus*
   - 讀先：
     `docs/design/handoff/README.md` (handoff index)
     `docs/design/handoff/paper-redesign/README.md` (cover sheet from design tool)
