@@ -80,8 +80,7 @@ pub(super) fn load_visible_visits(
         Some(limit) => i64::from(limit.max(1)),
         None => -1,
     };
-    let rows =
-        statement.query_map(params![profile_id, sql_limit], visit_from_row)?;
+    let rows = statement.query_map(params![profile_id, sql_limit], visit_from_row)?;
     let mut visits = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     if limit.is_some() {
         // Restore ascending `(visit_time_ms, id)` order after the DESC fetch.

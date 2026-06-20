@@ -33,15 +33,15 @@ is expressed as the mix percentage.
 
 ### Surfaces
 
-| Token | Light ("paper") | Dark ("darkroom") | Role |
-| --- | --- | --- | --- |
-| `--bg-page` | `#ece7de` | `#110f0d` | desk behind cards (cream paper / near-black) |
-| `--bg-paper` | `#f6f3ed` | `#191614` | main reading sheet |
-| `--bg-card` | `#fdfcf9` | `#201c18` | raised card / detail panel / popover |
-| `--bg-hover` | `#e6e0d5` | `#292420` | row / control hover |
-| `--bg-active` | `#dbd4c7` | `#332d27` | pressed / selected row |
-| `--bg-sidebar` | `#f0ebe3` | `#151311` | sidebar rail |
-| `--bg-overlay` | `rgba(28, 24, 20, 0.16)` | `rgba(0, 0, 0, 0.5)` | modal scrim |
+| Token          | Light ("paper")          | Dark ("darkroom")    | Role                                         |
+| -------------- | ------------------------ | -------------------- | -------------------------------------------- |
+| `--bg-page`    | `#ece7de`                | `#110f0d`            | desk behind cards (cream paper / near-black) |
+| `--bg-paper`   | `#f6f3ed`                | `#191614`            | main reading sheet                           |
+| `--bg-card`    | `#fdfcf9`                | `#201c18`            | raised card / detail panel / popover         |
+| `--bg-hover`   | `#e6e0d5`                | `#292420`            | row / control hover                          |
+| `--bg-active`  | `#dbd4c7`                | `#332d27`            | pressed / selected row                       |
+| `--bg-sidebar` | `#f0ebe3`                | `#151311`            | sidebar rail                                 |
+| `--bg-overlay` | `rgba(28, 24, 20, 0.16)` | `rgba(0, 0, 0, 0.5)` | modal scrim                                  |
 
 `--bg-elevated` aliases `--bg-card` in both themes.
 
@@ -54,31 +54,31 @@ hold readable text** (hairlines, disabled chrome, zero-state dividers). The
 WCAG guard in `src/styles/tokens.contrast.test.ts` enforces this against the
 shipping values.
 
-| Token | Light | Dark | AA on paper / card |
-| --- | --- | --- | --- |
-| `--ink` | `#1c1814` | `#d4cbc0` | primary text — far above AA |
-| `--ink-secondary` | `#4a4139` | `#a79d8e` | secondary body — above AA |
-| `--ink-muted` | `#6e6556` | `#928c80` | muted helper — light 5.2 / 5.6, dark 5.4 / 5.1 |
-| `--ink-faint` | `#726e5a` | `#908374` | faint metadata — light 4.6 / 5.0, dark 4.9 / 4.6 |
-| `--ink-ghost` | `#d5cdc0` | `#2a2520` | decorative only — **no text** |
+| Token             | Light     | Dark      | AA on paper / card                               |
+| ----------------- | --------- | --------- | ------------------------------------------------ |
+| `--ink`           | `#1c1814` | `#d4cbc0` | primary text — far above AA                      |
+| `--ink-secondary` | `#4a4139` | `#a79d8e` | secondary body — above AA                        |
+| `--ink-muted`     | `#6e6556` | `#928c80` | muted helper — light 5.2 / 5.6, dark 5.4 / 5.1   |
+| `--ink-faint`     | `#726e5a` | `#908374` | faint metadata — light 4.6 / 5.0, dark 4.9 / 4.6 |
+| `--ink-ghost`     | `#d5cdc0` | `#2a2520` | decorative only — **no text**                    |
 
 ### Borders
 
-| Token | Light | Dark |
-| --- | --- | --- |
-| `--border` | `#d5cdc0` | `#302b25` |
-| `--border-light` | `#e4ddd2` | `#262220` |
+| Token             | Light     | Dark      |
+| ----------------- | --------- | --------- |
+| `--border`        | `#d5cdc0` | `#302b25` |
+| `--border-light`  | `#e4ddd2` | `#262220` |
 | `--border-strong` | `#c2b8a8` | `#3d362e` |
 
 ### Accent (slate blue, user-configurable via `--accent-color`)
 
-| Token | Light | Dark |
-| --- | --- | --- |
-| `--accent` | `#3d5a80` (`var(--accent-color)`) | `#3d5a80` fallback |
-| `--accent-soft` | `color-mix(accent 8%, transparent)` | `color-mix(accent 10%, transparent)` |
-| `--accent-medium` | `color-mix(accent 18%, transparent)` | `color-mix(accent 20%, transparent)` |
-| `--accent-strong` | `color-mix(accent 32%, transparent)` | `color-mix(accent 36%, transparent)` |
-| `--accent-text` | `var(--accent)` | `color-mix(accent 65%, #b0c8e4)` (lifted for darkroom legibility) |
+| Token             | Light                                | Dark                                                              |
+| ----------------- | ------------------------------------ | ----------------------------------------------------------------- |
+| `--accent`        | `#3d5a80` (`var(--accent-color)`)    | `#3d5a80` fallback                                                |
+| `--accent-soft`   | `color-mix(accent 8%, transparent)`  | `color-mix(accent 10%, transparent)`                              |
+| `--accent-medium` | `color-mix(accent 18%, transparent)` | `color-mix(accent 20%, transparent)`                              |
+| `--accent-strong` | `color-mix(accent 32%, transparent)` | `color-mix(accent 36%, transparent)`                              |
+| `--accent-text`   | `var(--accent)`                      | `color-mix(accent 65%, #b0c8e4)` (lifted for darkroom legibility) |
 
 ### Semantic
 
@@ -86,12 +86,12 @@ The semantic family uses `--success` / `--warning` / `--error` / `--info` (plus 
 `-soft` `color-mix` tint each). There is no `--danger` token; destructive UI uses
 `--error` / `--error-soft`.
 
-| Token | Light | Dark | Soft tint |
-| --- | --- | --- | --- |
+| Token       | Light     | Dark      | Soft tint                                   |
+| ----------- | --------- | --------- | ------------------------------------------- |
 | `--success` | `#4a8c5c` | `#6aac7c` | `color-mix(success 12% / 16%, transparent)` |
 | `--warning` | `#b38b2d` | `#d3ab4d` | `color-mix(warning 14% / 16%, transparent)` |
-| `--error` | `#a84040` | `#c86060` | `color-mix(error 12% / 16%, transparent)` |
-| `--info` | `#4a7aa8` | `#6a9ac8` | `color-mix(info 12% / 16%, transparent)` |
+| `--error`   | `#a84040` | `#c86060` | `color-mix(error 12% / 16%, transparent)`   |
+| `--info`    | `#4a7aa8` | `#6a9ac8` | `color-mix(info 12% / 16%, transparent)`    |
 
 > `src/styles/tokens.css` is the visual source of truth and the runtime values
 > are authoritative. Keep this document in lockstep with it: when the palette is

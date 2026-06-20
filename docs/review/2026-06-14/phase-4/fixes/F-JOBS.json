@@ -3,9 +3,7 @@
   "track": "fe",
   "sev": "major",
   "title": "AI job retry/cancel handlers silently swallow errors",
-  "files": [
-    "src/pages/jobs/index.tsx"
-  ],
+  "files": ["src/pages/jobs/index.tsx"],
   "findings": [
     {
       "severity": "major",

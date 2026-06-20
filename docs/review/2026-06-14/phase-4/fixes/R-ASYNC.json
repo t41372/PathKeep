@@ -3,9 +3,7 @@
   "track": "rust",
   "sev": "major",
   "title": "36 sync Core Intelligence read commands run on Tauri main thread",
-  "files": [
-    "src-tauri/src/commands/intelligence/core.rs"
-  ],
+  "files": ["src-tauri/src/commands/intelligence/core.rs"],
   "findings": [
     {
       "severity": "major",

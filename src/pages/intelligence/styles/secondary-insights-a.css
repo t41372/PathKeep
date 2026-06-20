@@ -390,6 +390,12 @@
   gap: var(--space-3);
 }
 
+.discovery-trend__sparkline {
+  width: 100%;
+  height: 48px;
+  display: block;
+}
+
 .discovery-trend__row {
   display: flex;
   flex-direction: column;

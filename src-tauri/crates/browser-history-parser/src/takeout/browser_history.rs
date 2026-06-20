@@ -573,11 +573,7 @@ mod stable_key_tests {
         let mut keys = HashSet::new();
         let mut high_bits = HashSet::new();
         for ordinal in 0..2_000_i64 {
-            for url in [
-                "https://example.com/a",
-                "https://example.com/b",
-                "https://example.org/a",
-            ] {
+            for url in ["https://example.com/a", "https://example.com/b", "https://example.org/a"] {
                 let key = stable_key_i64(format!("{url}:1700000000000000:{ordinal}").as_bytes());
                 assert!(key >= 0);
                 // The leading 24 bits exercise the high end of the digest
@@ -585,7 +581,10 @@ mod stable_key_tests {
                 // collapses into the low bits (the old defect) would barely
                 // populate this set.
                 high_bits.insert((key >> 39) as u32);
-                assert!(keys.insert(key), "unexpected stable_key_i64 collision at ordinal {ordinal} url {url}");
+                assert!(
+                    keys.insert(key),
+                    "unexpected stable_key_i64 collision at ordinal {ordinal} url {url}"
+                );
             }
         }
         assert_eq!(keys.len(), 6_000, "every distinct input must yield a distinct key");

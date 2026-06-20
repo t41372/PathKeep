@@ -106,7 +106,10 @@ export function DashboardThisWeek({
     }
   }, [activeProfileId, archiveReady, t])
 
-  const runsThisWeek = countRunsInRange(recentRuns, dashboardWeekRange(new Date()))
+  const runsThisWeek = countRunsInRange(
+    recentRuns,
+    dashboardWeekRange(new Date()),
+  )
   const fmt = (value: number): string =>
     new Intl.NumberFormat(language === 'en' ? 'en-US' : language).format(value)
 

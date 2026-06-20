@@ -39,7 +39,9 @@ function makeTrendResult(
   >
 }
 
-function makeRun(overrides: Partial<BackupRunOverview> = {}): BackupRunOverview {
+function makeRun(
+  overrides: Partial<BackupRunOverview> = {},
+): BackupRunOverview {
   return {
     id: 1,
     startedAt: '2026-05-20T10:00:00Z',
@@ -189,7 +191,9 @@ describe('DashboardThisWeek', () => {
     unmount()
     // Flushing the in-flight promise post-unmount drives the
     // `cancelled === true` branches inside the try/finally.
-    act(() => resolveTrend(makeTrendResult([{ totalVisits: 9, newDomainCount: 1 }])))
+    act(() =>
+      resolveTrend(makeTrendResult([{ totalVisits: 9, newDomainCount: 1 }])),
+    )
     await new Promise((resolve) => window.setTimeout(resolve, 10))
   })
 

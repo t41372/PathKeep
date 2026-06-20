@@ -82,6 +82,11 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "search-query-kind",
         apply: apply_search_query_kind_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 7,
+        name: "overview-snapshots",
+        apply: apply_overview_snapshot_migration,
+    },
 ];
 
 /// Installs the baseline intelligence schema on a freshly attached derived
@@ -106,6 +111,11 @@ fn apply_core_intelligence_stage_checkpoint_migration(connection: &Connection) -
 /// Installs mutable search-engine rule tables used by Settings.
 fn apply_search_engine_rule_migration(connection: &Connection) -> Result<()> {
     ensure_search_engine_rule_schema(connection)
+}
+
+/// Installs the persistent all-time overview snapshot cache table.
+fn apply_overview_snapshot_migration(connection: &Connection) -> Result<()> {
+    super::intelligence_overview_snapshot::ensure_overview_snapshot_schema(connection)
 }
 
 /// Backfills query-kind metadata so keyword surfaces can exclude navigational
@@ -306,6 +316,7 @@ pub fn clear_derived_intelligence_state(
     };
     clear_core_tables(&connection, None)?;
     delete_stage_checkpoints(&connection, None)?;
+    super::intelligence_overview_snapshot::clear_overview_snapshots(&connection)?;
     connection.execute(
         "DELETE FROM intelligence_jobs
          WHERE job_type IN ('visit-derive', 'daily-rollup', 'structural-rebuild', 'full-rebuild')",

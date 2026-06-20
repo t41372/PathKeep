@@ -2183,7 +2183,7 @@ architectural items were filed in `BACKLOG.md` (see the 2026-06-12 note there).
 
 - Verification: `bun run typecheck` clean; `bun run coverage:js` green
   (100%, 2172 tests); `bun run build` green; `cargo clippy --workspace
-  --all-targets -D warnings` clean; `cargo fmt --check` + Prettier clean; full
+--all-targets -D warnings` clean; `cargo fmt --check` + Prettier clean; full
   Rust workspace tests pass except the Linux-only
   `migration::…_different_filesystem…` test (`/dev/shm` precondition, unrelated
   to this work, fails on the macOS dev box). Final `coverage:rust` / e2e /
@@ -2230,10 +2230,10 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   XA-PRODUCT / XA-UX / XA-PERF) → 144 findings. Phase 2 = triage/dedup → 42 sent
   to verification (all critical+major + every GAP). Phase 3 = 5 independent
   adversarial verifiers (defense-attorney stance) → **50% survival** (13 confirmed
-  + 8 trade-off; 11 dismissed as phantom/feature-fiction, 10 downgraded). Phase 4
-  = synthesis (`docs/review/2026-06-14/phase-4/final-report.md`). Each fix below
-  was then applied by a dedicated sub-agent and passed an **independent strict
-  review** sub-agent (fresh context); re-fix cycles where the review blocked.
+  - 8 trade-off; 11 dismissed as phantom/feature-fiction, 10 downgraded). Phase 4
+    = synthesis (`docs/review/2026-06-14/phase-4/final-report.md`). Each fix below
+    was then applied by a dedicated sub-agent and passed an **independent strict
+    review** sub-agent (fresh context); re-fix cycles where the review blocked.
 - What — confirmed fixes shipped (each fix + independent review):
   - **R-REGEX (🔴 critical, perf)**: regex recall no longer binds `:pageLimit = -1`
     / `collect()`s the entire visits table before filtering. `archive/history.rs`
@@ -2285,7 +2285,7 @@ the adversarial verification pass confirmed. Artifacts under `docs/review/2026-0
   collision-corrupt; documented in `import-dedup-audit.md` §B5 and the code.
 - Verification: `bunx tsc -b` clean; `bunx vitest run` **2219/2219** pass; i18n
   parity 100% (2853 keys × 3 locales, 0 missing / 0 raw-English); `cargo check
-  --workspace --tests` clean; per-fix `cargo test`/`clippy` green. Full
+--workspace --tests` clean; per-fix `cargo test`/`clippy` green. Full
   `bun run check` (rust coverage + e2e + mutation + release rehearsal) deferred to
   the Linux CI gate per the standing macOS `/dev/shm` migration-test limitation;
   every new code branch ships with a unit test. Non-blocking polish + the deferred

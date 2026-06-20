@@ -160,10 +160,8 @@ pub(super) fn build_refind_pages(visits: &[VisitRecord]) -> Vec<RefindPageRecord
                 .iter()
                 .map(|visit| local_date_key(visit.visit_time_ms))
                 .collect::<HashSet<_>>();
-            let trail_ids = members
-                .iter()
-                .filter_map(|visit| visit.trail_id.clone())
-                .collect::<HashSet<_>>();
+            let trail_ids =
+                members.iter().filter_map(|visit| visit.trail_id.clone()).collect::<HashSet<_>>();
             let search_arrival_count =
                 members.iter().filter(|visit| visit.trail_id.is_some()).count() as i64;
             let typed_revisit_count = members

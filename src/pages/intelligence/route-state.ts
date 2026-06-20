@@ -40,6 +40,13 @@ const validPresets: TimeRangePreset[] = [
 ]
 
 /**
+ * Default time scope when the route carries no explicit `range`. `All time` is
+ * the default because the backend serves it from a persisted, fingerprint-keyed
+ * snapshot, so opening the page is cheap and reflects the full archive.
+ */
+const DEFAULT_RANGE_PRESET: TimeRangePreset = 'all'
+
+/**
  * Provides the shared URL-backed state used by the Intelligence routes.
  */
 export function useIntelligenceRouteState() {
@@ -55,7 +62,7 @@ export function useIntelligenceRouteState() {
     ? (requestedPreset as TimeRangePreset)
     : searchParams.get('start') && searchParams.get('end')
       ? 'custom'
-      : 'month'
+      : DEFAULT_RANGE_PRESET
 
   const dateRange = useMemo<DateRange>(() => {
     if (preset !== 'custom') {
@@ -68,7 +75,7 @@ export function useIntelligenceRouteState() {
       return { start, end }
     }
 
-    return dateRangeFromPreset('month')
+    return dateRangeFromPreset(DEFAULT_RANGE_PRESET)
   }, [preset, searchParams])
 
   const profileScopeLabel = effectiveProfileId

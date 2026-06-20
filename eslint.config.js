@@ -13,6 +13,7 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig([
   globalIgnores([
     'coverage',
+    '**/coverage',
     'dist',
     'playwright-report',
     'reports',

@@ -43,6 +43,29 @@
   line-height: 1.5;
 }
 
+/* Compact always-visible scope chip for the default archive-wide case, so the
+   reader can tell the page is archive-wide without opening a section drawer. */
+.intelligence-page__scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.intelligence-page__scope-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
 .intelligence-access-strip {
   display: flex;
   justify-content: space-between;
@@ -145,6 +168,15 @@
   gap: var(--space-6);
 }
 
+/*
+ * Two-column grid (row-major) for the secondary sections. Cards stretch to equal
+ * heights per row, and hide-when-empty sections are dropped from the slot list
+ * (see secondary-content.ts) so neighbors fill the vacated space instead of
+ * leaving a blank cell. We intentionally do NOT use CSS multi-column masonry
+ * here: with lazy-mounting cards (heights change on mount) multicol's default
+ * `column-fill: balance` re-balances columns and can displace an on-screen card
+ * in the other column — a layout-shift the row-major grid never causes.
+ */
 .intelligence-secondary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

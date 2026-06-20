@@ -281,6 +281,100 @@ pub(super) fn load_profile_source_watermark(
     })
 }
 
+/// Enumerates the profiles the all-time overview fingerprint must fold in,
+/// using only small indexed tables.
+///
+/// Why a separate list from [`list_core_intelligence_profiles`]: the rebuild
+/// path must discover every profile present in the *raw* archive (a
+/// `SELECT DISTINCT` over `archive.visits`), but the fingerprint runs on every
+/// all-time open and cannot afford to scan the multi-million-row visit index.
+/// `source_profiles` holds one row per ingested browser profile and the
+/// checkpoint ledger holds one row per (profile, rebuilt stage); their union is
+/// a superset of `visit_derived_facts.profile_id` (every derived row descends
+/// from a visit whose `source_profile_id` exists in `source_profiles`), so this
+/// never under-counts a profile that could contribute data.
+pub(super) fn list_fingerprint_profiles(
+    connection: &Connection,
+    requested_profile_id: Option<&str>,
+) -> Result<Vec<String>> {
+    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
+    if let Some(profile_id) = requested_profile_id {
+        return Ok(vec![profile_id.to_string()]);
+    }
+    let mut profiles = BTreeSet::<String>::new();
+    let mut collect = |sql: &str| -> Result<()> {
+        let mut statement = connection.prepare(sql)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        profiles.extend(rows);
+        Ok(())
+    };
+    collect("SELECT profile_key FROM archive.source_profiles")?;
+    collect("SELECT DISTINCT profile_id FROM core_intelligence_stage_checkpoints")?;
+    Ok(profiles.into_iter().collect())
+}
+
+/// Reads one profile's derived-state watermark straight from the checkpoint
+/// ledger instead of re-scanning the raw archive.
+///
+/// The ledger captured these counts when the profile was last rebuilt, so this
+/// is O(1) on a PK-indexed small table. It carries the same four dimensions as
+/// [`load_profile_source_watermark`] but is the *fingerprint* source: pairing it
+/// with [`load_archive_delta_signature`] (which catches ingest/reverts that have
+/// not been rebuilt yet) reproduces the staleness sensitivity of the old live
+/// scan without its cost. A profile with no checkpoint row yet contributes a
+/// zero watermark, which the archive-delta signature still moves on first data.
+pub(super) fn load_checkpoint_source_watermark(
+    connection: &Connection,
+    profile_id: &str,
+) -> Result<ProfileSourceWatermark> {
+    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
+    // One profile owns up to one row per rebuild stage, all sharing the same
+    // source watermark at steady state; MAX collapses them to that watermark
+    // without multiply-counting across stages.
+    let watermark = connection.query_row(
+        "SELECT COALESCE(MAX(visible_visit_count), 0),
+                COALESCE(MAX(max_visit_id), 0),
+                COALESCE(MAX(max_url_last_visit_ms), 0),
+                COALESCE(MAX(visible_search_term_count), 0)
+         FROM core_intelligence_stage_checkpoints
+         WHERE profile_id = ?1",
+        [profile_id],
+        |row| {
+            Ok(ProfileSourceWatermark {
+                visible_visit_count: row.get(0)?,
+                max_visit_id: row.get(1)?,
+                max_url_last_visit_ms: row.get(2)?,
+                visible_search_term_count: row.get(3)?,
+            })
+        },
+    )?;
+    Ok(watermark)
+}
+
+/// Summarizes raw-archive mutations with O(1) probes so the fingerprint changes
+/// the moment a backup ingests rows or a repair reverts them — even before the
+/// derived rebuild that would move the checkpoint ledger has run.
+///
+/// `MAX(visits.id)` (integer primary key) jumps on any newly ingested visit.
+/// The `runs` ledger gains exactly one row per backup, ingest, and revert
+/// (reverts also stamp `reverted_by_run_id`), so its count and max id catch
+/// reverts of existing visits that leave `MAX(visits.id)` unchanged. Both reads
+/// are constant-time, replacing the previous per-open full scan of the visible
+/// visit index plus ~N random probes into `urls`.
+pub(super) fn load_archive_delta_signature(connection: &Connection) -> Result<String> {
+    let max_visit_id: i64 =
+        connection
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM archive.visits", [], |row| row.get(0))?;
+    let (run_count, max_run_id): (i64, i64) = connection.query_row(
+        "SELECT COUNT(*), COALESCE(MAX(id), 0) FROM archive.runs",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(format!("arch:{max_visit_id}:{run_count}:{max_run_id}"))
+}
+
 pub(super) fn watermark_regressed(
     current: &ProfileSourceWatermark,
     previous: &ProfileSourceWatermark,
@@ -291,7 +385,7 @@ pub(super) fn watermark_regressed(
         || current.visible_search_term_count < previous.visible_search_term_count
 }
 
-fn load_site_dictionary_signature(connection: &Connection) -> Result<String> {
+pub(super) fn load_site_dictionary_signature(connection: &Connection) -> Result<String> {
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS site_dictionary_overrides (
            id                INTEGER PRIMARY KEY AUTOINCREMENT,

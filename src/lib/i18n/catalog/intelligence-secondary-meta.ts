@@ -118,6 +118,10 @@ export const intelligenceSecondaryMetaNamespace = {
       'Same calendar day across previous years ({date})',
     sectionMetaMetadataFallback:
       'This section metadata is incomplete, so PathKeep is showing a degraded review state instead of crashing the page.',
+    secondarySectionErrorTitle: 'This insight could not load',
+    secondarySectionErrorBody:
+      'PathKeep could not load this section. Your data is safe — this is only a read.',
+    secondarySectionRetry: 'Retry',
     runtimeDigestTitle: 'Runtime Digest',
     runtimeDigestNeedsArchiveTitle: 'Archive setup required',
     runtimeDigestNeedsArchiveBody:
@@ -232,6 +236,10 @@ export const intelligenceSecondaryMetaNamespace = {
     sectionMetaWindowCalendarDayHistory: '过去几年同一日历日（{date}）',
     sectionMetaMetadataFallback:
       '这部分元数据不完整，PathKeep 已改为降级显示，而不是让页面崩溃。',
+    secondarySectionErrorTitle: '这个洞察暂时加载失败',
+    secondarySectionErrorBody:
+      'PathKeep 无法加载这个板块。你的数据没有问题——这里只是读取。',
+    secondarySectionRetry: '重试',
     runtimeDigestTitle: '运行摘要',
     runtimeDigestNeedsArchiveTitle: '需要先完成存档设置',
     runtimeDigestNeedsArchiveBody:
@@ -345,6 +353,10 @@ export const intelligenceSecondaryMetaNamespace = {
     sectionMetaWindowCalendarDayHistory: '過去幾年同一個日曆日（{date}）',
     sectionMetaMetadataFallback:
       '這部分中繼資料不完整，PathKeep 已改為降級顯示，而不是讓頁面直接崩潰。',
+    secondarySectionErrorTitle: '這個洞察暫時載入失敗',
+    secondarySectionErrorBody:
+      'PathKeep 無法載入這個區塊。你的資料沒有問題——這裡只是讀取。',
+    secondarySectionRetry: '重試',
     runtimeDigestTitle: '執行摘要',
     runtimeDigestNeedsArchiveTitle: '需要先完成封存設定',
     runtimeDigestNeedsArchiveBody:

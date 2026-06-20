@@ -22,6 +22,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../../lib/backend-client'
+import * as coreIntelligenceApi from '../../../lib/core-intelligence/api'
 import type {
   AuditRunDetail,
   BackupReport,
@@ -31,6 +32,18 @@ import type {
   SnapshotRestorePreview,
 } from '../../../lib/types'
 import { useAuditData } from './use-audit-data'
+import type * as CoreIntelligenceApi from '../../../lib/core-intelligence/api'
+
+// Spy only on the overview-cache invalidation seam; everything else in the
+// Core Intelligence API barrel keeps its real implementation so unrelated reads
+// (which this hook does not exercise) are untouched.
+vi.mock('../../../lib/core-intelligence/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof CoreIntelligenceApi>()
+  return {
+    ...actual,
+    clearIntelligenceOverviewCache: vi.fn(),
+  }
+})
 
 const labels = {
   commonUnavailable: 'Unavailable',
@@ -45,6 +58,9 @@ const labels = {
 describe('useAuditData', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // `vi.restoreAllMocks` resets `vi.spyOn` spies but not the module-factory
+    // `vi.fn()` above, whose call history would otherwise leak between tests.
+    vi.mocked(coreIntelligenceApi.clearIntelligenceOverviewCache).mockClear()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
@@ -300,6 +316,32 @@ describe('useAuditData', () => {
     })
 
     await waitFor(() => expect(result.current.detailCache).toEqual({}))
+  })
+
+  test('keeps fulfilled run-index entries when one run detail load rejects', async () => {
+    // The run-index loader uses Promise.allSettled, so a single failing run must
+    // not discard the others: the cache should hold every run whose detail
+    // resolved and silently skip the rejected one.
+    vi.spyOn(backend, 'loadAuditRunDetail').mockImplementation((runId) =>
+      runId === 2
+        ? Promise.reject(new Error('run 2 detail offline'))
+        : Promise.resolve(detailFixture(runFixture(runId, 'backup'))),
+    )
+
+    const { result } = renderHook(() =>
+      useAuditData({
+        labels,
+        recentImportBatches: [],
+        recentRuns: [runFixture(1, 'backup'), runFixture(2, 'backup')],
+        refreshAppData: vi.fn().mockResolvedValue(undefined),
+        refreshKey: 1,
+        runId: null,
+        selectRun: vi.fn(),
+      }),
+    )
+
+    await waitFor(() => expect(result.current.detailCache[1]?.run.id).toBe(1))
+    expect(result.current.detailCache[2]).toBeUndefined()
   })
 
   test('ignores related-batch failures after the matching import batch changes', async () => {
@@ -677,6 +719,133 @@ describe('useAuditData', () => {
       await result.current.handleExecuteRestore()
     })
     expect(result.current.restoreError).toBe('restore offline')
+  })
+
+  test('drops the overview cache before refresh on revert and un-revert', async () => {
+    const clearCache = vi.mocked(
+      coreIntelligenceApi.clearIntelligenceOverviewCache,
+    )
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    const batch = batchFixture(10)
+    const recentRuns = [runFixture(1, 'import')]
+    const recentImportBatches = [batch]
+    vi.spyOn(backend, 'loadAuditRunDetail').mockResolvedValue(
+      detailFixture(runFixture(1, 'import')),
+    )
+    vi.spyOn(backend, 'previewImportBatch').mockResolvedValue(
+      batchDetailFixture(batch),
+    )
+    vi.spyOn(backend, 'revertImportBatch').mockResolvedValue(
+      batchDetailFixture({ ...batch, status: 'reverted' }),
+    )
+    vi.spyOn(backend, 'restoreImportBatch')
+      .mockRejectedValueOnce(new Error('restore failed'))
+      .mockResolvedValue(batchDetailFixture({ ...batch, status: 'imported' }))
+
+    const { result } = renderHook(() =>
+      useAuditData({
+        labels,
+        recentImportBatches,
+        recentRuns,
+        refreshAppData,
+        refreshKey: 1,
+        runId: 1,
+        selectRun: vi.fn(),
+      }),
+    )
+
+    await waitFor(() =>
+      expect(result.current.relatedBatchDetail?.batch.id).toBe(10),
+    )
+
+    // Cancelling the confirm must not touch the cache: a no-op mutation leaves
+    // the warmed overviews valid, so clearing them would force a needless
+    // recompute over the whole archive.
+    vi.mocked(window.confirm).mockReturnValueOnce(false)
+    await act(async () => {
+      await result.current.handleRelatedBatchMutation('revert')
+    })
+    expect(clearCache).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.handleRelatedBatchMutation('revert')
+    })
+    expect(clearCache).toHaveBeenCalledTimes(1)
+    expect(refreshAppData).toHaveBeenCalledTimes(1)
+    // Clearing AFTER the refresh-driven re-warm would no-op against the stale
+    // same-day entry, so the clear must precede refreshAppData.
+    expect(clearCache.mock.invocationCallOrder[0]).toBeLessThan(
+      refreshAppData.mock.invocationCallOrder[0],
+    )
+
+    // A failed mutation must not clear the cache (the archive did not change).
+    await act(async () => {
+      await result.current.handleRelatedBatchMutation('restore')
+    })
+    expect(result.current.batchActionError).toBe('restore failed')
+    expect(clearCache).toHaveBeenCalledTimes(1)
+
+    // The un-revert (restore) success path clears too — distinct data change.
+    await act(async () => {
+      await result.current.handleRelatedBatchMutation('restore')
+    })
+    expect(clearCache).toHaveBeenCalledTimes(2)
+    expect(refreshAppData).toHaveBeenCalledTimes(2)
+  })
+
+  test('drops the overview cache before refresh on snapshot restore', async () => {
+    const clearCache = vi.mocked(
+      coreIntelligenceApi.clearIntelligenceOverviewCache,
+    )
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    const recentImportBatches: ImportBatchOverview[] = []
+    const recentRuns = [runFixture(1, 'backup')]
+    vi.spyOn(backend, 'loadAuditRunDetail').mockResolvedValue(
+      detailFixture(runFixture(1, 'backup')),
+    )
+    vi.spyOn(backend, 'previewSnapshotRestore')
+      .mockResolvedValueOnce(restorePreviewFixture({ executeSupported: true }))
+      .mockResolvedValueOnce(restorePreviewFixture({ executeSupported: true }))
+    vi.spyOn(backend, 'runSnapshotRestore')
+      .mockResolvedValueOnce(backupReportFixture(runFixture(77, 'restore')))
+      .mockRejectedValueOnce(new Error('restore failed'))
+
+    const { result } = renderHook(() =>
+      useAuditData({
+        labels,
+        recentImportBatches,
+        recentRuns,
+        refreshAppData,
+        refreshKey: 1,
+        runId: 1,
+        selectRun: vi.fn(),
+      }),
+    )
+
+    await waitFor(() => expect(result.current.detail?.run.id).toBe(1))
+
+    await act(async () => {
+      await result.current.handlePreviewRestore('/snapshots/one.sqlite')
+    })
+    await act(async () => {
+      await result.current.handleExecuteRestore()
+    })
+    expect(clearCache).toHaveBeenCalledTimes(1)
+    expect(refreshAppData).toHaveBeenCalledTimes(1)
+    expect(clearCache.mock.invocationCallOrder[0]).toBeLessThan(
+      refreshAppData.mock.invocationCallOrder[0],
+    )
+
+    // A failed restore neither refreshes nor clears: nothing changed on disk.
+    await act(async () => {
+      await result.current.handlePreviewRestore('/snapshots/two.sqlite')
+    })
+    await act(async () => {
+      await result.current.handleExecuteRestore()
+    })
+    expect(result.current.restoreError).toBe('restore failed')
+    expect(clearCache).toHaveBeenCalledTimes(1)
+    expect(refreshAppData).toHaveBeenCalledTimes(1)
   })
 })
 

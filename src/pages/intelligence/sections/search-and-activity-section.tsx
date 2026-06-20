@@ -12,7 +12,7 @@
  * - `ActivityMixSection`
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ExplainabilityPanel } from '../../../components/intelligence/explainability-panel'
 import { QueryFamilyCard } from '../../../components/intelligence/query-family-card'
@@ -347,20 +347,38 @@ export function ActivityMixSection({
     },
   )
   const mix = mixResult.data?.data ?? null
-  const examplesByCategory = new Map<string, TopSite[]>()
 
-  for (const site of topSitesResult.data?.data ?? []) {
-    const current = examplesByCategory.get(site.domainCategory) ?? []
-    if (
-      !current.some(
-        (entry) => entry.registrableDomain === site.registrableDomain,
-      ) &&
-      current.length < 3
-    ) {
-      current.push(site)
-      examplesByCategory.set(site.domainCategory, current)
+  const sortedCategories = useMemo(
+    () =>
+      mix
+        ? [...mix.categories]
+            .filter((c) => c.share > 0)
+            .sort((a, b) => b.share - a.share)
+        : [],
+    [mix],
+  )
+
+  const examplesByCategory = useMemo(() => {
+    const map = new Map<string, TopSite[]>()
+    for (const site of topSitesResult.data?.data ?? []) {
+      const current = map.get(site.domainCategory) ?? []
+      if (
+        !current.some(
+          (entry) => entry.registrableDomain === site.registrableDomain,
+        ) &&
+        current.length < 3
+      ) {
+        current.push(site)
+        map.set(site.domainCategory, current)
+      }
     }
-  }
+    return map
+  }, [topSitesResult.data])
+
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null)
+  const hoveredDetail = hoveredCategory
+    ? sortedCategories.find((c) => c.domainCategory === hoveredCategory)
+    : undefined
 
   return (
     <section className="intelligence-section activity-mix-section">
@@ -382,70 +400,131 @@ export function ActivityMixSection({
         </div>
       ) : (
         <IntelligenceSectionBody className="activity-mix">
-          {mix.categories.map((category) => {
-            const change = mix.changeVsPrevious.find(
-              (entry) => entry.domainCategory === category.domainCategory,
-            )
-            const changePoints = change?.changePoints ?? 0
-            const examples =
-              examplesByCategory.get(category.domainCategory) ?? []
-            return (
-              <div key={category.domainCategory} className="activity-mix__row">
-                <div className="activity-mix__summary">
-                  <span className="activity-mix__category">
-                    {intelligenceCategoryLabel(
-                      language,
-                      t,
-                      category.domainCategory,
-                    )}
+          <div className="activity-mix__composition">
+            <div
+              className="activity-mix__stacked-bar"
+              data-testid="activity-mix-stacked-bar"
+              role="group"
+              aria-label={t('activityMixTitle')}
+            >
+              {sortedCategories.map((category) => {
+                const sharePercent = Math.round(category.share * 100)
+                const label = intelligenceCategoryLabel(
+                  language,
+                  t,
+                  category.domainCategory,
+                )
+                const tooltipText = t('activityMixTooltip', {
+                  category: label,
+                  percent: sharePercent,
+                  count: category.visitCount,
+                })
+                return (
+                  <span
+                    key={category.domainCategory}
+                    className={`activity-mix__segment${hoveredCategory === category.domainCategory ? ' activity-mix__segment--active' : ''}`}
+                    data-category={category.domainCategory}
+                    style={{ width: `${category.share * 100}%` }}
+                    role="img"
+                    tabIndex={0}
+                    aria-label={tooltipText}
+                    onMouseEnter={() =>
+                      setHoveredCategory(category.domainCategory)
+                    }
+                    onMouseLeave={() => setHoveredCategory(null)}
+                    onFocus={() => setHoveredCategory(category.domainCategory)}
+                    onBlur={() => setHoveredCategory(null)}
+                    title={tooltipText}
+                  />
+                )
+              })}
+            </div>
+            {hoveredDetail ? (
+              <div
+                className="activity-mix__hover-detail"
+                data-testid="activity-mix-hover-detail"
+              >
+                <span className="activity-mix__hover-category">
+                  {intelligenceCategoryLabel(
+                    language,
+                    t,
+                    hoveredDetail.domainCategory,
+                  )}
+                </span>
+                <span className="activity-mix__hover-stats">
+                  {Math.round(hoveredDetail.share * 100)}% &middot;{' '}
+                  {formatNumber(hoveredDetail.visitCount)} {t('visits')}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="activity-mix__legend">
+            {sortedCategories.map((category) => {
+              const change = mix.changeVsPrevious.find(
+                (entry) => entry.domainCategory === category.domainCategory,
+              )
+              const changePoints = change?.changePoints ?? 0
+              const examples =
+                examplesByCategory.get(category.domainCategory) ?? []
+              const label = intelligenceCategoryLabel(
+                language,
+                t,
+                category.domainCategory,
+              )
+
+              return (
+                <div
+                  key={category.domainCategory}
+                  className="activity-mix__legend-row"
+                >
+                  <span className="activity-mix__legend-main">
+                    <span
+                      className="activity-mix__legend-swatch activity-mix__segment"
+                      data-category={category.domainCategory}
+                    />
+                    <span className="activity-mix__legend-label">{label}</span>
                   </span>
                   <span className="activity-mix__share">
                     {Math.round(category.share * 100)}%
                   </span>
-                </div>
-                <span className="activity-mix__bar">
-                  <span
-                    className="activity-mix__bar-fill"
-                    style={{ width: `${Math.round(category.share * 100)}%` }}
-                    data-category={category.domainCategory}
-                  />
-                </span>
-                <div className="activity-mix__meta">
-                  {examples.length > 0 ? (
-                    <span className="activity-mix__examples">
-                      {t('activityMixExamples', {
-                        domains: examples
-                          .map(
-                            (entry) =>
-                              entry.displayName ?? entry.registrableDomain,
-                          )
-                          .join(', '),
-                      })}
-                      <span className="activity-mix__example-links">
-                        {examples.map((entry) => (
-                          <Link
-                            key={entry.registrableDomain}
-                            className="intelligence-link"
-                            to={domainHref(entry.registrableDomain)}
-                          >
-                            {entry.displayName ?? entry.registrableDomain}
-                          </Link>
-                        ))}
+                  <span className="activity-mix__legend-detail">
+                    {examples.length > 0 ? (
+                      <span className="activity-mix__examples">
+                        {t('activityMixExamples', {
+                          domains: examples
+                            .map(
+                              (entry) =>
+                                entry.displayName ?? entry.registrableDomain,
+                            )
+                            .join(', '),
+                        })}
+                        <span className="activity-mix__example-links">
+                          {examples.map((entry) => (
+                            <Link
+                              key={entry.registrableDomain}
+                              className="intelligence-link"
+                              to={domainHref(entry.registrableDomain)}
+                            >
+                              {entry.displayName ?? entry.registrableDomain}
+                            </Link>
+                          ))}
+                        </span>
                       </span>
-                    </span>
-                  ) : null}
-                  {changePoints !== 0 ? (
-                    <span
-                      className={`activity-mix__change activity-mix__change--${changePoints > 0 ? 'positive' : 'negative'}`}
-                    >
-                      {changePoints > 0 ? '+' : ''}
-                      {Math.round(changePoints * 100)}%
-                    </span>
-                  ) : null}
+                    ) : null}
+                    {changePoints !== 0 ? (
+                      <span
+                        className={`activity-mix__change activity-mix__change--${changePoints > 0 ? 'positive' : 'negative'}`}
+                      >
+                        {changePoints > 0 ? '+' : ''}
+                        {Math.round(changePoints * 100)}%
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </IntelligenceSectionBody>
       )}
     </section>

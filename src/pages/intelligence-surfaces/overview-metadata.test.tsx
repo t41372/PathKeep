@@ -139,6 +139,9 @@ describe('intelligence surfaces', () => {
       await screen.findByTestId('intelligence-section-meta-top-sites'),
     ).toBeVisible()
 
+    // Stable Sources and Observed Interactions live in the always-visible
+    // secondary grid (lazy-mounted on scroll; jsdom has no IO so they mount
+    // immediately) — assert their section metadata directly.
     const topSitesSection = screen
       .getByRole('heading', { name: intelligenceT('topSitesTitle') })
       .closest('section')

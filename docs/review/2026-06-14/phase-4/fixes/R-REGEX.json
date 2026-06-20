@@ -3,9 +3,7 @@
   "track": "rust",
   "sev": "critical",
   "title": "Regex recall path materializes entire visits table into memory (OOM at scale)",
-  "files": [
-    "src-tauri/crates/vault-core/src/archive/history.rs"
-  ],
+  "files": ["src-tauri/crates/vault-core/src/archive/history.rs"],
   "findings": [
     {
       "severity": "critical",

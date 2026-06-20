@@ -25,6 +25,7 @@
 
 use super::{
     ensure_core_intelligence_schema,
+    intelligence_overview_snapshot::{OverviewBand, is_all_time_range, resolve_overview_snapshot},
     intelligence_refind::{get_refind_pages_with_connection, get_top_sites_with_connection},
     intelligence_search_metrics::{
         get_search_engine_ranking_with_connection, get_top_search_concepts_with_connection,
@@ -66,6 +67,14 @@ pub fn get_intelligence_primary_overview(
     let mut connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
+    if is_all_time_range(&request.date_range) {
+        // All-time aggregates over the full archive are the heaviest scope, so
+        // serve a persisted snapshot whenever the archive fingerprint is stable
+        // and only recompute when the data actually changed.
+        return resolve_overview_snapshot(&connection, OverviewBand::Primary, request, || {
+            build_intelligence_primary_overview_with_connection(&connection, &runtime, request)
+        });
+    }
     build_intelligence_primary_overview_with_connection(&connection, &runtime, request)
 }
 
@@ -249,6 +258,18 @@ pub fn get_intelligence_secondary_overview(
     let mut connection = open_intelligence_connection(paths, config, key)?;
     ensure_core_intelligence_schema(&connection)?;
     let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
+    if is_all_time_range(&request.date_range) {
+        return resolve_overview_snapshot(&connection, OverviewBand::Secondary, request, || {
+            build_intelligence_secondary_overview_with_connection(
+                paths,
+                config,
+                key,
+                &connection,
+                &runtime,
+                request,
+            )
+        });
+    }
     build_intelligence_secondary_overview_with_connection(
         paths,
         config,

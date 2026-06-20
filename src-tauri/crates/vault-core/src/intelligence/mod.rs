@@ -19,6 +19,7 @@ mod intelligence_explain_helpers;
 mod intelligence_navigation;
 mod intelligence_outputs;
 mod intelligence_overview;
+mod intelligence_overview_snapshot;
 mod intelligence_rebuild;
 mod intelligence_refind;
 mod intelligence_schema;

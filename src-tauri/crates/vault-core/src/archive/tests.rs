@@ -498,7 +498,8 @@ fn regex_scan_cap_truncates_window_yet_matches_full_scan_when_cap_exceeds_rows()
     )
     .expect("uncapped regex scan");
     assert_eq!(
-        full.total, marker_visit_times.len(),
+        full.total,
+        marker_visit_times.len(),
         "a cap above the row count must scan every match (full-scan parity)"
     );
     assert_eq!(full.items.len(), marker_visit_times.len());

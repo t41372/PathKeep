@@ -50,6 +50,16 @@ describe('useIntelligenceRouteState', () => {
     vi.useRealTimers()
   })
 
+  test('defaults to the all-time scope when no range is present', () => {
+    const { result } = renderHook(() => useIntelligenceRouteState(), {
+      wrapper: wrapperFor('/intelligence', null),
+    })
+
+    expect(result.current.preset).toBe('all')
+    expect(result.current.dateRange.start).toBe('1900-01-01')
+    expect(result.current.dateRange.end).toBeTruthy()
+  })
+
   test('falls back from incomplete custom ranges while preserving profile scope', () => {
     const { result } = renderHook(() => useIntelligenceRouteState(), {
       wrapper: wrapperFor(

@@ -19,6 +19,7 @@ import {
   type ReviewCopyFeedback,
 } from '../../../components/review'
 import { backend } from '../../../lib/backend-client'
+import { clearIntelligenceOverviewCache } from '../../../lib/core-intelligence/api'
 import { describeError } from '../../../lib/errors'
 import { auditSeverity } from '../../../lib/trust-review'
 import type {
@@ -261,6 +262,13 @@ export function useAuditData({
       setBatchActionNotice(
         action === 'revert' ? labels.revertRecorded : labels.restoreRecorded,
       )
+      // Reverting/un-reverting a batch hides or restores visits in the visible
+      // archive, so the month/quarter/year overview counts genuinely change.
+      // Those bounded presets are cached without a TTL and re-warmed with
+      // `force: false` after the refreshKey bump below, so a stale same-day
+      // entry would silently survive (and flash pre-mutation numbers) unless we
+      // drop it here first — mirroring the import flow's clear seam.
+      clearIntelligenceOverviewCache()
       await refreshAppData()
     } catch (error) {
       setBatchActionError(describeError(error, `${action}_import_batch`))
@@ -303,6 +311,11 @@ export function useAuditData({
       const report = await backend.runSnapshotRestore({
         snapshotPath: restorePreview.snapshotPath,
       })
+      // A snapshot restore rewrites the visible archive, so the cached
+      // month/quarter/year overviews now describe pre-restore state. Drop them
+      // before the refreshKey-driven re-warm so it refills from fresh data
+      // instead of no-op'ing against the stale same-day cache entry.
+      clearIntelligenceOverviewCache()
       await refreshAppData()
       setRestoreNotice(labels.restoreRecorded)
       if (report.run?.id) {

@@ -1008,6 +1008,9 @@ describe('intelligence surfaces', () => {
     expect(
       await screen.findByText(intelligenceT('activityMixHelp')),
     ).toBeVisible()
+    // The archive-wide scope badge rides on the multi-browser diff card in the
+    // always-visible secondary grid (lazy-mounted on scroll; jsdom has no IO so
+    // it mounts immediately). Wait for the badge to resolve.
     expect(
       (await screen.findAllByText(intelligenceT('archiveWideBadge'))).length,
     ).toBeGreaterThan(0)

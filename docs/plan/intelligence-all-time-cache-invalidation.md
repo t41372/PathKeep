@@ -4,6 +4,16 @@
 > Date: 2026-04-28  
 > Scope: `/intelligence` overview time scopes, staged loading, cache freshness, and large-range performance.
 
+> **2026-06-20 implementation note — all-time default + persistent snapshot.**
+> The deeper follow-up's first slice has shipped:
+>
+> - **Default scope is now `All time`.** `route-state.ts` returns the `all` preset when no `range` is present (`DEFAULT_RANGE_PRESET`). `Month` is no longer the first-load default.
+> - **Backend persistent snapshot.** `derived/history-intelligence.sqlite` migration v7 adds `intelligence_overview_snapshots(scope_key, band, fingerprint, payload_json, computed_at)`. `get_intelligence_primary_overview` / `get_intelligence_secondary_overview` detect the all-time scope (sentinel start `1900-01-01`) and, via `intelligence_overview_snapshot::resolve_overview_snapshot`, return the stored payload when the fingerprint matches, otherwise recompute → persist → return. Bounded scopes are unchanged.
+> - **Fingerprint = the "did the data change?" key.** It combines the aggregated archive watermark (visit/search-term counts + max ids across profiles), the taxonomy / site-dictionary / search-engine-rule version signatures, and the `core_intelligence_stage_checkpoints` ledger (`MAX(last_run_id)`, `MAX(updated_at)`). So it moves on any import/backup/revert/restore, rule edit, or derived rebuild/clear — exactly the invalidation sources listed below — without wall-clock guessing.
+> - **Warm-before-open.** `ShellDataProvider` idle-prewarms the archive-wide all-time overview on app start and whenever `refreshKey` bumps (runtime jobs drain to idle = archive changed), via `preloadAllTimeIntelligenceOverview`. Because the backend snapshot makes an unchanged fingerprint a cheap check, re-warming is cheap; the heavy recompute runs at most once per data change.
+> - **Explicit invalidation.** `clear_derived_intelligence_state` and the archive doctor's `invalidate_insight_state` drop the snapshot table (the doctor path rewrites derived tables without moving the canonical watermark, so it must clear explicitly).
+> - **Still open:** per-profile-scope preload (only archive-wide is prewarmed today), section-level stale-while-revalidate chrome, bounded eviction of the persisted snapshot, and the all-time aggregation profiling artifact.
+
 ## Problem
 
 `/intelligence` currently works through concrete `DateRange` payloads. That keeps the frontend/backend command contract simple, but the cost of each section grows with the selected range. A month of current-host history is already visibly delayed; an all-time view can span years of browser records.

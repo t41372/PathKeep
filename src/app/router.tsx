@@ -380,6 +380,14 @@ const appRouteChildren: RouteObject[] = [
           return { Component: module.DayInsightsRoutePage }
         },
       },
+      {
+        path: 'year/:year',
+        ErrorBoundary: ShellRouteErrorBoundary,
+        lazy: async () => {
+          const module = await import('../pages/intelligence')
+          return { Component: module.YearReviewPage }
+        },
+      },
     ],
   },
   {

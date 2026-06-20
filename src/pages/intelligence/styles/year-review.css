@@ -1,0 +1,375 @@
+/**
+ * Styles for the Year in Review narrative summary page.
+ *
+ * Why this file exists:
+ * - The Year in Review page has a distinct full-viewport narrative scroll flow
+ *   that differs from the standard intelligence section layout.
+ * - Isolating these styles keeps the shared intelligence CSS files unchanged.
+ *
+ * Source-of-truth:
+ * - docs/design/design-tokens.md for paper tokens and radius.
+ * - docs/design/ux-principles.md for scroll snap and whitespace.
+ */
+
+.year-review {
+  --yr-max-width: 640px;
+  --yr-section-min-height: 55vh;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 0 24px 80px;
+  scroll-snap-type: y proximity;
+  overflow-y: auto;
+}
+
+.year-review__section {
+  width: 100%;
+  max-width: var(--yr-max-width);
+  min-height: var(--yr-section-min-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  scroll-snap-align: start;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+}
+
+.year-review__section--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Hero section should always be visible immediately */
+.year-review__section--hero {
+  opacity: 1;
+  transform: none;
+  min-height: 45vh;
+  padding-top: 48px;
+}
+
+.year-review__hero-title {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+
+.year-review__year-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.year-review__year-pager button {
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.year-review__year-pager button:hover {
+  color: var(--accent);
+}
+
+.year-review__year-pager button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.year-review__hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.year-review__hero-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.year-review__hero-stat-value {
+  font-family: var(--font-mono);
+  font-size: 2.5rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.year-review__hero-stat-label {
+  /* CJK label (e.g. 浏览页面) — must use --font-sans; --font-mono has no CJK
+     fallback and renders zh-CN/zh-TW in the browser default monospace. */
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-faint);
+}
+
+.year-review__section-heading {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+
+.year-review__section-body {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  margin: 0 0 24px;
+}
+
+/* Podium / leaderboard list */
+.year-review__podium {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.year-review__podium-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.year-review__podium-entry:last-child {
+  border-bottom: none;
+}
+
+.year-review__podium-rank {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 36px;
+  text-align: right;
+}
+
+.year-review__podium-name {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.year-review__podium-count {
+  /* "{count} 次访问" carries CJK — keep on --font-sans (no CJK in --font-mono). */
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+/* Category mix horizontal bar */
+.year-review__mix-bar {
+  display: flex;
+  height: 28px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.year-review__mix-segment {
+  height: 100%;
+  min-width: 2px;
+  transition: flex 0.3s ease;
+}
+
+.year-review__mix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.year-review__mix-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Category names can be CJK (e.g. 社区) — --font-sans, not --font-mono. */
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+
+.year-review__mix-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Query family chain */
+.year-review__query-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-hover);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.year-review__query-chain-anchor {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.year-review__query-chain-member {
+  /* Search queries can be CJK — use --font-sans (--font-mono has no CJK
+     fallback). Sits on the --bg-hover tint of .year-review__query-chain, where
+     --ink-faint only reaches ~3.9:1 (fails WCAG AA); --ink-secondary clears
+     4.5:1 on bg-hover in both themes while keeping the member text recessive. */
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+
+/* Habit / refind compact list */
+.year-review__compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.year-review__compact-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.year-review__compact-item:last-child {
+  border-bottom: none;
+}
+
+.year-review__compact-item-name {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.year-review__compact-item-detail {
+  /* Cadence labels are CJK (每日/每周/定期) — --font-sans, not --font-mono. */
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+/* Footer CTA */
+.year-review__footer {
+  width: 100%;
+  max-width: var(--yr-max-width);
+  padding: 40px 0 24px;
+  text-align: center;
+}
+
+.year-review__footer-link {
+  background: none;
+  border: none;
+  padding: 0;
+  /* CTA copy is CJK (前往完整的 Intelligence 视图) — --font-sans, not --font-mono. */
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.year-review__footer-link:hover {
+  opacity: 0.7;
+}
+
+/* Empty state */
+.year-review__empty {
+  width: 100%;
+  max-width: var(--yr-max-width);
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 48px;
+}
+
+.year-review__empty-title {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  color: var(--ink);
+  margin: 0;
+}
+
+.year-review__empty-body {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--ink-muted);
+  margin: 0;
+  font-style: italic;
+}
+
+/* Loading skeleton */
+.year-review__loading {
+  width: 100%;
+  max-width: var(--yr-max-width);
+  min-height: 50vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 48px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .year-review {
+    padding: 0 16px 60px;
+  }
+
+  .year-review__hero-title {
+    font-size: 1.75rem;
+  }
+
+  .year-review__hero-stats {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .year-review__hero-stat-value {
+    font-size: 2rem;
+  }
+}

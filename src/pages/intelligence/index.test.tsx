@@ -268,6 +268,11 @@ describe('IntelligencePage', () => {
 
     expect(screen.getByTestId('intelligence-sections-skeleton')).toBeVisible()
     expect(screen.queryByText(/Scoped to/)).not.toBeInTheDocument()
+    // Archive-wide scope must be shown explicitly in the header, not hidden in a
+    // section drawer, so the default scope is legible at a glance.
+    expect(screen.getByTestId('intelligence-scope-note')).toHaveTextContent(
+      'Archive-wide',
+    )
     expect(screen.getByTestId('runtime-digest')).toHaveTextContent(
       'initialized /unlocked',
     )

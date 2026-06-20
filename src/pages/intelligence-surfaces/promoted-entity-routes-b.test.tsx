@@ -623,7 +623,7 @@ describe('intelligence surfaces', () => {
       within(refindSection).getByRole('link', { name: 'Reference page' }),
     ).toHaveAttribute(
       'href',
-      '/intelligence/refind/https%3A%2F%2Fexample.com%2Freference?range=month&profileId=chrome%3ADefault',
+      '/intelligence/refind/https%3A%2F%2Fexample.com%2Freference?range=all&profileId=chrome%3ADefault',
     )
     expect(
       within(refindSection).getByRole('button', {

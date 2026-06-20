@@ -8,7 +8,7 @@
  *   policy without forcing every section component to know about batching.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { DateRange } from '../../lib/core-intelligence'
 import { describeError } from '../../lib/errors'
 import {
@@ -25,6 +25,16 @@ interface StagedOverviewState {
   secondaryReady: boolean
   secondaryLoading: boolean
   secondaryError: string | null
+}
+
+/** The state plus the imperative retry the route uses after a batch failure. */
+export interface StagedOverview extends StagedOverviewState {
+  /**
+   * Re-attempts the deferred secondary batch load. Exposed so a section stuck on
+   * a batch IPC failure can offer the user an explicit retry instead of leaving
+   * an inert skeleton; it re-runs the staging effect for the current scope.
+   */
+  retrySecondary: () => void
 }
 
 function createOverviewState(
@@ -74,10 +84,16 @@ function scheduleIdleLoad(callback: () => void) {
 export function useStagedIntelligenceOverview(
   dateRange: DateRange,
   profileId: string | null,
-): StagedOverviewState {
+): StagedOverview {
   const scopeKey = `${dateRange.start}:${dateRange.end}:${profileId ?? 'archive-wide'}`
   const cachedState = createOverviewState(dateRange, profileId)
   const [state, setState] = useState<StagedOverviewState>(() => cachedState)
+  // Bumping this nonce re-runs the staging effect, which re-attempts the
+  // secondary batch load — the mechanism behind `retrySecondary`.
+  const [retryNonce, setRetryNonce] = useState(0)
+  const retrySecondary = useCallback(() => {
+    setRetryNonce((value) => value + 1)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -202,7 +218,8 @@ export function useStagedIntelligenceOverview(
         window.cancelAnimationFrame(frameId)
       }
     }
-  }, [dateRange.end, dateRange.start, profileId])
+  }, [dateRange.end, dateRange.start, profileId, retryNonce])
 
-  return state.scopeKey === scopeKey ? state : cachedState
+  const resolved = state.scopeKey === scopeKey ? state : cachedState
+  return { ...resolved, retrySecondary }
 }

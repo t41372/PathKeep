@@ -279,7 +279,11 @@ test('renders browsing rhythm as a real-date calendar and keeps secondary cards 
       name: /2026-01-30 · 8 visits · 2 new sites/i,
     }),
   ).toBeVisible()
-  expect(screen.getByText('2026 Week 4')).toBeVisible()
+
+  // The weekly discovery-trend card sits in the always-visible secondary grid.
+  // Sections lazy-mount on scroll (IntersectionObserver), but jsdom has no IO
+  // so LazySection mounts immediately — just wait for the card to resolve.
+  expect(await screen.findByText('2026 Week 4')).toBeVisible()
 
   const searchSection = screen.getByText('Search Activity').closest('section')
   const mixSection = screen.getByText('Activity Mix').closest('section')

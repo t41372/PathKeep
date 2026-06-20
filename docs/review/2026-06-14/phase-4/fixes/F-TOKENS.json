@@ -3,10 +3,7 @@
   "track": "fe",
   "sev": "major",
   "title": "Reconcile design-tokens.md <-> tokens.css AND fix WCAG contrast on ink-faint/ink-ghost",
-  "files": [
-    "src/styles/tokens.css",
-    "docs/design/design-tokens.md"
-  ],
+  "files": ["src/styles/tokens.css", "docs/design/design-tokens.md"],
   "findings": [
     {
       "severity": "major",

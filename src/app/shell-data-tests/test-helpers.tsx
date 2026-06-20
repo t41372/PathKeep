@@ -37,6 +37,7 @@ import {
   type ResolvedLanguage,
 } from '../../lib/i18n'
 import type { AppConfig } from '../../lib/types'
+import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { ShellDataProvider } from '../shell-data'
 import { useShellData } from '../shell-data-context'
 
@@ -470,9 +471,11 @@ export function renderShellProbe(options?: {
     <I18nContext.Provider
       value={createI18nValue(language, setLanguagePreference)}
     >
-      <ShellDataProvider>
-        <ShellProbe onReady={onReady} />
-      </ShellDataProvider>
+      <ProfileScopeProvider>
+        <ShellDataProvider>
+          <ShellProbe onReady={onReady} />
+        </ShellDataProvider>
+      </ProfileScopeProvider>
     </I18nContext.Provider>,
   )
 }

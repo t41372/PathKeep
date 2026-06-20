@@ -104,9 +104,7 @@ describe('PaperDetailPanelMount', () => {
         onOpen={() => {}}
       />,
     )
-    expect(
-      screen.getByText('paperBrowse.detailVisited'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('paperBrowse.detailVisited')).toBeInTheDocument()
     expect(screen.getByText('2026-05-17 10:30')).toBeInTheDocument()
     // The misleading First/Last labels must be gone.
     expect(screen.queryByText('paperBrowse.detailFirstVisit')).toBeNull()

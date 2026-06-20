@@ -181,11 +181,12 @@ fn ensure_core_intelligence_schema_records_versioned_migrations() {
     let migration_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 6);
+    assert_eq!(migration_count, 7);
     assert!(has_index(&connection, "idx_vdf_profile_visit_id"));
     assert!(has_index(&connection, "idx_search_trails_profile_time_trail"));
     assert!(has_index(&connection, "idx_search_events_profile_visit"));
     assert!(has_index(&connection, "idx_search_events_profile_kind"));
+    assert!(has_table(&connection, "intelligence_overview_snapshots"));
     assert!(!has_table(&connection, "insight_cards"));
 }
 
@@ -361,6 +362,152 @@ fn primary_overview_reuses_single_connection_and_runtime_snapshot() {
     assert_eq!(overview.digest_summary.meta.section_id, "digest-summary");
     assert_eq!(overview.search_engine_ranking.meta.section_id, "search-activity");
     assert!(overview.total_duration_ms >= overview.timings[0].duration_ms);
+}
+
+/// All-time overview requests must persist a snapshot and then be served from it
+/// verbatim until the archive fingerprint changes.
+#[test]
+fn all_time_primary_overview_serves_persisted_snapshot() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let paths = project_paths_with_root(root.path());
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        ..AppConfig::default()
+    };
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    seed_core_intelligence_fixture(&archive);
+    drop(archive);
+
+    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+        .expect("full rebuild");
+
+    let all_time = ScopedDateRangeRequest {
+        date_range: DateRange { start: "1900-01-01".to_string(), end: "2026-12-31".to_string() },
+        profile_id: None,
+    };
+
+    let first = get_intelligence_primary_overview(&paths, &config, None, &all_time)
+        .expect("first all-time");
+
+    // The archive-wide all-time scope must now have exactly one persisted snapshot.
+    let connection =
+        open_intelligence_connection(&paths, &config, None).expect("intelligence connection");
+    let stored: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM intelligence_overview_snapshots
+             WHERE scope_key = 'all-time:archive-wide' AND band = 'primary'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("snapshot count");
+    assert_eq!(stored, 1);
+
+    // Doctor the stored payload while keeping the fingerprint, then confirm the
+    // next request is served verbatim from the snapshot rather than recomputed.
+    let doctored = {
+        let mut payload = first.clone();
+        payload.total_duration_ms = 4242;
+        serde_json::to_string(&payload).expect("serialize doctored payload")
+    };
+    connection
+        .execute(
+            "UPDATE intelligence_overview_snapshots SET payload_json = ?1
+             WHERE scope_key = 'all-time:archive-wide' AND band = 'primary'",
+            params![doctored],
+        )
+        .expect("doctor payload");
+    drop(connection);
+
+    let second = get_intelligence_primary_overview(&paths, &config, None, &all_time)
+        .expect("second all-time");
+    assert_eq!(
+        second.total_duration_ms, 4242,
+        "all-time overview must be served from the persisted snapshot"
+    );
+
+    // A bounded scope must bypass the snapshot and recompute fresh.
+    let scoped = ScopedDateRangeRequest {
+        date_range: DateRange { start: "2024-04-01".to_string(), end: "2024-04-30".to_string() },
+        profile_id: None,
+    };
+    let scoped_overview =
+        get_intelligence_primary_overview(&paths, &config, None, &scoped).expect("scoped overview");
+    assert_ne!(scoped_overview.total_duration_ms, 4242);
+}
+
+/// The all-time SECONDARY overview persists and is then served from its own
+/// snapshot band, independently of the primary band.
+#[test]
+fn all_time_secondary_overview_serves_persisted_snapshot() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let paths = project_paths_with_root(root.path());
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        ..AppConfig::default()
+    };
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    seed_core_intelligence_fixture(&archive);
+    drop(archive);
+
+    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+        .expect("full rebuild");
+
+    let all_time = ScopedDateRangeRequest {
+        date_range: DateRange {
+            start: "1900-01-01".to_string(),
+            end: "2026-12-31".to_string(),
+        },
+        profile_id: None,
+    };
+
+    let first = get_intelligence_secondary_overview(&paths, &config, None, &all_time)
+        .expect("first all-time secondary");
+
+    let connection =
+        open_intelligence_connection(&paths, &config, None).expect("intelligence connection");
+    let stored: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM intelligence_overview_snapshots
+             WHERE scope_key = 'all-time:archive-wide' AND band = 'secondary'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("snapshot count");
+    assert_eq!(stored, 1);
+
+    let doctored = {
+        let mut payload = first.clone();
+        payload.total_duration_ms = 7373;
+        serde_json::to_string(&payload).expect("serialize doctored payload")
+    };
+    connection
+        .execute(
+            "UPDATE intelligence_overview_snapshots SET payload_json = ?1
+             WHERE scope_key = 'all-time:archive-wide' AND band = 'secondary'",
+            params![doctored],
+        )
+        .expect("doctor payload");
+    drop(connection);
+
+    let second = get_intelligence_secondary_overview(&paths, &config, None, &all_time)
+        .expect("second all-time secondary");
+    assert_eq!(
+        second.total_duration_ms, 7373,
+        "all-time secondary overview must be served from the persisted snapshot"
+    );
+
+    let scoped = ScopedDateRangeRequest {
+        date_range: DateRange {
+            start: "2024-04-01".to_string(),
+            end: "2024-04-30".to_string(),
+        },
+        profile_id: None,
+    };
+    let scoped_overview = get_intelligence_secondary_overview(&paths, &config, None, &scoped)
+        .expect("scoped secondary overview");
+    assert_ne!(scoped_overview.total_duration_ms, 7373);
 }
 
 /// Empty archives should keep the primary overview flat instead of implying work exists.

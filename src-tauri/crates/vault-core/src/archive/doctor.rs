@@ -615,6 +615,10 @@ fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
         "category_daily_rollups",
         "domain_daily_rollups",
         "visit_derived_facts",
+        // Repair rewrites derived tables without moving the archive watermark,
+        // so the all-time overview snapshot must be dropped explicitly or it
+        // would keep serving pre-repair aggregates.
+        "intelligence_overview_snapshots",
     ] {
         if table_exists(connection, table_name)? {
             cleared_rows += connection

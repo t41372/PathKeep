@@ -126,12 +126,26 @@ export function IntelligencePage() {
           t={t}
         />
         {effectiveProfileId ? (
-          <p className="intelligence-page__scope-note">
+          <p
+            className="intelligence-page__scope-note"
+            data-testid="intelligence-scope-note"
+          >
             {t('scopedViewBody', {
               profile: profileScopeLabel ?? effectiveProfileId,
             })}
           </p>
-        ) : null}
+        ) : (
+          // Archive-wide is the default scope; show it explicitly so scope is
+          // always legible at a glance, not only after a profile is selected.
+          <p
+            className="intelligence-page__scope-note"
+            data-testid="intelligence-scope-note"
+          >
+            <span className="intelligence-page__scope-pill">
+              {archiveWideBadge}
+            </span>
+          </p>
+        )}
       </div>
 
       <InsightAccessStrip
@@ -177,7 +191,9 @@ export function IntelligencePage() {
               ? (profileScopeLabel ?? effectiveProfileId)
               : archiveWideBadge
           }
+          secondaryError={stagedOverview.secondaryError}
           secondaryReady={stagedOverview.secondaryReady}
+          onRetrySecondary={stagedOverview.retrySecondary}
           trailHref={trailHref}
           t={t}
         />
@@ -277,3 +293,4 @@ export {
   SessionInsightsRoutePage,
   TrailInsightsRoutePage,
 } from './promoted-entity-routes'
+export { YearReviewPage } from './year-review'

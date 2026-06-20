@@ -540,6 +540,63 @@ describe('useStagedIntelligenceOverview', () => {
     })
   })
 
+  test('retrySecondary re-attempts a failed secondary batch and clears the error', async () => {
+    peekIntelligencePrimaryOverviewMock.mockReturnValue(
+      primaryOverviewFixture(),
+    )
+    // No warm secondary cache, so the batch failure leaves no fallback data.
+    peekIntelligenceSecondaryOverviewMock.mockReturnValue(null)
+    loadIntelligencePrimaryOverviewMock.mockResolvedValue(
+      primaryOverviewFixture(),
+    )
+    loadIntelligenceSecondaryOverviewMock
+      .mockRejectedValueOnce(new Error('secondary batch failed'))
+      .mockResolvedValueOnce(secondaryOverviewFixture())
+
+    const { result } = renderHook(() =>
+      useStagedIntelligenceOverview(dateRange, 'chrome:Default'),
+    )
+
+    await act(async () => {
+      vi.runOnlyPendingTimers()
+      vi.runOnlyPendingTimers()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(160)
+      vi.runOnlyPendingTimers()
+      await Promise.resolve()
+    })
+
+    expect(result.current).toMatchObject({
+      secondaryReady: false,
+      secondaryError: 'secondary batch failed',
+    })
+
+    // The retry re-runs the staging effect, which re-attempts the batch load.
+    await act(async () => {
+      result.current.retrySecondary()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      vi.runOnlyPendingTimers()
+      vi.runOnlyPendingTimers()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(160)
+      vi.runOnlyPendingTimers()
+      await Promise.resolve()
+    })
+
+    expect(result.current).toMatchObject({
+      secondaryReady: true,
+      secondaryLoading: false,
+      secondaryError: null,
+    })
+    expect(loadIntelligenceSecondaryOverviewMock).toHaveBeenCalledTimes(2)
+  })
+
   test('keeps warm primary data visible when its background refresh fails', async () => {
     peekIntelligencePrimaryOverviewMock.mockReturnValue(
       primaryOverviewFixture(),

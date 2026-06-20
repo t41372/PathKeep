@@ -28,6 +28,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { createTranslator } from '../../lib/i18n'
 import { I18nContext } from '../../lib/i18n/context'
+import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { ShellDataProvider } from '../shell-data'
 import {
   createI18nValue,
@@ -46,9 +47,11 @@ describe('ShellDataProvider', () => {
   test('server render starts in the loading state before bootstrap effects run', () => {
     const html = renderToString(
       <I18nContext.Provider value={createI18nValue('en')}>
-        <ShellDataProvider>
-          <ShellProbe />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>,
     )
 
@@ -68,9 +71,11 @@ describe('ShellDataProvider', () => {
 
     const view = render(
       <I18nContext.Provider value={createI18nValue('en')}>
-        <ShellDataProvider>
-          <ShellProbe />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>,
     )
 
@@ -79,9 +84,11 @@ describe('ShellDataProvider', () => {
     )
     view.rerender(
       <I18nContext.Provider value={createI18nValue('zh-TW')}>
-        <ShellDataProvider>
-          <ShellProbe />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>,
     )
 
@@ -103,9 +110,11 @@ describe('ShellDataProvider', () => {
 
     const view = render(
       <I18nContext.Provider value={createI18nValue('en')}>
-        <ShellDataProvider>
-          <ShellProbe />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>,
     )
 
@@ -124,9 +133,11 @@ describe('ShellDataProvider', () => {
 
     view.rerender(
       <I18nContext.Provider value={createI18nValue('zh-TW')}>
-        <ShellDataProvider>
-          <ShellProbe />
-        </ShellDataProvider>
+        <ProfileScopeProvider>
+          <ShellDataProvider>
+            <ShellProbe />
+          </ShellDataProvider>
+        </ProfileScopeProvider>
       </I18nContext.Provider>,
     )
 

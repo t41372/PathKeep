@@ -3,9 +3,7 @@
   "track": "fe",
   "sev": "major",
   "title": "9 routes lack ErrorBoundary protection",
-  "files": [
-    "src/app/router.tsx"
-  ],
+  "files": ["src/app/router.tsx"],
   "findings": [
     {
       "severity": "major",

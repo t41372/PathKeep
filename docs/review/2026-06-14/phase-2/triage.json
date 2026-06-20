@@ -2,31 +2,19 @@
   "duplicates": [
     {
       "description": "Schedule page 1308 lines",
-      "finding_indices": [
-        36,
-        112
-      ]
+      "finding_indices": [36, 112]
     },
     {
       "description": "Unbounded intelligence caches",
-      "finding_indices": [
-        26,
-        135
-      ]
+      "finding_indices": [26, 135]
     },
     {
       "description": "O(N) explorer re-aggregation",
-      "finding_indices": [
-        15,
-        136
-      ]
+      "finding_indices": [15, 136]
     },
     {
       "description": "This Week card misleading data",
-      "finding_indices": [
-        59,
-        120
-      ]
+      "finding_indices": [59, 120]
     }
   ],
   "verification_count": 42,

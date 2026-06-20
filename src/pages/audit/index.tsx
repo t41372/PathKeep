@@ -497,7 +497,9 @@ export function AuditPage() {
       <PaperCard testId="audit-filter-panel">
         <PaperCardHeader
           title={t('audit.filterLabel')}
-          right={<PaperCardBadge>{t('audit.filterDescription')}</PaperCardBadge>}
+          right={
+            <PaperCardBadge>{t('audit.filterDescription')}</PaperCardBadge>
+          }
         />
         <PaperCardBody>
           <div className="audit-filter-grid">

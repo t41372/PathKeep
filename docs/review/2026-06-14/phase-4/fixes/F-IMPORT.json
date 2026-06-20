@@ -3,9 +3,7 @@
   "track": "fe",
   "sev": "minor",
   "title": "security-step.tsx imports legacy backend module",
-  "files": [
-    "src/pages/onboarding/security-step.tsx"
-  ],
+  "files": ["src/pages/onboarding/security-step.tsx"],
   "findings": [
     {
       "severity": "major",

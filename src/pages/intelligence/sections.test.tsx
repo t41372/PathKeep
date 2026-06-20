@@ -1,11 +1,13 @@
 /**
  * @file sections.test.tsx
- * @description Coordinator-level coverage for the Core Intelligence overview sections.
+ * @description Coordinator-level coverage for the newspaper-style Intelligence hub layout.
  * @module pages/intelligence
  *
  * ## Responsibilities
- * - Verify page-level section orchestration that is not owned by child sections.
+ * - Verify the 3-layer hub orchestration: digest above fold, axis cards, the
+ *   always-visible inline secondary grid.
  * - Cover digest fallback, secondary readiness skeletons, and Top Sites controls.
+ * - Verify time-pattern strips render when rhythm data is available.
  * - Keep expensive secondary sections mocked so this suite stays focused and fast.
  *
  * ## Not responsible for
@@ -30,8 +32,11 @@ import type {
   CoreIntelligenceSectionResult,
   DateRange,
   DigestSummary,
+  QueryFamily,
+  QueryFamilyResult,
   TopSite,
 } from '../../lib/core-intelligence'
+import type { StableSource } from '../../lib/core-intelligence/types-analysis'
 import * as api from '../../lib/core-intelligence/api'
 import type { DashboardSnapshot } from '../../lib/types'
 import { IntelligenceSections, IntelligenceSectionsSkeleton } from './sections'
@@ -95,6 +100,9 @@ describe('IntelligenceSections', () => {
     vi.spyOn(api, 'peekRefindPages').mockReturnValue(
       section([], 'refind-pages'),
     )
+    vi.spyOn(api, 'getBrowsingRhythm').mockResolvedValue(
+      section({ cells: [], maxCount: 0 }, 'browsing-rhythm'),
+    )
     vi.spyOn(api, 'peekStableSources').mockReturnValue(null)
     vi.spyOn(api, 'peekSearchEffectiveness').mockReturnValue(null)
     vi.spyOn(api, 'peekFrictionSignals').mockReturnValue(null)
@@ -107,41 +115,130 @@ describe('IntelligenceSections', () => {
     vi.spyOn(api, 'peekCompareSets').mockReturnValue(null)
     vi.spyOn(api, 'peekMultiBrowserDiff').mockReturnValue(null)
     vi.spyOn(api, 'peekObservedInteractions').mockReturnValue(null)
+    vi.spyOn(api, 'peekQueryFamilies').mockReturnValue(null)
   })
 
-  test('renders digest fallback and secondary skeletons while deferred sections warm', () => {
+  test('keeps not-ready secondary sections as skeletons until data warms', () => {
     vi.mocked(api.peekDigestSummary).mockReturnValue(
       section(null as unknown as DigestSummary, 'digest-summary'),
     )
 
-    const { container } = renderSections({ secondaryReady: false })
+    renderSections({ secondaryReady: false })
 
     expect(screen.getByText('Digest')).toBeInTheDocument()
     expect(screen.getByText('Digest unavailable')).toBeInTheDocument()
     expect(screen.getByText('Top sites')).toBeInTheDocument()
     expect(screen.getByText('Refind pages')).toBeInTheDocument()
-    expect(screen.queryByText('stable sources')).not.toBeInTheDocument()
+    // Sections render inline (no disclosure), but with secondaryReady=false and
+    // no cached peek the section keeps showing its skeleton placeholder, so the
+    // heavy real section is not mounted yet.
+    expect(screen.queryByText('search effectiveness')).not.toBeInTheDocument()
     expect(
-      container.querySelectorAll(
-        '.intelligence-secondary-grid .intelligence-skeleton--card',
-      ),
-    ).toHaveLength(13)
+      screen.getByTestId('secondary-section-skeleton-search-effectiveness'),
+    ).toBeInTheDocument()
+    // The disclosure toggle no longer exists — everything is inline.
+    expect(screen.queryByTestId('hub-secondary-toggle')).not.toBeInTheDocument()
   })
 
-  test('renders warm cached secondary cards without waiting for the full secondary overview', () => {
+  test('shows an error and retry surface (not a silent skeleton) when the secondary batch fails with no warm cache', async () => {
+    const user = userEvent.setup()
+    const onRetrySecondary = vi.fn()
+
+    renderSections({
+      secondaryReady: false,
+      secondaryError: 'secondary batch failed',
+      onRetrySecondary,
+    })
+
+    // The no-cache slot surfaces an announced error with a retry instead of an
+    // inert, never-resolving skeleton.
+    const errorSurface = screen.getByTestId(
+      'secondary-section-error-search-effectiveness',
+    )
+    expect(errorSurface).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('secondary-section-skeleton-search-effectiveness'),
+    ).not.toBeInTheDocument()
+    expect(within(errorSurface).getByRole('alert')).toBeInTheDocument()
+
+    await user.click(
+      within(errorSurface).getByRole('button', { name: 'Retry' }),
+    )
+    expect(onRetrySecondary).toHaveBeenCalledTimes(1)
+  })
+
+  test('keeps a cached secondary section mounted even when the batch reports an error', () => {
+    // A slot with warm cache must still render its real node, not the error
+    // surface, because the batch error does not affect its already-loaded data.
+    vi.mocked(api.peekBreadthIndex).mockReturnValue(
+      section({} as never, 'breadth-index'),
+    )
+
+    renderSections({
+      secondaryReady: false,
+      secondaryError: 'secondary batch failed',
+    })
+
+    expect(screen.getByText('breadth index')).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('secondary-section-error-breadth-index'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('renders all secondary sections inline once secondaryReady flips', () => {
     vi.spyOn(api, 'peekStableSources').mockReturnValue(
       section([], 'stable-sources'),
     )
 
-    const { container } = renderSections({ secondaryReady: false })
+    renderSections({ secondaryReady: true })
 
-    expect(screen.getByText('stable sources')).toBeInTheDocument()
+    // stable-sources is in the main axis stack and the secondary grid.
+    expect(screen.getAllByText('stable sources').length).toBeGreaterThan(0)
+    // No expand step needed — secondary sections are visible inline. (jsdom has
+    // no IntersectionObserver, so LazySection mounts children immediately.)
+    expect(screen.getByText('search effectiveness')).toBeInTheDocument()
+    expect(screen.getByText('friction detection')).toBeInTheDocument()
+  })
+
+  test('drops a hide-when-empty section from the grid when its cache is ready and empty', () => {
+    // search-effectiveness reports a ready snapshot with every list empty, so its
+    // hasContent predicate returns false and the slot is dropped entirely — no
+    // card and no skeleton — rather than leaving a blank grid cell. A sibling
+    // with content still renders, proving neighbors fill the vacated space.
+    vi.mocked(api.peekSearchEffectiveness).mockReturnValue(
+      section(
+        {
+          engineStats: [],
+          topResolvingSources: [],
+          hardestTopics: [],
+        } as never,
+        'search-effectiveness',
+      ),
+    )
+    vi.mocked(api.peekBreadthIndex).mockReturnValue(
+      section({} as never, 'breadth-index'),
+    )
+
+    renderSections({ secondaryReady: true })
+
     expect(screen.queryByText('search effectiveness')).not.toBeInTheDocument()
     expect(
-      container.querySelectorAll(
-        '.intelligence-secondary-grid .intelligence-skeleton--card',
-      ),
-    ).toHaveLength(12)
+      screen.queryByTestId('secondary-section-skeleton-search-effectiveness'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('breadth index')).toBeInTheDocument()
+  })
+
+  test('mounts a cached secondary section even when secondaryReady is false', () => {
+    // breadth-index has a cached peek, so its slot.isReady() is true and it
+    // mounts inline up front while the still-warming siblings stay skeletons.
+    vi.mocked(api.peekBreadthIndex).mockReturnValue(
+      section({} as never, 'breadth-index'),
+    )
+
+    renderSections({ secondaryReady: false })
+
+    expect(screen.getByText('breadth index')).toBeInTheDocument()
+    expect(screen.queryByText('search effectiveness')).not.toBeInTheDocument()
   })
 
   test('renders cached health cards independently while deferred secondary cards warm', () => {
@@ -150,33 +247,49 @@ describe('IntelligenceSections', () => {
       secondaryReady: false,
     })
 
+    // Health sections render inline; with a dashboard the primary health slots
+    // report ready (isReady === true) and mount immediately.
     expect(screen.getByText('storage analytics')).toBeInTheDocument()
     expect(screen.getByText('growth signal')).toBeInTheDocument()
-    expect(screen.queryByText('breadth index')).not.toBeInTheDocument()
   })
 
   test('filters and sorts Top Sites without changing the route factories', async () => {
     const user = userEvent.setup()
     renderSections({ secondaryReady: true })
 
-    expect(screen.getByRole('link', { name: /Example/ })).toHaveAttribute(
-      'href',
-      '/domain/example.com',
-    )
-    expect(screen.getByRole('link', { name: /Docs/ })).toHaveAttribute(
-      'href',
-      '/domain/docs.example',
-    )
-    expect(screen.getByText('stable sources')).toBeInTheDocument()
+    // Links appear in both the preview card and the full section
+    const exampleLinks = screen.getAllByRole('link', { name: /Example/ })
+    expect(
+      exampleLinks.some(
+        (link) => link.getAttribute('href') === '/domain/example.com',
+      ),
+    ).toBe(true)
+    const docsLinks = screen.getAllByRole('link', { name: /Docs/ })
+    expect(
+      docsLinks.some(
+        (link) => link.getAttribute('href') === '/domain/docs.example',
+      ),
+    ).toBe(true)
 
     await user.type(
       screen.getByRole('searchbox', { name: 'Search sites' }),
       'docs',
     )
+    // After filtering, the full section hides "Example" but the preview card
+    // still shows it. Find the top-sites section scope and verify within it.
+    const topSitesSection = screen
+      .getByRole('heading', { name: 'Top sites' })
+      .closest('section')!
     expect(
-      screen.queryByRole('link', { name: /Example/ }),
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Docs/ })).toBeInTheDocument()
+      within(topSitesSection)
+        .queryAllByRole('link')
+        .some((link) => link.textContent?.includes('Example')),
+    ).toBe(false)
+    expect(
+      within(topSitesSection)
+        .queryAllByRole('link')
+        .some((link) => link.textContent?.includes('Docs')),
+    ).toBe(true)
 
     await user.clear(screen.getByRole('searchbox', { name: 'Search sites' }))
     await user.selectOptions(
@@ -239,7 +352,7 @@ describe('IntelligenceSections', () => {
       section([refindPageFixture()], 'refind-pages'),
     )
 
-    const { container } = renderSections({ secondaryReady: true })
+    renderSections({ secondaryReady: true })
     await user.type(
       screen.getByRole('searchbox', { name: 'Search sites' }),
       'zero.example',
@@ -250,33 +363,191 @@ describe('IntelligenceSections', () => {
         .getAllByRole('link', { name: /zero\.example/ })
         .some((link) => link.getAttribute('href') === '/domain/zero.example'),
     ).toBe(true)
+
+    // Refind page link appears in both the preview card and the full section
+    const refindLinks = screen.getAllByRole('link', {
+      name: 'https://zero.example/page',
+    })
     expect(
-      container.querySelector<HTMLElement>('.top-site-row__bar-fill')?.style
-        .width,
-    ).toBe('0%')
-    expect(
-      screen.getByRole('link', { name: 'https://zero.example/page' }),
-    ).toHaveAttribute('href', '/refind/https%3A%2F%2Fzero.example%2Fpage')
+      refindLinks.some(
+        (link) =>
+          link.getAttribute('href') ===
+          '/refind/https%3A%2F%2Fzero.example%2Fpage',
+      ),
+    ).toBe(true)
 
     await user.clear(screen.getByRole('searchbox', { name: 'Search sites' }))
     await user.type(
       screen.getByRole('searchbox', { name: 'Search sites' }),
       'missing',
     )
+    // The full Top Sites section hides the domain link when filtering by "missing"
+    const topSitesSectionAfter = screen
+      .getByRole('heading', { name: 'Top sites' })
+      .closest('section')!
     expect(
-      screen
+      within(topSitesSectionAfter)
         .queryAllByRole('link', { name: /zero\.example/ })
         .some((link) => link.getAttribute('href') === '/domain/zero.example'),
     ).toBe(false)
+    // Refind links remain visible (in axis card preview and full section)
+    const refindLinksAfterFilter = screen
+      .getAllByRole('link', { name: /zero\.example/ })
+      .filter(
+        (link) =>
+          link.getAttribute('href') ===
+          '/refind/https%3A%2F%2Fzero.example%2Fpage',
+      )
+    expect(refindLinksAfterFilter.length).toBeGreaterThan(0)
+  })
+
+  test('renders axis cards for Time, Sources, and Research', () => {
+    renderSections({ secondaryReady: true })
+
+    expect(screen.getByTestId('hub-axis-time')).toBeInTheDocument()
+    expect(screen.getByTestId('hub-axis-sources')).toBeInTheDocument()
+    expect(screen.getByTestId('hub-axis-research')).toBeInTheDocument()
+  })
+
+  test('renders the stable-sources preview, falling back to the domain when a source has no display name', () => {
+    vi.mocked(api.peekStableSources).mockReturnValue(
+      section(
+        [
+          stableSourceFixture('docs.example', 'Docs Hub'),
+          stableSourceFixture('api.example', null),
+        ],
+        'stable-sources',
+      ),
+    )
+
+    renderSections({ secondaryReady: true })
+
+    const sourcesAxis = screen.getByTestId('hub-axis-sources')
+    // Named source renders its display name; the unnamed one falls back to the
+    // registrable domain (the `displayName ?? registrableDomain` branch).
+    const named = within(sourcesAxis).getByRole('link', { name: 'Docs Hub' })
+    expect(named).toHaveAttribute('href', '/domain/docs.example')
+    const fallback = within(sourcesAxis).getByRole('link', {
+      name: 'api.example',
+    })
+    expect(fallback).toHaveAttribute('href', '/domain/api.example')
+  })
+
+  test('renders the query-families preview inside the Research axis', () => {
+    vi.mocked(api.peekQueryFamilies).mockReturnValue(
+      section(
+        queryFamilyResultFixture([
+          queryFamilyFixture('family-7', 'tauri sqlite', 2),
+        ]),
+        'query-families',
+      ),
+    )
+
+    renderSections({ secondaryReady: true })
+
+    const researchAxis = screen.getByTestId('hub-axis-research')
+    const familyLink = within(researchAxis).getByRole('link', {
+      name: 'tauri sqlite',
+    })
+    expect(familyLink).toHaveAttribute('href', '/query/family-7')
+  })
+
+  test('renders the spotlight query-family sentence when no refind page qualifies', () => {
+    // Default refind fixture has crossDayCount 0, so the refind branch fails and
+    // the spotlight falls through to the most-reformulated query family.
+    vi.mocked(api.peekRefindPages).mockReturnValue(
+      section([refindPageFixture()], 'refind-pages'),
+    )
+    vi.mocked(api.peekQueryFamilies).mockReturnValue(
+      section(
+        queryFamilyResultFixture([
+          queryFamilyFixture('family-9', 'rust async', 4),
+        ]),
+        'query-families',
+      ),
+    )
+
+    renderSections({ secondaryReady: true })
+
+    expect(screen.getByTestId('hub-spotlight')).toBeInTheDocument()
     expect(
-      screen
-        .getAllByRole('link', { name: /zero\.example/ })
-        .some(
-          (link) =>
-            link.getAttribute('href') ===
-            '/refind/https%3A%2F%2Fzero.example%2Fpage',
-        ),
-    ).toBe(true)
+      screen.getByText('You searched for "rust async" 4 ways'),
+    ).toBeInTheDocument()
+  })
+
+  test('renders SpotlightCard when a top refind page has crossDayCount >= 2', () => {
+    vi.mocked(api.peekRefindPages).mockReturnValue(
+      section(
+        [
+          {
+            ...refindPageFixture(),
+            title: 'My Favorite Page',
+            crossDayCount: 5,
+            refindScore: 8.5,
+          },
+        ],
+        'refind-pages',
+      ),
+    )
+    vi.mocked(api.getRefindPages).mockResolvedValue(
+      section(
+        [
+          {
+            ...refindPageFixture(),
+            title: 'My Favorite Page',
+            crossDayCount: 5,
+            refindScore: 8.5,
+          },
+        ],
+        'refind-pages',
+      ),
+    )
+
+    renderSections({ secondaryReady: true })
+
+    expect(screen.getByTestId('hub-spotlight')).toBeInTheDocument()
+    expect(
+      screen.getByText('You revisited "My Favorite Page" across 5 days'),
+    ).toBeInTheDocument()
+  })
+
+  test('falls back to the refind URL in the spotlight when the page has no title', () => {
+    vi.mocked(api.peekRefindPages).mockReturnValue(
+      section(
+        [
+          {
+            ...refindPageFixture(),
+            title: null,
+            crossDayCount: 3,
+            refindScore: 7,
+          },
+        ],
+        'refind-pages',
+      ),
+    )
+
+    renderSections({ secondaryReady: true })
+
+    expect(screen.getByTestId('hub-spotlight')).toBeInTheDocument()
+    // title is null, so the spotlight sentence falls back to the canonical URL.
+    expect(
+      screen.getByText(
+        'You revisited "https://zero.example/page" across 3 days',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  test('does not render SpotlightCard when no data is compelling', () => {
+    renderSections({ secondaryReady: true })
+
+    expect(screen.queryByTestId('hub-spotlight')).not.toBeInTheDocument()
+  })
+
+  test('renders weekday/weekend and peak hours strips when rhythm data is empty', () => {
+    renderSections({ secondaryReady: true })
+
+    expect(screen.getByTestId('weekday-weekend-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('peak-hours-strip')).toBeInTheDocument()
   })
 })
 
@@ -286,20 +557,19 @@ describe('IntelligenceSectionsSkeleton', () => {
 
     expect(container.querySelector('.digest-section')).toBeInTheDocument()
     expect(container.querySelector('.rhythm-section')).toBeInTheDocument()
-    expect(
-      container.querySelectorAll(
-        '.intelligence-secondary-grid .intelligence-skeleton--card',
-      ),
-    ).toHaveLength(6)
   })
 })
 
 function renderSections({
   dashboard = null,
   secondaryReady,
+  secondaryError = null,
+  onRetrySecondary = vi.fn(),
 }: {
   dashboard?: DashboardSnapshot | null
   secondaryReady: boolean
+  secondaryError?: string | null
+  onRetrySecondary?: () => void
 }) {
   return render(
     <MemoryRouter>
@@ -319,7 +589,9 @@ function renderSections({
         refindHref={(canonicalUrl) =>
           `/refind/${encodeURIComponent(canonicalUrl)}`
         }
+        secondaryError={secondaryError}
         secondaryReady={secondaryReady}
+        onRetrySecondary={onRetrySecondary}
         scopeLabel="Chrome Default"
         trailHref={(trailId) => `/trail/${trailId}`}
         t={translate}
@@ -441,6 +713,45 @@ function refindPageFixture() {
   }
 }
 
+function stableSourceFixture(
+  registrableDomain: string,
+  displayName: string | null,
+): StableSource {
+  return {
+    displayName,
+    effectivenessScore: 0.8,
+    registrableDomain,
+    sourceRole: 'reference',
+    stableLandingCount: 3,
+    trailCount: 4,
+  }
+}
+
+function queryFamilyFixture(
+  familyId: string,
+  anchorQuery: string,
+  memberCount: number,
+): QueryFamily {
+  return {
+    anchorQuery,
+    familyId,
+    firstSeenAt: '2026-04-01T00:00:00.000Z',
+    lastSeenAt: '2026-04-25T00:00:00.000Z',
+    memberCount,
+    queries: [anchorQuery],
+    searchEngine: 'google',
+  }
+}
+
+function queryFamilyResultFixture(families: QueryFamily[]): QueryFamilyResult {
+  return {
+    families,
+    page: 0,
+    pageSize: 10,
+    total: families.length,
+  }
+}
+
 function metric(value: number) {
   return {
     changePercent: 0,
@@ -508,6 +819,42 @@ function translate(key: string, vars?: Record<string, string | number>) {
       return 'Enriched'
     case 'noEnrichmentBadge':
       return 'Deterministic'
+    case 'hubTimeAxisTitle':
+      return 'Time'
+    case 'hubSourcesAxisTitle':
+      return 'Sources'
+    case 'hubResearchAxisTitle':
+      return 'Research'
+    case 'hubSeeAll':
+      return 'See all'
+    case 'hubWeekdayLabel':
+      return 'Weekdays'
+    case 'hubWeekendLabel':
+      return 'Weekends'
+    case 'hubPeakHoursTitle':
+      return 'Peak Hours'
+    case 'hubPeakHoursEmpty':
+      return 'Not enough data for peak hours'
+    case 'hubWeekdayWeekendEmpty':
+      return 'Not enough daily data'
+    case 'hubTopSitesPreview':
+      return 'Top Sites'
+    case 'hubStableSourcesPreview':
+      return 'Stable Sources'
+    case 'hubQueryFamiliesPreview':
+      return 'Query Families'
+    case 'hubRefindPreview':
+      return 'Refind Pages'
+    case 'hubSpotlightRefind':
+      return `You revisited "${vars?.title}" across ${vars?.days} days`
+    case 'hubSpotlightQueryFamily':
+      return `You searched for "${vars?.query}" ${vars?.count} ways`
+    case 'secondarySectionErrorTitle':
+      return 'This insight could not load'
+    case 'secondarySectionErrorBody':
+      return 'PathKeep could not load this section.'
+    case 'secondarySectionRetry':
+      return 'Retry'
     default:
       return key
   }

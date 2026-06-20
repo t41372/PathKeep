@@ -217,8 +217,18 @@ describe('ActivityMixSection', () => {
     apiMocks.peekTopSites.mockReturnValue(topSitesSection())
   })
 
-  test('renders category shares, deduped examples, and positive or negative changes', () => {
+  test('renders stacked bar with segments, legend, deduped examples, and change indicators', () => {
     renderActivityMix()
+
+    const stackedBar = screen.getByTestId('activity-mix-stacked-bar')
+    expect(stackedBar).toBeInTheDocument()
+
+    // The `quiet` fixture category has a 0% share and is filtered out, leaving
+    // the two non-zero categories as rendered segments.
+    const segments = stackedBar.querySelectorAll('.activity-mix__segment')
+    expect(segments.length).toBe(2)
+    expect(segments[0]).toHaveAttribute('data-category', 'work')
+    expect(segments[1]).toHaveAttribute('data-category', 'community')
 
     expect(screen.getByText('category_work')).toBeInTheDocument()
     expect(screen.getByText('Community')).toBeInTheDocument()
@@ -231,6 +241,42 @@ describe('ActivityMixSection', () => {
       'href',
       '/domain/community.dev',
     )
+  })
+
+  test('shows hover detail when a segment is hovered', () => {
+    renderActivityMix()
+
+    const stackedBar = screen.getByTestId('activity-mix-stacked-bar')
+    const firstSegment = stackedBar.querySelector('.activity-mix__segment')!
+    fireEvent.mouseEnter(firstSegment)
+
+    const hoverDetail = screen.getByTestId('activity-mix-hover-detail')
+    expect(hoverDetail).toBeInTheDocument()
+
+    fireEvent.mouseLeave(firstSegment)
+    expect(screen.queryByTestId('activity-mix-hover-detail')).toBeNull()
+  })
+
+  test('reveals and clears hover detail via keyboard focus and blur', () => {
+    renderActivityMix()
+
+    const stackedBar = screen.getByTestId('activity-mix-stacked-bar')
+    const firstSegment = stackedBar.querySelector('.activity-mix__segment')!
+
+    fireEvent.focus(firstSegment)
+
+    const hoverDetail = screen.getByTestId('activity-mix-hover-detail')
+    expect(hoverDetail).toBeInTheDocument()
+    // The focused `work` segment (60% share / 60 visits) drives the detail copy.
+    expect(
+      hoverDetail.querySelector('.activity-mix__hover-category'),
+    ).toHaveTextContent('category_work')
+    expect(
+      hoverDetail.querySelector('.activity-mix__hover-stats'),
+    ).toHaveTextContent('60% · 60 visits')
+
+    fireEvent.blur(firstSegment)
+    expect(screen.queryByTestId('activity-mix-hover-detail')).toBeNull()
   })
 
   test('renders the empty activity mix state when no categories are available', () => {

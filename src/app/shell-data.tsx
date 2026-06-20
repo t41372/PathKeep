@@ -22,9 +22,14 @@ import {
   type ReactNode,
 } from 'react'
 import { backend } from '../lib/backend-client'
+import {
+  preloadAllTimeIntelligenceOverview,
+  preloadIntelligenceOverviews,
+} from '../lib/core-intelligence'
 import { describeError } from '../lib/errors'
 import { subscribeToImportProgress } from '../lib/ipc/import-progress'
 import { useI18nContext } from '../lib/i18n'
+import { useProfileScope } from '../lib/profile-scope-context'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
@@ -78,6 +83,7 @@ const notificationStorageKey = 'pathkeep.shellNotifications.v1'
  */
 export function ShellDataProvider({ children }: { children: ReactNode }) {
   const { setLanguagePreference, t } = useI18nContext()
+  const { activeProfileId } = useProfileScope()
   const [buildInfo, setBuildInfo] = useState<AppBuildInfo | null>(null)
   const [appLockStatus, setAppLockStatus] = useState<AppLockStatus | null>(null)
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
@@ -588,6 +594,36 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     setRefreshKey((value) => value + 1)
     void refreshDashboardSnapshot(snapshot, { surfaceErrors: true })
   }, [refreshDashboardSnapshot, runtimeStatus, snapshot])
+
+  useEffect(() => {
+    if (!snapshot?.config.initialized || !snapshot.archiveStatus.unlocked) {
+      return
+    }
+    // Warm the `/intelligence` overviews so the route paints from cache. The
+    // route requests the active profile scope (archive-wide when null), so a
+    // returning scoped user needs that scope warmed — warming only `null` would
+    // seed a key the page never reads. For the active scope we warm all-time
+    // (the default, snapshot-backed) first and then idle-stagger the bounded
+    // presets (month, quarter, year) the user can switch to; those bounded warms
+    // are skipped for the archive-wide companion below so their snapshot-less
+    // cold recompute is paid at most once per scope. When a specific profile is
+    // active we still warm the archive-wide all-time default (cheap) so clearing
+    // the scope stays instant. `refreshKey` bumps after a rebuild drains, so this
+    // re-warms whenever the archive changed (or the scope switches); the cleanup
+    // cancels every pending warm if a dependency changes first.
+    const cancelActive = preloadIntelligenceOverviews(activeProfileId)
+    const cancelArchiveWide =
+      activeProfileId === null ? null : preloadAllTimeIntelligenceOverview(null)
+    return () => {
+      cancelActive()
+      cancelArchiveWide?.()
+    }
+  }, [
+    activeProfileId,
+    refreshKey,
+    snapshot?.archiveStatus.unlocked,
+    snapshot?.config.initialized,
+  ])
 
   async function runImport(
     request: ShellImportTaskRequest,

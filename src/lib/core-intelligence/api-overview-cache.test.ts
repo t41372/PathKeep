@@ -56,6 +56,21 @@ describe('core intelligence overview cache helpers', () => {
     clearIntelligenceOverviewCache()
   })
 
+  test('fetches observed interactions over IPC when no secondary overview is cached', async () => {
+    const { getObservedInteractions } = await import('./api')
+    callMock.mockResolvedValueOnce([{ id: 'oi-1' }])
+
+    await expect(
+      getObservedInteractions(april, 'chrome:Default'),
+    ).resolves.toMatchObject({
+      data: [{ id: 'oi-1' }],
+      meta: { sectionId: 'observed-interactions' },
+    })
+    expect(callMock).toHaveBeenCalledWith('get_observed_interactions', {
+      request: { dateRange: april, profileId: 'chrome:Default' },
+    })
+  })
+
   test('reuses cached primary overview sections across peek and read helpers', async () => {
     const {
       getActivityMix,

@@ -482,7 +482,9 @@ pub(super) fn merge_stage_run_result(
 }
 
 /// Runs the three staged rebuild owners in order and folds their timings into
-/// one full-rebuild result.
+/// one full-rebuild result. Each stage uses its own checkpoint to decide whether
+/// an incremental or fallback-full path is needed, so a FullRebuild with warm
+/// checkpoints only reprocesses the delta since the last run.
 fn execute_full_rebuild_stages(
     connection: &Connection,
     profile_id: &str,
@@ -492,15 +494,15 @@ fn execute_full_rebuild_stages(
 ) -> Result<StageRunResult> {
     let visit_started = std::time::Instant::now();
     let mut combined =
-        execute_visit_derive_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+        execute_visit_derive_stage(connection, profile_id, watermark, false, run_id, computed_at)?;
     let visit_derive_ms = visit_started.elapsed().as_millis() as u64;
     let daily_started = std::time::Instant::now();
     let daily =
-        execute_daily_rollup_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+        execute_daily_rollup_stage(connection, profile_id, watermark, false, run_id, computed_at)?;
     let daily_rollup_ms = daily_started.elapsed().as_millis() as u64;
     let structural_started = std::time::Instant::now();
     let structural =
-        execute_structural_stage(connection, profile_id, watermark, true, run_id, computed_at)?;
+        execute_structural_stage(connection, profile_id, watermark, false, run_id, computed_at)?;
     let structural_rebuild_ms = structural_started.elapsed().as_millis() as u64;
     merge_stage_run_result(&mut combined, daily, RebuildMode::DailyRollup);
     merge_stage_run_result(&mut combined, structural, RebuildMode::StructuralRebuild);
@@ -512,7 +514,10 @@ fn execute_full_rebuild_stages(
         structural_rebuild_ms,
         total_ms: visit_derive_ms + daily_rollup_ms + structural_rebuild_ms,
     });
-    combined.notes.push(format!("Performed a full Core Intelligence rebuild for {}.", profile_id));
+    combined.notes.push(format!(
+        "Ran checkpoint-aware Core Intelligence rebuild for {}; each stage used its incremental path when a warm checkpoint was available.",
+        profile_id
+    ));
     Ok(combined)
 }
 

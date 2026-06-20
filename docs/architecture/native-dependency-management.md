@@ -17,10 +17,20 @@ The project now owns:
   workflow, separate from the per-commit product checker.
 
 Native C / C++ libraries must not be discovered from Homebrew, apt, winget, or a
-developer's global `/usr/local` / `/opt/homebrew` install. If product code links
-a native library, the dependency must be declared in `vcpkg.json`, installed
-under `var/native-deps/vcpkg_installed`, and proven in CI before the product
-link lands.
+developer's global `/usr/local` / `/opt/homebrew` install. Allowed paths for
+native dependencies, in priority order:
+
+1. **Rust crate vendored/bundled compilation** (preferred) — crates like
+   `rusqlite` with `bundled-sqlcipher`, `ring`, `brotli`, etc. compile C/C++
+   source via `cc`/`cmake` during `cargo build`. This is standard Rust practice
+   and the project already uses it. Choosing a Rust crate with a C/C++ backend
+   for performance reasons requires no extra approval beyond the normal
+   supply-chain trust gate in `AGENTS.md`.
+2. **vcpkg manifest mode** — for standalone native libraries that have no quality
+   Rust crate wrapper. Declare in `vcpkg.json`, install under
+   `var/native-deps/vcpkg_installed`, and prove in CI before the product link
+   lands.
+3. **Tauri / OS SDK platform frameworks** — explicit host prerequisites.
 
 ## Why vcpkg
 
@@ -114,9 +124,10 @@ workflow.
 
 - No `build.rs` that shells out to `brew`, `apt`, `winget`, or global
   `pkg-config` to find product native dependencies.
+- No ad-hoc `build.rs` that downloads, `git clone`s, or compiles C/C++ source
+  outside of a published crate's vendored build — use a Rust crate or vcpkg.
 - No `FetchContent` / CPM path for product native libraries unless a separate
   ADR proves why vcpkg cannot work.
-- No loadable SQLite extensions for recall.
 - No low-trust language binding as a shortcut around native dependency
   management.
 - No dynamic library path that only works on the developer's machine.
