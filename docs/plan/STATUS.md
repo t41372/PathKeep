@@ -30,7 +30,7 @@
     3. API key in-memory 處理改 `secrecy::SecretString`（drop 清零 / log redact / 不序列化進 trace/sidecar）；沿用既有 keyring + `api_key_saved`。
     4. 新 storage planes：`config.rs` 的 `ProjectPaths` 加 `vectors_dir`（`derived/vectors/`）、`agent_database_path`（`derived/agent.sqlite`）、`models_dir`（`<root>/models/`）；`ensure_paths` 建立；更新 path-override 測試。
     5. embedding fingerprint 結構：`hash(provider, model_id, effective_dim, output_dtype, normalized, pooling, instruction_template, version)`，鏡像 intelligence checkpoint/watermark；先落型別 + 持久化 header，stale 偵測接口（尚不觸發重嵌）。
-  - 契約：rig/secrecy 用 `name.workspace = true`（rig **不 hard-pin**）；`secrecy` 加入後 `deny:rust` / `audit:rust` 須綠（MIT/Apache 過 license）；新 `.rs` 全進 100% 覆蓋；不擴展 `src/lib/backend.ts` preview fixture contract；改動 `src/main.tsx`/`bridge.ts` 需對齊既有 contract（本 block 預期不需碰）。
+  - 契約：rig/secrecy 用 `name.workspace = true`（rig **不 hard-pin**）；`secrecy` 加入後 `deny:rust` / `audit:rust` 須綠（MIT/Apache 過 license）；新 `.rs` 全進 100% 覆蓋。**現有 AI/semantic 代碼全是 placeholder（使用者 2026-06-20），可自由重做——不需保留舊 AI 命令/型別/snapshot 欄位形狀**；只需不破壞非-AI 功能與非-AI preview fixture；改動 `src/main.tsx`/`bridge.ts` 需對齊既有 generic IPC contract（本 block 不需碰）。
   - 驗收：`bun run check:base` 綠（Rust fmt/clippy/test + supply-chain + i18n + typecheck）；`coverage:rust` 對新 `.rs` 100%；關 AI 時 deterministic intelligence + FTS5 行為不變；走完 review pipeline（find → verify → fix）。
 
 - [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending) — *carryover，非當前 focus*

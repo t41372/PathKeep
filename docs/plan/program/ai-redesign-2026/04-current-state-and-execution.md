@@ -22,16 +22,19 @@
 
 ---
 
-## 1. 已存在且 LIVE 的契約（DO NOT BREAK；改動需對齊）
+## 1. 現有 AI / semantic 代碼 = 全 placeholder（可自由重做，不受其約束）
 
-- **資料模型**：`AiProviderConfig` / `AiSettings`（`vault-core/src/models/intelligence.rs:250-341`），TS 鏡像 `src/lib/types/intelligence.ts`（手寫、`camelCase` 上線）。
-- **12 個 Tauri 命令**（註冊於 `src-tauri/src/lib.rs:158-221`，façade `src-tauri/src/commands/intelligence/ai.rs`，FE `src/lib/backend-client/intelligence.ts:48-114`）：`store_ai_provider_api_key`、`clear_ai_provider_api_key`、`test_ai_provider_connection`、`load_ai_queue_status`、`run_ai_queue_jobs`、`replay_ai_job`、`cancel_ai_job`、`load_ai_assistant_job`、`build_ai_index`、`search_ai_history`、`ask_ai_assistant`、`preview_ai_integrations`。
-- **`AppSnapshot` AI 欄位**：`AiIndexStatus` / `AiQueueStatus` / `AiSettings`（worker `context.rs:93`）——FE 多處消費（settings/ai-providers-section、assistant、explorer runtime panels）。
-- **browser-preview fixture**：`src/lib/backend.ts` + `src/lib/backend-preview-ai-commands.ts` 是**凍結**的瀏覽器預覽契約，鏡像上述命令——**不擴展其 contract**（AGENTS.md 受保護入口規則）。
-- **受保護入口**：`src/main.tsx`、`src/lib/ipc/bridge.ts`（mutation-gated 100% 覆蓋）。`invokeCommand` 已 command-agnostic → 加新命令**不需**改 bridge.ts。
-- **release gate**：`optionalAiFeaturesAvailable`（`src/lib/release-capabilities.ts:30`）目前 `false`；`evaluateOptionalAiAvailability()` 控制可用性。新 UI 必須尊重此 gate 並優雅降級（intelligence-optional 契約）。
+> **使用者 2026-06-20 明示：現有的 AI / semantic search 代碼基礎全是 placeholder，不需保持 stable，不要被它限制。**
 
-**策略**：保持上述 12 命令 + snapshot 欄位**形狀穩定**；在其後/其下替換實作（stub sidecar、硬編 dim、metadata-only schema 都可自由換）。新增能力以**新命令 + 新事件**交付，不破舊。
+- 既有 AI 命令（`store_ai_provider_api_key` … `ask_ai_assistant`，共 12 個，`src-tauri/src/lib.rs`）、`AiProviderConfig`/`AiSettings`（`models/intelligence.rs`）、`AppSnapshot` 的 AI 欄位、assistant page、`ai_sidecar.rs` stub、metadata-only `ai_embeddings` schema、`backend-preview-ai-commands.ts` 的 AI fixture——**全部可自由重新設計 / 改名 / 刪除 / 重寫**。不為「契約相容」扭曲新設計；不為避免改舊命令而硬加新命令。
+- 可**復用**其中堪用的部分（rig client 接法、lease queue 接法、provider error 分類、capability 報告、paper assistant UI atoms）——當參考與起點，不是約束。
+- review pipeline 的「契約相容」維度**降級**：只檢查「新 AI 設計自洽 + 不破壞非-AI 功能」，不再要求保留舊 AI 命令/型別形狀。
+
+**仍受保護（與 AI 無關的平台契約，照舊）：**
+- `src/main.tsx`、`src/lib/ipc/bridge.ts`：generic IPC 入口（mutation-gated 100% 覆蓋）。`invokeCommand` 已 command-agnostic → 加/改命令不需動 bridge.ts 本身。
+- `src/lib/backend.ts` 的**非-AI** browser-preview fixture（archive / intelligence / import / 等）：不破壞既有非-AI 預覽契約（AI 部分屬 placeholder，可隨新設計重寫）。
+- 非-AI 的一切（canonical SQLCipher archive、FTS5、deterministic intelligence、import/backup、storage truth model）：**不可回歸**。
+- release gate `optionalAiFeaturesAvailable`（`src/lib/release-capabilities.ts:30`）：AI 未就緒前維持安全降級。
 
 ---
 
