@@ -102,7 +102,8 @@ embedding:   text-embedding-qwen3-embedding-0.6b
 
 ## 6. 動手前必驗的供應鏈 blocker
 
-- **Turbovec 是否發佈到 crates.io**（W-AI-5 之前）：`deny.toml` `sources.unknown-git = "deny"` → 若只在 GitHub，需 `[sources.allow-git]` + 理由，否則 `deny:rust` 紅。未發佈時 W-AI-5 先出 **flat int8 scan fallback**。
+- **Turbovec：✅ 已驗證發佈在 crates.io**（2026-06-20 查：`turbovec` v0.9.0、MIT、2026-06-10 發佈）→ 過 `deny:rust sources`，**不需** `[sources.allow-git]`。W-AI-5 解除 blocker。若 14.4M benchmark(S2) 不過關才退 flat int8 scan fallback。
+- **已驗證版本/授權（2026-06-20，crates.io）**：`candle-core` 0.10.2（MIT OR Apache-2.0）、`secrecy` 0.10.3（Apache/MIT，W-AI-0 採用）、`hf-hub` 最新是 **`1.0.0-rc.1` pre-release**（Apache-2.0）→ W-AI-4 用最新**穩定 0.x**，除非刻意 opt-in RC。全部過 license allowlist。
 - **candle 加入後新 advisory**（W-AI-4 之前——candle 在 W-AI-4 即加入，不延後）：須 triage 進 **`deny.toml` ignore + `scripts/check-rust-security.mjs` allowedAdvisories 兩處同步**（stale 條目也會 FAIL）。MKL/Accelerate/CUDA features **一律 OFF**（可重現 build）。hf-hub 同 block 加入。
 - **rig 升級時**：`RUSTSEC-2026-0097` 是 stale-trap，存在於 deny.toml + check-rust-security.mjs 兩處；rig 變動使其消失時兩處都要清。
 - **streamdown（JS）**：新 npm dep，AGENTS.md 門檻（stars>6k 或 risk doc）→ W-AI-2 前 vet。
