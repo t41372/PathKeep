@@ -480,6 +480,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         }),
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
+    dispatch_for_coverage(&state, "download_ai_embedding_model", json!({}));
+    dispatch_for_coverage(&state, "cancel_ai_embedding_model_download", json!({}));
     dispatch_for_coverage(
         &state,
         "save_ai_conversation",

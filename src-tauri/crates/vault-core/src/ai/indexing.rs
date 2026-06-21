@@ -310,8 +310,10 @@ async fn run_embedding_backfill(
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
 ) -> Result<BackfillOutcome> {
-    let embedder =
-        AnyEmbeddingProvider::External(ExternalEmbeddingProvider::new(provider.clone())?);
+    // Config-driven engine selection (W-AI-4b): a provider marked for the in-app candle engine
+    // routes to the local model (present + verified = the consent gate); any other provider routes
+    // to the external `/v1/embeddings` adapter. The loop below is engine-agnostic.
+    let embedder = super::embedding_candle::select_embedding_provider(paths, provider)?;
     let limit = request.limit.map(|value| value as usize);
     let mut outcome = BackfillOutcome::default();
     // The store is resolved lazily on the first chunk that actually embeds rows, once the real dim
@@ -365,9 +367,18 @@ async fn run_embedding_backfill(
             let (effective_dim, records) = validate_embedding_batch(&history_ids, &vectors)?;
             outcome.effective_dim = Some(effective_dim);
             // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild RESUME
-            // must append to the partial store, not truncate it (CRITICAL-1).
-            let store =
-                vector_store_for_chunk(&mut store, paths, provider, effective_dim, perform_wipe)?;
+            // must append to the partial store, not truncate it (CRITICAL-1). The fingerprint is
+            // stamped from the SELECTED engine's real descriptor (candle = LastToken + instruction;
+            // external = Unknown pooling), so a candle-built and an external-built index never share
+            // a fingerprint at the same dim (A-S2).
+            let store = vector_store_for_chunk(
+                &mut store,
+                paths,
+                provider,
+                &embedder.descriptor(),
+                effective_dim,
+                perform_wipe,
+            )?;
 
             // Append only the vectors NOT already on the plane from a crashed prior run (CRITICAL-2),
             // so a resume never doubles a row's vector. `persisted_ids` is the resume-time snapshot;
@@ -466,14 +477,22 @@ fn vector_store_for_chunk<'a>(
     store: &'a mut Option<VectorStore>,
     paths: &ProjectPaths,
     provider: &AiProviderRuntime,
+    engine_descriptor: &EmbeddingDescriptor,
     effective_dim: usize,
     full_rebuild: bool,
 ) -> Result<&'a VectorStore> {
     if store.is_none() {
-        // Use the EXTERNAL adapter's descriptor so the fingerprint records THIS transport's real
-        // dtype/normalized (A-S2 fix), not a transport-wide constant.
-        let descriptor =
-            super::embedding_external::external_descriptor(provider, Some(effective_dim));
+        // Stamp the fingerprint from the SELECTED engine's real descriptor (its true dtype /
+        // normalized / pooling / instruction, A-S2 fix) with the observed dim, but key it by the
+        // provider CONFIG identity so the on-disk store name + SQLite ledger stay in sync. This is
+        // what keeps a candle-built and an external-built index distinct at the same dim while
+        // staying findable by the same provider/model pair the rest of the pipeline uses.
+        let descriptor = EmbeddingDescriptor {
+            provider_id: provider.config.id.clone(),
+            model_id: provider.config.default_model.clone(),
+            effective_dim: Some(effective_dim),
+            ..engine_descriptor.clone()
+        };
         let fingerprint = EmbeddingFingerprint::from_descriptor(&descriptor).context(
             "internal: embedding descriptor lacked an effective dim when stamping the vector store",
         )?;

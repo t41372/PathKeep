@@ -42,18 +42,24 @@ pub use agent_store::{
 };
 pub use ai::{
     AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, AnyEmbeddingProvider,
+    CANDLE_INAPP_BASE_URL, CandleEmbeddingProvider, DEFAULT_CANDLE_MODEL_FILES,
+    DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT, DEFAULT_CANDLE_TOKENIZER_REPO,
     EMBEDDING_FINGERPRINT_VERSION, EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint,
     EmbeddingPooling, EmbeddingProvider, EmbeddingRole, ExternalEmbeddingProvider,
     IndexBackfillLedger, IndexBackfillProgress, LlmCapabilities, LlmChatRequest, LlmChatResponse,
     LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat, LlmRole, LlmStreamChunk,
-    LlmToolDef, LlmUsage, NarrativeSummary, QueryFamilyFacts, RigLlmProvider, TopicFacts,
-    VectorIndex, VectorStore, VectorStoreHeader, ai_index_status, ai_queue_status,
-    answer_history_question, answer_history_question_with_control, build_ai_index,
-    build_ai_index_with_control, deregister_ai_chat_run, drive_ai_chat_stream,
-    load_assistant_run_response, preview_ai_integrations, provider_capabilities,
+    LlmToolDef, LlmUsage, ModelDownloadProgress, ModelFile, NarrativeSummary, NoopDownloadProgress,
+    QWEN3_QUERY_TASK, QueryFamilyFacts, RigLlmProvider, TopicFacts, VectorIndex, VectorStore,
+    VectorStoreHeader, ai_index_status, ai_queue_status, answer_history_question,
+    answer_history_question_with_control, apply_role_instruction, build_ai_index,
+    build_ai_index_with_control, candle_repo_for_runtime, degrade_candle_to_external,
+    deregister_ai_chat_run, drive_ai_chat_stream, ensure_model_downloaded, gguf_file_name,
+    load_assistant_run_response, model_dir_for_repo, model_is_loadable,
+    model_is_present_and_verified, preview_ai_integrations, provider_capabilities,
     provider_connection_failure_report, reconcile_ai_queue_controls, register_ai_chat_run,
-    request_ai_chat_cancel, semantic_search_history, summarize_query_family, summarize_topic,
-    test_provider_connection, vector_plane_bytes,
+    request_ai_chat_cancel, runtime_uses_candle, select_embedding_provider,
+    semantic_search_history, summarize_query_family, summarize_topic, test_provider_connection,
+    vector_plane_bytes,
 };
 pub use annotations::{
     get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
@@ -74,7 +80,7 @@ pub use archive::{
     run_snapshot_restore,
 };
 pub use chrome::discover_profiles;
-pub use config::{ProjectPaths, load_config, project_paths, save_config};
+pub use config::{ProjectPaths, load_config, project_paths, project_paths_with_root, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
 pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
@@ -112,3 +118,6 @@ pub use takeout::{
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,
     preview_import_batch, restore_import_batch, revert_import_batch,
 };
+/// Pure SHA-256 helpers (hex digest of bytes / of a file's contents). Re-exported so the worker's
+/// model-download tests + the candle e2e can pin digests against the same impl the manifest uses.
+pub use utils::{file_sha256_hex, sha256_hex};

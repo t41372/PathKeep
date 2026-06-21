@@ -23,6 +23,7 @@
 //! response decoding, descriptor/dtype derivation, normalize) are un-gated and unit-tested so a
 //! field/label swap is caught by the unit + mutation gates rather than shipping silently.
 
+use super::embedding_candle::CandleEmbeddingProvider;
 use super::provider::l2_normalize;
 use super::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
@@ -391,8 +392,16 @@ fn stub_response_bytes(
 pub enum AnyEmbeddingProvider {
     /// OpenAI-compatible `/v1/embeddings` external provider.
     External(ExternalEmbeddingProvider),
-    // TODO(W-AI-4b): add `Candle(CandleEmbeddingProvider)` here and a match arm in each method
-    // below. No call site above this enum changes when the variant is added.
+    /// In-app candle QUANTIZED Qwen3-Embedding engine (W-AI-4b): real instruction-prefixed,
+    /// last-token pooled, L2-normalized vectors with NO network, from a GGUF checkpoint. Selected
+    /// when the user has consented to the in-app model AND it is present + verified on disk (the
+    /// selector drives that, degrading to External when the model is absent).
+    ///
+    /// Boxed (the concrete provider, NOT `Box<dyn EmbeddingProvider>`) because the loaded engine
+    /// carries a full quantized model + tokenizer behind a mutex (large) vs the external variant's
+    /// ~200 B — boxing keeps the enum (which is moved on every embed-loop iteration) small without
+    /// reintroducing dynamic dispatch (the match still monomorphizes the RPITIT `embed`).
+    Candle(Box<CandleEmbeddingProvider>),
 }
 
 impl EmbeddingProvider for AnyEmbeddingProvider {
@@ -410,6 +419,7 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
         async move {
             match self {
                 Self::External(provider) => provider.embed(texts, role).await,
+                Self::Candle(provider) => provider.embed(texts, role).await,
             }
         }
     }
@@ -417,12 +427,14 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
     fn model_id(&self) -> &str {
         match self {
             Self::External(provider) => provider.model_id(),
+            Self::Candle(provider) => provider.model_id(),
         }
     }
 
     fn descriptor(&self) -> EmbeddingDescriptor {
         match self {
             Self::External(provider) => provider.descriptor(),
+            Self::Candle(provider) => provider.descriptor(),
         }
     }
 }
@@ -679,6 +691,26 @@ mod tests {
         assert_eq!(any.model_id(), "text-embedding-test");
         assert_eq!(any.descriptor().dtype, EmbeddingDtype::Float32);
         let vectors = any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("embed");
+        assert_eq!(vectors.len(), 1);
+        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn any_provider_dispatches_candle_variant() {
+        // The W-AI-4b Candle arm must be reachable through the enum so the index/search loops can
+        // run the in-app engine without a call-site change. Uses the deterministic candle stub.
+        let provider = CandleEmbeddingProvider::new_stub(
+            "candle:qwen3",
+            "Qwen/Qwen3-Embedding-0.6B-GGUF",
+            "Q8_0",
+        );
+        let any = AnyEmbeddingProvider::Candle(Box::new(provider));
+        // The candle model id carries the quant so a quant swap invalidates the fingerprint.
+        assert_eq!(any.model_id(), "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0");
+        assert_eq!(any.descriptor().pooling, EmbeddingPooling::LastToken);
+        assert!(any.descriptor().instruction_template.is_some());
+        let vectors =
+            any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("candle embed");
         assert_eq!(vectors.len(), 1);
         assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
     }

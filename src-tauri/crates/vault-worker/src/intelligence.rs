@@ -23,6 +23,7 @@
 mod agent_store;
 mod ai_queue;
 mod chat;
+mod model_download;
 mod route_queries;
 mod runtime;
 mod section_queries;
@@ -68,6 +69,7 @@ pub(crate) use self::ai_queue::{
     start_ai_job_control,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_send};
+pub use self::model_download::{cancel_model_download, download_ai_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,
     get_intelligence_primary_overview, get_navigation_path, get_query_families,

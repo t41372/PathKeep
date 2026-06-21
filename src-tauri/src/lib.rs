@@ -168,6 +168,8 @@ fn run_app() -> Result<()> {
             ask_ai_assistant,
             ai_chat_send,
             ai_chat_cancel,
+            download_ai_embedding_model,
+            cancel_ai_embedding_model_download,
             save_ai_conversation,
             list_ai_conversations,
             load_ai_conversation,

@@ -10,6 +10,7 @@
 
 mod chat_stream;
 mod control;
+mod embedding_candle;
 mod embedding_external;
 mod fingerprint;
 mod indexing;
@@ -80,6 +81,15 @@ pub use self::search::{
 pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+};
+pub use self::embedding_candle::{
+    CANDLE_INAPP_BASE_URL, CANDLE_MAX_INPUT_TOKENS, CandleEmbeddingProvider,
+    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
+    DEFAULT_CANDLE_TOKENIZER_REPO, ModelDownloadProgress, ModelFile, NoopDownloadProgress,
+    QWEN3_QUERY_TASK, apply_role_instruction, candle_repo_for_runtime, degrade_candle_to_external,
+    ensure_model_downloaded, gguf_file_name, last_token_pool, model_dir_for_repo,
+    model_is_loadable, model_is_present_and_verified, query_instruction_template,
+    runtime_uses_candle, select_embedding_provider,
 };
 pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};

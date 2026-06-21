@@ -7,11 +7,17 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 browser-history-parser = { version = "0.1.0", path = "../browser-history-parser" }
+# candle in-app embedding engine (W-AI-4b): CPU-only, default features (no accelerate/mkl/cuda/metal).
+candle-core.workspace = true
+candle-nn.workspace = true
+candle-transformers.workspace = true
 chrono.workspace = true
 directories.workspace = true
 futures-core.workspace = true
 getrandom.workspace = true
 hex.workspace = true
+# Consent-gated, SHA-256-verified, off-thread model download into models_dir (W-AI-4b §C.5).
+hf-hub.workspace = true
 iana-time-zone = "0.1.64"
 icu_normalizer.workspace = true
 libc.workspace = true
@@ -29,6 +35,10 @@ serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+# HF tokenizer for the candle Qwen3 forward pass (W-AI-4b); loads tokenizer.json from disk.
+# We request the pure-Rust `fancy-regex` backend; candle-core still forces `onig` transitively —
+# see the workspace dep comment for the full caveat.
+tokenizers.workspace = true
 tokio.workspace = true
 walkdir.workspace = true
 zip.workspace = true

@@ -610,6 +610,32 @@ pub struct AiChatStreamEvent {
     pub chunk: AiChatStreamChunk,
 }
 
+/// Tauri event channel that carries [`ModelDownloadProgressEvent`]s to the front end (W-AI-4b).
+///
+/// Defined here (a covered vault-core location) so a mutation of the literal is caught by a Rust
+/// test; the front-end listener pins its own matching literal. Both sides MUST agree on this exact
+/// string. Carries the consent-gated in-app embedding model download progress (§C.5).
+pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progress";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+/// One in-app embedding model download progress event delivered over
+/// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
+///
+/// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
+/// download progress to the UI without leaking hf-hub types across the IPC boundary. `kind`-tagged
+/// so the front end can route each phase (started / finished / done / error) into the right UI state.
+pub enum ModelDownloadProgressEvent {
+    /// One model file started downloading (`total_bytes` is 0 when the size is unknown).
+    FileStarted { file: String, total_bytes: u64 },
+    /// One model file finished downloading + verifying.
+    FileFinished { file: String },
+    /// The whole model is present + verified; no more events follow for this run.
+    Done,
+    /// The download failed; carries a user-facing message. No more events follow.
+    Error { message: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 /// One persisted assistant-chat message as stored in `derived/agent.sqlite`.

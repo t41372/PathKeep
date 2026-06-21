@@ -26,8 +26,8 @@ use vault_core::{
     AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
     AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderSecretInput, AiSearchRequest,
-    DeleteAgentConversationResult, ListAgentConversationsRequest, RenameAgentConversationRequest,
-    SaveAgentConversationRequest,
+    DeleteAgentConversationResult, ListAgentConversationsRequest, ModelDownloadProgressEvent,
+    RenameAgentConversationRequest, SaveAgentConversationRequest,
 };
 
 use super::super::worker_result;
@@ -153,6 +153,25 @@ pub(crate) fn ai_chat_cancel_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AiChatCancelResult, String> {
     worker_result(vault_worker::ai_chat_cancel(session_database_key, &run_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Starts the consent-gated in-app embedding model download; progress reaches the UI via `emit`.
+///
+/// `emit` wraps `AppHandle::emit("pathkeep://model-download-progress", ...)`; it must be
+/// `Send + 'static` so the worker's background download thread can own it (W-AI-4b §C.5).
+pub(crate) fn download_ai_embedding_model_impl<E>(emit: E) -> Result<(), String>
+where
+    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
+{
+    worker_result(vault_worker::download_ai_embedding_model(emit))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Requests cancellation of any in-flight in-app model download.
+pub(crate) fn cancel_model_download_impl() -> Result<(), String> {
+    vault_worker::cancel_model_download();
+    Ok(())
 }
 
 /// Persists (upsert) one assistant conversation and replaces its message transcript.

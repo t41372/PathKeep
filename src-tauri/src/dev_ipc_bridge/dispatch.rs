@@ -470,6 +470,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "download_ai_embedding_model" => {
+            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
+            // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
+            // only flows under real Tauri). The `Ok(())` ack is still verifiable.
+            json_value!(download_ai_embedding_model_off_thread().await?)
+        }
+        "cancel_ai_embedding_model_download" => {
+            json_value!(worker_bridge::cancel_model_download_impl()?)
+        }
         "save_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
             json_value!(worker_bridge::save_ai_conversation_impl(payload.request)?)
@@ -1018,6 +1027,19 @@ async fn ai_chat_send_off_thread(
     })
     .await
     .unwrap_or_else(|error| Err(format!("ai_chat_send join failed: {error}")))
+}
+
+/// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
+/// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
+/// Tauri events (progress only flows under real Tauri).
+async fn download_ai_embedding_model_off_thread() -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::download_ai_embedding_model_impl(
+            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("download_ai_embedding_model join failed: {error}")))
 }
 
 #[cfg(test)]
