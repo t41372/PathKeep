@@ -455,10 +455,7 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
         .expect("full rebuild");
 
     let all_time = ScopedDateRangeRequest {
-        date_range: DateRange {
-            start: "1900-01-01".to_string(),
-            end: "2026-12-31".to_string(),
-        },
+        date_range: DateRange { start: "1900-01-01".to_string(), end: "2026-12-31".to_string() },
         profile_id: None,
     };
 
@@ -499,10 +496,7 @@ fn all_time_secondary_overview_serves_persisted_snapshot() {
     );
 
     let scoped = ScopedDateRangeRequest {
-        date_range: DateRange {
-            start: "2024-04-01".to_string(),
-            end: "2024-04-30".to_string(),
-        },
+        date_range: DateRange { start: "2024-04-01".to_string(), end: "2024-04-30".to_string() },
         profile_id: None,
     };
     let scoped_overview = get_intelligence_secondary_overview(&paths, &config, None, &scoped)
