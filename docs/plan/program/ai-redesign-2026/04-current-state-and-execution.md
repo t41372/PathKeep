@@ -42,7 +42,7 @@
 
 1. **向量儲存**（全新）：`VectorIndex` trait + 引擎；取代 `ai_sidecar.rs` stub。
 2. **embedding 持久化 + backfill 補完**（`indexing.rs:170` bail）：接 `EmbeddingProvider`、寫 sidecar、chunked/resumable job。
-3. **in-app embedding 引擎**（candle，全新）——**可延後**（先用 LM Studio 外部 embedding 跑通全鏈）。
+3. **in-app embedding 引擎**（candle，全新）——與 external embedding **同步交付**（W-AI-4，不延後；使用者明示）。LM Studio 只是 external 路徑的真機測試工具。
 4. **streaming transport**：rig `chat_stream` → Tauri event `pathkeep://ai-stream`（token/reasoning/tool-call）。事件基建已有（import/backup/updater 用 `AppHandle::emit` + FE `listen`）；AI 尚未接。
 5. **頂尖 AI 前端可觀測性**（全新，marquee）：streaming markdown、reasoning chain、tool-use 可視、chat history 持久化 + explorer。
 6. **agent harness durability**（journal/replay/idempotency/PME long-pause）。
