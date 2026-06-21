@@ -655,6 +655,19 @@ describe('backend client', () => {
         command: 'get_day_insights',
         args: { request: { date: '2026-04-25', profileId: null } },
       },
+      {
+        run: () =>
+          intelligenceClient.sendChat({
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        command: 'ai_chat_send',
+        args: { request: { messages: [{ role: 'user', content: 'hi' }] } },
+      },
+      {
+        run: () => intelligenceClient.cancelChat('run-1'),
+        command: 'ai_chat_cancel',
+        args: { runId: 'run-1' },
+      },
     ]
 
     for (const expected of calls) {

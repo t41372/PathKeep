@@ -239,6 +239,34 @@
   animation: pk-pulse-cool 3.2s ease-in-out infinite;
 }
 
+/* ── Assistant thinking indicator: animated dots, with a text fallback when motion is off. ──
+ * The three pulsing dots read as "thinking" through motion. Under prefers-reduced-motion the
+ * dots freeze (the global rule clamps iteration-count to 1), leaving an ambiguous static state,
+ * so we hide them and reveal a visible "Thinking…" word instead. (The role="status" element
+ * already carries the same string for screen readers regardless of motion preference.) */
+.pk-typing-fallback {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-typing-dot {
+    display: none;
+  }
+  .pk-typing-fallback {
+    display: inline;
+  }
+}
+
+/* ── Streaming answer caret: blinks at the tail of a live answer so a stalled stream never
+ * reads as a finished one. Under reduced motion it holds steady (visible, not flashing). ── */
+.pk-stream-caret {
+  border-radius: 1px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-stream-caret {
+    opacity: 0.7;
+  }
+}
+
 /* ── Skeleton block for loading shells. ── */
 .pk-skeleton {
   background: linear-gradient(
@@ -250,4 +278,122 @@
   background-size: 1600px 100%;
   animation: pk-skeleton-shimmer 1.6s linear infinite;
   border-radius: var(--radius);
+}
+
+/* ── Assistant streaming markdown (streamdown) — paper skin. ──
+ * streamdown renders raw markdown elements; we keep its output in the paper
+ * grammar (serif prose, mono code, accent links) instead of its default
+ * Tailwind-typography look. Scoped to `.assistant-prose` so it never leaks. */
+.assistant-prose {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+}
+.assistant-prose > :first-child {
+  margin-top: 0;
+}
+.assistant-prose > :last-child {
+  margin-bottom: 0;
+}
+.assistant-prose p,
+.assistant-prose ul,
+.assistant-prose ol,
+.assistant-prose blockquote,
+.assistant-prose pre,
+.assistant-prose table {
+  margin: 0.5em 0;
+}
+.assistant-prose ul,
+.assistant-prose ol {
+  padding-left: 1.4em;
+}
+.assistant-prose ul {
+  list-style: disc;
+}
+.assistant-prose ol {
+  list-style: decimal;
+}
+.assistant-prose li {
+  margin: 0.2em 0;
+}
+.assistant-prose strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+.assistant-prose em {
+  font-style: italic;
+}
+.assistant-prose a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.assistant-prose a:hover {
+  opacity: 0.82;
+}
+.assistant-prose h1,
+.assistant-prose h2,
+.assistant-prose h3,
+.assistant-prose h4 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.8em 0 0.4em;
+}
+.assistant-prose h1 {
+  font-size: 19px;
+}
+.assistant-prose h2 {
+  font-size: 17px;
+}
+.assistant-prose h3 {
+  font-size: 15.5px;
+}
+.assistant-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--bg-paper);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-tight);
+  padding: 0.08em 0.34em;
+}
+.assistant-prose pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: var(--bg-paper);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.assistant-prose pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.assistant-prose blockquote {
+  border-left: 2px solid var(--accent-medium);
+  padding-left: 0.9em;
+  color: var(--ink-secondary);
+}
+.assistant-prose table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.assistant-prose th,
+.assistant-prose td {
+  border: 1px solid var(--border-light);
+  padding: 4px 8px;
+  text-align: left;
+}
+.assistant-prose th {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
 }

@@ -33,6 +33,7 @@ export default defineConfig({
         'src/**/test-helpers.ts',
         'src/**/test-helpers.tsx',
         'src/lib/types/**',
+        'src/components/assistant-chat/index.ts',
         'src/components/cards/index.ts',
         'src/components/explorer-paper/index.ts',
         'src/components/intelligence/workbench/index.ts',

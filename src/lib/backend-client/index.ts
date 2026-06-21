@@ -119,6 +119,8 @@ export const backend = {
   searchAiHistory: intelligenceClient.searchHistory,
   askAiAssistant: intelligenceClient.askAssistant,
   loadAiAssistantJob: intelligenceClient.getAssistantJob,
+  sendAiChat: intelligenceClient.sendChat,
+  cancelAiChat: intelligenceClient.cancelChat,
   listSearchEngineRules: intelligenceClient.listSearchEngineRules,
   upsertSearchEngineRule: intelligenceClient.upsertSearchEngineRule,
   deleteSearchEngineRule: intelligenceClient.deleteSearchEngineRule,

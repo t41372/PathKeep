@@ -22,6 +22,7 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { PKGlyph } from '@/components/shell/pk-glyph'
 
 export type PaperAssistantRole = 'user' | 'ai'
 
@@ -66,7 +67,7 @@ export function PaperAssistantMessage({
     >
       {!isUser && byline ? (
         <div className="text-ink-faint flex items-center gap-[6px] font-mono text-[9.5px] uppercase tracking-[0.08em]">
-          <span aria-hidden="true">◌</span>
+          <PKGlyph icon="smart_toy" size={11} strokeWidth={1.6} />
           <span>{byline}</span>
         </div>
       ) : null}

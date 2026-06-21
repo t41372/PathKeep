@@ -245,6 +245,11 @@ const GLYPH_PATHS: Record<string, GlyphRenderer> = {
       <rect x="14" y="5" width="3" height="14" />
     </>
   ),
+  stop: () => (
+    <>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
+    </>
+  ),
   close: () => (
     <>
       <path d="M6 6l12 12M18 6l-6 6-6 6" />
