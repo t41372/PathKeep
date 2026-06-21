@@ -9,11 +9,13 @@
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
 
 mod control;
+mod fingerprint;
 mod indexing;
 mod ledger;
 mod provider;
 mod read_model;
 mod search;
+mod traits;
 
 #[cfg(test)]
 use crate::archive::create_schema;
@@ -46,6 +48,7 @@ use rig::{
     tool::{Tool, ToolDyn},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -67,6 +70,13 @@ pub use self::read_model::{
 };
 pub use self::search::{
     answer_history_question, answer_history_question_with_control, semantic_search_history,
+};
+
+pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
+pub use self::traits::{
+    EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
+    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
+    LlmRole, LlmStreamChunk, VectorIndex,
 };
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
@@ -95,10 +105,14 @@ use self::search::{
 };
 
 /// Resolved provider configuration plus the usable secret for one AI operation.
+///
+/// `api_key` is a [`SecretString`] so it is zeroized on drop, redacted in `Debug`/logs, and
+/// never serialized into a trace or sidecar. The plaintext is only exposed at the rig
+/// `.api_key(...)` boundary in `provider.rs` via [`ExposeSecret`].
 #[derive(Debug, Clone)]
 pub struct AiProviderRuntime {
     pub config: AiProviderConfig,
-    pub api_key: String,
+    pub api_key: SecretString,
 }
 
 /// Cooperative cancellation/progress hook for long-running AI work.

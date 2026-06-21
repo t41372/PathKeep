@@ -1054,7 +1054,7 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
         AiProviderPurpose::Embedding,
     )
     .expect("resolve provider");
-    assert_eq!(resolved.api_key, "embed-secret");
+    assert_eq!(vault_core::ExposeSecret::expose_secret(&resolved.api_key), "embed-secret");
 
     config.ai.embedding_provider_id = None;
     assert!(selected_optional_embedding_runtime(&config).expect("optional embedding").is_none());

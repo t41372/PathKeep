@@ -22,7 +22,103 @@
 //!   pressure worse on a constrained host or provider account
 
 use super::read_model::provider_capabilities;
+use super::traits::{EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingRole};
 use super::*;
+#[cfg(not(any(test, coverage)))]
+use secrecy::ExposeSecret;
+
+/// Test-only synthetic dimension used by the deterministic embedding stubs.
+///
+/// Coverage builds never reach a live provider, so the stub must pick a length when the
+/// config does not request a specific dim. This is an arbitrary small number with NO
+/// relationship to any real model's native dimension — picking a real dim (1536/768) here
+/// is exactly the D4 truth-assumption this block removes.
+#[cfg(any(test, coverage))]
+const STUB_SYNTHETIC_DIM: usize = 8;
+
+/// L2-normalizes a vector in place, guarding against degenerate (zero / non-finite) inputs.
+///
+/// Returned vectors are normalized defensively (02 §C.3 rule b): MRL truncation and some
+/// providers leave vectors un-normalized, which silently corrupts cosine similarity. The norm
+/// and the per-component scale are computed in f64 (so an f32-overflowing magnitude does not
+/// saturate the reciprocal to `inf`), and a zero or non-finite norm leaves the vector exactly
+/// as-is rather than writing NaNs/infs.
+pub(super) fn l2_normalize(vector: &mut [f32]) {
+    let norm = vector.iter().map(|value| f64::from(*value) * f64::from(*value)).sum::<f64>().sqrt();
+    if !norm.is_finite() || norm <= 0.0 {
+        return;
+    }
+    let inv = 1.0 / norm;
+    for value in vector.iter_mut() {
+        *value = (f64::from(*value) * inv) as f32;
+    }
+}
+
+/// Whether the transport should request the model's native embedding dimension, or a
+/// specific MRL-truncated dimension the user explicitly configured.
+///
+/// `None` = ask for the model's native dimension (no PathKeep-imposed size). `Some(n)` = the
+/// user configured an explicit dimension, passed to the transport only as an MRL request hint.
+type RequestedEmbeddingDim = Option<usize>;
+
+/// Resolves the dimension to REQUEST from the transport without imposing a hidden model
+/// assumption (D4), or errors if the provider cannot embed without one.
+///
+/// Per-format reality (rig 0.34, verified against the vendored adapter source):
+/// - OpenAI / Ollama / LM Studio: `embedding_model(model)` omits the `dimensions` field when no
+///   dim is configured, so the server returns the model's native size → `None` is safe.
+/// - Gemini (`Google`): the rig adapter resolves an unrecognized model to `unwrap_or(768)` and
+///   ALWAYS sends `output_dimensionality`, so it cannot request a model's native size. Letting
+///   that through would silently force 768 — exactly the D4 truth-assumption this layer removes.
+///   We therefore REQUIRE an explicit dimension for Gemini embedding rather than accept a hidden
+///   default.
+/// - Anthropic: no embedding API.
+pub(super) fn resolve_embed_request_dim(
+    provider: &AiProviderRuntime,
+) -> Result<RequestedEmbeddingDim> {
+    match provider.config.request_format {
+        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
+            Ok(provider.config.dimensions.map(|dim| dim as usize))
+        }
+        AiRequestFormat::Google => match provider.config.dimensions {
+            Some(dim) => Ok(Some(dim as usize)),
+            None => anyhow::bail!(
+                "Set an explicit embedding dimension for Gemini provider {}: the Gemini transport cannot request the model's native dimension and would otherwise silently impose a default size.",
+                provider.config.name
+            ),
+        },
+        AiRequestFormat::Anthropic => {
+            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
+        }
+    }
+}
+
+/// Builds the runtime descriptor for an embedding provider once `effective_dim` is known.
+///
+/// `effective_dim` must be the actual returned vector length (never config `dimensions`),
+/// so the fingerprint downstream reflects reality rather than a requested hint.
+pub(super) fn embedding_descriptor_for(
+    provider: &AiProviderRuntime,
+    effective_dim: Option<usize>,
+) -> EmbeddingDescriptor {
+    EmbeddingDescriptor {
+        provider_id: provider.config.id.clone(),
+        model_id: provider.config.default_model.clone(),
+        effective_dim,
+        // TODO(W-AI-4): these two are transport-defaults valid ONLY for the current float32 +
+        // L2-normalized rig path. Per-provider adapters (candle, Voyage/Cohere int8) MUST set
+        // dtype/normalized from the real transport before any fingerprint built from this
+        // descriptor is persisted — otherwise two distinct encodings could share a fingerprint
+        // (A-S2). `EmbeddingFingerprint::from_descriptor` has no production caller until then.
+        dtype: EmbeddingDtype::Float32,
+        // Vectors leave this layer L2-normalized via `l2_normalize`.
+        normalized: true,
+        // rig's hosted `/v1/embeddings` path does not expose pooling; it stays unknown until
+        // the in-app candle engine (which owns its pooling) lands.
+        pooling: EmbeddingPooling::Unknown,
+        instruction_template: None,
+    }
+}
 
 /// Captures whether the selected embedding provider is usable right now.
 ///
@@ -48,9 +144,17 @@ pub async fn test_provider_connection(
     let started = Instant::now();
     let probe_result = match provider.config.purpose {
         AiProviderPurpose::Embedding => {
-            embed_query(provider, "PathKeep provider health check").await.map(|vector| {
-                format!("Generated a {}-dimension probe embedding successfully.", vector.len())
-            })
+            embed_query(provider, "PathKeep provider health check", EmbeddingRole::Query).await.map(
+                |vector| {
+                    // The effective dim is the actual returned length (D4), captured in the
+                    // runtime descriptor rather than read back from config `dimensions`.
+                    let descriptor = embedding_descriptor_for(provider, Some(vector.len()));
+                    format!(
+                        "Generated a {}-dimension probe embedding successfully.",
+                        descriptor.effective_dim.unwrap_or_default()
+                    )
+                },
+            )
         }
         AiProviderPurpose::Llm => run_llm_agent(
             provider,
@@ -298,7 +402,7 @@ pub(super) async fn run_llm_agent(
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             let mut builder =
-                openai::CompletionsClient::builder().api_key(provider.api_key.clone());
+                openai::CompletionsClient::builder().api_key(provider.api_key.expose_secret());
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -313,7 +417,8 @@ pub(super) async fn run_llm_agent(
             Ok(agent.prompt(question).await?)
         }
         AiRequestFormat::Anthropic => {
-            let mut builder = anthropic::Client::builder().api_key(provider.api_key.clone());
+            let mut builder =
+                anthropic::Client::builder().api_key(provider.api_key.expose_secret());
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -328,7 +433,7 @@ pub(super) async fn run_llm_agent(
             Ok(agent.prompt(question).await?)
         }
         AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(provider.api_key.clone());
+            let mut builder = gemini::Client::builder().api_key(provider.api_key.expose_secret());
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -383,10 +488,11 @@ pub(super) async fn run_llm_agent(
 pub(super) async fn embed_batch_with_retry(
     provider: &AiProviderRuntime,
     texts: &[String],
+    role: EmbeddingRole,
 ) -> Result<Vec<Vec<f32>>> {
     let mut attempts = 0usize;
     loop {
-        match embed_text_batch(provider, texts).await {
+        match embed_text_batch(provider, texts, role).await {
             Ok(vectors) => return Ok(vectors),
             Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
             Err(error) => return Err(error),
@@ -399,10 +505,11 @@ pub(super) async fn embed_batch_with_retry(
 pub(super) async fn embed_single_with_retry(
     provider: &AiProviderRuntime,
     text: &str,
+    role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
     let mut attempts = 0usize;
     loop {
-        match embed_query(provider, text).await {
+        match embed_query(provider, text, role).await {
             Ok(vector) => return Ok(vector),
             Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
             Err(error) => return Err(error),
@@ -431,6 +538,7 @@ pub(super) fn embedding_error_is_rate_limited(error: &anyhow::Error) -> bool {
 pub(super) async fn embed_text_batch(
     provider: &AiProviderRuntime,
     texts: &[String],
+    role: EmbeddingRole,
 ) -> Result<Vec<Vec<f32>>> {
     #[cfg(coverage)]
     {
@@ -442,57 +550,68 @@ pub(super) async fn embed_text_batch(
         }
     }
 
-    let dimensions = match provider.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            provider.config.dimensions.unwrap_or(1536)
-        }
-        AiRequestFormat::Google => provider.config.dimensions.unwrap_or(768),
-        AiRequestFormat::Anthropic => {
-            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
-        }
-    } as usize;
-
-    Ok(texts
-        .iter()
-        .map(|text| {
-            let fingerprint = sha256_hex(format!("{}::{text}", provider.config.id).as_bytes());
-            let bytes = fingerprint.as_bytes();
-            (0..dimensions)
-                .map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0)
-                .collect::<Vec<_>>()
-        })
-        .collect())
+    let dimensions = stub_embedding_dimensions(provider)?;
+    Ok(texts.iter().map(|text| stub_embedding_vector(provider, text, role, dimensions)).collect())
 }
 
 /// Executes one single-text embedding request against the configured provider.
+///
+/// D4 correctness rules (02 §C.3):
+/// - the effective dimension is ALWAYS the actual returned vector length, never config
+///   `dimensions`. The requested dimension is resolved by [`resolve_embed_request_dim`]:
+///   `Some(n)` → an explicit MRL request hint via `embedding_model_with_ndims`; `None` → the
+///   model's native dimension via `embedding_model(model)` (no PathKeep-imposed fallback). Note
+///   `None` is only reachable for OpenAI-shaped transports — Gemini-without-an-explicit-dim is
+///   rejected by the resolver because its adapter cannot request a native size.
+/// - the returned vector is defensively L2-normalized.
+/// - the `role` threads to the call (instruction injection arrives with per-provider
+///   descriptors in W-AI-4; rig's hosted `/v1/embeddings` path has no role hook today).
 #[cfg(not(any(test, coverage)))]
-pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Result<Vec<f32>> {
+pub(super) async fn embed_query(
+    provider: &AiProviderRuntime,
+    query: &str,
+    _role: EmbeddingRole,
+) -> Result<Vec<f32>> {
+    let requested_dim = resolve_embed_request_dim(provider)?;
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(provider.api_key.clone());
+            let mut builder = openai::Client::builder().api_key(provider.api_key.expose_secret());
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
             let client = builder.build()?;
-            let model = client.embedding_model_with_ndims(
-                provider.config.default_model.clone(),
-                provider.config.dimensions.unwrap_or(1536) as usize,
-            );
-            let embedding = model.embed_text(query).await?;
-            Ok(embedding.vec.iter().map(|value| *value as f32).collect())
+            let embedding = match requested_dim {
+                Some(ndims) => {
+                    client
+                        .embedding_model_with_ndims(provider.config.default_model.clone(), ndims)
+                        .embed_text(query)
+                        .await?
+                }
+                None => {
+                    client
+                        .embedding_model(provider.config.default_model.clone())
+                        .embed_text(query)
+                        .await?
+                }
+            };
+            Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(provider.api_key.clone());
+            let mut builder = gemini::Client::builder().api_key(provider.api_key.expose_secret());
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
             let client = builder.build()?;
-            let model = client.embedding_model_with_ndims(
-                provider.config.default_model.clone(),
-                provider.config.dimensions.unwrap_or(768) as usize,
-            );
-            let embedding = model.embed_text(query).await?;
-            Ok(embedding.vec.iter().map(|value| *value as f32).collect())
+            // `resolve_embed_request_dim` guarantees an explicit dim for Gemini (it rejects the
+            // native-dim request the adapter cannot honor), so this is always the hint path.
+            let ndims = requested_dim.context(
+                "internal: Gemini embedding reached the request path without an explicit dimension",
+            )?;
+            let embedding = client
+                .embedding_model_with_ndims(provider.config.default_model.clone(), ndims)
+                .embed_text(query)
+                .await?;
+            Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Anthropic => {
             anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
@@ -500,9 +619,24 @@ pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Re
     }
 }
 
+/// Converts a rig embedding (f64) into PathKeep's f32 vector and L2-normalizes it.
+///
+/// The returned length is the truth for the effective dimension; callers must read
+/// `vec.len()` rather than trusting config `dimensions`.
+#[cfg(not(any(test, coverage)))]
+fn finalize_embedding_vector(vec: Vec<f64>) -> Vec<f32> {
+    let mut out: Vec<f32> = vec.into_iter().map(|value| value as f32).collect();
+    l2_normalize(&mut out);
+    out
+}
+
 /// Returns deterministic single-text embedding vectors for tests and coverage builds.
 #[cfg(any(test, coverage))]
-pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Result<Vec<f32>> {
+pub(super) async fn embed_query(
+    provider: &AiProviderRuntime,
+    query: &str,
+    role: EmbeddingRole,
+) -> Result<Vec<f32>> {
     #[cfg(coverage)]
     {
         if provider.config.id.contains("single-error") {
@@ -510,19 +644,35 @@ pub(super) async fn embed_query(provider: &AiProviderRuntime, query: &str) -> Re
         }
     }
 
-    let dimensions = match provider.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            provider.config.dimensions.unwrap_or(1536)
-        }
-        AiRequestFormat::Google => provider.config.dimensions.unwrap_or(768),
-        AiRequestFormat::Anthropic => {
-            anyhow::bail!("Anthropic request format does not support embeddings in rig.rs.")
-        }
-    } as usize;
+    let dimensions = stub_embedding_dimensions(provider)?;
+    Ok(stub_embedding_vector(provider, query, role, dimensions))
+}
 
-    let fingerprint = sha256_hex(format!("{}::{query}", provider.config.id).as_bytes());
+/// Resolves the dimension the deterministic stub should emit WITHOUT assuming a real model.
+///
+/// Routes through the same [`resolve_embed_request_dim`] the production path uses, so the stub
+/// enforces identical semantics (incl. the Gemini-requires-explicit-dim and Anthropic-no-embed
+/// rules). A native-dim request (`None`) maps to [`STUB_SYNTHETIC_DIM`], a value with no
+/// relation to any real model's native size.
+#[cfg(any(test, coverage))]
+pub(super) fn stub_embedding_dimensions(provider: &AiProviderRuntime) -> Result<usize> {
+    Ok(resolve_embed_request_dim(provider)?.unwrap_or(STUB_SYNTHETIC_DIM))
+}
+
+/// Produces one deterministic, role-aware, L2-normalized stub embedding vector.
+#[cfg(any(test, coverage))]
+pub(super) fn stub_embedding_vector(
+    provider: &AiProviderRuntime,
+    text: &str,
+    role: EmbeddingRole,
+    dimensions: usize,
+) -> Vec<f32> {
+    let fingerprint =
+        sha256_hex(format!("{}::{}::{text}", provider.config.id, role.as_str()).as_bytes());
     let bytes = fingerprint.as_bytes();
-    Ok((0..dimensions)
+    let mut vector: Vec<f32> = (0..dimensions)
         .map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0)
-        .collect())
+        .collect();
+    l2_normalize(&mut vector);
+    vector
 }

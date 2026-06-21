@@ -41,6 +41,12 @@ pub struct ProjectPaths {
     pub sidecars_dir: PathBuf,
     pub semantic_index_dir: PathBuf,
     pub intelligence_blobs_dir: PathBuf,
+    /// AI vector sidecar plane (`derived/vectors/`); rebuildable, rides export via `derived/`.
+    pub vectors_dir: PathBuf,
+    /// AI agent sidecar database (`derived/agent.sqlite`); rebuildable agent trace store.
+    pub agent_database_path: PathBuf,
+    /// Downloaded embedding/reranker models (`<root>/models/`); re-downloadable, NOT exported.
+    pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
     pub rust_log_path: PathBuf,
     pub frontend_log_path: PathBuf,
@@ -81,6 +87,9 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
         sidecars_dir: sidecars_dir.clone(),
         semantic_index_dir: sidecars_dir.join("semantic-index"),
         intelligence_blobs_dir: sidecars_dir.join("intelligence-blobs"),
+        vectors_dir: derived_dir.join("vectors"),
+        agent_database_path: derived_dir.join("agent.sqlite"),
+        models_dir: root.join("models"),
         logs_dir: logs_dir.clone(),
         rust_log_path: logs_dir.join("rust.log"),
         frontend_log_path: logs_dir.join("frontend.log"),
@@ -121,6 +130,8 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
         &paths.sidecars_dir,
         &paths.semantic_index_dir,
         &paths.intelligence_blobs_dir,
+        &paths.vectors_dir,
+        &paths.models_dir,
         &paths.logs_dir,
         &paths.crash_reports_dir,
     ] {
@@ -190,6 +201,9 @@ mod tests {
             paths.intelligence_database_path,
             dir.path().join("derived/history-intelligence.sqlite")
         );
+        assert_eq!(paths.vectors_dir, dir.path().join("derived/vectors"));
+        assert_eq!(paths.agent_database_path, dir.path().join("derived/agent.sqlite"));
+        assert_eq!(paths.models_dir, dir.path().join("models"));
     }
 
     #[test]
@@ -203,6 +217,11 @@ mod tests {
         assert!(paths.derived_dir.exists());
         assert!(paths.semantic_index_dir.exists());
         assert!(paths.intelligence_blobs_dir.exists());
+        assert!(paths.vectors_dir.exists());
+        assert!(paths.models_dir.exists());
+        // agent.sqlite is a file, not a directory; its parent `derived/` is created above so the
+        // database can be opened on demand without ensure_paths pre-touching the file.
+        assert!(paths.agent_database_path.parent().expect("agent db parent").exists());
 
         let config = AppConfig {
             initialized: true,

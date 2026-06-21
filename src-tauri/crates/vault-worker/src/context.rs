@@ -144,7 +144,7 @@ pub(crate) fn resolve_provider_runtime(
     }
     let api_key = keyring_get_provider_api_key(provider_id)?
         .with_context(|| format!("store an API key for provider {}", config.name))?;
-    Ok(AiProviderRuntime { config, api_key })
+    Ok(AiProviderRuntime { config, api_key: api_key.into() })
 }
 
 /// Resolves the embedding provider selected for a build/search request.

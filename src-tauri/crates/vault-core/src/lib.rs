@@ -36,11 +36,15 @@ pub mod utils;
 pub mod visit_taxonomy;
 
 pub use ai::{
-    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, ai_index_status,
-    ai_queue_status, answer_history_question, answer_history_question_with_control, build_ai_index,
-    build_ai_index_with_control, load_assistant_run_response, preview_ai_integrations,
-    provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
-    semantic_search_history, test_provider_connection,
+    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl,
+    EMBEDDING_FINGERPRINT_VERSION, EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint,
+    EmbeddingPooling, EmbeddingProvider, EmbeddingRole, LlmCapabilities, LlmChatRequest,
+    LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider, LlmRole, LlmStreamChunk, VectorIndex,
+    ai_index_status, ai_queue_status, answer_history_question,
+    answer_history_question_with_control, build_ai_index, build_ai_index_with_control,
+    load_assistant_run_response, preview_ai_integrations, provider_capabilities,
+    provider_connection_failure_report, reconcile_ai_queue_controls, semantic_search_history,
+    test_provider_connection,
 };
 pub use annotations::{
     get_annotation, list_annotations, replace_tags, search_annotations, set_notes,
@@ -91,6 +95,9 @@ pub use migration::{
     preview_import,
 };
 pub use models::*;
+/// Re-export of the two `secrecy` symbols callers need to construct/expose
+/// [`AiProviderRuntime`] secrets without taking their own direct dependency on the crate.
+pub use secrecy::{ExposeSecret, SecretString};
 pub use takeout::{
     import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,

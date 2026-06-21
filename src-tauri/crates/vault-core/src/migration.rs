@@ -101,6 +101,7 @@ pub const EXPORT_EXCLUSIONS_DOC: &[(&str, &str)] = &[
     ("staging/", "Transient import staging is regenerated as needed."),
     ("quarantine/", "Quarantined files belong only to the source machine."),
     ("exports/", "Avoids packing previous export bundles into a new export."),
+    ("models/", "Downloaded embedding/reranker models are re-downloadable on the target machine."),
 ];
 
 /// Top-level subtrees of the project root that *are* included in the bundle.

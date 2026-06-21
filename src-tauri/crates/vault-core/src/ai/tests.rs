@@ -1,6 +1,9 @@
 //! Regression tests for optional AI and semantic retrieval helpers.
 use super::indexing::{clear_provider_embeddings, collect_stale_history_ids, upsert_embedding};
-use super::provider::should_retry_embedding_error;
+use super::provider::{
+    embedding_descriptor_for, l2_normalize, resolve_embed_request_dim,
+    should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
+};
 use super::*;
 use crate::{
     ai_sidecar::SidecarEmbeddingRow,
@@ -68,7 +71,7 @@ fn embedding_provider() -> AiProviderRuntime {
             dimensions: Some(3),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".to_string(),
+        api_key: "secret".into(),
     }
 }
 
@@ -91,7 +94,7 @@ fn llm_provider() -> AiProviderRuntime {
             default_model: "gpt-4.1-mini".to_string(),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".to_string(),
+        api_key: "secret".into(),
     }
 }
 
@@ -146,10 +149,19 @@ fn llm_provider_with_format(request_format: AiRequestFormat) -> AiProviderRuntim
     provider
 }
 
-fn expected_stub_embedding(provider_id: &str, query: &str, dimensions: usize) -> Vec<f32> {
-    let fingerprint = sha256_hex(format!("{provider_id}::{query}").as_bytes());
+fn expected_stub_embedding(
+    provider_id: &str,
+    query: &str,
+    role: EmbeddingRole,
+    dimensions: usize,
+) -> Vec<f32> {
+    let fingerprint = sha256_hex(format!("{provider_id}::{}::{query}", role.as_str()).as_bytes());
     let bytes = fingerprint.as_bytes();
-    (0..dimensions).map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0).collect()
+    let mut vector: Vec<f32> = (0..dimensions)
+        .map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0)
+        .collect();
+    l2_normalize(&mut vector);
+    vector
 }
 
 fn seed_visit(
@@ -393,7 +405,7 @@ fn validate_provider_rejects_anthropic_embeddings() {
                 default_model: "claude-3-7-sonnet".to_string(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".to_string(),
+            api_key: "secret".into(),
         },
         AiProviderPurpose::Embedding,
     )
@@ -414,7 +426,7 @@ fn validate_provider_rejects_disabled_wrong_purpose_and_missing_model() {
                 default_model: "text-embedding-3-small".to_string(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".to_string(),
+            api_key: "secret".into(),
         },
         AiProviderPurpose::Embedding,
     )
@@ -436,7 +448,7 @@ fn validate_provider_rejects_disabled_wrong_purpose_and_missing_model() {
                 default_model: String::new(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".to_string(),
+            api_key: "secret".into(),
         },
         AiProviderPurpose::Llm,
     )
@@ -1488,7 +1500,9 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/hidden", Some("Hidden"), 2);
-    let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
+    let query_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("query vector");
     seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
     seed_embedding_with_vector(&connection, 2, &embedding, &query_vector);
 
@@ -1587,7 +1601,9 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
+    let query_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("query vector");
     seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
     seed_successful_index_ledger(&connection, &embedding, 1);
 
@@ -1648,7 +1664,9 @@ fn search_history_internal_uses_lexical_results_when_sidecar_is_deferred() {
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    let query_vector = runtime.block_on(embed_query(&embedding, "docs")).expect("query vector");
+    let query_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("query vector");
     seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
 
     let search = runtime
@@ -1773,16 +1791,28 @@ fn stubbed_llm_and_embedding_helpers_cover_supported_formats() {
             dimensions: Some(4),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".to_string(),
+        api_key: "secret".into(),
     };
     let embedding = runtime
-        .block_on(embed_query(&google_embedding_provider, "hello"))
+        .block_on(embed_query(&google_embedding_provider, "hello", EmbeddingRole::Query))
         .expect("google embedding");
     assert_eq!(embedding.len(), 4);
     assert_eq!(
         embedding,
-        expected_stub_embedding(&google_embedding_provider.config.id, "hello", 4)
+        expected_stub_embedding(
+            &google_embedding_provider.config.id,
+            "hello",
+            EmbeddingRole::Query,
+            4
+        )
     );
+
+    // The same text under a different role must produce a distinct vector, proving the role
+    // threads all the way to the encoder.
+    let embedding_document = runtime
+        .block_on(embed_query(&google_embedding_provider, "hello", EmbeddingRole::Document))
+        .expect("google embedding document role");
+    assert_ne!(embedding, embedding_document);
 
     let anthropic_error = runtime
         .block_on(embed_query(
@@ -1796,17 +1826,22 @@ fn stubbed_llm_and_embedding_helpers_cover_supported_formats() {
                     default_model: "claude-embedding".to_string(),
                     ..AiProviderConfig::default()
                 },
-                api_key: "secret".to_string(),
+                api_key: "secret".into(),
             },
             "hello",
+            EmbeddingRole::Query,
         ))
         .expect_err("anthropic embeddings should fail");
     assert!(anthropic_error.to_string().contains("does not support embeddings"));
 
-    let openai_embedding =
-        runtime.block_on(embed_query(&embedding_provider(), "docs")).expect("openai embedding");
+    let openai_embedding = runtime
+        .block_on(embed_query(&embedding_provider(), "docs", EmbeddingRole::Document))
+        .expect("openai embedding");
     assert_eq!(openai_embedding.len(), 3);
-    assert_eq!(openai_embedding, expected_stub_embedding("embed", "docs", 3));
+    assert_eq!(
+        openai_embedding,
+        expected_stub_embedding("embed", "docs", EmbeddingRole::Document, 3)
+    );
     assert_ne!(openai_embedding, embedding);
 }
 
@@ -1815,24 +1850,26 @@ fn embedding_retry_helpers_cover_success_error_and_rate_limit_detection() {
     let runtime = Runtime::new().expect("runtime");
     let provider = embedding_provider();
     let texts = vec!["first".to_string(), "second".to_string()];
-    let batch =
-        runtime.block_on(embed_batch_with_retry(&provider, &texts)).expect("batch embeddings");
+    let batch = runtime
+        .block_on(embed_batch_with_retry(&provider, &texts, EmbeddingRole::Document))
+        .expect("batch embeddings");
     assert_eq!(batch.len(), 2);
-    assert_eq!(batch[0], expected_stub_embedding("embed", "first", 3));
+    assert_eq!(batch[0], expected_stub_embedding("embed", "first", EmbeddingRole::Document, 3));
 
-    let single =
-        runtime.block_on(embed_single_with_retry(&provider, "single")).expect("single embedding");
-    assert_eq!(single, expected_stub_embedding("embed", "single", 3));
+    let single = runtime
+        .block_on(embed_single_with_retry(&provider, "single", EmbeddingRole::Query))
+        .expect("single embedding");
+    assert_eq!(single, expected_stub_embedding("embed", "single", EmbeddingRole::Query, 3));
 
     let mut anthropic = provider.clone();
     anthropic.config.request_format = AiRequestFormat::Anthropic;
     let batch_error = runtime
-        .block_on(embed_batch_with_retry(&anthropic, &texts))
+        .block_on(embed_batch_with_retry(&anthropic, &texts, EmbeddingRole::Document))
         .expect_err("anthropic batch embedding");
     assert!(batch_error.to_string().contains("does not support embeddings"));
 
     let single_error = runtime
-        .block_on(embed_single_with_retry(&anthropic, "single"))
+        .block_on(embed_single_with_retry(&anthropic, "single", EmbeddingRole::Query))
         .expect_err("anthropic single embedding");
     assert!(single_error.to_string().contains("does not support embeddings"));
 
@@ -1845,6 +1882,108 @@ fn embedding_retry_helpers_cover_success_error_and_rate_limit_detection() {
 
     assert!(embedding_error_is_rate_limited(&anyhow::anyhow!("rate limit 429 quota")));
     assert!(!embedding_error_is_rate_limited(&anyhow::anyhow!("connection refused")));
+}
+
+#[test]
+fn l2_normalize_unit_scales_non_zero_and_leaves_degenerate_vectors_untouched() {
+    let mut vector = vec![3.0_f32, 4.0];
+    l2_normalize(&mut vector);
+    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
+    assert!((norm - 1.0).abs() < 1e-6);
+    assert!((vector[0] - 0.6).abs() < 1e-6);
+    assert!((vector[1] - 0.8).abs() < 1e-6);
+
+    // Zero vector: the `norm <= 0.0` guard must leave it exactly as-is (no NaNs).
+    let mut zero = vec![0.0_f32, 0.0, 0.0];
+    l2_normalize(&mut zero);
+    assert_eq!(zero, vec![0.0, 0.0, 0.0]);
+
+    // Non-finite input: the `!norm.is_finite()` guard must leave it untouched. This exercises
+    // the is_finite() false outcome distinctly from the zero case, so a mutant that deletes
+    // `!norm.is_finite() ||` (which would let 1/inf = 0 turn every component into NaN) is killed.
+    let mut non_finite = vec![f32::INFINITY, 1.0];
+    l2_normalize(&mut non_finite);
+    assert_eq!(non_finite, vec![f32::INFINITY, 1.0]);
+
+    // Empty slice is a no-op.
+    let mut empty: Vec<f32> = Vec::new();
+    l2_normalize(&mut empty);
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn embedding_descriptor_reads_effective_dim_from_argument_not_config() {
+    // config.dimensions = Some(3) but the descriptor must reflect the ARGUMENT (the real
+    // returned length), proving config is never the truth source for effective dim (D4).
+    let provider = embedding_provider();
+    assert_eq!(provider.config.dimensions, Some(3));
+    let descriptor = embedding_descriptor_for(&provider, Some(7));
+    assert_eq!(descriptor.effective_dim, Some(7));
+    assert_eq!(descriptor.provider_id, "embed");
+    assert_eq!(descriptor.model_id, "text-embedding-3-small");
+    assert_eq!(descriptor.dtype, EmbeddingDtype::Float32);
+    assert!(descriptor.normalized);
+    assert_eq!(descriptor.pooling, EmbeddingPooling::Unknown);
+    assert!(descriptor.instruction_template.is_none());
+
+    let unknown = embedding_descriptor_for(&provider, None);
+    assert_eq!(unknown.effective_dim, None);
+}
+
+#[test]
+fn resolve_embed_request_dim_requests_native_or_hint_and_rejects_unsupported() {
+    // OpenAI-shaped: explicit dim → MRL hint; no dim → native (None, never a hardcoded default).
+    let mut openai = embedding_provider();
+    assert_eq!(resolve_embed_request_dim(&openai).expect("openai hint"), Some(3));
+    openai.config.dimensions = None;
+    assert_eq!(resolve_embed_request_dim(&openai).expect("openai native"), None);
+
+    // Gemini: an explicit dim is required because the transport cannot request a native size;
+    // an explicit dim is honored, but no dim is a hard error (the Finding-1 D4 fix) rather than
+    // a silent 768 fallback.
+    let mut gemini = embedding_provider();
+    gemini.config.request_format = AiRequestFormat::Google;
+    gemini.config.dimensions = Some(256);
+    assert_eq!(resolve_embed_request_dim(&gemini).expect("gemini hint"), Some(256));
+    gemini.config.dimensions = None;
+    let gemini_error = resolve_embed_request_dim(&gemini).expect_err("gemini native must error");
+    assert!(gemini_error.to_string().contains("explicit embedding dimension"));
+
+    // Anthropic has no embedding API at all.
+    let mut anthropic = embedding_provider();
+    anthropic.config.request_format = AiRequestFormat::Anthropic;
+    assert!(resolve_embed_request_dim(&anthropic).is_err());
+}
+
+#[test]
+fn stub_embedding_dimensions_honours_config_or_falls_back_to_synthetic_dim() {
+    // Config dim is honoured (no real-model assumption).
+    let provider = embedding_provider();
+    assert_eq!(stub_embedding_dimensions(&provider).expect("configured dim"), 3);
+
+    // No config dim → synthetic test dim (NOT 1536/768).
+    let mut no_dim = embedding_provider();
+    no_dim.config.dimensions = None;
+    let fallback = stub_embedding_dimensions(&no_dim).expect("fallback dim");
+    assert_ne!(fallback, 1536);
+    assert_ne!(fallback, 768);
+    assert!(fallback > 0);
+
+    // Anthropic still has no embedding path.
+    let mut anthropic = embedding_provider();
+    anthropic.config.request_format = AiRequestFormat::Anthropic;
+    assert!(stub_embedding_dimensions(&anthropic).is_err());
+}
+
+#[test]
+fn stub_embedding_vector_is_role_sensitive_and_normalized() {
+    let provider = embedding_provider();
+    let query = stub_embedding_vector(&provider, "same text", EmbeddingRole::Query, 5);
+    let document = stub_embedding_vector(&provider, "same text", EmbeddingRole::Document, 5);
+    assert_eq!(query.len(), 5);
+    assert_ne!(query, document);
+    let norm = query.iter().map(|value| value * value).sum::<f32>().sqrt();
+    assert!((norm - 1.0).abs() < 1e-6);
 }
 
 #[test]
