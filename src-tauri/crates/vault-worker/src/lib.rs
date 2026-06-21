@@ -24,6 +24,7 @@ mod mcp;
 mod migration;
 mod schedule;
 mod security;
+mod stars;
 
 #[cfg(all(test, coverage))]
 pub(crate) use self::intelligence::{
@@ -85,6 +86,7 @@ pub use self::{
         security_status, store_ai_provider_api_key, unlock_app_ui_session,
         write_database_key_to_keyring,
     },
+    stars::{is_starred_batch, list_stars, set_star, star_counts, unset_star},
 };
 #[cfg(test)]
 pub(crate) use self::{

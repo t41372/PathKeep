@@ -227,6 +227,40 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.limit,
             )?)
         }
+        "set_star" => {
+            let payload = parse_payload::<SetStarPayload>(payload)?;
+            json_value!(worker_bridge::set_star_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "unset_star" => {
+            let payload = parse_payload::<SetStarPayload>(payload)?;
+            json_value!(worker_bridge::unset_star_impl(
+                session_key(&state.session).as_deref(),
+                payload.request,
+            )?)
+        }
+        "get_star_status" => {
+            let payload = parse_payload::<StarStatusPayload>(payload)?;
+            json_value!(worker_bridge::is_starred_batch_impl(
+                session_key(&state.session).as_deref(),
+                payload.request.entity_kind,
+                &payload.request.entity_keys,
+            )?)
+        }
+        "list_stars" => {
+            let payload = parse_payload::<ListStarsPayload>(payload)?;
+            json_value!(worker_bridge::list_stars_impl(
+                session_key(&state.session).as_deref(),
+                payload.kind,
+                payload.sort,
+                payload.limit,
+            )?)
+        }
+        "get_star_counts" => {
+            json_value!(worker_bridge::star_counts_impl(session_key(&state.session).as_deref(),)?)
+        }
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
             json_value!(worker_bridge::export_app_data_impl(

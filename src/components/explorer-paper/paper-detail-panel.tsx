@@ -37,6 +37,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { cn } from '@/lib/cn'
+import { StarToggle } from '@/components/shell/star-toggle'
 import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperDetailPanelCopy {
@@ -47,6 +48,14 @@ export interface PaperDetailPanelCopy {
   copyAction: string
   refindAction: string
   exportAction: string
+  /** Star toggle aria labels for the page in this panel. */
+  starAction: string
+  unstarAction: string
+  /** State words for the star's polite live region ("Starred"/"Unstarred"). */
+  starStatusStarred: string
+  starStatusUnstarred: string
+  /** Discoverable "Press S to star" hint, appended to the star's tooltip. */
+  starShortcutHint: string
   /** Section headings ("Provenance", "Your notes", "Tags", "Look further"). */
   provenanceHeading: string
   notesHeading: string
@@ -168,6 +177,10 @@ export interface PaperDetailPanelProps {
   onExport?: (entry: PaperDetailPanelEntry) => void
   onUpdateNotes: (next: string) => void
   onUpdateTags: (next: string[]) => void
+  /** Whether the panel's page is starred. Omit to hide the star affordance. */
+  isStarred?: boolean
+  /** Toggles the star for the panel's page. Required for the star to render. */
+  onToggleStar?: (entry: PaperDetailPanelEntry) => void
   /**
    * Last annotation-write error, if any. When set, the panel surfaces a
    * "not saved" alert instead of the misleading "Saved · local" hint, so an
@@ -198,6 +211,8 @@ export function PaperDetailPanel({
   onExport,
   onUpdateNotes,
   onUpdateTags,
+  isStarred = false,
+  onToggleStar,
   annotationError,
   onOpenInsights,
   onOpenDomain,
@@ -458,6 +473,34 @@ export function PaperDetailPanel({
               label={copy.exportAction}
               onClick={onExport ? () => onExport(entry) : undefined}
             />
+            {onToggleStar ? (
+              <span
+                title={copy.starShortcutHint}
+                className="inline-flex self-center"
+              >
+                <StarToggle
+                  starred={isStarred}
+                  onToggle={() => onToggleStar(entry)}
+                  starLabel={copy.starAction}
+                  unstarLabel={copy.unstarAction}
+                  statusLabel={{
+                    starred: copy.starStatusStarred,
+                    unstarred: copy.starStatusUnstarred,
+                  }}
+                  alwaysVisible
+                  size={18}
+                  testId={testId ? `${testId}-star` : undefined}
+                  // Bordered icon action so the star reads as a sibling of the
+                  // Open · Copy · Refind · Export row (DetailAction grammar),
+                  // not a floating glyph.
+                  className={cn(
+                    'border-border-default text-ink-secondary bg-card-paper',
+                    'hover:border-ink-muted hover:text-accent',
+                    'h-[30px] w-[30px] self-center border',
+                  )}
+                />
+              </span>
+            ) : null}
           </div>
 
           <Divider />

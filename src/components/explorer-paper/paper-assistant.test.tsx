@@ -116,6 +116,11 @@ describe('PaperAssistantMessage', () => {
     expect(screen.queryByTestId('paper-assistant-evidence')).toBeNull()
   })
 
+  // TODO(W-AI-7): evidence-row star tests return when the agent emits real
+  // citations a user can star. The component's star props were removed because
+  // no live path forwarded them (AssistantTurn passes none, and the assistant
+  // produces no citations yet), so the tests were exercising dead surface.
+
   test('renders evidence rows without the count strip when evidenceLabel is omitted', () => {
     render(
       <PaperAssistantMessage

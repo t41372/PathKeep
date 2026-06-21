@@ -14,11 +14,12 @@ pub mod intelligence;
 pub mod progress;
 pub mod schedule;
 pub mod security;
+pub mod stars;
 
 /// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
     annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*,
-    progress::*, schedule::*, security::*,
+    progress::*, schedule::*, security::*, stars::*,
 };
 
 #[cfg(test)]

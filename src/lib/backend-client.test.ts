@@ -366,6 +366,57 @@ describe('backend client', () => {
         args: { query: 'keyword', limit: 10 },
       },
       {
+        run: () =>
+          backend.setStar({
+            entityKind: 'url',
+            entityKey: 'https://example.test/',
+          }),
+        command: 'set_star',
+        args: {
+          request: { entityKind: 'url', entityKey: 'https://example.test/' },
+        },
+      },
+      {
+        run: () =>
+          backend.unsetStar({
+            entityKind: 'domain',
+            entityKey: 'example.test',
+          }),
+        command: 'unset_star',
+        args: {
+          request: { entityKind: 'domain', entityKey: 'example.test' },
+        },
+      },
+      {
+        run: () =>
+          backend.getStarStatus({
+            entityKind: 'url',
+            entityKeys: ['https://example.test/'],
+          }),
+        command: 'get_star_status',
+        args: {
+          request: {
+            entityKind: 'url',
+            entityKeys: ['https://example.test/'],
+          },
+        },
+      },
+      {
+        run: () => backend.listStars(null, 'recently_starred'),
+        command: 'list_stars',
+        args: { kind: null, sort: 'recently_starred', limit: null },
+      },
+      {
+        run: () => backend.listStars('url', 'most_revisited', 50),
+        command: 'list_stars',
+        args: { kind: 'url', sort: 'most_revisited', limit: 50 },
+      },
+      {
+        run: () => backend.getStarCounts(),
+        command: 'get_star_counts',
+        args: {},
+      },
+      {
         run: () => backend.loadDashboardSnapshot(),
         command: 'load_dashboard_snapshot',
       },

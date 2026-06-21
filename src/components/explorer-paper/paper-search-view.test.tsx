@@ -40,6 +40,7 @@ const COPY: PaperSearchViewCopy = {
       fileDate: 'Filter by URL extension and visit date.',
       tag: 'Match user-applied tags.',
       note: 'Substring match against your own notes.',
+      starred: 'Show only starred pages.',
       regexNote: 'Regex mode uses Rust regex.',
     },
   },
@@ -190,5 +191,50 @@ describe('PaperSearchView', () => {
       belowHeroSlot: <div data-testid="below-hero">callout</div>,
     })
     expect(screen.getByTestId('below-hero')).toBeVisible()
+  })
+
+  test('forwards an entryStar provider to each result row', () => {
+    const onToggle = vi.fn()
+    renderView({
+      entryStar: {
+        isStarred: (url) => url === 'https://github.com/tokio-rs/tokio',
+        onToggle,
+        starLabel: 'Star',
+        unstarLabel: 'Unstar',
+      },
+    })
+    // One result is starred (Unstar label), the rest are not (Star label).
+    expect(screen.getByRole('button', { name: 'Unstar' })).toBeVisible()
+    const starButtons = screen.getAllByRole('button', { name: 'Star' })
+    fireEvent.click(starButtons[0])
+    expect(onToggle).toHaveBeenCalled()
+  })
+
+  test('skips the star for a result row that has no URL', () => {
+    renderView({
+      groups: [
+        {
+          date: '2026-05-16',
+          label: 'Yesterday',
+          entries: [
+            {
+              id: 'no-url',
+              title: 'No URL row',
+              url: '',
+              domain: 'x.test',
+              time: '01:00',
+            },
+          ],
+        },
+      ],
+      entryStar: {
+        isStarred: () => false,
+        onToggle: () => {},
+        starLabel: 'Star',
+        unstarLabel: 'Unstar',
+      },
+    })
+    // No star button renders for a URL-less row (the `entry.url` guard).
+    expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
   })
 })

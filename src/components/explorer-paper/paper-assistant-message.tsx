@@ -44,6 +44,11 @@ export interface PaperAssistantMessageProps {
   evidence?: readonly PaperAssistantEvidence[]
   evidenceLabel?: string
   onSelectEvidence?: (item: PaperAssistantEvidence) => void
+  // TODO(W-AI-7): re-add an evidence-row star (isEvidenceStarred / onToggleStar
+  // + star/unstar labels) once the agent emits real citations. The earlier
+  // plumbing was removed because no live path could ever fire it — the
+  // assistant produces no citations yet and AssistantTurn forwards no star
+  // props — so shipping it was dead, untestable surface.
   className?: string
   testId?: string
 }
@@ -103,29 +108,32 @@ export function PaperAssistantMessage({
             </div>
           ) : null}
           {evidence.map((item) => (
-            <button
-              type="button"
+            <div
               key={item.id}
-              onClick={() => onSelectEvidence?.(item)}
-              disabled={!onSelectEvidence}
-              data-testid={`paper-assistant-evidence-${item.id}`}
-              className={cn(
-                'border-border-light grid w-full grid-cols-[80px_1fr] items-center gap-[10px]',
-                'border-b py-[6px] last:border-b-0 text-left',
-                'enabled:cursor-pointer enabled:hover:text-accent transition-colors duration-150',
-                'disabled:cursor-default',
-              )}
+              className="group border-border-light flex items-center gap-[8px] border-b py-[6px] last:border-b-0"
             >
-              <span className="text-ink-faint font-mono text-[10.5px]">
-                {item.date}
-              </span>
-              <span className="text-ink-secondary font-serif text-[13px] leading-[1.3] tracking-[-0.005em]">
-                {item.title}{' '}
+              <button
+                type="button"
+                onClick={() => onSelectEvidence?.(item)}
+                disabled={!onSelectEvidence}
+                data-testid={`paper-assistant-evidence-${item.id}`}
+                className={cn(
+                  'grid min-w-0 flex-1 grid-cols-[80px_1fr] items-center gap-[10px] text-left',
+                  'enabled:cursor-pointer enabled:hover:text-accent transition-colors duration-150',
+                  'disabled:cursor-default',
+                )}
+              >
                 <span className="text-ink-faint font-mono text-[10.5px]">
-                  · {item.domain}
+                  {item.date}
                 </span>
-              </span>
-            </button>
+                <span className="text-ink-secondary font-serif text-[13px] leading-[1.3] tracking-[-0.005em]">
+                  {item.title}{' '}
+                  <span className="text-ink-faint font-mono text-[10.5px]">
+                    · {item.domain}
+                  </span>
+                </span>
+              </button>
+            </div>
           ))}
         </div>
       ) : null}

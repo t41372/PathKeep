@@ -36,6 +36,7 @@ const COPY: PaperSearchHeroCopy = {
     fileDate: 'Filter by URL extension and visit date.',
     tag: 'Match user-applied tags.',
     note: 'Substring match against your own notes.',
+    starred: 'Show only starred pages.',
     regexNote: 'Regex mode uses Rust regex.',
   },
 }

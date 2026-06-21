@@ -61,6 +61,15 @@ export interface PaperDetailPanelMountProps {
    * Look-further row entirely (the rest are still unwired placeholders).
    */
   onOpenDomain?: (domain: string) => void
+  /**
+   * Star affordance for the open page. When provided the panel shows a star
+   * toggle in its action row; `isStarred` reads the route's optimistic star
+   * cache and `onToggleStar` flips it (write-through happens in the hook).
+   */
+  stars?: {
+    isStarred: (url: string) => boolean
+    onToggleStar: (url: string) => void
+  }
 }
 
 /**
@@ -102,6 +111,7 @@ export function PaperDetailPanelMount({
   onOpen,
   onCopyUrl,
   onOpenDomain,
+  stars,
 }: PaperDetailPanelMountProps) {
   if (!selectedEntry) return null
   return (
@@ -130,6 +140,10 @@ export function PaperDetailPanelMount({
       onUpdateNotes={(next) => annotations.updateNotes(selectedEntry.url, next)}
       onUpdateTags={(next) => annotations.updateTags(selectedEntry.url, next)}
       annotationError={annotations.lastError}
+      isStarred={stars?.isStarred(selectedEntry.url) ?? false}
+      onToggleStar={
+        stars ? () => stars.onToggleStar(selectedEntry.url) : undefined
+      }
       onOpenDomain={
         onOpenDomain
           ? (entry) => {

@@ -390,6 +390,43 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "search_url_annotations",
         json!({ "query": "dispatch", "limit": 10 }),
     );
+    // Stars dispatch arms.
+    dispatch_for_coverage(
+        &state,
+        "set_star",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKey": "https://example.com/seed"
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "unset_star",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKey": "https://example.com/seed"
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "get_star_status",
+        json!({
+            "request": {
+                "entityKind": "url",
+                "entityKeys": ["https://example.com/seed"]
+            }
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "list_stars",
+        json!({ "kind": "url", "sort": "recently_starred", "limit": 10 }),
+    );
+    dispatch_for_coverage(&state, "get_star_counts", json!({}));
     dispatch_for_coverage(
         &state,
         "export_history",

@@ -17,10 +17,11 @@
  * - Fixtures stay bounded to one history row and do not hit IPC.
  */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { backend } from '../../lib/backend-client'
 import { ExplorerPage } from './index'
 
 const {
@@ -87,6 +88,11 @@ vi.mock('../../lib/backend-client', () => ({
     loadHistoryOgImages: vi.fn().mockResolvedValue([]),
     markOgImagesShown: vi.fn().mockResolvedValue(undefined),
     triggerOgImageRefetch: vi.fn().mockResolvedValue(0),
+    getStarStatus: vi.fn().mockResolvedValue({}),
+    setStar: vi.fn().mockResolvedValue(undefined),
+    unsetStar: vi.fn().mockResolvedValue(undefined),
+    listStars: vi.fn().mockResolvedValue([]),
+    getStarCounts: vi.fn().mockResolvedValue({ urls: 0, domains: 0 }),
   },
 }))
 
@@ -202,6 +208,47 @@ vi.mock('../../components/explorer-paper', () => ({
       </button>
     </div>
   ),
+  PaperStarredView: (props: {
+    items: { entityKind: string; entityKey: string }[]
+    onSelect?: (item: { entityKind: string; entityKey: string }) => void
+    onToggleStar: (item: { entityKind: string; entityKey: string }) => void
+  }) => (
+    <div data-testid="paper-starred-view">
+      <button
+        type="button"
+        data-testid="paper-starred-select-page"
+        onClick={() =>
+          props.onSelect?.({
+            entityKind: 'url',
+            entityKey: 'https://example.com/starred',
+          })
+        }
+      >
+        select-page
+      </button>
+      <button
+        type="button"
+        data-testid="paper-starred-select-source"
+        onClick={() =>
+          props.onSelect?.({ entityKind: 'domain', entityKey: 'example.com' })
+        }
+      >
+        select-source
+      </button>
+      <button
+        type="button"
+        data-testid="paper-starred-toggle"
+        onClick={() =>
+          props.onToggleStar({
+            entityKind: 'url',
+            entityKey: 'https://example.com/starred',
+          })
+        }
+      >
+        toggle
+      </button>
+    </div>
+  ),
 }))
 
 // Mock the paper surfaces so each test can fire their callbacks via
@@ -224,9 +271,29 @@ vi.mock('./paper-view', () => ({
     onSelectEntry: (entry: { id: number }) => void
     onJumpToDate: (iso: string) => void
     onClearTarget: () => void
+    entryStar?: {
+      isStarred: (url: string) => boolean
+      onToggle: (url: string) => void
+      starLabel: string
+      unstarLabel: string
+    }
   }) => (
-    <div data-testid="explorer-paper-view">
+    <div
+      data-testid="explorer-paper-view"
+      data-entry-star-state={
+        props.entryStar
+          ? `${props.entryStar.isStarred('https://example.com/row')}:${props.entryStar.starLabel}`
+          : 'no-star'
+      }
+    >
       {props.filterStripSlot}
+      <button
+        type="button"
+        data-testid="paper-view-toggle-star"
+        onClick={() => props.entryStar?.onToggle('https://example.com/row')}
+      >
+        star
+      </button>
       <span data-testid="paper-view-entry-count">{props.entries.length}</span>
       <span data-testid="paper-view-first-og-image">
         {props.entries[0]?.ogImage ?? 'none'}
@@ -272,10 +339,17 @@ vi.mock('./paper-detail-panel-mount', () => ({
     onClose: () => void
     onOpen: (url: string) => void
     onOpenDomain: (domain: string) => void
+    stars?: {
+      isStarred: (url: string) => boolean
+      onToggleStar: (url: string) => void
+    }
   }) => (
     <div
       data-testid="paper-detail-mount"
       data-annotation-source={props.annotations.notesFor('__source__')}
+      data-detail-star={String(
+        props.stars?.isStarred('https://example.com/open') ?? 'no-star',
+      )}
     >
       <button
         type="button"
@@ -293,6 +367,13 @@ vi.mock('./paper-detail-panel-mount', () => ({
       </button>
       <button
         type="button"
+        data-testid="paper-detail-toggle-star"
+        onClick={() => props.stars?.onToggleStar('https://example.com/open')}
+      >
+        star
+      </button>
+      <button
+        type="button"
         data-testid="paper-detail-open-domain"
         onClick={() => props.onOpenDomain('example.com')}
       >
@@ -304,6 +385,8 @@ vi.mock('./paper-detail-panel-mount', () => ({
 
 vi.mock('./paper-search-panel', () => ({
   PaperSearchPanel: (props: {
+    entries: Array<{ id: number }>
+    totalResults: number
     onQueryChange: (next: string) => void
     onModeChange: (next: { mode: string; regexMode: boolean }) => void
     onSubmit: (query: string) => void
@@ -315,8 +398,26 @@ vi.mock('./paper-search-panel', () => ({
       title: string
       body: string
     } | null
+    entryStar?: {
+      isStarred: (url: string) => boolean
+      onToggle: (url: string) => void
+    }
   }) => (
-    <div data-testid="paper-search-panel">
+    <div
+      data-testid="paper-search-panel"
+      data-search-entry-count={props.entries.length}
+      data-search-total={props.totalResults}
+      data-search-star={String(
+        props.entryStar?.isStarred('https://example.com/result') ?? 'no-star',
+      )}
+    >
+      <button
+        type="button"
+        data-testid="paper-search-toggle-star"
+        onClick={() => props.entryStar?.onToggle('https://example.com/result')}
+      >
+        star
+      </button>
       {props.aboveResultsCallout ? (
         <div data-testid="paper-search-above-results-callout">
           <span data-testid="paper-search-callout-title">
@@ -368,6 +469,13 @@ vi.mock('./paper-search-panel', () => ({
         onClick={() => props.onSelectEntry(7)}
       >
         select
+      </button>
+      <button
+        type="button"
+        data-testid="paper-search-select-starred"
+        onClick={() => props.onSelectEntry(-1)}
+      >
+        select-starred
       </button>
       <button
         type="button"
@@ -678,6 +786,257 @@ describe('ExplorerPage route shell', () => {
     const cleared = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
     expect(cleared.get('date')).toBeNull()
     expect(cleared.get('source')).toBeNull()
+  })
+
+  test('Browse rows expose a star toggle that writes through set_star', async () => {
+    const user = userEvent.setup()
+    renderExplorer()
+    expect(screen.getByTestId('explorer-paper-view')).toHaveAttribute(
+      'data-entry-star-state',
+      'false:explorer.star.starPageAria',
+    )
+    await user.click(screen.getByTestId('paper-view-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/row',
+      }),
+    )
+  })
+
+  test('the detail panel mount receives a star provider', async () => {
+    const user = userEvent.setup()
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, { selectedId: 42 }),
+    )
+    renderExplorer()
+    // Open the panel so the mount renders.
+    await user.click(screen.getByTestId('paper-view-select'))
+    const mount = await screen.findByTestId('paper-detail-mount')
+    expect(mount).toHaveAttribute('data-detail-star', 'false')
+    await user.click(screen.getByTestId('paper-detail-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/open',
+      }),
+    )
+  })
+
+  test('the Search panel receives a star provider', async () => {
+    const user = userEvent.setup()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=initial'),
+      }),
+    )
+    renderExplorer()
+    const panel = await screen.findByTestId('paper-search-panel')
+    expect(panel).toHaveAttribute('data-search-star', 'false')
+    await user.click(screen.getByTestId('paper-search-toggle-star'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/result',
+      }),
+    )
+  })
+
+  test('is:starred facet renders the TRUE starred set from list_stars with an honest total', async () => {
+    const user = userEvent.setup()
+    // No starred pages → the facet shows an empty, honest result (0 entries,
+    // 0 total), not a misleading slice of the loaded keyword page.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    const { unmount } = renderExplorer()
+    const panel = await screen.findByTestId('paper-search-panel')
+    expect(panel).toHaveAttribute('data-search-entry-count', '0')
+    expect(panel).toHaveAttribute('data-search-total', '0')
+    unmount()
+
+    // With two starred URL pages in `list_stars`, the facet renders BOTH (even
+    // though neither is in the loaded keyword page) and reports an honest total
+    // of 2 — the count is the size of the starred set, never a wrong page slice.
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/one',
+        starredAt: '2026-04-02T00:00:00Z',
+        domain: 'starred.test',
+        title: 'One',
+        visitCount: 3,
+      },
+      // Degenerate item: no title, no domain, unparseable starredAt — the
+      // HistoryEntry adapter must fall back to the key for title/domain and to 0
+      // for visitTime without throwing.
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/two',
+        starredAt: 'not-a-date',
+        domain: '',
+        title: '',
+        visitCount: 9,
+      },
+      // A domain star is excluded from the page facet.
+      {
+        entityKind: 'domain',
+        entityKey: 'starred.test',
+        starredAt: '2026-04-03T00:00:00Z',
+        domain: 'starred.test',
+        title: '',
+        visitCount: 12,
+      },
+    ])
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    renderExplorer()
+    await waitFor(() =>
+      expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+        'data-search-entry-count',
+        '2',
+      ),
+    )
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-total',
+      '2',
+    )
+    // Selecting an id that isn't in the starred set is a safe no-op (no detail
+    // panel binds to a synthetic id, and no visit fires).
+    await user.click(screen.getByTestId('paper-search-select'))
+    expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
+  })
+
+  test('selecting an is:starred row opens it via handleVisit (synthetic ids)', async () => {
+    const user = userEvent.setup()
+    const handleVisit = vi.fn()
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        entityKind: 'url',
+        entityKey: 'https://starred.test/one',
+        starredAt: '2026-04-02T00:00:00Z',
+        domain: 'starred.test',
+        title: 'One',
+        visitCount: 3,
+      },
+    ])
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        queryInput: 'is:starred',
+        searchParams: new URLSearchParams('surface=search&q=is%3Astarred'),
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, { handleVisit }),
+    )
+    renderExplorer()
+    await waitFor(() =>
+      expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+        'data-search-entry-count',
+        '1',
+      ),
+    )
+    // The synthetic starred row's id is -1; selecting it opens the URL via the
+    // visit flow rather than the (impossible) detail-panel id lookup.
+    await user.click(screen.getByTestId('paper-search-select-starred'))
+    expect(handleVisit).toHaveBeenCalledWith('https://starred.test/one')
+  })
+
+  test('the Browse toolbar exposes a visible Starred entry point that opens the hub', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({ setSearchParams }),
+    )
+    renderExplorer()
+    // The entry point lives in the Browse filter strip and is reachable by
+    // click — the hub is no longer URL-typing-only.
+    await user.click(screen.getByTestId('explorer-open-starred'))
+    const next = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(next.get('surface')).toBe('starred')
+  })
+
+  test('the Starred hub back button returns to Browse (clears surface)', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+        setSearchParams,
+      }),
+    )
+    renderExplorer()
+    await user.click(screen.getByTestId('explorer-starred-back'))
+    const next = setSearchParams.mock.calls.at(-1)?.[0] as URLSearchParams
+    expect(next.get('surface')).toBeNull()
+  })
+
+  test('the Starred hub surfaces a load error callout instead of a blank hub', async () => {
+    ;(backend.listStars as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('hub read failed'),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+      }),
+    )
+    renderExplorer()
+    expect(
+      await screen.findByText('explorer.star.saveError'),
+    ).toBeInTheDocument()
+  })
+
+  test('a failed star write surfaces a role=alert callout instead of reverting silently', async () => {
+    const user = userEvent.setup()
+    ;(backend.setStar as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('archive locked'),
+    )
+    renderExplorer()
+    await user.click(screen.getByTestId('paper-view-toggle-star'))
+    const alert = await screen.findByTestId('explorer-star-error')
+    expect(alert).toHaveAttribute('role', 'alert')
+  })
+
+  test('the Starred hub surface lists, opens, and un-stars items', async () => {
+    const user = userEvent.setup()
+    const setSearchParams = vi.fn()
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=starred'),
+        setSearchParams,
+      }),
+    )
+    renderExplorer()
+    expect(await screen.findByTestId('paper-starred-view')).toBeVisible()
+
+    // Selecting a page opens it via the visit flow (no throw).
+    await user.click(screen.getByTestId('paper-starred-select-page'))
+
+    // Selecting a source rewrites the URL to a domain filter.
+    await user.click(screen.getByTestId('paper-starred-select-source'))
+    const domainParams = setSearchParams.mock.calls.at(
+      -1,
+    )?.[0] as URLSearchParams
+    expect(domainParams.get('domain')).toBe('example.com')
+
+    // Toggling writes through (the optimistic cache starts empty, so the
+    // first toggle stars) and reloads the hub.
+    await user.click(screen.getByTestId('paper-starred-toggle'))
+    await waitFor(() =>
+      expect(backend.setStar).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKey: 'https://example.com/starred',
+      }),
+    )
   })
 
   test('paper filter strip trims filled values and deletes empty values from URL state', async () => {

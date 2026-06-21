@@ -14,8 +14,11 @@
  * - Keep route/query behavior aligned with `docs/design/screens-and-nav.md`.
  */
 
+import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { InsightEntityActions } from '../../components/intelligence/entity-actions'
+import { StarToggle } from '../../components/shell/star-toggle'
+import { useDesktopStars } from '../explorer/use-desktop-stars'
 import { InsightEntityHero } from '../../components/intelligence/entity-hero'
 import { SearchKeywordsBrowser } from '../../components/intelligence/search-keywords-browser'
 import { IntelligenceSectionMeta } from '../../components/intelligence/section-meta'
@@ -162,6 +165,17 @@ export function DomainDeepDivePage({
     [dateRange, domain, profileId],
   )
   const detail = data?.data ?? null
+
+  // Stars are an "everywhere" affordance — the deep-dive's domain entity is
+  // starrable from the hero. Hydrate the single registrable domain this route
+  // is about (one key, never the archive) and expose a StarToggle via the
+  // hero's `InsightEntityActions` `extra` slot.
+  const stars = useDesktopStars()
+  const detailDomain = detail?.registrableDomain ?? null
+  useEffect(() => {
+    if (detailDomain) stars.hydrate('domain', [detailDomain])
+  }, [detailDomain, stars])
+
   const focusedCompareSetId =
     focus?.focusType === 'compare-set' ? focus.focusId : null
   const focusedCompareSetResult = useAsyncData<Awaited<
@@ -254,6 +268,22 @@ export function DomainDeepDivePage({
       <InsightEntityHero
         actions={
           <InsightEntityActions
+            extra={
+              <StarToggle
+                starred={stars.isStarred('domain', detail.registrableDomain)}
+                onToggle={() =>
+                  stars.toggle('domain', detail.registrableDomain)
+                }
+                starLabel={t('entityStarSourceAria')}
+                unstarLabel={t('entityUnstarSourceAria')}
+                statusLabel={{
+                  starred: t('entityStarStatusStarred'),
+                  unstarred: t('entityStarStatusUnstarred'),
+                }}
+                alwaysVisible
+                testId={`domain-deep-dive-star-${detail.registrableDomain}`}
+              />
+            }
             items={[
               {
                 href: evidenceHref({

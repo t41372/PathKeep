@@ -25,6 +25,7 @@ export * from './migration'
 export * from './schedule'
 export * from './security'
 export * from './shared'
+export * from './stars'
 export * from './support'
 export * from './update'
 
@@ -39,6 +40,7 @@ import { intelligenceClient } from './intelligence'
 import { migrationClient } from './migration'
 import { scheduleClient } from './schedule'
 import { securityClient } from './security'
+import { starsClient } from './stars'
 import { supportClient } from './support'
 import { updateClient } from './update'
 
@@ -83,6 +85,11 @@ export const backend = {
   replaceUrlTags: annotationsClient.replaceUrlTags,
   listUrlAnnotations: annotationsClient.listUrlAnnotations,
   searchUrlAnnotations: annotationsClient.searchUrlAnnotations,
+  setStar: starsClient.setStar,
+  unsetStar: starsClient.unsetStar,
+  getStarStatus: starsClient.getStarStatus,
+  listStars: starsClient.listStars,
+  getStarCounts: starsClient.getStarCounts,
   exportAppData: migrationClient.exportAppData,
   previewAppDataImport: migrationClient.previewAppDataImport,
   applyAppDataImport: migrationClient.applyAppDataImport,

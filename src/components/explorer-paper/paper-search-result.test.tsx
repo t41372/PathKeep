@@ -279,4 +279,27 @@ describe('PaperSearchResult', () => {
       globalThis.RegExp = realRegExp
     }
   })
+
+  test('renders a star (testId-scoped) and toggles it without selecting the row', () => {
+    const onSelect = vi.fn()
+    const onToggle = vi.fn()
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        onSelect={onSelect}
+        star={{
+          starred: false,
+          onToggle,
+          starLabel: 'Star',
+          unstarLabel: 'Unstar',
+        }}
+        testId="result-star"
+      />,
+    )
+    fireEvent.click(screen.getByTestId('result-star-star'))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
 })

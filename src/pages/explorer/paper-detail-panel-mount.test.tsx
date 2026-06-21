@@ -399,4 +399,37 @@ describe('PaperDetailPanelMount', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/Invalid Date/)).toBeNull()
   })
+
+  test('wires the star provider to the panel when stars is supplied', () => {
+    const onToggleStar = vi.fn()
+    const isStarred = vi.fn((url: string) => url === 'https://example.com/x')
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry()}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+        stars={{ isStarred, onToggleStar }}
+      />,
+    )
+    expect(isStarred).toHaveBeenCalledWith('https://example.com/x')
+    const star = screen.getByTestId('explorer-paper-detail-panel-star')
+    expect(star).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(star)
+    expect(onToggleStar).toHaveBeenCalledWith('https://example.com/x')
+  })
+
+  test('omits the star action when no stars provider is supplied', () => {
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry()}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+      />,
+    )
+    expect(screen.queryByTestId('explorer-paper-detail-panel-star')).toBeNull()
+  })
 })

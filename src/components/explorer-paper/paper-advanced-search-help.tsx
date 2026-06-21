@@ -37,6 +37,7 @@ const ADVANCED_SEARCH_EXAMPLES = [
   },
   { code: 'tag:rust -tag:archived', labelKey: 'tag' },
   { code: 'note:"design doc"', labelKey: 'note' },
+  { code: 'is:starred', labelKey: 'starred' },
 ] as const
 
 export interface PaperAdvancedSearchHelpCopy {
@@ -50,6 +51,7 @@ export interface PaperAdvancedSearchHelpCopy {
   fileDate: string
   tag: string
   note: string
+  starred: string
   regexNote: string
 }
 

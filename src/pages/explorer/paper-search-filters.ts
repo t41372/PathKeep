@@ -34,6 +34,7 @@ const KNOWN_OPERATORS: ReadonlySet<string> = new Set([
   'title',
   'inurl',
   'url',
+  'is',
 ])
 
 const OPERATOR_KIND: Record<string, ActiveFilterKind> = {
@@ -48,6 +49,7 @@ const OPERATOR_KIND: Record<string, ActiveFilterKind> = {
   title: 'intitle',
   inurl: 'inurl',
   url: 'inurl',
+  is: 'is',
 }
 
 export type ActiveFilterKind =
@@ -59,6 +61,7 @@ export type ActiveFilterKind =
   | 'before'
   | 'intitle'
   | 'inurl'
+  | 'is'
 
 export interface ActiveSearchFilter {
   /**
@@ -251,4 +254,19 @@ export function removeFilterToken(query: string, tokenIndex: number): string {
   if (before.length === 0) return after
   if (after.length === 0) return before
   return `${before} ${after}`
+}
+
+/**
+ * True when the query carries the `is:starred` facet (positive form only).
+ * The Explorer route uses this to restrict the current view to starred pages.
+ * Case-insensitive on both the operator and the `starred` value; a negated
+ * `-is:starred` token does NOT count (the MVP only filters *to* starred).
+ */
+export function hasStarredFacet(query: string): boolean {
+  return parseActiveSearchFilters(query).some(
+    (filter) =>
+      filter.kind === 'is' &&
+      !filter.negated &&
+      filter.value.toLowerCase() === 'starred',
+  )
 }

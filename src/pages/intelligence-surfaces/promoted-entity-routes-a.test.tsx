@@ -24,7 +24,7 @@
  * - Reuses shared wrappers so the split suite does not duplicate setup-heavy scaffolding.
  */
 
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import * as coreIntelligenceApi from '../../lib/core-intelligence/api'
@@ -191,6 +191,26 @@ describe('intelligence surfaces', () => {
     expect(
       topSitesSection.closest('.intelligence-secondary-grid'),
     ).not.toBeNull()
+
+    // Intelligence entities are starrable too (the "everywhere" requirement).
+    // The top-site domain row and the refind page row each carry a StarToggle
+    // wired to useDesktopStars; an optimistic click flips aria-pressed at once.
+    const domainStar = await screen.findByTestId(
+      'day-insights-star-domain-sqlite.org',
+    )
+    expect(domainStar).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(domainStar)
+    await waitFor(() =>
+      expect(domainStar).toHaveAttribute('aria-pressed', 'true'),
+    )
+    const pageStar = screen.getByTestId(
+      'day-insights-star-page-https://sqlite.org/lang.html',
+    )
+    expect(pageStar).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(pageStar)
+    await waitFor(() =>
+      expect(pageStar).toHaveAttribute('aria-pressed', 'true'),
+    )
   })
 
   test('keeps invalid and unavailable day-insight routes honest', async () => {

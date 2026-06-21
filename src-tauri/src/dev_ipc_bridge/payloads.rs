@@ -28,7 +28,7 @@ use vault_core::{
     AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
     BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
     HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
-    TakeoutRequest,
+    SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -274,6 +274,25 @@ pub(super) struct AnnotationLimitPayload {
 /// commands group their typed input under a `request` field.
 pub(super) type SetNotesPayload = WrappedRequest<SetNotesRequest>;
 pub(super) type ReplaceTagsPayload = WrappedRequest<ReplaceTagsRequest>;
+
+/// Bridge envelopes for the star commands. `set_star` / `unset_star` /
+/// `get_star_status` group their typed input under a `request` field, mirroring
+/// the production command signatures.
+pub(super) type SetStarPayload = WrappedRequest<SetStarRequest>;
+pub(super) type StarStatusPayload = WrappedRequest<StarStatusRequest>;
+
+/// Bridge envelope for list_stars — the desktop command takes an optional kind
+/// filter, a sort, and an optional row cap as top-level fields.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ListStarsPayload {
+    #[serde(default)]
+    pub(super) kind: Option<StarEntityKind>,
+    #[serde(default)]
+    pub(super) sort: StarSort,
+    #[serde(default)]
+    pub(super) limit: Option<usize>,
+}
 
 /// Bridge envelope for get_browse_day_insights — the desktop command
 /// groups its typed input under `request`.

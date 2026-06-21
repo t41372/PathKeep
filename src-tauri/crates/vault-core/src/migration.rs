@@ -1035,6 +1035,74 @@ mod tests {
     }
 
     #[test]
+    fn stars_survive_export_and_reimport_roundtrip() {
+        // Stars are user-authored canonical content that lives in
+        // history-vault.sqlite, so they must ride the portable bundle exactly
+        // like notes/tags — proven end-to-end here by starring a page +
+        // domain, exporting, importing onto a fresh root, and reading both
+        // stars back through the public stars API.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        crate::stars::set_star(
+            &src_paths,
+            &config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Url,
+                entity_key: "https://example.com/keepme".into(),
+                source_profile: Some("chrome:Default".into()),
+            },
+        )
+        .expect("star a page before export");
+        crate::stars::set_star(
+            &src_paths,
+            &config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Domain,
+                entity_key: "example.com".into(),
+                source_profile: None,
+            },
+        )
+        .expect("star a domain before export");
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = AppConfig::default();
+        apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_target,
+            &ApplyImportOptions { confirm_overwrite: false, ..Default::default() },
+        )
+        .expect("apply import onto fresh root");
+
+        // Both stars must be present in the imported archive.
+        let url_status = crate::stars::is_starred_batch(
+            &dest_paths,
+            &dest_config,
+            None,
+            crate::models::StarEntityKind::Url,
+            &["https://example.com/keepme".to_string()],
+        )
+        .expect("read url star after import");
+        assert_eq!(
+            url_status.get("https://example.com/keepme"),
+            Some(&true),
+            "page star must survive the export/import bundle",
+        );
+
+        let counts = crate::stars::star_counts(&dest_paths, &dest_config, None)
+            .expect("count stars after import");
+        assert_eq!(counts.urls, 1, "exactly the page star survives");
+        assert_eq!(counts.domains, 1, "the domain star survives too");
+    }
+
+    #[test]
     fn export_excludes_agent_chat_transcripts_from_the_bundle() {
         // Data-sovereignty default: the assistant chat sidecar (`derived/agent.sqlite`) must NOT
         // ride the portable export, even though it sits inside the otherwise-included `derived/`

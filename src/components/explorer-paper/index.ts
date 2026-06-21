@@ -66,6 +66,7 @@ export { PaperContactSheet } from './paper-contact-sheet'
 export type {
   PaperContactSheetCopy,
   PaperContactSheetDayNav,
+  PaperContactSheetEntryStar,
   PaperContactSheetProps,
   PaperContactSheetTarget,
   PaperViewMode,
@@ -205,3 +206,9 @@ export type {
   PaperAuditViewCopy,
   PaperAuditViewProps,
 } from './paper-audit-view'
+
+export { PaperStarredView } from './paper-starred-view'
+export type {
+  PaperStarredViewCopy,
+  PaperStarredViewProps,
+} from './paper-starred-view'

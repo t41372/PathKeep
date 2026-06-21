@@ -422,6 +422,32 @@ describe('PaperContactFrame', () => {
       fireEvent.click(screen.getByTestId('frame-noop')),
     ).not.toThrow()
   })
+
+  test('renders a star overlay and toggles it without selecting the card', () => {
+    const onClick = vi.fn()
+    const onToggle = vi.fn()
+    render(
+      <PaperContactFrame
+        entry={entry}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        selected
+        onClick={onClick}
+        star={{
+          starred: true,
+          onToggle,
+          starLabel: 'Star',
+          unstarLabel: 'Unstar',
+        }}
+        testId="frame-star"
+      />,
+    )
+    const star = screen.getByTestId('frame-star-star')
+    expect(star).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(star)
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onClick).not.toHaveBeenCalled()
+  })
 })
 
 describe('PaperListRow', () => {
@@ -585,6 +611,30 @@ describe('PaperListRow', () => {
     expect(screen.getByTestId('list-no-favicon-swatch')).toHaveTextContent(
       'ARX',
     )
+  })
+
+  test('renders a star overlay and toggles it without triggering the row click', () => {
+    const onClick = vi.fn()
+    const onToggle = vi.fn()
+    render(
+      <PaperListRow
+        entry={entry}
+        domainColor="#a8322d"
+        domainAbbr="ARX"
+        onClick={onClick}
+        star={{
+          starred: false,
+          onToggle,
+          starLabel: 'Star',
+          unstarLabel: 'Unstar',
+        }}
+        testId="list-star"
+      />,
+    )
+    const star = screen.getByTestId('list-star-star')
+    fireEvent.click(star)
+    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onClick).not.toHaveBeenCalled()
   })
 })
 

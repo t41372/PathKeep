@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type {
@@ -17,11 +18,24 @@ const {
   getDomainDeepDiveMock,
   getPathFlowsMock,
   routeStateMock,
+  starsToggleMock,
+  starsHydrateMock,
 } = vi.hoisted(() => ({
   getCompareSetDetailMock: vi.fn(),
   getDomainDeepDiveMock: vi.fn(),
   getPathFlowsMock: vi.fn(),
   routeStateMock: vi.fn(),
+  starsToggleMock: vi.fn(),
+  starsHydrateMock: vi.fn(),
+}))
+
+vi.mock('../explorer/use-desktop-stars', () => ({
+  useDesktopStars: () => ({
+    isStarred: () => false,
+    hydrate: starsHydrateMock,
+    toggle: starsToggleMock,
+    lastError: null,
+  }),
 }))
 
 vi.mock('../../lib/i18n/hooks', () => ({
@@ -162,6 +176,27 @@ describe('DomainDeepDive route and page', () => {
     expect(
       screen.getByText('scopedViewBody:{"profile":"chrome:Default"}'),
     ).toBeVisible()
+  })
+
+  test('the domain hero exposes a star toggle wired to useDesktopStars', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/intelligence/domain/example.com']}>
+        <Routes>
+          <Route
+            path="/intelligence/domain/:domain"
+            element={<DomainDeepDiveRoutePage />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const star = await screen.findByTestId('domain-deep-dive-star-example.com')
+    // The single domain is hydrated on mount, never the whole archive.
+    await waitFor(() =>
+      expect(starsHydrateMock).toHaveBeenCalledWith('domain', ['example.com']),
+    )
+    await user.click(star)
+    expect(starsToggleMock).toHaveBeenCalledWith('domain', 'example.com')
   })
 
   test('shows loading and error states from the domain detail request', async () => {

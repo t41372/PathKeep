@@ -21,6 +21,7 @@
 
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { StarToggle } from '@/components/shell/star-toggle'
 import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperSearchResultEntry {
@@ -44,6 +45,13 @@ export interface PaperSearchResultProps {
   onSelect?: (entry: PaperSearchResultEntry) => void
   onSeeInContext?: (entry: PaperSearchResultEntry) => void
   seeInContextLabel?: string
+  /** Star affordance for this result. Omit to hide it. */
+  star?: {
+    starred: boolean
+    onToggle: () => void
+    starLabel: string
+    unstarLabel: string
+  }
   className?: string
   testId?: string
 }
@@ -56,6 +64,7 @@ export function PaperSearchResult({
   onSelect,
   onSeeInContext,
   seeInContextLabel,
+  star,
   className,
   testId,
 }: PaperSearchResultProps) {
@@ -128,12 +137,23 @@ export function PaperSearchResult({
         ) : null}
       </div>
 
-      <div className="text-ink-faint flex shrink-0 flex-col items-end gap-[2px] font-mono text-[10px]">
-        <span>{entry.time}</span>
-        {entry.transitionType ? (
-          <span className="text-ink-faint uppercase tracking-[0.06em] text-[9px]">
-            {entry.transitionType}
-          </span>
+      <div className="flex shrink-0 items-start gap-2">
+        <div className="text-ink-faint flex flex-col items-end gap-[2px] font-mono text-[10px]">
+          <span>{entry.time}</span>
+          {entry.transitionType ? (
+            <span className="text-ink-faint uppercase tracking-[0.06em] text-[9px]">
+              {entry.transitionType}
+            </span>
+          ) : null}
+        </div>
+        {star ? (
+          <StarToggle
+            starred={star.starred}
+            onToggle={star.onToggle}
+            starLabel={star.starLabel}
+            unstarLabel={star.unstarLabel}
+            testId={testId ? `${testId}-star` : undefined}
+          />
         ) : null}
       </div>
     </div>

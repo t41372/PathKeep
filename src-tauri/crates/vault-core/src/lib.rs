@@ -32,6 +32,7 @@ pub mod intelligence_runtime;
 mod intelligence_sections;
 pub mod migration;
 pub mod models;
+pub mod stars;
 pub mod takeout;
 pub mod utils;
 pub mod visit_taxonomy;
@@ -113,6 +114,7 @@ pub use models::*;
 /// Re-export of the two `secrecy` symbols callers need to construct/expose
 /// [`AiProviderRuntime`] secrets without taking their own direct dependency on the crate.
 pub use secrecy::{ExposeSecret, SecretString};
+pub use stars::{is_starred_batch, list_stars, set_star, star_counts, unset_star};
 pub use takeout::{
     import_browser_history, import_browser_history_with_progress, import_takeout,
     import_takeout_with_progress, inspect_browser_history, inspect_takeout, load_import_batches,

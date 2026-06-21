@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   appendOperator,
+  hasStarredFacet,
   parseActiveSearchFilters,
   removeFilterToken,
   tokenizeQuery,
@@ -196,5 +197,26 @@ describe('removeFilterToken', () => {
     const query = 'rust tag:rust'
     expect(removeFilterToken(query, 99)).toBe('rust tag:rust')
     expect(removeFilterToken('', 0)).toBe('')
+  })
+})
+
+describe('is:starred facet', () => {
+  test('parses is:starred into an "is" filter chip', () => {
+    const filters = parseActiveSearchFilters('rust is:starred')
+    expect(filters.map(({ kind, value }) => ({ kind, value }))).toEqual([
+      { kind: 'is', value: 'starred' },
+    ])
+  })
+
+  test('hasStarredFacet detects the positive facet case-insensitively', () => {
+    expect(hasStarredFacet('is:starred')).toBe(true)
+    expect(hasStarredFacet('rust IS:Starred async')).toBe(true)
+  })
+
+  test('hasStarredFacet ignores the negated facet and other is: values', () => {
+    expect(hasStarredFacet('-is:starred')).toBe(false)
+    expect(hasStarredFacet('is:archived')).toBe(false)
+    expect(hasStarredFacet('rust async')).toBe(false)
+    expect(hasStarredFacet('')).toBe(false)
   })
 })

@@ -44,6 +44,7 @@ const MIGRATION_011_NOTES_TAGS_SQL: &str = include_str!("../migrations/011_notes
 const MIGRATION_012_OG_IMAGES_SQL: &str = include_str!("../migrations/012_og_images.sql");
 const MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL: &str =
     include_str!("../migrations/013_urls_last_visit_index.sql");
+const MIGRATION_014_STARS_SQL: &str = include_str!("../migrations/014_stars.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -85,6 +86,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 11, sql: MIGRATION_011_NOTES_TAGS_SQL },
     MigrationSpec { version: 12, sql: MIGRATION_012_OG_IMAGES_SQL },
     MigrationSpec { version: 13, sql: MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL },
+    MigrationSpec { version: 14, sql: MIGRATION_014_STARS_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -375,7 +377,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 13);
+        assert_eq!(current_version(&connection).expect("schema version"), 14);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -385,6 +387,9 @@ mod tests {
         assert!(has_table(&connection, "url_tags"));
         assert!(has_table(&connection, "og_images"));
         assert!(has_table(&connection, "og_image_blobs"));
+        assert!(has_table(&connection, "star"));
+        assert!(has_index(&connection, "idx_star_kind_starred_at"));
+        assert!(has_index(&connection, "idx_urls_url"));
         assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(has_index(&connection, "idx_favicons_page_lookup"));
         assert!(has_index(&connection, "idx_favicons_blob_hash"));
@@ -419,7 +424,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 13);
+        assert_eq!(count, 14);
     }
 
     #[test]
@@ -498,12 +503,48 @@ mod tests {
     }
 
     #[test]
+    fn migration_014_upgrades_from_v013_and_is_idempotent() {
+        // Apply migrations 1..=13 only (the schema as it shipped before stars),
+        // then run the full ledger so migration 014 lands as an *upgrade* — the
+        // path real users hit when an older archive opens under a stars-aware
+        // build. Idempotency + checksum stability are covered by re-running.
+        let connection = Connection::open_in_memory().expect("memory db");
+        let through_13: Vec<MigrationSpec<'static>> =
+            MIGRATIONS.iter().filter(|spec| spec.version <= 13).copied().collect();
+        run_migrations_with_specs(&connection, &through_13).expect("apply v1..=v13");
+        assert_eq!(current_version(&connection).expect("pre-stars version"), 13);
+        assert!(!has_table(&connection, "star"), "star table must not exist before v14");
+
+        // Forward-migrate to v14.
+        run_migrations(&connection).expect("apply v14 upgrade");
+        assert_eq!(current_version(&connection).expect("post-stars version"), 14);
+        assert!(has_table(&connection, "star"));
+        assert!(has_index(&connection, "idx_star_kind_starred_at"));
+        assert!(has_index(&connection, "idx_urls_url"));
+
+        // Re-running is a no-op: the checksum matches, so the count stays put.
+        run_migrations(&connection).expect("idempotent re-run");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .expect("migration count");
+        assert_eq!(count, 14);
+
+        // The recorded checksum matches the SQL on disk (tamper guard).
+        let recorded: String = connection
+            .query_row("SELECT checksum FROM schema_migrations WHERE version = 14", [], |row| {
+                row.get(0)
+            })
+            .expect("read v14 checksum");
+        assert_eq!(recorded, sha256_hex(MIGRATION_014_STARS_SQL.as_bytes()));
+    }
+
+    #[test]
     fn migration_version_reported_correctly() {
         let connection = Connection::open_in_memory().expect("memory db");
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 13);
+        assert_eq!(current_version(&connection).expect("migrated version"), 14);
     }
 
     #[test]
@@ -554,7 +595,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 13);
+                assert_eq!(join.join().expect("thread join"), 14);
             }
         });
 

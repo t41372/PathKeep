@@ -14,6 +14,7 @@
  */
 
 import { cn } from '@/lib/cn'
+import { StarToggle } from '@/components/shell/star-toggle'
 import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperListRowEntry {
@@ -39,12 +40,25 @@ export interface PaperListRowEntry {
   ogImageDataUrl?: string | null
 }
 
+/**
+ * Optional star affordance for the row. When provided, a hover-revealed (or, on
+ * the selected row, always-visible) star sits in the right column. Kept as a
+ * sibling overlay rather than a nested `<button>` so the row stays valid HTML.
+ */
+export interface PaperListRowStar {
+  starred: boolean
+  onToggle: () => void
+  starLabel: string
+  unstarLabel: string
+}
+
 export interface PaperListRowProps {
   entry: PaperListRowEntry
   domainColor: string
   domainAbbr: string
   selected?: boolean
   onClick?: (entry: PaperListRowEntry) => void
+  star?: PaperListRowStar
   className?: string
   testId?: string
 }
@@ -55,6 +69,7 @@ export function PaperListRow({
   domainAbbr,
   selected = false,
   onClick,
+  star,
   className,
   testId,
 }: PaperListRowProps) {
@@ -63,61 +78,75 @@ export function PaperListRow({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      data-entry-id={entry.id}
-      data-selected={selected ? 'true' : undefined}
-      data-testid={testId}
-      className={cn(
-        'border-border-light grid w-full grid-cols-[26px_1fr_auto] items-center gap-[10px] border-b px-1 py-[7px] text-left',
-        'hover:bg-hover transition-colors duration-100',
-        selected && 'bg-accent-soft',
-        className,
-      )}
-    >
-      {entry.faviconDataUrl ? (
-        <img
-          src={entry.faviconDataUrl}
-          alt=""
-          aria-hidden="true"
-          data-testid={testId ? `${testId}-favicon` : undefined}
-          className="border-border-light h-4 w-4 self-center justify-self-center rounded-[3px] border bg-page object-contain"
-        />
-      ) : entry.ogImageDataUrl ? (
-        <img
-          src={entry.ogImageDataUrl}
-          alt=""
-          aria-hidden="true"
-          data-testid={testId ? `${testId}-og-icon` : undefined}
-          className="border-border-light h-5 w-5 self-center justify-self-center rounded-[3px] border bg-page object-cover"
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          data-testid={testId ? `${testId}-swatch` : undefined}
-          className="flex h-6 w-6 items-center justify-center rounded-[6px] font-mono text-[8px] font-semibold"
-          style={{
-            background: domainColor,
-            color: 'rgba(255,255,255,0.7)',
-          }}
-        >
-          {domainAbbr}
-        </span>
-      )}
-      <span className="flex min-w-0 items-baseline gap-2">
-        <span className="text-ink flex-1 truncate font-sans text-[12.5px]">
-          {sanitizeExplorerDisplayText(
-            entry.title || entry.url || entry.domain,
-          )}
+    <div className="group relative flex w-full items-stretch">
+      <button
+        type="button"
+        onClick={handleClick}
+        data-entry-id={entry.id}
+        data-selected={selected ? 'true' : undefined}
+        data-testid={testId}
+        className={cn(
+          'border-border-light grid w-full grid-cols-[26px_1fr_auto] items-center gap-[10px] border-b px-1 py-[7px] text-left',
+          'hover:bg-hover transition-colors duration-100',
+          selected && 'bg-accent-soft',
+          star && 'pr-8',
+          className,
+        )}
+      >
+        {entry.faviconDataUrl ? (
+          <img
+            src={entry.faviconDataUrl}
+            alt=""
+            aria-hidden="true"
+            data-testid={testId ? `${testId}-favicon` : undefined}
+            className="border-border-light h-4 w-4 self-center justify-self-center rounded-[3px] border bg-page object-contain"
+          />
+        ) : entry.ogImageDataUrl ? (
+          <img
+            src={entry.ogImageDataUrl}
+            alt=""
+            aria-hidden="true"
+            data-testid={testId ? `${testId}-og-icon` : undefined}
+            className="border-border-light h-5 w-5 self-center justify-self-center rounded-[3px] border bg-page object-cover"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            data-testid={testId ? `${testId}-swatch` : undefined}
+            className="flex h-6 w-6 items-center justify-center rounded-[6px] font-mono text-[8px] font-semibold"
+            style={{
+              background: domainColor,
+              color: 'rgba(255,255,255,0.7)',
+            }}
+          >
+            {domainAbbr}
+          </span>
+        )}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="text-ink flex-1 truncate font-sans text-[12.5px]">
+            {sanitizeExplorerDisplayText(
+              entry.title || entry.url || entry.domain,
+            )}
+          </span>
+          <span className="text-ink-faint shrink-0 font-mono text-[10px]">
+            {entry.domain}
+          </span>
         </span>
         <span className="text-ink-faint shrink-0 font-mono text-[10px]">
-          {entry.domain}
+          {entry.time}
         </span>
-      </span>
-      <span className="text-ink-faint shrink-0 font-mono text-[10px]">
-        {entry.time}
-      </span>
-    </button>
+      </button>
+      {star ? (
+        <StarToggle
+          starred={star.starred}
+          onToggle={star.onToggle}
+          starLabel={star.starLabel}
+          unstarLabel={star.unstarLabel}
+          alwaysVisible={selected}
+          testId={testId ? `${testId}-star` : undefined}
+          className="absolute top-1/2 right-1 -translate-y-1/2"
+        />
+      ) : null}
+    </div>
   )
 }

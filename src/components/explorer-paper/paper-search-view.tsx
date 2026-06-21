@@ -77,6 +77,16 @@ export interface PaperSearchViewProps {
   onSubmit?: (query: string) => void
   onSelectEntry?: (entry: PaperSearchResultEntry) => void
   onSeeInContext?: (entry: PaperSearchResultEntry, dayDate: string) => void
+  /**
+   * Optional star provider for each result row, keyed by the result's URL.
+   * Omit to keep results star-free.
+   */
+  entryStar?: {
+    isStarred: (url: string) => boolean
+    onToggle: (url: string) => void
+    starLabel: string
+    unstarLabel: string
+  }
   onPickSuggestion?: (suggestion: PaperSearchSuggestion) => void
   onRunRecent?: (recent: PaperSearchRecent) => void
   onAddDateFilter?: () => void
@@ -115,6 +125,7 @@ export function PaperSearchView({
   onSubmit,
   onSelectEntry,
   onSeeInContext,
+  entryStar,
   onPickSuggestion,
   onRunRecent,
   onAddDateFilter,
@@ -244,6 +255,16 @@ export function PaperSearchView({
                       : undefined
                   }
                   seeInContextLabel={copy.seeInContextLabel}
+                  star={
+                    entryStar && entry.url
+                      ? {
+                          starred: entryStar.isStarred(entry.url),
+                          onToggle: () => entryStar.onToggle(entry.url),
+                          starLabel: entryStar.starLabel,
+                          unstarLabel: entryStar.unstarLabel,
+                        }
+                      : undefined
+                  }
                 />
               ))}
             </div>

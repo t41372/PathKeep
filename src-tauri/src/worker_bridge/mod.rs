@@ -13,6 +13,7 @@ mod intelligence;
 mod migration;
 mod schedule;
 mod security;
+mod stars;
 
 // `annotations::*` is exercised only via the production command facade
 // (#[cfg(not(test))]); the worker_bridge test block doesn't drive notes/tags
@@ -28,6 +29,12 @@ pub(crate) use self::annotations::*;
 // and the glob is only loaded for production builds.
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use self::migration::*;
+// `stars::*` follows the same cfg-cleanliness pattern as annotations: the
+// worker_bridge test block drives the star impls (see the stars coverage test),
+// but each `_impl` still carries its own #[cfg_attr(test, allow(dead_code))] so
+// the glob stays quiet in any build configuration.
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use self::stars::*;
 pub(crate) use self::{app::*, archive::*, import::*, intelligence::*, schedule::*, security::*};
 
 /// Normalizes worker/core errors into the string transport contract used by Tauri commands.
@@ -931,6 +938,63 @@ mod tests {
             super::search_annotations_impl(session_key(&session).as_deref(), "internals", Some(10))
                 .expect("search annotations");
         assert!(searched.iter().any(|record| record.url == url));
+
+        // Stars PME loop — toggle, batched status, list, and counts across
+        // both the worker_bridge `_impl` surface AND the vault-worker fns it
+        // delegates to (cross-crate coverage runs under `--workspace`).
+        super::set_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Url,
+                entity_key: url.to_string(),
+                source_profile: Some("chrome:Default".to_string()),
+            },
+        )
+        .expect("set url star");
+        super::set_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Domain,
+                entity_key: "example.com".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("set domain star");
+
+        let status = super::is_starred_batch_impl(
+            session_key(&session).as_deref(),
+            vault_core::StarEntityKind::Url,
+            &[url.to_string()],
+        )
+        .expect("read star status");
+        assert_eq!(status.get(url), Some(&true));
+
+        let listed_stars = super::list_stars_impl(
+            session_key(&session).as_deref(),
+            None,
+            vault_core::StarSort::MostRevisited,
+            Some(50),
+        )
+        .expect("list stars");
+        assert!(listed_stars.iter().any(|item| item.entity_key == url));
+
+        let counts =
+            super::star_counts_impl(session_key(&session).as_deref()).expect("star counts");
+        assert_eq!(counts.urls, 1);
+        assert_eq!(counts.domains, 1);
+
+        super::unset_star_impl(
+            session_key(&session).as_deref(),
+            vault_core::SetStarRequest {
+                entity_kind: vault_core::StarEntityKind::Url,
+                entity_key: url.to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("unset url star");
+        let after_unstar = super::star_counts_impl(session_key(&session).as_deref())
+            .expect("star counts after unstar");
+        assert_eq!(after_unstar.urls, 0);
 
         // Og:image impls — every PME boundary except the network refetch
         // (covered by og_images_fetch unit tests). Empty + no-blob inputs

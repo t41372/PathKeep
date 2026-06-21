@@ -73,6 +73,13 @@ export interface PaperSearchPanelProps {
   onSelectEntry: (id: number) => void
   /** Jump back to PaperExplorerView centred on the result's day. */
   onSeeInContext: (entry: PaperSearchResultEntry, dayDate: string) => void
+  /** Optional star provider forwarded to each search result row. */
+  entryStar?: {
+    isStarred: (url: string) => boolean
+    onToggle: (url: string) => void
+    starLabel: string
+    unstarLabel: string
+  }
 }
 
 export function PaperSearchPanel({
@@ -89,6 +96,7 @@ export function PaperSearchPanel({
   onSubmit,
   onSelectEntry,
   onSeeInContext,
+  entryStar,
 }: PaperSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -196,6 +204,7 @@ export function PaperSearchPanel({
       onSubmit={onSubmit}
       onSelectEntry={(entry) => onSelectEntry(Number(entry.id))}
       onSeeInContext={onSeeInContext}
+      entryStar={entryStar}
       belowHeroSlot={
         aboveResultsCallout ? (
           <div

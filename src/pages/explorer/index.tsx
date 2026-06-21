@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -53,9 +53,13 @@ import { ExplorerRuntimePanel } from './panels/runtime-panel'
 import { ExplorerSemanticPanel } from './panels/semantic-panel'
 import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
-import { buildPaperExplorerCopy } from './paper-explorer-copy'
+import {
+  buildPaperExplorerCopy,
+  buildPaperStarredViewCopy,
+} from './paper-explorer-copy'
 import {
   PaperFilterStrip,
+  PaperStarredView,
   type PaperFilterStripFormState,
 } from '../../components/explorer-paper'
 import { PaperExplorerView } from './paper-view'
@@ -63,8 +67,38 @@ import { PaperSearchPanel } from './paper-search-panel'
 import { PaperDetailPanelMount } from './paper-detail-panel-mount'
 import { useLocalAnnotations } from './use-local-annotations'
 import { useDesktopAnnotations } from './use-desktop-annotations'
+import { useDesktopStars } from './use-desktop-stars'
+import { useStarredHub } from './use-starred-hub'
+import { hasStarredFacet } from './paper-search-filters'
 import { hasDesktopCommandTransport } from '../../lib/runtime'
+import type { StarListItem } from '../../lib/backend-client'
+import type { HistoryEntry } from '../../lib/types/archive'
 import type { ExplorerVisitSelection } from './types'
+
+/**
+ * Adapts a starred page (`list_stars` `url` item) into a `HistoryEntry` so the
+ * Search surface can render the `is:starred` facet from the true starred set.
+ * The synthetic `id` is negative + index-derived so it never collides with a
+ * real history rowid; `visitedAt`/`visitTime` reuse `starredAt` (a real RFC3339
+ * timestamp) so the day grouping stays honest. Selecting one opens via
+ * `handleVisit(url)`, not the detail-panel id lookup.
+ */
+function starredItemToHistoryEntry(
+  item: StarListItem,
+  index: number,
+): HistoryEntry {
+  const visitTime = Date.parse(item.starredAt)
+  return {
+    id: -1 - index,
+    profileId: '',
+    url: item.entityKey,
+    title: item.title || item.entityKey,
+    domain: item.domain || item.entityKey,
+    visitedAt: item.starredAt,
+    visitTime: Number.isNaN(visitTime) ? 0 : visitTime,
+    sourceVisitId: -1 - index,
+  }
+}
 
 /**
  * Renders the explorer route.
@@ -175,6 +209,15 @@ export function ExplorerPage() {
   const annotations = hasDesktopCommandTransport()
     ? desktopAnnotations
     : localAnnotations
+  const stars = useDesktopStars()
+  // Starred hub: a focused Explorer mode (NOT a 4th nav item) entered via
+  // `?surface=starred`. The hub owns its own paginated read model.
+  const surfaceIsStarred = searchParams.get('surface') === 'starred'
+  // The `is:starred` Search facet reads the SAME `list_stars` model the hub
+  // uses (not the loaded keyword page), so it can report a TRUE starred set with
+  // an honest total instead of an in-memory page slice + wrong count.
+  const queryHasStarredFacet = hasStarredFacet(queryInput)
+  const starredHub = useStarredHub(surfaceIsStarred || queryHasStarredFacet)
   const [paperDetailOpen, setPaperDetailOpen] = useState(false)
   const labels = useMemo(
     () => ({
@@ -462,28 +505,69 @@ export function ExplorerPage() {
     (id: string) => updateParam(id, null),
     [updateParam],
   )
+  // Visible entry point into the Starred hub. Without this the hub was only
+  // reachable by hand-typing `?surface=starred`. Lives in the Browse filter
+  // strip so it sits in the toolbar the user already scans, and writes the
+  // surface param via the same URL state the rest of the route uses.
+  const openStarredHub = useCallback(() => {
+    const next = new URLSearchParams(searchParams)
+    next.set('surface', 'starred')
+    next.delete('q')
+    next.delete('page')
+    setSearchParams(next)
+  }, [searchParams, setSearchParams])
+  // Leave the hub for the Browse contact sheet (back affordance + empty CTA).
+  const closeStarredHub = useCallback(() => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('surface')
+    setSearchParams(next)
+  }, [searchParams, setSearchParams])
   const paperFilterStrip = useMemo(
     () => (
-      <PaperFilterStrip
-        chips={filterStripChips}
-        copy={filterStripCopy}
-        formState={filterStripFormState}
-        browserOptions={browserOptions}
-        profileOptions={profileOptions}
-        onRemove={handleFilterStripRemove}
-        onClearAll={clearAllFilters}
-        onApply={handleFilterStripApply}
-        testId="paper-filter-strip"
-      />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <PaperFilterStrip
+          chips={filterStripChips}
+          copy={filterStripCopy}
+          formState={filterStripFormState}
+          browserOptions={browserOptions}
+          profileOptions={profileOptions}
+          onRemove={handleFilterStripRemove}
+          onClearAll={clearAllFilters}
+          onApply={handleFilterStripApply}
+          testId="paper-filter-strip"
+        />
+        <button
+          type="button"
+          onClick={openStarredHub}
+          data-testid="explorer-open-starred"
+          className="border-border-light text-ink-muted hover:text-accent hover:border-accent ml-auto inline-flex items-center gap-1.5 rounded-paper border px-2.5 py-0.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width={12}
+            height={12}
+            fill="currentColor"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 17.9l-5.25 2.65 1-5.85L3.5 9.7l5.9-.9z" />
+          </svg>
+          {explorerT('star.hubOpen')}
+        </button>
+      </div>
     ),
     [
       browserOptions,
       clearAllFilters,
+      explorerT,
       filterStripChips,
       filterStripCopy,
       filterStripFormState,
       handleFilterStripApply,
       handleFilterStripRemove,
+      openStarredHub,
       profileOptions,
     ],
   )
@@ -520,6 +604,60 @@ export function ExplorerPage() {
   if (paperDetailOpen && !selectedEntry && !loading) {
     setPaperDetailOpen(false)
   }
+
+  // Lazily hydrate the star status for the single page the detail panel has
+  // open. Batched + deduped inside the hook, so this never fans out across the
+  // archive — it asks about exactly one URL when the panel opens.
+  const selectedEntryUrl = selectedEntry?.url ?? null
+  useEffect(() => {
+    if (paperDetailOpen && selectedEntryUrl) {
+      stars.hydrate('url', [selectedEntryUrl])
+    }
+  }, [paperDetailOpen, selectedEntryUrl, stars])
+
+  // Batch-hydrate star status for the URLs currently rendered in the Browse
+  // time view or the Search results (both read `renderedTimeResults`). Bounded
+  // by the render window (one page of rows), deduped inside the hook — never a
+  // full-archive scan.
+  const visibleTimeUrls = useMemo(
+    () =>
+      view === 'time' || surfaceIsSearch
+        ? (renderedTimeResults?.items
+            .map((item) => item.url)
+            .filter((url): url is string => Boolean(url)) ?? [])
+        : [],
+    [view, surfaceIsSearch, renderedTimeResults],
+  )
+  const visibleTimeUrlsKey = visibleTimeUrls.join('\n')
+  useEffect(() => {
+    if (visibleTimeUrls.length > 0) {
+      stars.hydrate('url', visibleTimeUrls)
+    }
+    // visibleTimeUrlsKey collapses the array identity into a stable string so
+    // the effect only re-runs when the actual URL set changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTimeUrlsKey, stars])
+
+  // `is:starred` advanced-search facet. Earlier this filtered only the loaded
+  // keyword page in memory and reported `length` as the total — wrong on both
+  // counts (later-page starred pages were missed, and a bare `is:starred`
+  // keyword search returns garbage rows to filter). It now renders the TRUE
+  // starred page set from `list_stars` (the hub's read model) with an honest
+  // total, so the facet means "every page you've starred", not "starred rows
+  // that happen to be on page 1".
+  const starredSearchEntries = useMemo<HistoryEntry[]>(() => {
+    if (!queryHasStarredFacet) return []
+    return starredHub.items
+      .filter((item) => item.entityKind === 'url')
+      .map((item, index) => starredItemToHistoryEntry(item, index))
+  }, [queryHasStarredFacet, starredHub.items])
+  const searchEntries = useMemo(
+    () =>
+      queryHasStarredFacet
+        ? starredSearchEntries
+        : (renderedTimeResults?.items ?? []),
+    [queryHasStarredFacet, starredSearchEntries, renderedTimeResults],
+  )
   const optionalAiReason = optionalAiAvailability.reason
   const optionalAiFixableReason =
     optionalAiReason === 'ai-disabled' ||
@@ -615,6 +753,24 @@ export function ExplorerPage() {
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
+      {/*
+        Star write failures must not revert silently. The optimistic toggle in
+        `useDesktopStars` rolls the cache back on a failed set/unset and records
+        `lastError`; surface it here as a `role="alert"` callout (mirroring the
+        notes save-error pattern in paper-detail-panel.tsx) so the user knows the
+        archive did not save their star.
+      */}
+      {stars.lastError ? (
+        <div role="alert" data-testid="explorer-star-error">
+          <StatusCallout
+            tone="blocked"
+            eyebrow={explorerT('star.hubEyebrow')}
+            title={explorerT('star.saveError')}
+            body={stars.lastError}
+          />
+        </div>
+      ) : null}
+
       {optionalAiFixableReason ? (
         <StatusCallout
           tone={
@@ -716,7 +872,53 @@ export function ExplorerPage() {
         />
       )}
 
-      {paperSearchSurface ? (
+      {surfaceIsStarred ? (
+        // Starred hub: a focused Explorer mode (not a 4th nav item). Reuses
+        // the contact-sheet card renderer for pages and a source-chip row.
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={closeStarredHub}
+            data-testid="explorer-starred-back"
+            className="border-border-light text-ink-muted hover:text-accent hover:border-accent self-start inline-flex items-center gap-1.5 rounded-paper border px-2.5 py-0.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors"
+          >
+            ← {explorerT('star.hubBack')}
+          </button>
+          {starredHub.lastError ? (
+            <StatusCallout
+              tone="blocked"
+              eyebrow={explorerT('star.hubEyebrow')}
+              title={explorerT('star.saveError')}
+              body={starredHub.lastError}
+            />
+          ) : null}
+          <PaperStarredView
+            items={starredHub.items}
+            loading={starredHub.loading}
+            sort={starredHub.sort}
+            onSortChange={starredHub.setSort}
+            onSelect={(item) => {
+              if (item.entityKind === 'url') {
+                // A starred page may not be in the current Browse pool, so open
+                // it directly via the same visit flow the detail panel uses.
+                void handleVisit(item.entityKey)
+              } else {
+                const next = new URLSearchParams()
+                next.set('domain', item.entityKey)
+                setSearchParams(next)
+              }
+            }}
+            onToggleStar={(item) => {
+              stars.toggle(item.entityKind, item.entityKey)
+              // Removing a star should drop it from the hub on the next read.
+              starredHub.reload()
+            }}
+            onBrowseHistory={closeStarredHub}
+            copy={buildPaperStarredViewCopy(explorerT)}
+            testId="explorer-starred-view"
+          />
+        </div>
+      ) : paperSearchSurface ? (
         // Search surface: the composer must always remain mounted so a
         // user who typed a misspelt query can keep editing. Render any
         // regex-block / backend-error / empty-result state as a
@@ -726,8 +928,12 @@ export function ExplorerPage() {
           query={queryInput}
           mode={mode}
           regexMode={regexMode}
-          entries={renderedTimeResults?.items ?? []}
-          totalResults={renderedTimeResults?.total ?? 0}
+          entries={searchEntries}
+          totalResults={
+            queryHasStarredFacet
+              ? starredSearchEntries.length
+              : (renderedTimeResults?.total ?? 0)
+          }
           language={language}
           explorerT={explorerT}
           aboveResultsCallout={
@@ -760,6 +966,15 @@ export function ExplorerPage() {
             updateParam('q', query)
           }}
           onSelectEntry={(id) => {
+            if (queryHasStarredFacet) {
+              // `is:starred` rows are synthetic (sourced from `list_stars`, not
+              // the history pool), so the detail panel can't bind to their id.
+              // Open the starred page directly via the same visit flow the hub
+              // uses instead of opening a stale/empty panel.
+              const entry = starredSearchEntries.find((row) => row.id === id)
+              if (entry) void handleVisit(entry.url)
+              return
+            }
             setSelectedId(id)
             setPaperDetailOpen(true)
           }}
@@ -780,6 +995,12 @@ export function ExplorerPage() {
             setQueryInput('')
             setSearchParams(next)
             setSelectedId(Number(entry.id))
+          }}
+          entryStar={{
+            isStarred: (url) => stars.isStarred('url', url),
+            onToggle: (url) => stars.toggle('url', url),
+            starLabel: explorerT('star.starPageAria'),
+            unstarLabel: explorerT('star.unstarPageAria'),
           }}
         />
       ) : historyBlockedByInvalidRegex ? (
@@ -831,6 +1052,12 @@ export function ExplorerPage() {
           onSelectEntry={(entry) => {
             setSelectedId(entry.id)
             setPaperDetailOpen(true)
+          }}
+          entryStar={{
+            isStarred: (url) => stars.isStarred('url', url),
+            onToggle: (url) => stars.toggle('url', url),
+            starLabel: explorerT('star.starPageAria'),
+            unstarLabel: explorerT('star.unstarPageAria'),
           }}
           onJumpToDate={(iso) => {
             const next = new URLSearchParams(searchParams)
@@ -924,6 +1151,10 @@ export function ExplorerPage() {
           selectedEntry={selectedEntry}
           annotations={annotations}
           explorerT={explorerT}
+          stars={{
+            isStarred: (url) => stars.isStarred('url', url),
+            onToggleStar: (url) => stars.toggle('url', url),
+          }}
           onClose={() => setPaperDetailOpen(false)}
           onOpen={(url) => void handleVisit(url)}
           onOpenDomain={(domain) => {

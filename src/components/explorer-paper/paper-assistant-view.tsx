@@ -48,6 +48,7 @@ export interface PaperAssistantViewCopy {
   composer: PaperAssistantComposerCopy
   /** Mono evidence-panel label with `{count}` placeholder. */
   evidenceLabel: string
+  // TODO(W-AI-7): evidence-row star labels go here when real citations land.
 }
 
 export interface PaperAssistantViewProps {
@@ -59,6 +60,8 @@ export interface PaperAssistantViewProps {
   onSubmit: (value: string) => void
   onPickPrompt?: (prompt: PaperAssistantGreetingPrompt) => void
   onSelectEvidence?: (evidence: PaperAssistantEvidence) => void
+  // TODO(W-AI-7): an `evidenceStar` provider returns here once the agent emits
+  // real citations a user can star.
   copy: PaperAssistantViewCopy
   className?: string
   testId?: string

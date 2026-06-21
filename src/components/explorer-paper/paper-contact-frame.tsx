@@ -26,6 +26,7 @@
 
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
+import { StarToggle } from '@/components/shell/star-toggle'
 import { sanitizeExplorerDisplayText } from '@/pages/explorer/helpers'
 
 export interface PaperContactFrameEntry {
@@ -45,6 +46,16 @@ export interface PaperContactFrameEntry {
   ogImageDataUrl?: string | null
 }
 
+/** Star affordance for a contact card. Overlaid on the card's top-left. */
+export interface PaperContactFrameStar {
+  starred: boolean
+  onToggle: () => void
+  starLabel: string
+  unstarLabel: string
+  /** State words for the star's polite live region ("Starred"/"Unstarred"). */
+  statusLabel?: { starred: string; unstarred: string }
+}
+
 export interface PaperContactFrameProps {
   entry: PaperContactFrameEntry
   domainColor: string
@@ -52,6 +63,7 @@ export interface PaperContactFrameProps {
   index?: number
   selected?: boolean
   onClick?: (entry: PaperContactFrameEntry) => void
+  star?: PaperContactFrameStar
   className?: string
   testId?: string
   children?: ReactNode
@@ -64,6 +76,7 @@ export function PaperContactFrame({
   index,
   selected = false,
   onClick,
+  star,
   className,
   testId,
   children,
@@ -73,102 +86,119 @@ export function PaperContactFrame({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      data-entry-id={entry.id}
-      data-selected={selected ? 'true' : undefined}
-      data-testid={testId}
-      className={cn(
-        'group relative w-full overflow-hidden text-left',
-        'rounded-paper border bg-card-paper',
-        'shadow-frame hover:shadow-frame-hover transition-shadow duration-150',
-        selected
-          ? 'border-accent shadow-[0_0_0_1px_var(--accent)]'
-          : 'border-border-light hover:border-border-default',
-        className,
-      )}
-    >
-      <div
-        className="relative flex aspect-[1.91/1] items-center justify-center overflow-hidden"
-        style={{
-          background: entry.ogImageDataUrl ? '#000' : domainColor,
-        }}
+    <div className={cn('group relative', className)}>
+      <button
+        type="button"
+        onClick={handleClick}
+        data-entry-id={entry.id}
+        data-selected={selected ? 'true' : undefined}
+        data-testid={testId}
+        className={cn(
+          'relative w-full overflow-hidden text-left',
+          'rounded-paper border bg-card-paper',
+          'shadow-frame hover:shadow-frame-hover transition-shadow duration-150',
+          selected
+            ? 'border-accent shadow-[0_0_0_1px_var(--accent)]'
+            : 'border-border-light hover:border-border-default',
+        )}
       >
-        {entry.ogImageDataUrl ? (
-          <>
+        <div
+          className="relative flex aspect-[1.91/1] items-center justify-center overflow-hidden"
+          style={{
+            background: entry.ogImageDataUrl ? '#000' : domainColor,
+          }}
+        >
+          {entry.ogImageDataUrl ? (
+            <>
+              <img
+                src={entry.ogImageDataUrl}
+                alt=""
+                aria-hidden="true"
+                data-testid={testId ? `${testId}-og-image` : undefined}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              {/* Scrim so the index/transition tokens stay readable above
+                the og:image bytes. Top + bottom only — center stays clean. */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  background:
+                    'linear-gradient(to bottom, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0) 18%, rgba(0,0,0,0) 82%, rgba(0,0,0,0.28) 100%)',
+                }}
+              />
+            </>
+          ) : entry.faviconDataUrl ? (
             <img
-              src={entry.ogImageDataUrl}
+              src={entry.faviconDataUrl}
               alt=""
               aria-hidden="true"
-              data-testid={testId ? `${testId}-og-image` : undefined}
-              className="absolute inset-0 h-full w-full object-cover"
+              data-testid={testId ? `${testId}-favicon` : undefined}
+              className="h-[44%] w-auto opacity-95"
             />
-            {/* Scrim so the index/transition tokens stay readable above
-                the og:image bytes. Top + bottom only — center stays clean. */}
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  'linear-gradient(to bottom, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0) 18%, rgba(0,0,0,0) 82%, rgba(0,0,0,0.28) 100%)',
-              }}
+          ) : (
+            <FallbackPanel
+              entry={entry}
+              domainAbbr={domainAbbr}
+              testId={testId}
             />
-          </>
-        ) : entry.faviconDataUrl ? (
-          <img
-            src={entry.faviconDataUrl}
-            alt=""
-            aria-hidden="true"
-            data-testid={testId ? `${testId}-favicon` : undefined}
-            className="h-[44%] w-auto opacity-95"
-          />
-        ) : (
-          <FallbackPanel
-            entry={entry}
-            domainAbbr={domainAbbr}
-            testId={testId}
-          />
-        )}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-[3px] rounded-[1px] border"
-          style={{ borderColor: 'rgba(255,255,255,0.12)' }}
-        />
-        {typeof index === 'number' ? (
-          <span
-            className="absolute right-[7px] top-[5px] z-[1] font-mono text-[9px] tracking-[0.06em]"
-            style={{ color: 'rgba(255,255,255,0.4)' }}
-          >
-            {String(index + 1).padStart(2, '0')}
-          </span>
-        ) : null}
-        {entry.transitionType ? (
-          <span
-            className="absolute bottom-[5px] left-[7px] z-[1] font-mono text-[8px] uppercase tracking-[0.08em]"
-            style={{ color: 'rgba(255,255,255,0.35)' }}
-          >
-            {entry.transitionType}
-          </span>
-        ) : null}
-      </div>
-      <div className="px-[10px] pb-[10px] pt-[9px]">
-        <div className="text-ink line-clamp-2 font-serif text-[12.5px] leading-[1.35]">
-          {sanitizeExplorerDisplayText(
-            entry.title || entry.url || entry.domain,
           )}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-[3px] rounded-[1px] border"
+            style={{ borderColor: 'rgba(255,255,255,0.12)' }}
+          />
+          {typeof index === 'number' ? (
+            <span
+              className="absolute right-[7px] top-[5px] z-[1] font-mono text-[9px] tracking-[0.06em]"
+              style={{ color: 'rgba(255,255,255,0.4)' }}
+            >
+              {String(index + 1).padStart(2, '0')}
+            </span>
+          ) : null}
+          {entry.transitionType ? (
+            <span
+              className="absolute bottom-[5px] left-[7px] z-[1] font-mono text-[8px] uppercase tracking-[0.08em]"
+              style={{ color: 'rgba(255,255,255,0.35)' }}
+            >
+              {entry.transitionType}
+            </span>
+          ) : null}
         </div>
-        <div className="mt-[5px] flex items-center justify-between">
-          <span className="text-ink-faint max-w-[65%] truncate font-mono text-[10px]">
-            {entry.domain}
-          </span>
-          <span className="text-ink-faint font-mono text-[10px]">
-            {entry.time}
-          </span>
+        <div className="px-[10px] pb-[10px] pt-[9px]">
+          <div className="text-ink line-clamp-2 font-serif text-[12.5px] leading-[1.35]">
+            {sanitizeExplorerDisplayText(
+              entry.title || entry.url || entry.domain,
+            )}
+          </div>
+          <div className="mt-[5px] flex items-center justify-between">
+            <span className="text-ink-faint max-w-[65%] truncate font-mono text-[10px]">
+              {entry.domain}
+            </span>
+            <span className="text-ink-faint font-mono text-[10px]">
+              {entry.time}
+            </span>
+          </div>
         </div>
-      </div>
-      {children}
-    </button>
+        {children}
+      </button>
+      {star ? (
+        <StarToggle
+          starred={star.starred}
+          onToggle={star.onToggle}
+          starLabel={star.starLabel}
+          unstarLabel={star.unstarLabel}
+          statusLabel={star.statusLabel}
+          alwaysVisible={selected}
+          testId={testId ? `${testId}-star` : undefined}
+          className={cn(
+            'absolute left-[6px] top-[6px] z-[2]',
+            // Tint the icon for contrast over the (possibly dark) image area.
+            'bg-[color-mix(in_srgb,var(--bg-paper)_72%,transparent)] backdrop-blur-[2px]',
+          )}
+        />
+      ) : null}
+    </div>
   )
 }
 

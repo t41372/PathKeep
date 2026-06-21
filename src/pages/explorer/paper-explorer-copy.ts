@@ -19,6 +19,7 @@ import type {
   PaperDetailPanelCopy,
   PaperIntelligenceViewCopy,
   PaperSearchViewCopy,
+  PaperStarredViewCopy,
 } from '@/components/explorer-paper'
 import type { PaperExplorerCopy } from './paper-view'
 
@@ -142,6 +143,11 @@ export function buildPaperDetailPanelCopy(
     copyAction: t('paperBrowse.detailActionCopy'),
     refindAction: t('paperBrowse.detailActionRefind'),
     exportAction: t('paperBrowse.detailActionExport'),
+    starAction: t('star.starPageAria'),
+    unstarAction: t('star.unstarPageAria'),
+    starStatusStarred: t('star.statusStarred'),
+    starStatusUnstarred: t('star.statusUnstarred'),
+    starShortcutHint: t('star.shortcutHint'),
     provenanceHeading: t('paperBrowse.detailProvenanceHeading'),
     notesHeading: t('paperBrowse.detailNotesHeading'),
     tagsHeading: t('paperBrowse.detailTagsHeading'),
@@ -169,6 +175,30 @@ export function buildPaperDetailPanelCopy(
     threadLabel: t('paperBrowse.detailLookThread'),
     sessionLabel: t('paperBrowse.detailLookSession'),
     visitCountSuffix: t('paperBrowse.detailVisitCountSuffix'),
+  }
+}
+
+export function buildPaperStarredViewCopy(
+  t: ExplorerTranslator,
+): PaperStarredViewCopy {
+  return {
+    eyebrow: t('star.hubEyebrow'),
+    title: t('star.hubTitle'),
+    description: t('star.hubDescription'),
+    groupPages: t('star.hubGroupPages'),
+    groupSources: t('star.hubGroupSources'),
+    sortLabel: t('star.hubSortLabel'),
+    sortRecent: t('star.hubSortRecent'),
+    sortRevisited: t('star.hubSortRevisited'),
+    loading: t('star.hubLoading'),
+    emptyTitle: t('star.hubEmptyTitle'),
+    emptyBody: t('star.hubEmptyBody'),
+    emptyCta: t('star.hubEmptyCta'),
+    visitCountTemplate: t('star.hubVisitCount'),
+    starAction: t('star.starAction'),
+    unstarAction: t('star.unstarAction'),
+    statusStarred: t('star.statusStarred'),
+    statusUnstarred: t('star.statusUnstarred'),
   }
 }
 
@@ -234,6 +264,7 @@ export function buildPaperSearchViewCopy(
         fileDate: t('advancedSearchHelpFileDate'),
         tag: t('advancedSearchHelpTag'),
         note: t('advancedSearchHelpNote'),
+        starred: t('star.facetIsStarred'),
         regexNote: t('advancedSearchHelpRegexNote'),
       },
     },
