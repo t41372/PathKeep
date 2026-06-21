@@ -385,6 +385,16 @@ pub struct HistoryEntry {
     pub transition: Option<i64>,
     pub source_visit_id: i64,
     pub app_id: Option<String>,
+    /// Capped excerpt of the matched URL's enrichment text (W-ENRICH-1, 06 §6).
+    ///
+    /// Populated ONLY by the lexical-search recall path, and only when the
+    /// matched `search_documents` row carries non-empty enrichment text (a
+    /// content-fetch summary + GitHub topics/desc). Plain browse, regex, and
+    /// fuzzy-fallback rows leave this `None` so the Explorer affordance stays
+    /// suppressed outside keyword search. `#[serde(default)]` keeps older
+    /// payloads (and preview fixtures) that omit it deserializable.
+    #[serde(default)]
+    pub enrichment_excerpt: Option<String>,
 }
 
 /// Paginated history-query response.

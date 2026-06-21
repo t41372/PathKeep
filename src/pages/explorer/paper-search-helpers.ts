@@ -109,6 +109,12 @@ export function paperSearchEntryFromHistoryEntry(
     domain: entry.domain,
     time: formatLocalTime(entry.visitedAt),
     transitionType: transitionTypeLabel(entry.transition ?? null) || undefined,
+    // Surface the enrichment excerpt when the lexical-search backend attached one
+    // (W-ENRICH-1, 06 §6). Browse/regex/fuzzy/preview rows leave it null/undefined,
+    // which the result row treats as "no excerpt" and suppresses the affordance.
+    enrichmentExcerpt: entry.enrichmentExcerpt?.trim()
+      ? entry.enrichmentExcerpt
+      : undefined,
   }
 }
 

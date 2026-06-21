@@ -345,6 +345,166 @@ fn insert_lexical_history_row(
     rebuild_search_projection(paths, config, None).expect("rebuild search projection");
 }
 
+/// Stores one successful GitHub-repo enrichment for `history_id` (intelligence plane) and re-mirrors
+/// it into the search projection so a subsequent `list_history` lexical search can surface the excerpt.
+///
+/// `summary` doubles as the GitHub `description` (the indexer de-dupes the two) and `topics` carries an
+/// extra searchable keyword, mirroring how `enrichment_text_for_index` builds the projected text.
+fn store_lexical_enrichment(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    history_id: i64,
+    summary: &str,
+) {
+    let intelligence =
+        open_intelligence_connection(paths, config, None).expect("open intelligence");
+    crate::enrichment::ensure_visit_content_enrichment_schema(&intelligence)
+        .expect("enrichment schema");
+    intelligence
+        .execute(
+            "INSERT OR REPLACE INTO visit_content_enrichments
+             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
+              pipeline_version, extractor_version, enrichment_summary)
+             VALUES (?1, 'github-repo', 'success', '2026-06-21T00:00:00Z', '[]', ?2, 'v1', 1, ?3)",
+            params![
+                history_id,
+                format!(
+                    r#"{{"fullName":"o/r","description":"{summary}","topics":["enrichkw"],"language":"Rust"}}"#
+                ),
+                summary,
+            ],
+        )
+        .expect("insert enrichment");
+    drop(intelligence);
+    // Mirror the just-stored enrichment into the projection's enrichment_text + its FTS column.
+    rebuild_search_projection(paths, config, None).expect("rebuild search projection");
+}
+
+#[test]
+fn lexical_search_surfaces_capped_enrichment_excerpt_only_for_enriched_results() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // Enrich ONE of the seeded rows (url/visit id 3 = the GitHub Actions page) with a summary the
+    // search query will hit, and a `topics` keyword ("enrichkw") that only lives in enrichment_text.
+    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
+
+    // A keyword that matches the enriched page surfaces a capped excerpt on THAT result.
+    let enriched = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("enriched query");
+    let actions_entry = enriched
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
+        .expect("the enriched GitHub Actions row is recalled");
+    // The excerpt mirrors the projected enrichment_text: the summary plus the searchable metadata
+    // (topics/desc/language) the index carries — NOT just the bare summary.
+    let actions_excerpt =
+        actions_entry.enrichment_excerpt.as_deref().expect("the enriched row carries an excerpt");
+    assert!(
+        actions_excerpt.contains("Reusable workflow runner for CI pipelines"),
+        "an enriched search result must surface its enrichment summary: {actions_excerpt}"
+    );
+    assert!(
+        actions_excerpt.contains("enrichkw"),
+        "the excerpt carries the searchable enrichment metadata too: {actions_excerpt}"
+    );
+    // A different recalled result with NO stored enrichment leaves the excerpt None.
+    let plain_entry = enriched
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("Git Hub spacing guide"))
+        .expect("the non-enriched Git Hub row is recalled");
+    assert_eq!(
+        plain_entry.enrichment_excerpt, None,
+        "a result without stored enrichment must leave the excerpt None"
+    );
+
+    // The enrichment text itself is keyword-searchable, and that match also carries the excerpt.
+    let by_enrichment_keyword = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery {
+            q: Some("enrichkw".to_string()),
+            limit: Some(10),
+            ..HistoryQuery::default()
+        },
+    )
+    .expect("enrichment-keyword query");
+    assert_eq!(
+        by_enrichment_keyword.total, 1,
+        "a token that lives only in enrichment_text must recall exactly the enriched page"
+    );
+    assert!(
+        by_enrichment_keyword.items[0]
+            .enrichment_excerpt
+            .as_deref()
+            .is_some_and(|excerpt| excerpt.contains("Reusable workflow runner for CI pipelines")),
+        "the enrichment-keyword match also carries the excerpt"
+    );
+}
+
+#[test]
+fn lexical_search_caps_long_enrichment_excerpt_on_a_cjk_char_boundary() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // A long CJK summary (> the 180-char cap) on the GitHub Actions row: the excerpt must be capped on
+    // a CHAR boundary (never panicking by splitting a multi-byte codepoint) and gain a trailing "…".
+    let long_summary = "工作流程".repeat(80); // 320 CJK chars, well over the cap.
+    store_lexical_enrichment(&paths, &config, 3, &long_summary);
+
+    let response = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { q: Some("github".to_string()), limit: Some(10), ..HistoryQuery::default() },
+    )
+    .expect("capped query");
+    let excerpt = response
+        .items
+        .iter()
+        .find(|entry| entry.title.as_deref() == Some("GitHub Actions manual"))
+        .and_then(|entry| entry.enrichment_excerpt.clone())
+        .expect("the enriched row carries a capped excerpt");
+    // 180 capped chars + the trailing ellipsis = 181 chars; the long input was truncated, not panicked.
+    assert_eq!(excerpt.chars().count(), 181, "the excerpt is capped on a char boundary");
+    assert!(excerpt.ends_with('…'), "a truncated excerpt gains a trailing ellipsis");
+    assert!(excerpt.starts_with("工作流程"), "CJK codepoints survive the char-boundary cap");
+}
+
+#[test]
+fn plain_browse_history_query_leaves_enrichment_excerpt_none() {
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig::default();
+    seed_lexical_archive(&paths, &config);
+    // Enrichment exists for a row, but a non-search browse query must NOT attach any excerpt: the
+    // excerpt is a lexical-search-only affordance, so browse rows stay None regardless.
+    store_lexical_enrichment(&paths, &config, 3, "Reusable workflow runner for CI pipelines");
+
+    let browse = list_history(
+        &paths,
+        &config,
+        None,
+        HistoryQuery { limit: Some(50), ..HistoryQuery::default() },
+    )
+    .expect("plain browse query");
+    assert!(browse.total >= 7, "the browse path returns the full seeded set");
+    assert!(
+        browse.items.iter().all(|entry| entry.enrichment_excerpt.is_none()),
+        "browse rows must never carry an enrichment excerpt"
+    );
+}
+
 #[test]
 fn lexical_recall_matches_cjk_script_folding_and_compact_substrings() {
     let dir = tempdir().expect("tempdir");

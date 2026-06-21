@@ -297,8 +297,8 @@ mod tests {
             LaneStep::Stop,
             "paused lane stops"
         );
-        let connection = rusqlite::Connection::open(&paths.intelligence_database_path)
-            .expect("intelligence db");
+        let connection =
+            rusqlite::Connection::open(&paths.intelligence_database_path).expect("intelligence db");
         // Let any in-flight background drain settle, then clear the queue deterministically.
         for _ in 0..50 {
             std::thread::sleep(std::time::Duration::from_millis(10));

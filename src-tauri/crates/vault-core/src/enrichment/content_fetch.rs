@@ -489,7 +489,8 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
         // it would silently swallow that cancel — honour it FIRST (BUG-2): if a stop was requested,
         // cancel the running job and report `Ran` rather than re-running it on the next drain.
         if intelligence_job_stop_requested(connection, job.id)? {
-            let _ = mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
+            let _ =
+                mark_running_intelligence_job_cancelled(connection, job.id, "cancelled from UI");
             return Ok(ContentFetchJobOutcome::Ran);
         }
         // Read the deferral ETA from the bucket the attempt ACTUALLY charged (SEC-1) — the API host for
@@ -845,8 +846,10 @@ mod tests {
 
     #[test]
     fn run_content_fetch_routes_github_url_to_github_extractor() {
-        let _bucket =
-            GITHUB_BUCKET_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|p| p.into_inner());
+        let _bucket = GITHUB_BUCKET_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         rate_limit::reset_host_bucket_for_test("api.github.com");
         let fetcher = FakeFetcher::new().with_json(
             "https://api.github.com/repos/o/r",
@@ -915,8 +918,10 @@ mod tests {
         // The github extractor wants api.github.com, but we route through guard_then_fetch_json which
         // SSRF-checks. Use a github URL whose API base would be public; assert the guard path via the
         // unit test of guard_then_fetch_json below. Here we cover the JSON primary-failure path.
-        let _bucket =
-            GITHUB_BUCKET_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|p| p.into_inner());
+        let _bucket = GITHUB_BUCKET_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         rate_limit::reset_host_bucket_for_test("api.github.com");
         let fetcher = FakeFetcher::new(); // no fixture → fetch_json returns fetch-error
         let payload = EnrichmentJobPayload {
@@ -1583,8 +1588,10 @@ mod tests {
         // the egress bucket rather than collapsing to the page host's 0s (which `.max(1)` would mask as
         // a 1s thrash). Exercises the JsonApi arm of the egress-host derivation.
         // Serialize with the full-bucket github routing tests (shared `api.github.com` bucket).
-        let _bucket =
-            GITHUB_BUCKET_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|p| p.into_inner());
+        let _bucket = GITHUB_BUCKET_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let root = tempdir().expect("tempdir");
         let paths = project_paths_with_root(root.path());
         ensure_paths(&paths).expect("paths");
@@ -1596,9 +1603,8 @@ mod tests {
         rate_limit::reset_host_bucket_for_test("github.com");
 
         let config = consenting_config();
-        let job_id =
-            enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 1))
-                .expect("enqueue");
+        let job_id = enqueue_content_fetch_job(&connection, &payload("https://github.com/o/r", 1))
+            .expect("enqueue");
         let fetcher = FakeFetcher::new(); // never reached — the api.github.com bucket is empty
         assert_eq!(
             execute_content_fetch_job_with_fetcher(&paths, &connection, &config, job_id, &fetcher)

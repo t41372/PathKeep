@@ -124,6 +124,31 @@ describe('paperSearchEntryFromHistoryEntry', () => {
         .time,
     ).toBe('')
   })
+
+  test('threads a non-empty enrichment excerpt through to the result entry', () => {
+    const entry = paperSearchEntryFromHistoryEntry(
+      makeEntry({ enrichmentExcerpt: 'Reusable workflow runner • CI' }),
+    )
+    expect(entry.enrichmentExcerpt).toBe('Reusable workflow runner • CI')
+  })
+
+  test('drops a blank or whitespace-only enrichment excerpt to undefined', () => {
+    expect(
+      paperSearchEntryFromHistoryEntry(makeEntry({ enrichmentExcerpt: '   ' }))
+        .enrichmentExcerpt,
+    ).toBeUndefined()
+    expect(
+      paperSearchEntryFromHistoryEntry(makeEntry({ enrichmentExcerpt: null }))
+        .enrichmentExcerpt,
+    ).toBeUndefined()
+  })
+
+  test('leaves the excerpt undefined for preview-fixture rows that omit it', () => {
+    // The preview/browser fixtures build HistoryEntry without the field; the
+    // mapping must not crash and must yield undefined (suppressing the affordance).
+    const entry = paperSearchEntryFromHistoryEntry(makeEntry())
+    expect(entry.enrichmentExcerpt).toBeUndefined()
+  })
 })
 
 describe('buildPaperSearchDayGroups', () => {

@@ -317,6 +317,14 @@ export interface HistoryEntry {
   transition?: number | null
   sourceVisitId: number
   appId?: string | null
+  /**
+   * Capped excerpt of the matched URL's enrichment text (W-ENRICH-1, 06 §6).
+   * Present only on lexical-search results whose `search_documents` row carries
+   * enrichment (a content-fetch summary + GitHub topics/desc); absent on plain
+   * browse, regex, fuzzy, and preview-fixture rows. The Search result row
+   * highlights query terms inside it and suppresses the affordance when empty.
+   */
+  enrichmentExcerpt?: string | null
 }
 
 /**
