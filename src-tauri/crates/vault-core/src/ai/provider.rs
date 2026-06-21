@@ -21,9 +21,11 @@
 //! - rate-limited failures do not spin through retries, which avoids making quota
 //!   pressure worse on a constrained host or provider account
 
+use super::llm::rig_llm_capabilities;
 use super::read_model::provider_capabilities;
 use super::traits::{EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingRole};
 use super::*;
+use crate::models::LlmProviderCapabilityReport;
 #[cfg(not(any(test, coverage)))]
 use secrecy::ExposeSecret;
 
@@ -169,12 +171,34 @@ pub async fn test_provider_connection(
     provider_connection_report_from_probe(provider, capabilities, latency_ms, probe_result)
 }
 
+/// Derives the serialized LLM capability detail for the probe report.
+///
+/// Only LLM providers get one (embedding providers have no chat surface). The detail mirrors
+/// the in-engine [`LlmCapabilities`] the streaming transport exposes, so Settings can show the
+/// exact same streaming/tool/structured/cache facts the chat path will rely on.
+pub(super) fn llm_capability_report_for(
+    provider: &AiProviderRuntime,
+) -> Option<LlmProviderCapabilityReport> {
+    if provider.config.purpose != AiProviderPurpose::Llm {
+        return None;
+    }
+    let caps = rig_llm_capabilities(&provider.config);
+    Some(LlmProviderCapabilityReport {
+        tool_call: caps.tool_call,
+        structured_output: caps.structured_output,
+        streaming: caps.streaming,
+        prompt_cache: caps.prompt_cache,
+        max_context_tokens: caps.max_context_tokens,
+    })
+}
+
 pub(super) fn provider_connection_report_from_probe(
     provider: &AiProviderRuntime,
     capabilities: AiProviderCapabilityReport,
     latency_ms: u64,
     probe_result: Result<String>,
 ) -> Result<AiProviderConnectionTestReport> {
+    let llm_capabilities = llm_capability_report_for(provider);
     match probe_result {
         Ok(message) => Ok(AiProviderConnectionTestReport {
             provider_id: provider.config.id.clone(),
@@ -186,6 +210,7 @@ pub(super) fn provider_connection_report_from_probe(
             ok: true,
             latency_ms,
             capabilities,
+            llm_capabilities,
             warnings: if provider.config.request_format == AiRequestFormat::Anthropic
                 && provider.config.purpose == AiProviderPurpose::Llm
             {
@@ -208,6 +233,7 @@ pub(super) fn provider_connection_report_from_probe(
                 ok: false,
                 latency_ms,
                 capabilities,
+                llm_capabilities,
                 error_code,
                 action_hint,
                 retry_hint,

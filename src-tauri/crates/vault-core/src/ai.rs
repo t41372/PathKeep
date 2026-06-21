@@ -8,10 +8,13 @@
 //! - vector/assistant state is rebuildable derived state, not canonical truth
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
 
+mod chat_stream;
 mod control;
 mod fingerprint;
 mod indexing;
 mod ledger;
+mod llm;
+mod narrative;
 mod provider;
 mod read_model;
 mod search;
@@ -72,11 +75,19 @@ pub use self::search::{
     answer_history_question, answer_history_question_with_control, semantic_search_history,
 };
 
+pub use self::chat_stream::{
+    deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
+    register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+};
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
+pub use self::llm::RigLlmProvider;
+pub use self::narrative::{
+    NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
+};
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
-    LlmRole, LlmStreamChunk, VectorIndex,
+    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolDef, LlmUsage, VectorIndex,
 };
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};

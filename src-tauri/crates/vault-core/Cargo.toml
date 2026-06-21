@@ -21,6 +21,7 @@ regex.workspace = true
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "charset", "http2", "rustls-tls"] }
 rig-core.workspace = true
 rusqlite.workspace = true
+schemars.workspace = true
 scraper = "0.24.0"
 secrecy.workspace = true
 serde.workspace = true
@@ -34,7 +35,11 @@ zip.workspace = true
 
 [dev-dependencies]
 browser-history-fixtures = { version = "0.1.0", path = "../browser-history-fixtures" }
+# Already regular deps of the crate; restated here only so the env-gated LM Studio e2e
+# integration test (compiled as a separate crate) can drive the real async stream.
+futures-core.workspace = true
 mockito = "1.7.0"
+tokio.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }

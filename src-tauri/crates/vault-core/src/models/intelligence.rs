@@ -385,6 +385,21 @@ pub struct AiProviderConnectionTestRequest {
     pub purpose: AiProviderPurpose,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Serialized, UI-facing mirror of the in-engine `LlmCapabilities`.
+///
+/// The connection probe attaches this for LLM providers so Settings can show whether
+/// streaming, tool calling, structured output, and prompt caching are available, plus the
+/// known context window. `maxContextTokens` is `None` unless the transport reports one.
+pub struct LlmProviderCapabilityReport {
+    pub tool_call: bool,
+    pub structured_output: bool,
+    pub streaming: bool,
+    pub prompt_cache: bool,
+    pub max_context_tokens: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Result payload for one provider connection probe.
@@ -395,6 +410,9 @@ pub struct AiProviderConnectionTestReport {
     pub ok: bool,
     pub latency_ms: u64,
     pub capabilities: AiProviderCapabilityReport,
+    /// LLM-only capability detail (streaming/tool/structured/cache/context). `None` for
+    /// embedding providers, which do not have a chat capability surface.
+    pub llm_capabilities: Option<LlmProviderCapabilityReport>,
     pub error_code: Option<String>,
     pub action_hint: Option<String>,
     pub retry_hint: Option<String>,
@@ -502,6 +520,94 @@ pub struct AiIndexReport {
     pub removed_items: usize,
     pub last_indexed_at: String,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+/// Conversational role for one chat-stream message, mirroring `LlmRole` on the IPC contract.
+pub enum AiChatRole {
+    System,
+    #[default]
+    User,
+    Assistant,
+    Tool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// One message in a streaming chat request (hand-written camelCase DTO).
+pub struct AiChatMessage {
+    pub role: AiChatRole,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for one streaming chat turn.
+///
+/// `providerId` is optional; when absent the worker uses the configured default LLM provider.
+/// `temperature`/`maxTokens` override the provider defaults for this turn only.
+pub struct AiChatSendRequest {
+    pub provider_id: Option<String>,
+    pub messages: Vec<AiChatMessage>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+}
+
+impl Default for AiChatSendRequest {
+    /// Returns an empty default request used by shell forms before any input.
+    fn default() -> Self {
+        Self { provider_id: None, messages: Vec::new(), temperature: None, max_tokens: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Acknowledgement returned by `ai_chat_send`: the run id used to subscribe and cancel.
+pub struct AiChatSendAck {
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Result returned by `ai_chat_cancel`.
+pub struct AiChatCancelResult {
+    /// Whether a live run with this id was found and asked to stop.
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+/// One streamed chat chunk delivered over `pathkeep://ai-stream`.
+///
+/// Variants are tagged by `kind` so the front end can route tokens, reasoning, tool calls, the
+/// terminal `done` marker, and a terminal `error` into distinct UI lanes without guessing.
+pub enum AiChatStreamChunk {
+    /// A fragment of the visible answer.
+    Token { text: String },
+    /// A fragment of the reasoning/thinking stream.
+    Reasoning { text: String },
+    /// A tool/function call the model requested (execution arrives in W-AI-7).
+    ToolCall { name: String, arguments: String },
+    /// Terminal success marker; no more chunks follow for this run.
+    Done,
+    /// Terminal failure marker carrying a user-facing message; no more chunks follow.
+    Error { message: String },
+}
+
+/// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
+///
+/// Defined here (a covered vault-core location) rather than inline in the desktop command so a
+/// mutation of the literal is caught by a Rust test; the front-end `ai-stream.ts` pins its own
+/// matching literal. Both sides MUST agree on this exact string.
+pub const AI_CHAT_STREAM_EVENT: &str = "pathkeep://ai-stream";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.
+pub struct AiChatStreamEvent {
+    pub run_id: String,
+    pub chunk: AiChatStreamChunk,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -685,4 +791,107 @@ pub struct IntelligenceRuntimeSnapshot {
     pub modules: Vec<DeterministicModuleRuntimeStatus>,
     pub recent_jobs: Vec<IntelligenceJobOverview>,
     pub notes: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ai_chat_stream_event_channel_is_pinned() {
+        // The desktop command emits on this exact channel; the FE `ai-stream.ts` pins its match.
+        assert_eq!(AI_CHAT_STREAM_EVENT, "pathkeep://ai-stream");
+    }
+
+    #[test]
+    fn ai_chat_stream_chunk_variants_serialize_with_kind_tag() {
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Token { text: "hi".to_string() }).unwrap(),
+            json!({ "kind": "token", "text": "hi" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Reasoning { text: "why".to_string() }).unwrap(),
+            json!({ "kind": "reasoning", "text": "why" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::ToolCall {
+                name: "search".to_string(),
+                arguments: "{}".to_string(),
+            })
+            .unwrap(),
+            json!({ "kind": "toolCall", "name": "search", "arguments": "{}" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Done).unwrap(),
+            json!({ "kind": "done" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Error { message: "boom".to_string() }).unwrap(),
+            json!({ "kind": "error", "message": "boom" })
+        );
+    }
+
+    #[test]
+    fn ai_chat_role_serializes_kebab_case() {
+        assert_eq!(serde_json::to_value(AiChatRole::System).unwrap(), json!("system"));
+        assert_eq!(serde_json::to_value(AiChatRole::User).unwrap(), json!("user"));
+        assert_eq!(serde_json::to_value(AiChatRole::Assistant).unwrap(), json!("assistant"));
+        assert_eq!(serde_json::to_value(AiChatRole::Tool).unwrap(), json!("tool"));
+    }
+
+    #[test]
+    fn ai_chat_send_request_uses_camel_case_keys() {
+        let value = serde_json::to_value(AiChatSendRequest {
+            provider_id: Some("p1".to_string()),
+            messages: vec![AiChatMessage { role: AiChatRole::User, content: "hi".to_string() }],
+            temperature: Some(0.5),
+            max_tokens: Some(64),
+        })
+        .unwrap();
+        assert_eq!(value["providerId"], json!("p1"));
+        assert_eq!(value["maxTokens"], json!(64));
+        // The nested message also uses camelCase role/content keys.
+        assert_eq!(value["messages"][0], json!({ "role": "user", "content": "hi" }));
+    }
+
+    #[test]
+    fn ai_chat_send_ack_and_stream_event_use_run_id_camel_case() {
+        assert_eq!(
+            serde_json::to_value(AiChatSendAck { run_id: "chat-1".to_string() }).unwrap(),
+            json!({ "runId": "chat-1" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamEvent {
+                run_id: "chat-1".to_string(),
+                chunk: AiChatStreamChunk::Done,
+            })
+            .unwrap(),
+            json!({ "runId": "chat-1", "chunk": { "kind": "done" } })
+        );
+    }
+
+    #[test]
+    fn ai_chat_cancel_result_uses_camel_case_key() {
+        assert_eq!(
+            serde_json::to_value(AiChatCancelResult { cancelled: true }).unwrap(),
+            json!({ "cancelled": true })
+        );
+    }
+
+    #[test]
+    fn llm_provider_capability_report_uses_camel_case_keys() {
+        let value = serde_json::to_value(LlmProviderCapabilityReport {
+            tool_call: true,
+            structured_output: true,
+            streaming: true,
+            prompt_cache: false,
+            max_context_tokens: Some(8192),
+        })
+        .unwrap();
+        assert_eq!(value["toolCall"], json!(true));
+        assert_eq!(value["structuredOutput"], json!(true));
+        assert_eq!(value["promptCache"], json!(false));
+        assert_eq!(value["maxContextTokens"], json!(8192));
+    }
 }

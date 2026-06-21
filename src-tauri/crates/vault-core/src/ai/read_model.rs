@@ -295,6 +295,8 @@ pub fn provider_connection_failure_report(
         ok: false,
         latency_ms: 0,
         capabilities: provider_capabilities(config),
+        // Resolution failed before a runtime existed, so there is no probed LLM detail to add.
+        llm_capabilities: None,
         error_code,
         action_hint,
         retry_hint,

@@ -1198,6 +1198,45 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
 
     assert_eq!(run_worker_cli(&["mcp-server".to_string()]).expect("mcp cli"), "");
 
+    // Streaming chat (W-AI-1): with the LLM key stored, `ai_chat_send` resolves the provider and
+    // (under the coverage build) drives the stub RigLlmProvider stream inline through the sink,
+    // so we observe a terminal Done/Error and at least one prior chunk for the issued run id.
+    let chat_events: std::sync::Arc<std::sync::Mutex<Vec<vault_core::AiChatStreamEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let chat_sink = {
+        let events = chat_events.clone();
+        move |event: vault_core::AiChatStreamEvent| events.lock().expect("chat lock").push(event)
+    };
+    let ack = ai_chat_send(
+        None,
+        &vault_core::AiChatSendRequest {
+            provider_id: Some("llm-primary".to_string()),
+            messages: vec![vault_core::AiChatMessage {
+                role: vault_core::AiChatRole::User,
+                content: "summarize my history".to_string(),
+            }],
+            temperature: Some(0.6),
+            max_tokens: Some(64),
+        },
+        chat_sink,
+    )
+    .expect("ai chat send");
+    assert!(ack.run_id.starts_with("chat-"));
+    let captured = chat_events.lock().expect("chat lock");
+    assert!(!captured.is_empty());
+    assert!(captured.iter().all(|event| event.run_id == ack.run_id));
+    assert!(matches!(
+        captured.last().expect("terminal chat chunk").chunk,
+        vault_core::AiChatStreamChunk::Done | vault_core::AiChatStreamChunk::Error { .. }
+    ));
+    drop(captured);
+    // Cancelling a finished run reports no live run; an empty-message request is rejected.
+    let cancel = ai_chat_cancel(None, &ack.run_id).expect("ai chat cancel");
+    assert!(!cancel.cancelled);
+    let empty_error = ai_chat_send(None, &vault_core::AiChatSendRequest::default(), |_| {})
+        .expect_err("empty chat request rejected");
+    assert!(empty_error.to_string().contains("at least one message"));
+
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);

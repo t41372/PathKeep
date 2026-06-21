@@ -161,12 +161,87 @@ pub trait EmbeddingProvider: Send + Sync {
 }
 
 /// One message in a chat completion request.
+///
+/// `tool_call_id`/`tool_name` are populated only for the `Tool` role so a tool
+/// result can be correlated back to the model's originating call. They are
+/// additive (W-AI-1) and default to `None` for ordinary turns; the W-AI-7 agent
+/// harness fills them when it threads executed tool results back into history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmMessage {
     /// Conversational role of the speaker.
     pub role: LlmRole,
     /// Plain-text content of the message.
     pub content: String,
+    /// For the `Tool` role: the id of the tool call this message answers.
+    pub tool_call_id: Option<String>,
+    /// For the `Tool` role: the name of the tool that produced this result.
+    pub tool_name: Option<String>,
+}
+
+impl LlmMessage {
+    /// Builds an ordinary (non-tool) message with no tool correlation metadata.
+    ///
+    /// Most call sites only ever send System/User/Assistant turns; this keeps them
+    /// from repeating the two `None` tool fields the additive shape introduced.
+    pub fn new(role: LlmRole, content: impl Into<String>) -> Self {
+        Self { role, content: content.into(), tool_call_id: None, tool_name: None }
+    }
+
+    /// Builds a `Tool`-role message carrying the originating call id and tool name.
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            role: LlmRole::Tool,
+            content: content.into(),
+            tool_call_id: Some(tool_call_id.into()),
+            tool_name: Some(tool_name.into()),
+        }
+    }
+}
+
+/// A tool/function definition exposed to the model for one chat turn.
+///
+/// W-AI-1 threads these DEFINITIONS through to the provider so the model can emit
+/// `LlmStreamChunk::ToolCall`; tool *execution* is W-AI-7. `parameters` is a raw
+/// JSON-Schema object (kept as a value, not a Rust type, because each tool's
+/// schema is dynamic and provider-encoded by the adapter).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmToolDef {
+    /// Tool name the model uses to invoke the function.
+    pub name: String,
+    /// Human/model-facing description of what the tool does.
+    pub description: String,
+    /// JSON-Schema object describing the tool's arguments.
+    pub parameters: serde_json::Value,
+}
+
+/// Structured-output request for one chat turn.
+///
+/// When `Some`, the adapter asks the provider to constrain the response to the
+/// JSON schema. Per 02 §B, a serde validate-and-repair fallback still applies
+/// above this boundary (constrained ≠ semantically correct); this only carries
+/// the schema intent down to the transport.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmResponseFormat {
+    /// A name for the schema (some providers require/echo one).
+    pub schema_name: String,
+    /// The JSON-Schema object the response must conform to.
+    pub schema: serde_json::Value,
+}
+
+/// Token accounting for one completed chat turn, when the provider reports it.
+///
+/// The agent budget loop (02 §F) needs prompt/completion counts to enforce
+/// per-run token ceilings. Providers that omit usage leave this `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LlmUsage {
+    /// Input ("prompt") tokens consumed.
+    pub prompt_tokens: u64,
+    /// Output ("completion") tokens generated.
+    pub completion_tokens: u64,
 }
 
 /// Conversational role of an `LlmMessage`.
@@ -184,8 +259,8 @@ pub enum LlmRole {
 
 /// Request for one chat turn against an `LlmProvider`.
 ///
-/// Deliberately minimal for W-AI-0; W-AI-1 fleshes out tool definitions and structured
-/// output. Keeping the surface small now avoids freezing a shape we will outgrow.
+/// `tools` and `response_format` are additive (W-AI-1); they default to empty/`None`
+/// so existing callers keep compiling. Use [`LlmChatRequest::new`] for a plain turn.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlmChatRequest {
     /// Ordered conversation, oldest first; the system message (if any) leads.
@@ -194,6 +269,23 @@ pub struct LlmChatRequest {
     pub temperature: Option<f32>,
     /// Hard cap on generated tokens; `None` lets the provider/default decide.
     pub max_tokens: Option<u32>,
+    /// Tool DEFINITIONS exposed to the model this turn (execution is W-AI-7).
+    pub tools: Vec<LlmToolDef>,
+    /// Optional structured-output schema the response should conform to.
+    pub response_format: Option<LlmResponseFormat>,
+}
+
+impl LlmChatRequest {
+    /// Builds a plain chat request with no tools and no structured-output schema.
+    ///
+    /// Exists so the common case does not have to spell out the two additive fields.
+    pub fn new(
+        messages: Vec<LlmMessage>,
+        temperature: Option<f32>,
+        max_tokens: Option<u32>,
+    ) -> Self {
+        Self { messages, temperature, max_tokens, tools: Vec::new(), response_format: None }
+    }
 }
 
 /// Response from one non-streaming chat turn.
@@ -203,6 +295,8 @@ pub struct LlmChatResponse {
     pub text: String,
     /// Separated reasoning/thinking content when the provider exposes it.
     pub reasoning: Option<String>,
+    /// Token accounting when the provider reports it (`None` otherwise).
+    pub usage: Option<LlmUsage>,
 }
 
 /// One incremental piece of a streaming chat response.
@@ -363,8 +457,16 @@ mod tests {
     impl LlmProvider for StubEngine {
         async fn chat(&self, req: LlmChatRequest) -> Result<LlmChatResponse> {
             Ok(LlmChatResponse {
-                text: format!("answered {} messages", req.messages.len()),
+                text: format!(
+                    "answered {} messages with {} tools",
+                    req.messages.len(),
+                    req.tools.len()
+                ),
                 reasoning: req.temperature.map(|t| format!("temp={t}")),
+                usage: Some(LlmUsage {
+                    prompt_tokens: req.messages.len() as u64,
+                    completion_tokens: 7,
+                }),
             })
         }
 
@@ -488,13 +590,23 @@ mod tests {
         let engine = StubEngine::default();
         let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
         let request = LlmChatRequest {
-            messages: vec![LlmMessage { role: LlmRole::User, content: "hi".to_string() }],
+            messages: vec![LlmMessage::new(LlmRole::User, "hi")],
             temperature: Some(0.5),
             max_tokens: Some(64),
+            tools: vec![LlmToolDef {
+                name: "search".to_string(),
+                description: "search history".to_string(),
+                parameters: serde_json::json!({ "type": "object" }),
+            }],
+            response_format: Some(LlmResponseFormat {
+                schema_name: "answer".to_string(),
+                schema: serde_json::json!({ "type": "object" }),
+            }),
         };
         let response = runtime.block_on(engine.chat(request.clone())).expect("chat");
-        assert_eq!(response.text, "answered 1 messages");
+        assert_eq!(response.text, "answered 1 messages with 1 tools");
         assert_eq!(response.reasoning.as_deref(), Some("temp=0.5"));
+        assert_eq!(response.usage, Some(LlmUsage { prompt_tokens: 1, completion_tokens: 7 }));
 
         let stream = runtime.block_on(engine.chat_stream(request)).expect("stream");
         let (chunks, errors) = runtime.block_on(drain_stream(stream));
@@ -530,11 +642,39 @@ mod tests {
 
     #[test]
     fn llm_message_and_role_round_trip() {
-        let message = LlmMessage { role: LlmRole::Assistant, content: "ok".to_string() };
+        let message = LlmMessage::new(LlmRole::Assistant, "ok");
         assert_eq!(message.role, LlmRole::Assistant);
+        assert_eq!(message.tool_call_id, None);
+        assert_eq!(message.tool_name, None);
         assert_ne!(LlmRole::System, LlmRole::Tool);
         let chunk =
             LlmStreamChunk::ToolCall { name: "search".to_string(), arguments: "{}".to_string() };
         assert_ne!(chunk, LlmStreamChunk::Token("x".to_string()));
+    }
+
+    #[test]
+    fn llm_tool_result_message_carries_correlation_metadata() {
+        let message = LlmMessage::tool_result("call_42", "search", "5 rows");
+        assert_eq!(message.role, LlmRole::Tool);
+        assert_eq!(message.content, "5 rows");
+        assert_eq!(message.tool_call_id.as_deref(), Some("call_42"));
+        assert_eq!(message.tool_name.as_deref(), Some("search"));
+    }
+
+    #[test]
+    fn llm_chat_request_new_defaults_tools_and_format_empty() {
+        let request =
+            LlmChatRequest::new(vec![LlmMessage::new(LlmRole::User, "hi")], Some(0.6), Some(128));
+        assert!(request.tools.is_empty());
+        assert_eq!(request.response_format, None);
+        assert_eq!(request.temperature, Some(0.6));
+        assert_eq!(request.max_tokens, Some(128));
+    }
+
+    #[test]
+    fn llm_usage_defaults_to_zero() {
+        let usage = LlmUsage::default();
+        assert_eq!(usage.prompt_tokens, 0);
+        assert_eq!(usage.completion_tokens, 0);
     }
 }

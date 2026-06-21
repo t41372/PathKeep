@@ -16,6 +16,9 @@
 import type {
   AiAssistantRequest,
   AiAssistantResponse,
+  AiChatCancelResult,
+  AiChatSendAck,
+  AiChatSendRequest,
   AiIndexReport,
   AiIndexRequest,
   AiIntegrationPreview,
@@ -67,6 +70,10 @@ export const intelligenceClient = {
     call<AiAssistantResponse>('ask_ai_assistant', { request }),
   getAssistantJob: (jobId: number) =>
     call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
+  sendChat: (request: AiChatSendRequest) =>
+    call<AiChatSendAck>('ai_chat_send', { request }),
+  cancelChat: (runId: string) =>
+    call<AiChatCancelResult>('ai_chat_cancel', { runId }),
   listSearchEngineRules: () =>
     call<SearchEngineRule[]>('list_search_engine_rules'),
   upsertSearchEngineRule: (input: SearchEngineRuleInput) =>

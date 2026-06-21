@@ -23,8 +23,8 @@
 //! worker-owned jobs or bounded worker calls.
 
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderSecretInput,
-    AiSearchRequest,
+    AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
+    AiProviderConnectionTestRequest, AiProviderSecretInput, AiSearchRequest,
 };
 
 use super::super::worker_result;
@@ -125,4 +125,29 @@ pub(crate) fn ask_ai_assistant_impl(
 /// Previews the generated MCP and skill integration artifacts.
 pub(crate) fn preview_ai_integrations_impl() -> Result<vault_core::AiIntegrationPreview, String> {
     worker_result(vault_worker::preview_ai_integration_files())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Starts a streaming chat run; chunks reach the UI through the `emit` sink.
+///
+/// `emit` wraps `AppHandle::emit("pathkeep://ai-stream", ...)`; it must be `Send + Sync +
+/// 'static` so the worker's background streaming thread can own it.
+pub(crate) fn ai_chat_send_impl<E>(
+    request: AiChatSendRequest,
+    session_database_key: Option<&str>,
+    emit: E,
+) -> Result<vault_core::AiChatSendAck, String>
+where
+    E: Fn(AiChatStreamEvent) + Send + Sync + 'static,
+{
+    worker_result(vault_worker::ai_chat_send(session_database_key, &request, emit))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Requests cooperative cancellation of one live streaming chat run.
+pub(crate) fn ai_chat_cancel_impl(
+    run_id: String,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiChatCancelResult, String> {
+    worker_result(vault_worker::ai_chat_cancel(session_database_key, &run_id))
 }

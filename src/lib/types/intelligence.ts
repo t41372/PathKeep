@@ -187,6 +187,21 @@ export interface AiProviderCapabilityReport {
 }
 
 /**
+ * Serialized, UI-facing mirror of the in-engine LLM capabilities.
+ *
+ * Attached to a connection-test report for LLM providers (null for embedding providers). It
+ * exposes the exact streaming/tool/structured/cache facts the chat transport relies on, plus
+ * the known context window (`maxContextTokens` is null unless the transport reports one).
+ */
+export interface LlmProviderCapabilityReport {
+  toolCall: boolean
+  structuredOutput: boolean
+  streaming: boolean
+  promptCache: boolean
+  maxContextTokens?: number | null
+}
+
+/**
  * Describes a request payload in this front-end contract.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
@@ -208,6 +223,7 @@ export interface AiProviderConnectionTestReport {
   ok: boolean
   latencyMs: number
   capabilities: AiProviderCapabilityReport
+  llmCapabilities?: LlmProviderCapabilityReport | null
   errorCode?: string | null
   actionHint?: string | null
   retryHint?: string | null
@@ -497,6 +513,65 @@ export interface AiAssistantResponse {
   embeddingProviderId: string
   citations: AiAssistantCitation[]
   notes: string[]
+}
+
+/**
+ * Conversational role for one streaming chat message (mirrors the backend `LlmRole`).
+ */
+export type AiChatRole = 'system' | 'user' | 'assistant' | 'tool'
+
+/**
+ * One message in a streaming chat request.
+ */
+export interface AiChatMessage {
+  role: AiChatRole
+  content: string
+}
+
+/**
+ * Request payload for `ai_chat_send`. `providerId` defaults to the configured LLM provider when
+ * omitted; `temperature`/`maxTokens` override that provider's defaults for this turn only.
+ */
+export interface AiChatSendRequest {
+  providerId?: string | null
+  messages: AiChatMessage[]
+  temperature?: number | null
+  maxTokens?: number | null
+}
+
+/**
+ * Acknowledgement from `ai_chat_send`: the run id used to subscribe to and cancel the stream.
+ */
+export interface AiChatSendAck {
+  runId: string
+}
+
+/**
+ * Result of `ai_chat_cancel`: whether a live run with the given id was found and asked to stop.
+ */
+export interface AiChatCancelResult {
+  cancelled: boolean
+}
+
+/**
+ * One streamed chat chunk delivered over `pathkeep://ai-stream`.
+ *
+ * The `kind` tag routes each chunk into its UI lane: visible `token` text, model `reasoning`,
+ * a requested `toolCall`, the terminal `done` marker, or a terminal `error` with a message.
+ */
+export type AiChatStreamChunk =
+  | { kind: 'token'; text: string }
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'toolCall'; name: string; arguments: string }
+  | { kind: 'done' }
+  | { kind: 'error'; message: string }
+
+/**
+ * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.
+ */
+export interface AiChatStreamEvent {
+  runId: string
+  chunk: AiChatStreamChunk
 }
 
 /**

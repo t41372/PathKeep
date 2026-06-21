@@ -31,19 +31,19 @@ use serde_json::{Value, json};
 use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiProviderPurpose,
-    AiProviderSecretInput, AiSearchRequest, AppConfig, AppUpdateInstallRequest, ArchiveMode,
-    BrowserHistoryImportRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
-    CoreIntelligenceRebuildRequest, DateRange, DayInsightsRequest, DomainDeepDiveRequest,
-    DomainTrendRequest, EntityExplanationRequest, ExportFormat, ExportRequest,
-    FrontendErrorReportRequest, GeneratedFile, GranularityDateRangeRequest,
-    HistoryFaviconLookupEntry, HistoryQuery, IntelligenceEmbedCardsRequest,
-    IntelligenceLocalHostRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
-    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest,
-    SchedulePlan, ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
-    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
-    SnapshotRestoreRequest, TakeoutRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
+    AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderSecretInput, AiSearchRequest,
+    AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DateRange, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    EntityExplanationRequest, ExportFormat, ExportRequest, FrontendErrorReportRequest,
+    GeneratedFile, GranularityDateRangeRequest, HistoryFaviconLookupEntry, HistoryQuery,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
+    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
+    RefindPagesRequest, RetentionPruneRequest, SchedulePlan, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -465,6 +465,20 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             domain: None,
         }),
     );
+    dispatch_for_coverage(
+        &state,
+        "ai_chat_send",
+        wrapped(AiChatSendRequest {
+            provider_id: None,
+            messages: vec![AiChatMessage {
+                role: AiChatRole::User,
+                content: "summarize my history".to_string(),
+            }],
+            temperature: Some(0.6),
+            max_tokens: Some(64),
+        }),
+    );
+    dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
     dispatch_for_coverage(
         &state,
         "run_core_intelligence_now",

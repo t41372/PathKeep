@@ -28,16 +28,16 @@ use crate::{file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
-    AiAssistantRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
-    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
-    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
-    ExplainRefindRequest, FrontendErrorReportRequest, GranularityDateRangeRequest,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
-    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
-    RefindPagesRequest, RetentionPruneRequest, ScopedDateRangeRequest, SearchEffectivenessRequest,
-    SearchEngineRuleInput, SearchQueryListRequest, SearchTrailQueryRequest,
-    SetAppLockPasscodeRequest, SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest,
-    UnlockAppSessionRequest,
+    AiAssistantRequest, AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest,
+    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
+    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
+    EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
+    GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
+    RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest, ScopedDateRangeRequest,
+    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
+    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
+    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -449,6 +449,25 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
             let key = session_key(&state.session);
             json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
+        }
+        "ai_chat_send" => {
+            // `ai_chat_send` resolves config + provider SYNCHRONOUSLY on the calling
+            // thread (blocking keyring/file IO), then spawns a background thread that
+            // creates its own scoped `Runtime::new()` and drives the stream there. That
+            // blocking config IO is why this arm must hop off the bridge's async thread.
+            // The dev HTTP bridge does NOT deliver Tauri events, so the emit sink is a
+            // no-op here (documented); streaming chunks only flow under real Tauri. The
+            // returned `{ runId }` is still verifiable.
+            let payload = parse_payload::<WrappedRequest<AiChatSendRequest>>(payload)?;
+            let key = session_key(&state.session);
+            json_value!(ai_chat_send_off_thread(payload.request, key).await?)
+        }
+        "ai_chat_cancel" => {
+            let payload = parse_payload::<RunIdStringPayload>(payload)?;
+            json_value!(worker_bridge::ai_chat_cancel_impl(
+                payload.run_id,
+                session_key(&state.session).as_deref()
+            )?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
@@ -958,6 +977,26 @@ async fn ask_ai_assistant_off_thread(
     })
     .await
     .unwrap_or_else(|error| Err(format!("ask_ai_assistant join failed: {error}")))
+}
+
+/// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
+/// resolves config + provider synchronously (blocking keyring/file IO) and then
+/// spawns the streaming thread, which creates its own scoped runtime; that
+/// blocking config IO is why this must not run on the bridge's async thread. The
+/// emit sink is dropped because the dev HTTP bridge does not deliver Tauri events.
+async fn ai_chat_send_off_thread(
+    request: vault_core::AiChatSendRequest,
+    key: Option<String>,
+) -> Result<vault_core::AiChatSendAck, String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::ai_chat_send_impl(
+            request,
+            key.as_deref(),
+            std::mem::drop::<vault_core::AiChatStreamEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("ai_chat_send join failed: {error}")))
 }
 
 #[cfg(test)]

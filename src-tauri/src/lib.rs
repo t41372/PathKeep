@@ -166,6 +166,8 @@ fn run_app() -> Result<()> {
             build_ai_index,
             search_ai_history,
             ask_ai_assistant,
+            ai_chat_send,
+            ai_chat_cancel,
             run_core_intelligence_now,
             queue_core_intelligence_rebuild,
             get_sessions,

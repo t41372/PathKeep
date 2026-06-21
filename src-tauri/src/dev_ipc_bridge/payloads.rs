@@ -188,6 +188,13 @@ pub(super) struct JobIdPayload {
     pub(super) job_id: i64,
 }
 
+/// Selects a live streaming chat run (opaque string id) for cancellation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RunIdStringPayload {
+    pub(super) run_id: String,
+}
+
 /// Selects a canonical visit for navigation-path lookups.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
