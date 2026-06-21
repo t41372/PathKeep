@@ -122,3 +122,13 @@ embedding:   text-embedding-qwen3-embedding-0.6b
 - **IPC / streaming**：`src/lib/ipc/bridge.ts`（凍結）、`import-progress.ts`（listen 範本）；Rust `commands/intelligence/ai.rs`、`worker_bridge/intelligence/`、`lib.rs` generate_handler、`dev_ipc_bridge/dispatch.rs`（+ off-thread hop）。emit 範本 `commands/import.rs:31`。
 - **frontend**：`src/pages/assistant/index.tsx`、`components/explorer-paper/paper-assistant-*.tsx`、`src/styles/tokens.css` + `paper.css`（keyframes）、i18n `src/lib/i18n/catalog/assistant.ts`、虛擬化 `use-viewport-mount.ts`、狀態 `src/app/shell-data-context.ts`。
 - **test gate**：`docs/plan/program/quality-matrix.md`；`vitest.config.ts`（100/100/100/100）；`scripts/verify-rust-coverage.mjs`；`mutation:rust:ai-helpers` 為新 AI rust mutation 範本。
+
+---
+
+## 8. W-AI-0 review carryover（後續 block 必接）
+
+W-AI-0 的 review pipeline 確認、但刻意延後到後續 block 的 obligations（已記 STATUS closeout）：
+
+- **→ W-AI-1**：`LlmChatRequest`/`LlmChatResponse`/`LlmMessage` 目前是最小形狀。W-AI-1 落地時補（皆 additive，不破壞）：`LlmChatRequest.tools`（工具定義）、`response_format`/JSON-schema（structured output）、`LlmMessage` 在 `Tool` role 下的 `tool_call_id`/`name`、`LlmChatResponse.usage`（prompt/completion token，§F budget 迴圈需要）。
+- **→ W-AI-4**：(1) `embedding_descriptor_for`（`ai/provider.rs`）的 `dtype: Float32` / `normalized: true` 是當前 rig float32+L2 transport 的暫定常數；每個 per-provider adapter（candle、Voyage/Cohere int8）**必須**用真實 transport 設定它們，且在 fingerprint 被持久化前設好（否則兩種編碼可能撞同一 fingerprint）。程式內已標 `TODO(W-AI-4)`。(2) 兩個 `EmbeddingProvider`（external + candle）用 `enum AnyEmbeddingProvider` + 手寫 `impl EmbeddingProvider` 做 runtime dispatch，**不要** `Box<dyn EmbeddingProvider>`（`embed` 是 RPITIT、非 dyn-safe，且 boxing 會在 embedding hot path 加 alloc）。`ai/traits.rs` 的 trait doc 已記。
+- **→ W-AI-5**：`EmbeddingFingerprint::from_descriptor` 目前無 production caller；wire 進 vector index header 持久化/比對時，確認 descriptor 的 dtype/normalized 已是真值（接 W-AI-4 carryover）。

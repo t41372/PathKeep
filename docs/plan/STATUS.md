@@ -13,7 +13,7 @@
 > work block 內可以包含多個子任務、ADR、代碼變更與文檔同步，但只有整塊達成可驗收成果時才改成 `[x]`。
 > `STATUS.md` 通常只維持 1-2 個 work blocks。commit 仍保持可 review，不要求「一個 work block = 一個 commit」。
 
-- [ ] **WORK-AI-0-FOUNDATIONS** — AI traits / model-agnostic config / storage planes / secrets（無模型呼叫）
+- [x] **WORK-AI-0-FOUNDATIONS** — AI traits / model-agnostic config / storage planes / secrets（無模型呼叫）
   - 讀先（**第一份必讀**）：
     `docs/plan/program/ai-redesign-2026/04-current-state-and-execution.md`（現實對齊 + 執行序 + review 協議 + file anchors）
     `docs/plan/program/ai-redesign-2026/02-architecture-decisions.md`（§0 D1-D8、§A storage planes、§B、§C、§I 供應鏈 ledger）
@@ -32,6 +32,13 @@
     5. embedding fingerprint 結構：`hash(provider, model_id, effective_dim, output_dtype, normalized, pooling, instruction_template, version)`，鏡像 intelligence checkpoint/watermark；先落型別 + 持久化 header，stale 偵測接口（尚不觸發重嵌）。
   - 契約：rig/secrecy 用 `name.workspace = true`（rig **不 hard-pin**）；`secrecy` 加入後 `deny:rust` / `audit:rust` 須綠（MIT/Apache 過 license）；新 `.rs` 全進 100% 覆蓋。**現有 AI/semantic 代碼全是 placeholder（使用者 2026-06-20），可自由重做——不需保留舊 AI 命令/型別/snapshot 欄位形狀**；只需不破壞非-AI 功能與非-AI preview fixture；改動 `src/main.tsx`/`bridge.ts` 需對齊既有 generic IPC contract（本 block 不需碰）。
   - 驗收：`bun run check:base` 綠（Rust fmt/clippy/test + supply-chain + i18n + typecheck）；`coverage:rust` 對新 `.rs` 100%；關 AI 時 deterministic intelligence + FTS5 行為不變；走完 review pipeline（find → verify → fix）。
+  - 2026-06-20 closeout：交付於 `feat/ai-redesign-2026`（commit `c417f36a`）。實作 subagent + 4 獨立 finder + 1 對抗 verifier 的 review pipeline 跑完。修掉的 confirmed findings：Gemini `None`-dim 走 rig 仍硬編 768 的 D4 殘留（HIGH，對照 rig 0.34 源碼驗證 → 新增 `resolve_embed_request_dim`，Gemini 無顯式 dim 直接 bail）；`l2_normalize` denormal 飽和 + 非有限 norm 測試（殺 is_finite mutant）；fingerprint hash 文檔修正 + collision-lock + golden-vector 測試；`from_descriptor` 全欄位斷言；移除過廣的 `secrecy::self` re-export；`models/` 補進 `EXPORT_EXCLUSIONS_DOC`。**Carryover → W-AI-4**：descriptor 的 dtype/normalized 改 per-adapter；兩個 `EmbeddingProvider` 用 `enum AnyEmbeddingProvider`（非 `Box<dyn>`）。**Carryover → W-AI-1**：`LlmChatRequest/Response` 補 tool defs / structured-output / `tool_call_id` / `usage`（皆 additive）。Gate：clippy(-D warnings)/test(732 pass，僅已知 macOS `/dev/shm` 失敗)/verify-rust-coverage full（AI 檔 100%）/deny/audit 全綠。
+
+- [ ] **WORK-AI-1-LLM-STREAMING** — 串流式 external LLM transport（`LlmProvider` rig adapter + Tauri 串流事件 + LLM functions 降級）
+  - 讀先：`docs/plan/program/ai-redesign-2026/04-current-state-and-execution.md`（§1 placeholder 自由重做、§3 W-AI-1 行、§4 LM Studio、§5 review、§7 IPC/streaming anchors）；`02-architecture-decisions.md` §B；`src-tauri/crates/vault-core/src/ai/traits.rs`（W-AI-0 trait + carryover）、`ai/provider.rs`（`run_llm_agent` rig 用法）；`src/lib/ipc/import-progress.ts`（`listen` 範本）、`src-tauri/src/commands/import.rs:31`（`emit` 範本）、`dev_ipc_bridge/dispatch.rs`（off-thread hop）。
+  - 目標：實作 `LlmProvider`（單一 `RigLlmProvider` struct 內部分流 openai/anthropic/gemini）的 `chat` + `chat_stream`；`chat_stream` 把 `LlmStreamChunk`（token / reasoning / tool-call）經 `pathkeep://ai-stream` Tauri event 串到前端；capability/connection probe 補 streaming；第一批 LLM functions（topic/query summary 等）無 provider 時退 deterministic。**現有 assistant 命令/型別是 placeholder，可自由重設計成串流式**（不保留舊 job-polling 形狀）。對 LM Studio（gemma-4-26b）跑真機 e2e。
+  - 契約：rig 型別只在 adapter 內；`LlmChatRequest/Response` 依 W-AI-0 carryover 補 tool/usage 欄位（additive）；real 網路路徑 `#[cfg(not(any(test, coverage)))]` + 確定性 stub `#[cfg(any(test, coverage))]`（沿用 W-AI-0 pattern，保 100% 覆蓋）；不破壞非-AI 功能。
+  - 驗收：對 LM Studio 真機 streaming chat（token + reasoning 可見）跑通；無 provider 時 functions 退 deterministic；`bun run check:base` + `coverage:rust` 綠；走完 review pipeline。
 
 - [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending) — *carryover，非當前 focus*
   - 讀先：
