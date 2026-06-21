@@ -155,6 +155,14 @@ pub async fn build_ai_index_with_control(
         };
 
         if request.clear_only {
+            // The derived recall/rescore planes (W-AI-5) are pure projections of the `.pkvec` source
+            // the wipe above just cleared, so they are deleted too — a later build re-projects them
+            // from a fresh source. (`perform_wipe` already removed the `.pkvec`/`.pkmap`.)
+            super::vector_planes::delete_planes(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )?;
             return Ok(AiIndexReport {
                 job_id: None,
                 run_id: Some(run_id),
@@ -185,6 +193,15 @@ pub async fn build_ai_index_with_control(
                 &provider.config.default_model,
             )
             .delete()?;
+            // Drop the derived planes too so the rebuild window never leaves them projected from the
+            // old (now-deleted) source; they are re-projected after the backfill writes the new
+            // `.pkvec` (W-AI-5). On a resume the partial planes are NOT dropped (they re-project at
+            // the end anyway, and the partial `.pkvec` survives per CRITICAL-1).
+            super::vector_planes::delete_planes(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )?;
         }
 
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting candidates.")?;
@@ -217,6 +234,29 @@ pub async fn build_ai_index_with_control(
             ),
         )
         .await?;
+
+        // Re-project the derived recall (binary) + rescore (int8) planes from the now-updated
+        // `.pkvec` source (W-AI-5, 05 §3). This is a pure projection (zero training), so it runs
+        // whenever the source store exists — a build that embedded new rows, AND an incremental pass
+        // whose source already exists, both leave the derived planes in sync with the f32 source. A
+        // missing store (nothing ever embedded) writes empty planes so search degrades to "no
+        // semantic matches" rather than a stale/absent-plane error.
+        //
+        // TODO(W-AI-6/later): incremental passes currently RE-PROJECT all planes (O(total) CPU), not
+        // just the newly-embedded rows. After the C2 streaming projection this is now RAM-bounded
+        // (build peak ≪ 1 GB at any scale — the source is streamed, never materialized), and it runs
+        // off the UI thread in the worker, so for the realistic 1–3M post-dedup corpus it is
+        // acceptable. Add an incremental plane-APPEND (project only the new content_keys, append to the
+        // existing planes) when the corpus warrants — see 05 §10 carryover.
+        checkpoint_ai_run(
+            run_control,
+            "Index build was cancelled before projecting derived planes.",
+        )?;
+        super::vector_planes::build_planes_from_store(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+        )?;
 
         let notes = if outcome.indexed_items == 0 {
             vec!["No new or changed history rows required indexing.".to_string()]

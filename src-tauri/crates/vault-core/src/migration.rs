@@ -157,9 +157,11 @@ const DERIVED_VECTOR_PLANE_DIRNAME: &str = "vectors";
 
 /// File extensions of the AI vector sidecar plane excluded from the export bundle.
 ///
-/// `pkvec` is the raw f32 vector store; `pkmap` is the visit→content_key map beside it (W-AI-4c). Both
-/// are rebuildable derived state that re-embeds on the target, so neither rides the portable export.
-const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] = &["pkvec", "pkmap"];
+/// `pkvec` is the raw f32 vector store; `pkmap` is the visit→content_key map beside it (W-AI-4c);
+/// `pkbin`/`pki8` are the W-AI-5 derived binary-recall + int8-rescore planes projected from `.pkvec`.
+/// All are rebuildable derived state that re-projects/re-embeds on the target, so none ride the
+/// portable export.
+const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] = &["pkvec", "pkmap", "pkbin", "pki8"];
 
 /// Returns true when a `derived/`-relative path is part of the vector sidecar plane and so must be
 /// excluded from the export bundle (HIGH-4).
@@ -1191,8 +1193,14 @@ mod tests {
         fs::create_dir_all(&src_paths.vectors_dir).unwrap();
         fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkvec"), b"vectors").unwrap();
         fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkmap"), b"visit map").unwrap();
+        // W-AI-5 derived recall/rescore planes (also rebuildable; excluded like `.pkvec`/`.pkmap`).
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkbin"), b"binary plane")
+            .unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pki8"), b"int8 plane").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkvec"), b"stray vectors").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkmap"), b"stray map").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkbin"), b"stray binary").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pki8"), b"stray int8").unwrap();
 
         let bundle_target = src_dir.path().join("bundle.pathkeep");
         let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
@@ -1206,6 +1214,15 @@ mod tests {
         assert!(
             !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkmap")),
             "no .pkmap visit map may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.ends_with(".pkbin") || f.path.ends_with(".pki8")),
+            "no derived recall/rescore plane may be packed: {:?}",
             bundle.manifest.files,
         );
         assert!(
@@ -1276,10 +1293,14 @@ mod tests {
     fn is_derived_vector_plane_excluded_matches_vectors_subtree_and_pkvec_and_pkmap() {
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkvec")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkmap")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkbin")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pki8")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/nested/store.pkvec")));
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkvec")));
-        // A stray `.pkmap` directly under derived/ is excluded too (consistency with `.pkvec`).
+        // Stray derived recall/rescore planes are excluded too (consistency with `.pkvec`/`.pkmap`).
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkmap")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkbin")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pki8")));
         // A non-vector derived file is NOT excluded by this rule.
         assert!(!is_derived_vector_plane_excluded(Path::new("marker.txt")));
         assert!(!is_derived_vector_plane_excluded(Path::new("agent.sqlite")));

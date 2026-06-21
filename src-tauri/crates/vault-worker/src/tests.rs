@@ -1138,6 +1138,9 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     .expect("semantic search");
     assert_eq!(search.provider_id, "embed-primary");
 
+    // W-AI-5: with the index built (planes projected from the embedded `.pkvec`), the assistant's
+    // retrieval now resolves REAL semantic citations for a vague question, so the run completes with
+    // evidence instead of the old "insufficient-evidence" the stubbed-semantic path produced.
     let answer = ask_ai_assistant(
         None,
         &AiAssistantRequest {
@@ -1147,12 +1150,8 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
         },
     )
     .expect("assistant answer");
-    assert_eq!(answer.state, "insufficient-evidence");
-    assert!(
-        answer.answer.contains("I couldn't find enough matching history evidence"),
-        "{}",
-        answer.answer
-    );
+    assert_eq!(answer.state, "completed");
+    assert!(!answer.citations.is_empty(), "semantic + lexical retrieval must seed citations");
 
     let tool_result = mcp_search_result(
         None,

@@ -268,6 +268,74 @@ impl VectorStore {
         Ok(order)
     }
 
+    /// Streams the deduped `(content_key, vector)` SET to a sink WITHOUT materializing the whole store.
+    ///
+    /// The memory-bounded twin of [`read_all`]: it preserves the SAME last-writer-wins SET contract
+    /// (each `content_key` emitted exactly once, in first-seen order, carrying its LATEST persisted
+    /// vector) but never holds more than the dedup key-set + one reusable record buffer + the f32
+    /// vector of the record currently being handed to `sink`. At 14.4M that key-set is ~115 MB and the
+    /// per-record vector is one row, so the plane projection (C2, 05 §3/§10) can stride the ~14.7 GB
+    /// f32 source straight into the binary + int8 plane writers without ever loading the source whole.
+    ///
+    /// Last-writer-wins under streaming: a key seen a SECOND time (a torn-resume duplicate, CRITICAL-2)
+    /// must win with its LATER vector, but the earlier emission has already gone to `sink`. So this
+    /// makes ONE forward pass to record, per key, the byte offset of its LAST record, then a SECOND
+    /// forward pass that emits each key exactly once (at its first-seen position) reading the vector
+    /// from that key's LAST offset. Two strides over the file, O(records) time, O(keys) memory — the
+    /// dedup result is byte-identical to [`read_all`]'s, just never resident. A torn trailing record
+    /// errors on the first pass, mirroring [`read_all`], so a half-written body is caught not misread.
+    pub fn read_records_streaming(
+        &self,
+        mut sink: impl FnMut(u64, &[f32]) -> Result<()>,
+    ) -> Result<()> {
+        let file = File::open(&self.path)
+            .with_context(|| format!("opening vector store {}", self.path.display()))?;
+        let mut reader = BufReader::new(file);
+        let header = read_header(&mut reader)?;
+        let record_len = 8 + 4 * header.dim;
+        // Pass 1: stride the data region, recording for each key its first-seen ORDER and the byte
+        // offset of its LAST occurrence (last-writer-wins). `data_start` is the reader's position
+        // right after the header so an offset is relative to the file start, seekable in pass 2.
+        let data_start = reader.stream_position().context("reading vector store data offset")?;
+        let mut order: Vec<u64> = Vec::new();
+        let mut last_offset: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
+        let mut record = vec![0u8; record_len];
+        let mut offset = data_start;
+        loop {
+            match read_exact_or_eof(&mut reader, &mut record)? {
+                ReadOutcome::Eof => break,
+                ReadOutcome::Partial(read) => {
+                    anyhow::bail!(
+                        "vector store {} ends with a partial record ({read} of {record_len} bytes)",
+                        self.path.display()
+                    );
+                }
+                ReadOutcome::Full => {
+                    let id = u64::from_le_bytes(record[..8].try_into().expect("8-byte id slice"));
+                    if last_offset.insert(id, offset).is_none() {
+                        order.push(id);
+                    }
+                    offset += record_len as u64;
+                }
+            }
+        }
+        // Pass 2: emit each key once, in first-seen order, reading its LAST record by seeking the SAME
+        // reader to the recorded offset. Reusing the open handle (no second `File::open`) keeps memory
+        // bounded to the record buffer + one decoded vector.
+        let mut vector = Vec::with_capacity(header.dim);
+        for id in order {
+            let at = last_offset[&id];
+            reader.seek(std::io::SeekFrom::Start(at)).context("seeking vector store record")?;
+            reader.read_exact(&mut record).context("reading vector store record body")?;
+            vector.clear();
+            for component in record[8..].chunks_exact(4) {
+                vector.push(f32::from_le_bytes(component.try_into().expect("4-byte f32 slice")));
+            }
+            sink(id, &vector)?;
+        }
+        Ok(())
+    }
+
     /// Streams the SET of `content_key`s currently persisted, without retaining any vectors.
     ///
     /// Used by the resumable backfill to skip re-appending a content_key whose vector is already on
@@ -632,6 +700,60 @@ mod tests {
         assert_eq!(ids, vec![10, 20, 30], "ids are a set in first-seen order");
         // id 10 carries its LAST persisted vector.
         assert_eq!(all[0], (10, vec![9.0, 9.0]));
+    }
+
+    #[test]
+    fn read_records_streaming_equals_read_all_including_dedup_set() {
+        // C2: the streaming projection source must yield byte-identical (key, vector) records to
+        // `read_all` — same first-seen ORDER, same last-writer-wins dedup SET — so swapping the plane
+        // projection from the resident `read_all` to the streaming reader changes nothing observable.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
+        // A torn-resume duplicate of id 10 (a LATER vector) plus distinct ids, so the dedup + order
+        // contract is actually exercised, not just a trivial pass-through.
+        store.append_vectors(&[(10, vec![1.0, 0.0]), (20, vec![0.0, 1.0])]).expect("append 1");
+        store.append_vectors(&[(10, vec![9.0, 9.0]), (30, vec![5.0, 5.0])]).expect("append 2");
+
+        let expected = store.read_all().expect("read all");
+        let mut streamed: Vec<(u64, Vec<f32>)> = Vec::new();
+        store
+            .read_records_streaming(|key, vector| {
+                streamed.push((key, vector.to_vec()));
+                Ok(())
+            })
+            .expect("stream");
+        assert_eq!(streamed, expected, "streaming must match read_all exactly");
+        // Spell out the contract the equality encodes: set in first-seen order, id 10's LAST vector.
+        assert_eq!(streamed.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![10, 20, 30]);
+        assert_eq!(streamed[0].1, vec![9.0, 9.0]);
+    }
+
+    #[test]
+    fn read_records_streaming_propagates_a_sink_error() {
+        // The sink's error must abort the stream (so a plane writer failure stops the projection).
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
+        store.append_vectors(&[(1, vec![1.0, 0.0]), (2, vec![0.0, 1.0])]).expect("append");
+        let error = store
+            .read_records_streaming(|_, _| anyhow::bail!("sink boom"))
+            .expect_err("sink error propagates");
+        assert!(error.to_string().contains("sink boom"));
+    }
+
+    #[test]
+    fn read_records_streaming_rejects_partial_trailing_record() {
+        // A torn trailing record must error on the first pass, mirroring `read_all`.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let store = VectorStore::create_stamped(&paths, &fingerprint(3, "m")).expect("create");
+        store.append_vectors(&[(1, vec![1.0, 2.0, 3.0])]).expect("append");
+        let len = store.path().metadata().expect("meta").len();
+        let file = OpenOptions::new().write(true).open(store.path()).expect("open");
+        file.set_len(len - 3).expect("truncate");
+        let error = store.read_records_streaming(|_, _| Ok(())).expect_err("partial record");
+        assert!(error.to_string().contains("partial record"));
     }
 
     #[test]

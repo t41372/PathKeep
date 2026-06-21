@@ -270,26 +270,49 @@ fn seed_embedding(
         .expect("insert embedding");
 }
 
-fn seed_embedding_with_vector(
-    connection: &Connection,
-    history_id: i64,
+/// Seeds the derived vector planes (W-AI-5) for a provider from `(history_id, content_key, vector)`.
+///
+/// Writes a fingerprint-stamped `.pkvec` store (one vector per content_key, last-writer-wins), a
+/// `.pkmap` fanning each history_id to its content_key, then projects the binary + int8 planes — the
+/// exact on-disk state `build_ai_index` leaves, so semantic search resolves real hits in tests.
+fn seed_vector_planes(
+    paths: &ProjectPaths,
     provider: &AiProviderRuntime,
-    _vector: &[f32],
+    rows: &[(i64, u64, Vec<f32>)],
 ) {
-    connection
-        .execute(
-            "INSERT INTO ai_embeddings
-             (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at)
-             VALUES (?1, 'chrome:Default', 'https://example.com', 'Example', 'example.com', '2026-04-04T00:00:00Z', ?2, 7, ?3, ?4, ?5)",
-            params![
-                history_id,
-                format!("hash-{history_id}"),
-                provider.config.id,
-                provider.config.default_model,
-                now_rfc3339()
-            ],
-        )
-        .expect("insert embedding with vector");
+    let dim = rows.first().map(|(_, _, vector)| vector.len()).unwrap_or(1);
+    let fingerprint = EmbeddingFingerprint::new(
+        provider.config.id.clone(),
+        provider.config.default_model.clone(),
+        dim,
+        EmbeddingDtype::Float32,
+        true,
+        EmbeddingPooling::Unknown,
+        None,
+    );
+    let store = VectorStore::create_stamped(paths, &fingerprint).expect("stamp store");
+    // Dedup to one vector per content_key for the store (its read_all is a set), keep full fan-out for
+    // the map.
+    let mut seen = std::collections::HashSet::new();
+    let mut store_records = Vec::new();
+    let mut map_records = Vec::new();
+    for (history_id, content_key, vector) in rows {
+        if seen.insert(*content_key) {
+            store_records.push((*content_key, vector.clone()));
+        }
+        map_records.push((*history_id, *content_key));
+    }
+    store.append_vectors(&store_records).expect("append vectors");
+    let map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    map.ensure_created(paths).expect("create map");
+    map.append(&map_records).expect("append map");
+    super::vector_planes::build_planes_from_store(
+        paths,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .expect("build planes");
 }
 
 fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
@@ -2032,6 +2055,8 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
     assert_eq!(collected.len(), 1);
     seed_embedding(&connection, 1, &embedding_provider(), "sqlite-only-hash");
 
+    // No vector planes were ever built, so the flat index loads empty and search degrades to lexical
+    // with an honest "no vectors yet" note (W-AI-5 replaced the old "tracked for v0.3.0" placeholder).
     let response = runtime
         .block_on(search_history_internal(
             &paths,
@@ -2048,10 +2073,13 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
         ))
         .expect("semantic empty fallback");
     assert_eq!(response.provider_id, "embed");
+    assert_eq!(response.items.len(), 1);
+    assert_eq!(response.items[0].match_reason, "Lexical match");
     assert!(
-        response.notes.iter().any(|note| note.contains("No indexed semantic matches were found"))
+        response.notes.iter().any(|note| note.contains("has no vectors yet")),
+        "empty index must surface an honest note: {:?}",
+        response.notes
     );
-    assert!(response.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
 }
 
 #[test]
@@ -2352,19 +2380,18 @@ fn chunk_size_clamps_to_remaining_and_constant() {
 }
 
 #[test]
-fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
+fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
+    // No vector planes built → the flat index loads empty → an honest "no vectors yet" note and no
+    // hits (W-AI-5 replaced the old "tracked for v0.3.0" placeholder). The legacy SQLite sidecar
+    // write path is STILL deferred, which we assert too.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    seed_visit(&connection, 2, "chrome:Default", "https://example.com/hidden", Some("Hidden"), 2);
-    let query_vector = runtime
-        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
-        .expect("query vector");
-    seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
-    seed_embedding_with_vector(&connection, 2, &embedding, &query_vector);
+    // A SQLite compatibility row exists (the staleness reasons gate on it) but NO planes were built.
+    seed_embedding(&connection, 1, &embedding, "sqlite-only-hash");
 
-    let missing_sidecar = runtime
+    let report = runtime
         .block_on(semantic_matches(
             &paths,
             &config,
@@ -2378,9 +2405,15 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
                 cursor: None,
             },
         ))
-        .expect("semantic matches without sidecar");
-    assert!(missing_sidecar.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
+        .expect("semantic matches on empty index");
+    assert!(report.hits.is_empty());
+    assert!(
+        report.notes.iter().any(|note| note.contains("has no vectors yet")),
+        "empty index must surface an honest note: {:?}",
+        report.notes
+    );
 
+    // The deferred legacy sidecar WRITE path still errors (vectors live on the derived planes now).
     let sidecar_error = runtime
         .block_on(ai_sidecar::sync_provider_embeddings(
             &paths,
@@ -2397,7 +2430,7 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
                 model: embedding.config.default_model.clone(),
                 content_hash: "hash-1".to_string(),
                 indexed_at: now_rfc3339(),
-                vector: query_vector.clone(),
+                vector: vec![0.1, 0.2, 0.3],
             }],
             true,
             false,
@@ -2406,6 +2439,7 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
         .expect_err("semantic sidecar writes are deferred");
     assert!(sidecar_error.to_string().contains("tracked for PathKeep v0.3.0"));
 
+    // Staleness reasons still surface (watermark + enrichment change) for a built-but-stale index.
     let stale_watermark = semantic_index_staleness_reason(
         &connection,
         &embedding.config.id,
@@ -2454,18 +2488,32 @@ fn semantic_matches_reports_deferred_sidecar_instead_of_sqlite_fallback() {
 }
 
 #[test]
-fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
+fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
+    // Built planes → real two-stage recall returns the page whose stored vector matches the query
+    // embedding; a stale ledger watermark still surfaces its rebuild note alongside the hits.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    let query_vector = runtime
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+
+    // The deterministic stub embeds "docs" to a known query vector; seed page 1's stored vector to
+    // that same vector (an exact match) and page 2 to an orthogonal one.
+    let docs_vector = runtime
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
-        .expect("query vector");
-    seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
+        .expect("docs vector");
+    let other_vector: Vec<f32> = docs_vector.iter().rev().map(|value| -value).collect();
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, other_vector)],
+    );
+    // SQLite compatibility rows (the staleness reason gates on them) + a stale ledger watermark so the
+    // staleness note is exercised alongside real hits.
+    seed_embedding(&connection, 1, &embedding, "hash-1");
     seed_successful_index_ledger(&connection, &embedding, 1);
 
-    let stale_without_sidecar = runtime
+    let report = runtime
         .block_on(semantic_matches(
             &paths,
             &config,
@@ -2479,53 +2527,279 @@ fn semantic_matches_reports_stale_ledger_and_sidecar_errors() {
                 cursor: None,
             },
         ))
-        .expect("semantic matches with stale ledger");
+        .expect("semantic matches with built planes");
+    assert!(!report.hits.is_empty(), "a built index must return real hits");
+    // Page 1 (the exact match) must rank first.
+    assert_eq!(report.hits[0].history_id, 1);
+    assert_eq!(report.hits[0].match_reason, "Semantic match");
+    assert!(report.hits[0].url.contains("/docs"));
     assert!(
-        stale_without_sidecar
-            .notes
-            .iter()
-            .any(|note| note.contains("visibility or import watermark"))
+        report.notes.iter().any(|note| note.contains("visibility or import watermark")),
+        "the stale ledger note must still surface: {:?}",
+        report.notes
     );
-    assert!(
-        stale_without_sidecar.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0"))
-    );
-
-    let deferred_write = runtime
-        .block_on(ai_sidecar::sync_provider_embeddings(
-            &paths,
-            &embedding.config.id,
-            &embedding.config.default_model,
-            &[SidecarEmbeddingRow {
-                history_id: 1,
-                profile_id: "chrome:Default".to_string(),
-                url: "https://example.com/docs".to_string(),
-                title: Some("Docs".to_string()),
-                domain: "example.com".to_string(),
-                visited_at: "2026-04-04T00:00:00Z".to_string(),
-                provider_id: embedding.config.id.clone(),
-                model: embedding.config.default_model.clone(),
-                content_hash: "hash-1".to_string(),
-                indexed_at: now_rfc3339(),
-                vector: vec![0.1, 0.2],
-            }],
-            true,
-            false,
-            &[],
-        ))
-        .expect_err("semantic sidecar writes are deferred");
-    assert!(deferred_write.to_string().contains("tracked for PathKeep v0.3.0"));
 }
 
 #[test]
-fn search_history_internal_uses_lexical_results_when_sidecar_is_deferred() {
+fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
+    // D1: the planes were built at dim 4, but the live embedding config produces a dim-3 query. A
+    // search would binarize the query to a narrower byte width and prefix-compare garbage, so the
+    // config-drift guard must return NO semantic hits + an honest "different embedding configuration
+    // (vector dimension changed)" note, BEFORE any meaningless score can reach the merge.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider(); // dimensions: Some(3) → query embeds at dim 3
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    // Build the planes at dim 4 (a 4-component stored vector) — a different dim than the live query.
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, vec![0.5, 0.5, 0.5, 0.5])]);
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("semantic matches under a dim mismatch");
+    assert!(report.hits.is_empty(), "a dim mismatch must yield NO semantic hits");
+    assert!(
+        report.notes.iter().any(|note| note.contains("vector dimension changed")),
+        "the dim-mismatch note must surface: {:?}",
+        report.notes
+    );
+}
+
+#[test]
+fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
+    // D1: the planes were built at the SAME dim as the live query (3) but under a DIFFERENT fingerprint
+    // (Mean pooling), while the live External engine reports Unknown pooling. The bytes line up but the
+    // geometry differs, so scores would still be meaningless. `planes_are_stale` must catch the drift
+    // and the guard must degrade to lexical-only with a rebuild note.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    let query_vector = runtime
+
+    let docs_vector = runtime
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
-        .expect("query vector");
-    seed_embedding_with_vector(&connection, 1, &embedding, &query_vector);
+        .expect("docs vector");
+    // Stamp the source store (and thus the planes) with a Mean-pooled fingerprint — same dim, different
+    // hash than the live External (Unknown-pooled) descriptor the guard rebuilds.
+    let drifted = EmbeddingFingerprint::new(
+        embedding.config.id.clone(),
+        embedding.config.default_model.clone(),
+        docs_vector.len(),
+        EmbeddingDtype::Float32,
+        true,
+        EmbeddingPooling::Mean,
+        None,
+    );
+    let store = VectorStore::create_stamped(&paths, &drifted).expect("stamp drifted store");
+    store.append_vectors(&[(0x1111, docs_vector.clone())]).expect("append");
+    let map = VisitContentMap::for_provider(
+        &paths,
+        &embedding.config.id,
+        &embedding.config.default_model,
+    );
+    map.ensure_created(&paths).expect("create map");
+    map.append(&[(1, 0x1111)]).expect("append map");
+    super::vector_planes::build_planes_from_store(
+        &paths,
+        &embedding.config.id,
+        &embedding.config.default_model,
+    )
+    .expect("build planes");
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("semantic matches under fingerprint drift");
+    assert!(report.hits.is_empty(), "a fingerprint drift must yield NO semantic hits");
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|note| note.contains("model, pooling, normalization, or output type")),
+        "the fingerprint-drift note must surface: {:?}",
+        report.notes
+    );
+}
+
+#[test]
+fn semantic_matches_filters_by_profile_and_domain_facets() {
+    // Two profiles share the SAME page content (one content_key); a profile facet must keep only the
+    // matching profile's visit, and a domain facet only the matching domain.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Work", "https://example.com/docs", Some("Docs"), 5);
+    seed_visit(&connection, 2, "chrome:Home", "https://example.com/docs", Some("Docs"), 1);
+    seed_visit(&connection, 3, "chrome:Work", "https://other.com/page", Some("Other"), 3);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    let other_vector: Vec<f32> = docs_vector.iter().rev().map(|value| -value).collect();
+    // Visits 1 + 2 share content_key 0x1111 (same page, two profiles); visit 3 is a different page.
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[
+            (1, 0x1111, docs_vector.clone()),
+            (2, 0x1111, docs_vector.clone()),
+            (3, 0x3333, other_vector),
+        ],
+    );
+
+    // Profile facet: only chrome:Work's visit of the shared page survives.
+    let by_profile = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: Some("chrome:Work".to_string()),
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("profile facet");
+    let docs_hit = by_profile.hits.iter().find(|hit| hit.url.contains("/docs")).expect("docs hit");
+    assert_eq!(docs_hit.profile_id, "chrome:Work");
+    assert_eq!(docs_hit.history_id, 1, "the representative visit is chrome:Work's");
+
+    // Domain facet: only other.com survives.
+    let by_domain = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: Some("other.com".to_string()),
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("domain facet");
+    assert!(by_domain.hits.iter().all(|hit| hit.domain == "other.com"));
+    assert!(by_domain.hits.iter().any(|hit| hit.history_id == 3));
+}
+
+#[test]
+fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
+    // One page (content_key) with TWO visible visits: hydration must collapse them to the SINGLE
+    // most-recent visit (the dedup fan-out), exercising the keep-newer / replace-older arms.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    // Distinct VALID Chrome microsecond timestamps (above the epoch offset) so the two visits resolve
+    // to distinct unix-ms (tiny values clamp to the same floor and would not be orderable).
+    let earlier = 13_300_000_000_000_000_i64; // ~2022
+    let later = 13_400_000_000_000_000_i64; // ~2025, more recent
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), earlier);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/docs", Some("Docs"), later);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    // Both visits share ONE content_key (same page), so the index has one vector but two visits map.
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x1111, docs_vector)],
+    );
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("semantic matches");
+    let docs_hits: Vec<_> = report.hits.iter().filter(|hit| hit.url.contains("/docs")).collect();
+    assert_eq!(docs_hits.len(), 1, "the page collapses to ONE representative hit");
+    assert_eq!(docs_hits[0].history_id, 2, "the most-recent visit (time 9) represents the page");
+}
+
+#[test]
+fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
+    // The index returns matches but the facet filter drops every one → an honest "none visible under
+    // the active filters" note and no hits.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Work", "https://example.com/docs", Some("Docs"), 1);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, docs_vector)]);
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                // No visit lives under this profile, so every semantic match is filtered out.
+                profile_id: Some("chrome:DoesNotExist".to_string()),
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("semantic matches");
+    assert!(report.hits.is_empty());
+    assert!(
+        report.notes.iter().any(|note| note.contains("none are currently visible")),
+        "must surface the filtered-out note: {:?}",
+        report.notes
+    );
+}
+
+#[test]
+fn search_history_internal_uses_lexical_results_when_index_is_empty() {
+    // An embedding provider is selected but no vector planes were built → the index loads empty, so
+    // the merged result is lexical-only with an honest "no vectors yet" note (W-AI-5).
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    seed_embedding(&connection, 1, &embedding, "sqlite-only-hash");
 
     let search = runtime
         .block_on(search_history_internal(
@@ -2546,7 +2820,56 @@ fn search_history_internal_uses_lexical_results_when_sidecar_is_deferred() {
     assert_eq!(search.items.len(), 1);
     assert_eq!(search.items[0].history_id, 1);
     assert_eq!(search.items[0].match_reason, "Lexical match");
-    assert!(search.notes.iter().any(|note| note.contains("tracked for PathKeep v0.3.0")));
+    assert!(search.notes.iter().any(|note| note.contains("has no vectors yet")));
+}
+
+#[test]
+fn search_history_internal_merges_real_semantic_hits_with_lexical() {
+    // With built planes, a page found by BOTH lexical and semantic recall reconciles on its visit
+    // and reads as a combined "Lexical + semantic match"; a semantic-only page joins as a fresh hit.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    // Page 1 is found lexically (title/url match "docs") AND semantically (vector match).
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    // Page 2 matches the query vector but NOT the lexical query "docs" (title/url differ).
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/api", Some("Reference"), 2);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, docs_vector.clone())],
+    );
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+            },
+        ))
+        .expect("merged search");
+
+    let page_one = search.items.iter().find(|item| item.history_id == 1).expect("page 1");
+    assert_eq!(
+        page_one.match_reason, "Lexical + semantic match",
+        "a dual-recall page reads as a combined match"
+    );
+    let page_two = search.items.iter().find(|item| item.history_id == 2).expect("page 2");
+    assert_eq!(
+        page_two.match_reason, "Semantic match",
+        "a semantic-only page joins as a fresh hit"
+    );
 }
 
 #[test]

@@ -23,6 +23,8 @@ mod provider;
 mod read_model;
 mod search;
 mod traits;
+mod vector_index;
+mod vector_planes;
 mod vector_store;
 mod visit_content_map;
 mod working_set;
@@ -113,6 +115,14 @@ pub use self::traits::{
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
     LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolDef, LlmUsage, VectorIndex,
 };
+pub use self::vector_index::{
+    ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,
+};
+pub use self::vector_planes::{
+    BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
+    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
+    dot_product, hamming_distance, planes_are_stale, quantize_int8,
+};
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
 pub use self::working_set::{
@@ -130,11 +140,12 @@ use self::ledger::{
     record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
 };
 use self::provider::{
-    classify_provider_error, embedding_provider_readiness, run_llm_agent, validate_provider,
+    classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
+    validate_provider,
 };
 #[cfg(test)]
 use self::provider::{
-    embed_batch_with_retry, embed_query, embed_single_with_retry, embedding_error_is_rate_limited,
+    embed_batch_with_retry, embed_single_with_retry, embedding_error_is_rate_limited,
     provider_connection_report_from_probe,
 };
 use self::search::semantic_index_staleness_reason;

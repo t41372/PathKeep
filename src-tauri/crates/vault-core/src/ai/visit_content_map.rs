@@ -152,6 +152,31 @@ impl VisitContentMap {
         Ok(keys)
     }
 
+    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (W-AI-5 hydration).
+    ///
+    /// The inverse the semantic-search hydration needs: a deduped result vector (a `content_key` the
+    /// [`super::vector_index::FlatVectorIndex`] returned) must fan back out to its visits so search can
+    /// pick a representative (most-recent) visit per result page. ONE streaming pass keeps only the
+    /// requested keys' visits (the candidate set is bounded by `k`, never the 14.4M map), so memory is
+    /// bounded by the result fan-out — never the whole map. A key with no mapped visit (an orphan
+    /// vector) is simply absent from the returned map; the caller drops it. An absent map returns an
+    /// empty map (a never-built index hydrates to nothing, not an error).
+    pub fn history_ids_for_content_keys(
+        &self,
+        wanted: &HashSet<u64>,
+    ) -> Result<HashMap<u64, Vec<i64>>> {
+        let mut inverse: HashMap<u64, Vec<i64>> = HashMap::new();
+        if wanted.is_empty() {
+            return Ok(inverse);
+        }
+        self.for_each_record(|history_id, content_key| {
+            if wanted.contains(&content_key) {
+                inverse.entry(content_key).or_default().push(history_id);
+            }
+        })?;
+        Ok(inverse)
+    }
+
     /// Deletes the map file if it exists, returning whether a file was removed.
     pub fn delete(&self) -> Result<bool> {
         if !self.exists() {
@@ -274,6 +299,41 @@ mod tests {
         assert_eq!(ids, HashSet::from([10, 20, 30]));
         let keys = created.referenced_content_keys().expect("keys");
         assert_eq!(keys, HashSet::from([0xAAAA, 0xBBBB]));
+    }
+
+    #[test]
+    fn history_ids_for_content_keys_returns_only_wanted_keys_fan_out() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let created = create_for(&paths, &map(&paths));
+        // Two visits share content_key 0xAAAA; one visit on 0xBBBB; one on an unwanted 0xCCCC.
+        created.append(&[(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)]).expect("append");
+
+        let inverse = created
+            .history_ids_for_content_keys(&HashSet::from([0xAAAA, 0xBBBB]))
+            .expect("inverse");
+        let mut aaaa = inverse.get(&0xAAAA).cloned().expect("aaaa present");
+        aaaa.sort_unstable();
+        assert_eq!(aaaa, vec![10, 30], "0xAAAA fans out to both its visits");
+        assert_eq!(inverse.get(&0xBBBB), Some(&vec![20]));
+        assert!(!inverse.contains_key(&0xCCCC), "unwanted keys are excluded");
+
+        // An empty wanted set short-circuits to an empty map.
+        assert!(created.history_ids_for_content_keys(&HashSet::new()).expect("empty").is_empty());
+    }
+
+    #[test]
+    fn history_ids_for_content_keys_is_empty_for_absent_map() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let handle = map(&paths);
+        assert!(!handle.exists());
+        assert!(
+            handle
+                .history_ids_for_content_keys(&HashSet::from([0x1]))
+                .expect("absent inverse")
+                .is_empty()
+        );
     }
 
     #[test]

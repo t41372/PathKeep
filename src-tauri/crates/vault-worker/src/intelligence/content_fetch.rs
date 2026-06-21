@@ -17,10 +17,11 @@
 //! starving the local enrichment work and bounds egress concurrency to one (06 §5).
 
 use crate::context::load_unlocked_config;
+#[cfg(not(coverage))]
 use crate::job_runtime::maybe_spawn_worker_pool;
 use anyhow::Result;
+#[cfg(not(coverage))]
 use std::sync::atomic::AtomicUsize;
-use std::time::Duration;
 use vault_core::{
     AppConfig, AppSnapshot, ContentFetchNowRequest, ContentFetchNowResult, ContentFetchSettings,
     VisitEnrichmentRecord, content_fetch_schedule_eta_secs as core_content_fetch_schedule_eta_secs,
@@ -31,6 +32,10 @@ use vault_core::{
 };
 
 /// Single-worker content-fetch lane counter (LOW concurrency, 06 §5).
+///
+/// Only the production [`spawn_content_fetch_drain`] (the real worker pool) needs it; the coverage
+/// build drives the lane inline (no pool), so it is `#[cfg(not(coverage))]` to stay dead-code clean.
+#[cfg(not(coverage))]
 static CONTENT_FETCH_WORKERS: AtomicUsize = AtomicUsize::new(0);
 
 /// Default bulk-enqueue cap for the working-set-prioritized content fetch (bounded, 06 §5).
@@ -134,21 +139,78 @@ pub(crate) fn maybe_spawn_content_fetch_drain(
     }
     let paths = paths.clone();
     let session_database_key = session_database_key.map(ToOwned::to_owned);
+    spawn_content_fetch_drain(paths, session_database_key);
+}
+
+/// Production driver: runs the drain lane on the bounded worker pool with the REAL per-iteration step
+/// and a REAL sleep between deferred jobs.
+///
+/// Split from [`maybe_spawn_content_fetch_drain`] so the only irreducible real-thread/real-sleep code
+/// is these two thunks. The loop body itself (the cap + arm dispatch) lives in [`run_content_fetch_lane`]
+/// so it is unit-tested without a thread; this thunk wiring is `#[cfg(not(coverage))]` (mirroring
+/// `chat.rs`/`model_download.rs`: the real spawn is compiled out of the coverage build, and the
+/// `#[cfg(coverage)]` twin below drives the SAME seam inline so the 100% gate is deterministic).
+#[cfg(not(coverage))]
+fn spawn_content_fetch_drain(
+    paths: vault_core::ProjectPaths,
+    session_database_key: Option<String>,
+) {
     maybe_spawn_worker_pool("pathkeep-content-fetch", &CONTENT_FETCH_WORKERS, 1, move || {
-        loop {
-            match drain_content_fetch_lane_step(&paths, session_database_key.as_deref()) {
-                // A job ran → loop immediately for the next due one.
-                LaneStep::Drained => continue,
-                // Nothing due now but a job is deferred (rate-limited) → sleep until it is due, then
-                // loop so the deferred work completes without a user action (SEC-2).
-                LaneStep::Idle { sleep_secs: Some(secs) } => {
-                    std::thread::sleep(Duration::from_secs(secs.min(MAX_DEFERRED_SLEEP_SECS)));
-                }
-                // Truly idle (no due + no deferred work) or stopped → exit the lane.
-                LaneStep::Idle { sleep_secs: None } | LaneStep::Stop => break,
-            }
-        }
+        run_content_fetch_lane(
+            || drain_content_fetch_lane_step(&paths, session_database_key.as_deref()),
+            |secs| std::thread::sleep(std::time::Duration::from_secs(secs)),
+        );
     });
+}
+
+/// Coverage twin of [`spawn_content_fetch_drain`]: drives the lane INLINE (no background thread, no real
+/// sleep) so the driver wiring — the real step thunk, the sleep thunk, and the [`run_content_fetch_lane`]
+/// call — is exercised deterministically at 100% coverage without depending on thread scheduling.
+///
+/// The step is wrapped so that after the lane sleeps ONCE it reports [`LaneStep::Stop`], which bounds the
+/// drive to a single deferred-sleep pass. That keeps a persistently rate-limited job from spinning the
+/// inline drive forever while still flowing through the SAME seam + cap the production thread uses.
+#[cfg(coverage)]
+fn spawn_content_fetch_drain(
+    paths: vault_core::ProjectPaths,
+    session_database_key: Option<String>,
+) {
+    let slept = std::cell::Cell::new(false);
+    run_content_fetch_lane(
+        || {
+            if slept.get() {
+                return LaneStep::Stop;
+            }
+            drain_content_fetch_lane_step(&paths, session_database_key.as_deref())
+        },
+        |_secs| slept.set(true),
+    );
+}
+
+/// Runs the content-fetch drain loop, dispatching each [`LaneStep`] (the SEC-2 deferred-job sleep cap
+/// lives HERE so it is unit-tested without a thread).
+///
+/// Injectable seam: `step` produces one lane decision per iteration (the production driver calls
+/// [`drain_content_fetch_lane_step`]) and `sleep` performs the deferred wait (the production driver calls
+/// [`std::thread::sleep`]). A `Drained` step loops immediately; an `Idle { Some(secs) }` sleeps for the
+/// deferred ETA CAPPED at [`MAX_DEFERRED_SLEEP_SECS`] (so a config change / pause is re-checked at least
+/// every minute) then loops; an `Idle { None }` or `Stop` exits the lane.
+pub(crate) fn run_content_fetch_lane(
+    mut step: impl FnMut() -> LaneStep,
+    mut sleep: impl FnMut(u64),
+) {
+    loop {
+        match step() {
+            // A job ran → loop immediately for the next due one.
+            LaneStep::Drained => continue,
+            // Nothing due now but a job is deferred (rate-limited) → sleep until it is due, then loop
+            // so the deferred work completes without a user action (SEC-2). Cap the wait so a paused /
+            // disabled config is observed within the cap on the next iteration.
+            LaneStep::Idle { sleep_secs: Some(secs) } => sleep(secs.min(MAX_DEFERRED_SLEEP_SECS)),
+            // Truly idle (no due + no deferred work) or stopped → exit the lane.
+            LaneStep::Idle { sleep_secs: None } | LaneStep::Stop => break,
+        }
+    }
 }
 
 /// Outcome of one content-fetch lane iteration (testable PURE-of-spawn, SEC-2).
@@ -283,14 +345,15 @@ mod tests {
 
         let paths = vault_core::project_paths().expect("paths");
 
-        // The spawn-kicking calls above started a background drain lane that (under the coverage build)
-        // drives the real pipeline, so it may have already claimed the queued job. PAUSE the queue so
-        // that lane Stops on its next iteration, then clear the queue, giving the explicit lane-step
-        // assertion below a deterministic, uncontended starting state (no racing background drain).
+        // The spawn-kicking calls above drove the drain lane (the production build on a background
+        // thread; the coverage build inline, deterministically), so it may have already claimed the
+        // queued job. PAUSE the queue so any production-build background lane Stops on its next
+        // iteration, then clear the queue, giving the explicit lane-step assertion below a deterministic,
+        // uncontended starting state (no racing background drain).
         let mut paused = consenting_config();
         paused.ai.job_queue_paused = true;
         crate::app::save_user_config(&paused, None).expect("save paused");
-        // The paused lane reports Stop (covers the disabled/paused early-return branch) and, once the
+        // The paused lane reports Stop (covers the disabled/paused early-return branch) and, once any
         // background lane observes the pause + exits, the queue is ours to control.
         assert_eq!(
             drain_content_fetch_lane_step(&paths, None),
@@ -299,7 +362,8 @@ mod tests {
         );
         let connection =
             rusqlite::Connection::open(&paths.intelligence_database_path).expect("intelligence db");
-        // Let any in-flight background drain settle, then clear the queue deterministically.
+        // Let any in-flight background drain (production build) settle, then clear the queue
+        // deterministically. Under coverage the lane already ran inline, so this clears immediately.
         for _ in 0..50 {
             std::thread::sleep(std::time::Duration::from_millis(10));
             connection
@@ -449,6 +513,99 @@ mod tests {
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original.as_deref());
     }
 
+    /// Covers [`run_content_fetch_lane`]'s loop body WITHOUT a thread (SEC-2): a `Drained` step loops,
+    /// an `Idle { Some(secs) }` sleeps for `secs` CAPPED at [`MAX_DEFERRED_SLEEP_SECS`], and the loop
+    /// exits on `Idle { None }`. Drives a deterministic scripted step sequence + a recording sleep so
+    /// the former in-thread cap + sleep arm (the flaky line) is now exercised deterministically.
+    #[test]
+    fn run_content_fetch_lane_caps_deferred_sleeps_and_exits_on_idle_none() {
+        let steps = std::cell::RefCell::new(vec![
+            // empty -> exit (popped last)
+            LaneStep::Idle { sleep_secs: None },
+            // below the cap -> sleeps 10
+            LaneStep::Idle { sleep_secs: Some(10) },
+            // above the cap -> sleeps MAX_DEFERRED_SLEEP_SECS (60)
+            LaneStep::Idle { sleep_secs: Some(999) },
+            // a job ran -> loops immediately
+            LaneStep::Drained,
+        ]);
+        let slept: std::cell::RefCell<Vec<u64>> = std::cell::RefCell::new(Vec::new());
+
+        run_content_fetch_lane(
+            || steps.borrow_mut().pop().expect("step sequence underran"),
+            |secs| slept.borrow_mut().push(secs),
+        );
+
+        // The 999s ETA was capped to 60 and the 10s ETA passed through; the empty step exited the loop.
+        assert_eq!(slept.into_inner(), vec![MAX_DEFERRED_SLEEP_SECS, 10]);
+        assert!(steps.borrow().is_empty(), "the whole sequence was consumed (Drained looped)");
+    }
+
+    /// Covers the coverage-build [`spawn_content_fetch_drain`] stub's single deferred-sleep pass: with a
+    /// deferred (future-scheduled) job present, the inline drive sleeps ONCE (the no-op sleep flips the
+    /// stop flag) then the wrapped step reports `Stop`, so the drive returns instead of spinning. This is
+    /// `#[cfg(coverage)]`-gated because the stub only exists in the coverage build; under a normal build
+    /// the production thread variant runs and this branch is compiled out.
+    #[cfg(coverage)]
+    #[test]
+    fn coverage_drain_stub_sleeps_once_for_a_deferred_job_then_stops() {
+        use rusqlite::Connection;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let _guard = lock_env();
+        let original = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+        unsafe {
+            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        }
+
+        let config = consenting_config();
+        crate::app::initialize_archive_database(&config, None).expect("initialize archive");
+        let paths = vault_core::project_paths().expect("paths");
+        vault_core::save_config(&paths, &config).expect("persist consent");
+
+        // Enqueue a job and push its `scheduled_at` into the future so the lane finds nothing DUE but a
+        // DEFERRED job pending → the inline drive's first step reports `Idle { Some(_) }`, exercising the
+        // stub's sleep thunk + the post-sleep `Stop` arm.
+        vault_core::enqueue_content_fetch_now(
+            &paths,
+            &config,
+            None,
+            &ContentFetchNowRequest {
+                history_id: 1,
+                profile_id: "chrome:Default".to_string(),
+                url: "https://github.com/o/r".to_string(),
+                title: None,
+            },
+        )
+        .expect("enqueue deferred job");
+        let future = (chrono::Utc::now() + chrono::Duration::seconds(30))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        {
+            let connection =
+                Connection::open(&paths.intelligence_database_path).expect("intelligence db");
+            connection
+                .execute(
+                    "UPDATE intelligence_jobs SET scheduled_at = ?1 WHERE job_type = 'content-fetch'",
+                    [&future],
+                )
+                .expect("defer the job");
+        }
+
+        // The inline drive must RETURN (the bounded single sleep pass keeps a deferred job from spinning
+        // the coverage stub forever). The job stays deferred (untouched) afterwards.
+        spawn_content_fetch_drain(paths.clone(), None);
+
+        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original.as_deref());
+    }
+
+    /// Covers [`run_content_fetch_lane`]'s `Stop` exit arm (config gone / paused) without a thread.
+    #[test]
+    fn run_content_fetch_lane_exits_on_stop() {
+        let mut slept = Vec::new();
+        run_content_fetch_lane(|| LaneStep::Stop, |secs| slept.push(secs));
+        assert!(slept.is_empty(), "a Stop step exits the lane without sleeping");
+    }
+
     /// Covers the lane's IDLE arms (SEC-2): a future-scheduled (deferred) job makes the step report
     /// `Idle { sleep_secs: Some(_) }` (sleep then loop); an empty queue reports `Idle { None }` (exit).
     #[test]
@@ -474,15 +631,20 @@ mod tests {
 
         // Enqueue one content-fetch job, then push its `scheduled_at` into the future so it is NOT due
         // (mirrors a rate-limit requeue): the drain finds nothing due, and the schedule-ETA query
-        // surfaces it → Idle with a Some(_) sleep.
-        let queued = content_fetch_now(
+        // surfaces it → Idle with a Some(_) sleep. Enqueue via the CORE function (not the worker's
+        // `content_fetch_now`, which kicks the drain) so the job is not consumed before we defer it —
+        // under the coverage build that kick drives the lane inline and would otherwise drain the job.
+        let on_cfg = consenting_config();
+        let queued = vault_core::enqueue_content_fetch_now(
+            &paths,
+            &on_cfg,
+            None,
             &ContentFetchNowRequest {
                 history_id: 1,
                 profile_id: "chrome:Default".to_string(),
                 url: "https://github.com/o/r".to_string(),
                 title: None,
             },
-            None,
         )
         .expect("fetch now");
         assert_eq!(queued.state, "queued");

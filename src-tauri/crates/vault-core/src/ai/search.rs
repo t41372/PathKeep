@@ -39,13 +39,26 @@ pub(super) struct StoredEmbedding {
     pub score: f32,
 }
 
-/// One semantic-sidecar lookup result together with any degradation notes.
+/// One semantic-index lookup result together with any degradation notes.
 ///
 /// Semantic search can legitimately fall back to lexical-only results. Keeping the notes
-/// attached here prevents that honesty metadata from getting lost during score merging.
+/// attached here prevents that honesty metadata from getting lost during score merging. `hits`
+/// carries the hydrated semantic matches (one per unique page, most-recent visit) ready to merge
+/// with lexical recall; it is empty when the index is absent/stale/empty (with a matching note).
 #[derive(Debug, Default)]
 pub(super) struct SemanticMatchReport {
+    pub hits: Vec<AiSearchEntry>,
     pub notes: Vec<String>,
+}
+
+/// One hydrated semantic hit: a result content_key resolved to its representative visit + score.
+///
+/// The two-stage index returns `(content_key, score)`; hydration (the `.pkmap` fan-out + an archive
+/// lookup) resolves each unique page to its MOST-RECENT visible visit so the UI shows one row per
+/// page, not one per repeat visit. `score` is the int8-rescore cosine carried through verbatim.
+struct SemanticHit {
+    visit: HistoryEntry,
+    score: f32,
 }
 
 /// Shared context captured by the assistant's `search_history` tool.
@@ -429,9 +442,13 @@ pub(super) async fn search_history_internal(
         model = provider.config.default_model.clone();
         let semantic = semantic_matches(paths, config, key, provider, request).await?;
         notes.extend(semantic.notes.clone());
-        notes.push(
-            "No indexed semantic matches were found; showing lexical results only.".to_string(),
-        );
+        // Merge semantic hits into the lexical baseline. A page found by BOTH planes keeps the higher
+        // score plus a combined reason; a semantic-only page joins as a fresh entry. Full hybrid
+        // weighting / reranking is W-AI-6 — this is the basic max-merge that makes real semantic
+        // recall visible without yet tuning the lexical↔semantic blend.
+        for hit in semantic.hits {
+            merge_semantic_hit(&mut merged, hit);
+        }
     } else {
         notes.push(
             "No embedding provider is selected, so results use lexical retrieval only.".to_string(),
@@ -455,13 +472,23 @@ pub(super) async fn search_history_internal(
     Ok(AiSearchResponse { total, provider_id, model, items, notes, next_cursor })
 }
 
-/// Queries the semantic sidecar and returns visible semantic matches plus staleness notes.
+/// Embeds the query, runs the flat two-stage vector index, and hydrates hits to representative visits.
+///
+/// The real semantic-retrieval path (W-AI-5, 05 §3): embed the query (f32, Query role) → the
+/// [`FlatVectorIndex`] does binary Hamming recall → int8 rescore over the derived planes → returns
+/// `(content_key, score)` → hydrate each unique page to its MOST-RECENT visible visit through the
+/// `.pkmap` fan-out + one batched archive lookup (no N+1). Profile/domain facets are applied as a
+/// post-hydration filter over an EXPANDED top-k so a tight facet still surfaces enough true matches.
+///
+/// Honest degradation, never a panic: a missing/empty index yields no hits with a clear note; a stale
+/// ledger adds the staleness reason so the user knows to rebuild. The vectors live ONLY on the derived
+/// planes — this never reads a vector from SQLite.
 pub(super) async fn semantic_matches(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
     provider: &AiProviderRuntime,
-    _request: &AiSearchRequest,
+    request: &AiSearchRequest,
 ) -> Result<SemanticMatchReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
@@ -478,20 +505,277 @@ pub(super) async fn semantic_matches(
         notes.push(reason);
     }
 
-    let sqlite_embedding_count =
-        provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)?;
-    if sqlite_embedding_count > 0 {
+    // Load the flat index over the derived planes. A never-built / empty index loads cleanly to zero
+    // vectors (no panic); we report an honest note and return lexical-only.
+    let index = FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)?;
+    if index.is_empty() {
         notes.push(
-            "The optional semantic sidecar is tracked for PathKeep v0.3.0, so PathKeep returned lexical matches only instead of relying on stale SQLite semantic metadata."
+            "The semantic index has no vectors yet; run Build index to enable meaning-based search. Showing lexical results only."
                 .to_string(),
         );
-    } else {
+        return Ok(SemanticMatchReport { hits: Vec::new(), notes });
+    }
+
+    // Embed the query under the Query role (asymmetric models encode queries differently).
+    let query_vector = embed_query(provider, request.query.trim(), EmbeddingRole::Query).await?;
+
+    // CONFIG-DRIFT GUARD (D1, 05 §10): the planes were binarized/int8-quantized at a STAMPED dim +
+    // fingerprint. If the live embedding config changed, comparing a differently-shaped query against
+    // them would silently score garbage (binary widths differ → prefix-only Hamming; or same width but
+    // a different model/pooling/dtype → wrong geometry). Reject BOTH cases here, BEFORE searching, and
+    // degrade to lexical-only with an honest note so no meaningless score reaches the result merge.
+    if let Some(reason) = semantic_config_drift_reason(paths, provider, &index, query_vector.len())?
+    {
+        notes.push(reason);
+        return Ok(SemanticMatchReport { hits: Vec::new(), notes });
+    }
+
+    // Facet filtering is post-hydration (profile/domain are per-visit, not per-content); recall an
+    // expanded top-k when a facet is present so the filter still yields the requested limit.
+    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    let has_facet = request.profile_id.is_some() || request.domain.is_some();
+    let recall_k = if has_facet { limit.saturating_mul(8).max(limit) } else { limit };
+    // No content_key allowlist today (profile/domain are visit-level); the index's allowlist
+    // post-filter is the seam W-AI-6 wires content-keyed facets (e.g. starred pages) into. A non-empty
+    // index with k >= 1 always returns at least one match, so there is no separate empty-matches case
+    // here (the empty index is handled above).
+    let matches = index.search(&query_vector, recall_k, None)?;
+    let hits = hydrate_semantic_hits(&connection, paths, provider, &matches, request, limit)?;
+    if hits.is_empty() {
         notes.push(
-            "Semantic search is tracked for PathKeep v0.3.0; showing lexical results only."
+            "Semantic matches were found but none are currently visible under the active filters."
                 .to_string(),
         );
     }
-    Ok(SemanticMatchReport { notes })
+    Ok(SemanticMatchReport {
+        hits: hits.into_iter().map(semantic_hit_to_search_entry).collect(),
+        notes,
+    })
+}
+
+/// Returns an honest degradation note when the live embedding config no longer matches the planes.
+///
+/// The query-path counterpart to the build-time fingerprint stamp (D1, 05 §10). Two distinct drifts
+/// would otherwise let a meaningless score reach the result merge:
+/// - **dim change** (user-mutable `provider.config.dimensions`, MRL truncation): the query binarizes to
+///   a DIFFERENT byte width than the stored bits, so `hamming_distance` would compare only the shared
+///   prefix and the int8 rescore would dot mismatched lengths — pure noise. We detect it directly by
+///   comparing the embedded query length to the loaded plane `dim`.
+/// - **same-dim fingerprint drift** (pooling / normalization / instruction / dtype changed but the dim
+///   held): the bytes line up but the GEOMETRY is different, so scores are still meaningless. We build
+///   the LIVE fingerprint from the selected engine's descriptor (stamped exactly as the build path does
+///   in `vector_store_for_chunk`: the engine's real dtype/pooling/instruction, keyed by the provider
+///   config id/model, with the observed query dim) and ask [`planes_are_stale`] whether it matches the
+///   plane's stamp.
+///
+/// Returns `Some(note)` (caller degrades to lexical-only) on either drift, `None` when the planes are
+/// usable. An empty index is handled by the caller before this is reached, so a `None` here means a
+/// real, dimension- and fingerprint-matched index ready to search.
+fn semantic_config_drift_reason(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    index: &FlatVectorIndex,
+    query_dim: usize,
+) -> Result<Option<String>> {
+    // Dim mismatch: the binarized query byte width differs from the plane's, so a search would
+    // prefix-compare and score garbage. Reject loudly with a rebuild note.
+    if query_dim != index.dim() {
+        return Ok(Some(
+            "The semantic index was built under a different embedding configuration (vector dimension changed), so meaning-based search is disabled until you run Build index. Showing lexical results only."
+                .to_string(),
+        ));
+    }
+
+    // Same-dim fingerprint drift: build the live fingerprint exactly as the build path stamps it and
+    // ask whether the planes are stale against it. The selected engine carries the real
+    // dtype/normalized/pooling/instruction (the build path uses these via `vector_store_for_chunk`);
+    // we override the provider id/model + observed dim so the comparison keys match the stored stamp.
+    let engine = super::embedding_candle::select_embedding_provider(paths, provider)?;
+    let live = EmbeddingFingerprint::from_descriptor(&EmbeddingDescriptor {
+        provider_id: provider.config.id.clone(),
+        model_id: provider.config.default_model.clone(),
+        effective_dim: Some(query_dim),
+        ..engine.descriptor()
+    })
+    // `from_descriptor` only returns None when no dim is known; we just supplied the observed query
+    // dim, so this is infallible — an unwrap rather than a dead else-branch keeps the invariant honest.
+    .expect("live fingerprint always has the observed query dim");
+    if planes_are_stale(paths, &provider.config.id, &provider.config.default_model, &live)? {
+        return Ok(Some(
+            "The semantic index was built under a different embedding configuration (model, pooling, normalization, or output type changed), so meaning-based search is disabled until you rebuild the semantic index. Showing lexical results only."
+                .to_string(),
+        ));
+    }
+    Ok(None)
+}
+
+/// Hydrates `(content_key, score)` index hits to one representative (most-recent) visit per page.
+///
+/// The dedup join (05 §1): a result content_key fans out to its visits via the `.pkmap`, and we pick
+/// the most-recent VISIBLE visit so the UI shows one row per page. ONE batched archive lookup over the
+/// fanned-out history_ids (chunked) keeps this O(candidates), never N+1 at 14.4M. Profile/domain facets
+/// drop non-matching visits here (the post-hydration filter); the surviving pages are truncated to
+/// `limit`, ranked by the carried semantic score (the index already ordered them).
+fn hydrate_semantic_hits(
+    connection: &Connection,
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    matches: &[(u64, f32)],
+    request: &AiSearchRequest,
+    limit: usize,
+) -> Result<Vec<SemanticHit>> {
+    // content_key → score, preserving the index's ranking order.
+    let mut score_by_key: HashMap<u64, f32> = HashMap::with_capacity(matches.len());
+    let wanted: std::collections::HashSet<u64> = matches
+        .iter()
+        .map(|(key, score)| {
+            score_by_key.insert(*key, *score);
+            *key
+        })
+        .collect();
+
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let inverse = visit_map.history_ids_for_content_keys(&wanted)?;
+    // Flatten to the candidate history_ids and remember which content_key each came from. `inverse`
+    // only contains keys that have at least one mapped visit, so every history_id below has a key.
+    let mut key_by_history: HashMap<i64, u64> = HashMap::new();
+    for (content_key, history_ids) in &inverse {
+        for history_id in history_ids {
+            key_by_history.insert(*history_id, *content_key);
+        }
+    }
+    let candidate_ids: Vec<i64> = key_by_history.keys().copied().collect();
+
+    // Batch-load the candidate visit rows (skips reverted), then per content_key keep the most-recent
+    // VISIBLE visit that passes the facet filter. Every returned row.id is in `key_by_history` (the
+    // SQL only queried those ids), so the lookup is total.
+    let rows = load_visit_rows(connection, &candidate_ids)?;
+    let mut best: HashMap<u64, HistoryEntry> = HashMap::new();
+    for row in rows {
+        if !visit_passes_facets(&row, request) {
+            continue;
+        }
+        let content_key = key_by_history[&row.id];
+        match best.get(&content_key) {
+            Some(existing) if existing.visit_time >= row.visit_time => {}
+            _ => {
+                best.insert(content_key, row);
+            }
+        }
+    }
+
+    // Order the surviving pages by their semantic score (desc), then content_key (asc) for a stable
+    // tie-break, and cap at the caller's limit.
+    let mut hits: Vec<(u64, SemanticHit)> = best
+        .into_iter()
+        .map(|(content_key, visit)| {
+            let score = score_by_key.get(&content_key).copied().unwrap_or(0.0);
+            (content_key, SemanticHit { visit, score })
+        })
+        .collect();
+    hits.sort_by(|left, right| {
+        right
+            .1
+            .score
+            .partial_cmp(&left.1.score)
+            .unwrap_or(Ordering::Equal)
+            .then(left.0.cmp(&right.0))
+    });
+    hits.truncate(limit);
+    Ok(hits.into_iter().map(|(_, hit)| hit).collect())
+}
+
+/// Loads visit detail rows for a bounded set of history_ids, chunked, skipping reverted visits.
+///
+/// One statement per `SQLITE_BATCH_SIZE` chunk so the predicate list stays bounded at 14.4M — the
+/// batched hydration that replaces a per-result N+1. Reverted visits are excluded so a result never
+/// resolves to a row the user reverted.
+fn load_visit_rows(connection: &Connection, history_ids: &[i64]) -> Result<Vec<HistoryEntry>> {
+    let mut rows = Vec::new();
+    for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT visits.id,
+                    source_profiles.profile_key,
+                    urls.url,
+                    urls.title,
+                    visits.visit_time_ms,
+                    (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
+             FROM archive.visits AS visits
+             JOIN archive.urls AS urls ON urls.id = visits.url_id
+             JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+             WHERE visits.reverted_at IS NULL
+               AND visits.id IN ({placeholders})"
+        );
+        let mut statement = connection.prepare(&sql)?;
+        let params = rusqlite::params_from_iter(chunk.iter());
+        let mapped = statement.query_map(params, |row: &Row<'_>| {
+            let url: String = row.get(2)?;
+            Ok(HistoryEntry {
+                id: row.get(0)?,
+                profile_id: row.get(1)?,
+                url: url.clone(),
+                title: row.get(3)?,
+                domain: url_domain(&url),
+                favicon: None,
+                visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(5)?),
+                visit_time: row.get(5)?,
+                duration_ms: None,
+                transition: None,
+                source_visit_id: row.get(0)?,
+                app_id: None,
+                enrichment_excerpt: None,
+            })
+        })?;
+        for entry in mapped {
+            rows.push(entry?);
+        }
+    }
+    Ok(rows)
+}
+
+/// Returns whether one hydrated visit passes the request's profile/domain facet filters.
+///
+/// Pure so the post-hydration facet predicate is unit-tested directly. An absent facet matches
+/// everything; a present facet matches exactly (profile by id, domain by host) so the semantic
+/// allowlist intent is honored even though it is applied at hydration rather than in the index.
+fn visit_passes_facets(visit: &HistoryEntry, request: &AiSearchRequest) -> bool {
+    if let Some(profile_id) = request.profile_id.as_deref() {
+        if visit.profile_id != profile_id {
+            return false;
+        }
+    }
+    if let Some(domain) = request.domain.as_deref() {
+        if visit.domain != domain {
+            return false;
+        }
+    }
+    true
+}
+
+/// Converts one hydrated semantic hit into the public AI search entry shape with an honest reason.
+fn semantic_hit_to_search_entry(hit: SemanticHit) -> AiSearchEntry {
+    history_entry_to_search_entry(&hit.visit, hit.score, "Semantic match")
+}
+
+/// Merges one semantic hit into the lexical baseline map (basic max-merge; full hybrid is W-AI-6).
+///
+/// A page surfaced by BOTH planes keeps the higher score and a combined reason so the user sees it
+/// was a strong dual match; a semantic-only page joins as a fresh entry. Keyed by history_id like the
+/// lexical entries so the two recall sets reconcile on the representative visit.
+pub(super) fn merge_semantic_hit(merged: &mut HashMap<i64, AiSearchEntry>, hit: AiSearchEntry) {
+    match merged.get_mut(&hit.history_id) {
+        Some(existing) => {
+            if hit.score > existing.score {
+                existing.score = hit.score;
+            }
+            existing.match_reason = "Lexical + semantic match".to_string();
+        }
+        None => {
+            merged.insert(hit.history_id, hit);
+        }
+    }
 }
 
 /// Persists one assistant run trace after the final answer is known.
