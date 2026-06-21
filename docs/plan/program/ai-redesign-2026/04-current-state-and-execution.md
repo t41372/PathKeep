@@ -109,7 +109,7 @@ embedding:   text-embedding-qwen3-embedding-0.6b
 - **已驗證版本/授權（2026-06-20，crates.io）**：`candle-core` 0.10.2（MIT OR Apache-2.0）、`secrecy` 0.10.3（Apache/MIT，W-AI-0 採用）、`hf-hub` 最新是 **`1.0.0-rc.1` pre-release**（Apache-2.0）→ W-AI-4 用最新**穩定 0.x**，除非刻意 opt-in RC。全部過 license allowlist。
 - **candle 加入後新 advisory**（W-AI-4 之前——candle 在 W-AI-4 即加入，不延後）：須 triage 進 **`deny.toml` ignore + `scripts/check-rust-security.mjs` allowedAdvisories 兩處同步**（stale 條目也會 FAIL）。MKL/Accelerate/CUDA features **一律 OFF**（可重現 build）。hf-hub 同 block 加入。
 - **rig 升級時**：`RUSTSEC-2026-0097` 是 stale-trap，存在於 deny.toml + check-rust-security.mjs 兩處；rig 變動使其消失時兩處都要清。
-- **streamdown（JS）**：新 npm dep，AGENTS.md 門檻（stars>6k 或 risk doc）→ W-AI-2 前 vet。
+- **streamdown（JS）：✅ 已驗證（2026-06-20）**：`streamdown` v1.6.8、Apache-2.0、**由 Vercel 發佈**（reputable-org 例外 → 過供應鏈門檻，雖 ~5.3k★ < 6k，比照 rmcp/Javy）；React 19 peer-dep 支援；專為 AI token-by-token 串流設計，優雅處理未完成 markdown。W-AI-2 採用。注意 transitive `shiki`/`katex`/(mermaid) 增加 bundle 體積（features 可選）→ 列入 W-AI-9 release-size audit。
 - 工具鏈：edition 2024、Rust **1.94.1**（`rust-toolchain.toml`）、`Cargo.lock` committed。新 crate 用 `name.workspace = true`（rig 依 §J **不 hard-pin**）。
 
 ---
