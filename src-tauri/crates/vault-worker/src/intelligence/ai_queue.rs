@@ -86,6 +86,55 @@ pub(crate) fn start_ai_job_control(
     ))
 }
 
+/// Persists the resumable backfill watermark into the running index job's payload.
+///
+/// vault-core's embed loop calls [`record`](vault_core::IndexBackfillLedger::record) after each
+/// chunk's vectors are durably written; this writes the cursor + a progress summary back into the
+/// `ai_jobs` row so a worker restart resumes from `next_history_id` instead of re-embedding the
+/// whole archive (02 §C.6 R1). It opens a fresh connection per call (cheap, bounded) so it never
+/// has to share the drain loop's connection across the async embed boundary.
+struct IndexCursorLedger {
+    paths: vault_core::ProjectPaths,
+    config: AppConfig,
+    session_database_key: Option<String>,
+    job_id: i64,
+}
+
+impl vault_core::IndexBackfillLedger for IndexCursorLedger {
+    fn record(&self, progress: vault_core::IndexBackfillProgress) -> Result<()> {
+        let connection =
+            ai_archive_connection(&self.paths, &self.config, self.session_database_key.as_deref())?;
+        let cursor = ai_queue::IndexBackfillCursor {
+            next_history_id: progress.next_history_id,
+            embedded_so_far: progress.embedded_so_far,
+        };
+        let summary = format!("Embedded {} row(s) so far.", progress.embedded_so_far);
+        match ai_queue::persist_index_cursor(&connection, self.job_id, &cursor, Some(&summary))? {
+            // A reclaimed lease (the stale-sweep moved this row out of `running`) means another
+            // worker now owns the job. We MUST abort here so this de-leased worker stops embedding +
+            // appending to the vector store while the new owner also writes it (HIGH-3): the Err
+            // propagates up through the embed loop's `?`, ending this run before the next chunk.
+            ai_queue::CursorPersistOutcome::LeaseLost => anyhow::bail!(
+                "index job {} lost its queue lease (reclaimed by another worker); aborting backfill",
+                self.job_id
+            ),
+            ai_queue::CursorPersistOutcome::Persisted
+            | ai_queue::CursorPersistOutcome::NotIndexJob => Ok(()),
+        }
+    }
+}
+
+/// Resolves the backfill resume watermark from a claimed job's payload.
+///
+/// An index payload carries the persisted cursor; any other payload (defensive — only index jobs
+/// reach the index path) starts from the beginning.
+fn index_start_history_id(payload: &ai_queue::AiJobPayload) -> i64 {
+    match payload {
+        ai_queue::AiJobPayload::Index { cursor, .. } => cursor.next_history_id,
+        _ => 0,
+    }
+}
+
 /// Completes one claimed index job and persists the queue outcome.
 ///
 /// This keeps queue bookkeeping in one place so index-build callers do not have
@@ -100,7 +149,15 @@ pub(crate) fn complete_claimed_index_job(
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
     let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
+    // Resume from the persisted backfill watermark so a restart never re-embeds from scratch.
+    let start_history_id = index_start_history_id(&claimed.payload);
     let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
+    let ledger: Arc<dyn vault_core::IndexBackfillLedger> = Arc::new(IndexCursorLedger {
+        paths: paths.clone(),
+        config: config.clone(),
+        session_database_key: session_database_key.map(ToOwned::to_owned),
+        job_id: claimed.id,
+    });
     let result = tokio_runtime()?.block_on(build_ai_index_with_control(
         paths,
         config,
@@ -108,6 +165,8 @@ pub(crate) fn complete_claimed_index_job(
         &provider,
         request,
         Some(run_control.clone()),
+        start_history_id,
+        Some(ledger),
     ));
     run_control.shutdown();
 
@@ -324,7 +383,7 @@ pub(crate) fn drain_one_ai_queue_job(
         return Ok(false);
     };
     match job.payload.clone() {
-        ai_queue::AiJobPayload::Index { request } => {
+        ai_queue::AiJobPayload::Index { request, .. } => {
             let _ = complete_claimed_index_job(
                 &connection,
                 paths,
@@ -381,7 +440,7 @@ pub fn run_ai_queue_jobs(
             break;
         };
         match job.payload.clone() {
-            ai_queue::AiJobPayload::Index { request } => {
+            ai_queue::AiJobPayload::Index { request, .. } => {
                 let _ = complete_claimed_index_job(
                     &connection,
                     &paths,
@@ -689,5 +748,100 @@ mod tests {
 
         assert!(!cancelled);
         assert_eq!(job_state(&connection, job_id), "succeeded");
+    }
+
+    #[test]
+    fn index_cursor_ledger_aborts_when_lease_is_lost() {
+        // HIGH-3: when another worker reclaims the job (it leaves `running`), the ledger's cursor
+        // write matches 0 rows. The ledger MUST surface that as an Err so the de-leased worker's
+        // embed loop aborts instead of continuing to write the shared vector store.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: vault_core::ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection =
+            ai_archive_connection(&paths, &config, None).expect("intelligence connection");
+
+        let job_id = claimed_index_job(&connection);
+        // Reclaim: move the job out of `running` as a competing worker / stale-sweep would.
+        connection
+            .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [job_id])
+            .expect("reclaim lease");
+
+        let ledger = IndexCursorLedger {
+            paths: paths.clone(),
+            config: config.clone(),
+            session_database_key: None,
+            job_id,
+        };
+        let error = vault_core::IndexBackfillLedger::record(
+            &ledger,
+            vault_core::IndexBackfillProgress { next_history_id: 5, embedded_so_far: 4 },
+        )
+        .expect_err("lease loss must abort the backfill");
+        assert!(error.to_string().contains("lost its queue lease"));
+    }
+
+    #[test]
+    fn index_cursor_ledger_persists_progress_for_a_running_job() {
+        // The happy path: a still-running job's cursor is persisted and the ledger returns Ok.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: vault_core::ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let connection =
+            ai_archive_connection(&paths, &config, None).expect("intelligence connection");
+        let job_id = claimed_index_job(&connection);
+
+        let ledger = IndexCursorLedger {
+            paths: paths.clone(),
+            config: config.clone(),
+            session_database_key: None,
+            job_id,
+        };
+        vault_core::IndexBackfillLedger::record(
+            &ledger,
+            vault_core::IndexBackfillProgress { next_history_id: 9, embedded_so_far: 8 },
+        )
+        .expect("running job cursor persists");
+
+        match ai_queue::load_ai_job_payload(&connection, job_id).expect("payload") {
+            ai_queue::AiJobPayload::Index { cursor, .. } => {
+                assert_eq!(cursor.next_history_id, 9);
+                assert_eq!(cursor.embedded_so_far, 8);
+            }
+            other => panic!("expected index payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn index_start_history_id_reads_cursor_and_defaults_non_index_payloads() {
+        let index = ai_queue::AiJobPayload::Index {
+            request: AiIndexRequest::default(),
+            cursor: ai_queue::IndexBackfillCursor { next_history_id: 77, embedded_so_far: 5 },
+        };
+        assert_eq!(index_start_history_id(&index), 77);
+
+        let assistant = ai_queue::AiJobPayload::Assistant {
+            payload: ai_queue::AssistantJobPayload {
+                request: vault_core::AiAssistantRequest {
+                    question: "q".to_string(),
+                    profile_id: None,
+                    domain: None,
+                },
+                llm_provider_id: "llm".to_string(),
+                embedding_provider_id: None,
+            },
+        };
+        // A non-index payload defensively resumes from the beginning.
+        assert_eq!(index_start_history_id(&assistant), 0);
     }
 }

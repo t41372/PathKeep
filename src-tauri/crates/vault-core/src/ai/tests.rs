@@ -1,5 +1,8 @@
 //! Regression tests for optional AI and semantic retrieval helpers.
-use super::indexing::{clear_provider_embeddings, collect_stale_history_ids, upsert_embedding};
+use super::indexing::{
+    chunk_size, clear_provider_embeddings, collect_stale_history_ids, collect_visit_chunk,
+    upsert_embedding, validate_embedding_batch,
+};
 use super::provider::{
     embedding_descriptor_for, l2_normalize, resolve_embed_request_dim,
     should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
@@ -75,14 +78,6 @@ fn embedding_provider() -> AiProviderRuntime {
     }
 }
 
-#[cfg(coverage)]
-fn embedding_provider_with_id(id: &str) -> AiProviderRuntime {
-    let mut provider = embedding_provider();
-    provider.config.id = id.to_string();
-    provider.config.name = format!("Embedding provider {id}");
-    provider
-}
-
 fn llm_provider() -> AiProviderRuntime {
     AiProviderRuntime {
         config: AiProviderConfig {
@@ -125,6 +120,26 @@ impl AiRunControl for CountdownControl {
 
     fn cancelled(&self) -> bool {
         self.checkpoints_before_cancel.load(Ordering::Relaxed) == 0
+    }
+}
+
+/// Captures every backfill watermark the embed loop reports, so a test can assert resumption
+/// progress is monotone and ends with the full embedded count past the last id.
+#[derive(Default)]
+struct RecordingLedger {
+    progresses: std::sync::Mutex<Vec<IndexBackfillProgress>>,
+}
+
+impl RecordingLedger {
+    fn snapshot(&self) -> Vec<IndexBackfillProgress> {
+        self.progresses.lock().expect("ledger lock").clone()
+    }
+}
+
+impl IndexBackfillLedger for RecordingLedger {
+    fn record(&self, progress: IndexBackfillProgress) -> Result<()> {
+        self.progresses.lock().expect("ledger lock").push(progress);
+        Ok(())
     }
 }
 
@@ -1099,6 +1114,30 @@ fn cleanup_stale_embeddings_returns_zero_when_nothing_is_removed() {
 }
 
 #[test]
+fn upsert_embedding_reports_prior_existence() {
+    let (paths, _config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    let candidates = collect_visit_chunk(&paths, &connection, &provider, 0, 10).expect("collect");
+    let visit = &candidates[0];
+
+    // First write: no prior row.
+    assert!(
+        !upsert_embedding(&connection, &provider, visit, "2026-04-14T00:00:00Z").expect("first")
+    );
+    // Second write of the same (history_id, provider, model): prior row existed.
+    assert!(
+        upsert_embedding(&connection, &provider, visit, "2026-04-14T00:00:01Z").expect("second")
+    );
+    // Still exactly one row (the prior one was replaced, not duplicated).
+    assert_eq!(
+        provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)
+            .expect("count"),
+        1
+    );
+}
+
+#[test]
 fn index_clear_only_and_sqlite_mirror_helpers_cover_stale_rows() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
@@ -1264,29 +1303,280 @@ fn build_ai_index_with_control_stops_at_batch_boundaries() {
             &embedding_provider(),
             &AiIndexRequest::default(),
             Some(control),
+            0,
+            None,
         ))
         .expect_err("controlled build should cancel");
     assert!(error.to_string().contains("cancelled"));
 }
 
-#[cfg(coverage)]
 #[test]
-fn build_ai_index_reports_deferred_sidecar_under_coverage_cfg() {
+fn build_ai_index_embeds_rows_into_vector_plane() {
+    // The embed loop (W-AI-4a) now writes real vectors to `derived/vectors/` instead of bailing.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+    seed_visit(&connection, 3, "chrome:Default", "https://example.com/news", Some("News"), 3);
     drop(connection);
 
-    let error = runtime
-        .block_on(build_ai_index(
+    let report = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("embed build");
+    assert_eq!(report.indexed_items, 3);
+    assert_eq!(report.updated_items, 0);
+    assert_eq!(report.skipped_items, 0);
+    assert!(report.notes[0].contains("vector plane"));
+
+    // Vectors landed on the dedicated plane, keyed by history id, fingerprint-stamped.
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert!(store.exists());
+    assert_eq!(store.count().expect("count"), 3);
+    let records = store.read_all().expect("read all");
+    let ids: Vec<u64> = records.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, vec![1, 2, 3]);
+    let header = store.read_header().expect("header").expect("present");
+    assert_eq!(header.dim, records[0].1.len());
+
+    // SQLite metadata rows mirror the embedded count; vectors themselves are NOT in SQLite.
+    let connection = open_intelligence_connection(&paths, &config, None).expect("reload");
+    assert_eq!(
+        provider_embedding_count(&connection, &provider.config.id, &provider.config.default_model)
+            .expect("count"),
+        3
+    );
+
+    // A second build with unchanged content re-scans but skips every row (no re-embed).
+    let second = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("idempotent rebuild");
+    assert_eq!(second.indexed_items, 0);
+    assert_eq!(second.skipped_items, 3);
+    assert_eq!(store.count().expect("count after rebuild"), 3);
+}
+
+#[test]
+fn build_ai_index_resumes_from_cursor_and_records_progress() {
+    // The resumable backfill: starting from a cursor only embeds rows at or beyond it, and the
+    // ledger receives the advancing watermark.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    for id in 1..=5 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    drop(connection);
+
+    let ledger = Arc::new(RecordingLedger::default());
+    let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
+    // Resume from history_id 3 → only rows 3,4,5 are embedded.
+    let report = runtime
+        .block_on(build_ai_index_with_control(
             &paths,
             &config,
             None,
-            &embedding_provider_with_id("embed-batch-short"),
+            &provider,
             &AiIndexRequest::default(),
+            None,
+            3,
+            Some(dyn_ledger),
         ))
-        .expect_err("vector sidecar sync is tracked for v0.3");
-    assert!(error.to_string().contains("tracked for PathKeep v0.3.0"));
+        .expect("resumed build");
+    assert_eq!(report.indexed_items, 3);
+
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let ids: Vec<u64> = store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
+    assert_eq!(ids, vec![3, 4, 5]);
+
+    // The ledger saw a monotone, advancing watermark ending past the last id with the full count.
+    let progresses = ledger.snapshot();
+    assert!(!progresses.is_empty());
+    let last = progresses.last().expect("final progress");
+    assert_eq!(last.embedded_so_far, 3);
+    assert!(last.next_history_id >= 6);
+    for window in progresses.windows(2) {
+        assert!(window[1].next_history_id >= window[0].next_history_id);
+        assert!(window[1].embedded_so_far >= window[0].embedded_so_far);
+    }
+}
+
+/// Embeds rows [start, …] capped by `limit` and returns the resulting store id set + the last
+/// reported watermark, so the resume tests can drive deterministic chunks regardless of the
+/// build-time `EMBEDDING_BACKFILL_CHUNK`.
+fn run_backfill_chunk(
+    runtime: &Runtime,
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    provider: &AiProviderRuntime,
+    request: &AiIndexRequest,
+    start_history_id: i64,
+) -> (Vec<u64>, IndexBackfillProgress) {
+    let ledger = Arc::new(RecordingLedger::default());
+    let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
+    runtime
+        .block_on(build_ai_index_with_control(
+            paths,
+            config,
+            None,
+            provider,
+            request,
+            None,
+            start_history_id,
+            Some(dyn_ledger),
+        ))
+        .expect("backfill chunk");
+    let store =
+        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let ids: Vec<u64> = store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
+    let last = ledger.snapshot().last().copied().unwrap_or_default();
+    (ids, last)
+}
+
+#[test]
+fn full_rebuild_resume_keeps_rows_below_cursor_and_completes_id_set() {
+    // CRITICAL-1: a crashed full_rebuild that resumes with the persisted cursor (and the ORIGINAL
+    // full_rebuild request still true) must NOT re-run the destructive wipe — rows already embedded
+    // below the cursor MUST survive, and the final store must hold the complete id set exactly once.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    for id in 1..=5 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    drop(connection);
+
+    // Chunk 1 of a FULL REBUILD: embed ids 1,2 (limit caps the embed count), cursor advances to 3.
+    let full_rebuild =
+        AiIndexRequest { full_rebuild: true, limit: Some(2), ..AiIndexRequest::default() };
+    let (ids_after_chunk1, progress) =
+        run_backfill_chunk(&runtime, &paths, &config, &provider, &full_rebuild, 0);
+    assert_eq!(ids_after_chunk1, vec![1, 2], "chunk 1 embedded ids 1,2");
+    assert_eq!(progress.next_history_id, 3, "cursor advances to last + 1");
+
+    // Simulate a worker restart that re-claims the job with the ORIGINAL full_rebuild request still
+    // set, resuming from the persisted cursor. The wipe MUST be skipped (start_history_id > 0).
+    let resume = AiIndexRequest { full_rebuild: true, limit: None, ..AiIndexRequest::default() };
+    let (final_ids, _) =
+        run_backfill_chunk(&runtime, &paths, &config, &provider, &resume, progress.next_history_id);
+
+    // Rows below the cursor SURVIVED and the full id set is present exactly once.
+    assert_eq!(final_ids, vec![1, 2, 3, 4, 5], "rows below the cursor must not be wiped on resume");
+    assert_unique(&final_ids);
+}
+
+#[test]
+fn resume_after_dropped_cursor_does_not_duplicate_vectors() {
+    // CRITICAL-2: a crash AFTER a chunk's vectors are appended but BEFORE its SQLite hash rows /
+    // cursor are written leaves the vectors on disk while `needs_embedding` is true again. A resume
+    // must re-embed those rows WITHOUT appending a second copy. We reproduce the window by deleting
+    // the boundary chunk's SQLite metadata, then resuming from before it.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    for id in 1..=5 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+
+    // Chunk 1: embed ids 1,2 → vectors on disk, SQLite rows present.
+    let chunk = AiIndexRequest { limit: Some(2), ..AiIndexRequest::default() };
+    let (ids, _) = run_backfill_chunk(&runtime, &paths, &config, &provider, &chunk, 0);
+    assert_eq!(ids, vec![1, 2]);
+
+    // Simulate the crash window: the vectors for 1,2 are on disk but their SQLite hash rows were
+    // never written (so they look un-embedded to the next pass).
+    clear_provider_embeddings(&connection, &provider).expect("drop metadata");
+    drop(connection);
+
+    // Resume re-scanning from id 1 (cursor lost back to the start of the boundary chunk): rows 1,2
+    // are re-embedded (needs_embedding true) but their vectors must NOT be appended a second time.
+    let resume = AiIndexRequest::default();
+    let (final_ids, _) = run_backfill_chunk(&runtime, &paths, &config, &provider, &resume, 1);
+
+    assert_unique(&final_ids);
+    let mut sorted = final_ids.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, vec![1, 2, 3, 4, 5], "exact id set, no dup, no miss");
+}
+
+#[test]
+fn multi_chunk_resume_yields_exact_contiguous_id_set() {
+    // HIGH-7: a real multi-chunk run resumed from each persisted cursor must end with EXACTLY the
+    // ids [1..=N] — no duplicate, no miss — and each cursor advance is exactly last + 1.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    const N: i64 = 5;
+    for id in 1..=N {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    drop(connection);
+
+    // Walk the backfill two rows at a time, always resuming from the last reported watermark.
+    let mut start = 0_i64;
+    let mut guard = 0;
+    loop {
+        let chunk = AiIndexRequest { limit: Some(2), ..AiIndexRequest::default() };
+        let (ids, progress) =
+            run_backfill_chunk(&runtime, &paths, &config, &provider, &chunk, start);
+        assert_unique(&ids);
+        if progress.next_history_id == 0 {
+            // Nothing was embedded this pass (no candidates at/after `start`): the run is complete.
+            break;
+        }
+        // The cursor advances to exactly last embedded id + 1.
+        assert!(progress.next_history_id > start);
+        if ids.len() as i64 >= N {
+            assert_eq!(progress.next_history_id, N + 1, "final cursor is last id + 1");
+            break;
+        }
+        start = progress.next_history_id;
+        guard += 1;
+        assert!(guard < 10, "multi-chunk resume should converge");
+    }
+
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let final_ids: Vec<u64> =
+        store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
+    assert_eq!(final_ids, vec![1, 2, 3, 4, 5], "exact contiguous id set after multi-chunk resume");
+    assert_unique(&final_ids);
+}
+
+/// Asserts the id list is a SET (the `.pkvec` read_all contract W-AI-5 relies on).
+fn assert_unique(ids: &[u64]) {
+    let unique: std::collections::HashSet<u64> = ids.iter().copied().collect();
+    assert_eq!(unique.len(), ids.len(), "ids must be unique (a set): {ids:?}");
 }
 
 #[test]
@@ -1478,7 +1768,8 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
 }
 
 #[test]
-fn build_index_reports_deferred_vector_sidecar_release_boundary() {
+fn build_index_re_embeds_changed_rows_and_counts_updates() {
+    // Row 1 already has a (stale) metadata row → re-embedded as an update; row 2 is new.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let embedding = embedding_provider();
@@ -1487,10 +1778,174 @@ fn build_index_reports_deferred_vector_sidecar_release_boundary() {
     seed_embedding(&connection, 1, &embedding, "stale-hash");
     drop(connection);
 
+    let report = runtime
+        .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
+        .expect("embed build");
+    assert_eq!(report.indexed_items, 2);
+    assert_eq!(report.updated_items, 1);
+
+    let store =
+        VectorStore::for_provider(&paths, &embedding.config.id, &embedding.config.default_model);
+    assert_eq!(store.count().expect("count"), 2);
+}
+
+#[test]
+fn build_index_full_rebuild_resets_the_vector_plane() {
+    // A full rebuild deletes any prior store and re-stamps from the freshly observed dim.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    drop(connection);
+
+    runtime
+        .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
+        .expect("initial build");
+    let store =
+        VectorStore::for_provider(&paths, &embedding.config.id, &embedding.config.default_model);
+    assert_eq!(store.count().expect("count"), 1);
+
+    let report = runtime
+        .block_on(build_ai_index(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiIndexRequest { full_rebuild: true, ..AiIndexRequest::default() },
+        ))
+        .expect("full rebuild");
+    assert_eq!(report.indexed_items, 1);
+    // Still exactly one record (rebuilt, not duplicated) — the prior store was reset.
+    assert_eq!(store.count().expect("count after rebuild"), 1);
+}
+
+#[test]
+fn build_index_honors_limit_at_a_chunk_boundary() {
+    // A `limit` smaller than the candidate count stops after exactly `limit` embeds.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    for id in 1..=4 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiIndexRequest { limit: Some(2), ..AiIndexRequest::default() },
+        ))
+        .expect("limited build");
+    assert_eq!(report.indexed_items, 2);
+    let store =
+        VectorStore::for_provider(&paths, &embedding.config.id, &embedding.config.default_model);
+    assert_eq!(store.count().expect("count"), 2);
+}
+
+#[test]
+fn build_index_incremental_rejects_a_stale_store() {
+    // An incremental build over a store stamped with a DIFFERENT fingerprint must refuse to append
+    // dimension-incompatible vectors — the clear seam W-AI-5 wires re-embed migration into.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    drop(connection);
+
+    // Stamp a store at the SAME (provider, model) — so it shares the store file — but under a
+    // different DIM, so the live config is stale against it.
+    let stale_fp = EmbeddingFingerprint::new(
+        embedding.config.id.clone(),
+        embedding.config.default_model.clone(),
+        99,
+        EmbeddingDtype::Float32,
+        true,
+        EmbeddingPooling::Unknown,
+        None,
+    );
+    VectorStore::create_stamped(&paths, &stale_fp).expect("stamp stale store");
+
     let error = runtime
         .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
-        .expect_err("vector sidecar sync is tracked for v0.3");
-    assert!(error.to_string().contains("tracked for PathKeep v0.3.0"));
+        .expect_err("stale store should block an incremental append");
+    assert!(error.to_string().contains("different embedding configuration"));
+}
+
+#[test]
+fn build_index_incremental_appends_to_a_matching_store() {
+    // A second (incremental) build with a NEW row appends to the prior matching store rather than
+    // recreating it — exercising the "reuse existing store" lazy-resolution branch.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    drop(connection);
+
+    runtime
+        .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
+        .expect("first build");
+    let store =
+        VectorStore::for_provider(&paths, &embedding.config.id, &embedding.config.default_model);
+    assert_eq!(store.count().expect("count"), 1);
+    let header_before = store.read_header().expect("header").expect("present");
+
+    // Add a new visit (via the intelligence connection's attached `archive` schema), then run an
+    // incremental build (no full_rebuild) so it appends to the existing matching store.
+    let connection = open_intelligence_connection(&paths, &config, None).expect("reopen intel");
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(&paths, &config, None, &embedding, &AiIndexRequest::default()))
+        .expect("incremental build");
+    assert_eq!(report.indexed_items, 1);
+    assert_eq!(store.count().expect("count after incremental"), 2);
+    // Same store (same fingerprint header), appended in place.
+    assert_eq!(store.read_header().expect("header2").expect("present"), header_before);
+}
+
+#[test]
+fn validate_embedding_batch_pairs_ids_and_guards_shape() {
+    // Happy path: ids paired with vectors, effective dim = first vector length.
+    let (dim, records) =
+        validate_embedding_batch(&[10, 20], &[vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]])
+            .expect("valid batch");
+    assert_eq!(dim, 3);
+    assert_eq!(records, vec![(10u64, vec![0.1, 0.2, 0.3]), (20u64, vec![0.4, 0.5, 0.6])]);
+
+    // Count mismatch.
+    let count_error = validate_embedding_batch(&[1, 2], &[vec![0.1]]).expect_err("count mismatch");
+    assert!(count_error.to_string().contains("1 vector(s) for 2 input(s)"));
+
+    // Empty vector.
+    let empty_error = validate_embedding_batch(&[1], &[vec![]]).expect_err("empty vector");
+    assert!(empty_error.to_string().contains("empty vector"));
+
+    // Ragged batch (second vector a different dim).
+    let ragged_error =
+        validate_embedding_batch(&[1, 2], &[vec![0.1, 0.2], vec![0.3]]).expect_err("ragged batch");
+    assert!(ragged_error.to_string().contains("ragged batch"));
+}
+
+#[test]
+fn chunk_size_clamps_to_remaining_and_constant() {
+    // No remaining cap → the full constant.
+    assert_eq!(chunk_size(None), super::EMBEDDING_BACKFILL_CHUNK);
+    // A small remaining cap shrinks the chunk; zero floors to 1 (the loop checks `Some(0)` first).
+    assert_eq!(chunk_size(Some(1)), 1);
+    assert_eq!(chunk_size(Some(0)), 1);
+    // A cap larger than the constant is capped at the constant.
+    assert_eq!(chunk_size(Some(100_000)), super::EMBEDDING_BACKFILL_CHUNK);
 }
 
 #[test]

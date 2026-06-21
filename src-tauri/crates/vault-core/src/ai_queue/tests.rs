@@ -410,3 +410,133 @@ fn malformed_payloads_and_terminal_edges_stay_observable() {
     assert_eq!(decode_job_state("stale"), AiQueueJobState::Stale);
     assert_eq!(decode_job_state("unknown"), AiQueueJobState::Queued);
 }
+
+#[test]
+fn persist_index_cursor_rewrites_running_index_payload_and_summary() {
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
+
+    let cursor = IndexBackfillCursor { next_history_id: 512, embedded_so_far: 480 };
+    let outcome =
+        persist_index_cursor(&connection, queued.id, &cursor, Some("Embedded 480 row(s) so far."))
+            .expect("persist cursor");
+    assert_eq!(outcome, CursorPersistOutcome::Persisted);
+
+    // The cursor is now in the payload so a restart resumes from it.
+    match load_ai_job_payload(&connection, queued.id).expect("payload") {
+        AiJobPayload::Index { cursor: stored, .. } => assert_eq!(stored, cursor),
+        other => panic!("expected index payload, got {other:?}"),
+    }
+    let summary: String = connection
+        .query_row("SELECT summary FROM ai_jobs WHERE id = ?1", [queued.id], |row| row.get(0))
+        .expect("summary");
+    assert_eq!(summary, "Embedded 480 row(s) so far.");
+}
+
+#[test]
+fn persist_index_cursor_is_a_noop_for_missing_or_non_index_jobs() {
+    let connection = connection();
+    // Missing job id → NotIndexJob (the job vanished mid-flight), NOT a lease loss.
+    assert_eq!(
+        persist_index_cursor(&connection, 9_999, &IndexBackfillCursor::default(), Some("ignored"))
+            .expect("missing job no-op"),
+        CursorPersistOutcome::NotIndexJob,
+    );
+
+    // An assistant job is left untouched (only index payloads carry a cursor).
+    let assistant = enqueue_assistant_job(
+        &connection,
+        &AiAssistantRequest { question: "q".to_string(), profile_id: None, domain: None },
+        "llm",
+        None,
+        false,
+    )
+    .expect("enqueue assistant");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running assistant");
+    assert_eq!(
+        persist_index_cursor(
+            &connection,
+            assistant.id,
+            &IndexBackfillCursor { next_history_id: 7, embedded_so_far: 7 },
+            Some("ignored"),
+        )
+        .expect("non-index no-op"),
+        CursorPersistOutcome::NotIndexJob,
+    );
+    // The assistant payload is unchanged (no cursor field added).
+    assert!(matches!(
+        load_ai_job_payload(&connection, assistant.id).expect("payload"),
+        AiJobPayload::Assistant { .. }
+    ));
+}
+
+#[test]
+fn persist_index_cursor_reports_lease_loss_when_job_left_running_state() {
+    // HIGH-3: a de-leased worker (its job was stale-swept out of `running` and reclaimed) must learn
+    // its cursor write matched 0 rows so it can ABORT instead of double-writing the vector store.
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
+
+    // Simulate the reclaim: another worker moved this row out of `running` (e.g. back to 'stale').
+    connection
+        .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [queued.id])
+        .expect("reclaim lease");
+
+    let outcome = persist_index_cursor(
+        &connection,
+        queued.id,
+        &IndexBackfillCursor { next_history_id: 99, embedded_so_far: 50 },
+        Some("Embedded 50 row(s) so far."),
+    )
+    .expect("persist returns Ok even on lease loss");
+    assert_eq!(outcome, CursorPersistOutcome::LeaseLost);
+}
+
+#[test]
+fn persist_index_cursor_disarms_full_rebuild_after_first_progress() {
+    // CRITICAL-1 durable backstop: once the cursor leaves the origin, the stored request must no
+    // longer carry `full_rebuild`, so a worker that re-claims this job never re-runs the destructive
+    // wipe that would lose rows already embedded below the cursor.
+    let connection = connection();
+    let request = AiIndexRequest { full_rebuild: true, ..AiIndexRequest::default() };
+    let queued = enqueue_index_job(&connection, &request, false).expect("enqueue full rebuild");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
+
+    // First durable chunk advances the cursor past the origin.
+    persist_index_cursor(
+        &connection,
+        queued.id,
+        &IndexBackfillCursor { next_history_id: 3, embedded_so_far: 2 },
+        None,
+    )
+    .expect("persist first cursor");
+
+    match load_ai_job_payload(&connection, queued.id).expect("payload") {
+        AiJobPayload::Index { request: stored, cursor } => {
+            assert!(!stored.full_rebuild, "full_rebuild must be disarmed after first progress");
+            assert_eq!(cursor.next_history_id, 3);
+        }
+        other => panic!("expected index payload, got {other:?}"),
+    }
+}
+
+#[test]
+fn legacy_index_payload_without_cursor_defaults_to_start() {
+    // MEDIUM-5: a pre-4a payload (`{"kind":"index","request":{...}}`, NO `cursor` field) must
+    // deserialize with `cursor` defaulting to the origin so an upgraded build resumes from scratch
+    // rather than failing to parse (which would quarantine the job).
+    let legacy = r#"{"kind":"index","request":{"providerId":null,"fullRebuild":false,"clearOnly":false,"limit":null}}"#;
+    let payload: AiJobPayload =
+        serde_json::from_str(legacy).expect("legacy index payload deserializes");
+    match payload {
+        AiJobPayload::Index { cursor, .. } => {
+            assert_eq!(cursor, IndexBackfillCursor { next_history_id: 0, embedded_so_far: 0 });
+            assert_eq!(cursor, IndexBackfillCursor::default());
+        }
+        other => panic!("expected index payload, got {other:?}"),
+    }
+}

@@ -1555,7 +1555,10 @@ fn coverage_ai_queue_completion_helpers_cover_cancel_and_payload_edges() {
         job_type: AiQueueJobType::IndexBuild,
         attempt: 1,
         max_attempts: 1,
-        payload: vault_core::ai_queue::AiJobPayload::Index { request: AiIndexRequest::default() },
+        payload: vault_core::ai_queue::AiJobPayload::Index {
+            request: AiIndexRequest::default(),
+            cursor: vault_core::ai_queue::IndexBackfillCursor::default(),
+        },
     };
     let payload_error = complete_claimed_assistant_job(
         &connection,

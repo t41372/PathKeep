@@ -36,22 +36,24 @@ pub mod takeout;
 pub mod utils;
 pub mod visit_taxonomy;
 
-pub use ai::{
-    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl,
-    EMBEDDING_FINGERPRINT_VERSION, EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint,
-    EmbeddingPooling, EmbeddingProvider, EmbeddingRole, LlmCapabilities, LlmChatRequest,
-    LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat, LlmRole,
-    LlmStreamChunk, LlmToolDef, LlmUsage, NarrativeSummary, QueryFamilyFacts, RigLlmProvider,
-    TopicFacts, VectorIndex, ai_index_status, ai_queue_status, answer_history_question,
-    answer_history_question_with_control, build_ai_index, build_ai_index_with_control,
-    deregister_ai_chat_run, drive_ai_chat_stream, load_assistant_run_response,
-    preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
-    reconcile_ai_queue_controls, register_ai_chat_run, request_ai_chat_cancel,
-    semantic_search_history, summarize_query_family, summarize_topic, test_provider_connection,
-};
 pub use agent_store::{
     delete_conversation, ensure_agent_schema, list_conversations, load_conversation,
     open_agent_connection, rename_conversation, save_conversation,
+};
+pub use ai::{
+    AiIntegrationPreview, AiProviderRuntime, AiRunCancelled, AiRunControl, AnyEmbeddingProvider,
+    EMBEDDING_FINGERPRINT_VERSION, EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint,
+    EmbeddingPooling, EmbeddingProvider, EmbeddingRole, ExternalEmbeddingProvider,
+    IndexBackfillLedger, IndexBackfillProgress, LlmCapabilities, LlmChatRequest, LlmChatResponse,
+    LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat, LlmRole, LlmStreamChunk,
+    LlmToolDef, LlmUsage, NarrativeSummary, QueryFamilyFacts, RigLlmProvider, TopicFacts,
+    VectorIndex, VectorStore, VectorStoreHeader, ai_index_status, ai_queue_status,
+    answer_history_question, answer_history_question_with_control, build_ai_index,
+    build_ai_index_with_control, deregister_ai_chat_run, drive_ai_chat_stream,
+    load_assistant_run_response, preview_ai_integrations, provider_capabilities,
+    provider_connection_failure_report, reconcile_ai_queue_controls, register_ai_chat_run,
+    request_ai_chat_cancel, semantic_search_history, summarize_query_family, summarize_topic,
+    test_provider_connection, vector_plane_bytes,
 };
 pub use annotations::{
     get_annotation, list_annotations, replace_tags, search_annotations, set_notes,

@@ -52,6 +52,10 @@ use vault_core::{
     intelligence,
 };
 
+pub use self::agent_store::{
+    delete_ai_conversation, list_ai_conversations, load_ai_conversation, rename_ai_conversation,
+    save_ai_conversation,
+};
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
     ask_ai_assistant, build_ai_index_now, cancel_ai_job, load_ai_assistant_job, load_ai_queue,
@@ -62,10 +66,6 @@ pub use self::ai_queue::{
 pub(crate) use self::ai_queue::{
     complete_claimed_assistant_job, complete_claimed_index_job, drain_one_ai_queue_job,
     start_ai_job_control,
-};
-pub use self::agent_store::{
-    delete_ai_conversation, list_ai_conversations, load_ai_conversation, rename_ai_conversation,
-    save_ai_conversation,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_send};
 pub use self::route_queries::{

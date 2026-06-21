@@ -62,12 +62,39 @@ pub struct QueueJobCounts {
     pub failed: u32,
 }
 
+/// Resumable progress for a chunked embedding backfill (02 §C.6 R1).
+///
+/// Persisted INSIDE the index job payload so a worker restart resumes from where it stopped
+/// instead of re-embedding from scratch. `next_history_id` is the lowest canonical `history_id`
+/// the backfill has NOT yet processed; the embed loop scans candidates with
+/// `history_id >= next_history_id` in ascending order and advances the watermark after each chunk
+/// is durably persisted. `embedded_so_far` is a monotone progress counter surfaced to status.
+///
+/// Default (`{ next_history_id: 0, embedded_so_far: 0 }`) means "start from the beginning", so a
+/// legacy payload without this field (serde default) resumes correctly as a fresh backfill.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexBackfillCursor {
+    /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
+    pub next_history_id: i64,
+    /// Count of vectors durably persisted so far across all chunks of this backfill.
+    pub embedded_so_far: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 /// Typed payload stored inside one persistent AI queue row.
 pub enum AiJobPayload {
-    Index { request: AiIndexRequest },
-    Assistant { payload: AssistantJobPayload },
+    Index {
+        request: AiIndexRequest,
+        /// Resumable backfill watermark; `default` for jobs enqueued before resumability or for
+        /// a fresh build. Updated in place as chunks are persisted so a restart resumes.
+        #[serde(default)]
+        cursor: IndexBackfillCursor,
+    },
+    Assistant {
+        payload: AssistantJobPayload,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +143,7 @@ pub fn enqueue_index_job(
         if request.clear_only { AiQueueJobType::IndexClear } else { AiQueueJobType::IndexBuild },
         priority,
         if request.clear_only || request.full_rebuild { 2 } else { 3 },
-        AiJobPayload::Index { request: request.clone() },
+        AiJobPayload::Index { request: request.clone(), cursor: IndexBackfillCursor::default() },
         paused,
     )
 }
@@ -356,6 +383,93 @@ pub fn heartbeat_ai_job(connection: &Connection, job_id: i64) -> Result<()> {
         params![now_rfc3339(), lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
     )?;
     Ok(())
+}
+
+/// Outcome of a [`persist_index_cursor`] write, distinguishing a real lease loss from a benign skip.
+///
+/// The embed loop MUST react differently to "the lease was reclaimed by another worker" (abort —
+/// keeping going would let two workers double-write the vector store, HIGH-3) versus "the job is not
+/// an index job / no longer exists" (a harmless no-op the caller can ignore). A bare row count could
+/// not tell these apart, so the cursor write returns this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorPersistOutcome {
+    /// The running index job's cursor was updated (the `WHERE … state='running'` UPDATE matched).
+    Persisted,
+    /// The job's lease was reclaimed (it exists as an index job but is no longer `running` under
+    /// this worker), so the UPDATE matched 0 rows. The embed loop treats this as a lease loss.
+    LeaseLost,
+    /// The job vanished or is not an index payload — nothing to persist, and not a lease loss.
+    NotIndexJob,
+}
+
+/// Persists the resumable backfill cursor (and a progress summary) for one running index job.
+///
+/// Called by the embed loop after each chunk's vectors are durably written, so a worker restart
+/// (lease loss, crash, pause) resumes from `cursor.next_history_id` instead of re-embedding from
+/// scratch (02 §C.6 R1). The cursor lives inside the job's `payload_json`; this rewrites only the
+/// `Index` payload and refreshes `heartbeat_at` so the lease stays fresh while a long chunk runs.
+///
+/// Returns a [`CursorPersistOutcome`] so the embed loop can ABORT a de-leased worker (HIGH-3): the
+/// `WHERE … state='running'` guard matches 0 rows once another worker has reclaimed the lease (the
+/// stale-sweep flipped this row out of `running`), and a worker that keeps embedding + appending
+/// while a second worker also runs the job would double-write the vector store. A vanished or
+/// non-index job is reported as [`CursorPersistOutcome::NotIndexJob`] (a benign no-op), distinct
+/// from a true lease loss.
+pub fn persist_index_cursor(
+    connection: &Connection,
+    job_id: i64,
+    cursor: &IndexBackfillCursor,
+    summary: Option<&str>,
+) -> Result<CursorPersistOutcome> {
+    ensure_ai_queue_schema(connection)?;
+    let Some(mut payload) = load_optional_ai_job_payload(connection, job_id)? else {
+        return Ok(CursorPersistOutcome::NotIndexJob);
+    };
+    let AiJobPayload::Index { request, cursor: stored } = &mut payload else {
+        return Ok(CursorPersistOutcome::NotIndexJob);
+    };
+    *stored = cursor.clone();
+    // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
+    // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
+    // delete and lose every row already embedded below the cursor (CRITICAL-1). Flipping the stored
+    // request to a plain incremental build the moment the cursor leaves the origin is the durable
+    // backstop to the in-process `start_history_id == 0` gate in `build_ai_index_with_control`.
+    if cursor.next_history_id > 0 && request.full_rebuild {
+        request.full_rebuild = false;
+    }
+    let payload_json = serde_json::to_string(&payload)?;
+    let now = now_rfc3339();
+    let updated = connection.execute(
+        "UPDATE ai_jobs
+         SET payload_json = ?1,
+             summary = COALESCE(?2, summary),
+             updated_at = ?3,
+             heartbeat_at = ?3,
+             lease_expires_at = ?4
+         WHERE id = ?5 AND state = 'running'",
+        params![payload_json, summary, now, lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
+    )?;
+    Ok(if updated == 1 {
+        CursorPersistOutcome::Persisted
+    } else {
+        // The row exists as an index job (we loaded its payload) but the running-state guard matched
+        // nothing → the lease was reclaimed (stale-swept) out from under this worker.
+        CursorPersistOutcome::LeaseLost
+    })
+}
+
+/// Loads the typed payload for one job, returning `None` when the job no longer exists.
+fn load_optional_ai_job_payload(
+    connection: &Connection,
+    job_id: i64,
+) -> Result<Option<AiJobPayload>> {
+    connection
+        .query_row("SELECT payload_json FROM ai_jobs WHERE id = ?1", [job_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+        .map(|json| serde_json::from_str::<AiJobPayload>(&json).map_err(anyhow::Error::from))
+        .transpose()
 }
 
 /// Marks a running AI job as succeeded and stores any result metadata.

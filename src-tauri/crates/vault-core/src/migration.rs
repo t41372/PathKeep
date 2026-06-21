@@ -103,6 +103,10 @@ pub const EXPORT_EXCLUSIONS_DOC: &[(&str, &str)] = &[
     ("exports/", "Avoids packing previous export bundles into a new export."),
     ("models/", "Downloaded embedding/reranker models are re-downloadable on the target machine."),
     ("derived/agent.sqlite", "Assistant chat transcripts stay on the source machine."),
+    (
+        "derived/vectors/",
+        "Raw f32 embedding vectors (~59 GB at the 14.4M tail) are rebuildable derived state; re-embed on the target instead of shipping them.",
+    ),
 ];
 
 /// Files under `derived/` that are skipped by [`add_dir_to_zip_if_exists`] even though `derived/`
@@ -123,6 +127,24 @@ fn is_derived_export_excluded(file_name: &str) -> bool {
             || file_name == format!("{excluded}-shm")
             || file_name == format!("{excluded}-journal")
     })
+}
+
+/// Subdirectory of `derived/` that holds the AI vector sidecar plane (the `.pkvec` stores).
+const DERIVED_VECTOR_PLANE_DIRNAME: &str = "vectors";
+
+/// Returns true when a `derived/`-relative path is part of the vector sidecar plane and so must be
+/// excluded from the export bundle (HIGH-4).
+///
+/// Matches the whole `derived/vectors/` subtree, plus any stray `.pkvec` store written elsewhere
+/// under `derived/`, so the ~59 GB rebuildable f32 vectors never ride the portable export. `relative`
+/// is the path under the `derived/` root (the first component is the top-level child name).
+fn is_derived_vector_plane_excluded(relative: &Path) -> bool {
+    let under_vectors_dir = relative
+        .components()
+        .next()
+        .is_some_and(|first| first.as_os_str() == DERIVED_VECTOR_PLANE_DIRNAME);
+    let is_pkvec = relative.extension().and_then(|ext| ext.to_str()) == Some("pkvec");
+    under_vectors_dir || is_pkvec
 }
 
 /// Top-level subtrees of the project root that *are* included in the bundle.
@@ -657,6 +679,11 @@ fn add_dir_to_zip_if_exists(
         {
             continue;
         }
+        // The vector sidecar plane (`derived/vectors/*.pkvec`) is rebuildable derived state and
+        // ~59 GB at the 14.4M-row tail (HIGH-4); it never rides the export — re-embed on the target.
+        if zip_prefix == "derived" && is_derived_vector_plane_excluded(relative) {
+            continue;
+        }
         let zip_path = format!("{zip_prefix}/{}", relative.to_string_lossy());
         add_file_to_zip(zip, path, &zip_path, options, manifest_files)?;
     }
@@ -1043,6 +1070,54 @@ mod tests {
             EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/agent.sqlite"),
             "the agent sidecar exclusion must be documented",
         );
+    }
+
+    #[test]
+    fn export_excludes_vector_sidecar_plane_from_the_bundle() {
+        // HIGH-4: the raw f32 vector plane (`derived/vectors/*.pkvec`) is ~59 GB at the 14.4M tail
+        // and rebuildable derived state, so it MUST NOT ride the export — re-embed on the target.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed a `.pkvec` store under derived/vectors plus a stray .pkvec directly under derived,
+        // alongside an ordinary derived file that MUST still ride.
+        fs::create_dir_all(&src_paths.vectors_dir).unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkvec"), b"vectors").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkvec"), b"stray vectors").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // No `.pkvec` (under vectors/ or directly under derived/) is packed.
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkvec")),
+            "no .pkvec vector store may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.starts_with("derived/vectors/")),
+            "the derived/vectors plane must be excluded entirely",
+        );
+        // …while an ordinary rebuildable derived file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "derived/marker.txt"),
+            "non-excluded derived files must still be packed",
+        );
+        // The exclusion is documented for the import-preview surface.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/vectors/"),
+            "the vector plane exclusion must be documented",
+        );
+    }
+
+    #[test]
+    fn is_derived_vector_plane_excluded_matches_vectors_subtree_and_pkvec() {
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkvec")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/nested/store.pkvec")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkvec")));
+        // A non-vector derived file is NOT excluded by this rule.
+        assert!(!is_derived_vector_plane_excluded(Path::new("marker.txt")));
+        assert!(!is_derived_vector_plane_excluded(Path::new("agent.sqlite")));
     }
 
     #[test]

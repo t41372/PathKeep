@@ -10,6 +10,7 @@
 
 mod chat_stream;
 mod control;
+mod embedding_external;
 mod fingerprint;
 mod indexing;
 mod ledger;
@@ -19,6 +20,7 @@ mod provider;
 mod read_model;
 mod search;
 mod traits;
+mod vector_store;
 
 #[cfg(test)]
 use crate::archive::create_schema;
@@ -79,6 +81,7 @@ pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
 };
+pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::RigLlmProvider;
 pub use self::narrative::{
@@ -89,6 +92,7 @@ pub use self::traits::{
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
     LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolDef, LlmUsage, VectorIndex,
 };
+pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
 use self::indexing::provider_embedding_count;
@@ -135,6 +139,34 @@ pub trait AiRunControl: Send + Sync {
     fn cancelled(&self) -> bool {
         false
     }
+}
+
+/// Resumable backfill watermark reported by the embed loop after each durable chunk (02 §C.6 R1).
+///
+/// Carries the lowest canonical `history_id` not yet embedded (`next_history_id`) and a monotone
+/// count of vectors persisted so far (`embedded_so_far`). The worker persists these into the
+/// index job's payload via an [`IndexBackfillLedger`], so a restart resumes from the watermark
+/// instead of re-embedding 14.4M rows from scratch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IndexBackfillProgress {
+    /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
+    pub next_history_id: i64,
+    /// Vectors durably persisted so far across all chunks of this backfill.
+    pub embedded_so_far: u64,
+}
+
+/// Sink the embed loop calls to persist the resumable backfill watermark after each chunk.
+///
+/// Implemented by the worker (which writes the cursor into the `ai_jobs` payload). vault-core
+/// stays free of queue-row mechanics: it only knows it must announce durable progress at each
+/// safe boundary so a later restart can resume. A `None` ledger (e.g. the foreground
+/// `build_ai_index` convenience path) simply runs to completion without resumption.
+pub trait IndexBackfillLedger: Send + Sync {
+    /// Records that all vectors up to (but excluding) `progress.next_history_id` are durable.
+    ///
+    /// Called only AFTER the chunk's vectors are flushed to the vector store, so the watermark
+    /// can never claim progress that is not on disk.
+    fn record(&self, progress: IndexBackfillProgress) -> Result<()>;
 }
 
 /// Error raised when a cooperative AI run stop request is observed.
@@ -217,11 +249,27 @@ const AI_SCHEMA_SQL: &str = r#"
 const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
     "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
 const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)";
-#[cfg(test)]
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
+/// Canonical rows embedded + persisted per resumable backfill chunk.
+///
+/// Sized to amortize embed-request overhead while keeping each durable checkpoint small enough
+/// that a crash loses at most one chunk of progress and the watermark advances frequently. Kept
+/// modest so the 4-core host stays responsive (the embed loop yields between chunks and the
+/// vector store append is O(chunk), never O(store)).
+///
+/// LEASE SAFETY (HIGH-3): bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
+/// one HTTP embed call (≤ `EMBEDDING_HTTP_TIMEOUT` = 120s), comfortably under the 300s queue lease
+/// even if the 30s heartbeat thread stalls. The earlier 256-row chunk fanned out to 4 HTTP calls
+/// (4 × 120s = 480s) which could outlive the lease and let a reclaimed worker keep writing — the
+/// lease-loss abort plus this smaller chunk together close that double-write window.
+#[cfg(not(coverage))]
+const EMBEDDING_BACKFILL_CHUNK: usize = embedding_external::EMBEDDING_HTTP_BATCH;
+/// Tiny chunk under coverage so multi-chunk + cursor-advance paths run on small fixtures.
+#[cfg(coverage)]
+const EMBEDDING_BACKFILL_CHUNK: usize = 2;
 #[cfg(test)]
 const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;

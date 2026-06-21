@@ -29,7 +29,8 @@
 use crate::{
     config::{ProjectPaths, ensure_paths},
     models::{
-        AgentConversationDetail, AgentConversationSummary, AgentMessage, SaveAgentConversationRequest,
+        AgentConversationDetail, AgentConversationSummary, AgentMessage,
+        SaveAgentConversationRequest,
     },
     utils::{now_rfc3339, sha256_hex},
 };
@@ -170,8 +171,8 @@ pub fn open_agent_connection(paths: &ProjectPaths) -> Result<Connection> {
 /// Loads the set of already-applied agent migration versions, bootstrapping the ledger first.
 fn load_applied_agent_migrations(connection: &Connection) -> Result<BTreeSet<i64>> {
     connection.execute_batch(AGENT_SCHEMA_MIGRATIONS_SQL)?;
-    let mut statement = connection
-        .prepare("SELECT version FROM agent_schema_migrations ORDER BY version ASC")?;
+    let mut statement =
+        connection.prepare("SELECT version FROM agent_schema_migrations ORDER BY version ASC")?;
     statement
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<rusqlite::Result<BTreeSet<_>>>()
@@ -305,9 +306,8 @@ pub fn save_conversation(
     // meaningless after the first re-save).
     let mut prior_message_created_at: HashMap<String, String> = HashMap::new();
     {
-        let mut prior = tx.prepare(
-            "SELECT id, created_at FROM messages WHERE conversation_id = ?1",
-        )?;
+        let mut prior =
+            tx.prepare("SELECT id, created_at FROM messages WHERE conversation_id = ?1")?;
         let rows = prior.query_map(params![request.id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
@@ -325,14 +325,7 @@ pub fn save_conversation(
            provider_id = excluded.provider_id,
            updated_at = excluded.updated_at,
            message_count = excluded.message_count",
-        params![
-            request.id,
-            title,
-            request.provider_id,
-            created_at,
-            now,
-            message_count as i64
-        ],
+        params![request.id, title, request.provider_id, created_at, now, message_count as i64],
     )?;
 
     // Replace the transcript wholesale: simplest correct contract for persist-on-finalize. Each
@@ -540,7 +533,9 @@ mod tests {
             role: "assistant".to_string(),
             content: content.to_string(),
             reasoning: Some("thinking".to_string()),
-            tool_calls_json: Some("[{\"id\":\"t1\",\"name\":\"search_bm25\",\"arguments\":\"{}\"}]".to_string()),
+            tool_calls_json: Some(
+                "[{\"id\":\"t1\",\"name\":\"search_bm25\",\"arguments\":\"{}\"}]".to_string(),
+            ),
             status: Some("done".to_string()),
         }
     }
@@ -931,11 +926,9 @@ mod tests {
         let read_created_at = |id: &str| -> Option<String> {
             let connection = open_agent_connection(&paths).expect("connection");
             connection
-                .query_row(
-                    "SELECT created_at FROM messages WHERE id = ?1",
-                    params![id],
-                    |row| row.get(0),
-                )
+                .query_row("SELECT created_at FROM messages WHERE id = ?1", params![id], |row| {
+                    row.get(0)
+                })
                 .optional()
                 .expect("query created_at")
         };
@@ -1006,7 +999,10 @@ mod tests {
         .expect("resave");
 
         let (created_second, updated_second, count_second) = read_row();
-        assert_eq!(created_second, created_first, "persisted created_at must be held across resave");
+        assert_eq!(
+            created_second, created_first,
+            "persisted created_at must be held across resave"
+        );
         assert!(updated_second > updated_first, "persisted updated_at must advance on resave");
         assert_eq!(count_second, 2, "persisted message_count must reflect the resaved transcript");
     }
