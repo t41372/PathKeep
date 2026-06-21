@@ -75,7 +75,9 @@ heavy 工作集 = **starred + recent(可配 12–24 月) + tagged/noted + 高頻
 
 ## 10. 開放項
 
-- model2vec-rs 供應鏈驗證（或自實作）；static 模型選型（potion-multilingual-128M vs 其他）。
+- ~~model2vec-rs 供應鏈驗證（或自實作）；static 模型選型~~ **已定（W-AI-4c，2026-06-21）**：model2vec-rs crates.io license=「Non-standard」（踩 deny SPDX allowlist）+ ~193 star（< 6k gate）→ **自實作**（table-lookup + mean-pool + 選用 L2-norm，PCA/zipf/SIF 蒸餾時已烘進矩陣、inference 不重做），復用 in-tree tokenizers/safetensors/hf-hub、零新依賴。模型選 `minishlab/potion-multilingual-128M`（256-dim、101 語言、bge-m3 蒸餾）。
 - binary 召回的 recall 是否足夠（vs int8/HNSW）——S2 量測。
 - starred 檢索 boost 權重（過大 → 語義搜尋變書籤列表；需 bounded + 可調，benchmark 驗證）。
 - f32 是否保留作 rescore 源（vs 只存 int8）——存儲 vs 質量 trade-off，S2 定。
+- **dedup keying 細節（W-AI-4c 已落地）**：`content_key:u64` = content_hash 前 8 bytes，是 **STORAGE-boundary key**（`.pkvec`/`.pkmap` 的固定寬度佈局）。embed loop 的 **work-dedup 改 key by 完整 `content_hash`**（`indexing::select_embed_targets`，MEDIUM-4 修正）——故兩個 distinct page 即使 u64 碰撞（≈ n²/2^65 ≈ 2.8e-6 @14.4M）也各自 embed，第二頁不會被靜默丟到第一頁的 vector 上；`.pkvec` 層該碰撞存兩筆同 u64（`read_all` last-writer-wins 處理），SQLite `ai_embeddings` 仍存完整 content_hash 作精確身份。`.pkvec` key by content_key（格式不變），`.pkmap`（history_id→content_key）作 visit fan-out。incremental（非 resume）也載入既有 store/map 的 dedup state（MEDIUM-5），故已嵌頁的新訪問只 map、不重嵌、不追加重複 `.pkvec` record。`#fragment` 變體不 collapse（`normalize_visit_url` 不剝 fragment）——刻意，可能是不同頁段。
+- **static engine parity（W-AI-4c 已驗）**：hand-rolled static engine vs Python model2vec 的 cosine parity 由 **committed reference fixture**（`tests/fixtures/static_parity_potion_multilingual.json`，12 條含 CJK/emoji/URL/percent-encoded/真 OOV `[UNK]` 輸入）作 STANDING gate 證明，全部 cosine = 1.000000（`PATHKEEP_STATIC_PARITY=1`），不再依賴 test-time Python，也不是 self-check。**unk 處理鐵律**：potion 的 Unigram tokenizer 無 string `unk_token`（unk 是 `[UNK]` id 1，僅以 `unk_id` index 宣告），model2vec 對此 **POOL `[UNK]`**（只對宣告 string `unk_token` 的 BPE/WordPiece 才 drop unk）；engine 精確 mirror——丟 Unigram `[UNK]` 會讓 OOV 行 parity 跌到 ~0.80（gate 抓得到）。`STATIC_MAX_INPUT_TOKENS=2048` 比 model2vec `encode` 預設 `max_length=512` 大，僅作 DoS 上限；fixture 輸入皆 <512 token 故 parity 精確。

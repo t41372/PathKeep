@@ -1,13 +1,14 @@
 //! Regression tests for optional AI and semantic retrieval helpers.
 use super::indexing::{
-    chunk_size, clear_provider_embeddings, collect_stale_history_ids, collect_visit_chunk,
-    upsert_embedding, validate_embedding_batch,
+    IndexedVisit, chunk_size, clear_provider_embeddings, collect_stale_history_ids,
+    collect_visit_chunk, select_embed_targets, upsert_embedding, validate_embedding_batch_for_keys,
 };
 use super::provider::{
     embedding_descriptor_for, l2_normalize, resolve_embed_request_dim,
     should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
 };
 use super::*;
+use crate::utils::sha256_hex;
 use crate::{
     ai_sidecar::SidecarEmbeddingRow,
     archive::ensure_archive_initialized,
@@ -1079,22 +1080,10 @@ fn collect_visits_to_index_skips_already_indexed_rows_and_cleanup_removes_stale_
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
 
-    let visit_time = connection
-        .query_row(
-            "SELECT (visit_time_ms * 1000 + 11644473600000000)
-             FROM archive.visits
-             WHERE id = 1",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .expect("load visit time");
-    let first_content = build_embedding_content(
-        "chrome:Default",
-        "https://example.com/docs",
-        Some("Docs"),
-        &crate::utils::chrome_time_to_rfc3339(visit_time),
-    );
-    seed_embedding(&connection, 1, &provider, &sha256_hex(first_content.as_bytes()));
+    // History id 1 is "already indexed" iff its stored hash equals the VISIT-INDEPENDENT dedup hash
+    // (canonical URL + title + reserved enrichment summary), so it is skipped on the next collect.
+    let first_dedup_hash = build_dedup_content_hash("https://example.com/docs", Some("Docs"), None);
+    seed_embedding(&connection, 1, &provider, &first_dedup_hash);
     seed_embedding(&connection, 999, &provider, "orphan-hash");
 
     let candidates =
@@ -1329,16 +1318,27 @@ fn build_ai_index_embeds_rows_into_vector_plane() {
     assert_eq!(report.skipped_items, 0);
     assert!(report.notes[0].contains("vector plane"));
 
-    // Vectors landed on the dedicated plane, keyed by history id, fingerprint-stamped.
+    // Vectors landed on the dedicated plane, keyed by content_key (deduped), fingerprint-stamped.
     let store =
         VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
     assert!(store.exists());
+    // Three distinct pages → three deduped vectors (one per content_key).
     assert_eq!(store.count().expect("count"), 3);
     let records = store.read_all().expect("read all");
-    let ids: Vec<u64> = records.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, vec![1, 2, 3]);
     let header = store.read_header().expect("header").expect("present");
     assert_eq!(header.dim, records[0].1.len());
+
+    // The visit→content map fans each visit to its content_key (the dedup join), all three visits.
+    let map =
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let mut mapped: Vec<i64> = map.mapped_history_ids().expect("mapped").into_iter().collect();
+    mapped.sort_unstable();
+    assert_eq!(mapped, vec![1, 2, 3]);
+    // Each visit's content_key resolves to a vector actually on the store (no orphan map entry).
+    let store_keys = store.existing_ids().expect("store keys");
+    for content_key in map.referenced_content_keys().expect("referenced") {
+        assert!(store_keys.contains(&content_key), "every mapped content_key has a vector");
+    }
 
     // SQLite metadata rows mirror the embedded count; vectors themselves are NOT in SQLite.
     let connection = open_intelligence_connection(&paths, &config, None).expect("reload");
@@ -1355,6 +1355,215 @@ fn build_ai_index_embeds_rows_into_vector_plane() {
     assert_eq!(second.indexed_items, 0);
     assert_eq!(second.skipped_items, 3);
     assert_eq!(store.count().expect("count after rebuild"), 3);
+}
+
+#[test]
+fn select_working_set_ranks_starred_first_then_other_signals() {
+    // W-AI-4c heavy-working-set selector (05 §4/§8): the shared hook ranks unique-content candidates
+    // by starred (top) ∪ recent ∪ annotated ∪ frequency, bounded + indexed off the archive.
+    let (paths, config, _intelligence) = prepared_archive();
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+
+    // Seed four distinct pages with different signal profiles.
+    let now_ms = 1_000_000_000_000_i64;
+    let recent_ms = now_ms - 1; // inside any window
+    let old_ms = now_ms - 5 * 365 * 86_400_000; // ~5 years ago, outside an 18-month window
+    let seed_url = |id: i64, url: &str, visit_count: i64, last_visit_ms: i64| {
+        archive
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, '', ?5, '', 1, 1)",
+                params![id, url, format!("Title {id}"), visit_count, last_visit_ms],
+            )
+            .expect("seed url");
+    };
+    // A run + profile so the FK constraints hold.
+    archive
+        .execute(
+            "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'test', '2026-01-01', 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [],
+        )
+        .expect("run");
+    archive
+        .execute(
+            "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+             VALUES (1, 'chrome', 'x', 'p', '/p', '2026-01-01', 1, 'chrome:Default', '2026-01-01')",
+            [],
+        )
+        .expect("profile");
+
+    seed_url(1, "https://starred.com/page", 1, old_ms); // STARRED (top weight) but old
+    seed_url(2, "https://recent.com/page", 1, recent_ms); // recent only
+    seed_url(3, "https://frequent.com/page", 9000, old_ms); // very frequent but old
+    seed_url(4, "https://noted.com/page", 1, old_ms); // annotated only
+    seed_url(5, "https://cold.com/page", 0, old_ms); // NO active signal → excluded
+    // A SECOND raw variant of the recent page, with a HIGHER visit count and old last-visit. It
+    // collapses onto the recent page's canonical URL, so the frequency gather must lift that
+    // candidate's visit_count to this higher value (the max-across-variants branch).
+    seed_url(6, "https://recent.com/page?utm_source=ad", 42, old_ms);
+
+    // Star page 1 (canonical key), annotate page 4 (note), TAG page 2 (the tags gather), and add an
+    // unknown star kind that must be ignored (a future query_family star, not errored).
+    archive
+        .execute(
+            "INSERT INTO star (entity_kind, entity_key, starred_at) VALUES ('url', 'https://starred.com/page', '2026-01-01')",
+            [],
+        )
+        .expect("star");
+    archive
+        .execute(
+            "INSERT INTO star (entity_kind, entity_key, starred_at) VALUES ('query_family', 'some-future-key', '2026-01-01')",
+            [],
+        )
+        .expect("future star kind");
+    archive
+        .execute(
+            "INSERT INTO url_annotations (url, notes, created_at, updated_at) VALUES ('https://noted.com/page', 'keep this', '2026-01-01', '2026-01-01')",
+            [],
+        )
+        .expect("note");
+    archive
+        .execute(
+            "INSERT INTO url_tags (url, tag, created_at) VALUES ('https://recent.com/page', 'work', '2026-01-01')",
+            [],
+        )
+        .expect("tag");
+
+    let config = crate::WorkingSetConfig::default();
+    let candidates = crate::select_working_set(&archive, &config, now_ms, 10).expect("select");
+
+    // The cold page (no signal) is excluded.
+    assert!(!candidates.iter().any(|c| c.canonical_url.contains("cold.com")));
+    // Starred ranks first (top weight beats frequency/recency/annotation alone).
+    assert!(candidates[0].canonical_url.contains("starred.com"));
+    assert!(candidates[0].signals.starred);
+    // Four active pages are present (the second recent.com variant collapsed onto the first).
+    assert_eq!(candidates.len(), 4);
+    // The frequent page carries its visit count signal; the annotated page is flagged annotated.
+    let frequent = candidates.iter().find(|c| c.canonical_url.contains("frequent.com")).unwrap();
+    assert_eq!(frequent.signals.visit_count, 9000);
+    let noted = candidates.iter().find(|c| c.canonical_url.contains("noted.com")).unwrap();
+    assert!(noted.signals.annotated);
+    // The recent page is flagged recent AND annotated (via the tag) AND carries the MAX visit count
+    // across its two raw variants (the higher 42, not the original 1) — the max-across-variants path.
+    let recent = candidates.iter().find(|c| c.canonical_url.contains("recent.com")).unwrap();
+    assert!(recent.signals.recent);
+    assert!(recent.signals.annotated, "the tag marks the recent page annotated");
+    assert_eq!(recent.signals.visit_count, 42, "max visit count across raw variants");
+
+    // A zero limit returns nothing.
+    assert!(crate::select_working_set(&archive, &config, now_ms, 0).expect("zero").is_empty());
+}
+
+#[test]
+fn select_working_set_marks_domain_starred_pages() {
+    // A DOMAIN star marks every page on that registrable domain (the user starred the source).
+    let (paths, config, _intelligence) = prepared_archive();
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    archive
+        .execute(
+            "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only) VALUES (1, 'backup', 't', '2026', 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [],
+        )
+        .expect("run");
+    archive
+        .execute(
+            "INSERT OR IGNORE INTO source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at) VALUES (1, 'chrome', 'x', 'p', '/p', '2026', 1, 'chrome:Default', '2026')",
+            [],
+        )
+        .expect("profile");
+    archive
+        .execute(
+            "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id) VALUES (1, 'https://github.com/a/repo', 'Repo', 3, 0, 1, '', 1, '', 1, 1)",
+            [],
+        )
+        .expect("url");
+    archive
+        .execute(
+            "INSERT INTO star (entity_kind, entity_key, starred_at) VALUES ('domain', 'github.com', '2026')",
+            [],
+        )
+        .expect("domain star");
+
+    let candidates = crate::select_working_set(
+        &archive,
+        &crate::WorkingSetConfig::default(),
+        1_000_000_000_000,
+        10,
+    )
+    .expect("select");
+    let github = candidates.iter().find(|c| c.canonical_url.contains("github.com")).unwrap();
+    assert!(github.signals.starred, "a page on a starred domain inherits the starred signal");
+}
+
+#[test]
+fn build_ai_index_dedupes_repeated_page_into_one_vector_and_maps_every_visit() {
+    // W-AI-4c content-hash dedup (05 §1, "the biggest near-free lever"): many visits of the SAME
+    // page (same canonical URL + title, tracking-param variants collapsed) must produce ONE vector
+    // yet map EVERY visit to it — "5000 gmail visits → 1 embedding" in miniature.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    // Five visits of the SAME page (different tracking params + host casing → same canonical URL),
+    // plus one DIFFERENT page → 2 unique contents across 6 visits.
+    seed_visit(&connection, 1, "chrome:Default", "https://mail.google.com/inbox", Some("Inbox"), 1);
+    seed_visit(
+        &connection,
+        2,
+        "chrome:Default",
+        "https://mail.google.com/inbox?utm_source=a",
+        Some("Inbox"),
+        2,
+    );
+    seed_visit(&connection, 3, "chrome:Default", "https://Mail.Google.com/inbox", Some("Inbox"), 3);
+    seed_visit(
+        &connection,
+        4,
+        "chrome:Default",
+        "https://mail.google.com/inbox?ref=x",
+        Some("Inbox"),
+        4,
+    );
+    seed_visit(
+        &connection,
+        5,
+        "chrome:Default",
+        "https://mail.google.com/inbox?fbclid=z",
+        Some("Inbox"),
+        5,
+    );
+    seed_visit(&connection, 6, "chrome:Default", "https://example.com/other", Some("Other"), 6);
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("dedup build");
+    // All 6 visits are processed (metadata rows), but only 2 UNIQUE pages are embedded.
+    assert_eq!(report.indexed_items, 6);
+
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 2, "6 visits of 2 pages → 2 deduped vectors");
+
+    let map =
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let all = map.read_all().expect("map");
+    // Every visit is mapped.
+    let mut mapped_ids: Vec<i64> = all.keys().copied().collect();
+    mapped_ids.sort_unstable();
+    assert_eq!(mapped_ids, vec![1, 2, 3, 4, 5, 6]);
+    // The five gmail visits all share ONE content_key; the sixth has its own.
+    let gmail_key = all[&1];
+    for id in 2..=5 {
+        assert_eq!(all[&id], gmail_key, "every gmail visit maps to the same content_key");
+    }
+    assert_ne!(all[&6], gmail_key, "the different page has its own content_key");
+    // Exactly 2 distinct content_keys referenced, both with a vector on the store.
+    let referenced = map.referenced_content_keys().expect("referenced");
+    assert_eq!(referenced.len(), 2);
+    let store_keys = store.existing_ids().expect("store keys");
+    assert_eq!(referenced, store_keys, "every referenced content_key has a vector, no orphans");
 }
 
 #[test]
@@ -1393,10 +1602,15 @@ fn build_ai_index_resumes_from_cursor_and_records_progress() {
         .expect("resumed build");
     assert_eq!(report.indexed_items, 3);
 
+    // Visits 3,4,5 were mapped (the per-visit no-miss contract), and 3 distinct pages → 3 vectors.
+    let map =
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let mut mapped: Vec<i64> = map.mapped_history_ids().expect("mapped").into_iter().collect();
+    mapped.sort_unstable();
+    assert_eq!(mapped, vec![3, 4, 5]);
     let store =
         VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
-    let ids: Vec<u64> = store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
-    assert_eq!(ids, vec![3, 4, 5]);
+    assert_eq!(store.count().expect("count"), 3, "3 distinct pages → 3 deduped vectors");
 
     // The ledger saw a monotone, advancing watermark ending past the last id with the full count.
     let progresses = ledger.snapshot();
@@ -1410,9 +1624,13 @@ fn build_ai_index_resumes_from_cursor_and_records_progress() {
     }
 }
 
-/// Embeds rows [start, …] capped by `limit` and returns the resulting store id set + the last
+/// Embeds rows [start, …] capped by `limit` and returns the resulting MAPPED VISIT id set + the last
 /// reported watermark, so the resume tests can drive deterministic chunks regardless of the
 /// build-time `EMBEDDING_BACKFILL_CHUNK`.
+///
+/// W-AI-4c: the vector store is now keyed by content_key (deduped), so the per-VISIT no-dup/no-miss
+/// guarantee lives on the visit→content map. These resume tests assert that visit-level contract via
+/// the map's mapped history ids (sorted ascending), preserving the original W-AI-4a intent.
 fn run_backfill_chunk(
     runtime: &Runtime,
     paths: &ProjectPaths,
@@ -1420,7 +1638,7 @@ fn run_backfill_chunk(
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
     start_history_id: i64,
-) -> (Vec<u64>, IndexBackfillProgress) {
+) -> (Vec<i64>, IndexBackfillProgress) {
     let ledger = Arc::new(RecordingLedger::default());
     let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
     runtime
@@ -1435,9 +1653,10 @@ fn run_backfill_chunk(
             Some(dyn_ledger),
         ))
         .expect("backfill chunk");
-    let store =
-        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    let ids: Vec<u64> = store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
+    let map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let mut ids: Vec<i64> = map.mapped_history_ids().expect("mapped ids").into_iter().collect();
+    ids.sort_unstable();
     let last = ledger.snapshot().last().copied().unwrap_or_default();
     (ids, last)
 }
@@ -1565,17 +1784,23 @@ fn multi_chunk_resume_yields_exact_contiguous_id_set() {
         assert!(guard < 10, "multi-chunk resume should converge");
     }
 
-    let store =
-        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
-    let final_ids: Vec<u64> =
-        store.read_all().expect("read").into_iter().map(|(id, _)| id).collect();
+    // The visit→content map holds EXACTLY the visit id set [1..=5] — no dup, no miss — after the
+    // multi-chunk resume (the per-visit contract the store's content_key keying moved here).
+    let map =
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let mut final_ids: Vec<i64> = map.mapped_history_ids().expect("mapped").into_iter().collect();
+    final_ids.sort_unstable();
     assert_eq!(final_ids, vec![1, 2, 3, 4, 5], "exact contiguous id set after multi-chunk resume");
     assert_unique(&final_ids);
+    // And 5 distinct pages → 5 deduped vectors, also no-dup.
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 5);
 }
 
-/// Asserts the id list is a SET (the `.pkvec` read_all contract W-AI-5 relies on).
-fn assert_unique(ids: &[u64]) {
-    let unique: std::collections::HashSet<u64> = ids.iter().copied().collect();
+/// Asserts the id list is a SET (the visit→content map / `.pkvec` read_all no-dup contract).
+fn assert_unique(ids: &[i64]) {
+    let unique: std::collections::HashSet<i64> = ids.iter().copied().collect();
     assert_eq!(unique.len(), ids.len(), "ids must be unique (a set): {ids:?}");
 }
 
@@ -1915,26 +2140,142 @@ fn build_index_incremental_appends_to_a_matching_store() {
 }
 
 #[test]
-fn validate_embedding_batch_pairs_ids_and_guards_shape() {
-    // Happy path: ids paired with vectors, effective dim = first vector length.
+fn incremental_build_does_not_re_embed_a_new_visit_of_an_already_embedded_page() {
+    // MEDIUM-5: a PLAIN incremental job starts at cursor 0 with empty dedup sets. Without loading the
+    // persisted keys/map when a store already exists, a NEW visit of an already-embedded page would
+    // re-embed + append a DUPLICATE `.pkvec` record (bloat that `read_all` last-writer-wins masks).
+    // Assert the RAW record count (store.count()), not read_all().len(), so the duplicate is visible.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    // First build embeds ONE page (one canonical URL, one visit).
+    seed_visit(&connection, 1, "chrome:Default", "https://mail.google.com/inbox", Some("Inbox"), 1);
+    drop(connection);
+    runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("first build");
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 1, "one page → one vector after first build");
+
+    // A NEW visit (history_id 2) of the SAME page (tracking-param variant → same canonical URL/hash).
+    let connection = open_intelligence_connection(&paths, &config, None).expect("reopen intel");
+    seed_visit(
+        &connection,
+        2,
+        "chrome:Default",
+        "https://mail.google.com/inbox?utm_source=x",
+        Some("Inbox"),
+        2,
+    );
+    drop(connection);
+
+    // A PLAIN incremental build (cursor 0, no full_rebuild). The new visit must be MAPPED but the page
+    // must NOT be re-embedded — the RAW record count stays 1 (no duplicate `.pkvec` record appended).
+    runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("incremental build");
+    assert_eq!(
+        store.count().expect("raw count after incremental"),
+        1,
+        "a new visit of an already-embedded page must NOT append a duplicate vector record",
+    );
+
+    // The new visit IS mapped to the same content_key (the per-visit no-miss contract holds).
+    let map =
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    let all = map.read_all().expect("map");
+    let mut mapped: Vec<i64> = all.keys().copied().collect();
+    mapped.sort_unstable();
+    assert_eq!(mapped, vec![1, 2], "both visits are mapped");
+    assert_eq!(all[&1], all[&2], "the new visit maps to the SAME content_key (one page)");
+}
+
+#[test]
+fn validate_embedding_batch_pairs_keys_and_guards_shape() {
+    // Happy path: content_keys paired with vectors, effective dim = first vector length.
     let (dim, records) =
-        validate_embedding_batch(&[10, 20], &[vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]])
+        validate_embedding_batch_for_keys(&[10, 20], &[vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]])
             .expect("valid batch");
     assert_eq!(dim, 3);
     assert_eq!(records, vec![(10u64, vec![0.1, 0.2, 0.3]), (20u64, vec![0.4, 0.5, 0.6])]);
 
     // Count mismatch.
-    let count_error = validate_embedding_batch(&[1, 2], &[vec![0.1]]).expect_err("count mismatch");
+    let count_error =
+        validate_embedding_batch_for_keys(&[1, 2], &[vec![0.1]]).expect_err("count mismatch");
     assert!(count_error.to_string().contains("1 vector(s) for 2 input(s)"));
 
     // Empty vector.
-    let empty_error = validate_embedding_batch(&[1], &[vec![]]).expect_err("empty vector");
+    let empty_error = validate_embedding_batch_for_keys(&[1], &[vec![]]).expect_err("empty vector");
     assert!(empty_error.to_string().contains("empty vector"));
 
     // Ragged batch (second vector a different dim).
-    let ragged_error =
-        validate_embedding_batch(&[1, 2], &[vec![0.1, 0.2], vec![0.3]]).expect_err("ragged batch");
+    let ragged_error = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.1, 0.2], vec![0.3]])
+        .expect_err("ragged batch");
     assert!(ragged_error.to_string().contains("ragged batch"));
+}
+
+/// Builds a synthetic `IndexedVisit` for the pure dedup-selection tests (no archive needed).
+fn indexed_visit(history_id: i64, content_hash: &str) -> IndexedVisit {
+    IndexedVisit {
+        history_id,
+        profile_id: "chrome:Default".to_string(),
+        url: format!("https://example.com/{history_id}"),
+        title: Some("Page".to_string()),
+        domain: "example.com".to_string(),
+        visited_at: "2026-04-04T00:00:00Z".to_string(),
+        content: format!("content-{history_id}"),
+        content_key: super::dedup::content_key_from_hash(content_hash),
+        content_hash: content_hash.to_string(),
+        needs_embedding: true,
+    }
+}
+
+#[test]
+fn select_embed_targets_keeps_distinct_pages_that_collide_on_truncated_u64() {
+    // MEDIUM-4: two DISTINCT pages whose content_hashes truncate to the SAME u64 content_key must BOTH
+    // be embedded — the work-dedup keys on the FULL hash, never the truncated u64. Construct two hashes
+    // that share the first 16 hex chars (so `content_key_from_hash` collides) but differ after.
+    let hash_a = "0102030405060708aaaaaaaaaaaaaaaa";
+    let hash_b = "0102030405060708bbbbbbbbbbbbbbbb";
+    let a = indexed_visit(1, hash_a);
+    let b = indexed_visit(2, hash_b);
+    // Precondition: the two distinct hashes DO collide on the u64 key (the bug's trigger).
+    assert_eq!(a.content_key, b.content_key, "test setup must produce a real u64 collision");
+    assert_ne!(a.content_hash, b.content_hash);
+
+    let changed: Vec<&IndexedVisit> = vec![&a, &b];
+    let targets = select_embed_targets(
+        &changed,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+    // BOTH pages are selected for embedding (the second is NOT collapsed onto the first's vector).
+    assert_eq!(targets.len(), 2, "a u64 collision must NOT drop the second distinct page's embed");
+    let target_hashes: Vec<&str> = targets.iter().map(|v| v.content_hash.as_str()).collect();
+    assert!(target_hashes.contains(&hash_a));
+    assert!(target_hashes.contains(&hash_b));
+
+    // The SAME page seen twice (same full hash) IS deduped to one embed (the intended dedup).
+    let a_again = indexed_visit(3, hash_a);
+    let same_page: Vec<&IndexedVisit> = vec![&a, &a_again];
+    let one = select_embed_targets(
+        &same_page,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+    assert_eq!(one.len(), 1, "two visits of one page (same full hash) → one embed");
+
+    // A page whose FULL hash is already persisted this run is skipped (no re-embed).
+    let persisted_hashes = std::collections::HashSet::from([hash_a.to_string()]);
+    let skip = select_embed_targets(&changed, &persisted_hashes, &std::collections::HashSet::new());
+    assert_eq!(skip.len(), 1, "the already-embedded full hash is skipped, the other still embeds");
+    assert_eq!(skip[0].content_hash, hash_b);
+
+    // The u64 storage-boundary backstop still skips a key already on the `.pkvec` plane (resume).
+    let persisted_keys = std::collections::HashSet::from([a.content_key]);
+    let backstop = select_embed_targets(&[&a], &std::collections::HashSet::new(), &persisted_keys);
+    assert!(backstop.is_empty(), "a u64 key already on disk is the resume backstop skip");
 }
 
 #[test]

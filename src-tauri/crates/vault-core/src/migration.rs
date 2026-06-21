@@ -132,19 +132,29 @@ fn is_derived_export_excluded(file_name: &str) -> bool {
 /// Subdirectory of `derived/` that holds the AI vector sidecar plane (the `.pkvec` stores).
 const DERIVED_VECTOR_PLANE_DIRNAME: &str = "vectors";
 
+/// File extensions of the AI vector sidecar plane excluded from the export bundle.
+///
+/// `pkvec` is the raw f32 vector store; `pkmap` is the visit→content_key map beside it (W-AI-4c). Both
+/// are rebuildable derived state that re-embeds on the target, so neither rides the portable export.
+const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] = &["pkvec", "pkmap"];
+
 /// Returns true when a `derived/`-relative path is part of the vector sidecar plane and so must be
 /// excluded from the export bundle (HIGH-4).
 ///
-/// Matches the whole `derived/vectors/` subtree, plus any stray `.pkvec` store written elsewhere
-/// under `derived/`, so the ~59 GB rebuildable f32 vectors never ride the portable export. `relative`
-/// is the path under the `derived/` root (the first component is the top-level child name).
+/// Matches the whole `derived/vectors/` subtree, plus any stray `.pkvec` / `.pkmap` store written
+/// elsewhere under `derived/`, so the ~59 GB rebuildable f32 vectors AND their visit→content map never
+/// ride the portable export. `relative` is the path under the `derived/` root (the first component is
+/// the top-level child name).
 fn is_derived_vector_plane_excluded(relative: &Path) -> bool {
     let under_vectors_dir = relative
         .components()
         .next()
         .is_some_and(|first| first.as_os_str() == DERIVED_VECTOR_PLANE_DIRNAME);
-    let is_pkvec = relative.extension().and_then(|ext| ext.to_str()) == Some("pkvec");
-    under_vectors_dir || is_pkvec
+    let is_vector_plane_file = relative
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| DERIVED_VECTOR_PLANE_EXTENSIONS.contains(&ext));
+    under_vectors_dir || is_vector_plane_file
 }
 
 /// Top-level subtrees of the project root that *are* included in the bundle.
@@ -1147,19 +1157,27 @@ mod tests {
         let (src_dir, src_paths) = fresh_paths();
         let config = seed_archive(&src_paths);
 
-        // Seed a `.pkvec` store under derived/vectors plus a stray .pkvec directly under derived,
-        // alongside an ordinary derived file that MUST still ride.
+        // Seed a `.pkvec` store + its `.pkmap` visit map under derived/vectors, plus a stray `.pkvec`
+        // AND a stray `.pkmap` directly under derived/, alongside an ordinary derived file that MUST
+        // still ride. (W-AI-4c: the `.pkmap` is rebuildable derived state, excluded like `.pkvec`.)
         fs::create_dir_all(&src_paths.vectors_dir).unwrap();
         fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkvec"), b"vectors").unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkmap"), b"visit map").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkvec"), b"stray vectors").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkmap"), b"stray map").unwrap();
 
         let bundle_target = src_dir.path().join("bundle.pathkeep");
         let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
 
-        // No `.pkvec` (under vectors/ or directly under derived/) is packed.
+        // No `.pkvec` / `.pkmap` (under vectors/ or directly under derived/) is packed.
         assert!(
             !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkvec")),
             "no .pkvec vector store may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        assert!(
+            !bundle.manifest.files.iter().any(|f| f.path.ends_with(".pkmap")),
+            "no .pkmap visit map may be packed: {:?}",
             bundle.manifest.files,
         );
         assert!(
@@ -1179,10 +1197,13 @@ mod tests {
     }
 
     #[test]
-    fn is_derived_vector_plane_excluded_matches_vectors_subtree_and_pkvec() {
+    fn is_derived_vector_plane_excluded_matches_vectors_subtree_and_pkvec_and_pkmap() {
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkvec")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkmap")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/nested/store.pkvec")));
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkvec")));
+        // A stray `.pkmap` directly under derived/ is excluded too (consistency with `.pkvec`).
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkmap")));
         // A non-vector derived file is NOT excluded by this rule.
         assert!(!is_derived_vector_plane_excluded(Path::new("marker.txt")));
         assert!(!is_derived_vector_plane_excluded(Path::new("agent.sqlite")));

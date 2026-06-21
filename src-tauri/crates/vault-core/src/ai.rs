@@ -10,8 +10,10 @@
 
 mod chat_stream;
 mod control;
+mod dedup;
 mod embedding_candle;
 mod embedding_external;
+mod embedding_static;
 mod fingerprint;
 mod indexing;
 mod ledger;
@@ -22,6 +24,8 @@ mod read_model;
 mod search;
 mod traits;
 mod vector_store;
+mod visit_content_map;
+mod working_set;
 
 #[cfg(test)]
 use crate::archive::create_schema;
@@ -38,7 +42,7 @@ use crate::{
         AiRequestFormat, AiSearchEntry, AiSearchRequest, AiSearchResponse, AppConfig, HistoryEntry,
         HistoryQuery,
     },
-    utils::{now_rfc3339, sha256_hex, url_domain},
+    utils::{now_rfc3339, url_domain},
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
@@ -82,6 +86,7 @@ pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
 };
+pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
 pub use self::embedding_candle::{
     CANDLE_INAPP_BASE_URL, CANDLE_MAX_INPUT_TOKENS, CandleEmbeddingProvider,
     DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
@@ -92,6 +97,12 @@ pub use self::embedding_candle::{
     runtime_uses_candle, select_embedding_provider,
 };
 pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
+pub use self::embedding_static::{
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_INAPP_BASE_URL,
+    STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
+    degrade_static_to_external, parse_static_config, runtime_uses_static, static_embed_ids,
+    static_l2_normalize, static_repo_for_runtime,
+};
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::RigLlmProvider;
 pub use self::narrative::{
@@ -103,6 +114,11 @@ pub use self::traits::{
     LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolDef, LlmUsage, VectorIndex,
 };
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
+pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
+pub use self::working_set::{
+    CandidateSignals, MAX_WORKING_SET, WorkingSetCandidate, WorkingSetConfig, score_candidate,
+    select_working_set,
+};
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
 use self::indexing::provider_embedding_count;

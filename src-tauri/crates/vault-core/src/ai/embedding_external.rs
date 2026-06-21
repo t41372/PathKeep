@@ -24,6 +24,7 @@
 //! field/label swap is caught by the unit + mutation gates rather than shipping silently.
 
 use super::embedding_candle::CandleEmbeddingProvider;
+use super::embedding_static::StaticEmbeddingProvider;
 use super::provider::l2_normalize;
 use super::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
@@ -402,6 +403,13 @@ pub enum AnyEmbeddingProvider {
     /// ~200 B — boxing keeps the enum (which is moved on every embed-loop iteration) small without
     /// reintroducing dynamic dispatch (the match still monomorphizes the RPITIT `embed`).
     Candle(Box<CandleEmbeddingProvider>),
+    /// In-app HAND-ROLLED static (model2vec) engine (W-AI-4c): the Tier-0 fast base that embeds
+    /// 100% of unique content (05 §2). Symmetric (no query/document instruction), Mean-pooled,
+    /// L2-normalized vectors from a static embedding matrix — orders of magnitude faster than candle
+    /// (no transformer forward). Selected when the user has consented to the static model AND it is
+    /// present + verified on disk; degrades to candle/External when absent. Boxed for the same
+    /// small-enum reason as `Candle` (the loaded matrix is large).
+    Static(Box<StaticEmbeddingProvider>),
 }
 
 impl EmbeddingProvider for AnyEmbeddingProvider {
@@ -420,6 +428,7 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
             match self {
                 Self::External(provider) => provider.embed(texts, role).await,
                 Self::Candle(provider) => provider.embed(texts, role).await,
+                Self::Static(provider) => provider.embed(texts, role).await,
             }
         }
     }
@@ -428,6 +437,7 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
         match self {
             Self::External(provider) => provider.model_id(),
             Self::Candle(provider) => provider.model_id(),
+            Self::Static(provider) => provider.model_id(),
         }
     }
 
@@ -435,6 +445,7 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
         match self {
             Self::External(provider) => provider.descriptor(),
             Self::Candle(provider) => provider.descriptor(),
+            Self::Static(provider) => provider.descriptor(),
         }
     }
 }
@@ -442,6 +453,7 @@ impl EmbeddingProvider for AnyEmbeddingProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::embedding_static::StaticEmbeddingProvider;
     use crate::ai::provider::l2_normalize;
     use crate::models::{AiProviderConfig, AiProviderPurpose};
     use secrecy::SecretString;
@@ -711,6 +723,25 @@ mod tests {
         assert!(any.descriptor().instruction_template.is_some());
         let vectors =
             any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("candle embed");
+        assert_eq!(vectors.len(), 1);
+        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn any_provider_dispatches_static_variant() {
+        // The W-AI-4c Static arm must be reachable through the enum so the index/search loops can
+        // run the in-app static engine without a call-site change. Uses the deterministic static stub.
+        let provider = StaticEmbeddingProvider::new_stub(
+            "static:potion",
+            "minishlab/potion-multilingual-128M",
+        );
+        let any = AnyEmbeddingProvider::Static(Box::new(provider));
+        assert_eq!(any.model_id(), "minishlab/potion-multilingual-128M");
+        // Static is symmetric: Mean pooling, no instruction template.
+        assert_eq!(any.descriptor().pooling, EmbeddingPooling::Mean);
+        assert_eq!(any.descriptor().instruction_template, None);
+        let vectors =
+            any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("static embed");
         assert_eq!(vectors.len(), 1);
         assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
     }

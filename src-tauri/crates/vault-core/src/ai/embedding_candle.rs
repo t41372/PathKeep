@@ -211,6 +211,9 @@ pub fn select_embedding_provider(
     paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
 ) -> Result<AnyEmbeddingProvider> {
+    if super::embedding_static::runtime_uses_static(runtime) {
+        return super::embedding_static::select_static_embedding_provider(paths, runtime);
+    }
     if runtime_uses_candle(runtime) {
         let repo = candle_repo_for_runtime(runtime);
         let model_dir = model_dir_for_repo(paths, repo);
@@ -239,9 +242,12 @@ pub fn select_embedding_provider(
 /// degrade arms are exercised via [`degrade_candle_to_external`] directly in unit tests.
 #[cfg(any(test, coverage))]
 pub fn select_embedding_provider(
-    _paths: &ProjectPaths,
+    paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
 ) -> Result<AnyEmbeddingProvider> {
+    if super::embedding_static::runtime_uses_static(runtime) {
+        return super::embedding_static::select_static_embedding_provider(paths, runtime);
+    }
     if runtime_uses_candle(runtime) {
         let repo = candle_repo_for_runtime(runtime);
         Ok(AnyEmbeddingProvider::Candle(Box::new(CandleEmbeddingProvider::new_stub(
@@ -1509,7 +1515,7 @@ mod tests {
                     )
                 );
             }
-            AnyEmbeddingProvider::External(_) => panic!("expected the candle arm"),
+            _ => panic!("expected the candle arm"),
         }
     }
 
@@ -1523,7 +1529,7 @@ mod tests {
             AnyEmbeddingProvider::Candle(candle) => {
                 assert_eq!(candle.model_id(), "custom/repo:Q8_0");
             }
-            AnyEmbeddingProvider::External(_) => panic!("expected the candle arm"),
+            _ => panic!("expected the candle arm"),
         }
     }
 
@@ -1540,7 +1546,7 @@ mod tests {
             AnyEmbeddingProvider::External(external) => {
                 assert_eq!(external.model_id(), "text-embedding-test");
             }
-            AnyEmbeddingProvider::Candle(_) => panic!("expected the external arm"),
+            _ => panic!("expected the external arm"),
         }
     }
 

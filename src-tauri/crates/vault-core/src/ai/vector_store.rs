@@ -2,11 +2,23 @@
 //!
 //! ## Responsibilities
 //! - persist computed embeddings to the rebuildable vector plane, keyed by the stable u64
-//!   history/visit id, so W-AI-5's `VectorIndex` (Turbovec) can load them back
+//!   **content key** (W-AI-4c: the dedup key, NOT the visit id — see "Keying" below), so W-AI-5's
+//!   `VectorIndex` (Turbovec) can load them back and the visit→content map fans one vector out to
+//!   every visit that shares it
 //! - stamp every store with the [`EmbeddingFingerprint`] (W-AI-0) so a model/dim/dtype change
 //!   is DETECTED as stale (the seam W-AI-5 hooks rebuild into)
 //! - support append + read-back without rewriting the whole store, so a resumable backfill can
 //!   stream chunks in over many runs
+//!
+//! ## Keying — content_key, NOT history_id (W-AI-4c content-hash dedup, 05 §1)
+//! Browser history is highly repetitive: 5000 gmail visits need only ONE embedding. So the store is
+//! keyed by `content_key` — a u64 derived from `content_hash = hash(canonical_url + title +
+//! enrichment_summary)` (see [`super::dedup`]) — and many visits map onto the same content_key via
+//! the visit→content map ([`super::visit_content_map`]). 14.4M visits collapse to 1–3M unique
+//! vectors: the biggest, near-free lever (05 §1). The on-disk record layout is UNCHANGED from
+//! W-AI-4a (`[u64 | f32*dim]`); only the MEANING of the u64 changed from history_id to content_key,
+//! so the resumable-backfill no-dup/no-miss machinery (`existing_ids`/`read_all` last-writer-wins)
+//! carries over verbatim — a content_key, like a history_id, is a set member.
 //!
 //! ## Not responsible for
 //! - nearest-neighbour search / quantization (W-AI-5 owns the `VectorIndex` engine)
@@ -22,7 +34,7 @@
 //! ```text
 //! magic:    8 bytes  = b"PKVEC\0\x01\0"   (format tag + version byte 0x01)
 //! header:   u32 len  + that many bytes of UTF-8 JSON (the `VectorStoreHeader` below)
-//! records:  repeated [ id: u64 | vector: f32 * header.dim ] until EOF
+//! records:  repeated [ content_key: u64 | vector: f32 * header.dim ] until EOF
 //! ```
 //!
 //! Fixed-width records keyed by `u64` make this a flat, mmap-friendly, append-friendly store: a
@@ -166,11 +178,12 @@ impl VectorStore {
         }
     }
 
-    /// Appends a batch of `(history_id, vector)` records to the end of the store.
+    /// Appends a batch of `(content_key, vector)` records to the end of the store.
     ///
     /// Every vector's length MUST equal the header dim; a mismatch errors rather than writing a
     /// ragged record that would desync the fixed-stride reader. Appends are contiguous and never
-    /// rewrite earlier records, which is what makes the resumable backfill O(rows written).
+    /// rewrite earlier records, which is what makes the resumable backfill O(rows written). The key
+    /// is the W-AI-4c `content_key` (one per unique content), not the visit id.
     pub fn append_vectors(&self, records: &[(u64, Vec<f32>)]) -> Result<()> {
         if records.is_empty() {
             return Ok(());
@@ -201,15 +214,15 @@ impl VectorStore {
         Ok(())
     }
 
-    /// Reads every `(history_id, vector)` record back, deduplicated by id (last-writer-wins).
+    /// Reads every `(content_key, vector)` record back, deduplicated by key (last-writer-wins).
     ///
-    /// CONTRACT W-AI-5 RELIES ON: the returned ids are a SET — each `history_id` appears exactly
-    /// once, with the LAST persisted vector for that id (its most recent embedding). A resumable
-    /// backfill that crashes between an append and its cursor-persist can leave a SECOND copy of an
-    /// id on disk (the rows in the re-embedded boundary chunk); the indexing loop avoids most of
-    /// this by skipping ids already on disk on resume, but this read-side dedup is the DEFENSIVE
-    /// backstop so `VectorIndex::build/append` never ingests a duplicate id no matter how the file
-    /// was torn. Records are emitted in first-seen order with each id carrying its latest vector.
+    /// CONTRACT W-AI-5 RELIES ON: the returned keys are a SET — each `content_key` appears exactly
+    /// once, with the LAST persisted vector for that key (its most recent embedding). A resumable
+    /// backfill that crashes between an append and its cursor-persist can leave a SECOND copy of a
+    /// key on disk (the rows in the re-embedded boundary chunk); the indexing loop avoids most of
+    /// this by skipping keys already on disk on resume, but this read-side dedup is the DEFENSIVE
+    /// backstop so `VectorIndex::build/append` never ingests a duplicate key no matter how the file
+    /// was torn. Records are emitted in first-seen order with each key carrying its latest vector.
     ///
     /// It strides by a fixed record width; a trailing partial record (an interrupted append) errors
     /// so a torn write is caught rather than silently dropped.
@@ -255,14 +268,14 @@ impl VectorStore {
         Ok(order)
     }
 
-    /// Streams the SET of `history_id`s currently persisted, without retaining any vectors.
+    /// Streams the SET of `content_key`s currently persisted, without retaining any vectors.
     ///
-    /// Used by the resumable backfill to skip re-appending an id whose vector is already on disk
-    /// (the crash-between-append-and-upsert window, CRITICAL-2): the loop loads this once on resume
-    /// and consults it before each append. Strides record-by-record like [`read_all`] but keeps only
-    /// each id, so memory is one id-set plus a single reusable record buffer — never the whole store
-    /// of vectors. A torn trailing record errors, mirroring [`read_all`], so a half-written body is
-    /// caught rather than mistaken for a clean id.
+    /// Used by the resumable backfill to skip re-appending a content_key whose vector is already on
+    /// disk (the crash-between-append-and-upsert window, CRITICAL-2): the loop loads this once on
+    /// resume and consults it before each append. Strides record-by-record like [`read_all`] but
+    /// keeps only each key, so memory is one key-set plus a single reusable record buffer — never the
+    /// whole store of vectors. A torn trailing record errors, mirroring [`read_all`], so a
+    /// half-written body is caught rather than mistaken for a clean key.
     pub fn existing_ids(&self) -> Result<std::collections::HashSet<u64>> {
         let mut ids = std::collections::HashSet::new();
         if !self.exists() {

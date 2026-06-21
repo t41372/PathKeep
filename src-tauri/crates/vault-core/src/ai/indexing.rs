@@ -27,7 +27,14 @@ use super::*;
 /// One canonical visit that needs to be embedded into the semantic sidecar.
 ///
 /// The index builder keeps this shape separate from `HistoryEntry` so it can carry the
-/// normalized embedding payload and hash used for incremental change detection.
+/// normalized embedding payload and the dedup identity used for incremental change detection.
+///
+/// W-AI-4c dedup: `content_hash` is now the VISIT-INDEPENDENT dedup hash (canonical URL + title +
+/// reserved enrichment summary, see [`super::dedup::build_dedup_content_hash`]), and `content_key`
+/// is its u64 vector-store key — so many visits of one page share both and need ONE embedding.
+/// `content` is the per-visit TEXT fed to the model (still via the enrichment funnel); two visits
+/// sharing a content_key embed identical-enough text, so embedding the first and mapping the rest is
+/// exact.
 #[derive(Debug, Clone)]
 pub(super) struct IndexedVisit {
     pub history_id: i64,
@@ -37,9 +44,14 @@ pub(super) struct IndexedVisit {
     pub domain: String,
     pub visited_at: String,
     pub content: String,
+    /// Visit-independent dedup hash (the page identity); equal across all visits of one page.
     pub content_hash: String,
-    /// Whether the stored content hash differs from the freshly built one, so this visit must be
-    /// (re-)embedded. `false` lets the backfill skip an unchanged row without an embed call.
+    /// The u64 vector-store key derived from `content_hash` (the dedup key).
+    pub content_key: u64,
+    /// Whether the stored content hash differs from the freshly built one, so this visit's CONTENT
+    /// must be (re-)embedded. `false` lets the backfill skip an unchanged row without an embed call.
+    /// With dedup, the FIRST visit of an un-embedded page sets this; later visits of the SAME page in
+    /// the same scan are skipped via the content_key-already-embedded check, not this flag.
     pub needs_embedding: bool,
 }
 
@@ -162,10 +174,17 @@ pub async fn build_ai_index_with_control(
 
         // A full rebuild resets the vector plane so the new fingerprint owns a clean store — but
         // ONLY at the true start of the job. On a resume the partial store must survive so the
-        // backfill appends to it instead of deleting the rows it already embedded (CRITICAL-1).
+        // backfill appends to it instead of deleting the rows it already embedded (CRITICAL-1). The
+        // visit→content map (W-AI-4c) is reset alongside the store so the two planes stay consistent.
         if request.full_rebuild && !is_resume {
             VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model)
                 .delete()?;
+            VisitContentMap::for_provider(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )
+            .delete()?;
         }
 
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting candidates.")?;
@@ -310,30 +329,52 @@ async fn run_embedding_backfill(
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
 ) -> Result<BackfillOutcome> {
-    // Config-driven engine selection (W-AI-4b): a provider marked for the in-app candle engine
-    // routes to the local model (present + verified = the consent gate); any other provider routes
-    // to the external `/v1/embeddings` adapter. The loop below is engine-agnostic.
+    // Config-driven engine selection: static (W-AI-4c) / candle (W-AI-4b) / external `/v1/embeddings`.
+    // The loop below is engine-agnostic.
     let embedder = super::embedding_candle::select_embedding_provider(paths, provider)?;
     let limit = request.limit.map(|value| value as usize);
     let mut outcome = BackfillOutcome::default();
     // The store is resolved lazily on the first chunk that actually embeds rows, once the real dim
     // is known (D4) — see `vector_store_for_chunk`. Until then no store handle is held.
     let mut store: Option<VectorStore> = None;
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    // The map is created up front so the per-chunk visit appends always have a header to append to.
+    // On a full rebuild the destructive `delete` already ran in the caller (true start only), so this
+    // writes a fresh map; on a resume it leaves the existing map (and its prior visit rows) intact.
+    visit_map.ensure_created(paths)?;
     let mut cursor = start_history_id;
     let mut embedded_total: u64 = 0;
 
-    // On a RESUME (cursor already past the origin and no wipe), the previous run may have crashed
-    // AFTER appending a chunk's vectors but BEFORE writing the SQLite hash rows / advancing the
-    // cursor. Those ids are on the vector plane already but `needs_embedding` will be true again
-    // (no SQLite row), so a naive re-embed would append a SECOND copy (CRITICAL-2). We load the set
-    // of ids already persisted to the store ONCE here and skip re-appending any of them; the
-    // SQLite metadata is still (re-)written so its hash catches up. `read_all`'s last-writer-wins
-    // dedup is the defensive backstop, but skipping keeps the store from growing on every resume.
-    let mut persisted_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    if start_history_id > 0 && !perform_wipe {
-        let existing =
-            VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
-        persisted_ids = existing.existing_ids()?;
+    // DEDUP RESUME STATE (W-AI-4c). Two crash windows must stay no-dup/no-miss:
+    // - CRITICAL-2 (vectors): a crash after a chunk's vectors are appended but before the SQLite
+    //   rows / cursor advance leaves content_keys on the vector plane while `needs_embedding` is true
+    //   again. `persisted_keys` is the resume-time set of content_keys already on the `.pkvec` store;
+    //   we never re-append a key in it, so a resume cannot double a vector. This is keyed by the u64
+    //   STORAGE key because the on-disk store only carries u64s — it is the storage-boundary guard.
+    // - the visit map: a crash mid-chunk can leave some visits mapped; `mapped_ids` is the resume-time
+    //   set of history_ids already in the `.pkmap`, so a resume never doubles a visit's mapping entry.
+    // Both also accumulate this run's own appends so a key/id is written at most once per run.
+    //
+    // MEDIUM-4 (truncated-u64 collision): the WORK-dedup ("have we already embedded this page?") keys
+    // on the FULL `content_hash`, NOT the truncated u64 `content_key`. Two DISTINCT pages whose hashes
+    // truncate to the same u64 (~2.8e-6 at 14.4M) are then each embedded as their own page rather than
+    // the second silently collapsing into the first's vector. Truncation to u64 happens ONLY at the
+    // `.pkvec` storage boundary (where the format is fixed-width u64-keyed); the in-memory identity is
+    // the full hash, so distinct pages never lose their distinct embedding to a u64 collision.
+    let mut persisted_keys: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut persisted_hashes: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut mapped_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    // Load the resume/incremental dedup state whenever a store/map already exists — not only on a
+    // resume (`start_history_id > 0`). MEDIUM-5: a PLAIN incremental job starts at cursor 0 with empty
+    // sets; without this, a NEW visit of an already-embedded page would re-embed + append a duplicate
+    // `.pkvec` record (bloat that `read_all` last-writer-wins merely masks). Gate on the existing
+    // store being present and NOT about to be wiped, so a true full rebuild still starts clean.
+    let existing_store =
+        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    if !perform_wipe && existing_store.exists() {
+        persisted_keys = existing_store.existing_ids()?;
+        mapped_ids = visit_map.mapped_history_ids()?;
     }
 
     loop {
@@ -356,41 +397,61 @@ async fn run_embedding_backfill(
         outcome.skipped_items += chunk.len() - changed.len();
 
         if !changed.is_empty() {
-            let texts: Vec<String> = changed.iter().map(|visit| visit.content.clone()).collect();
-            let vectors = await_with_ai_cancellation(
-                run_control,
-                "Index build was cancelled while embedding a chunk.",
-                embedder.embed(&texts, EmbeddingRole::Document),
-            )
-            .await?;
-            let history_ids: Vec<i64> = changed.iter().map(|visit| visit.history_id).collect();
-            let (effective_dim, records) = validate_embedding_batch(&history_ids, &vectors)?;
-            outcome.effective_dim = Some(effective_dim);
-            // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild RESUME
-            // must append to the partial store, not truncate it (CRITICAL-1). The fingerprint is
-            // stamped from the SELECTED engine's real descriptor (candle = LastToken + instruction;
-            // external = Unknown pooling), so a candle-built and an external-built index never share
-            // a fingerprint at the same dim (A-S2).
-            let store = vector_store_for_chunk(
-                &mut store,
-                paths,
-                provider,
-                &embedder.descriptor(),
-                effective_dim,
-                perform_wipe,
-            )?;
+            // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
+            // and embed each ONCE (the page identity is the FULL `content_hash`, MEDIUM-4).
+            let embed_targets = select_embed_targets(&changed, &persisted_hashes, &persisted_keys);
 
-            // Append only the vectors NOT already on the plane from a crashed prior run (CRITICAL-2),
-            // so a resume never doubles a row's vector. `persisted_ids` is the resume-time snapshot;
-            // we also fold in this run's own appends so a row re-seen within the same run (it cannot
-            // be, ids ascend) would still be skipped. SQLite metadata is (re-)written for every
-            // changed row regardless, so its content hash catches up and the row is not re-scanned.
-            let new_records: Vec<(u64, Vec<f32>)> =
-                records.into_iter().filter(|(id, _)| persisted_ids.insert(*id)).collect();
+            if !embed_targets.is_empty() {
+                let texts: Vec<String> =
+                    embed_targets.iter().map(|visit| visit.content.clone()).collect();
+                let vectors = await_with_ai_cancellation(
+                    run_control,
+                    "Index build was cancelled while embedding a chunk.",
+                    embedder.embed(&texts, EmbeddingRole::Document),
+                )
+                .await?;
+                let content_keys: Vec<u64> =
+                    embed_targets.iter().map(|visit| visit.content_key).collect();
+                let (effective_dim, records) =
+                    validate_embedding_batch_for_keys(&content_keys, &vectors)?;
+                outcome.effective_dim = Some(effective_dim);
+                // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
+                // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
+                // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
+                // candle = LastToken, external = Unknown), so two engines never share a fingerprint.
+                let store = vector_store_for_chunk(
+                    &mut store,
+                    paths,
+                    provider,
+                    &embedder.descriptor(),
+                    effective_dim,
+                    perform_wipe,
+                )?;
+                // Every record here is a page we have NOT embedded this run (the full-hash dedup above
+                // guaranteed it), so all are appended. Record each page's FULL hash + u64 key so a
+                // later chunk / resume skips it (MEDIUM-4: the full hash is the work identity; the u64
+                // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
+                // collision; `read_all` last-writer-wins resolves that storage-boundary case.
+                for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
+                    persisted_hashes.insert(visit.content_hash.clone());
+                    persisted_keys.insert(*key);
+                }
+                // Persist vectors FIRST so the watermark we report is always backed by on-disk data.
+                store.append_vectors(&records)?;
+            }
+
+            // Map EVERY changed visit to its content_key (skip ones a prior crash already mapped), so
+            // search/heavy-tier can fan a deduped vector out to all its visits. SQLite metadata is
+            // (re-)written for every changed visit so its dedup hash catches up and it is not
+            // re-scanned. Both are per-visit; only the VECTOR is deduped.
+            let map_records: Vec<(i64, u64)> = changed
+                .iter()
+                .filter(|visit| mapped_ids.insert(visit.history_id))
+                .map(|visit| (visit.history_id, visit.content_key))
+                .collect();
+            visit_map.append(&map_records)?;
 
             let indexed_at = now_rfc3339();
-            // Persist vectors FIRST so the watermark we report is always backed by on-disk data.
-            store.append_vectors(&new_records)?;
             for visit in &changed {
                 let was_present = upsert_embedding(connection, provider, visit, &indexed_at)?;
                 outcome.indexed_items += 1;
@@ -415,41 +476,81 @@ async fn run_embedding_backfill(
     Ok(outcome)
 }
 
-/// Validates one embedded batch against its inputs and pairs each vector with its history id.
+/// Selects, in first-seen order, the UNIQUE pages among `changed` that still need embedding (W-AI-4c).
+///
+/// The dedup decision, extracted PURE so the truncated-u64-collision invariant (MEDIUM-4) is
+/// unit-tested directly. A page is an embed target unless:
+/// - its FULL `content_hash` was already embedded this run (`persisted_hashes`), OR
+/// - its u64 `content_key` is already on the `.pkvec` plane (`persisted_keys`, the storage-boundary
+///   resume backstop), OR
+/// - an earlier visit in this same call already selected its full hash.
+///
+/// The work-dedup keys on the FULL `content_hash`, never the truncated u64 — so two DISTINCT pages
+/// whose hashes collide on the first 8 bytes are EACH selected (the second is not silently dropped
+/// onto the first's vector). The returned visits are the rows to embed, one per unique page.
+pub(super) fn select_embed_targets<'a>(
+    changed: &[&'a IndexedVisit],
+    persisted_hashes: &std::collections::HashSet<String>,
+    persisted_keys: &std::collections::HashSet<u64>,
+) -> Vec<&'a IndexedVisit> {
+    let mut seen_in_chunk: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut embed_targets: Vec<&IndexedVisit> = Vec::new();
+    for visit in changed {
+        if persisted_hashes.contains(visit.content_hash.as_str()) {
+            continue; // Already embedded this run (its page hash is recorded after each append).
+        }
+        // Storage-boundary backstop (CRITICAL-2): on a resume/incremental we know which u64 keys are
+        // already on the `.pkvec` plane (the on-disk store carries only u64s, so the full hash is
+        // unrecoverable from it). A key on disk whose hash we have NOT seen this run is an
+        // already-embedded page → skip re-embedding it. A genuine u64 collision against a distinct
+        // on-disk page is astronomically rare AND only costs a redundant re-embed of an existing
+        // vector, never a correctness loss; the run-level full-hash set is the authority that keeps
+        // two colliding pages distinct WITHIN a run.
+        if persisted_keys.contains(&visit.content_key) {
+            continue;
+        }
+        if seen_in_chunk.insert(visit.content_hash.as_str()) {
+            embed_targets.push(visit);
+        }
+    }
+    embed_targets
+}
+
+/// Validates one embedded batch against its CONTENT KEYS and pairs each vector with its key (W-AI-4c).
 ///
 /// Pure (no I/O) so the defensive guards are unit-tested directly:
-/// - rejects a count mismatch (a short/over-long batch would desync the id↔vector join), and
+/// - rejects a count mismatch (a short/over-long batch would desync the key↔vector join), and
 /// - rejects a ragged/empty batch (a vector of a different dim than the first), since the vector
 ///   store is fixed-stride and a ragged record would corrupt every later read.
 ///
 /// Returns the effective dim (the actual returned length of the first vector, D4) and the
-/// `(history_id as u64, vector)` records ready to append. The external provider already enforces
-/// these one layer down; the guard keeps the loop correct for any future `AnyEmbeddingProvider`
-/// variant (4b candle) whose batching is not yet known to be exact.
-pub(super) fn validate_embedding_batch(
-    history_ids: &[i64],
+/// `(content_key, vector)` records ready to append. With dedup the keys are the per-page content
+/// keys (one per unique page), not visit ids — the loop deduped before calling this, so each key
+/// here is distinct.
+pub(super) fn validate_embedding_batch_for_keys(
+    content_keys: &[u64],
     vectors: &[Vec<f32>],
 ) -> Result<(usize, Vec<(u64, Vec<f32>)>)> {
-    if vectors.len() != history_ids.len() {
+    if vectors.len() != content_keys.len() {
         anyhow::bail!(
             "embedding provider returned {} vector(s) for {} input(s)",
             vectors.len(),
-            history_ids.len()
+            content_keys.len()
         );
     }
     let effective_dim = vectors.first().map(Vec::len).unwrap_or_default();
     if effective_dim == 0 {
         anyhow::bail!("embedding provider returned an empty vector for the batch");
     }
-    let mut records = Vec::with_capacity(history_ids.len());
-    for (history_id, vector) in history_ids.iter().zip(vectors.iter()) {
+    let mut records = Vec::with_capacity(content_keys.len());
+    for (content_key, vector) in content_keys.iter().zip(vectors.iter()) {
         if vector.len() != effective_dim {
             anyhow::bail!(
-                "embedding provider returned a ragged batch (id {history_id} dim {} vs {effective_dim})",
+                "embedding provider returned a ragged batch (content_key {content_key} dim {} vs {effective_dim})",
                 vector.len()
             );
         }
-        records.push((*history_id as u64, vector.clone()));
+        records.push((*content_key, vector.clone()));
     }
     Ok((effective_dim, records))
 }
@@ -551,6 +652,7 @@ pub(super) fn collect_visit_chunk(
             visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?),
             content: String::new(),
             content_hash: String::new(),
+            content_key: 0,
             needs_embedding: false,
         });
     }
@@ -561,6 +663,7 @@ pub(super) fn collect_visit_chunk(
     let mut visits = Vec::with_capacity(raw_visits.len());
     for mut visit in raw_visits {
         let enrichment = enrichments.get(&visit.history_id);
+        // The TEXT fed to the model still carries the per-visit enrichment funnel.
         let content = build_embedding_content_from_parts(
             &visit.profile_id,
             &visit.url,
@@ -569,14 +672,37 @@ pub(super) fn collect_visit_chunk(
             enrichment.and_then(|value| value.readable_title.as_deref()),
             enrichment.and_then(|value| value.readable_text.as_deref()),
         );
-        let content_hash = sha256_hex(content.as_bytes());
-        visit.needs_embedding = existing_hashes.get(&visit.history_id) != Some(&content_hash);
+        // The DEDUP IDENTITY is visit-independent (05 §1): canonical URL + title + the reserved
+        // enrichment summary slot (None until W-ENRICH-1). Two visits of one page share this hash and
+        // its content_key, so the page is embedded ONCE. The enrichment summary is reserved now so
+        // W-ENRICH-1 filling it re-hashes only the enriched URLs, not the whole corpus (06 §3).
+        let content_hash = super::dedup::build_dedup_content_hash(
+            &visit.url,
+            visit.title.as_deref(),
+            enrichment_summary_for(enrichment),
+        );
+        let content_key = super::dedup::content_key_from_hash(&content_hash);
+        visit.needs_embedding = existing_hashes.get(&visit.history_id).map(String::as_str)
+            != Some(content_hash.as_str());
         visit.domain = url_domain(&visit.url);
         visit.content = content;
         visit.content_hash = content_hash;
+        visit.content_key = content_key;
         visits.push(visit);
     }
     Ok(visits)
+}
+
+/// Resolves the reserved `enrichment_summary` for one visit's dedup hash.
+///
+/// RESERVED SLOT (W-AI-4c / 06 §3): always `None` today. The `visit_content_enrichments` table does
+/// not yet carry `enrichment_summary` (W-ENRICH-1 adds the column + populates it). Centralizing the
+/// resolution here means W-ENRICH-1 changes ONE function to start feeding the capped summary into the
+/// dedup hash, re-hashing only the enriched URLs rather than touching every call site.
+fn enrichment_summary_for(
+    _enrichment: Option<&crate::enrichment::StoredEnrichment>,
+) -> Option<&str> {
+    None
 }
 
 /// Loads the current content hashes for a bounded set of candidate history rows.
@@ -663,6 +789,7 @@ pub(super) fn collect_visits_to_index(
             visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?),
             content: String::new(),
             content_hash: String::new(),
+            content_key: 0,
             needs_embedding: true,
         });
     }
@@ -681,12 +808,17 @@ pub(super) fn collect_visits_to_index(
             enrichment.and_then(|value| value.readable_title.as_deref()),
             enrichment.and_then(|value| value.readable_text.as_deref()),
         );
-        let content_hash = sha256_hex(content.as_bytes());
+        let content_hash = super::dedup::build_dedup_content_hash(
+            &visit.url,
+            visit.title.as_deref(),
+            enrichment_summary_for(enrichment),
+        );
         if existing_hashes.get(&visit.history_id) == Some(&content_hash) {
             continue;
         }
         visit.domain = url_domain(&visit.url);
         visit.content = content;
+        visit.content_key = super::dedup::content_key_from_hash(&content_hash);
         visit.content_hash = content_hash;
         visits.push(visit);
     }

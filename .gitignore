@@ -11,12 +11,14 @@ node_modules
 dist
 dist-ssr
 coverage
-# Downloaded AI model weights / caches for the env-gated candle tests (W-AI-4b). Large (~1.2 GB),
-# reproducible by re-download (SHA-256 pinned), never committed. Anywhere under the repo (the
-# integration test resolves its cache relative to its CWD).
+# Downloaded AI model weights / caches for the env-gated candle/static tests (W-AI-4b/4c). Large
+# (candle ~1.2 GB, static potion ~512 MB), reproducible by re-download (SHA-256 pinned), never
+# committed. Anywhere under the repo (the integration test resolves its cache relative to its CWD).
 artifacts/candle-models/
+artifacts/static-models/
 src-tauri/artifacts/
 **/candle-models/
+**/static-models/
 playwright-report
 .playwright-mcp
 .playwright-cli

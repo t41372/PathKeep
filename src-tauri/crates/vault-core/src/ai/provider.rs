@@ -693,8 +693,9 @@ pub(super) fn stub_embedding_vector(
     role: EmbeddingRole,
     dimensions: usize,
 ) -> Vec<f32> {
-    let fingerprint =
-        sha256_hex(format!("{}::{}::{text}", provider.config.id, role.as_str()).as_bytes());
+    let fingerprint = crate::utils::sha256_hex(
+        format!("{}::{}::{text}", provider.config.id, role.as_str()).as_bytes(),
+    );
     let bytes = fingerprint.as_bytes();
     let mut vector: Vec<f32> = (0..dimensions)
         .map(|index| ((bytes[index % bytes.len()] % 13) as f32 + 1.0) / 13.0)
