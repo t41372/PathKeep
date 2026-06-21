@@ -138,6 +138,18 @@ export interface AiSettings {
   jobQueueConcurrency: number
   enrichmentEnabled: boolean
   enrichmentPlugins: EnrichmentPluginPreference[]
+  /**
+   * Master switch for site CONTENT fetching (W-ENRICH-1, 06 §2a). Mirrors the
+   * Rust `content_fetch_enabled` (`#[serde(default)]`, hard-default-OFF) and is
+   * INDEPENDENT of `enrichmentEnabled` (which only governs the offline title
+   * plugin). Optional on the TS side so older snapshots without the field still
+   * type-check; treat absent/false as "off".
+   */
+  contentFetchEnabled?: boolean
+  /** Per-extractor content-fetch toggles (W-ENRICH-1). Optional for older snapshots. */
+  contentFetchExtractors?: ContentFetchExtractorPreference[]
+  /** Per-domain content-fetch allow/block rules (W-ENRICH-1). Optional for older snapshots. */
+  contentFetchDomains?: ContentFetchDomainRule[]
   llmProviderId?: string | null
   embeddingProviderId?: string | null
   retrievalTopK: number
@@ -666,4 +678,96 @@ export interface AiIntegrationPreview {
   auditTrace: string[]
   generatedFiles: ScheduleGeneratedFile[]
   warnings: string[]
+}
+
+/**
+ * User-facing on/off preference for one site-content-fetch extractor (W-ENRICH-1, 06 §2a).
+ *
+ * Mirrors `vault_core::models::intelligence::ContentFetchExtractorPreference` (camelCase serde).
+ * `extractorId` is one of the built-in extractor ids ("github-repo", "generic-readable", …);
+ * `enabled` only takes effect WHEN the master `ContentFetchSettings.enabled` switch is on.
+ */
+export interface ContentFetchExtractorPreference {
+  extractorId: string
+  enabled: boolean
+}
+
+/**
+ * Per-domain allow/block rule for site content fetching (W-ENRICH-1, 06 §2a).
+ *
+ * Mirrors `vault_core::models::intelligence::ContentFetchDomainRule` (camelCase serde).
+ * `allowed = false` blocks the domain even when the master switch is on; `allowed = true` is an
+ * explicit allow (reserved for a future allow-list-only mode). The MVP runner only treats
+ * `allowed = false` as load-bearing, since the master switch is the gate.
+ */
+export interface ContentFetchDomainRule {
+  domain: string
+  allowed: boolean
+}
+
+/**
+ * Settings-facing content-fetch consent + live status surface (W-ENRICH-1, 06 §6).
+ *
+ * Mirrors `vault_core::models::intelligence::ContentFetchSettings` (camelCase serde). `enabled` is
+ * the hard-default-OFF master consent switch — when false the whole content-fetch plane is inert and
+ * NO network egress happens. The `*Jobs` / `storedRecords` counts are a small live status so the
+ * consent panel can show fetch progress without a separate query.
+ */
+export interface ContentFetchSettings {
+  enabled: boolean
+  extractors: ContentFetchExtractorPreference[]
+  domains: ContentFetchDomainRule[]
+  queuedJobs: number
+  runningJobs: number
+  failedJobs: number
+  storedRecords: number
+}
+
+/**
+ * One stored site-content enrichment row for a visit/URL, for the detail panel (W-ENRICH-1, 06 §6).
+ *
+ * Mirrors `vault_core::models::intelligence::VisitEnrichmentRecord` (camelCase serde). Only the
+ * capped `summary` + structured `metadataJson` ship here — the full body stays in the
+ * content-addressed blob and is never sent to the FE. `fetchStatus` is honest (success | empty |
+ * blocked | fetch-error | …) so the panel can render a real failure state instead of pretending.
+ * `metadataJson` is an opaque JSON string the FE parses for chips (GitHub topics/desc, …); it stays
+ * a string so this model is decoupled from per-extractor schema.
+ */
+export interface VisitEnrichmentRecord {
+  contentSource: string
+  fetchStatus: string
+  fetchedAt: string
+  readableTitle?: string | null
+  summary?: string | null
+  extractorVersion?: number | null
+  metadataJson?: string | null
+  finalUrl?: string | null
+  httpStatus?: number | null
+  refetchAfter?: string | null
+}
+
+/**
+ * Request payload for the manual "fetch now" PME trigger (W-ENRICH-1, 06 §6).
+ *
+ * Mirrors `vault_core::models::intelligence::ContentFetchNowRequest` (camelCase serde).
+ */
+export interface ContentFetchNowRequest {
+  historyId: number
+  profileId: string
+  url: string
+  title?: string | null
+}
+
+/**
+ * Result of a manual "fetch now" enqueue (W-ENRICH-1, 06 §6).
+ *
+ * Mirrors `vault_core::models::intelligence::ContentFetchNowResult` (camelCase serde). `state` is
+ * `queued` / `running` / `disabled` — `disabled` is returned (without queuing) when consent is off
+ * for this URL, which the FE maps to an honest "consent required" affordance. `note` is a
+ * localisation-key-friendly hint the FE maps to copy (never raw prose committed to the contract).
+ */
+export interface ContentFetchNowResult {
+  jobId: number
+  state: string
+  note: string
 }

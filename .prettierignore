@@ -16,3 +16,7 @@ test-results
 
 # Handoff design package — source-of-truth, not authored by us
 docs/design/handoff/
+
+# Generated W-AI-4c static-parity reference vectors (compact JSON emitted by
+# scripts/gen_static_parity_fixture.py; reformatting is meaningless and reverted on regen).
+src-tauri/crates/vault-core/tests/fixtures/static_parity_potion_multilingual.json

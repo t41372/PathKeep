@@ -34,6 +34,16 @@ export interface PaperSearchResultEntry {
   transitionType?: string
   /** Optional snippet to render below the URL (semantic mode). */
   snippet?: string
+  /**
+   * Optional enrichment excerpt shown when a result matched on fetched site
+   * content (W-ENRICH-1, 06 §6) — e.g. a GitHub repo description or a page
+   * summary the query hit. Rendered consistently with `snippet`, tagged with a
+   * source affordance so the user knows the match came from enriched content,
+   * not the title/URL.
+   */
+  enrichmentExcerpt?: string
+  /** Source label for the enrichment excerpt (e.g. "GitHub" / "Page summary"). */
+  enrichmentSourceLabel?: string
 }
 
 export interface PaperSearchResultProps {
@@ -45,6 +55,12 @@ export interface PaperSearchResultProps {
   onSelect?: (entry: PaperSearchResultEntry) => void
   onSeeInContext?: (entry: PaperSearchResultEntry) => void
   seeInContextLabel?: string
+  /**
+   * Label prefixing an enrichment excerpt ("Matched in enriched content"). When
+   * omitted the excerpt still renders without the prefix; when the entry has no
+   * `enrichmentExcerpt` the whole affordance is suppressed.
+   */
+  enrichmentMatchLabel?: string
   /** Star affordance for this result. Omit to hide it. */
   star?: {
     starred: boolean
@@ -64,6 +80,7 @@ export function PaperSearchResult({
   onSelect,
   onSeeInContext,
   seeInContextLabel,
+  enrichmentMatchLabel,
   star,
   className,
   testId,
@@ -114,6 +131,28 @@ export function PaperSearchResult({
         {entry.snippet ? (
           <div className="text-ink-muted mt-1 line-clamp-2 font-serif text-[12.5px] italic leading-[1.4]">
             “…{entry.snippet}…”
+          </div>
+        ) : null}
+        {entry.enrichmentExcerpt ? (
+          <div
+            data-testid={
+              testId ? `${testId}-enrichment` : 'paper-search-result-enrichment'
+            }
+            className="mt-1"
+          >
+            <div className="text-ink-faint flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em]">
+              {entry.enrichmentSourceLabel ? (
+                <span className="border-border-light text-ink-secondary rounded-pill inline-flex items-center border px-[6px] py-[1px] tracking-[0.04em]">
+                  {entry.enrichmentSourceLabel}
+                </span>
+              ) : null}
+              {enrichmentMatchLabel ? (
+                <span>{enrichmentMatchLabel}</span>
+              ) : null}
+            </div>
+            <div className="text-ink-muted mt-1 line-clamp-2 font-serif text-[12.5px] italic leading-[1.4]">
+              “…{highlightQuery(entry.enrichmentExcerpt, query)}…”
+            </div>
           </div>
         ) : null}
         {onSeeInContext && seeInContextLabel ? (

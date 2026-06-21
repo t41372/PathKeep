@@ -17,6 +17,7 @@ export * from './annotations'
 export * from './app'
 export * from './archive'
 export * from './audit'
+export * from './content-enrichment'
 export * from './dashboard'
 export * from './explorer'
 export * from './import'
@@ -33,6 +34,7 @@ import { annotationsClient } from './annotations'
 import { appClient } from './app'
 import { archiveClient } from './archive'
 import { auditClient } from './audit'
+import { contentEnrichmentClient } from './content-enrichment'
 import { dashboardClient } from './dashboard'
 import { explorerClient } from './explorer'
 import { importClient } from './import'
@@ -90,6 +92,12 @@ export const backend = {
   getStarStatus: starsClient.getStarStatus,
   listStars: starsClient.listStars,
   getStarCounts: starsClient.getStarCounts,
+  getContentFetchSettings: contentEnrichmentClient.getContentFetchSettings,
+  setContentFetchSettings: contentEnrichmentClient.setContentFetchSettings,
+  listVisitEnrichment: contentEnrichmentClient.listVisitEnrichment,
+  contentFetchNow: contentEnrichmentClient.contentFetchNow,
+  enqueueContentFetchWorkingSet:
+    contentEnrichmentClient.enqueueContentFetchWorkingSet,
   exportAppData: migrationClient.exportAppData,
   previewAppDataImport: migrationClient.previewAppDataImport,
   applyAppDataImport: migrationClient.applyAppDataImport,

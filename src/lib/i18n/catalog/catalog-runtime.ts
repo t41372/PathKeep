@@ -42,6 +42,7 @@ import { platformNamespaceCatalog } from './platform'
 import { scheduleNamespaceCatalog } from './schedule'
 import { securityNamespaceCatalog } from './security'
 import { settingsAiProvidersNamespace } from './settings-ai-providers'
+import { settingsContentFetchNamespace } from './settings-content-fetch'
 import { settingsCoreAndPlatformNamespace } from './settings-core-and-platform'
 import { settingsDerivedAndRuntimeNamespace } from './settings-derived-and-runtime'
 import { settingsRemoteAndOutputsNamespace } from './settings-remote-and-outputs'
@@ -79,6 +80,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace.en,
       ...settingsDerivedAndRuntimeNamespace.en,
       ...settingsAiProvidersNamespace.en,
+      ...settingsContentFetchNamespace.en,
     },
     explorer: explorerNamespaceCatalog.en,
     assistant: assistantNamespaceCatalog.en,
@@ -109,6 +111,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace['zh-CN'],
       ...settingsDerivedAndRuntimeNamespace['zh-CN'],
       ...settingsAiProvidersNamespace['zh-CN'],
+      ...settingsContentFetchNamespace['zh-CN'],
     },
     explorer: explorerNamespaceCatalog['zh-CN'],
     assistant: assistantNamespaceCatalog['zh-CN'],
@@ -139,6 +142,7 @@ const catalog = {
       ...settingsRemoteAndOutputsNamespace['zh-TW'],
       ...settingsDerivedAndRuntimeNamespace['zh-TW'],
       ...settingsAiProvidersNamespace['zh-TW'],
+      ...settingsContentFetchNamespace['zh-TW'],
     },
     explorer: explorerNamespaceCatalog['zh-TW'],
     assistant: assistantNamespaceCatalog['zh-TW'],

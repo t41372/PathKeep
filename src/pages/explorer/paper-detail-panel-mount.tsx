@@ -28,11 +28,18 @@
  *   for the backend track.
  */
 
-import { PaperDetailPanel } from '@/components/explorer-paper'
+import {
+  PaperDetailPanel,
+  PaperEnrichedContent,
+} from '@/components/explorer-paper'
 import type { HistoryEntry } from '@/lib/types/archive'
 import { profileIdLabel } from '@/lib/profile-scope-context'
-import { buildPaperDetailPanelCopy } from './paper-explorer-copy'
+import {
+  buildPaperDetailPanelCopy,
+  buildPaperEnrichedContentCopy,
+} from './paper-explorer-copy'
 import type { LocalAnnotations } from './use-local-annotations'
+import type { VisitEnrichment } from './use-visit-enrichment'
 
 export interface PaperDetailPanelMountProps {
   /** The currently-selected history entry, or `null` when nothing is open. */
@@ -70,6 +77,13 @@ export interface PaperDetailPanelMountProps {
     isStarred: (url: string) => boolean
     onToggleStar: (url: string) => void
   }
+  /**
+   * Site-content enrichment for the open visit (W-ENRICH-1). When provided the
+   * panel shows the "Enriched content" section + Fetch-now PME. The route owns
+   * the hook (it needs the shell snapshot for consent state); this mount only
+   * renders the section into the panel's `enrichedSlot`. Omit to hide it.
+   */
+  enrichment?: VisitEnrichment
 }
 
 /**
@@ -112,6 +126,7 @@ export function PaperDetailPanelMount({
   onCopyUrl,
   onOpenDomain,
   stars,
+  enrichment,
 }: PaperDetailPanelMountProps) {
   if (!selectedEntry) return null
   return (
@@ -151,6 +166,19 @@ export function PaperDetailPanelMount({
               onClose()
             }
           : undefined
+      }
+      enrichedSlot={
+        enrichment ? (
+          <PaperEnrichedContent
+            state={enrichment.state}
+            copy={buildPaperEnrichedContentCopy(explorerT)}
+            fetchEnabled={enrichment.fetchEnabled}
+            fetchPending={enrichment.fetchPending}
+            fetchError={enrichment.fetchError}
+            onFetchNow={enrichment.fetchNow}
+            testId="explorer-paper-detail-enriched"
+          />
+        ) : undefined
       }
       copy={buildPaperDetailPanelCopy(explorerT)}
       testId="explorer-paper-detail-panel"

@@ -93,6 +93,10 @@ vi.mock('../../lib/backend-client', () => ({
     unsetStar: vi.fn().mockResolvedValue(undefined),
     listStars: vi.fn().mockResolvedValue([]),
     getStarCounts: vi.fn().mockResolvedValue({ urls: 0, domains: 0 }),
+    listVisitEnrichment: vi.fn().mockResolvedValue([]),
+    contentFetchNow: vi
+      .fn()
+      .mockResolvedValue({ jobId: 1, state: 'queued', note: 'queued' }),
   },
 }))
 

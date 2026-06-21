@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import { cn } from '@/lib/cn'
 import { StarToggle } from '@/components/shell/star-toggle'
@@ -195,6 +196,14 @@ export interface PaperDetailPanelProps {
   lookFurtherCounts?: PaperDetailPanelLookFurtherCounts
   /** Optional debounce window for notes writes. Default 400 ms. Set 0 to write synchronously. */
   notesDebounceMs?: number
+  /**
+   * Optional "Enriched content" slot (W-ENRICH-1). The caller renders a
+   * self-loading enrichment section (GitHub repo metadata / page summary +
+   * Fetch-now PME) here; the panel only owns its placement above the
+   * Look-further section and the divider, so the panel stays presentational and
+   * never reaches the backend itself. Omit to hide the section entirely.
+   */
+  enrichedSlot?: ReactNode
   copy: PaperDetailPanelCopy
   className?: string
   testId?: string
@@ -220,6 +229,7 @@ export function PaperDetailPanel({
   onOpenSession,
   lookFurtherCounts,
   notesDebounceMs = 400,
+  enrichedSlot,
   copy,
   className,
   testId,
@@ -679,6 +689,13 @@ export function PaperDetailPanel({
               )}
             />
           </div>
+
+          {enrichedSlot ? (
+            <>
+              <Divider />
+              {enrichedSlot}
+            </>
+          ) : null}
 
           {/*
             Look-further rows only render when the route actually wires a

@@ -432,4 +432,45 @@ describe('PaperDetailPanelMount', () => {
     )
     expect(screen.queryByTestId('explorer-paper-detail-panel-star')).toBeNull()
   })
+
+  test('renders the enriched-content section when enrichment is supplied', () => {
+    const onFetchNow = vi.fn()
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry()}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+        enrichment={{
+          state: { status: 'empty' },
+          fetchEnabled: true,
+          fetchPending: false,
+          fetchError: false,
+          fetchNow: onFetchNow,
+        }}
+      />,
+    )
+    expect(
+      screen.getByTestId('explorer-paper-detail-enriched'),
+    ).toBeInTheDocument()
+    // The Fetch-now PME button is wired through the copy builder + mount.
+    fireEvent.click(
+      screen.getByTestId('explorer-paper-detail-enriched-fetch-now'),
+    )
+    expect(onFetchNow).toHaveBeenCalledTimes(1)
+  })
+
+  test('omits the enriched-content section when enrichment is absent', () => {
+    render(
+      <PaperDetailPanelMount
+        selectedEntry={makeEntry()}
+        annotations={emptyAnnotations()}
+        explorerT={explorerT}
+        onClose={() => {}}
+        onOpen={() => {}}
+      />,
+    )
+    expect(screen.queryByTestId('explorer-paper-detail-enriched')).toBeNull()
+  })
 })

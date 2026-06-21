@@ -29,6 +29,7 @@ import { LoadingState } from '../../components/primitives/loading-state'
 import { useI18n } from '../../lib/i18n'
 import { AiProvidersSection } from './ai-providers-section'
 import { AppearanceSection } from './appearance-section'
+import { ContentFetchSection } from './content-fetch-section'
 import { DataMigrationSection } from './data-migration-section'
 import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
@@ -213,6 +214,7 @@ export function SettingsPage() {
           navItem={settingsSection('ai')}
           state={routeState.ai}
         />
+        <ContentFetchSection />
       </div>
 
       <div className="settings-group">

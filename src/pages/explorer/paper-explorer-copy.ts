@@ -17,6 +17,7 @@
 
 import type {
   PaperDetailPanelCopy,
+  PaperEnrichedContentCopy,
   PaperIntelligenceViewCopy,
   PaperSearchViewCopy,
   PaperStarredViewCopy,
@@ -178,6 +179,34 @@ export function buildPaperDetailPanelCopy(
   }
 }
 
+export function buildPaperEnrichedContentCopy(
+  t: ExplorerTranslator,
+): PaperEnrichedContentCopy {
+  return {
+    heading: t('paperBrowse.detailEnrichedHeading'),
+    loading: t('paperBrowse.detailEnrichedLoading'),
+    empty: t('paperBrowse.detailEnrichedEmpty'),
+    disabled: t('paperBrowse.detailEnrichedDisabled'),
+    error: t('paperBrowse.detailEnrichedError'),
+    fetchedAt: t('paperBrowse.detailEnrichedFetchedAt'),
+    sourceGithub: t('paperBrowse.detailEnrichedSourceGithub'),
+    sourceGeneric: t('paperBrowse.detailEnrichedSourceGeneric'),
+    sourceUnknown: t('paperBrowse.detailEnrichedSourceUnknown'),
+    topicsLabel: t('paperBrowse.detailEnrichedTopicsLabel'),
+    statusEmpty: t('paperBrowse.detailEnrichedStatusEmpty'),
+    statusBlocked: t('paperBrowse.detailEnrichedStatusBlocked'),
+    statusError: t('paperBrowse.detailEnrichedStatusError'),
+    statusLogin: t('paperBrowse.detailEnrichedStatusLogin'),
+    statusUnsupported: t('paperBrowse.detailEnrichedStatusUnsupported'),
+    statusRateLimited: t('paperBrowse.detailEnrichedStatusRateLimited'),
+    fetchNowAction: t('paperBrowse.detailFetchNowAction'),
+    fetchNowFetching: t('paperBrowse.detailFetchNowFetching'),
+    fetchNowQueued: t('paperBrowse.detailFetchNowQueued'),
+    fetchNowDisabledHint: t('paperBrowse.detailFetchNowDisabledHint'),
+    fetchNowError: t('paperBrowse.detailFetchNowError'),
+  }
+}
+
 export function buildPaperStarredViewCopy(
   t: ExplorerTranslator,
 ): PaperStarredViewCopy {
@@ -282,5 +311,6 @@ export function buildPaperSearchViewCopy(
     noMatchesBody: t('paperSearchView.noMatchesBody'),
     seeInContextLabel: t('paperSearchView.seeInContextLabel'),
     dayCountTemplate: t('paperSearchView.dayCountTemplate'),
+    enrichmentMatchLabel: t('paperSearchView.enrichmentMatchLabel'),
   }
 }

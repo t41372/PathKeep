@@ -212,3 +212,21 @@ export type {
   PaperStarredViewCopy,
   PaperStarredViewProps,
 } from './paper-starred-view'
+
+export { PaperEnrichedContent } from './paper-enriched-content'
+export type {
+  PaperEnrichedContentCopy,
+  PaperEnrichedContentProps,
+  PaperEnrichedContentState,
+} from './paper-enriched-content'
+export {
+  enrichmentSourceKind,
+  enrichmentStatusKind,
+  parseEnrichmentMetadata,
+  pickBestEnrichment,
+  toEnrichmentView,
+} from './paper-enriched-content-helpers'
+export type {
+  EnrichmentSourceKind,
+  EnrichmentView,
+} from './paper-enriched-content-helpers'

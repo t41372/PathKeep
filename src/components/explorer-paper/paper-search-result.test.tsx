@@ -302,4 +302,82 @@ describe('PaperSearchResult', () => {
     expect(onToggle).toHaveBeenCalledTimes(1)
     expect(onSelect).not.toHaveBeenCalled()
   })
+
+  test('renders the enrichment excerpt with its source + match labels', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({
+          enrichmentExcerpt: 'An ergonomic async runtime for Rust',
+          enrichmentSourceLabel: 'GitHub',
+        })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        enrichmentMatchLabel="Matched in enriched content"
+        testId="result-enrichment"
+      />,
+    )
+
+    const block = screen.getByTestId('result-enrichment-enrichment')
+    expect(within(block).getByText('GitHub')).toBeVisible()
+    expect(within(block).getByText('Matched in enriched content')).toBeVisible()
+    expect(
+      within(block).getByText((content) =>
+        content.includes('An ergonomic async runtime for Rust'),
+      ),
+    ).toBeVisible()
+  })
+
+  test('highlights the query inside the enrichment excerpt', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({
+          enrichmentExcerpt: 'An ergonomic async runtime for Rust',
+        })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        query="async"
+        testId="result-enrichment-mark"
+      />,
+    )
+
+    const block = screen.getByTestId('result-enrichment-mark-enrichment')
+    const marks = block.querySelectorAll('mark')
+    expect(Array.from(marks).map((node) => node.textContent)).toEqual(['async'])
+  })
+
+  test('omits the enrichment block when the entry has no excerpt', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        enrichmentMatchLabel="Matched in enriched content"
+        testId="result-no-enrichment"
+      />,
+    )
+
+    expect(screen.queryByTestId('result-no-enrichment-enrichment')).toBeNull()
+  })
+
+  test('renders the enrichment excerpt with the default testId and no labels', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({
+          enrichmentExcerpt: 'An ergonomic async runtime for Rust',
+        })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+      />,
+    )
+
+    // No `testId` prop → the component falls back to its default enrichment id,
+    // and with neither a source label nor a match label only the excerpt shows.
+    const block = screen.getByTestId('paper-search-result-enrichment')
+    expect(
+      within(block).getByText((content) =>
+        content.includes('An ergonomic async runtime for Rust'),
+      ),
+    ).toBeVisible()
+    expect(within(block).queryByText('GitHub')).toBeNull()
+  })
 })

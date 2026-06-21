@@ -57,6 +57,12 @@ export interface PaperSearchViewCopy {
   seeInContextLabel: string
   /** Per-day right-aligned page count label. */
   dayCountTemplate: string
+  /**
+   * Label prefixing an enrichment excerpt on a result that matched fetched site
+   * content (W-ENRICH-1). Optional — when omitted the excerpt renders without
+   * the prefix.
+   */
+  enrichmentMatchLabel?: string
 }
 
 export interface PaperSearchViewProps {
@@ -255,6 +261,7 @@ export function PaperSearchView({
                       : undefined
                   }
                   seeInContextLabel={copy.seeInContextLabel}
+                  enrichmentMatchLabel={copy.enrichmentMatchLabel}
                   star={
                     entryStar && entry.url
                       ? {

@@ -65,6 +65,7 @@ import {
 import { PaperExplorerView } from './paper-view'
 import { PaperSearchPanel } from './paper-search-panel'
 import { PaperDetailPanelMount } from './paper-detail-panel-mount'
+import { useVisitEnrichment } from './use-visit-enrichment'
 import { useLocalAnnotations } from './use-local-annotations'
 import { useDesktopAnnotations } from './use-desktop-annotations'
 import { useDesktopStars } from './use-desktop-stars'
@@ -615,6 +616,28 @@ export function ExplorerPage() {
     }
   }, [paperDetailOpen, selectedEntryUrl, stars])
 
+  // Site-content enrichment for the open visit (W-ENRICH-1). The target is only
+  // built while the panel is open so the read is bounded to exactly the one
+  // visit the user opened — never the whole rendered pool. Consent is read from
+  // the shell snapshot (hard-default-OFF); the hook never fetches on its own.
+  const enrichmentTarget = useMemo(
+    () =>
+      paperDetailOpen && selectedEntry
+        ? {
+            historyId: selectedEntry.id,
+            profileId: selectedEntry.profileId,
+            url: selectedEntry.url,
+            title: selectedEntry.title,
+          }
+        : null,
+    [paperDetailOpen, selectedEntry],
+  )
+  const contentFetchEnabled = snapshot?.config.ai.contentFetchEnabled ?? false
+  const visitEnrichment = useVisitEnrichment({
+    target: enrichmentTarget,
+    fetchEnabled: contentFetchEnabled,
+  })
+
   // Batch-hydrate star status for the URLs currently rendered in the Browse
   // time view or the Search results (both read `renderedTimeResults`). Bounded
   // by the render window (one page of rows), deduped inside the hook — never a
@@ -1151,6 +1174,7 @@ export function ExplorerPage() {
           selectedEntry={selectedEntry}
           annotations={annotations}
           explorerT={explorerT}
+          enrichment={visitEnrichment}
           stars={{
             isStarred: (url) => stars.isStarred('url', url),
             onToggleStar: (url) => stars.toggle('url', url),
