@@ -353,3 +353,31 @@ pub(super) struct AppUpdateInstallPayload {
 pub(super) struct WrappedConfigPayload {
     pub(super) config: AppConfig,
 }
+
+/// Selects a canonical visit/history id for the W-ENRICH-1 visit-enrichment list.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct HistoryIdPayload {
+    pub(super) history_id: i64,
+}
+
+/// Carries the content-fetch consent settings the bridge persists (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchSettingsPayload {
+    pub(super) settings: vault_core::ContentFetchSettings,
+}
+
+/// Carries the manual "fetch now" request the bridge enqueues (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchNowPayload {
+    pub(super) request: vault_core::ContentFetchNowRequest,
+}
+
+/// Carries the optional bulk working-set enqueue cap (W-ENRICH-1).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContentFetchWorkingSetPayload {
+    pub(super) limit: Option<u32>,
+}

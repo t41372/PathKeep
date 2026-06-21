@@ -663,13 +663,15 @@ pub(super) fn collect_visit_chunk(
     let mut visits = Vec::with_capacity(raw_visits.len());
     for mut visit in raw_visits {
         let enrichment = enrichments.get(&visit.history_id);
-        // The TEXT fed to the model still carries the per-visit enrichment funnel.
+        // The TEXT fed to the model still carries the per-visit enrichment funnel, now including the
+        // capped summary (06 §4) and the ~512-token-capped body (05 §8).
         let content = build_embedding_content_from_parts(
             &visit.profile_id,
             &visit.url,
             visit.title.as_deref(),
             &visit.visited_at,
             enrichment.and_then(|value| value.readable_title.as_deref()),
+            enrichment_summary_for(enrichment),
             enrichment.and_then(|value| value.readable_text.as_deref()),
         );
         // The DEDUP IDENTITY is visit-independent (05 §1): canonical URL + title + the reserved
@@ -693,16 +695,26 @@ pub(super) fn collect_visit_chunk(
     Ok(visits)
 }
 
-/// Resolves the reserved `enrichment_summary` for one visit's dedup hash.
+/// Resolves the capped `enrichment_summary` for one visit's dedup hash (W-ENRICH-1, 06 §3).
 ///
-/// RESERVED SLOT (W-AI-4c / 06 §3): always `None` today. The `visit_content_enrichments` table does
-/// not yet carry `enrichment_summary` (W-ENRICH-1 adds the column + populates it). Centralizing the
-/// resolution here means W-ENRICH-1 changes ONE function to start feeding the capped summary into the
-/// dedup hash, re-hashing only the enriched URLs rather than touching every call site.
+/// Returns the stored capped summary from the best `visit_content_enrichments` row, so a freshly
+/// enriched URL re-hashes (and thus re-embeds) ONLY itself — the bounded blast radius the dedup hash
+/// was designed for (06 §3 / 05 §1). A visit with no enrichment (or a failure row that stored no
+/// summary) contributes `None`, the same empty dedup segment as before W-ENRICH-1, so the corpus that
+/// was never enriched keeps its existing content_hash and is NOT re-embedded. This is the SINGLE seam
+/// between the enrichment plane and the embedding dedup identity — centralizing it here is why
+/// W-ENRICH-1 only had to fill this one function (the reserved slot the dedup hash already carried).
+///
+/// Whitespace-only / empty summaries are treated as absent so they never perturb the hash; the stored
+/// value is already capped + normalized by the extractor (`build_enrichment_summary`), so this is a
+/// thin pass-through that keeps the dedup hash stable across re-reads of the same row.
 fn enrichment_summary_for(
-    _enrichment: Option<&crate::enrichment::StoredEnrichment>,
+    enrichment: Option<&crate::enrichment::StoredEnrichment>,
 ) -> Option<&str> {
-    None
+    enrichment
+        .and_then(|value| value.enrichment_summary.as_deref())
+        .map(str::trim)
+        .filter(|summary| !summary.is_empty())
 }
 
 /// Loads the current content hashes for a bounded set of candidate history rows.
@@ -806,6 +818,7 @@ pub(super) fn collect_visits_to_index(
             visit.title.as_deref(),
             &visit.visited_at,
             enrichment.and_then(|value| value.readable_title.as_deref()),
+            enrichment_summary_for(enrichment),
             enrichment.and_then(|value| value.readable_text.as_deref()),
         );
         let content_hash = super::dedup::build_dedup_content_hash(

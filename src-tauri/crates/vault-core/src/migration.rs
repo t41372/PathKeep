@@ -107,7 +107,30 @@ pub const EXPORT_EXCLUSIONS_DOC: &[(&str, &str)] = &[
         "derived/vectors/",
         "Raw f32 embedding vectors (~59 GB at the 14.4M tail) are rebuildable derived state; re-embed on the target instead of shipping them.",
     ),
+    (
+        "sidecars/intelligence-blobs/",
+        "Raw enrichment body/caption blobs are re-fetchable, possibly large, and possibly stale; the capped enrichment summary rides in the intelligence database so offline search still works.",
+    ),
 ];
+
+/// Top-level subtree name (under `sidecars/`) holding the raw enrichment body/caption blobs.
+///
+/// These are the content-addressed readable-text blobs the enrichment plane writes (title-plugin
+/// fallbacks + W-ENRICH-1 fetched bodies). They are EXCLUDED from the export bundle (06 §3): they are
+/// re-fetchable/re-derivable and can be large, while the CAPPED `enrichment_summary` rides inside the
+/// exported intelligence database so offline keyword search still resolves on the target.
+const SIDECAR_ENRICHMENT_BLOBS_DIRNAME: &str = "intelligence-blobs";
+
+/// Returns true when a `sidecars/`-relative path is part of the raw enrichment blob plane (06 §3).
+///
+/// Matches the whole `sidecars/intelligence-blobs/` subtree so neither the title-plugin blobs nor the
+/// W-ENRICH-1 fetched-body blobs ride the export. `relative` is the path under the `sidecars/` root.
+fn is_sidecar_enrichment_blob_excluded(relative: &Path) -> bool {
+    relative
+        .components()
+        .next()
+        .is_some_and(|first| first.as_os_str() == SIDECAR_ENRICHMENT_BLOBS_DIRNAME)
+}
 
 /// Files under `derived/` that are skipped by [`add_dir_to_zip_if_exists`] even though `derived/`
 /// is otherwise an included subtree.
@@ -694,6 +717,11 @@ fn add_dir_to_zip_if_exists(
         if zip_prefix == "derived" && is_derived_vector_plane_excluded(relative) {
             continue;
         }
+        // The raw enrichment blob plane (`sidecars/intelligence-blobs/`) is re-fetchable + possibly
+        // large; it never rides the export (06 §3). The capped summary rides in the intelligence DB.
+        if zip_prefix == "sidecars" && is_sidecar_enrichment_blob_excluded(relative) {
+            continue;
+        }
         let zip_path = format!("{zip_prefix}/{}", relative.to_string_lossy());
         add_file_to_zip(zip, path, &zip_path, options, manifest_files)?;
     }
@@ -1194,6 +1222,54 @@ mod tests {
             EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/vectors/"),
             "the vector plane exclusion must be documented",
         );
+    }
+
+    #[test]
+    fn export_excludes_raw_enrichment_blobs_but_includes_summary_in_intelligence_db() {
+        // 06 §3: the raw enrichment body/caption blobs (`sidecars/intelligence-blobs/`) are
+        // re-fetchable + possibly large, so they MUST NOT ride the export. The capped summary lives in
+        // the intelligence DB (which DOES ride), so offline search still works on the target.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed a raw enrichment blob under sidecars/intelligence-blobs and an ordinary sidecar file
+        // that MUST still ride.
+        fs::create_dir_all(src_paths.intelligence_blobs_dir.join("ab")).unwrap();
+        fs::write(src_paths.intelligence_blobs_dir.join("ab/cdef.txt"), b"raw body").unwrap();
+        fs::create_dir_all(src_paths.sidecars_dir.join("semantic-index")).unwrap();
+        fs::write(src_paths.sidecars_dir.join("semantic-index/keep.txt"), b"keep me").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // No intelligence-blobs file is packed.
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.starts_with("sidecars/intelligence-blobs/")),
+            "raw enrichment blobs must be excluded: {:?}",
+            bundle.manifest.files,
+        );
+        // …while an ordinary sidecar file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "sidecars/semantic-index/keep.txt"),
+            "non-excluded sidecar files must still be packed",
+        );
+        // The intelligence DB (carrying the capped summary column) DOES ride via the derived/ subtree.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "sidecars/intelligence-blobs/"),
+            "the enrichment blob exclusion must be documented",
+        );
+    }
+
+    #[test]
+    fn is_sidecar_enrichment_blob_excluded_matches_only_the_blob_subtree() {
+        assert!(is_sidecar_enrichment_blob_excluded(Path::new("intelligence-blobs/ab/cdef.txt")));
+        assert!(is_sidecar_enrichment_blob_excluded(Path::new("intelligence-blobs/x.txt")));
+        assert!(!is_sidecar_enrichment_blob_excluded(Path::new("semantic-index/keep.txt")));
+        assert!(!is_sidecar_enrichment_blob_excluded(Path::new("other.txt")));
     }
 
     #[test]

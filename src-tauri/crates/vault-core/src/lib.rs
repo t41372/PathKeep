@@ -87,6 +87,10 @@ pub use archive::{
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, project_paths_with_root, save_config};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
+pub use enrichment::content_fetch_api::{
+    content_fetch_schedule_eta_secs, content_fetch_settings, drain_one_content_fetch_job,
+    enqueue_content_fetch_now, enqueue_content_fetch_working_set, list_visit_enrichment,
+};
 pub use enrichment::execute_enrichment_job_by_id;
 pub use intelligence::{
     build_intelligence_local_host, clear_derived_intelligence_state,

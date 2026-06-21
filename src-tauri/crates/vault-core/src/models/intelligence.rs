@@ -7,6 +7,7 @@
 //! contract.
 
 use crate::intelligence_catalog::built_in_intelligence_modules;
+use crate::models::AppConfig;
 use serde::{Deserialize, Serialize};
 
 /// Built-in enrichment plugin ID for title normalization.
@@ -292,6 +293,105 @@ pub struct EnrichmentPluginPreference {
     pub enabled: bool,
 }
 
+/// Built-in content-fetch extractor id for GitHub public repo metadata (W-ENRICH-1).
+pub const GITHUB_REPO_EXTRACTOR_ID: &str = "github-repo";
+/// Built-in content-fetch extractor id for the deterministic generic readable fallback (W-ENRICH-1).
+pub const GENERIC_READABLE_EXTRACTOR_ID: &str = "generic-readable";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// User-facing on/off preference for one content-fetch extractor (06 §2a per-extractor toggle).
+pub struct ContentFetchExtractorPreference {
+    pub extractor_id: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Per-domain allow/block rule for content fetching (06 §2a per-domain toggle).
+///
+/// `allowed = false` blocks the domain; `allowed = true` is an explicit allow (reserved for a future
+/// allow-list-only mode). The MVP runner treats only `allowed = false` as load-bearing (a block),
+/// since the master switch is the gate; the explicit-allow shape is modelled so the FE can bind it.
+pub struct ContentFetchDomainRule {
+    pub domain: String,
+    pub allowed: bool,
+}
+
+/// Returns the accepted default per-extractor content-fetch preferences (both built-ins ON).
+///
+/// "ON" here means "this extractor is permitted WHEN the master `content_fetch_enabled` switch is on"
+/// — the master switch is hard-default-OFF (06 §2a), so a fresh install fetches nothing until the user
+/// opts in. With the master on, both built-in extractors are enabled by default.
+pub fn default_content_fetch_extractor_preferences() -> Vec<ContentFetchExtractorPreference> {
+    vec![
+        ContentFetchExtractorPreference {
+            extractor_id: GITHUB_REPO_EXTRACTOR_ID.to_string(),
+            enabled: true,
+        },
+        ContentFetchExtractorPreference {
+            extractor_id: GENERIC_READABLE_EXTRACTOR_ID.to_string(),
+            enabled: true,
+        },
+    ]
+}
+
+/// Merges persisted content-fetch extractor preferences with the current built-in defaults.
+///
+/// Mirrors [`merge_enrichment_plugin_preferences`]: every built-in extractor is represented (a newly
+/// added built-in surfaces on the next normalize without a config migration, keeping its default
+/// enabled state), and the user's stored on/off for an existing extractor is preserved. Unknown
+/// stored ids (a removed extractor) are dropped so the surface stays the built-in set.
+pub fn merge_content_fetch_extractor_preferences(
+    current: &[ContentFetchExtractorPreference],
+) -> Vec<ContentFetchExtractorPreference> {
+    let defaults = default_content_fetch_extractor_preferences();
+    defaults
+        .into_iter()
+        .map(|default| {
+            let enabled = current
+                .iter()
+                .find(|item| item.extractor_id == default.extractor_id)
+                .map(|item| item.enabled)
+                .unwrap_or(default.enabled);
+            ContentFetchExtractorPreference { enabled, ..default }
+        })
+        .collect()
+}
+
+/// Whether one content-fetch extractor is permitted under the current config's per-extractor prefs.
+///
+/// PURE → unit-tested. An extractor with no stored preference defaults to ENABLED (so a newly added
+/// built-in works once the master switch is on, without a config migration); an explicit stored
+/// `enabled: false` disables it. This is layered UNDER the master `content_fetch_enabled` gate (the
+/// caller checks that first).
+pub fn content_extractor_enabled(config: &AppConfig, extractor_id: &str) -> bool {
+    config
+        .ai
+        .content_fetch_extractors
+        .iter()
+        .find(|pref| pref.extractor_id == extractor_id)
+        .map(|pref| pref.enabled)
+        .unwrap_or(true)
+}
+
+/// Whether a domain is on the per-domain content-fetch blocklist.
+///
+/// PURE → unit-tested. Case-insensitive match against any rule with `allowed = false`. A domain with
+/// no rule (or only an explicit-allow rule) is NOT blocked. Centralized so the enqueue path + runner
+/// share one decision.
+pub fn content_fetch_domain_blocked(config: &AppConfig, domain: &str) -> bool {
+    let domain = domain.trim().to_ascii_lowercase();
+    if domain.is_empty() {
+        return false;
+    }
+    config
+        .ai
+        .content_fetch_domains
+        .iter()
+        .any(|rule| !rule.allowed && rule.domain.trim().to_ascii_lowercase() == domain)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 /// Full optional-AI settings stored in app config.
@@ -308,6 +408,18 @@ pub struct AiSettings {
     pub enrichment_enabled: bool,
     #[serde(default = "default_enrichment_plugin_preferences")]
     pub enrichment_plugins: Vec<EnrichmentPluginPreference>,
+    /// Master switch for site CONTENT fetching (W-ENRICH-1, 06 §2a). HARD-DEFAULT-OFF and INDEPENDENT
+    /// of `enrichment_enabled` (which only governs the offline title plugin). The content-fetch job is
+    /// a no-op unless this is on — no network egress happens until the user explicitly opts in.
+    #[serde(default)]
+    pub content_fetch_enabled: bool,
+    /// Per-extractor content-fetch toggles (06 §2a). Defaults to both built-ins enabled, gated by the
+    /// master switch above.
+    #[serde(default = "default_content_fetch_extractor_preferences")]
+    pub content_fetch_extractors: Vec<ContentFetchExtractorPreference>,
+    /// Per-domain content-fetch allow/block rules (06 §2a). Empty by default (no domain blocked).
+    #[serde(default)]
+    pub content_fetch_domains: Vec<ContentFetchDomainRule>,
     pub llm_provider_id: Option<String>,
     pub embedding_provider_id: Option<String>,
     pub retrieval_top_k: u32,
@@ -330,6 +442,10 @@ impl Default for AiSettings {
             job_queue_concurrency: 1,
             enrichment_enabled: true,
             enrichment_plugins: default_enrichment_plugin_preferences(),
+            // Hard-default-OFF: no site content is fetched until the user opts in (06 §2a).
+            content_fetch_enabled: false,
+            content_fetch_extractors: default_content_fetch_extractor_preferences(),
+            content_fetch_domains: Vec::new(),
             llm_provider_id: None,
             embedding_provider_id: None,
             retrieval_top_k: 8,
@@ -898,6 +1014,74 @@ pub struct DeterministicModuleRuntimeStatus {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// One stored site-content enrichment for a visit/URL, FE-facing (W-ENRICH-1 detail panel, 06 §6).
+///
+/// The capped `summary` + structured `metadata` are what the detail panel renders; the full body
+/// stays in the content-addressed blob and is NOT shipped here (the FE shows the summary, not the
+/// multi-KB body). `fetchStatus` is honest (success | empty | blocked | fetch-error | …) so the panel
+/// can show a real failure state instead of pretending.
+pub struct VisitEnrichmentRecord {
+    pub content_source: String,
+    pub fetch_status: String,
+    pub fetched_at: String,
+    pub readable_title: Option<String>,
+    pub summary: Option<String>,
+    pub extractor_version: Option<i64>,
+    /// Structured extraction JSON (GitHub topics/desc/stars, video channel, …) as an opaque string the
+    /// FE parses for chips. Kept as a string so this model stays decoupled from per-extractor schema.
+    pub metadata_json: Option<String>,
+    pub final_url: Option<String>,
+    pub http_status: Option<i64>,
+    pub refetch_after: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Settings-facing content-fetch consent + status surface (W-ENRICH-1, 06 §6).
+///
+/// Mirrors the persisted consent flags so the Settings panel can bind them, plus a small live status
+/// (queued/running/failed counts) so the panel shows fetch progress without a separate query.
+pub struct ContentFetchSettings {
+    /// Master switch (hard-default-OFF). When false the whole content-fetch plane is inert.
+    pub enabled: bool,
+    /// Per-extractor toggles (GitHub repo metadata, generic readable summary).
+    pub extractors: Vec<ContentFetchExtractorPreference>,
+    /// Per-domain allow/block rules.
+    pub domains: Vec<ContentFetchDomainRule>,
+    /// Queued content-fetch jobs awaiting a drain.
+    pub queued_jobs: usize,
+    /// Currently-running content-fetch jobs.
+    pub running_jobs: usize,
+    /// Content-fetch jobs in a failed terminal state.
+    pub failed_jobs: usize,
+    /// Stored content-fetch enrichment rows (success + negative-cache markers).
+    pub stored_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for the manual "fetch now" PME trigger (W-ENRICH-1, 06 §6).
+pub struct ContentFetchNowRequest {
+    pub history_id: i64,
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Result of a manual "fetch now" enqueue (W-ENRICH-1).
+pub struct ContentFetchNowResult {
+    /// The enqueued (or refreshed) job id.
+    pub job_id: i64,
+    /// The job state after enqueue (`queued` / `running` / `disabled`).
+    pub state: String,
+    /// Localised-key-friendly note (the FE maps to copy; never raw prose committed to the contract).
+    pub note: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Combined runtime snapshot for intelligence queues, plugins, and modules.
@@ -1009,5 +1193,37 @@ mod tests {
         assert_eq!(value["structuredOutput"], json!(true));
         assert_eq!(value["promptCache"], json!(false));
         assert_eq!(value["maxContextTokens"], json!(8192));
+    }
+
+    #[test]
+    fn content_fetch_domain_blocked_matches_case_insensitively_and_ignores_blank() {
+        let mut config = AppConfig::default();
+        config.ai.content_fetch_domains = vec![
+            ContentFetchDomainRule { domain: "Blocked.COM".to_string(), allowed: false },
+            ContentFetchDomainRule { domain: "allowed.com".to_string(), allowed: true },
+        ];
+        // Case-insensitive block match.
+        assert!(content_fetch_domain_blocked(&config, "blocked.com"));
+        assert!(content_fetch_domain_blocked(&config, "  BLOCKED.com "));
+        // An explicit-allow rule is not a block; an unlisted domain is not blocked.
+        assert!(!content_fetch_domain_blocked(&config, "allowed.com"));
+        assert!(!content_fetch_domain_blocked(&config, "other.com"));
+        // A blank/whitespace domain is never blocked (covers the empty-domain early-out).
+        assert!(!content_fetch_domain_blocked(&config, ""));
+        assert!(!content_fetch_domain_blocked(&config, "   "));
+    }
+
+    #[test]
+    fn content_extractor_enabled_defaults_on_and_honors_explicit_disable() {
+        let mut config = AppConfig::default();
+        // No explicit preference → enabled by default.
+        assert!(content_extractor_enabled(&config, "github-repo"));
+        // An explicit disable turns it off; an unrelated extractor stays on.
+        config.ai.content_fetch_extractors = vec![ContentFetchExtractorPreference {
+            extractor_id: "github-repo".to_string(),
+            enabled: false,
+        }];
+        assert!(!content_extractor_enabled(&config, "github-repo"));
+        assert!(content_extractor_enabled(&config, "generic-readable"));
     }
 }

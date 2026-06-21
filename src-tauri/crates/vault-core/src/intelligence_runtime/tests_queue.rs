@@ -798,3 +798,213 @@ fn next_queued_intelligence_job_recovers_expired_leases() {
         states[1].2.as_deref().is_some_and(|value| value.contains("expired intelligence lease"))
     );
 }
+
+#[test]
+fn content_fetch_jobs_dedupe_by_canonical_url_and_claim_by_type() {
+    let (_root, _paths, _config) = setup_runtime_archive();
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+
+    let payload = EnrichmentJobPayload {
+        history_id: 1,
+        profile_id: "chrome:Default".to_string(),
+        url: "https://github.com/o/r?utm_source=x".to_string(),
+        title: Some("o/r".to_string()),
+    };
+    let first = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
+    // A second enqueue of the SAME canonical URL (different tracking param) dedupes to the same job.
+    let dup_payload = EnrichmentJobPayload {
+        url: "https://github.com/o/r".to_string(),
+        history_id: 2,
+        ..payload.clone()
+    };
+    let second = enqueue_content_fetch_job(&connection, &dup_payload).expect("enqueue dup");
+    assert_eq!(first, second, "same canonical URL must dedupe to one content-fetch job");
+    let job_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM intelligence_jobs WHERE job_type = ?1",
+            [CONTENT_FETCH_JOB_TYPE],
+            |row| row.get(0),
+        )
+        .expect("count");
+    assert_eq!(job_count, 1);
+
+    // The next-due query surfaces it, and an enrichment-type claim must NOT claim a content-fetch job.
+    let due = next_queued_content_fetch_job(&connection).expect("next due").expect("a due job");
+    assert_eq!(due, first);
+    assert!(
+        claim_enrichment_job_by_id(&connection, first).expect("type-scoped claim").is_none(),
+        "an enrichment-type claim must not claim a content-fetch job",
+    );
+    // The content-fetch claim DOES claim it.
+    let claimed =
+        claim_content_fetch_job_by_id(&connection, first).expect("claim").expect("claimed job");
+    assert_eq!(claimed.id, first);
+    assert_eq!(claimed.plugin_id, CONTENT_FETCH_PLUGIN_ID);
+    assert_eq!(claimed.payload.history_id, 2, "payload refreshed to the freshest visit");
+}
+
+#[test]
+fn content_fetch_job_due_respects_version_and_negative_cache() {
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+    crate::enrichment::ensure_visit_content_enrichment_schema(&connection).expect("enrich schema");
+
+    // No row → due.
+    assert!(content_fetch_job_due(&connection, 1, "github-repo", 1).expect("due when unfetched"));
+
+    // A version-matching row with NO refetch_after (a success) → NOT due.
+    connection
+        .execute(
+            "INSERT INTO visit_content_enrichments
+             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
+              pipeline_version, extractor_version, enrichment_summary, refetch_after)
+             VALUES (1, 'github-repo', 'success', '2026-06-21T00:00:00Z', '[]', '{}', 'v1', 1,
+                     's', NULL)",
+            [],
+        )
+        .expect("insert success row");
+    assert!(
+        !content_fetch_job_due(&connection, 1, "github-repo", 1).expect("not due after success")
+    );
+
+    // A bumped extractor version → due again (bounded refetch of this source).
+    assert!(
+        content_fetch_job_due(&connection, 1, "github-repo", 2).expect("due after version bump")
+    );
+
+    // A failure row whose refetch_after is in the FUTURE → NOT due (negative cache cooling).
+    connection
+        .execute(
+            "INSERT INTO visit_content_enrichments
+             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
+              pipeline_version, extractor_version, enrichment_summary, refetch_after)
+             VALUES (2, 'github-repo', 'fetch-error', '2026-06-21T00:00:00Z', '[]', '{}', 'v1', 1,
+                     NULL, '2999-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("insert future-refetch row");
+    assert!(
+        !content_fetch_job_due(&connection, 2, "github-repo", 1).expect("not due while cooling")
+    );
+
+    // A failure row whose refetch_after is in the PAST → due again.
+    connection
+        .execute(
+            "UPDATE visit_content_enrichments SET refetch_after = '2000-01-01T00:00:00Z'
+             WHERE history_id = 2",
+            [],
+        )
+        .expect("expire refetch_after");
+    assert!(content_fetch_job_due(&connection, 2, "github-repo", 1).expect("due after cooldown"));
+}
+
+#[test]
+fn content_fetch_job_due_compares_timestamps_as_instants_at_the_boundary_second() {
+    // CORR-4: `refetch_after` is `...Secs, true` (`...56Z`) while "now" carries fractional secs + a
+    // numeric offset (`...56.789+00:00`); a lexical compare ('Z' > '.') would mis-read a due row as
+    // not-due at the boundary second. Parsing to instants fixes it: a refetch_after that is the SAME
+    // wall-clock second as (but slightly before) now must read DUE.
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+    crate::enrichment::ensure_visit_content_enrichment_schema(&connection).expect("enrich schema");
+
+    // refetch_after = one minute in the PAST, rounded to whole seconds (the `...Z` shape).
+    let past = (chrono::Utc::now() - chrono::Duration::seconds(60))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    connection
+        .execute(
+            "INSERT INTO visit_content_enrichments
+             (history_id, content_source, fetch_status, fetched_at, snippet_json, extraction_json,
+              pipeline_version, extractor_version, enrichment_summary, refetch_after)
+             VALUES (9, 'github-repo', 'fetch-error', '2026-06-21T00:00:00Z', '[]', '{}', 'v1', 1,
+                     NULL, ?1)",
+            [&past],
+        )
+        .expect("insert boundary row");
+    assert!(
+        content_fetch_job_due(&connection, 9, "github-repo", 1).expect("due"),
+        "a refetch_after in the past must read DUE regardless of the Z/offset format mismatch"
+    );
+
+    // An UNPARSEABLE refetch_after is treated as due (fail toward refetching, never wedged).
+    connection
+        .execute(
+            "UPDATE visit_content_enrichments SET refetch_after = 'not-a-timestamp' WHERE history_id = 9",
+            [],
+        )
+        .expect("garble refetch_after");
+    assert!(content_fetch_job_due(&connection, 9, "github-repo", 1).expect("due on bad stamp"));
+}
+
+#[test]
+fn requeue_content_fetch_job_after_returns_a_running_row_to_queued() {
+    // SEC-2: a rate-limited (running) job is requeued with a FUTURE scheduled_at, NOT cancelled, so the
+    // queued-only drain re-picks it when due. A non-running row is a no-op.
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+    let payload = EnrichmentJobPayload {
+        history_id: 1,
+        profile_id: "chrome:Default".to_string(),
+        url: "https://github.com/o/r".to_string(),
+        title: None,
+    };
+    let job_id = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
+    // Not running yet → requeue is a no-op (the WHERE state='running' guard).
+    let future = "2999-01-01T00:00:00Z";
+    assert!(!requeue_content_fetch_job_after(&connection, job_id, future).expect("noop on queued"));
+
+    // Claim → running, then requeue succeeds and parks it back to queued + future schedule.
+    claim_content_fetch_job_by_id(&connection, job_id).expect("claim").expect("claimed");
+    assert!(requeue_content_fetch_job_after(&connection, job_id, future).expect("requeue"));
+    let (state, scheduled, lease): (String, String, Option<String>) = connection
+        .query_row(
+            "SELECT state, scheduled_at, lease_owner FROM intelligence_jobs WHERE id = ?1",
+            [job_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("row");
+    assert_eq!(state, "queued");
+    assert_eq!(scheduled, future);
+    assert!(lease.is_none(), "the lease is cleared on requeue");
+}
+
+#[test]
+fn next_content_fetch_schedule_eta_reports_soonest_future_then_none() {
+    // SEC-2 worker hook: a future-scheduled queued content-fetch job surfaces its ETA; an empty queue
+    // (or only DUE rows) reports None.
+    let connection = Connection::open_in_memory().expect("memory db");
+    ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
+    // Empty queue → None.
+    assert_eq!(next_content_fetch_schedule_eta_secs(&connection).expect("eta empty"), None);
+
+    let payload = EnrichmentJobPayload {
+        history_id: 1,
+        profile_id: "chrome:Default".to_string(),
+        url: "https://github.com/o/r".to_string(),
+        title: None,
+    };
+    let job_id = enqueue_content_fetch_job(&connection, &payload).expect("enqueue");
+    // A DUE (now-scheduled) job is NOT a future deferral → None.
+    assert_eq!(next_content_fetch_schedule_eta_secs(&connection).expect("eta due"), None);
+
+    // Defer it ~30s into the future → the ETA is reported.
+    let future = (chrono::Utc::now() + chrono::Duration::seconds(30))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    connection
+        .execute(
+            "UPDATE intelligence_jobs SET scheduled_at = ?1 WHERE id = ?2",
+            params![future, job_id],
+        )
+        .expect("defer");
+    let eta = next_content_fetch_schedule_eta_secs(&connection).expect("eta future").expect("some");
+    assert!((1..=31).contains(&eta), "deferred ETA should be ~30s, got {eta}");
+
+    // An unparseable scheduled_at is treated as due-now (floor of 1s) rather than wedging the lane.
+    connection
+        .execute("UPDATE intelligence_jobs SET scheduled_at = 'bad' WHERE id = ?1", [job_id])
+        .expect("garble scheduled_at");
+    // `next_queued_content_fetch_job`-style gating compares strings, so 'bad' > now_rfc3339 lexically,
+    // surfacing it as a future row whose parse fails → ETA floor of 1.
+    assert_eq!(next_content_fetch_schedule_eta_secs(&connection).expect("eta bad"), Some(1));
+}

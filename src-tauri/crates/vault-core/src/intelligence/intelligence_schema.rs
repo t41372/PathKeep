@@ -87,7 +87,23 @@ const INTELLIGENCE_MIGRATIONS: &[IntelligenceMigrationSpec] = &[
         name: "overview-snapshots",
         apply: apply_overview_snapshot_migration,
     },
+    IntelligenceMigrationSpec {
+        version: 8,
+        name: "content-enrichment-w-enrich",
+        apply: apply_content_enrichment_w_enrich_migration,
+    },
 ];
+
+/// W-ENRICH-1 (migration "015" in the doc-06 naming, applied on the INTELLIGENCE plane where the
+/// `visit_content_enrichments` table actually lives — see the module note below): adds
+/// `extractor_version` + `enrichment_summary` + `refetch_after` + `http_status` to the enrichment
+/// table so the capped summary feeds the dedup content_hash + FTS5 mirror and the negative-cache
+/// cadence is persisted. A no-op on a fresh DB (the baseline schema already includes the columns).
+fn apply_content_enrichment_w_enrich_migration(connection: &Connection) -> Result<()> {
+    // The baseline (v1) created the table; on a DB that already has it, ALTER the new columns in. On a
+    // fresh DB the baseline now creates them, so the ALTERs no-op (guarded inside the helper).
+    crate::enrichment::add_visit_content_enrichment_w_enrich_columns(connection)
+}
 
 /// Installs the baseline intelligence schema on a freshly attached derived
 /// database.

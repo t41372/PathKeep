@@ -8,8 +8,8 @@ use super::{
 };
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
 use super::{
-    merge_deterministic_module_states, merge_enrichment_plugin_preferences,
-    merge_enrichment_plugin_states,
+    merge_content_fetch_extractor_preferences, merge_deterministic_module_states,
+    merge_enrichment_plugin_preferences, merge_enrichment_plugin_states,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,8 @@ pub fn normalize_app_config(config: &mut AppConfig) {
     config.enrichment.plugins = merge_enrichment_plugin_states(&config.enrichment.plugins);
     config.ai.enrichment_plugins =
         merge_enrichment_plugin_preferences(&config.ai.enrichment_plugins);
+    config.ai.content_fetch_extractors =
+        merge_content_fetch_extractor_preferences(&config.ai.content_fetch_extractors);
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
     config.explorer_background_prefetch_pages =
         config.explorer_background_prefetch_pages.min(MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES);

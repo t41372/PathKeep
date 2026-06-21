@@ -212,3 +212,82 @@ pub(crate) async fn rename_ai_conversation(
     })
     .await
 }
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads the W-ENRICH-1 content-fetch consent + status surface for Settings, off the UI thread.
+pub(crate) async fn get_content_fetch_settings(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ContentFetchSettings, String> {
+    let key = state.get_key();
+    run_blocking_command("get_content_fetch_settings", move || {
+        worker_bridge::content_fetch_settings_impl(key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Persists the content-fetch consent settings (master switch + per-extractor + per-domain).
+///
+/// Turning the master switch on is the consent gate (hard-default-OFF); enabling it also primes the
+/// prioritized working-set enqueue + starts the low-concurrency drain. Runs off the UI thread.
+pub(crate) async fn set_content_fetch_settings(
+    settings: vault_core::ContentFetchSettings,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AppSnapshot, String> {
+    let key = state.get_key();
+    run_blocking_command("set_content_fetch_settings", move || {
+        worker_bridge::set_content_fetch_settings_impl(settings, key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Lists the stored content enrichment for one visit (detail panel), off the UI thread.
+///
+/// Read-only: it returns whatever has been fetched + stored. It NEVER blocks on the network — an
+/// absent enrichment simply yields an empty list and the detail panel falls back to title/URL.
+pub(crate) async fn list_visit_enrichment(
+    history_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::VisitEnrichmentRecord>, String> {
+    let key = state.get_key();
+    run_blocking_command("list_visit_enrichment", move || {
+        worker_bridge::list_visit_enrichment_impl(history_id, key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Manual "fetch now" PME trigger for one URL's content enrichment, off the UI thread.
+///
+/// Honest about consent: returns a `disabled` result without queuing when fetching is off for the URL.
+pub(crate) async fn content_fetch_now(
+    request: vault_core::ContentFetchNowRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ContentFetchNowResult, String> {
+    let key = state.get_key();
+    run_blocking_command("content_fetch_now", move || {
+        worker_bridge::content_fetch_now_impl(request, key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Enqueues the prioritized working set for content fetch (the bulk hook), off the UI thread.
+///
+/// Returns the number of jobs enqueued (0 when fetching is disabled). Drains run on the worker lane.
+pub(crate) async fn enqueue_content_fetch_working_set(
+    limit: Option<u32>,
+    state: State<'_, SessionState>,
+) -> Result<usize, String> {
+    let key = state.get_key();
+    run_blocking_command("enqueue_content_fetch_working_set", move || {
+        worker_bridge::enqueue_content_fetch_working_set_impl(limit, key.as_deref())
+    })
+    .await
+}

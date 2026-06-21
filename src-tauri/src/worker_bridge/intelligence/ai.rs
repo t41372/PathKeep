@@ -26,8 +26,9 @@ use vault_core::{
     AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
     AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderSecretInput, AiSearchRequest,
+    ContentFetchNowRequest, ContentFetchNowResult, ContentFetchSettings,
     DeleteAgentConversationResult, ListAgentConversationsRequest, ModelDownloadProgressEvent,
-    RenameAgentConversationRequest, SaveAgentConversationRequest,
+    RenameAgentConversationRequest, SaveAgentConversationRequest, VisitEnrichmentRecord,
 };
 
 use super::super::worker_result;
@@ -221,4 +222,54 @@ pub(crate) fn rename_ai_conversation_impl(
     request: RenameAgentConversationRequest,
 ) -> Result<Option<AgentConversationSummary>, String> {
     worker_result(vault_worker::rename_ai_conversation(&request))
+}
+
+// ── W-ENRICH-1 site content-fetch (06 §6) ────────────────────────────────────────────────────────
+
+/// Reads the content-fetch consent + status surface for Settings.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn content_fetch_settings_impl(
+    session_database_key: Option<&str>,
+) -> Result<ContentFetchSettings, String> {
+    worker_result(vault_worker::content_fetch_settings(session_database_key))
+}
+
+/// Persists the content-fetch consent settings (master switch + per-extractor + per-domain).
+///
+/// Turning the master switch ON here is the consent gate that lets the content-fetch plane fetch; it
+/// also primes the prioritized working-set enqueue + starts the drain.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn set_content_fetch_settings_impl(
+    settings: ContentFetchSettings,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AppSnapshot, String> {
+    worker_result(vault_worker::set_content_fetch_settings(&settings, session_database_key))
+}
+
+/// Lists the stored content enrichment for one visit (the detail panel; never blocks on network).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn list_visit_enrichment_impl(
+    history_id: i64,
+    session_database_key: Option<&str>,
+) -> Result<Vec<VisitEnrichmentRecord>, String> {
+    worker_result(vault_worker::list_visit_enrichment(history_id, session_database_key))
+}
+
+/// Triggers the manual "fetch now" PME for one URL.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn content_fetch_now_impl(
+    request: ContentFetchNowRequest,
+    session_database_key: Option<&str>,
+) -> Result<ContentFetchNowResult, String> {
+    worker_result(vault_worker::content_fetch_now(&request, session_database_key))
+}
+
+/// Enqueues the prioritized working set for content fetch (the 06 §5 bulk hook).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn enqueue_content_fetch_working_set_impl(
+    limit: Option<u32>,
+    session_database_key: Option<&str>,
+) -> Result<usize, String> {
+    let limit = limit.map(|value| value as usize).unwrap_or(2_000);
+    worker_result(vault_worker::enqueue_content_fetch_working_set(limit, session_database_key))
 }

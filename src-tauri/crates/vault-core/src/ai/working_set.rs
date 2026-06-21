@@ -95,6 +95,15 @@ pub struct CandidateSignals {
 pub struct WorkingSetCandidate {
     /// Canonical URL (the dedup unit) the candidate represents.
     pub canonical_url: String,
+    /// One RAW stored url that collapses onto this canonical URL (first-writer-wins, newest-first).
+    ///
+    /// The canonical URL strips tracking params / lowercases the host, so it may NOT equal any stored
+    /// `urls.url`. Enrichment resolves a live visit by matching the RAW stored url (riding
+    /// `idx_urls_url`); without a raw url, a candidate whose stored url carried `utm_*`/`gclid`/mixed
+    /// host casing would resolve to None and be silently dropped from the fetch queue (CORR-2). `None`
+    /// only for a candidate created by a URL-star alone (no surfaced visit) — the consumer falls back
+    /// to the canonical URL then.
+    pub raw_url: Option<String>,
     /// Registrable-ish domain (via the shared `url_domain`) for grouping/display.
     pub domain: String,
     /// Most-recent page title seen for this canonical URL, when known.
@@ -190,6 +199,7 @@ pub fn select_working_set(
             Some(WorkingSetCandidate {
                 domain: url_domain(&canonical_url),
                 title: state.title,
+                raw_url: state.raw_url,
                 score,
                 signals: state.signals,
                 canonical_url,
@@ -211,6 +221,10 @@ pub fn select_working_set(
 struct CandidateState {
     signals: CandidateSignals,
     title: Option<String>,
+    /// One RAW stored url that canonicalizes onto this candidate (first writer wins). The recency
+    /// query feeds rows newest-first, so the first raw url is the freshest variant — the one the
+    /// enrichment resolver matches against `urls.url` to find a live visit (CORR-2).
+    raw_url: Option<String>,
 }
 
 impl CandidateState {
@@ -221,6 +235,14 @@ impl CandidateState {
             if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
                 self.title = Some(title);
             }
+        }
+    }
+
+    /// Records the freshest raw url that collapsed onto this candidate (first writer wins, newest
+    /// first), mirroring [`CandidateState::note_title`]. An empty raw url is ignored.
+    fn note_raw_url(&mut self, raw_url: &str) {
+        if self.raw_url.is_none() && !raw_url.trim().is_empty() {
+            self.raw_url = Some(raw_url.to_string());
         }
     }
 
@@ -280,6 +302,7 @@ fn gather_url_signals(
         let Some(canonical) = canonicalize(&raw_url) else { continue };
         let state = by_canonical.entry(canonical).or_default();
         state.note_title(title);
+        state.note_raw_url(&raw_url);
         if last_visit_ms >= recency_cutoff_ms {
             state.signals.recent = true;
         }
@@ -305,6 +328,7 @@ fn gather_url_signals(
         let Some(canonical) = canonicalize(&raw_url) else { continue };
         let state = by_canonical.entry(canonical).or_default();
         state.note_title(title);
+        state.note_raw_url(&raw_url);
         state.note_visit_count(visit_count);
     }
     Ok(())
@@ -321,7 +345,11 @@ fn gather_annotation_signals(
 ) -> Result<()> {
     let mut mark = |raw_url: String| {
         if let Some(canonical) = canonicalize(&raw_url) {
-            by_canonical.entry(canonical).or_default().signals.annotated = true;
+            let state = by_canonical.entry(canonical).or_default();
+            state.signals.annotated = true;
+            // Annotations key by raw url, so record it for the enrichment resolver (CORR-2) in case no
+            // recency/frequency row surfaced this page (an annotated-but-stale page is still fetched).
+            state.note_raw_url(&raw_url);
         }
     };
 
@@ -367,8 +395,12 @@ fn gather_starred_signals(
         match kind.as_str() {
             "url" => {
                 // A URL star's key is already canonical; mark it (creating the candidate if a star
-                // exists for a page the archive has not surfaced via the other signals yet).
-                by_canonical.entry(key).or_default().signals.starred = true;
+                // exists for a page the archive has not surfaced via the other signals yet). The star
+                // key IS canonical, so it doubles as a raw-url fallback for the enrichment resolver
+                // when no actual raw variant surfaced this page (CORR-2).
+                let state = by_canonical.entry(key.clone()).or_default();
+                state.signals.starred = true;
+                state.note_raw_url(&key);
             }
             "domain" => starred_domains.push(key),
             _ => {} // Unknown/future kinds (e.g. query_family) are ignored, not errored.

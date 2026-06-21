@@ -516,7 +516,7 @@ fn explain_entity_and_provider_snapshots_build_from_core_intelligence_tables() {
     let migration_count: i64 = intelligence
         .query_row("SELECT COUNT(*) FROM intelligence_schema_migrations", [], |row| row.get(0))
         .expect("migration count");
-    assert_eq!(migration_count, 7);
+    assert_eq!(migration_count, 8);
 }
 
 /// Regression coverage for visit derive stage processes only new visible visits.
@@ -1187,4 +1187,49 @@ fn visit_derive_stage_falls_back_full_after_visibility_regression() {
         .query_row("SELECT COUNT(*) FROM visit_derived_facts", [], |row| row.get(0))
         .expect("row count");
     assert_eq!(row_count, 2);
+}
+
+/// Covers the `force_full` (manual full rebuild) branch of all three stage executors: running each
+/// stage job with `full_rebuild: true` takes the "Manual full rebuild requested" fallback path rather
+/// than the incremental delta path.
+#[test]
+fn stage_jobs_take_the_manual_full_rebuild_branch_when_forced() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let paths = project_paths_with_root(root.path());
+    let config = AppConfig {
+        initialized: true,
+        archive_mode: ArchiveMode::Plaintext,
+        ..AppConfig::default()
+    };
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    seed_core_intelligence_fixture(&archive);
+    drop(archive);
+
+    // Establish a baseline so the stages have a watermark/checkpoint to ignore when forced.
+    run_core_intelligence(&paths, &config, None, &CoreIntelligenceRebuildRequest::default())
+        .expect("baseline full rebuild");
+
+    // Each stage, forced full, must run in "full" mode (not noop/incremental) — the force_full arm.
+    for job_type in ["visit-derive", "daily-rollup", "structural-rebuild"] {
+        let report = run_core_intelligence_job_type_with_progress(
+            &paths,
+            &config,
+            None,
+            job_type,
+            &CoreIntelligenceRebuildRequest {
+                profile_id: Some("chrome:Default".to_string()),
+                full_rebuild: true,
+                ..CoreIntelligenceRebuildRequest::default()
+            },
+            |_progress| Ok(()),
+        )
+        .unwrap_or_else(|error| panic!("forced {job_type} stage: {error:#}"));
+        // A forced rebuild takes the manual-full fallback path (the `force_full` arm), reported as
+        // "fallback-full" rather than the incremental/noop modes.
+        assert_eq!(
+            report.execution_mode.as_deref(),
+            Some("fallback-full"),
+            "a forced {job_type} stage must run via the manual full-rebuild fallback"
+        );
+    }
 }

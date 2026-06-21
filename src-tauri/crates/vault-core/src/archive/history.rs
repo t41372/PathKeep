@@ -19,7 +19,10 @@ use super::*;
 pub mod day_insights;
 mod export;
 mod favicons;
-mod net_guard;
+// `net_guard` is the SSRF guard reused by W-ENRICH-1's content-fetch egress (06 §2b: every page URL
+// AND every API sub-resource is checked). Promoted to `pub(crate)` so the enrichment plane can reach
+// `url_target_is_blocked` through the same chokepoint og:image fetching uses.
+pub(crate) mod net_guard;
 pub mod og_images;
 pub mod og_images_fetch;
 pub mod og_images_synth;
@@ -53,7 +56,7 @@ const LIST_HISTORY_LEXICAL_SQL: &str = r#"
 WITH search_matches AS (
   SELECT
     rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0) AS score
+    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0) AS score
   FROM search.history_search_terms
   WHERE :termsFtsQuery IS NOT NULL
     AND history_search_terms MATCH :termsFtsQuery

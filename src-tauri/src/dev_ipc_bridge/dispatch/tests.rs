@@ -832,6 +832,39 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(&state, "relaunch_after_update", json!({}));
 
+    // W-ENRICH-1 content-fetch command surface (covers dispatch.rs routing arms + the 5
+    // worker_bridge `_impl` fns). The archive was initialized above, so these reach real worker code.
+    dispatch_for_coverage(&state, "get_content_fetch_settings", json!({}));
+    dispatch_for_coverage(
+        &state,
+        "set_content_fetch_settings",
+        json!({
+            "settings": {
+                "enabled": true,
+                "extractors": [],
+                "domains": [],
+                "queuedJobs": 0,
+                "runningJobs": 0,
+                "failedJobs": 0,
+                "storedRecords": 0
+            }
+        }),
+    );
+    dispatch_for_coverage(&state, "list_visit_enrichment", json!({ "historyId": 1 }));
+    dispatch_for_coverage(
+        &state,
+        "content_fetch_now",
+        json!({
+            "request": {
+                "historyId": 1,
+                "profileId": "chrome:Default",
+                "url": "https://github.com/o/r",
+                "title": null
+            }
+        }),
+    );
+    dispatch_for_coverage(&state, "enqueue_content_fetch_working_set", json!({ "limit": 10 }));
+
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);

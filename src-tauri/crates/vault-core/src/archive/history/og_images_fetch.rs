@@ -101,10 +101,15 @@ const SEC_CH_UA_PLATFORM: &str = "\"Linux\"";
 /// `Arc<FetchClient>` to every worker thread.
 pub type FetchClient = Client;
 
-/// Builds the reqwest client used by the fetch pipeline. Exposed so the
-/// orchestrator can share one client across many fetches (connection
-/// pool reuse, single timeout policy).
-pub fn build_fetch_client() -> Result<Client> {
+/// Redirect-hop budget shared by both clients (Chrome's same-host org budget).
+const REDIRECT_HOP_BUDGET: usize = 8;
+
+/// Builds the constant header + timeout config both fetch clients share (no redirect policy yet).
+///
+/// Split out so the og:image client ([`build_fetch_client`]) and the SSRF-re-guarding content-fetch
+/// client ([`build_guarded_fetch_client`]) carry the IDENTICAL privacy posture (desktop Chrome UA, no
+/// Referer/cookies/fingerprint, 15s/10s timeouts) and differ ONLY in their redirect policy.
+fn fetch_client_builder() -> reqwest::blocking::ClientBuilder {
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static(ACCEPT_LANGUAGE_VALUE));
@@ -126,12 +131,44 @@ pub fn build_fetch_client() -> Result<Client> {
         .https_only(false)
         .timeout(Duration::from_secs(15))
         .connect_timeout(Duration::from_secs(10))
+}
+
+/// Builds the reqwest client used by the fetch pipeline. Exposed so the
+/// orchestrator can share one client across many fetches (connection
+/// pool reuse, single timeout policy).
+pub fn build_fetch_client() -> Result<Client> {
+    fetch_client_builder()
         // www → apex, /article → /article/slug, http → https, share→canonical
         // — typical news/social posts go through 3–5 hops. The old
         // `limited(1)` budget made us miss the og:image on every single
         // redirecting host. 8 is the same budget Chrome uses for org
         // redirects on the same hostname.
-        .redirect(reqwest::redirect::Policy::limited(8))
+        .redirect(reqwest::redirect::Policy::limited(REDIRECT_HOP_BUDGET))
+        .build()
+        .map_err(Into::into)
+}
+
+/// Builds a fetch client that re-applies an SSRF guard on EVERY redirect hop (W-ENRICH-1 SEC-3).
+///
+/// Same privacy posture + timeouts as [`build_fetch_client`] (via [`fetch_client_builder`]), but the
+/// redirect policy is a CUSTOM one: each hop is validated by `hop_is_blocked` BEFORE it is followed, so
+/// a public page that 30x-redirects to `169.254.169.254` / loopback is STOPPED mid-chain (the og:image
+/// client's `Policy::limited` follows redirects with reqwest's own resolver and no per-hop check). The
+/// hop budget is preserved. The content-fetch runner passes the real `url_target_is_blocked` in
+/// production; the og:image client is deliberately untouched.
+pub fn build_guarded_fetch_client(hop_is_blocked: fn(&str) -> bool) -> Result<Client> {
+    fetch_client_builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= REDIRECT_HOP_BUDGET {
+                attempt.error("too many redirects")
+            } else if hop_is_blocked(attempt.url().as_str()) {
+                // A hop to a non-public address is stopped here: reqwest returns the redirect response
+                // itself (3xx) rather than following it, so the caller never fetches the private host.
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
         .build()
         .map_err(Into::into)
 }
@@ -1342,5 +1379,58 @@ mod tests {
             absolute.starts_with("https://example.com/relative/og.png"),
             "expected absolute URL, got {absolute}",
         );
+    }
+
+    // ── W-ENRICH-1 SEC-3: the per-hop-guarded fetch client ───────────────────────────────────────
+
+    /// A test guard that blocks any URL whose path contains `/internal` (stands in for the real SSRF
+    /// guard, which can't fire against mockito's 127.0.0.1 server).
+    fn block_internal_paths(url: &str) -> bool {
+        url.contains("/internal")
+    }
+
+    fn allow_all_hops(_url: &str) -> bool {
+        false
+    }
+
+    #[test]
+    fn guarded_client_stops_at_a_blocked_redirect_hop() {
+        // SEC-3 line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
+        // response itself rather than following it to the blocked host.
+        let mut server = mockito::Server::new();
+        let _redirect = server
+            .mock("GET", "/start")
+            .with_status(302)
+            .with_header("location", "/internal/secret")
+            .create();
+        // The /internal target is mounted but must NEVER be fetched (the guard stops the hop).
+        let internal = server
+            .mock("GET", "/internal/secret")
+            .with_status(200)
+            .with_body("SECRET")
+            .expect(0)
+            .create();
+
+        let client = build_guarded_fetch_client(block_internal_paths).expect("guarded client");
+        let response = client.get(format!("{}/start", server.url())).send().expect("send");
+        // The stop arm yields the 3xx redirect response (not the followed 200).
+        assert_eq!(response.status().as_u16(), 302);
+        internal.assert(); // the blocked host was never fetched
+    }
+
+    #[test]
+    fn guarded_client_errors_after_too_many_redirects() {
+        // SEC-3 line coverage: exceeding the hop budget makes the redirect policy error out.
+        let mut server = mockito::Server::new();
+        // A self-redirect loop: every GET 302s back to /loop, exceeding the 8-hop budget.
+        let _loop_mock = server
+            .mock("GET", "/loop")
+            .with_status(302)
+            .with_header("location", "/loop")
+            .expect_at_least(2)
+            .create();
+        let client = build_guarded_fetch_client(allow_all_hops).expect("guarded client");
+        let result = client.get(format!("{}/loop", server.url())).send();
+        assert!(result.is_err(), "a redirect loop past the budget must error, not loop forever");
     }
 }

@@ -27,6 +27,10 @@ mod artifacts;
 mod backup;
 mod doctor;
 mod history;
+// Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
+// `crate::archive::history::net_guard::url_target_is_blocked` through the same chokepoint og:image
+// fetching uses (history itself is a private module, so the path needs a crate-visible re-export).
+pub(crate) use self::history::net_guard;
 mod ingest;
 mod intelligence_projection;
 mod maintenance;
@@ -64,7 +68,8 @@ pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, max_schema_version, run_migrations};
 pub(crate) use self::search_projection::{
-    rebuild_search_projection, refresh_search_projection_for_import_batch,
+    rebuild_search_projection, refresh_enrichment_text_for_history,
+    refresh_search_projection_for_import_batch,
 };
 pub use self::source_evidence::open_source_evidence_connection;
 pub(crate) use self::source_evidence::{

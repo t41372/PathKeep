@@ -533,6 +533,39 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<RenameAgentConversationRequest>>(payload)?;
             json_value!(worker_bridge::rename_ai_conversation_impl(payload.request)?)
         }
+        "get_content_fetch_settings" => {
+            json_value!(worker_bridge::content_fetch_settings_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "set_content_fetch_settings" => {
+            let payload = parse_payload::<ContentFetchSettingsPayload>(payload)?;
+            json_value!(worker_bridge::set_content_fetch_settings_impl(
+                payload.settings,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "list_visit_enrichment" => {
+            let payload = parse_payload::<HistoryIdPayload>(payload)?;
+            json_value!(worker_bridge::list_visit_enrichment_impl(
+                payload.history_id,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "content_fetch_now" => {
+            let payload = parse_payload::<ContentFetchNowPayload>(payload)?;
+            json_value!(worker_bridge::content_fetch_now_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "enqueue_content_fetch_working_set" => {
+            let payload = parse_payload::<ContentFetchWorkingSetPayload>(payload)?;
+            json_value!(worker_bridge::enqueue_content_fetch_working_set_impl(
+                payload.limit,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::run_core_intelligence_now_impl(
