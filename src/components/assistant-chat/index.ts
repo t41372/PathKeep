@@ -44,3 +44,18 @@ export type {
   AssistantTranslator,
   BuildAssistantChatCopyOptions,
 } from './assistant-chat-copy'
+
+export { ChatHistoryExplorer } from './chat-history-explorer'
+export type {
+  ChatHistoryCopy,
+  ChatHistoryExplorerProps,
+} from './chat-history-explorer'
+
+export { buildChatHistoryCopy, formatRelativeTime } from './chat-history-copy'
+
+export { useChatHistory } from './use-chat-history'
+export type {
+  ChatHistoryBackend,
+  ChatHistoryState,
+  UseChatHistoryOptions,
+} from './use-chat-history'

@@ -20,8 +20,14 @@
 //! ## Performance notes
 //!
 //! Commands in this file must not run model/index work on the Tauri UI thread;
-//! heavy work stays behind worker-owned queue and index entrypoints.
+//! heavy work stays behind worker-owned queue and index entrypoints. The
+//! conversation-persistence commands touch SQLite synchronously (a save does a
+//! full DELETE + re-INSERT of a transcript), so they hop onto the blocking
+//! thread pool via `run_blocking_command` — on the 14.4M-record baseline even a
+//! bounded agent-plane write must never block the WebView thread.
 
+#[cfg(not(test))]
+use super::super::blocking::run_blocking_command;
 #[cfg(not(test))]
 use crate::{session::SessionState, worker_bridge};
 #[cfg(not(test))]
@@ -141,4 +147,68 @@ pub(crate) fn ask_ai_assistant(
 /// Generates the local MCP and skill integration preview files.
 pub(crate) fn preview_ai_integrations() -> Result<vault_core::AiIntegrationPreview, String> {
     worker_bridge::preview_ai_integrations_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Persists (upsert) one assistant conversation and replaces its message transcript, off the UI
+/// thread.
+///
+/// The agent sidecar is a keyless derived plane, so no session key is passed. The save is a full
+/// DELETE + re-INSERT of the transcript in SQLite, so it runs on the blocking thread pool.
+pub(crate) async fn save_ai_conversation(
+    request: vault_core::SaveAgentConversationRequest,
+) -> Result<vault_core::AgentConversationSummary, String> {
+    run_blocking_command("save_ai_conversation", move || {
+        worker_bridge::save_ai_conversation_impl(request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Lists persisted conversations newest-first for the chat-history explorer, off the UI thread.
+pub(crate) async fn list_ai_conversations(
+    request: vault_core::ListAgentConversationsRequest,
+) -> Result<vault_core::AgentConversationListResponse, String> {
+    run_blocking_command("list_ai_conversations", move || {
+        worker_bridge::list_ai_conversations_impl(request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads one persisted conversation plus its full message transcript, off the UI thread.
+pub(crate) async fn load_ai_conversation(
+    conversation_id: String,
+) -> Result<Option<vault_core::AgentConversationDetail>, String> {
+    run_blocking_command("load_ai_conversation", move || {
+        worker_bridge::load_ai_conversation_impl(conversation_id)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Deletes one persisted conversation (cascading its messages), off the UI thread.
+pub(crate) async fn delete_ai_conversation(
+    conversation_id: String,
+) -> Result<vault_core::DeleteAgentConversationResult, String> {
+    run_blocking_command("delete_ai_conversation", move || {
+        worker_bridge::delete_ai_conversation_impl(conversation_id)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Renames one persisted conversation, off the UI thread.
+pub(crate) async fn rename_ai_conversation(
+    request: vault_core::RenameAgentConversationRequest,
+) -> Result<Option<vault_core::AgentConversationSummary>, String> {
+    run_blocking_command("rename_ai_conversation", move || {
+        worker_bridge::rename_ai_conversation_impl(request)
+    })
+    .await
 }

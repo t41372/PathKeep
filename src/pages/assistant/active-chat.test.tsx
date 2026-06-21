@@ -364,4 +364,254 @@ describe('AssistantPage — active streaming chat', () => {
       ]),
     )
   })
+
+  test('persists a finished turn to the conversation store, then refreshes the list', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-save' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    const saveConversation = vi
+      .spyOn(backend, 'saveAiConversation')
+      .mockResolvedValue({
+        id: 'conv-saved',
+        title: 'persist this',
+        providerId: 'llm-local',
+        createdAt: '2026-06-20T12:00:00Z',
+        updatedAt: '2026-06-20T12:00:00Z',
+        messageCount: 2,
+      })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'persist this{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'an answer worth saving' })
+    emit({ kind: 'done' })
+
+    // The finalize microtask persists the transcript with both turns.
+    await waitFor(() => expect(saveConversation).toHaveBeenCalledTimes(1))
+    const saved = saveConversation.mock.calls[0][0]
+    expect(saved.messages).toHaveLength(2)
+    expect(saved.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'persist this',
+    })
+    expect(saved.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: 'an answer worth saving',
+      status: 'done',
+    })
+    expect(saved.providerId).toBe('llm-local')
+  })
+
+  test('opens a saved conversation from the explorer and hydrates the transcript', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-past',
+          title: 'A past conversation',
+          providerId: 'llm-local',
+          createdAt: '2026-06-19T09:00:00Z',
+          updatedAt: '2026-06-19T09:30:00Z',
+          messageCount: 2,
+        },
+      ],
+    })
+    vi.spyOn(backend, 'loadAiConversation').mockResolvedValue({
+      id: 'conv-past',
+      title: 'A past conversation',
+      providerId: 'llm-local',
+      createdAt: '2026-06-19T09:00:00Z',
+      updatedAt: '2026-06-19T09:30:00Z',
+      messageCount: 2,
+      messages: [
+        {
+          id: 'pm1',
+          role: 'user',
+          content: 'old question',
+          reasoning: null,
+          toolCallsJson: null,
+          status: null,
+        },
+        {
+          id: 'pm2',
+          role: 'assistant',
+          content: 'old hydrated answer',
+          reasoning: null,
+          toolCallsJson: null,
+          status: 'done',
+        },
+      ],
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // Open the (collapsed) history drawer.
+    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    // The list row appears once the list load resolves.
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Open conversation: A past conversation',
+      }),
+    )
+
+    // The hydrated transcript replaces the empty greeting.
+    expect(await screen.findByText('old question')).toBeVisible()
+    expect(screen.getByText('old hydrated answer')).toBeVisible()
+  })
+
+  test('opening a conversation that vanished leaves the transcript untouched', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-gone',
+          title: 'Vanished chat',
+          providerId: 'llm-local',
+          createdAt: '2026-06-19T09:00:00Z',
+          updatedAt: '2026-06-19T09:30:00Z',
+          messageCount: 1,
+        },
+      ],
+    })
+    // The load resolves to null (deleted elsewhere): the chat hook must not be reset/hydrated.
+    vi.spyOn(backend, 'loadAiConversation').mockResolvedValue(null)
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Open conversation: Vanished chat',
+      }),
+    )
+    // Still on the empty greeting (the missing conversation produced no hydration).
+    expect(
+      await screen.findByText(assistantT('chatGreetingTitle')),
+    ).toBeVisible()
+  })
+
+  test('New chat clears the transcript back to the greeting', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-new' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-x',
+      title: 'something',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 2,
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'something{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'an answer' })
+    emit({ kind: 'done' })
+    expect(await screen.findByText('an answer')).toBeVisible()
+
+    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(screen.getByTestId('assistant-chat-history-new-chat'))
+
+    // Back to the greeting; the prior answer is gone.
+    expect(
+      await screen.findByText(assistantT('chatGreetingTitle')),
+    ).toBeVisible()
+    expect(screen.queryByText('an answer')).not.toBeInTheDocument()
+  })
+
+  test('deletes a saved conversation from the explorer with confirmation', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-del',
+          title: 'Deletable chat',
+          providerId: 'llm-local',
+          createdAt: '2026-06-19T09:00:00Z',
+          updatedAt: '2026-06-19T09:30:00Z',
+          messageCount: 1,
+        },
+      ],
+    })
+    const deleteConversation = vi
+      .spyOn(backend, 'deleteAiConversation')
+      .mockResolvedValue({ deleted: true })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(
+      await screen.findByTestId('assistant-chat-history-row-conv-del-delete'),
+    )
+    await user.click(
+      screen.getByTestId('assistant-chat-history-row-conv-del-confirm-delete'),
+    )
+    expect(deleteConversation).toHaveBeenCalledWith('conv-del')
+  })
+
+  test('renames a saved conversation from the explorer', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-rn',
+          title: 'Old title',
+          providerId: 'llm-local',
+          createdAt: '2026-06-19T09:00:00Z',
+          updatedAt: '2026-06-19T09:30:00Z',
+          messageCount: 1,
+        },
+      ],
+    })
+    const renameConversation = vi
+      .spyOn(backend, 'renameAiConversation')
+      .mockResolvedValue({
+        id: 'conv-rn',
+        title: 'New title',
+        providerId: 'llm-local',
+        createdAt: '2026-06-19T09:00:00Z',
+        updatedAt: '2026-06-19T09:35:00Z',
+        messageCount: 1,
+      })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(
+      await screen.findByTestId('assistant-chat-history-row-conv-rn-rename'),
+    )
+    const input = await screen.findByTestId(
+      'assistant-chat-history-row-conv-rn-rename-input',
+    )
+    await user.clear(input)
+    await user.type(input, 'New title')
+    await user.click(
+      screen.getByTestId('assistant-chat-history-row-conv-rn-rename-save'),
+    )
+    expect(renameConversation).toHaveBeenCalledWith({
+      id: 'conv-rn',
+      title: 'New title',
+    })
+  })
 })

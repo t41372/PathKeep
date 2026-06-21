@@ -575,6 +575,84 @@ export interface AiChatStreamEvent {
 }
 
 /**
+ * One persisted assistant-chat message (mirrors the backend `AgentMessage` and the in-memory
+ * `ChatMessage` shape). `toolCallsJson` is the serialized `AssistantToolCall[]` exactly as it was
+ * rendered; persisting it as opaque JSON keeps the store decoupled from the evolving tool schema.
+ */
+export interface AgentMessage {
+  id: string
+  /** `'user'` or `'assistant'`. */
+  role: string
+  content: string
+  reasoning?: string | null
+  toolCallsJson?: string | null
+  /** Terminal turn status (`done` / `error` / `cancelled`); absent for user messages. */
+  status?: string | null
+}
+
+/**
+ * Lightweight conversation row for the chat-history explorer list (no message bodies).
+ */
+export interface AgentConversationSummary {
+  id: string
+  title: string
+  /** LLM provider id active when saved (display only; never a model id). */
+  providerId?: string | null
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
+
+/**
+ * One conversation plus its full (bounded) message transcript. The summary fields are flattened
+ * onto this object by the backend (`#[serde(flatten)]`), so it carries both the list metadata and
+ * the messages.
+ */
+export interface AgentConversationDetail extends AgentConversationSummary {
+  messages: AgentMessage[]
+}
+
+/**
+ * Request payload for `save_ai_conversation`: upsert a conversation + replace its messages. When
+ * `title` is omitted/blank the backend derives one from the first user message.
+ */
+export interface SaveAgentConversationRequest {
+  id: string
+  title?: string | null
+  providerId?: string | null
+  messages: AgentMessage[]
+}
+
+/**
+ * Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
+ */
+export interface ListAgentConversationsRequest {
+  limit?: number | null
+}
+
+/**
+ * Response for `list_ai_conversations`.
+ */
+export interface AgentConversationListResponse {
+  conversations: AgentConversationSummary[]
+}
+
+/**
+ * Request payload for `rename_ai_conversation`.
+ */
+export interface RenameAgentConversationRequest {
+  id: string
+  title: string
+}
+
+/**
+ * Result of `delete_ai_conversation`: whether a row with the id existed and was removed.
+ */
+export interface DeleteAgentConversationResult {
+  deleted: boolean
+}
+
+/**
  * Represents the preview payload shown before a write or high-risk action happens.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.

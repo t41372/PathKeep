@@ -437,4 +437,122 @@ describe('useAiChatStream', () => {
     act(() => h.hook.unmount())
     expect(h.unsubscribe).toHaveBeenCalledTimes(1)
   })
+
+  test('seeds the transcript from initialMessages on first mount', () => {
+    const sendChat = vi.fn().mockResolvedValue({ runId: 'run-1' })
+    const cancelChat = vi.fn().mockResolvedValue({ cancelled: true })
+    const subscribe = vi.fn().mockResolvedValue(vi.fn())
+    const hook = renderHook(() =>
+      useAiChatStream({
+        sendChat,
+        cancelChat,
+        subscribe,
+        initialMessages: [
+          { id: 'h1', role: 'user', content: 'earlier prompt' },
+          {
+            id: 'h2',
+            role: 'assistant',
+            content: 'earlier answer',
+            status: 'done',
+          },
+        ],
+      }),
+    )
+    expect(hook.result.current.messages).toHaveLength(2)
+    expect(hook.result.current.messages[0].content).toBe('earlier prompt')
+    // A blank-default mount seeds an empty transcript.
+    const empty = renderHook(() =>
+      useAiChatStream({ sendChat, cancelChat, subscribe }),
+    )
+    expect(empty.result.current.messages).toHaveLength(0)
+  })
+
+  test('invokes onTurnFinalized with the finalized transcript on done', async () => {
+    const onTurnFinalized = vi.fn()
+    const sendChat = vi.fn().mockResolvedValue({ runId: 'run-fin' })
+    const cancelChat = vi.fn().mockResolvedValue({ cancelled: true })
+    let feed: ((chunk: AiChatStreamChunk) => void) | null = null
+    const subscribe = vi.fn(
+      (_runId: string, listener: (chunk: AiChatStreamChunk) => void) => {
+        feed = listener
+        return Promise.resolve(vi.fn() as () => void)
+      },
+    )
+    const hook = renderHook(() =>
+      useAiChatStream({ sendChat, cancelChat, subscribe, onTurnFinalized }),
+    )
+
+    act(() => hook.result.current.send('persist me'))
+    await settle()
+    act(() => feed?.({ kind: 'token', text: 'answer text' }))
+    act(() => feed?.({ kind: 'done' }))
+    // The microtask-scheduled callback fires after a flush.
+    await settle()
+
+    expect(onTurnFinalized).toHaveBeenCalledTimes(1)
+    const lastArg = onTurnFinalized.mock.calls[0][0] as Array<{
+      role: string
+      content: string
+      status?: string
+    }>
+    expect(lastArg).toHaveLength(2)
+    expect(lastArg[0]).toMatchObject({ role: 'user', content: 'persist me' })
+    expect(lastArg[1]).toMatchObject({
+      role: 'assistant',
+      content: 'answer text',
+      status: 'done',
+    })
+  })
+
+  test('reset clears the transcript, tears down a live turn, and cancels the run', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({ kind: 'token', text: 'partial' })
+    act(() => runFrame())
+    expect(h.hook.result.current.messages).toHaveLength(2)
+
+    act(() => h.hook.result.current.reset())
+    expect(h.hook.result.current.messages).toHaveLength(0)
+    expect(h.hook.result.current.streaming).toBe(false)
+    // The live run is best-effort cancelled and its subscription torn down.
+    expect(h.cancelChat).toHaveBeenCalledWith('run-1')
+    expect(h.unsubscribe).toHaveBeenCalledTimes(1)
+
+    // A late chunk after reset is dropped (generation guard).
+    h.feed({ kind: 'token', text: 'too late' })
+    act(() => runFrame())
+    expect(h.hook.result.current.messages).toHaveLength(0)
+  })
+
+  test('reset swallows a rejected cancelChat from the torn-down run', async () => {
+    const cancelChat = vi.fn().mockRejectedValue(new Error('cancel failed'))
+    const h = makeHarness({ cancelChat })
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    // Reset on a live run best-effort cancels it; a rejected cancel must not throw.
+    act(() => h.hook.result.current.reset())
+    await settle()
+    expect(cancelChat).toHaveBeenCalledWith('run-1')
+    expect(h.hook.result.current.messages).toHaveLength(0)
+  })
+
+  test('reset hydrates a past conversation when given messages', () => {
+    const h = makeHarness()
+    act(() =>
+      h.hook.result.current.reset([
+        { id: 'p1', role: 'user', content: 'opened from history' },
+        {
+          id: 'p2',
+          role: 'assistant',
+          content: 'hydrated answer',
+          status: 'done',
+        },
+      ]),
+    )
+    expect(h.hook.result.current.messages).toHaveLength(2)
+    expect(h.hook.result.current.messages[1].content).toBe('hydrated answer')
+    // reset on an idle hook (no live run) does not call cancelChat.
+    expect(h.cancelChat).not.toHaveBeenCalled()
+  })
 })

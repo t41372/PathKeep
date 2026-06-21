@@ -12,6 +12,7 @@
 //! - worker orchestration glue that combines multiple subsystems for one UI
 //!   action
 
+pub mod agent_store;
 pub mod ai;
 pub mod ai_queue;
 pub mod ai_sidecar;
@@ -47,6 +48,10 @@ pub use ai::{
     preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
     reconcile_ai_queue_controls, register_ai_chat_run, request_ai_chat_cancel,
     semantic_search_history, summarize_query_family, summarize_topic, test_provider_connection,
+};
+pub use agent_store::{
+    delete_conversation, ensure_agent_schema, list_conversations, load_conversation,
+    open_agent_connection, rename_conversation, save_conversation,
 };
 pub use annotations::{
     get_annotation, list_annotations, replace_tags, search_annotations, set_notes,

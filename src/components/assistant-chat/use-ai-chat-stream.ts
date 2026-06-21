@@ -78,6 +78,19 @@ export interface AiChatStreamDeps {
   providerId?: string | null
   /** System prompt prepended to the transcript on each turn, when set. */
   systemPrompt?: string | null
+  /**
+   * Initial messages used to seed the conversation on first mount (e.g. when opening the route on
+   * a hydrated past conversation). Read once at mount; later changes do not re-seed — use
+   * `reset(messages)` to switch conversations after mount.
+   */
+  initialMessages?: ChatMessage[]
+  /**
+   * Called once per turn the instant it finalizes (done / error / cancelled), with the full
+   * resulting message list. The route persists from here — on finalize, never per chunk — so a
+   * save can never jank the stream. Invoked asynchronously (microtask) after the finalize
+   * `setMessages`, so it is off the render path.
+   */
+  onTurnFinalized?: (messages: ChatMessage[]) => void
 }
 
 /** What the hook hands back to the chat view. */
@@ -91,6 +104,12 @@ export interface AiChatStreamState {
   send: (text: string) => void
   /** Cancel the in-flight turn (best-effort; UI finalizes immediately). */
   cancel: () => void
+  /**
+   * Replace the whole transcript: pass a hydrated message list to open a past conversation, or
+   * `[]` (or nothing) to start a fresh chat. Tears down any in-flight turn first, so a switch can
+   * never leave a stale stream writing into the new conversation.
+   */
+  reset: (messages?: ChatMessage[]) => void
 }
 
 /**
@@ -101,7 +120,11 @@ export interface AiChatStreamState {
  * assistant message so only that one message re-renders per frame.
  */
 export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Seed from `initialMessages` once (lazy initializer); later prop changes do NOT re-seed —
+  // switching conversations after mount goes through `reset` so an in-flight turn is torn down.
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    () => deps.initialMessages ?? [],
+  )
   const [streaming, setStreaming] = useState(false)
   const [awaitingFirstChunk, setAwaitingFirstChunk] = useState(false)
 
@@ -213,24 +236,34 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         reasoning: buffer.reasoning,
         toolCalls: buffer.toolCalls.slice(),
       }
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === id
-            ? {
-                ...message,
-                content: snapshot.content,
-                reasoning: snapshot.reasoning,
-                toolCalls: snapshot.toolCalls,
-                status,
-                error,
-              }
-            : message,
-        ),
+      // The finalized list to persist: the committed messages (from the ref, which holds the
+      // transcript that `send` set + every flush) with the active assistant turn sealed with its
+      // terminal status. Computed once here so the persistence callback fires with the exact
+      // transcript the user sees, without reading inside the setState updater.
+      const finalized = messagesRef.current.map((message) =>
+        message.id === id
+          ? {
+              ...message,
+              content: snapshot.content,
+              reasoning: snapshot.reasoning,
+              toolCalls: snapshot.toolCalls,
+              status,
+              error,
+            }
+          : message,
       )
+      setMessages(finalized)
       activeIdRef.current = null
       runIdRef.current = null
       setStreaming(false)
       setAwaitingFirstChunk(false)
+      // Persist-on-finalize, off the render path: fire the callback on a microtask so the save
+      // never runs synchronously inside the finalize setState (which would extend the commit and
+      // could jank the very last frame of the stream).
+      const onFinalized = depsRef.current.onTurnFinalized
+      if (onFinalized) {
+        queueMicrotask(() => onFinalized(finalized))
+      }
     },
     [stopRaf, teardownSubscription],
   )
@@ -382,6 +415,40 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
     finalize('cancelled')
   }, [finalize])
 
+  /**
+   * Replace the transcript wholesale (open a past conversation or start a new chat).
+   *
+   * Supersedes any live turn (generation bump + teardown) and best-effort-cancels its backend run
+   * so a switch can never leave a stale stream writing into the new conversation, then drops the
+   * stream flags and the buffer. Does NOT call `onTurnFinalized` — switching is not a finished
+   * turn; the caller already holds whatever it needs to persist.
+   */
+  const reset = useCallback(
+    (next?: ChatMessage[]) => {
+      const runId = runIdRef.current
+      genRef.current += 1
+      stopRaf()
+      teardownSubscription()
+      if (runId) {
+        void depsRef.current.cancelChat(runId).catch(() => {
+          // Best-effort: the UI is moving on regardless of whether the backend acks the cancel.
+        })
+      }
+      bufferRef.current = {
+        content: '',
+        reasoning: '',
+        toolCalls: [],
+        sawFirstChunk: false,
+      }
+      activeIdRef.current = null
+      runIdRef.current = null
+      setMessages(next ?? [])
+      setStreaming(false)
+      setAwaitingFirstChunk(false)
+    },
+    [stopRaf, teardownSubscription],
+  )
+
   // Tear everything down on unmount so a late chunk can't touch a dead component.
   useEffect(() => {
     return () => {
@@ -391,5 +458,5 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
     }
   }, [stopRaf, teardownSubscription])
 
-  return { messages, streaming, awaitingFirstChunk, send, cancel }
+  return { messages, streaming, awaitingFirstChunk, send, cancel, reset }
 }

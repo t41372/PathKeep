@@ -31,16 +31,17 @@ use serde_json::{Value, json};
 use std::future::Future;
 use tempfile::tempdir;
 use vault_core::{
-    AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
+    AgentMessage, AiAssistantRequest, AiChatMessage, AiChatRole, AiChatSendRequest, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderPurpose, AiProviderSecretInput, AiSearchRequest,
     AppConfig, AppUpdateInstallRequest, ArchiveMode, BrowserHistoryImportRequest,
     CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
     DateRange, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
     EntityExplanationRequest, ExportFormat, ExportRequest, FrontendErrorReportRequest,
     GeneratedFile, GranularityDateRangeRequest, HistoryFaviconLookupEntry, HistoryQuery,
-    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, PagedDateRangeRequest,
-    PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest, RefindPageDetailRequest,
-    RefindPagesRequest, RetentionPruneRequest, SchedulePlan, ScopedDateRangeRequest,
+    IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest, ListAgentConversationsRequest,
+    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
+    RefindPageDetailRequest, RefindPagesRequest, RenameAgentConversationRequest,
+    RetentionPruneRequest, SaveAgentConversationRequest, SchedulePlan, ScopedDateRangeRequest,
     SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
     SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest, TakeoutRequest,
     TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
@@ -479,6 +480,46 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         }),
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
+    dispatch_for_coverage(
+        &state,
+        "save_ai_conversation",
+        wrapped(SaveAgentConversationRequest {
+            id: "dispatch-conv".to_string(),
+            title: None,
+            provider_id: Some("llm-local".to_string()),
+            messages: vec![AgentMessage {
+                id: "dispatch-m1".to_string(),
+                role: "user".to_string(),
+                content: "remember this conversation".to_string(),
+                reasoning: None,
+                tool_calls_json: None,
+                status: None,
+            }],
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "list_ai_conversations",
+        wrapped(ListAgentConversationsRequest { limit: Some(10) }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "load_ai_conversation",
+        json!({ "conversationId": "dispatch-conv" }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "rename_ai_conversation",
+        wrapped(RenameAgentConversationRequest {
+            id: "dispatch-conv".to_string(),
+            title: "renamed dispatch conversation".to_string(),
+        }),
+    );
+    dispatch_for_coverage(
+        &state,
+        "delete_ai_conversation",
+        json!({ "conversationId": "dispatch-conv" }),
+    );
     dispatch_for_coverage(
         &state,
         "run_core_intelligence_now",

@@ -610,6 +610,96 @@ pub struct AiChatStreamEvent {
     pub chunk: AiChatStreamChunk,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// One persisted assistant-chat message as stored in `derived/agent.sqlite`.
+///
+/// Mirrors the front-end `ChatMessage` shape (id/role/content/reasoning/toolCalls/status) so a
+/// past conversation can rehydrate the streaming chat hook verbatim. `toolCallsJson` is the
+/// serialized `AssistantToolCall[]` exactly as the UI rendered it; persisting it as opaque JSON
+/// keeps the agent sidecar decoupled from the tool schema (which W-AI-7 will evolve).
+pub struct AgentMessage {
+    pub id: String,
+    /// `"user"` or `"assistant"` (the persisted transcript roles).
+    pub role: String,
+    pub content: String,
+    /// Accumulated reasoning/thinking text (assistant turns only).
+    pub reasoning: Option<String>,
+    /// Serialized `AssistantToolCall[]` JSON (assistant turns only).
+    pub tool_calls_json: Option<String>,
+    /// Terminal turn status (`done` / `error` / `cancelled`); absent for user messages.
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Lightweight conversation row for the chat-history explorer list (no messages).
+///
+/// Bounded list reads return these (title + recency + size) so the explorer never loads message
+/// bodies it will not show; the full transcript is fetched lazily by [`AgentConversationDetail`].
+pub struct AgentConversationSummary {
+    pub id: String,
+    pub title: String,
+    /// LLM provider id active when the conversation was saved (for display only; never a model id).
+    pub provider_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub message_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// One conversation plus its full (bounded) message transcript.
+pub struct AgentConversationDetail {
+    #[serde(flatten)]
+    pub summary: AgentConversationSummary,
+    pub messages: Vec<AgentMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `save_ai_conversation`: upsert a conversation + replace its messages.
+///
+/// When `title` is `None`/blank the store derives one from the first user message. The full
+/// message list is sent on every save (persist-on-finalize, not per chunk) and atomically
+/// replaces the prior transcript for this conversation id.
+pub struct SaveAgentConversationRequest {
+    pub id: String,
+    pub title: Option<String>,
+    pub provider_id: Option<String>,
+    pub messages: Vec<AgentMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
+pub struct ListAgentConversationsRequest {
+    /// Maximum conversations to return (newest-first); the store clamps this to a safe ceiling.
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Response for `list_ai_conversations`.
+pub struct AgentConversationListResponse {
+    pub conversations: Vec<AgentConversationSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `rename_ai_conversation`.
+pub struct RenameAgentConversationRequest {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Result of `delete_ai_conversation`: whether a row with the id existed and was removed.
+pub struct DeleteAgentConversationResult {
+    pub deleted: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Request payload for semantic-plus-lexical history search.

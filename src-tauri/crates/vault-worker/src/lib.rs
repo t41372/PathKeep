@@ -53,6 +53,8 @@ pub use self::{
     intelligence::{
         ai_chat_cancel, ai_chat_send, ask_ai_assistant, build_ai_index_now,
         build_intelligence_local_host, cancel_ai_job, cancel_intelligence_job_now,
+        delete_ai_conversation, list_ai_conversations, load_ai_conversation,
+        rename_ai_conversation, save_ai_conversation,
         delete_search_engine_rule, explain_entity, explain_refind, get_activity_mix,
         get_activity_mix_trend, get_breadth_index, get_browsing_rhythm, get_compare_set_detail,
         get_compare_sets, get_day_insights, get_digest_summary, get_discovery_trend,

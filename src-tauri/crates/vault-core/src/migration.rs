@@ -102,7 +102,28 @@ pub const EXPORT_EXCLUSIONS_DOC: &[(&str, &str)] = &[
     ("quarantine/", "Quarantined files belong only to the source machine."),
     ("exports/", "Avoids packing previous export bundles into a new export."),
     ("models/", "Downloaded embedding/reranker models are re-downloadable on the target machine."),
+    ("derived/agent.sqlite", "Assistant chat transcripts stay on the source machine."),
 ];
+
+/// Files under `derived/` that are skipped by [`add_dir_to_zip_if_exists`] even though `derived/`
+/// is otherwise an included subtree.
+///
+/// The agent sidecar (`agent.sqlite` + its WAL/SHM siblings) holds assistant chat transcripts, a
+/// privacy-sensitive plane that — by data-sovereignty default — never rides the portable export
+/// bundle. The base name plus any `-wal`/`-shm`/`-journal` suffix is matched so WAL-mode artifacts
+/// are excluded too.
+const DERIVED_EXPORT_EXCLUDED_BASENAMES: &[&str] = &["agent.sqlite"];
+
+/// Returns true when a file basename belongs to a `derived/`-level export exclusion (the agent
+/// sidecar database and its WAL/SHM/journal siblings).
+fn is_derived_export_excluded(file_name: &str) -> bool {
+    DERIVED_EXPORT_EXCLUDED_BASENAMES.iter().any(|excluded| {
+        file_name == *excluded
+            || file_name == format!("{excluded}-wal")
+            || file_name == format!("{excluded}-shm")
+            || file_name == format!("{excluded}-journal")
+    })
+}
 
 /// Top-level subtrees of the project root that *are* included in the bundle.
 /// Listed explicitly so a new artifact directory does not silently leak
@@ -625,6 +646,17 @@ fn add_dir_to_zip_if_exists(
         let relative = path
             .strip_prefix(source_dir)
             .with_context(|| format!("stripping prefix for {}", path.display()))?;
+        // The agent sidecar (assistant chat transcripts) lives directly under `derived/` but is a
+        // privacy-sensitive plane excluded from the export bundle by data-sovereignty default.
+        if zip_prefix == "derived"
+            && relative.parent().is_none_or(|parent| parent.as_os_str().is_empty())
+            && relative
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_derived_export_excluded)
+        {
+            continue;
+        }
         let zip_path = format!("{zip_prefix}/{}", relative.to_string_lossy());
         add_file_to_zip(zip, path, &zip_path, options, manifest_files)?;
     }
@@ -973,6 +1005,44 @@ mod tests {
             "derived/marker.txt not restored on target",
         );
         assert!(dest_paths.archive_database_path.exists(), "archive db not restored on target",);
+    }
+
+    #[test]
+    fn export_excludes_agent_chat_transcripts_from_the_bundle() {
+        // Data-sovereignty default: the assistant chat sidecar (`derived/agent.sqlite`) must NOT
+        // ride the portable export, even though it sits inside the otherwise-included `derived/`
+        // subtree. Its WAL/SHM siblings are excluded too.
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+
+        // Seed the agent sidecar (and WAL-mode siblings) plus a sibling derived file that MUST ride.
+        fs::write(src_paths.agent_database_path.as_path(), b"chat transcripts").unwrap();
+        fs::write(src_paths.derived_dir.join("agent.sqlite-wal"), b"wal").unwrap();
+        fs::write(src_paths.derived_dir.join("agent.sqlite-shm"), b"shm").unwrap();
+
+        let bundle_target = src_dir.path().join("bundle.pathkeep");
+        let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
+
+        // The chat sidecar and all its siblings are absent from the manifest…
+        for forbidden in
+            ["derived/agent.sqlite", "derived/agent.sqlite-wal", "derived/agent.sqlite-shm"]
+        {
+            assert!(
+                !bundle.manifest.files.iter().any(|f| f.path == forbidden),
+                "{forbidden} must not be packed into the export bundle: {:?}",
+                bundle.manifest.files,
+            );
+        }
+        // …while an ordinary rebuildable derived file still rides.
+        assert!(
+            bundle.manifest.files.iter().any(|f| f.path == "derived/marker.txt"),
+            "non-excluded derived files must still be packed",
+        );
+        // The exclusion is documented for the import-preview surface.
+        assert!(
+            EXPORT_EXCLUSIONS_DOC.iter().any(|(path, _)| *path == "derived/agent.sqlite"),
+            "the agent sidecar exclusion must be documented",
+        );
     }
 
     #[test]

@@ -23,8 +23,11 @@
 //! worker-owned jobs or bounded worker calls.
 
 use vault_core::{
+    AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
     AiAssistantRequest, AiChatSendRequest, AiChatStreamEvent, AiIndexRequest,
     AiProviderConnectionTestRequest, AiProviderSecretInput, AiSearchRequest,
+    DeleteAgentConversationResult, ListAgentConversationsRequest, RenameAgentConversationRequest,
+    SaveAgentConversationRequest,
 };
 
 use super::super::worker_result;
@@ -150,4 +153,53 @@ pub(crate) fn ai_chat_cancel_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AiChatCancelResult, String> {
     worker_result(vault_worker::ai_chat_cancel(session_database_key, &run_id))
+}
+
+/// Persists (upsert) one assistant conversation and replaces its message transcript.
+///
+/// The agent plane is a keyless derived sidecar, so no session key is threaded here.
+///
+/// `cfg_attr(test, allow(dead_code))`: the only callers are the `#[cfg(not(test))]` Tauri command
+/// and the dev-IPC dispatch, so this is genuinely unused in the lib's test build (same pattern as
+/// the chat-stream impls above).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn save_ai_conversation_impl(
+    request: SaveAgentConversationRequest,
+) -> Result<AgentConversationSummary, String> {
+    worker_result(vault_worker::save_ai_conversation(&request))
+}
+
+/// Lists persisted conversations newest-first (bounded list of summaries).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn list_ai_conversations_impl(
+    request: ListAgentConversationsRequest,
+) -> Result<AgentConversationListResponse, String> {
+    worker_result(vault_worker::list_ai_conversations(&request))
+}
+
+/// Loads one persisted conversation plus its full message transcript.
+///
+/// Returns `Ok(None)` for an unknown id so the front end can show a clear "not found" instead of
+/// surfacing an error envelope for an ordinary deleted-elsewhere race.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn load_ai_conversation_impl(
+    conversation_id: String,
+) -> Result<Option<AgentConversationDetail>, String> {
+    worker_result(vault_worker::load_ai_conversation(&conversation_id))
+}
+
+/// Deletes one persisted conversation (cascading its messages).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn delete_ai_conversation_impl(
+    conversation_id: String,
+) -> Result<DeleteAgentConversationResult, String> {
+    worker_result(vault_worker::delete_ai_conversation(&conversation_id))
+}
+
+/// Renames one persisted conversation; returns `Ok(None)` when the id is unknown.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn rename_ai_conversation_impl(
+    request: RenameAgentConversationRequest,
+) -> Result<Option<AgentConversationSummary>, String> {
+    worker_result(vault_worker::rename_ai_conversation(&request))
 }

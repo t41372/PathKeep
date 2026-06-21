@@ -14,6 +14,9 @@
  */
 
 import type {
+  AgentConversationDetail,
+  AgentConversationListResponse,
+  AgentConversationSummary,
   AiAssistantRequest,
   AiAssistantResponse,
   AiChatCancelResult,
@@ -31,7 +34,11 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
+  DeleteAgentConversationResult,
   IntelligenceRuntimeSnapshot,
+  ListAgentConversationsRequest,
+  RenameAgentConversationRequest,
+  SaveAgentConversationRequest,
 } from '../types'
 import type {
   CoreIntelligenceQueueReport,
@@ -74,6 +81,22 @@ export const intelligenceClient = {
     call<AiChatSendAck>('ai_chat_send', { request }),
   cancelChat: (runId: string) =>
     call<AiChatCancelResult>('ai_chat_cancel', { runId }),
+  saveConversation: (request: SaveAgentConversationRequest) =>
+    call<AgentConversationSummary>('save_ai_conversation', { request }),
+  listConversations: (request: ListAgentConversationsRequest = {}) =>
+    call<AgentConversationListResponse>('list_ai_conversations', { request }),
+  loadConversation: (conversationId: string) =>
+    call<AgentConversationDetail | null>('load_ai_conversation', {
+      conversationId,
+    }),
+  deleteConversation: (conversationId: string) =>
+    call<DeleteAgentConversationResult>('delete_ai_conversation', {
+      conversationId,
+    }),
+  renameConversation: (request: RenameAgentConversationRequest) =>
+    call<AgentConversationSummary | null>('rename_ai_conversation', {
+      request,
+    }),
   listSearchEngineRules: () =>
     call<SearchEngineRule[]>('list_search_engine_rules'),
   upsertSearchEngineRule: (input: SearchEngineRuleInput) =>

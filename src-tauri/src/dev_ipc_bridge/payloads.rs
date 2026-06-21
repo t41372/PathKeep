@@ -195,6 +195,13 @@ pub(super) struct RunIdStringPayload {
     pub(super) run_id: String,
 }
 
+/// Selects a persisted chat conversation (opaque string id) for load or delete.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ConversationIdPayload {
+    pub(super) conversation_id: String,
+}
+
 /// Selects a canonical visit for navigation-path lookups.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

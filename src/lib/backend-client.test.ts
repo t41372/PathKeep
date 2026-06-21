@@ -668,6 +668,54 @@ describe('backend client', () => {
         command: 'ai_chat_cancel',
         args: { runId: 'run-1' },
       },
+      {
+        run: () =>
+          intelligenceClient.saveConversation({
+            id: 'conv-1',
+            title: null,
+            providerId: 'llm-local',
+            messages: [],
+          }),
+        command: 'save_ai_conversation',
+        args: {
+          request: {
+            id: 'conv-1',
+            title: null,
+            providerId: 'llm-local',
+            messages: [],
+          },
+        },
+      },
+      {
+        run: () => intelligenceClient.listConversations({ limit: 25 }),
+        command: 'list_ai_conversations',
+        args: { request: { limit: 25 } },
+      },
+      {
+        // The default-arg path: no request object passed.
+        run: () => intelligenceClient.listConversations(),
+        command: 'list_ai_conversations',
+        args: { request: {} },
+      },
+      {
+        run: () => intelligenceClient.loadConversation('conv-1'),
+        command: 'load_ai_conversation',
+        args: { conversationId: 'conv-1' },
+      },
+      {
+        run: () => intelligenceClient.deleteConversation('conv-1'),
+        command: 'delete_ai_conversation',
+        args: { conversationId: 'conv-1' },
+      },
+      {
+        run: () =>
+          intelligenceClient.renameConversation({
+            id: 'conv-1',
+            title: 'Renamed',
+          }),
+        command: 'rename_ai_conversation',
+        args: { request: { id: 'conv-1', title: 'Renamed' } },
+      },
     ]
 
     for (const expected of calls) {

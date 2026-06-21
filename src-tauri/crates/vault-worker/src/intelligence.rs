@@ -20,6 +20,7 @@
 //! - background worker counts stay in shared atomics so the worker never fans out
 //!   unbounded concurrency on a 4-core host
 
+mod agent_store;
 mod ai_queue;
 mod chat;
 mod route_queries;
@@ -61,6 +62,10 @@ pub use self::ai_queue::{
 pub(crate) use self::ai_queue::{
     complete_claimed_assistant_job, complete_claimed_index_job, drain_one_ai_queue_job,
     start_ai_job_control,
+};
+pub use self::agent_store::{
+    delete_ai_conversation, list_ai_conversations, load_ai_conversation, rename_ai_conversation,
+    save_ai_conversation,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_send};
 pub use self::route_queries::{

@@ -33,11 +33,12 @@ use vault_core::{
     CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
     EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
     GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
-    PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, QueryFamilyDetailRequest,
-    RefindPageDetailRequest, RefindPagesRequest, RetentionPruneRequest, ScopedDateRangeRequest,
-    SearchEffectivenessRequest, SearchEngineRuleInput, SearchQueryListRequest,
-    SearchTrailQueryRequest, SetAppLockPasscodeRequest, SnapshotRestoreRequest,
-    TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
+    ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
+    QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
+    RenameAgentConversationRequest, RetentionPruneRequest, SaveAgentConversationRequest,
+    ScopedDateRangeRequest, SearchEffectivenessRequest, SearchEngineRuleInput,
+    SearchQueryListRequest, SearchTrailQueryRequest, SetAppLockPasscodeRequest,
+    SnapshotRestoreRequest, TopSearchConceptsRequest, TopSitesRequest, UnlockAppSessionRequest,
 };
 use vault_worker::RekeyRequest;
 
@@ -468,6 +469,26 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.run_id,
                 session_key(&state.session).as_deref()
             )?)
+        }
+        "save_ai_conversation" => {
+            let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
+            json_value!(worker_bridge::save_ai_conversation_impl(payload.request)?)
+        }
+        "list_ai_conversations" => {
+            let payload = parse_payload::<WrappedRequest<ListAgentConversationsRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_conversations_impl(payload.request)?)
+        }
+        "load_ai_conversation" => {
+            let payload = parse_payload::<ConversationIdPayload>(payload)?;
+            json_value!(worker_bridge::load_ai_conversation_impl(payload.conversation_id)?)
+        }
+        "delete_ai_conversation" => {
+            let payload = parse_payload::<ConversationIdPayload>(payload)?;
+            json_value!(worker_bridge::delete_ai_conversation_impl(payload.conversation_id)?)
+        }
+        "rename_ai_conversation" => {
+            let payload = parse_payload::<WrappedRequest<RenameAgentConversationRequest>>(payload)?;
+            json_value!(worker_bridge::rename_ai_conversation_impl(payload.request)?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;

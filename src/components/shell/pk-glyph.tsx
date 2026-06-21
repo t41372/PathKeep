@@ -214,6 +214,12 @@ const GLYPH_PATHS: Record<string, GlyphRenderer> = {
       <path d="M13 10.5v5" />
     </>
   ),
+  edit: () => (
+    <>
+      <path d="M15.5 5.5 18.5 8.5 9 18l-3.5 1 1-3.5z" />
+      <path d="M14 7 17 10" />
+    </>
+  ),
   language: () => (
     <>
       <circle cx="12" cy="12" r="8" />
