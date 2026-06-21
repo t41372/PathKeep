@@ -9,16 +9,16 @@
 
 ## 0. Decision log（已鎖定）
 
-| # | Fork | 決定 | 理由摘要 |
-| --- | --- | --- | --- |
-| D1 | in-app LLM(chat) 範圍 | **純 external，不打包任何生成 LLM**（含 sidecar） | 8GB 上 chat in-app 邊際；in-app 推理只做 embedding。chat 一律走 user-configured provider。 |
-| D2 | in-app embedding 引擎 | **candle**（純 Rust）為唯一 in-app 推理引擎，兼跑 embedding 與（可選）reranker | 供應鏈最乾淨、過信任門檻；chat 既走 external，不需要 llama.cpp。 |
-| D3 | embedding 預設策略 | **單一模型路徑**（預設 Qwen3-Embedding-0.6B），**不**加 model2vec fast tier | 使用者選單一模型；接受首鋪是長時背景 job。fast tier 留作未來可選 lever。 |
-| D4 | **model 假設** | **零模型假設**：dim / pooling / normalization / instruction 全部 runtime 偵測，預設模型隨時可換 | 使用者明示 Qwen3-0.6B 只是 no-config 便利預設，未來會換（如 Qwen4-embedding）。 |
-| D5 | vector 引擎 | **Turbovec**（quantized flat-scan，純 Rust，TurboQuant）藏在 `VectorIndex` trait 後；v1 同時是 flat-scan 地基與 scale 路徑 | 純 Rust 無 build 摩擦、no-codebook → model-agnostic、增量+delete+filter、維護者經使用者背書。 |
-| D6 | vector fallback | usearch、LanceDB 為 documented fallback（若 Turbovec 14.4M 延遲/成熟度不過關） | 兩者皆過星門檻；benchmark 決定。 |
-| D7 | code execution | **Wasmtime + Javy(JS)**，opt-in、capability-gated、只讀查詢 host API | 純 Rust 沙箱、預設零權限、僅 capable model 開啟。 |
-| D8 | agent loop / durability | **roll-your-own thin loop**，durability 擴展既有 lease-based job queue + sidecar SQLite | 2026 共識；不引入 Temporal/Restate/DBOS。 |
+| #   | Fork                    | 決定                                                                                                                       | 理由摘要                                                                                      |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| D1  | in-app LLM(chat) 範圍   | **純 external，不打包任何生成 LLM**（含 sidecar）                                                                          | 8GB 上 chat in-app 邊際；in-app 推理只做 embedding。chat 一律走 user-configured provider。    |
+| D2  | in-app embedding 引擎   | **candle**（純 Rust）為唯一 in-app 推理引擎，兼跑 embedding 與（可選）reranker                                             | 供應鏈最乾淨、過信任門檻；chat 既走 external，不需要 llama.cpp。                              |
+| D3  | embedding 預設策略      | **單一模型路徑**（預設 Qwen3-Embedding-0.6B），**不**加 model2vec fast tier                                                | 使用者選單一模型；接受首鋪是長時背景 job。fast tier 留作未來可選 lever。                      |
+| D4  | **model 假設**          | **零模型假設**：dim / pooling / normalization / instruction 全部 runtime 偵測，預設模型隨時可換                            | 使用者明示 Qwen3-0.6B 只是 no-config 便利預設，未來會換（如 Qwen4-embedding）。               |
+| D5  | vector 引擎             | **Turbovec**（quantized flat-scan，純 Rust，TurboQuant）藏在 `VectorIndex` trait 後；v1 同時是 flat-scan 地基與 scale 路徑 | 純 Rust 無 build 摩擦、no-codebook → model-agnostic、增量+delete+filter、維護者經使用者背書。 |
+| D6  | vector fallback         | usearch、LanceDB 為 documented fallback（若 Turbovec 14.4M 延遲/成熟度不過關）                                             | 兩者皆過星門檻；benchmark 決定。                                                              |
+| D7  | code execution          | **Wasmtime + Javy(JS)**，opt-in、capability-gated、只讀查詢 host API                                                       | 純 Rust 沙箱、預設零權限、僅 capable model 開啟。                                             |
+| D8  | agent loop / durability | **roll-your-own thin loop**，durability 擴展既有 lease-based job queue + sidecar SQLite                                    | 2026 共識；不引入 Temporal/Restate/DBOS。                                                     |
 
 ---
 
@@ -26,14 +26,14 @@
 
 AI 不改動 canonical truth model。新增的都是**可刪除、可重建的 derived sidecar**，與 canonical SQLCipher archive 隔離：
 
-| Plane | 檔案 | 內容 | 可重建來源 |
-| --- | --- | --- | --- |
-| (既有) canonical | `archive/history-vault.sqlite` (SQLCipher) | 唯一 source of truth；**source text 永遠在此** → re-embed 永遠可行 | — |
-| (既有) lexical | `derived/history-search.sqlite` (FTS5) | BM25 / trigram / CJK | canonical |
-| (既有) intelligence runtime | `derived/history-intelligence.sqlite` | deterministic read models + **AI job queue（既有 `ai_jobs`）** | canonical |
-| **新** vector sidecar | `derived/vectors/` (Turbovec index file + 可選 rerank 向量檔) | 量化向量索引（in-RAM 載入）；**向量不進 canonical SQLite** | re-embed canonical |
-| **新** agent sidecar | `derived/agent.sqlite` | agent runs/steps journal、citation table、notes/todos、memory | 可丟棄重來（agent trace 是衍生） |
-| **新** models | `<app-data>/models/` | 下載的 embedding/reranker 模型 + 校驗 hash | 重新下載 |
+| Plane                       | 檔案                                                          | 內容                                                               | 可重建來源                       |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------- |
+| (既有) canonical            | `archive/history-vault.sqlite` (SQLCipher)                    | 唯一 source of truth；**source text 永遠在此** → re-embed 永遠可行 | —                                |
+| (既有) lexical              | `derived/history-search.sqlite` (FTS5)                        | BM25 / trigram / CJK                                               | canonical                        |
+| (既有) intelligence runtime | `derived/history-intelligence.sqlite`                         | deterministic read models + **AI job queue（既有 `ai_jobs`）**     | canonical                        |
+| **新** vector sidecar       | `derived/vectors/` (Turbovec index file + 可選 rerank 向量檔) | 量化向量索引（in-RAM 載入）；**向量不進 canonical SQLite**         | re-embed canonical               |
+| **新** agent sidecar        | `derived/agent.sqlite`                                        | agent runs/steps journal、citation table、notes/todos、memory      | 可丟棄重來（agent trace 是衍生） |
+| **新** models               | `<app-data>/models/`                                          | 下載的 embedding/reranker 模型 + 校驗 hash                         | 重新下載                         |
 
 每個 vector / agent sidecar header 蓋 **embedding fingerprint**（見 §C.4）；mismatch → 標記 stale + 觸發重建。canonical 加密邊界、App Lock session boundary（ADR-005）對所有 AI 工具一律生效。
 
@@ -50,6 +50,7 @@ trait LlmProvider {
   fn capabilities(&self) -> Caps;   // tool_call? structured_output? streaming? prompt_cache? max_ctx
 }
 ```
+
 - model id 是 **runtime config string**（`AiProviderConfig`），永不寫進產品文案/代碼。
 - **transport 後端 = 採用維護中的多-provider client，不手寫 per-provider quirks**（thinking 內容、streaming、tool calling、caching 的跨 provider 差異不該由我們長期維護）。
 - **選定 `rig`（rig-core，7.7k★，MIT，0xPlaygrounds，named production users）**——它是**唯一清楚過 >6k★ 供應鏈門檻的 Rust LLM client**（無需 risk assessment），且可**只用 rig-core 的 provider/completion 層當 client**：streaming completions + 統一 tool calling（20+ provider）+ **reasoning 內容**（自 0.16 起支援、0.31 改進 reasoning-block 累積）+ structured extraction + 內建 **MCP** 支援 + OpenAI-compatible custom base_url（覆蓋 Ollama/LM Studio）。v0.39.0（2026-06-19，活躍）。**不**採用它的 agent / vector-store 框架（我們自有）。
@@ -72,6 +73,7 @@ trait LlmProvider {
 **C.1 in-app 引擎（D2）**：**candle**（HF, 20.5k★, Apache/MIT, 純 Rust CPU kernels，零下載 C++、零 cmake）。同一引擎跑 embedding 與（§E 的可選）cross-encoder reranker。MKL/Accelerate 一律 OFF（保持可重現 build）。`ort` 只作 opt-in power-user 加速 path（且必須自 vendor ONNX Runtime static build = ADR 級，非預設）。
 
 **C.2 預設模型（D3/D4）**：no-config 預設 = Qwen3-Embedding-0.6B（Apache-2.0）。**但設計零模型假設**：
+
 - dim、pooling（mean/last-token）、是否需 query/document instruction、是否已 normalize → **全部是 per-model capability，runtime 偵測或由 provider 描述符提供**。
 - UI / 代碼**不得**寫死 1024、不得寫死 last-token、不得寫死任何 model id。
 - 換模型（含未來 Qwen4-embedding 之類）是一等公民操作，見 §C.4。
@@ -79,6 +81,7 @@ trait LlmProvider {
 **C.3 external providers**：一個自寫薄 reqwest+serde 的 **OpenAI-compatible `/v1/embeddings` adapter** 覆蓋 Ollama / LM Studio / vLLM / llama-server / 多數 cloud；只給非 OpenAI-shaped cloud（Gemini task_type/單輸入、Voyage/Cohere input_type+output_dtype）寫小 adapter。**正確性鐵律**：(a) 永遠讀實際回傳向量長度，不信 config 的 `dimensions`；(b) 一律防禦性 L2-normalize（尤其 MRL 截斷後）；(c) query/document 角色旗標穿過 trait 到每次呼叫。
 
 **C.4 fingerprint + 失效/遷移（D4 的承載機制）**：每個 vector index 蓋 **fingerprint = hash(provider, model_id, effective_dim, output_dtype, normalized, pooling, instruction_template, version)**。
+
 - 啟動/設定變更時比對 fingerprint；mismatch = stale。
 - 換 model/dim/normalization 任一 → **整個 14.4M index 失效**。流程：PME 預覽（「換模型將重嵌 N 列，估 ~X 小時、~Y GB」）→ 背景建新 versioned index（舊 index 照常服務）→ 原子換入；遷移期可 dual-index 查詢。
 - canonical 是 source text → 全量 re-embed 永遠可行；sidecar 正確地可丟棄。
@@ -94,6 +97,7 @@ trait LlmProvider {
 **D.1 引擎（D5）**：**Turbovec**（RyanCodrai/turbovec，MIT，純 Rust + 可選 Python binding，建於 TurboQuant / Google Research ICLR 2026）。維護者經使用者明確背書 → 滿足供應鏈「reputable maintainer」門檻（記於 §I）。
 
 實測特性（2026-06 verified, README）：
+
 - **結構 = quantized flat-scan**（2-bit=16x / 4-bit=8x 壓縮；Lloyd-Max scalar quant 由分佈算出、**無 codebook 訓練**；TQ+ 可選 per-coord 校正在首次 add 凍結）。**無 IVF / 無 HNSW graph**。
 - recall：100K/d=1536 略勝 FAISS PQ；CPU-only SIMD（NEON / AVX-512BW / AVX2 fallback）。
 - 增量 insert（線上、免訓練）；**O(1) delete by external id**（IdMapIndex，uint64 穩定 id）；**allowlist/bitmask 過濾在 SIMD kernel 內**。
@@ -101,23 +105,27 @@ trait LlmProvider {
 - 最大已 benchmark 規模 = **100K**；「10M→4GB」是外推宣稱、未實測。
 
 **D.2 為何契合 PathKeep**：
+
 - 純 Rust、無 protoc/C build 摩擦、ARM 乾淨 → 供應鏈最佳。
 - **no-codebook = model-agnostic**（換 embedding 模型不需重訓量化器）+ 增量友善（持續 ingest）。
 - 一個引擎同時是「~1M 以下的 flat-scan 地基」與「14.4M 的量化 scan」。
 - delete + allowlist filter 直接服務 rollback/可見性過濾與 §G 的進階搜尋。
 
 **D.3 RAM / 延遲數學（envelope 檢查）**：
+
 - 常駐 RAM = 全量量化 index（無 mmap）。14.4M × 1024-dim：2-bit ≈ **3.7 GB**；MRL-256 2-bit ≈ **0.9 GB**；MRL-512 ≈ 1.8 GB。
 - **預設用 MRL-truncated dim tier**（當模型支援 MRL；否則存 native dim）以壓常駐 RAM；full-dim 作「high-recall / 大 RAM」opt-in tier。fingerprint 記 effective_dim。
 - **延遲 = O(N) scan**：每查詢掃全部量化 codes。14.4M @2-bit/1024 ≈ 掃 3.7 GB（@256 ≈ 0.9 GB），4 核 SIMD 約次秒級。對多數使用者（<1–2M）極快且近精確；14.4M 尾端是 benchmark 重點。
 
 **D.4 14.4M 尾端 mitigations（benchmark-gated，非 v1 必需）**：
+
 1. MRL 降維（256/512）縮小掃描量。
 2. 在 Turbovec 之上疊一層**粗 IVF/centroid 預過濾**：先用少量 centroid 找最近簇，再用 Turbovec 的 **allowlist** 只掃該簇 → 變 sublinear（Turbovec 的 kernel 內過濾正是這個 hook）。
 3. hot/cold split：近期(~1–3M) codes 熱常駐，長尾冷處理（60 年地平線多數查詢偏近期）。
 4. 可選 disk 全精度/int8 rerank：若量化 recall 不足，對 top-K 從磁碟讀全向量重排。
 
 **D.5 抽象與 fallback**：所有引擎藏在 `VectorIndex` trait（build/append/remove/search(query, k, allowlist?)/save/load/clear）後。
+
 - **v1 一律先出 flat int8 scan + FTS5/hybrid 地基**（Turbovec 本身即可擔此角色）。
 - **benchmark gate**（§03 R2）：真機 4 核/8GB/SSD 上量 Turbovec 在 1M/5M/14.4M 的 recall@10、查詢延遲、常駐 RAM、insert/build 時間。不過關則啟用 mitigations，仍不行則切 fallback：**usearch**（binary + in-RAM + 自管 disk-rerank；vendored-C++-in-crate；需 risk assessment）或 **LanceDB**（IVF_PQ + on-disk rerank；需解 protoc build 鏈）。
 
@@ -149,6 +157,7 @@ trait LlmProvider {
 **Layer 1 — 語義/hybrid（additive、consent-gated）**：§D / §E 的 `search_vector` / `search_hybrid`。
 
 **Layer 2 — code-mode（opt-in、capability-gated 升級，D7）**：2026 Programmatic Tool Calling —— agent 寫一段 JS，在沙箱裡 fan-out 多個 BM25/vector/hybrid 查詢 + 本地 join/filter，只回蒸餾 top-K。
+
 - **沙箱 = Wasmtime**（18.2k★，BA，純 Rust、零 C build，過門檻）+ **Javy(JS→WASM)** 預編譯 guest（agent 生成的 JS 只是餵進去的資料；不直接依賴 rquickjs、不 ship V8）。
 - **能力邊界**：guest **零 ambient 權限**，唯一可呼叫的是與 Layer 0 同一組 **read-only query host fn**——**無 DB handle、無 SQL string、無 fs/net**。per-call row cap + per-script row/wall-time budget（epoch deadline，worker thread yield，UI 永不凍）。
 - **能力門檻**：小模型（0.6B 預設 tier）**不開 code-mode**；capable model（雲端或本機 8B+）才開。雙路徑：弱模型用 classic single-tool-call。
@@ -172,19 +181,19 @@ trait LlmProvider {
 
 ## I. 供應鏈 ledger（採用前的信任裁定）
 
-| 依賴 | 角色 | 裁定 / 所需動作 |
-| --- | --- | --- |
-| candle (20.5k★) | in-app embedding+rerank 引擎 | ✅ 過門檻，直接採用 |
-| Wasmtime (18.2k★) | code-mode 沙箱 | ✅ 過門檻 |
-| rmcp (official) | 對外 MCP 邊界 | ✅ reputable-org 例外 |
-| Javy (BA, 2.7k★) | JS→WASM guest | ✅ BA org |
-| **Turbovec (~3.5k★, 單人)** | vector 引擎 | ✅ **維護者經使用者(專案擁有者)明確背書 → 滿足「reputable maintainer」門檻**；仍須：pin 版本、vendor Cargo.lock、§03 R2 成熟度+benchmark gate |
-| **rig / rig-core (7.7k★)** | LLM transport（選定） | ✅ 過 >6k★ 門檻，無需 risk assessment；**只用 completion client 層**（不用其 `Agent`/vector-store 框架）、藏 `LlmProvider` trait 後；假定遵守 SemVer，不 hard-pin（0.x→Cargo 已把 minor 當 breaking，升級刻意） |
-| genai (806★) / async-openai (1.9k★) | LLM transport | ❌ 星數不足、無個人信任 override → 不過供應鏈門檻 |
-| usearch (4.2k★) | vector fallback | ⚠️ 需 risk assessment（採用時） |
-| LanceDB/Lance (6.7k★) | vector fallback | ⚠️ 過星門檻，但採用需先解 protoc/C build 鏈 |
-| ort | embedding power-path | ❌ 預設拒絕（default download-binaries 禁用；static-link 需自 vendor ONNX = ADR 級） |
-| LEANN / sqlite-vec / faiss-next | — | ❌ 見 01 §4 |
+| 依賴                                | 角色                         | 裁定 / 所需動作                                                                                                                                                                                                 |
+| ----------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| candle (20.5k★)                     | in-app embedding+rerank 引擎 | ✅ 過門檻，直接採用                                                                                                                                                                                             |
+| Wasmtime (18.2k★)                   | code-mode 沙箱               | ✅ 過門檻                                                                                                                                                                                                       |
+| rmcp (official)                     | 對外 MCP 邊界                | ✅ reputable-org 例外                                                                                                                                                                                           |
+| Javy (BA, 2.7k★)                    | JS→WASM guest                | ✅ BA org                                                                                                                                                                                                       |
+| **Turbovec (~3.5k★, 單人)**         | vector 引擎                  | ✅ **維護者經使用者(專案擁有者)明確背書 → 滿足「reputable maintainer」門檻**；仍須：pin 版本、vendor Cargo.lock、§03 R2 成熟度+benchmark gate                                                                   |
+| **rig / rig-core (7.7k★)**          | LLM transport（選定）        | ✅ 過 >6k★ 門檻，無需 risk assessment；**只用 completion client 層**（不用其 `Agent`/vector-store 框架）、藏 `LlmProvider` trait 後；假定遵守 SemVer，不 hard-pin（0.x→Cargo 已把 minor 當 breaking，升級刻意） |
+| genai (806★) / async-openai (1.9k★) | LLM transport                | ❌ 星數不足、無個人信任 override → 不過供應鏈門檻                                                                                                                                                               |
+| usearch (4.2k★)                     | vector fallback              | ⚠️ 需 risk assessment（採用時）                                                                                                                                                                                 |
+| LanceDB/Lance (6.7k★)               | vector fallback              | ⚠️ 過星門檻，但採用需先解 protoc/C build 鏈                                                                                                                                                                     |
+| ort                                 | embedding power-path         | ❌ 預設拒絕（default download-binaries 禁用；static-link 需自 vendor ONNX = ADR 級）                                                                                                                            |
+| LEANN / sqlite-vec / faiss-next     | —                            | ❌ 見 01 §4                                                                                                                                                                                                     |
 
 通則：`secrecy::SecretString` 存所有 API key；新 native build 必須 vendored-in-crate（rusqlite 模式）或純 Rust。
 

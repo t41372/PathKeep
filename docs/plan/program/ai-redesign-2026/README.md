@@ -7,18 +7,18 @@
 
 ## 文檔順序
 
-| 文檔 | 內容 | 狀態 |
-| --- | --- | --- |
-| [00-scope-use-cases-constraints.md](00-scope-use-cases-constraints.md) | 需求、use case、要設計的子系統、硬約束、decision forks、可重用既有基礎設施 | ✅ |
-| [01-research-findings-2026.md](01-research-findings-2026.md) | 2026-06 SOTA 深度研究結論（LLM / embedding / vector store / agent / hybrid search），由獨立 subagent 集群產出 | ✅ |
-| [02-architecture-decisions.md](02-architecture-decisions.md) | 選定方案、理由、tradeoff、邊界、benchmark gate（forks 已鎖定 2026-06-20） | ✅ |
-| [03-implementation-plan.md](03-implementation-plan.md) | 早期 spike、分階段 milestones、依賴、風險登記、驗收 | ✅ |
-| [research-appendix/](research-appendix/) | 8 領域原始研究 digest（candidates / deep-dive / adversarial critic） | ✅ |
+| 文檔                                                                   | 內容                                                                                                          | 狀態 |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---- |
+| [00-scope-use-cases-constraints.md](00-scope-use-cases-constraints.md) | 需求、use case、要設計的子系統、硬約束、decision forks、可重用既有基礎設施                                    | ✅   |
+| [01-research-findings-2026.md](01-research-findings-2026.md)           | 2026-06 SOTA 深度研究結論（LLM / embedding / vector store / agent / hybrid search），由獨立 subagent 集群產出 | ✅   |
+| [02-architecture-decisions.md](02-architecture-decisions.md)           | 選定方案、理由、tradeoff、邊界、benchmark gate（forks 已鎖定 2026-06-20）                                     | ✅   |
+| [03-implementation-plan.md](03-implementation-plan.md)                 | 早期 spike、分階段 milestones、依賴、風險登記、驗收                                                           | ✅   |
+| [research-appendix/](research-appendix/)                               | 8 領域原始研究 digest（candidates / deep-dive / adversarial critic）                                          | ✅   |
 
 ## 工作流程（本提案如何產生）
 
 1. **Frame** ✅：盤點現況、鎖定硬約束 vs. 開放議題，定義研究 charges。
-2. **Research** ✅：8 個研究領域，各走 *landscape → deep-dive → adversarial critic*，由獨立 subagent 集群（39 agents，workflow `wf_18f54e54-e57`）以 web research 取得 2026-06 最新方案與最佳實踐。
+2. **Research** ✅：8 個研究領域，各走 _landscape → deep-dive → adversarial critic_，由獨立 subagent 集群（39 agents，workflow `wf_18f54e54-e57`）以 web research 取得 2026-06 最新方案與最佳實踐。
 3. **Decide** ✅：綜合研究結論，與使用者鎖定 4 個高槓桿 decision forks（2026-06-20）。
 4. **Plan** ✅：產出可執行的分階段實作計畫（03）。
 

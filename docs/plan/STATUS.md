@@ -40,7 +40,7 @@
   - 契約：rig 型別只在 adapter 內；`LlmChatRequest/Response` 依 W-AI-0 carryover 補 tool/usage 欄位（additive）；real 網路路徑 `#[cfg(not(any(test, coverage)))]` + 確定性 stub `#[cfg(any(test, coverage))]`（沿用 W-AI-0 pattern，保 100% 覆蓋）；不破壞非-AI 功能。
   - 驗收：對 LM Studio 真機 streaming chat（token + reasoning 可見）跑通；無 provider 時 functions 退 deterministic；`bun run check:base` + `coverage:rust` 綠；走完 review pipeline。
 
-- [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending) — *carryover，非當前 focus*
+- [ ] **WORK-V03-PAPER-REDESIGN-A** — Paper + Archival Frontend Rebuild (foundation shipped, route sweep pending) — _carryover，非當前 focus_
   - 讀先：
     `docs/design/handoff/README.md` (handoff index)
     `docs/design/handoff/paper-redesign/README.md` (cover sheet from design tool)

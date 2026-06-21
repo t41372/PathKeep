@@ -10,7 +10,9 @@
 使用者明確區分了兩類 AI surface，兩者共用底層的 LLM / embedding / retrieval 基礎設施，但產品形態與工程要求不同：
 
 ### A. LLM functions（輔助既有功能的「點狀」AI）
+
 散佈在各功能裡的、單次、結構化、可預期的 LLM 調用。例如：
+
 - topic / cluster 命名、domain 或 query family 的人類可讀摘要
 - insight 卡片的自然語言敘述（deterministic 已算出證據，LLM 只負責可讀性）
 - query expansion / 意圖改寫（輔助 search，不取代 lexical）
@@ -19,7 +21,9 @@
 要求：**可降級**（沒有 LLM 時功能仍在，只是少了敘述層）、結構化輸出（JSON schema / 受約束解碼）、快、可快取、可審計。
 
 ### B. 專屬 chatbot agent（長時運行的對話式 agent）
+
 一個能滿足使用者各種「奇怪請求」的 agent，採 2026-06 的 agent 最佳實踐。能力包含（使用者點名的）：
+
 - 以**不同顆粒度**查瀏覽歷史：raw visits、sessions、search trails、query groups、threads、domains、daily rollups、refind pages、insights……
 - 一個 turn 內**並行調用多個檢索工具**：embedding search / hybrid search / BM25 / advanced property search
 - 取用更**細顆粒**的條目資料、檢索 / 查看 insights
@@ -33,14 +37,14 @@
 
 ## 2. 要設計的子系統
 
-| 子系統 | 範圍 | 預設傾向（待研究確認） |
-| --- | --- | --- |
-| **LLM 接入** | 2026 做法（非 litellm-2023）。統一 provider 抽象，支援 external（Ollama / LM Studio / OpenAI-compatible / cloud）與可選 in-app 推理；first-class tool calling / streaming / structured output。 | 不寫死 model id；external-first，in-app LLM 為可選 |
-| **Embedding：in-app 推理** | 在 app 內、Rust、CPU 上跑 embedding，作為**預設路徑**。 | 預設模型：Qwen3-Embedding 0.6B 家族 |
-| **Embedding：external providers** | LM Studio / Ollama / OpenAI-compatible / cloud，model-agnostic、SOTA-agnostic 抽象。 | 與 in-app 走同一抽象 |
-| **Vector store** | ~14.4M 向量、8GB RAM、無 GPU、可重建 on-disk sidecar（不進 canonical SQLite）。多看方案：LEANN、Turbovec、sqlite-vec、Lance、hnsw_rs、usearch、DiskANN、量化策略…… | 影響很大，需深入比較 |
-| **AI agent** | agent loop、durable / long-running、context engineering、tools、skills、code execution。 | 復用既有 lease-based job queue 做 durability |
-| **Hybrid search + rerank** | FTS5/BM25 + dense + 可選 reranker，融合（RRF/weighted），以 agent tools 暴露。 | 復用 FTS5 與 in-app 推理引擎 |
+| 子系統                            | 範圍                                                                                                                                                                                            | 預設傾向（待研究確認）                             |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **LLM 接入**                      | 2026 做法（非 litellm-2023）。統一 provider 抽象，支援 external（Ollama / LM Studio / OpenAI-compatible / cloud）與可選 in-app 推理；first-class tool calling / streaming / structured output。 | 不寫死 model id；external-first，in-app LLM 為可選 |
+| **Embedding：in-app 推理**        | 在 app 內、Rust、CPU 上跑 embedding，作為**預設路徑**。                                                                                                                                         | 預設模型：Qwen3-Embedding 0.6B 家族                |
+| **Embedding：external providers** | LM Studio / Ollama / OpenAI-compatible / cloud，model-agnostic、SOTA-agnostic 抽象。                                                                                                            | 與 in-app 走同一抽象                               |
+| **Vector store**                  | ~14.4M 向量、8GB RAM、無 GPU、可重建 on-disk sidecar（不進 canonical SQLite）。多看方案：LEANN、Turbovec、sqlite-vec、Lance、hnsw_rs、usearch、DiskANN、量化策略……                              | 影響很大，需深入比較                               |
+| **AI agent**                      | agent loop、durable / long-running、context engineering、tools、skills、code execution。                                                                                                        | 復用既有 lease-based job queue 做 durability       |
+| **Hybrid search + rerank**        | FTS5/BM25 + dense + 可選 reranker，融合（RRF/weighted），以 agent tools 暴露。                                                                                                                  | 復用 FTS5 與 in-app 推理引擎                       |
 
 ---
 
