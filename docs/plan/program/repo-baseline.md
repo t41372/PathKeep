@@ -49,7 +49,7 @@
 ### 觀察
 
 - [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor 等多項責任，但 M1-A 已把主 runtime 切到 canonical `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` 寫入面。
-- [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../../src-tauri/crates/vault-core/src/intelligence/mod.rs) 9152 行、[`src-tauri/crates/vault-core/src/intelligence_runtime.rs`](../../../src-tauri/crates/vault-core/src/intelligence_runtime.rs) 2172 行、[`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 2116 行，很多 intelligence 相關邏輯仍集中在少數主檔。
+- [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../../src-tauri/crates/vault-core/src/intelligence/mod.rs) 9152 行、[`src-tauri/crates/vault-core/src/intelligence_runtime.rs`](../../../src-tauri/crates/vault-core/src/intelligence_runtime.rs) 2172 行，很多 intelligence 相關邏輯仍集中在少數主檔。[`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 已從早期的 ~2116 行 mega-file 拆成 `ai/` submodule tree，主檔本身只剩 ~320 行；AI-redesign-2026 引進的新大檔盤點見下方 `AI-redesign-2026 模組大小盤點`。
 - Rust workspace 現在已有 `browser-history-parser` crate，且 `vault-core` 已用它接通 Chromium、Firefox 與 Safari baseline backup ingest；後續重點已從「多瀏覽器是否存在」轉成 parser 深度、capability caveat 與 fixture 擴充。
 - canonical schema v1 + v2 runtime foundation 已落在 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 與 [`migrations/002_archive_runtime_foundation.sql`](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)；archive init 已統一走 migration executor。
 - [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在已退回 canonical archive bootstrap；search / intelligence plane 不再靠 archive-side compatibility views 或 runtime backfill 存活。
@@ -97,6 +97,34 @@
 | MCP / skill integration preview files | preview payload only（command + JSON / markdown） | manual-copy artifact；PathKeep 不會在 preview 時偷偷安裝外部工具設定                |
 | remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth                        |
 | `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                                |
+
+### AI-redesign-2026 模組大小盤點（2026-06-21 / `feat/ai-redesign-2026`）
+
+> `ai.rs` 已不再是早期 baseline 表裡的 2116-行 mega-file：它已拆成 `ai/` submodule tree，主檔本身只剩 ~320 行 orchestration / 共用型別。
+> AI-redesign-2026 引進了一批新大檔。先校準一次「哪些只是被 `#[cfg(test)]` 撐大、哪些是真問題」，免得它們悄悄滑出 size budget。
+
+**被 `#[cfg(test)]` 撐大、在 Rust-test tolerance 內接受**（production logic 本身不超標，多數行數來自同檔 inline tests；維持「新模組 100% coverage」的契約反而要求測試貼著代碼放）：
+
+| 檔案                                                                                              | 行數  | test 區佔比                | stance                                                                       |
+| ------------------------------------------------------------------------------------------------- | ----- | -------------------------- | ---------------------------------------------------------------------------- |
+| [`vault-core/src/ai/tests.rs`](../../../src-tauri/crates/vault-core/src/ai/tests.rs)              | ~3712 | 全檔即 AI 模組共用測試     | accepted；這是 `ai/` 的集中測試面，不是 production 巨檔。                     |
+| [`vault-core/src/ai/embedding_candle.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_candle.rs) | ~1756 | ~580 行 test               | accepted；candle 引擎 + 模型下載/驗證一體，production 主體 < 1000 行。        |
+| [`vault-core/src/ai/agent_harness.rs`](../../../src-tauri/crates/vault-core/src/ai/agent_harness.rs)       | ~1631 | ~1040 行 test（過半）      | accepted；agent run/journal durability，test 比 production code 還多。        |
+| [`vault-core/src/ai/llm.rs`](../../../src-tauri/crates/vault-core/src/ai/llm.rs)                  | ~1247 | ~527 行 test               | accepted；rig LLM provider + streaming transport，production 主體 ~720 行。   |
+| [`vault-core/src/ai/embedding_static.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_static.rs) | ~1045 | ~297 行 test               | accepted；model2vec 靜態引擎，production 主體 < 750 行。                      |
+
+**真正的問題項（已處理）**：
+
+- 舊 `vault-core/src/ai/indexing.rs` ~1001 行、`single_responsibility=false`，是這批裡唯一的 genuine oversized-file。已於 `feat/ai-redesign-2026` 拆成 [`ai/indexing/`](../../../src-tauri/crates/vault-core/src/ai/indexing) module tree：`mod.rs`（orchestration 共用型別 + 測試支援 `collect_visits_to_index`）、`backfill.rs`（resumable embed loop + `DedupTracker`）、`candidates.rs`（候選收集 + 純 `select_embed_targets`）、`store_rows.rs`（`ai_embeddings` SQLite helpers + batch 校驗）、`content.rs`（embedding-content 與 enrichment→dedup-hash seam）。最大檔 `backfill.rs` ~792 行（含 ~184 行 test）。同時把 crash/resume dedup 三個 locals（`persisted_keys` / `persisted_hashes` / `mapped_ids`）封進 `DedupTracker`，並補上 4 個直接針對 crash-window 不變量的單元測試（MEDIUM-4 u64 碰撞、CRITICAL-2 resume skip、MEDIUM-5 incremental map-not-re-embed、`load_existing` 載入門檻），補足 audit 標出的測試缺口。public API（`build_ai_index` / `build_ai_index_with_control`）與 `pub(super)` surface 不變，`ai.rs` import 未動，既有 resume/dedup integration tests 全綠。
+
+**honest coupling（暫不拆，touch 時順手拆）**：
+
+- [`vault-core/src/ai/search.rs`](../../../src-tauri/crates/vault-core/src/ai/search.rs) ~1183 行（test 區僅 ~74 行，所以是真的 production 大檔），`single_responsibility=false`：semantic search + assistant orchestration 兩塊耦合在一起。屬 honest coupling，不是測試撐大。opportunistic split → `ai/assistant.rs`（把 `answer_history_question*` 抽出）留待下次 touch 這檔時順手做，不另開 work block。
+
+**非 AI 的兩個既存大檔（登記在案，不在本次範圍）**：
+
+- [`vault-worker/src/archive_flows.rs`](../../../src-tauri/crates/vault-worker/src/archive_flows.rs) ~1845 行：og:image 抓取 worker-pool 是裡面最該抽出的一塊（建議抽到專屬 module），其餘 archive flow orchestration 責任本身正確。
+- [`src/pages/intelligence/sections.tsx`](../../../src/pages/intelligence/sections.tsx) ~1086 行：intelligence 頁多個 section 擠在單檔，應按 section 拆成子組件。
 
 ### 待辦
 
