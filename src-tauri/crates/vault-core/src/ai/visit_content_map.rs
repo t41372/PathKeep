@@ -177,6 +177,28 @@ impl VisitContentMap {
         Ok(inverse)
     }
 
+    /// Collects the SET of `content_key`s for a BOUNDED set of `history_id`s (W-AI-6 starred facet).
+    ///
+    /// The forward direction of [`Self::history_ids_for_content_keys`]: the `is:starred` facet resolves
+    /// a tiny set of starred visits (hundreds, never the corpus) and needs their deduped content vectors
+    /// so semantic search can be restricted to favorites via the [`super::vector_index::FlatVectorIndex`]
+    /// allowlist. ONE streaming pass keeps only the wanted ids' keys (a result fan-IN bounded by the
+    /// starred set, not the 14.4M map), so memory is bounded by the starred set. An absent map returns
+    /// an empty set (a never-built index has no starred content keys, not an error); a starred visit
+    /// with no mapped vector (never embedded) simply contributes nothing.
+    pub fn content_keys_for_history_ids(&self, wanted: &HashSet<i64>) -> Result<HashSet<u64>> {
+        let mut keys = HashSet::new();
+        if wanted.is_empty() {
+            return Ok(keys);
+        }
+        self.for_each_record(|history_id, content_key| {
+            if wanted.contains(&history_id) {
+                keys.insert(content_key);
+            }
+        })?;
+        Ok(keys)
+    }
+
     /// Deletes the map file if it exists, returning whether a file was removed.
     pub fn delete(&self) -> Result<bool> {
         if !self.exists() {
@@ -332,6 +354,40 @@ mod tests {
             handle
                 .history_ids_for_content_keys(&HashSet::from([0x1]))
                 .expect("absent inverse")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn content_keys_for_history_ids_collects_only_wanted_visits_keys() {
+        // W-AI-6 starred facet: the forward direction maps a bounded set of starred visits to their
+        // deduped content vectors. Two visits share key 0xAAAA; one maps to 0xBBBB; one unwanted visit.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let created = create_for(&paths, &map(&paths));
+        created.append(&[(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)]).expect("append");
+
+        // Wanting visits 10, 20, 30 yields exactly their two distinct content keys (0xAAAA deduped).
+        let keys =
+            created.content_keys_for_history_ids(&HashSet::from([10, 20, 30])).expect("forward");
+        assert_eq!(keys, HashSet::from([0xAAAA, 0xBBBB]));
+        // Visit 40's key is excluded because it was not wanted.
+        assert!(!keys.contains(&0xCCCC));
+        // An empty wanted set short-circuits to an empty set.
+        assert!(created.content_keys_for_history_ids(&HashSet::new()).expect("empty").is_empty());
+    }
+
+    #[test]
+    fn content_keys_for_history_ids_is_empty_for_absent_map() {
+        // A never-built index has no starred content keys (not an error) — the honest facet outcome.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let handle = map(&paths);
+        assert!(!handle.exists());
+        assert!(
+            handle
+                .content_keys_for_history_ids(&HashSet::from([10]))
+                .expect("absent forward")
                 .is_empty()
         );
     }

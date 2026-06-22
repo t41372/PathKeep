@@ -26,6 +26,9 @@ pub fn normalize_app_config(config: &mut AppConfig) {
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
     config.explorer_background_prefetch_pages =
         config.explorer_background_prefetch_pages.min(MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES);
+    // Clamp the hybrid-search tuning knobs (W-AI-6) so a hand-edited/older config can never feed an
+    // out-of-range RRF k, fusion weight, or starred boost into the search merge.
+    config.ai.normalize_search_knobs();
 }
 
 /// User language selection persisted in config.

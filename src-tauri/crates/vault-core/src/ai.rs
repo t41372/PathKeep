@@ -152,8 +152,7 @@ use self::search::semantic_index_staleness_reason;
 #[cfg(test)]
 use self::search::{
     SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
-    cosine_similarity, lexical_boost, lexical_score, search_history_internal, semantic_matches,
-    sort_stored_embeddings_desc,
+    cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
 };
 
 /// Resolved provider configuration plus the usable secret for one AI operation.

@@ -730,3 +730,362 @@ fn entity_kind_as_str_matches_storage_encoding() {
     assert_eq!(StarEntityKind::Url.as_str(), "url");
     assert_eq!(StarEntityKind::Domain.as_str(), "domain");
 }
+
+/// Seeds a `urls` + `visits` row pair so `starred_history_ids` (which joins them) can resolve a
+/// starred page to its visit id. The visit id equals `visit_id`; `reverted` marks it reverted so the
+/// test can prove reverted visits are excluded from the starred-visit scan.
+fn seed_visit_row(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    visit_id: i64,
+    url: &str,
+    reverted: bool,
+) {
+    let seq = SEED_SEQ.fetch_add(1, Ordering::SeqCst) as i64;
+    let connection = open_archive_connection(paths, config, None).unwrap();
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO runs (id, run_type, trigger, started_at, status)
+             VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'success')",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at)
+             VALUES (1, 'chrome', 'Default', '/tmp/Default', '2026-04-24T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO urls (
+               id, url, title, visit_count, typed_count,
+               first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
+               source_profile_id, created_by_run_id, source_url_id
+             ) VALUES (?1, ?2, 'Seed', 1, 0, 1, '2026-04-24T00:00:00Z', ?3, '2026-04-24T00:00:00Z', 1, 1, ?4)",
+            params![visit_id, url, seq, seq],
+        )
+        .unwrap();
+    let reverted_at: Option<&str> = if reverted { Some("2026-04-25T00:00:00Z") } else { None };
+    connection
+        .execute(
+            "INSERT INTO visits (
+               id, url_id, source_visit_id, visit_time_ms, visit_time_iso,
+               source_profile_id, created_by_run_id, reverted_at
+             ) VALUES (?1, ?1, ?2, ?3, '2026-04-24T00:00:00Z', 1, 1, ?4)",
+            params![visit_id, visit_id.to_string(), seq, reverted_at],
+        )
+        .unwrap();
+}
+
+#[test]
+fn starred_matcher_matches_url_variants_and_starred_domains() {
+    // W-AI-6: the in-memory matcher resolves starred-ness for a result URL. A starred canonical URL
+    // matches every tracking-param/host-casing variant; a starred domain covers every page on it.
+    let mut matcher = StarredMatcher::default();
+    assert!(matcher.is_empty(), "a fresh matcher is empty");
+    assert!(!matcher.is_starred("https://example.com/a"), "nothing is starred yet");
+
+    matcher = load_starred_matcher_from(&{
+        let paths = make_paths("matcher-load");
+        let config = plaintext_config();
+        ensure_schema(&paths, &config);
+        set_star(&paths, &config, None, url_request("https://example.com/page")).unwrap();
+        set_star(&paths, &config, None, domain_request("news.example.org")).unwrap();
+        open_archive_connection(&paths, &config, None).unwrap()
+    })
+    .unwrap();
+    assert!(!matcher.is_empty());
+    // URL star: a tracking-param + host-casing variant of the starred page reads as starred.
+    assert!(matcher.is_starred("https://Example.com/page?utm_source=x"));
+    // Domain star: any page on the starred registrable domain reads as starred (subdomain included).
+    assert!(matcher.is_starred("https://www.news.example.org/world/story"));
+    // An unrelated page on neither a starred URL nor a starred domain is NOT starred.
+    assert!(!matcher.is_starred("https://other.com/page"));
+    // An unparseable URL is simply not URL-starred (no panic).
+    assert!(!matcher.is_starred("not a url"));
+}
+
+#[test]
+fn load_starred_matcher_reads_url_and_domain_kinds() {
+    let paths = make_paths("matcher-kinds");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    set_star(&paths, &config, None, url_request("https://example.com/keep")).unwrap();
+    set_star(&paths, &config, None, domain_request("docs.rs")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    assert!(matcher.is_starred("https://example.com/keep"));
+    assert!(matcher.is_starred("https://docs.rs/serde/latest"));
+    assert!(!matcher.is_starred("https://example.com/other"));
+}
+
+#[test]
+fn starred_history_ids_resolves_starred_visits_and_excludes_reverted() {
+    // W-AI-6 facet allowlist: starred URLs/domains resolve to their archive visit ids (bounded join).
+    let paths = make_paths("starred-visits");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    // visit 1: a starred page (visible). visit 2: same starred page but REVERTED (must be excluded).
+    seed_visit_row(&paths, &config, 1, "https://example.com/page?utm_source=ad", false);
+    seed_visit_row(&paths, &config, 2, "https://example.com/page", true);
+    // visit 3: a page on a starred DOMAIN. visit 4: an unstarred page (must be excluded).
+    seed_visit_row(&paths, &config, 3, "https://blog.starred-domain.com/post", false);
+    seed_visit_row(&paths, &config, 4, "https://unstarred.com/page", false);
+
+    set_star(&paths, &config, None, url_request("https://example.com/page")).unwrap();
+    set_star(&paths, &config, None, domain_request("starred-domain.com")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    let ids = starred_history_ids(&paths, &config, None, &matcher).unwrap();
+    assert!(ids.contains(&1), "the visible starred-URL visit is included");
+    assert!(!ids.contains(&2), "a reverted starred visit is excluded");
+    assert!(ids.contains(&3), "a visit on a starred domain is included");
+    assert!(!ids.contains(&4), "an unstarred visit is excluded");
+    assert_eq!(ids.len(), 2);
+}
+
+#[test]
+fn load_starred_matcher_drops_unknown_future_kinds() {
+    // A newer build may write a star kind (e.g. `query_family`) an older read path doesn't know; the
+    // matcher must drop it rather than crash or mis-bucket it (the `None` arm of the kind match).
+    let paths = make_paths("matcher-unknown-kind");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+    connection
+        .execute(
+            "INSERT INTO star(entity_kind, entity_key, starred_at, source_profile)
+             VALUES('query_family', 'rust tutorials', '2026-04-24T00:00:00Z', NULL)",
+            [],
+        )
+        .unwrap();
+    // A known URL star coexists so the matcher is non-empty for a sound assertion.
+    set_star(&paths, &config, None, url_request("https://example.com/keep")).unwrap();
+
+    let matcher = load_starred_matcher_from(&connection).unwrap();
+    assert!(matcher.is_starred("https://example.com/keep"), "the known URL star is kept");
+    assert!(
+        !matcher.is_starred("https://example.com/query%20family"),
+        "the unknown kind is dropped"
+    );
+}
+
+#[test]
+fn starred_history_ids_is_empty_when_nothing_starred() {
+    // No stars → the resolution short-circuits to an empty set (no archive query needed).
+    let paths = make_paths("starred-none");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    seed_visit_row(&paths, &config, 1, "https://example.com/page", false);
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    assert!(matcher.is_empty());
+    assert!(starred_history_ids(&paths, &config, None, &matcher).unwrap().is_empty());
+}
+
+#[test]
+fn starred_history_ids_resolution_is_bounded_by_the_star_set_not_the_corpus() {
+    // HIGH regression: `starred_history_ids` must resolve the tiny starred set FORWARD (starred URL →
+    // urls.id → visits.id), NOT scan every non-reverted visit and test each URL. Seed MANY non-starred
+    // visits + a handful starred ones and assert ONLY the starred visits resolve — the result count is
+    // bounded by the star set, never the corpus. A regression to the full-corpus scan would still pass
+    // the equality assert, so we ALSO assert the query plan: the urls step is an `idx_urls_url` SEARCH
+    // (not a SCAN urls) and the visits step rides the url_id index.
+    let paths = make_paths("starred-bounded");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+
+    // 200 non-starred visits (the "corpus" the old code would have materialized + canonicalized).
+    for visit_id in 1..=200 {
+        seed_visit_row(
+            &paths,
+            &config,
+            visit_id,
+            &format!("https://noise{visit_id}.test/p"),
+            false,
+        );
+    }
+    // A handful of starred rows: a URL star (stored under a tracking-param raw variant so the prefix
+    // pass is exercised) and a domain star covering one page.
+    seed_visit_row(&paths, &config, 201, "https://keep.test/post?utm_source=ad", false);
+    seed_visit_row(&paths, &config, 202, "https://blog.fav-domain.test/x", false);
+    set_star(&paths, &config, None, url_request("https://keep.test/post")).unwrap();
+    set_star(&paths, &config, None, domain_request("fav-domain.test")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    let ids = starred_history_ids(&paths, &config, None, &matcher).unwrap();
+    // Exactly the two starred visits resolve; the 200 noise visits never enter the result.
+    assert_eq!(ids, std::collections::HashSet::from([201, 202]));
+
+    // Prove the plan is index-bounded, not a full table scan. `idx_urls_url` must be SEARCHed for the
+    // exact-seek pass (the load-bearing index the fix relies on, migration 014_stars.sql:49).
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+    let url_plan = explain_query_plan(&connection, "SELECT id FROM urls WHERE url = ?1", &["x"]);
+    assert!(
+        url_plan.iter().any(|step| step.contains("SEARCH") && step.contains("idx_urls_url")),
+        "the URL-star exact seek must SEARCH idx_urls_url, not SCAN urls: {url_plan:?}"
+    );
+    assert!(
+        !url_plan.iter().any(|step| step.contains("SCAN urls") && !step.contains("idx_urls_url")),
+        "the URL-star exact seek must not full-scan urls: {url_plan:?}"
+    );
+    // The visits hop rides an index on url_id (the visible-url-time index), not a full visits scan.
+    let visit_plan = explain_query_plan(
+        &connection,
+        "SELECT id FROM visits WHERE reverted_at IS NULL AND url_id IN (?1)",
+        &["1"],
+    );
+    assert!(
+        visit_plan.iter().any(|step| step.contains("SEARCH") && step.contains("visits")),
+        "the visits resolution must SEARCH visits by url_id, not SCAN: {visit_plan:?}"
+    );
+}
+
+#[test]
+fn starred_history_ids_is_empty_when_starred_pages_are_not_in_the_archive() {
+    // A non-empty matcher whose starred URL/domain has NO matching `urls` row resolves to zero
+    // `urls.id`s, so the visits hop short-circuits (the `url_ids.is_empty()` guard) to an empty set
+    // rather than running an `IN ()` query. The user starred something the archive has not (yet) seen.
+    let paths = make_paths("starred-no-urls");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    // Seed an UNRELATED visit so the visits table is non-empty (proving the empty result is the missing
+    // url_id, not an empty archive).
+    seed_visit_row(&paths, &config, 1, "https://present.test/page", false);
+    set_star(&paths, &config, None, url_request("https://unseen.test/never")).unwrap();
+    set_star(&paths, &config, None, domain_request("also-unseen.test")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    assert!(!matcher.is_empty(), "the matcher has stars even though the archive lacks those pages");
+    assert!(
+        starred_history_ids(&paths, &config, None, &matcher).unwrap().is_empty(),
+        "stars with no matching urls.id resolve to no visits"
+    );
+}
+
+#[test]
+fn url_ids_for_canonical_falls_back_when_key_is_not_a_parseable_url() {
+    // Defensive path mirroring `enrich_url_star`: a url-kind star key is always a parseable canonical
+    // URL in production, but if one ever carries an unparseable key, `canonical_prefix` returns None and
+    // `url_ids_for_canonical` returns only the (empty) exact-pass result instead of panicking.
+    let paths = make_paths("url-ids-bad-key");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+    let ids = url_ids_for_canonical(&connection, "not a url").unwrap();
+    assert!(ids.is_empty(), "an unparseable key resolves to no urls.id without panicking");
+}
+
+#[test]
+fn starred_history_ids_domain_arm_rejects_embedded_domain_on_unrelated_host() {
+    // A-1 (over-recall rejected): a raw URL with the starred domain embedded in a path/query
+    // (`?img=//example.com/p.jpg`) on an UNRELATED host substring-matches the bare `%//example.com/%`
+    // LIKE, but is NOT on `example.com`. The `registrable_domain_for_url` confirm — exactly the test
+    // `StarredMatcher::is_starred` uses — must reject it so the facet allowlist matches the matcher.
+    let paths = make_paths("domain-over-recall");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    seed_visit_row(
+        &paths,
+        &config,
+        1,
+        "https://news.other.com/story?img=//example.com/p.jpg",
+        false,
+    );
+    set_star(&paths, &config, None, domain_request("example.com")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    // Sanity: the per-visit matcher (the reviewed-correct baseline) does NOT consider this starred.
+    assert!(
+        !matcher.is_starred("https://news.other.com/story?img=//example.com/p.jpg"),
+        "the matcher binds to the registrable host, not a substring",
+    );
+    let ids = starred_history_ids(&paths, &config, None, &matcher).unwrap();
+    assert!(
+        ids.is_empty(),
+        "the embedded-domain visit on an unrelated host must NOT enter the facet allowlist: {ids:?}",
+    );
+}
+
+#[test]
+fn starred_history_ids_domain_arm_matches_ported_hosts() {
+    // A-2 (ported matched): a raw URL whose host carries a port has no `/` immediately after the host,
+    // so the old `%//domain/%` pattern pre-filtered it OUT. The `:`-tolerant candidate patterns admit
+    // it and the registrable-domain confirm includes it — exactly like `StarredMatcher::is_starred`.
+    let paths = make_paths("domain-ported");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    // A bare-host port (localhost:3000) and an apex-host port (example.com:8443).
+    seed_visit_row(&paths, &config, 1, "http://localhost:3000/x", false);
+    seed_visit_row(&paths, &config, 2, "https://example.com:8443/p", false);
+    // Pin no-regression: a subdomain page (no port) still matches via the `%.domain/%` pattern.
+    seed_visit_row(&paths, &config, 3, "https://blog.example.com/p", false);
+    set_star(&paths, &config, None, domain_request("localhost")).unwrap();
+    set_star(&paths, &config, None, domain_request("example.com")).unwrap();
+
+    let matcher = load_starred_matcher(&paths, &config, None).unwrap();
+    // The matcher (baseline) agrees these are all starred.
+    assert!(matcher.is_starred("http://localhost:3000/x"));
+    assert!(matcher.is_starred("https://example.com:8443/p"));
+    assert!(matcher.is_starred("https://blog.example.com/p"));
+    let ids = starred_history_ids(&paths, &config, None, &matcher).unwrap();
+    assert!(ids.contains(&1), "a ported bare host (localhost:3000) resolves: {ids:?}");
+    assert!(ids.contains(&2), "a ported apex host (example.com:8443) resolves: {ids:?}");
+    assert!(ids.contains(&3), "a subdomain page (no port) still resolves: {ids:?}");
+    assert_eq!(ids.len(), 3);
+}
+
+#[test]
+fn url_ids_for_domain_returns_empty_when_no_url_matches_the_domain() {
+    // Empty-result branch: a starred domain with no matching `urls` row yields an empty id list (the
+    // candidate LIKE matches nothing, so the confirm loop never runs).
+    let paths = make_paths("domain-empty");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    seed_url_row(&paths, &config, "https://elsewhere.test/p", "Elsewhere", 3);
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+    let ids = url_ids_for_domain(&connection, "example.com").unwrap();
+    assert!(ids.is_empty(), "a domain with no matching urls resolves to no ids: {ids:?}");
+}
+
+#[test]
+fn enrich_entity_domain_count_agrees_with_facet_host_binding() {
+    // The Starred-hub domain visit-count and the `is:starred` facet must agree: both bind to the
+    // registrable host. Seed a real on-domain page, a ported on-domain page, AND an unrelated host
+    // whose URL embeds the domain in a query — the count must include only the two real on-domain rows.
+    let paths = make_paths("domain-count-host-bound");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    seed_url_row(&paths, &config, "https://example.com/one", "One", 4);
+    seed_url_row(&paths, &config, "https://example.com:8443/two", "Two (ported)", 6);
+    seed_url_row(&paths, &config, "https://other.com/x?img=//example.com/p.jpg", "Embedded", 99);
+
+    set_star(&paths, &config, None, domain_request("example.com")).unwrap();
+    let listed = list_stars(
+        &paths,
+        &config,
+        None,
+        Some(StarEntityKind::Domain),
+        StarSort::RecentlyStarred,
+        None,
+    )
+    .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0].visit_count, 10,
+        "the count sums on-domain rows (incl. ported) but NOT the embedded-domain unrelated host",
+    );
+}
+
+/// Returns the `detail` column of `EXPLAIN QUERY PLAN <sql>` (one string per plan step). Used by the
+/// boundedness regression to assert the starred resolution rides `idx_urls_url` / the url_id index
+/// rather than scanning the corpus.
+fn explain_query_plan(connection: &Connection, sql: &str, binds: &[&str]) -> Vec<String> {
+    let mut statement = connection.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+    statement
+        .query_map(params_from_iter(binds.iter()), |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}

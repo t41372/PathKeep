@@ -176,6 +176,8 @@ pub(crate) fn mcp_search_result(
         domain: request.domain.clone(),
         limit: request.limit,
         cursor: None,
+        // The MCP face does not expose the `is:starred` facet yet (W-AI-9 carryover); unfiltered.
+        starred_only: None,
     };
     let response = search_ai_history(database_key, &search_request)?;
     let connection = ai_archive_connection(&paths, &config, database_key)?;

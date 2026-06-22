@@ -426,6 +426,83 @@ pub struct AiSettings {
     pub assistant_system_prompt: String,
     pub llm_providers: Vec<AiProviderConfig>,
     pub embedding_providers: Vec<AiProviderConfig>,
+    /// RRF constant `k` for hybrid search fusion (W-AI-6, 05 §9.4).
+    ///
+    /// The Reciprocal Rank Fusion denominator: a result's contribution from a list is
+    /// `weight / (rrf_k + rank)`. A larger `k` flattens the curve (rank position matters less); the
+    /// canonical RRF default is 60. Clamped to `>= 1` on load so the denominator can never be zero.
+    #[serde(default = "default_hybrid_rrf_k")]
+    pub hybrid_rrf_k: u32,
+    /// Weight applied to the lexical ranked list during RRF fusion (W-AI-6).
+    ///
+    /// Defaults to `1.0` (equal weight with semantic). Clamped to `[0.0, MAX_SEARCH_WEIGHT]` on load
+    /// so a corrupt/hostile config can neither invert nor unboundedly dominate fusion. Zero disables
+    /// the lexical list's RRF contribution (semantic-only ranking) without removing it as a recall set.
+    #[serde(default = "default_search_weight")]
+    pub lexical_weight: f32,
+    /// Weight applied to the semantic ranked list during RRF fusion (W-AI-6).
+    ///
+    /// Defaults to `1.0` (equal weight with lexical). Clamped to `[0.0, MAX_SEARCH_WEIGHT]` on load.
+    /// Zero disables the semantic list's RRF contribution (lexical-only ranking).
+    #[serde(default = "default_search_weight")]
+    pub semantic_weight: f32,
+    /// BOUNDED additive boost applied to a starred result's normalized fusion score (W-AI-6, 05 §10).
+    ///
+    /// Added to the `[0, 1]`-normalized fusion score of a result whose page (or domain) is starred, so
+    /// favorites rank higher WITHOUT turning semantic search into a bookmark list (05 §10:
+    /// "過大 → 語義搜尋變書籤列表"). Conservative default (`0.15`) and clamped to
+    /// `[0.0, MAX_STARRED_BOOST]` (`0.5`) on load: a single bounded bump can promote a *relevant*
+    /// starred page but can never lift an irrelevant starred page above a strongly-relevant unstarred
+    /// one (the normalized top is `1.0`, the boost cap is `0.5`). Zero disables the boost entirely.
+    #[serde(default = "default_starred_boost")]
+    pub starred_boost: f32,
+}
+
+/// Default RRF `k` constant (the canonical Reciprocal Rank Fusion value).
+fn default_hybrid_rrf_k() -> u32 {
+    60
+}
+
+/// Default RRF list weight (equal lexical/semantic blend).
+fn default_search_weight() -> f32 {
+    1.0
+}
+
+/// Default starred boost: a conservative bounded bump that promotes but never dominates.
+fn default_starred_boost() -> f32 {
+    0.15
+}
+
+/// Upper bound on a hybrid-fusion list weight (defensive clamp against a corrupt/hostile config).
+pub const MAX_SEARCH_WEIGHT: f32 = 100.0;
+
+/// Upper bound on the starred boost (05 §10 boundedness: keeps it below the normalized-score top of
+/// `1.0` so an irrelevant favorite can never leapfrog a strongly-relevant unstarred result).
+pub const MAX_STARRED_BOOST: f32 = 0.5;
+
+impl AiSettings {
+    /// Clamps the hybrid-search tuning knobs into their valid ranges (W-AI-6).
+    ///
+    /// Called from [`crate::config::normalize_app_config`] on every load so a hand-edited or older
+    /// config can never feed an out-of-range value into fusion: `hybrid_rrf_k >= 1` (non-zero
+    /// denominator), weights in `[0, MAX_SEARCH_WEIGHT]`, and `starred_boost` in
+    /// `[0, MAX_STARRED_BOOST]`. NaN weights/boost reset to their conservative defaults rather than
+    /// poisoning the score comparison. Idempotent — clamping an already-valid config is a no-op.
+    pub fn normalize_search_knobs(&mut self) {
+        self.hybrid_rrf_k = self.hybrid_rrf_k.max(1);
+        self.lexical_weight = clamp_search_weight(self.lexical_weight, default_search_weight());
+        self.semantic_weight = clamp_search_weight(self.semantic_weight, default_search_weight());
+        self.starred_boost = if self.starred_boost.is_nan() {
+            default_starred_boost()
+        } else {
+            self.starred_boost.clamp(0.0, MAX_STARRED_BOOST)
+        };
+    }
+}
+
+/// Clamps one fusion list weight into `[0, MAX_SEARCH_WEIGHT]`, resetting NaN to `fallback`.
+fn clamp_search_weight(value: f32, fallback: f32) -> f32 {
+    if value.is_nan() { fallback } else { value.clamp(0.0, MAX_SEARCH_WEIGHT) }
 }
 
 impl Default for AiSettings {
@@ -452,6 +529,10 @@ impl Default for AiSettings {
             assistant_system_prompt: "You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.".to_string(),
             llm_providers: Vec::new(),
             embedding_providers: Vec::new(),
+            hybrid_rrf_k: default_hybrid_rrf_k(),
+            lexical_weight: default_search_weight(),
+            semantic_weight: default_search_weight(),
+            starred_boost: default_starred_boost(),
         }
     }
 }
@@ -851,12 +932,28 @@ pub struct AiSearchRequest {
     pub domain: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    /// The `is:starred` facet (W-AI-6): restrict BOTH lexical AND semantic recall to starred pages.
+    ///
+    /// Mirrors the lexical Explorer `is:starred` facet but pushes the constraint into the semantic
+    /// plane too via the [`crate::ai::VectorIndex`] allowlist seam, so meaning-based search over
+    /// favorites is honest (today the lexical browse facet only constrains the keyword path). `None`
+    /// or `Some(false)` is the unfiltered default; `Some(true)` activates the allowlist. Optional with
+    /// `#[serde(default)]` so older shell payloads without the field still deserialize.
+    #[serde(default)]
+    pub starred_only: Option<bool>,
 }
 
 impl Default for AiSearchRequest {
     /// Returns the default search request used by empty shell forms.
     fn default() -> Self {
-        Self { query: String::new(), profile_id: None, domain: None, limit: Some(8), cursor: None }
+        Self {
+            query: String::new(),
+            profile_id: None,
+            domain: None,
+            limit: Some(8),
+            cursor: None,
+            starred_only: None,
+        }
     }
 }
 
@@ -1225,5 +1322,109 @@ mod tests {
         }];
         assert!(!content_extractor_enabled(&config, "github-repo"));
         assert!(content_extractor_enabled(&config, "generic-readable"));
+    }
+
+    #[test]
+    fn ai_settings_search_knobs_default_to_conservative_values() {
+        // W-AI-6: the hybrid-search knobs ship at safe, equal-weight, bounded defaults.
+        let settings = AiSettings::default();
+        assert_eq!(settings.hybrid_rrf_k, 60, "RRF k defaults to the canonical 60");
+        assert_eq!(settings.lexical_weight, 1.0);
+        assert_eq!(settings.semantic_weight, 1.0);
+        assert_eq!(settings.starred_boost, 0.15, "the starred boost is conservative by default");
+    }
+
+    #[test]
+    fn ai_settings_search_knobs_serialize_camel_case() {
+        // The FE binds these later (W-AI-9), so the wire keys must be camelCase like the rest.
+        let value = serde_json::to_value(AiSettings::default()).unwrap();
+        assert_eq!(value["hybridRrfK"], json!(60));
+        assert_eq!(value["lexicalWeight"].as_f64().unwrap(), 1.0);
+        assert_eq!(value["semanticWeight"].as_f64().unwrap(), 1.0);
+        // f32 0.15 widens to a non-exact f64; compare with tolerance rather than a literal.
+        assert!((value["starredBoost"].as_f64().unwrap() - 0.15).abs() < 1e-6);
+        // The camelCase keys must exist (not snake_case) so the FE binding contract holds.
+        assert!(value.get("starredBoost").is_some());
+    }
+
+    #[test]
+    fn ai_settings_search_knobs_deserialize_from_older_payload_without_them() {
+        // Older configs lack the W-AI-6 knobs; `#[serde(default)]` must fill them with the defaults so
+        // an upgrade never fails to parse and never silently zeroes the RRF denominator.
+        let older = json!({});
+        let settings: AiSettings = serde_json::from_value(older).unwrap();
+        assert_eq!(settings.hybrid_rrf_k, 60);
+        assert_eq!(settings.lexical_weight, 1.0);
+        assert_eq!(settings.semantic_weight, 1.0);
+        assert_eq!(settings.starred_boost, 0.15);
+    }
+
+    #[test]
+    fn normalize_search_knobs_clamps_into_valid_ranges() {
+        // A hand-edited / hostile config must be clamped: k >= 1 (non-zero denominator), weights into
+        // [0, MAX_SEARCH_WEIGHT], boost into [0, MAX_STARRED_BOOST]. Negative + over-cap + zero-k all hit.
+        let mut settings = AiSettings {
+            hybrid_rrf_k: 0,
+            lexical_weight: -5.0,
+            semantic_weight: 1_000.0,
+            starred_boost: 9.0,
+            ..AiSettings::default()
+        };
+        settings.normalize_search_knobs();
+        assert_eq!(
+            settings.hybrid_rrf_k, 1,
+            "k=0 is lifted to 1 so the RRF denominator is non-zero"
+        );
+        assert_eq!(settings.lexical_weight, 0.0, "a negative weight clamps up to 0");
+        assert_eq!(settings.semantic_weight, MAX_SEARCH_WEIGHT, "an over-cap weight clamps down");
+        assert_eq!(
+            settings.starred_boost, MAX_STARRED_BOOST,
+            "an over-cap boost clamps to the cap"
+        );
+    }
+
+    #[test]
+    fn normalize_search_knobs_resets_nan_weights_and_boost_to_defaults() {
+        // NaN must never reach the score comparison; it resets to the conservative default.
+        let mut settings = AiSettings {
+            lexical_weight: f32::NAN,
+            semantic_weight: f32::NAN,
+            starred_boost: f32::NAN,
+            ..AiSettings::default()
+        };
+        settings.normalize_search_knobs();
+        assert_eq!(settings.lexical_weight, 1.0);
+        assert_eq!(settings.semantic_weight, 1.0);
+        assert_eq!(settings.starred_boost, 0.15);
+    }
+
+    #[test]
+    fn normalize_search_knobs_is_idempotent_for_valid_values() {
+        // Clamping an already-valid config is a no-op (covers the in-range branches).
+        let mut settings = AiSettings {
+            hybrid_rrf_k: 30,
+            lexical_weight: 0.5,
+            semantic_weight: 2.0,
+            starred_boost: 0.25,
+            ..AiSettings::default()
+        };
+        settings.normalize_search_knobs();
+        assert_eq!(settings.hybrid_rrf_k, 30);
+        assert_eq!(settings.lexical_weight, 0.5);
+        assert_eq!(settings.semantic_weight, 2.0);
+        assert_eq!(settings.starred_boost, 0.25);
+    }
+
+    #[test]
+    fn ai_search_request_starred_only_round_trips_and_defaults_absent() {
+        // The `is:starred` facet field serializes camelCase and tolerates an older payload omitting it.
+        let value = serde_json::to_value(AiSearchRequest {
+            starred_only: Some(true),
+            ..AiSearchRequest::default()
+        })
+        .unwrap();
+        assert_eq!(value["starredOnly"], json!(true));
+        let older: AiSearchRequest = serde_json::from_value(json!({ "query": "rust" })).unwrap();
+        assert_eq!(older.starred_only, None, "absent facet defaults to None (unfiltered)");
     }
 }

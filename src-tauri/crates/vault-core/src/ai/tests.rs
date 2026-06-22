@@ -1286,6 +1286,7 @@ fn search_history_internal_requires_query_and_supports_lexical_fallback() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect_err("empty query should fail");
@@ -1303,12 +1304,15 @@ fn search_history_internal_requires_query_and_supports_lexical_fallback() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect("lexical search");
     assert_eq!(response.total, 1);
     assert_eq!(response.provider_id, "lexical-fallback");
-    assert_eq!(response.items[0].score, 0.6);
+    // RRF over a single lexical-only list, normalized to [0, 1]: the lone result is the max so it
+    // normalizes to 1.0 (W-AI-6 replaced the old fixed lexical_score with rank-fusion + normalization).
+    assert_eq!(response.items[0].score, 1.0);
     assert!(response.notes.iter().any(|note| note.contains("lexical retrieval")));
 }
 
@@ -1330,6 +1334,7 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect("public search wrapper");
@@ -2069,6 +2074,7 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect("semantic empty fallback");
@@ -2403,7 +2409,9 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches on empty index");
     assert!(report.hits.is_empty());
@@ -2525,7 +2533,9 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches with built planes");
     assert!(!report.hits.is_empty(), "a built index must return real hits");
@@ -2565,7 +2575,9 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches under a dim mismatch");
     assert!(report.hits.is_empty(), "a dim mismatch must yield NO semantic hits");
@@ -2629,7 +2641,9 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches under fingerprint drift");
     assert!(report.hits.is_empty(), "a fingerprint drift must yield NO semantic hits");
@@ -2682,7 +2696,9 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("profile facet");
     let docs_hit = by_profile.hits.iter().find(|hit| hit.url.contains("/docs")).expect("docs hit");
@@ -2702,7 +2718,9 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 domain: Some("other.com".to_string()),
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("domain facet");
     assert!(by_domain.hits.iter().all(|hit| hit.domain == "other.com"));
@@ -2745,7 +2763,9 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches");
     let docs_hits: Vec<_> = report.hits.iter().filter(|hit| hit.url.contains("/docs")).collect();
@@ -2780,7 +2800,9 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
+            None,
         ))
         .expect("semantic matches");
     assert!(report.hits.is_empty());
@@ -2813,6 +2835,7 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect("lexical fallback search");
@@ -2856,6 +2879,7 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
         ))
         .expect("merged search");
@@ -2872,12 +2896,515 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
     );
 }
 
+/// Stars a URL in the archive the AI test harness booted (`base_config` is plaintext).
+fn star_url(paths: &ProjectPaths, config: &AppConfig, url: &str) {
+    crate::stars::set_star(
+        paths,
+        config,
+        None,
+        crate::models::SetStarRequest {
+            entity_kind: crate::models::StarEntityKind::Url,
+            entity_key: url.to_string(),
+            source_profile: None,
+        },
+    )
+    .expect("star url");
+}
+
 #[test]
-fn lexical_scoring_helpers_return_expected_values() {
-    assert!((lexical_score(0, 5) - 0.6).abs() < 1e-6);
-    assert!((lexical_score(4, 5) - 0.456).abs() < 1e-6);
-    assert!((lexical_boost(0, 5) - 0.08).abs() < 1e-6);
-    assert!((lexical_boost(4, 5) - 0.016).abs() < 1e-6);
+fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
+    // RRF core property (W-AI-6): a page ranked high in BOTH the lexical and semantic lists must beat a
+    // page ranked high in only one list, because its score sums both lists' contributions. Page 1 is the
+    // top lexical hit AND the top semantic hit; page 2 is only a semantic hit. Page 1 must rank first.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    // Page 1: lexical match for "docs" AND the exact semantic vector → in both lists at rank 0.
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    // Page 2: NOT a lexical match for "docs" (title/url differ) but the same strong semantic vector.
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/api", Some("Reference"), 2);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    // Page 1's vector is the exact query; page 2's is slightly less aligned so page 1 also tops semantic.
+    let near: Vec<f32> = {
+        let mut v = docs_vector.clone();
+        if let Some(first) = v.first_mut() {
+            *first *= 0.9;
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter().map(|x| x / norm).collect()
+    };
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, near)]);
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("hybrid search");
+    assert_eq!(
+        search.items[0].history_id, 1,
+        "the dual-list page wins on summed RRF contributions"
+    );
+    assert_eq!(search.items[0].match_reason, "Lexical + semantic match");
+    let page_two = search.items.iter().find(|item| item.history_id == 2).expect("page 2");
+    assert!(
+        search.items[0].score > page_two.score,
+        "page 1 (both lists) scores strictly above page 2 (one list)"
+    );
+}
+
+#[test]
+fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
+    // Tunable weights (W-AI-6): zeroing the semantic weight drops its RRF contribution, so ranking
+    // collapses to the lexical order even though semantic recall still ran. Page 2 (semantic-only)
+    // contributes nothing and falls to the bottom; page 1 (lexical) ranks first.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, mut config, connection) = prepared_archive();
+    config.ai.semantic_weight = 0.0; // normalize_search_knobs leaves 0.0 valid (disable, not invert).
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/api", Some("Reference"), 2);
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, docs_vector.clone())],
+    );
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("lexical-weighted search");
+    assert_eq!(search.items[0].history_id, 1, "the lexical hit tops when semantic weight is 0");
+    let page_two = search.items.iter().find(|item| item.history_id == 2).expect("page 2");
+    // Page 2 has only a semantic rank, whose weight is 0, so its fused score is 0 → bottom.
+    assert_eq!(page_two.score, 0.0, "a semantic-only page scores 0 when semantic weight is 0");
+}
+
+#[test]
+fn rrf_pagination_cursor_walks_the_fused_pool() {
+    // RRF must not break pagination (W-AI-6): with a limit-1 page over a fused pool of TWO distinct
+    // pages (one lexical-only, one semantic-only), page 1 returns a next_cursor and following it returns
+    // the second result without overlap. (The lexical fetch + the per-page semantic hit are each bounded
+    // by `limit`, so the pool grows past `limit` only when the semantic plane adds a DISTINCT page — what
+    // this seeds: lexical page 1 plus a distinct semantic page 2.) A heavier lexical weight makes the
+    // lexical page outrank the semantic page deterministically (no normalized tie) so the page order is
+    // stable under parallel runs.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, mut config, connection) = prepared_archive();
+    config.ai.lexical_weight = 2.0; // lexical page (2/60) outranks the semantic page (1/60) without a tie.
+    let embedding = embedding_provider();
+    // Page 1: lexical match for "docs", no seeded vector → lexical-only.
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 2);
+    // Page 2: NOT a lexical match for "docs" but the exact semantic vector → semantic-only (distinct).
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/api", Some("Reference"), 1);
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(&paths, &embedding, &[(2, 0x2222, docs_vector.clone())]);
+
+    let first = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(1),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("page 1");
+    assert_eq!(first.total, 2, "the fused pool is the lexical page ∪ the distinct semantic page");
+    assert_eq!(first.items.len(), 1);
+    let cursor = first.next_cursor.clone().expect("a next cursor exists");
+
+    let second = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(1),
+                cursor: Some(cursor),
+                starred_only: None,
+            },
+        ))
+        .expect("page 2");
+    assert_eq!(second.items.len(), 1);
+    assert!(second.next_cursor.is_none(), "the second page is the last");
+    assert_ne!(
+        first.items[0].history_id, second.items[0].history_id,
+        "the cursor advances to a different result"
+    );
+}
+
+#[test]
+fn ai_off_search_is_lexical_only() {
+    // Honest degradation (W-AI-6): no embedding provider → lexical-only, RRF degrades to the lexical
+    // list, and the honest "lexical retrieval only" note is present.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("lexical-only");
+    assert_eq!(response.items.len(), 1);
+    assert_eq!(response.items[0].match_reason, "Lexical match");
+    assert!(response.notes.iter().any(|note| note.contains("lexical retrieval only")));
+}
+
+#[test]
+fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
+    // THE bounded-boost property (W-AI-6, 05 §10): the starred boost must promote a *relevant* starred
+    // page but must NOT let an *irrelevant* starred page leapfrog a strongly-relevant unstarred page —
+    // otherwise semantic search degenerates into a bookmark list.
+    //
+    // Corpus (query "rust"):
+    //  - page 1 RELEVANT + UNSTARRED: exact semantic vector + lexical "rust" match → normalizes near 1.0
+    //  - page 2 MODEST + STARRED: a weak-but-positive semantic vector, no lexical match → low fusion,
+    //    lifted by the boost so it sits ABOVE an equally-modest unstarred page…
+    //  - page 3 MODEST + UNSTARRED: the SAME weak vector as page 2 but no star → the boost baseline
+    //  - page 4 IRRELEVANT + STARRED: a near-orthogonal vector → very low fusion; even +boost must stay
+    //    BELOW the relevant unstarred page 1.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/rust-guide", Some("Rust"), 4);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/star-mid", Some("Mid"), 3);
+    seed_visit(&connection, 3, "chrome:Default", "https://example.com/plain-mid", Some("Plain"), 2);
+    seed_visit(&connection, 4, "chrome:Default", "https://example.com/star-off", Some("Off"), 1);
+
+    let rust_vector = runtime
+        .block_on(embed_query(&embedding, "rust", EmbeddingRole::Query))
+        .expect("rust vector");
+    // A weak-but-positive variant (blend the query with an orthogonal direction) and a near-orthogonal
+    // one, both L2-normalized so dot == cosine.
+    let normalize = |mut v: Vec<f32>| {
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in &mut v {
+                *x /= norm;
+            }
+        }
+        v
+    };
+    let orthogonal: Vec<f32> = rust_vector.iter().rev().copied().collect();
+    let weak: Vec<f32> = normalize(
+        rust_vector.iter().zip(orthogonal.iter()).map(|(a, b)| 0.5 * a + 0.5 * b).collect(),
+    );
+    let near_orthogonal: Vec<f32> = normalize(
+        rust_vector.iter().zip(orthogonal.iter()).map(|(a, b)| 0.05 * a + 0.95 * b).collect(),
+    );
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[
+            (1, 0x1111, rust_vector.clone()),
+            (2, 0x2222, weak.clone()),
+            (3, 0x3333, weak.clone()),
+            (4, 0x4444, near_orthogonal),
+        ],
+    );
+    // Star the modestly-relevant page 2 and the irrelevant page 4.
+    star_url(&paths, &config, "https://example.com/star-mid");
+    star_url(&paths, &config, "https://example.com/star-off");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("boosted hybrid search");
+
+    let rank_of = |id: i64| search.items.iter().position(|item| item.history_id == id).unwrap();
+    // BOUNDED: the relevant unstarred page 1 stays on top — an irrelevant favorite can't leapfrog it.
+    assert_eq!(search.items[0].history_id, 1, "a strongly-relevant unstarred page stays #1");
+    assert!(
+        rank_of(4) > rank_of(1),
+        "an IRRELEVANT starred page does NOT leapfrog the relevant one"
+    );
+    // PROMOTING: the modestly-relevant STARRED page 2 ranks above the identical UNSTARRED page 3.
+    assert!(rank_of(2) < rank_of(3), "a relevant favorite is promoted over its unstarred twin");
+    // The starred pages carry the "(Starred)" affordance the FE shows; the unstarred ones do not.
+    let page_two = &search.items[rank_of(2)];
+    assert!(page_two.match_reason.contains("(Starred)"), "a boosted result is marked Starred");
+    let page_three = &search.items[rank_of(3)];
+    assert!(!page_three.match_reason.contains("Starred"), "an unstarred result is not marked");
+}
+
+#[test]
+fn starred_boost_off_leaves_favorites_unpromoted() {
+    // With the boost set to 0 the starred status is inert: the identical pages 2 (starred) and 3
+    // (unstarred) tie on fusion and neither carries the "(Starred)" affordance.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, mut config, connection) = prepared_archive();
+    config.ai.starred_boost = 0.0;
+    let embedding = embedding_provider();
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/star-mid", Some("Mid"), 2);
+    seed_visit(&connection, 3, "chrome:Default", "https://example.com/plain-mid", Some("Plain"), 1);
+    let rust_vector = runtime
+        .block_on(embed_query(&embedding, "rust", EmbeddingRole::Query))
+        .expect("rust vector");
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(2, 0x2222, rust_vector.clone()), (3, 0x3333, rust_vector.clone())],
+    );
+    star_url(&paths, &config, "https://example.com/star-mid");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("boost-off search");
+    assert!(
+        search.items.iter().all(|item| !item.match_reason.contains("Starred")),
+        "no result is marked Starred when the boost is 0"
+    );
+}
+
+#[test]
+fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
+    // The `is:starred` facet (W-AI-6) pushes the starred allowlist into the SEMANTIC plane: only starred
+    // pages may be returned, even though both pages match the query vector equally. Page 1 is starred,
+    // page 2 is not; with the facet on, only page 1 survives semantic recall.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    // Both pages share the EXACT query vector; only the star distinguishes them. Neither title/url
+    // matches the query text, so this isolates the SEMANTIC allowlist (no lexical contribution).
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 2);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/beta", Some("Beta"), 1);
+    let needle = runtime
+        .block_on(embed_query(&embedding, "needle", EmbeddingRole::Query))
+        .expect("needle vector");
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, needle.clone()), (2, 0x2222, needle.clone())],
+    );
+    star_url(&paths, &config, "https://example.com/alpha");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("starred-facet search");
+    assert_eq!(search.items.len(), 1, "only the starred page survives the facet");
+    assert_eq!(search.items[0].history_id, 1);
+    assert!(
+        search.items.iter().all(|item| item.url.contains("/alpha")),
+        "the unstarred page is excluded from semantic recall by the allowlist"
+    );
+}
+
+#[test]
+fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
+    // The facet is honest: when nothing starred is indexed the allowlist is EMPTY, so semantic recall
+    // returns nothing rather than silently ignoring the facet. With no lexical match either, the result
+    // set is empty.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 1);
+    let needle = runtime
+        .block_on(embed_query(&embedding, "needle", EmbeddingRole::Query))
+        .expect("needle vector");
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, needle.clone())]);
+    // Nothing is starred.
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("empty-starred-facet search");
+    assert!(search.items.is_empty(), "an empty starred allowlist yields no semantic hits");
+}
+
+#[test]
+fn is_starred_facet_constrains_the_lexical_plane_too() {
+    // The facet must also constrain the LEXICAL plane (today the browse facet is FE-only). Both pages
+    // are lexical matches for "rust"; with the facet on, only the starred one survives — even with no
+    // embedding provider (pure lexical path).
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/rust-a", Some("Rust A"), 2);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/rust-b", Some("Rust B"), 1);
+    star_url(&paths, &config, "https://example.com/rust-a");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None, // lexical-only path
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("lexical starred-facet search");
+    assert_eq!(search.items.len(), 1, "only the starred lexical row survives the facet");
+    assert_eq!(search.items[0].history_id, 1);
+}
+
+#[test]
+fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
+    // MEDIUM regression (Bug 2): the `is:starred` lexical plane must EXPAND recall so a starred page
+    // that matches the query text but was visited OLDER than the newest `limit` text matches is still
+    // returned. The old code fetched only `limit` of the NEWEST matches then post-filtered to starred,
+    // hard-truncating away older starred hits — for AI-off / no-provider users the lexical plane is the
+    // ONLY recall path, so they'd silently lose the favorite. Seed MANY recent NON-starred text matches
+    // + one OLDER STARRED text match, run lexical-only with the facet on, and assert the old starred row
+    // IS returned.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+
+    // The starred page is the OLDEST "rust" match (visit_time 1). Then 20 newer non-starred "rust"
+    // matches (visit_time 2..=21) so a limit of 5 would, under the old code, fetch only the newest 5
+    // (all non-starred) and post-filter to nothing.
+    seed_visit(
+        &connection,
+        1,
+        "chrome:Default",
+        "https://example.com/rust-old",
+        Some("Rust Old"),
+        1,
+    );
+    for visit_id in 2..=21 {
+        seed_visit(
+            &connection,
+            visit_id,
+            "chrome:Default",
+            &format!("https://example.com/rust-new-{visit_id}"),
+            Some("Rust New"),
+            visit_id,
+        );
+    }
+    star_url(&paths, &config, "https://example.com/rust-old");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None, // lexical-only path (AI-off / no provider)
+            &AiSearchRequest {
+                query: "rust".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("lexical starred-facet search with an older starred match");
+    // Only the starred page survives the facet, AND it is found despite being older than the newest 5.
+    assert_eq!(
+        search.items.len(),
+        1,
+        "only the starred row survives, and it is not truncated away"
+    );
+    assert_eq!(
+        search.items[0].history_id, 1,
+        "the OLDER starred match is recalled by the expanded lexical pool"
+    );
 }
 
 #[test]

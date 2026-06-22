@@ -156,6 +156,20 @@ export interface AiSettings {
   assistantSystemPrompt: string
   llmProviders: AiProviderConfig[]
   embeddingProviders: AiProviderConfig[]
+  /**
+   * Hybrid-search tuning knobs (W-AI-6). Mirror the Rust `AiSettings` fields (all `#[serde(default)]`,
+   * clamped on load), so a settings UI can bind them later (W-AI-9). Optional here so older snapshots
+   * without the fields still type-check; absent means "use the backend default".
+   *
+   * - `hybridRrfK` — Reciprocal Rank Fusion constant `k` (default 60; `>= 1`).
+   * - `lexicalWeight` / `semanticWeight` — per-list fusion weights (default 1.0 each; `[0, 100]`).
+   * - `starredBoost` — BOUNDED additive boost on a starred result's normalized score (default 0.15;
+   *   `[0, 0.5]`) so favorites rank higher without becoming a bookmark list.
+   */
+  hybridRrfK?: number
+  lexicalWeight?: number
+  semanticWeight?: number
+  starredBoost?: number
 }
 /**
  * Represents a read model or status snapshot for ai index.
@@ -454,6 +468,11 @@ export interface AiSearchRequest {
   domain?: string | null
   limit?: number | null
   cursor?: string | null
+  /**
+   * The `is:starred` facet (W-AI-6): when true, restrict BOTH lexical and semantic recall to starred
+   * pages. Optional/absent means unfiltered. Mirrors the Rust `starred_only` (`#[serde(default)]`).
+   */
+  starredOnly?: boolean | null
 }
 
 /**

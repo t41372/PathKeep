@@ -394,6 +394,7 @@ mod tests {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                starred_only: None,
             },
             session_key(&session).as_deref(),
         )

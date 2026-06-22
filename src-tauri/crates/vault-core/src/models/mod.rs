@@ -168,6 +168,9 @@ mod tests {
         config.ai.enrichment_plugins.clear();
         config.deterministic.modules.clear();
         config.explorer_background_prefetch_pages = 99;
+        // Out-of-range W-AI-6 search knobs must be clamped through normalize_app_config too.
+        config.ai.hybrid_rrf_k = 0;
+        config.ai.starred_boost = 99.0;
         normalize_app_config(&mut config);
 
         assert_eq!(config.enrichment.plugins.len(), 2);
@@ -175,6 +178,9 @@ mod tests {
         assert_eq!(config.deterministic.modules.len(), 8);
         assert!(config.ai.enrichment_enabled);
         assert_eq!(config.explorer_background_prefetch_pages, 10);
+        // The search-knob clamp runs as part of normalize_app_config (k>=1, boost<=cap).
+        assert_eq!(config.ai.hybrid_rrf_k, 1);
+        assert_eq!(config.ai.starred_boost, crate::models::MAX_STARRED_BOOST);
     }
 
     // ─── OgImage settings / fetch-mode coverage ──────────────────────
