@@ -11,6 +11,7 @@
 mod agent_harness;
 mod agent_tools;
 mod chat_stream;
+mod code_mode;
 mod control;
 mod dedup;
 mod embedding_candle;
@@ -96,6 +97,10 @@ pub use self::agent_tools::{
 pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+};
+pub use self::code_mode::{
+    CodeOutcome, HostCallRecord, LimitsHit, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS,
+    MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, WALL_TIME_BUDGET, run_code_in_sandbox,
 };
 pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
 pub use self::embedding_candle::{

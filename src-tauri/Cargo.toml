@@ -70,6 +70,22 @@ tokenizers = { version = "0.22", default-features = false, features = ["fancy-re
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
 walkdir = "2.5.0"
+# code-mode sandbox runtime (W-AI-8, D7 / §G Layer 2). Pure-Rust Cranelift JIT + runtime; the
+# `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
+# (preview1 in wasmtime 45 is implemented atop the preview2/component machinery). NO pooling/gc; the
+# build needs no C toolchain and the `wat` loader stays for the security-test guests.
+wasmtime = { version = "45.0.2", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+# code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
+# ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
+# (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
+# NO env, NO args, NO sockets, with a fixed zero clock + deterministic RNG. That honours the §G
+# "no dangerous ambient authority" contract (no fs/net/real-clock/env) while letting real JS run.
+# `default-features=false` + only `p1` drops the network/sockets stack; the preview1 sync linker is
+# all we wire. No C toolchain.
+wasmtime-wasi = { version = "45.0.2", default-features = false, features = ["p1"] }
+# Zero-copy byte buffers named by the WASI stream traits (`InputStream`/`OutputStream`) the code-mode
+# channel implements; already in the graph via wasmtime-wasi, restated so vault-core can name it.
+bytes = "1.10.1"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dependencies]
