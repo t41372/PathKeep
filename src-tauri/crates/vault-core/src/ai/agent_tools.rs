@@ -27,6 +27,11 @@
 //!   never run in a tight loop
 
 use super::AiProviderRuntime;
+use super::AiRunControl;
+use super::code_mode::run_code_in_sandbox;
+// Re-export the code-mode transparency types so a `run_code` outcome (and everything threading it —
+// the harness, the journal, the streamed chunk) names ONE owned shape, not a `code_mode::` path.
+pub use super::code_mode::{HostCallRecord, LimitsHit};
 use super::search::search_history_internal;
 use super::traits::LlmToolDef;
 use crate::config::ProjectPaths;
@@ -35,6 +40,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// The result of executing one agent tool: text the model sees, plus structured citations.
 ///
@@ -42,12 +48,24 @@ use std::collections::BTreeMap;
 /// a huge inlined result set — 02 §F bounded context); `citations` is the structured provenance the
 /// harness journals + pins so an answer's evidence survives later compaction. Each citation carries
 /// its `canonical_url` so WU-6 can star the cited page.
+///
+/// The three code-mode fields (`code_source`/`host_calls`/`limits_hit`) are ADDITIVE (W-AI-8 WU-2):
+/// the search tools leave them at their defaults, while `run_code` populates them so the harness can
+/// journal + stream the script verbatim, its transparent host-call timeline, and any hard limit hit
+/// (02 §G: the user SEES exactly what ran and what it queried). A search-tool outcome serializes
+/// identically to before because nothing here is wired — these fields are only ever read in Rust.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ToolOutcome {
     /// Compact, model-facing summary of the tool result (bounded; ids + count, not full rows).
     pub model_text: String,
     /// Structured citations resolved from the result, each keyed by canonical_url for W-STAR.
     pub citations: Vec<AiCitation>,
+    /// The code-mode script verbatim (`Some` only for `run_code`; `None` for the search tools).
+    pub code_source: Option<String>,
+    /// The transparent host-call timeline a `run_code` script made (empty for the search tools).
+    pub host_calls: Vec<HostCallRecord>,
+    /// Which hard sandbox limit (if any) bounded a `run_code` script (`None` for the search tools).
+    pub limits_hit: Option<LimitsHit>,
 }
 
 /// Read-only execution context shared by every retrieval tool.
@@ -65,6 +83,10 @@ pub struct AgentToolContext {
     pub default_profile_id: Option<String>,
     pub default_domain: Option<String>,
     pub default_limit: u32,
+    /// The run's cooperative cancel hook, threaded into the `run_code` sandbox so a user cancel
+    /// promptly traps the guest (the sandbox bumps the engine epoch on cancel). `None` outside an
+    /// agent run (the harness tests, and any retrieval-only caller) — the search tools never read it.
+    pub run_control: Option<Arc<dyn AiRunControl>>,
 }
 
 /// JSON arguments accepted by every retrieval tool (one shared shape across the planes).
@@ -249,7 +271,8 @@ impl AgentTool for HistorySearchTool {
             })
             .collect::<Vec<_>>();
         let model_text = summarize_search_for_model(self.name, &response);
-        Ok(ToolOutcome { model_text, citations })
+        // The search tools carry no code-mode fields (those default); only `run_code` populates them.
+        Ok(ToolOutcome { model_text, citations, ..ToolOutcome::default() })
     }
 }
 
@@ -293,6 +316,150 @@ fn summarize_search_for_model(
     text
 }
 
+/// The honest, host-API-teaching description for the `run_code` tool (W-AI-8 WU-2).
+///
+/// Kept as a const so the registry-order test can reference the same text the model sees. It tells
+/// the model exactly what the sandbox grants (read-only history retrieval) and DENIES (network, fs,
+/// clock, randomness), the two available globals + their argument shapes (including the `notes`
+/// degradation signal each call returns), and that it must ALWAYS `return` a small distilled value
+/// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
+/// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
+/// sandbox cannot keep.
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query: string (required), plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing.";
+
+/// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
+///
+/// Default-enabled on every agent run (2026-06 user decision: the Wasmtime sandbox IS the safety
+/// boundary, so there is NO model-capability gating — the LLM is swappable and the sandbox bounds
+/// whatever it writes). `call` bridges the async harness to the SYNC CPU-bound wasmtime run on a
+/// blocking thread (see below), so the agent loop stays responsive to cancel while a script runs.
+pub struct RunCodeTool;
+
+/// JSON arguments for `run_code`: the JavaScript program to run (the only field).
+#[derive(Debug, Default, Deserialize)]
+struct RunCodeArgs {
+    /// The JS program. Must be a non-empty string; `return <value>` distills the result.
+    source: String,
+}
+
+impl RunCodeTool {
+    /// The tool name the model invokes + the registry key.
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// The single-required-`source` JSON schema advertised to the model.
+    fn parameters() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "The JavaScript program to run in the sandbox. End with `return <value>` to distill a small result."
+                }
+            },
+            "required": ["source"]
+        })
+    }
+}
+
+impl Default for RunCodeTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentTool for RunCodeTool {
+    fn name(&self) -> &str {
+        "run_code"
+    }
+
+    fn definition(&self) -> LlmToolDef {
+        LlmToolDef {
+            name: "run_code".to_string(),
+            description: RUN_CODE_DESCRIPTION.to_string(),
+            parameters: Self::parameters(),
+        }
+    }
+
+    async fn call(&self, args: Value, context: &AgentToolContext) -> Result<ToolOutcome> {
+        let parsed: RunCodeArgs = serde_json::from_value(args)
+            .map_err(|error| anyhow::anyhow!("invalid run_code arguments: {error}"))?;
+        let source = parsed.source.trim().to_string();
+        if source.is_empty() {
+            anyhow::bail!("the `source` argument must not be empty");
+        }
+        let context = context.clone();
+        let control = context.run_control.clone();
+        // The wasmtime run is SYNC + CPU-bound (it does `block_in_place` + `block_on` internally for
+        // its retrieval host calls). Calling it directly in this async fn would fight the tokio worker
+        // it runs on, so hand it to a blocking thread: `spawn_blocking` gives it a dedicated thread
+        // and `Handle::current()` is the multi-thread runtime handle the host fn drives retrieval on.
+        // The agent loop keeps polling while the script runs, so a cancel (which bumps the engine
+        // epoch from the ticker thread) traps the guest promptly instead of deadlocking the loop.
+        let handle = tokio::runtime::Handle::current();
+        let outcome = tokio::task::spawn_blocking(move || {
+            run_code_in_sandbox(&source, &context, handle, control)
+        })
+        .await?;
+        code_outcome_to_tool_outcome(outcome)
+    }
+}
+
+/// Maps a [`CodeOutcome`] onto a [`ToolOutcome`] (or an `Err` the harness threads as a recoverable
+/// `is_error` tool result), preserving the WU-1 "never panics, always honest" contract.
+///
+/// - A HARD failure (the sandbox reported an error AND produced no distilled output) is an `Err`, so
+///   the harness threads an honest `is_error` message back (same discipline as the search tools — one
+///   failure never aborts the run; the model can retry with different code).
+/// - Otherwise `Ok`, carrying the distilled text + citations + the script source + the transparent
+///   host-call timeline. When the script returned nothing (no `return`, or only whitespace) the empty
+///   text is normalized to an honest sentinel so the model gets a clear "nothing was returned" signal
+///   instead of an ambiguous empty string. When a hard limit bounded the run, a short honest note is
+///   appended to the model_text so the model knows the result was truncated (never silently fabricated).
+fn code_outcome_to_tool_outcome(outcome: super::code_mode::CodeOutcome) -> Result<ToolOutcome> {
+    let super::code_mode::CodeOutcome {
+        mut model_text,
+        citations,
+        host_calls,
+        source,
+        error,
+        limits_hit,
+    } = outcome;
+
+    if let Some(message) = &error {
+        if model_text.is_empty() {
+            anyhow::bail!("run_code failed: {message}");
+        }
+    }
+    // No hard error, but the script ran without `return`ing a value (or returned only whitespace).
+    // An empty result is silently ambiguous — the model cannot tell "ran but found nothing" from
+    // "ran and said nothing", so it may hallucinate or retry. Normalize to an HONEST sentinel (NOT a
+    // fabricated answer): plainly state nothing was returned. This is not an error (`is_error` stays
+    // false), so the limit note below can still append if a bounded run also returned nothing.
+    if model_text.trim().is_empty() {
+        model_text = "[run_code completed but returned no value]".to_string();
+    }
+    // The run produced output but was bounded by a hard limit — tell the model so it does not treat a
+    // truncated/partial result as complete (02 §F bounded-context honesty).
+    if let Some(limit) = limits_hit {
+        model_text.push_str(&format!("\n\n[note: the script was bounded by a hard limit ({}); the result above may be partial]", limits_hit_label(limit)));
+    }
+
+    Ok(ToolOutcome { model_text, citations, code_source: Some(source), host_calls, limits_hit })
+}
+
+/// A short, human-readable label for a hard sandbox limit (for the model-facing bounded-run note).
+fn limits_hit_label(limit: LimitsHit) -> &'static str {
+    match limit {
+        LimitsHit::Time => "wall-time limit",
+        LimitsHit::Memory => "memory limit",
+        LimitsHit::HostCalls => "host-call budget",
+        LimitsHit::Output => "output size cap",
+        LimitsHit::Cancelled => "cancelled",
+    }
+}
+
 /// A name → tool table the harness dispatches against; also builds the request's tool definitions.
 ///
 /// `BTreeMap` keeps `definitions()` deterministically ordered (stable prompt across runs). The
@@ -326,6 +493,10 @@ impl ToolRegistry {
         registry.register(HistorySearchTool::search_bm25());
         registry.register(HistorySearchTool::search_vector());
         registry.register(HistorySearchTool::search_hybrid());
+        // `run_code` is DEFAULT-ENABLED on every agent run (2026-06 decision): the Wasmtime sandbox
+        // is the safety boundary, so there is no model-capability gate. The model gets it alongside
+        // the search tools and chooses code-mode only when computation/aggregation needs it.
+        registry.register(RunCodeTool::new());
         registry
     }
 
@@ -424,6 +595,9 @@ mod tests {
             default_profile_id: None,
             default_domain: None,
             default_limit: 8,
+            // The harness tests build a context with no run control; the search tools never read it
+            // and `run_code` threads `None` into the sandbox (no cancel hook) as a safe default.
+            run_control: None,
         };
         (dir, context)
     }
@@ -433,8 +607,12 @@ mod tests {
         let registry = ToolRegistry::with_default_search_tools();
         assert!(!registry.is_empty());
         let names: Vec<String> = registry.definitions().into_iter().map(|def| def.name).collect();
-        // BTreeMap keeps the order deterministic (alphabetical), so the prompt is stable.
-        assert_eq!(names, vec!["search_bm25", "search_history", "search_hybrid", "search_vector"]);
+        // BTreeMap keeps the order deterministic (alphabetical), so the prompt is stable. `run_code`
+        // is registered by default (W-AI-8 WU-2), so it appears between `search_vector` lexically.
+        assert_eq!(
+            names,
+            vec!["run_code", "search_bm25", "search_history", "search_hybrid", "search_vector"]
+        );
     }
 
     #[test]
@@ -563,5 +741,260 @@ mod tests {
         let empty_text = summarize_search_for_model("search_bm25", &empty);
         assert!(empty_text.contains("no matching history rows"));
         assert!(empty_text.contains("Note: nothing"));
+    }
+
+    // ---- W-AI-8 WU-2: the `run_code` tool ----------------------------------------------------
+
+    use super::super::code_mode::CodeOutcome;
+
+    #[test]
+    fn run_code_is_registered_by_default() {
+        // Default-enabled (2026-06 decision): every agent run advertises `run_code` alongside search.
+        let registry = ToolRegistry::with_default_search_tools();
+        let names: Vec<String> = registry.definitions().into_iter().map(|def| def.name).collect();
+        assert!(names.contains(&"run_code".to_string()), "run_code is a default tool: {names:?}");
+    }
+
+    #[test]
+    fn run_code_default_matches_new() {
+        // `RunCodeTool` is a unit tool; `Default` and `new` are interchangeable (both name `run_code`).
+        // The `Default` impl is exercised via the fully-qualified call so the `default_constructed_
+        // unit_structs` lint stays clean (`RunCodeTool::default()` on a unit struct trips it).
+        let default_tool = <RunCodeTool as Default>::default();
+        assert_eq!(default_tool.name(), RunCodeTool::new().name());
+        assert_eq!(default_tool.name(), "run_code");
+    }
+
+    #[test]
+    fn run_code_definition_teaches_the_host_api_and_requires_source() {
+        // The definition advertised to the model must be honest about the sandbox (read-only, no
+        // net/fs/clock/random) and name the two globals; the schema requires exactly `source`.
+        let def = RunCodeTool::new().definition();
+        assert_eq!(def.name, "run_code");
+        assert!(def.description.contains("query_history"));
+        assert!(def.description.contains("fetch_visits"));
+        assert!(def.description.contains("READ-ONLY"));
+        assert!(def.description.contains("NO network"));
+        // F2: the description teaches the `notes` degradation signal and tells the model to honor it.
+        assert!(def.description.contains("notes"), "the notes degradation signal is documented");
+        assert!(
+            def.description.contains("fell back to keyword"),
+            "the description gives the concrete semantic→lexical degradation example"
+        );
+        // F1: the description steers the model to ALWAYS return a value (even a negative one), and no
+        // longer tells it to return nothing.
+        assert!(
+            def.description.contains("Always end the program with `return"),
+            "the description steers the model to always return a value"
+        );
+        assert!(
+            def.description.contains("{ found: false }"),
+            "the description shows a negative return shape for the no-answer case"
+        );
+        assert!(
+            !def.description.to_lowercase().contains("return nothing if there is no answer"),
+            "the misleading 'return nothing' guidance is dropped"
+        );
+        assert_eq!(def.parameters["required"], json!(["source"]));
+        assert_eq!(def.parameters["properties"]["source"]["type"], "string");
+    }
+
+    #[test]
+    fn maps_a_clean_code_outcome_to_a_populated_tool_outcome() {
+        // A clean CodeOutcome (distilled text + one host call + a citation, no error/limit) maps onto
+        // a ToolOutcome carrying the code-mode transparency fields verbatim.
+        let outcome = CodeOutcome {
+            model_text: "{\"count\":1}".to_string(),
+            citations: vec![AiCitation {
+                history_id: 101,
+                profile_id: "p".to_string(),
+                url: "https://rust-lang.org/".to_string(),
+                title: Some("Rust".to_string()),
+                visited_at: "2026-01-01T00:00:00Z".to_string(),
+                score: Some(0.9),
+                canonical_url: Some("https://rust-lang.org/".to_string()),
+            }],
+            host_calls: vec![HostCallRecord {
+                function: "query_history".to_string(),
+                query: Some("rust".to_string()),
+                plane: Some("hybrid".to_string()),
+                limit: Some(8),
+                requested_ids: None,
+                args_summary: "query=\"rust\" plane=hybrid limit=8".to_string(),
+                row_count: 1,
+            }],
+            source: "return query_history({query:'rust'});".to_string(),
+            error: None,
+            limits_hit: None,
+        };
+        let tool = code_outcome_to_tool_outcome(outcome).expect("clean outcome maps to Ok");
+        assert_eq!(tool.model_text, "{\"count\":1}");
+        assert_eq!(tool.code_source.as_deref(), Some("return query_history({query:'rust'});"));
+        assert_eq!(tool.host_calls.len(), 1);
+        assert_eq!(tool.host_calls[0].function, "query_history");
+        assert_eq!(tool.host_calls[0].query.as_deref(), Some("rust"));
+        assert_eq!(tool.host_calls[0].plane.as_deref(), Some("hybrid"));
+        assert_eq!(tool.host_calls[0].limit, Some(8));
+        assert_eq!(tool.citations.len(), 1);
+        assert_eq!(tool.limits_hit, None);
+    }
+
+    #[test]
+    fn maps_a_hard_failure_with_no_output_to_a_recoverable_error() {
+        // A thrown-JS-error CodeOutcome (error set, empty output) becomes an Err so the harness
+        // threads a recoverable is_error tool result (same discipline as the search tools).
+        let outcome = CodeOutcome {
+            model_text: String::new(),
+            source: "return notDefined.boom;".to_string(),
+            error: Some("ReferenceError: notDefined is not defined".to_string()),
+            ..CodeOutcome::default()
+        };
+        let error = code_outcome_to_tool_outcome(outcome).expect_err("a hard failure is an Err");
+        assert!(error.to_string().contains("run_code failed"));
+        assert!(error.to_string().contains("notDefined"));
+    }
+
+    #[test]
+    fn an_empty_no_error_outcome_is_normalized_to_an_honest_sentinel() {
+        // F1: a script that returned nothing AND did not throw is NOT a hard error, but an empty
+        // result is silently ambiguous to the model. It is normalized to an honest sentinel (NOT a
+        // fabricated answer) and stays a non-error Ok the harness threads back.
+        let outcome = CodeOutcome {
+            model_text: String::new(),
+            source: "let x = 1;".to_string(),
+            error: None,
+            ..CodeOutcome::default()
+        };
+        let tool = code_outcome_to_tool_outcome(outcome).expect("an empty no-error run is Ok");
+        assert_eq!(tool.model_text, "[run_code completed but returned no value]");
+
+        // Whitespace-only output is treated the same (an honest "no value", not a blank string).
+        let whitespace = CodeOutcome {
+            model_text: "  \n\t ".to_string(),
+            source: "return '   ';".to_string(),
+            error: None,
+            ..CodeOutcome::default()
+        };
+        let tool = code_outcome_to_tool_outcome(whitespace).expect("whitespace output is Ok");
+        assert_eq!(tool.model_text, "[run_code completed but returned no value]");
+    }
+
+    #[test]
+    fn an_empty_bounded_outcome_keeps_the_sentinel_and_appends_the_limit_note() {
+        // F1 + the limit note compose: a bounded run that ALSO returned nothing reports the honest
+        // "no value" sentinel AND the bounded-run note (so the model is never handed a bare string).
+        let outcome = CodeOutcome {
+            model_text: String::new(),
+            source: "while (true) {}".to_string(),
+            error: None,
+            limits_hit: Some(LimitsHit::Time),
+            ..CodeOutcome::default()
+        };
+        let tool = code_outcome_to_tool_outcome(outcome).expect("a bounded empty run is Ok");
+        assert!(tool.model_text.starts_with("[run_code completed but returned no value]"));
+        assert!(tool.model_text.contains("bounded by a hard limit"));
+        assert!(tool.model_text.contains("wall-time limit"));
+    }
+
+    #[test]
+    fn an_error_with_partial_output_is_still_returned_not_failed() {
+        // If the script produced SOME distilled output, a trailing error does not discard it — the
+        // model gets the partial result (Ok), not a recoverable error (only an empty+error is Err).
+        let outcome = CodeOutcome {
+            model_text: "{\"partial\":true}".to_string(),
+            source: "...".to_string(),
+            error: Some("late error".to_string()),
+            ..CodeOutcome::default()
+        };
+        let tool = code_outcome_to_tool_outcome(outcome).expect("partial output is kept (Ok)");
+        assert_eq!(tool.model_text, "{\"partial\":true}");
+    }
+
+    #[test]
+    fn a_limited_outcome_appends_an_honest_note_and_is_ok() {
+        // A bounded run (output cap hit) returns Ok, carries the limit, and appends an honest note so
+        // the model does not treat the truncated result as complete (never fabricated).
+        let outcome = CodeOutcome {
+            model_text: "truncated...".to_string(),
+            source: "return big;".to_string(),
+            limits_hit: Some(LimitsHit::Output),
+            ..CodeOutcome::default()
+        };
+        let tool = code_outcome_to_tool_outcome(outcome).expect("a limited run is Ok");
+        assert_eq!(tool.limits_hit, Some(LimitsHit::Output));
+        assert!(tool.model_text.contains("truncated..."));
+        assert!(
+            tool.model_text.contains("bounded by a hard limit")
+                && tool.model_text.contains("output size cap"),
+            "an honest bounded-run note is appended: {}",
+            tool.model_text
+        );
+    }
+
+    #[test]
+    fn limits_hit_label_covers_every_variant() {
+        // The model-facing label maps every hard-limit variant (keeps the note honest + non-empty).
+        assert_eq!(limits_hit_label(LimitsHit::Time), "wall-time limit");
+        assert_eq!(limits_hit_label(LimitsHit::Memory), "memory limit");
+        assert_eq!(limits_hit_label(LimitsHit::HostCalls), "host-call budget");
+        assert_eq!(limits_hit_label(LimitsHit::Output), "output size cap");
+        assert_eq!(limits_hit_label(LimitsHit::Cancelled), "cancelled");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn run_code_dispatch_runs_real_js_and_returns_a_distilled_result() {
+        // End-to-end through the tool path (the async↔sync `spawn_blocking` bridge): real JS runs in
+        // the sandbox and returns a distilled value, carrying the script source on the outcome.
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch(
+                "run_code",
+                json!({ "source": "return { sum: [1,2,3].reduce((a,b)=>a+b,0) };" }),
+                &context,
+            )
+            .await
+            .expect("run_code runs through the tool path");
+        let distilled: Value =
+            serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+        assert_eq!(distilled["sum"], 6);
+        assert!(outcome.code_source.is_some(), "the script source is carried for transparency");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn run_code_dispatch_threads_a_thrown_js_error_as_recoverable() {
+        // A thrown JS error in the sandbox becomes an Err the harness threads as a recoverable
+        // is_error tool result — never a panic, never a hang.
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let error = registry
+            .dispatch("run_code", json!({ "source": "return notDefinedAnywhere.boom;" }), &context)
+            .await
+            .expect_err("a thrown JS error is a recoverable tool error");
+        assert!(error.to_string().contains("run_code failed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn run_code_rejects_empty_or_invalid_source_without_panicking() {
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        // An empty/whitespace source is rejected before any sandbox run.
+        let empty = registry
+            .dispatch("run_code", json!({ "source": "   " }), &context)
+            .await
+            .expect_err("empty source rejected");
+        assert!(empty.to_string().contains("must not be empty"));
+        // A non-string `source` is a parse error, not a panic.
+        let invalid = registry
+            .dispatch("run_code", json!({ "source": 42 }), &context)
+            .await
+            .expect_err("invalid source rejected");
+        assert!(invalid.to_string().contains("invalid run_code arguments"));
+        // A missing `source` is likewise rejected (the field is required).
+        let missing = registry
+            .dispatch("run_code", json!({}), &context)
+            .await
+            .expect_err("missing source rejected");
+        assert!(missing.to_string().contains("invalid run_code arguments"));
     }
 }

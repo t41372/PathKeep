@@ -28,7 +28,7 @@
 //!   max-iteration ceiling caps how often the bounded retrieval (incl. the known O(n) `is:starred`
 //!   `.pkmap` pass) can run, so a runaway loop can never spin it.
 
-use super::agent_tools::{AgentToolContext, ToolOutcome, ToolRegistry};
+use super::agent_tools::{AgentToolContext, HostCallRecord, LimitsHit, ToolOutcome, ToolRegistry};
 use super::traits::{LlmChatRequest, LlmMessage, LlmProvider, LlmRole, LlmStreamChunk, LlmUsage};
 use super::{AiRunControl, await_with_ai_cancellation};
 use crate::models::{AiChatStreamChunk, AiCitation};
@@ -291,18 +291,27 @@ where
                 arguments: call.arguments.clone(),
                 call_id: Some(call.call_id.clone()),
             });
-            let (result_text, is_error, mut new_citations) =
-                execute_tool(registry, tool_context, call).await;
+            let ToolExecution {
+                result_text,
+                is_error,
+                citations: mut new_citations,
+                code_source,
+                host_calls,
+                limits_hit,
+            } = execute_tool(registry, tool_context, call).await;
 
             // JOURNAL the tool result BEFORE emitting it (idempotency key = run_id + call_id, the
-            // store dedups). The result payload is the model-facing text (bounded).
-            let result_payload = json!({
-                "callId": call.call_id,
-                "name": call.name,
-                "result": result_text,
-                "isError": is_error,
-            })
-            .to_string();
+            // store dedups). The result payload is the model-facing text (bounded); the code-mode
+            // fields are appended ONLY when present (`run_code`), so a search-tool step's payload is
+            // byte-identical to before (the journal blob is opaque JSON — no schema migration).
+            let result_payload = tool_result_payload(
+                call,
+                &result_text,
+                is_error,
+                &code_source,
+                &host_calls,
+                limits_hit,
+            );
             if let Err(error) = journal.journal_step(
                 turn,
                 STEP_KIND_TOOL_RESULT,
@@ -319,12 +328,16 @@ where
                 };
             }
 
-            // Emit the ToolResult to the UI, then thread it back to the model as a tool_result.
+            // Emit the ToolResult to the UI (carrying the code-mode fields so the FE can render +
+            // persist the script/timeline/limit), then thread the text back to the model.
             sink(AiChatStreamChunk::ToolResult {
                 call_id: call.call_id.clone(),
                 name: call.name.clone(),
                 result: result_text.clone(),
                 is_error,
+                code_source,
+                host_calls,
+                limits_hit,
             });
             request.messages.push(LlmMessage::tool_result(
                 call.call_id.clone(),
@@ -487,34 +500,107 @@ where
     }
 }
 
-/// Executes one tool call, returning `(model_text, is_error, citations)`.
+/// Builds the journaled `tool-result` step payload, widening it with the code-mode transparency
+/// fields ONLY when present (`run_code`).
 ///
-/// On success the model_text is the tool's bounded summary and citations are pinned. On FAILURE the
-/// model_text becomes an honest error string, `is_error` is true, and citations are empty — the
-/// harness threads that back so the model can recover (partial-results discipline). Invalid args
-/// produce the same honest error rather than aborting the run.
+/// The journal blob is opaque JSON (no schema migration), so this stays additive: a search-tool step
+/// serializes exactly `{ callId, name, result, isError }` as before; a `run_code` step adds
+/// `codeSource` (the script verbatim), `hostCalls` (the timeline), and `limitsHit` (the hard limit),
+/// each omitted when None/empty so trace replay + the explorer never see a spurious empty field.
+fn tool_result_payload(
+    call: &PendingToolCall,
+    result_text: &str,
+    is_error: bool,
+    code_source: &Option<String>,
+    host_calls: &[HostCallRecord],
+    limits_hit: Option<LimitsHit>,
+) -> String {
+    let mut payload = json!({
+        "callId": call.call_id,
+        "name": call.name,
+        "result": result_text,
+        "isError": is_error,
+    });
+    let object = payload.as_object_mut().expect("payload is a JSON object");
+    if let Some(source) = code_source {
+        object.insert("codeSource".to_string(), json!(source));
+    }
+    if !host_calls.is_empty() {
+        object.insert("hostCalls".to_string(), json!(host_calls));
+    }
+    if let Some(limit) = limits_hit {
+        object.insert("limitsHit".to_string(), json!(limit));
+    }
+    payload.to_string()
+}
+
+/// The result of executing one tool call: the model-facing text + error flag + pinned citations,
+/// plus the optional code-mode transparency fields (`run_code` only) the harness journals + streams.
+///
+/// The code-mode fields default to empty/None on the search tools and on any failure, so the journal
+/// payload + the streamed ToolResult chunk stay byte-identical for the W-AI-7 path (W-AI-8 additive).
+struct ToolExecution {
+    result_text: String,
+    is_error: bool,
+    citations: Vec<AiCitation>,
+    /// The `run_code` script verbatim (transparency); `None` for the search tools / any failure.
+    code_source: Option<String>,
+    /// The `run_code` host-call timeline; empty for the search tools / any failure.
+    host_calls: Vec<HostCallRecord>,
+    /// Which hard sandbox limit bounded a `run_code` script, if any.
+    limits_hit: Option<LimitsHit>,
+}
+
+/// Executes one tool call into a [`ToolExecution`].
+///
+/// On success the result_text is the tool's bounded summary and citations are pinned; for `run_code`
+/// the code-mode transparency fields are carried too. On FAILURE the result_text becomes an honest
+/// error string, `is_error` is true, and the rest are empty — the harness threads that back so the
+/// model can recover (partial-results discipline). Invalid args produce the same honest error rather
+/// than aborting the run.
 async fn execute_tool(
     registry: &ToolRegistry,
     context: &AgentToolContext,
     call: &PendingToolCall,
-) -> (String, bool, Vec<AiCitation>) {
+) -> ToolExecution {
     let args = match serde_json::from_str::<serde_json::Value>(&call.arguments) {
         Ok(value) => value,
         Err(error) => {
-            return (
-                format!("Tool `{}` received arguments that are not valid JSON: {error}", call.name),
-                true,
-                Vec::new(),
-            );
+            return ToolExecution {
+                result_text: format!(
+                    "Tool `{}` received arguments that are not valid JSON: {error}",
+                    call.name
+                ),
+                is_error: true,
+                citations: Vec::new(),
+                code_source: None,
+                host_calls: Vec::new(),
+                limits_hit: None,
+            };
         }
     };
     match registry.dispatch(&call.name, args, context).await {
-        Ok(ToolOutcome { model_text, citations }) => (model_text, false, citations),
-        Err(error) => (
-            format!("Tool `{}` failed: {error}. Try a different query or tool.", call.name),
-            true,
-            Vec::new(),
-        ),
+        Ok(ToolOutcome { model_text, citations, code_source, host_calls, limits_hit }) => {
+            ToolExecution {
+                result_text: model_text,
+                is_error: false,
+                citations,
+                code_source,
+                host_calls,
+                limits_hit,
+            }
+        }
+        Err(error) => ToolExecution {
+            result_text: format!(
+                "Tool `{}` failed: {error}. Try a different query or tool.",
+                call.name
+            ),
+            is_error: true,
+            citations: Vec::new(),
+            code_source: None,
+            host_calls: Vec::new(),
+            limits_hit: None,
+        },
     }
 }
 
@@ -678,9 +764,13 @@ mod tests {
     }
 
     /// An in-memory journal capturing the ordered (turn, kind, tool_call_id) steps + citations.
+    ///
+    /// `payloads` additionally captures each step's `(kind, payload)` so a test can assert the exact
+    /// journaled JSON (the WU-4 tool-result payload widening is verified here).
     #[derive(Default)]
     struct RecordingJournal {
         steps: Mutex<Vec<(u32, String, Option<String>)>>,
+        payloads: Mutex<Vec<(String, String)>>,
         citations: Mutex<Vec<AiCitation>>,
         fail_on_kind: Option<String>,
     }
@@ -692,7 +782,7 @@ mod tests {
             kind: &str,
             _tool_name: Option<&str>,
             tool_call_id: Option<&str>,
-            _payload: &str,
+            payload: &str,
         ) -> Result<()> {
             if self.fail_on_kind.as_deref() == Some(kind) {
                 anyhow::bail!("forced journal failure");
@@ -702,6 +792,7 @@ mod tests {
                 kind.to_string(),
                 tool_call_id.map(ToString::to_string),
             ));
+            self.payloads.lock().unwrap().push((kind.to_string(), payload.to_string()));
             Ok(())
         }
 
@@ -725,6 +816,10 @@ mod tests {
             default_profile_id: None,
             default_domain: None,
             default_limit: 8,
+            // The harness tests drive cancel through `drive_agent_run`'s own `run_control`; the tool
+            // context needs no separate hook here (only `run_code` reads it, and these tests that
+            // exercise run_code build their own context with a real control).
+            run_control: None,
         };
         (dir, context)
     }
@@ -1626,6 +1721,334 @@ mod tests {
                 assert_eq!(citations[1].history_id, 2);
             }
             other => panic!("expected exactly one Citations chunk, got {other:?}"),
+        }
+    }
+
+    // ---- W-AI-8 WU-6: code-mode through the harness ------------------------------------------
+
+    /// A process-global wall-time-budget guard for the cross-thread `run_code` tests (the sandbox
+    /// runs on a `spawn_blocking` worker, so the per-thread override cannot reach it). Serialized by a
+    /// static mutex so two cross-thread budget tests never race the shared atomic.
+    struct GlobalWallBudgetGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+    impl GlobalWallBudgetGuard {
+        fn set(budget: std::time::Duration) -> Self {
+            static SERIAL: Mutex<()> = Mutex::new(());
+            let lock = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            crate::ai::code_mode::TEST_WALL_TIME_BUDGET_MS_GLOBAL
+                .store(budget.as_millis() as u64, Ordering::SeqCst);
+            Self { _lock: lock }
+        }
+    }
+    impl Drop for GlobalWallBudgetGuard {
+        fn drop(&mut self) {
+            crate::ai::code_mode::TEST_WALL_TIME_BUDGET_MS_GLOBAL.store(0, Ordering::SeqCst);
+        }
+    }
+
+    /// A two-turn provider that calls `run_code` on turn 1 with the given source, then answers.
+    struct RunCodeProvider {
+        source: String,
+    }
+    impl LlmProvider for RunCodeProvider {
+        async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+            Ok(LlmChatResponse::default())
+        }
+        async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+            let has_tool_result = req.messages.iter().any(|m| m.role == LlmRole::Tool);
+            let chunks = if has_tool_result {
+                vec![Ok(LlmStreamChunk::Token("done".to_string()))]
+            } else {
+                vec![Ok(LlmStreamChunk::ToolCall {
+                    call_id: "code-1".to_string(),
+                    name: "run_code".to_string(),
+                    arguments: json!({ "source": self.source }).to_string(),
+                })]
+            };
+            Ok(Box::pin(vec_stream(chunks)))
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+        }
+    }
+
+    /// Builds a tool context with a real run control threaded in (so a `run_code` sandbox sees cancel).
+    fn tool_context_with_control(
+        control: Arc<dyn AiRunControl>,
+    ) -> (tempfile::TempDir, AgentToolContext) {
+        let (dir, mut context) = tool_context();
+        context.run_control = Some(control);
+        (dir, context)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn run_code_journals_and_streams_the_code_mode_fields() {
+        // A scripted provider calls run_code with pure-JS distillation; the journaled tool-result
+        // payload AND the emitted ToolResult chunk both carry codeSource (no host call here, so
+        // hostCalls is omitted/empty and limitsHit is None) — the WU-4 trace contract.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &RunCodeProvider { source: "return { ok: 1 };".to_string() },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }));
+
+        // The journaled tool-result payload carries codeSource (the script verbatim).
+        let payloads = journal.payloads.lock().unwrap().clone();
+        let tool_payload = payloads
+            .iter()
+            .find(|(kind, _)| kind == STEP_KIND_TOOL_RESULT)
+            .map(|(_, p)| p.clone())
+            .expect("a tool-result step was journaled");
+        let parsed: serde_json::Value = serde_json::from_str(&tool_payload).expect("valid payload");
+        assert_eq!(parsed["name"], "run_code");
+        assert_eq!(parsed["codeSource"], "return { ok: 1 };");
+        // No host call ran, so hostCalls/limitsHit are omitted from the opaque payload.
+        assert!(parsed.get("hostCalls").is_none(), "no host call → hostCalls omitted");
+        assert!(parsed.get("limitsHit").is_none(), "no limit → limitsHit omitted");
+
+        // The streamed ToolResult chunk carries the same code-mode fields for the FE.
+        let events = emitted.lock().unwrap().clone();
+        let streamed = events
+            .iter()
+            .find_map(|chunk| match chunk {
+                AiChatStreamChunk::ToolResult { name, code_source, limits_hit, .. }
+                    if name == "run_code" =>
+                {
+                    Some((code_source.clone(), *limits_hit))
+                }
+                _ => None,
+            })
+            .expect("a run_code ToolResult was streamed");
+        assert_eq!(streamed.0.as_deref(), Some("return { ok: 1 };"));
+        assert_eq!(streamed.1, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cancel_mid_run_code_finalizes_cancelled_and_emits_done() {
+        // THE deadlock proof: a run_code script that loops forever, cancelled mid-flight. The cancel
+        // bumps the sandbox epoch (so the guest traps) AND the next harness checkpoint observes the
+        // cancel → the run finalizes Cancelled + a single Done. If `spawn_blocking` deadlocked the
+        // loop, this test would hang instead of returning.
+        let flag = Arc::new(AtomicBool::new(false));
+        let control: Arc<dyn AiRunControl> = Arc::new(FlagCancel(flag.clone()));
+        let (_dir, context) = tool_context_with_control(control.clone());
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+
+        // Flip the cancel flag shortly after the run starts (while the infinite loop is running).
+        let flag_thread = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            flag_thread.store(true, Ordering::SeqCst);
+        });
+
+        let outcome = drive_agent_run(
+            &RunCodeProvider { source: "while (true) {} return 1;".to_string() },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+
+        assert!(
+            matches!(outcome, AgentRunOutcome::Cancelled { .. }),
+            "cancel mid-run-code finalizes Cancelled, got {outcome:?}"
+        );
+        let events = emitted.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some(AiChatStreamChunk::Done)),
+            "a single Done was emitted"
+        );
+        assert!(
+            !events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })),
+            "cancel is not an error"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_infinite_loop_run_code_is_bounded_not_a_hang() {
+        // An infinite-loop script driven THROUGH the tool path trips the wall-time deadline and yields
+        // a bounded result (NOT a hang): the run completes, a run_code ToolResult is emitted, and the
+        // code-mode limit (Time) is carried on it. A short global budget keeps the test fast.
+        let _budget = GlobalWallBudgetGuard::set(std::time::Duration::from_millis(300));
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &RunCodeProvider { source: "while (true) {} return 1;".to_string() },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }), "bounded, not a hang");
+        let events = emitted.lock().unwrap().clone();
+        let limit = events
+            .iter()
+            .find_map(|chunk| match chunk {
+                AiChatStreamChunk::ToolResult { name, limits_hit, .. } if name == "run_code" => {
+                    Some(*limits_hit)
+                }
+                _ => None,
+            })
+            .expect("a run_code ToolResult was emitted");
+        assert_eq!(limit, Some(crate::ai::LimitsHit::Time), "the wall-time limit bounded the run");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_huge_output_run_code_is_bounded_with_the_output_limit() {
+        // A script returning more than the output cap is truncated host-side; the run completes and
+        // the ToolResult carries the Output limit + the honest bounded-run note in its text.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &RunCodeProvider { source: "return 'A'.repeat(300000);".to_string() },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }));
+        let events = emitted.lock().unwrap().clone();
+        let (limit, text) = events
+            .iter()
+            .find_map(|chunk| match chunk {
+                AiChatStreamChunk::ToolResult { name, limits_hit, result, .. }
+                    if name == "run_code" =>
+                {
+                    Some((*limits_hit, result.clone()))
+                }
+                _ => None,
+            })
+            .expect("a run_code ToolResult was emitted");
+        assert_eq!(limit, Some(crate::ai::LimitsHit::Output));
+        assert!(text.contains("bounded by a hard limit"), "honest bounded-run note threaded back");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_host_call_budget_run_code_is_bounded_with_the_host_calls_limit() {
+        // A script that loops issuing query_history past the host-call budget trips HostCalls (the
+        // host refuses overflow calls), and the run completes bounded — driven through the tool path
+        // over an initialized-but-empty archive (each call is fast + deterministic).
+        let _budget = GlobalWallBudgetGuard::set(std::time::Duration::from_secs(120));
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let mut config = AppConfig::default();
+        config.ai.enabled = true;
+        config.ai.assistant_enabled = true;
+        crate::archive::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        let archive =
+            crate::archive::open_archive_connection(&paths, &config, None).expect("open archive");
+        crate::archive::create_schema(&archive).expect("schema");
+        let context = AgentToolContext {
+            paths,
+            config,
+            database_key: None,
+            embedding_provider: None,
+            default_profile_id: None,
+            default_domain: None,
+            default_limit: 8,
+            run_control: None,
+        };
+
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let source = r#"
+            let i = 0;
+            try { for (i = 0; i < 1000; i++) { query_history({ query: "x" }); } }
+            catch (e) { return { serviced: i }; }
+            return { serviced: i };
+        "#;
+        let outcome = drive_agent_run(
+            &RunCodeProvider { source: source.to_string() },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }));
+        let events = emitted.lock().unwrap().clone();
+        let payloads = journal.payloads.lock().unwrap().clone();
+        // The journaled payload records the host-call timeline (a non-empty hostCalls array).
+        let tool_payload = payloads
+            .iter()
+            .find(|(kind, _)| kind == STEP_KIND_TOOL_RESULT)
+            .map(|(_, p)| p.clone())
+            .expect("a tool-result step");
+        let parsed: serde_json::Value = serde_json::from_str(&tool_payload).expect("valid payload");
+        assert_eq!(parsed["limitsHit"], "host-calls");
+        assert!(
+            parsed["hostCalls"].as_array().is_some_and(|a| !a.is_empty()),
+            "the host-call timeline is journaled: {parsed}"
+        );
+        let limit = events.iter().find_map(|chunk| match chunk {
+            AiChatStreamChunk::ToolResult { name, limits_hit, .. } if name == "run_code" => {
+                Some(*limits_hit)
+            }
+            _ => None,
+        });
+        assert_eq!(limit, Some(Some(crate::ai::LimitsHit::HostCalls)));
+    }
+
+    /// A cancel control whose `checkpoint()` errors and `cancelled()` is true once the flag is set.
+    struct FlagCancel(Arc<AtomicBool>);
+    impl AiRunControl for FlagCancel {
+        fn checkpoint(&self, detail: &str) -> Result<()> {
+            if self.0.load(Ordering::SeqCst) {
+                return Err(AiRunCancelled::new(detail.to_string()).into());
+            }
+            Ok(())
+        }
+        fn cancelled(&self) -> bool {
+            self.0.load(Ordering::SeqCst)
         }
     }
 }

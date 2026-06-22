@@ -833,8 +833,25 @@ pub enum AiChatStreamChunk {
     /// The executed result of a tool call (W-AI-7). `callId` correlates to the originating
     /// `ToolCall`; `isError` is true when the tool failed and `result` is the honest error string
     /// (the run continues — one tool failure never aborts the whole run).
+    ///
+    /// `codeSource`/`hostCalls`/`limitsHit` are the W-AI-8 code-mode transparency fields, populated
+    /// ONLY for a `run_code` result so the FE can render + persist the exact script that ran, the
+    /// read-only host-call timeline it issued, and any hard sandbox limit that bounded it (02 §G).
+    /// All three are `#[serde(default, skip_serializing_if)]`, so a non-`run_code` ToolResult wires
+    /// EXACTLY as it did under W-AI-7 (the W-AI-1 const-pin test + the plain path stay green).
     #[serde(rename_all = "camelCase")]
-    ToolResult { call_id: String, name: String, result: String, is_error: bool },
+    ToolResult {
+        call_id: String,
+        name: String,
+        result: String,
+        is_error: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code_source: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        host_calls: Vec<crate::ai::HostCallRecord>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limits_hit: Option<crate::ai::LimitsHit>,
+    },
     /// Per-turn token accounting for the agent budget surface (W-AI-7).
     #[serde(rename_all = "camelCase")]
     Usage { prompt_tokens: u64, completion_tokens: u64 },
@@ -1380,15 +1397,62 @@ mod tests {
             .unwrap(),
             json!({ "kind": "toolCall", "name": "search", "arguments": "{}", "callId": "call-1" })
         );
+        // The W-AI-7 (search-tool) ToolResult leaves the W-AI-8 code-mode fields at their defaults,
+        // which `skip_serializing_if` omits — so the wire shape is BYTE-IDENTICAL to before W-AI-8.
         assert_eq!(
             serde_json::to_value(AiChatStreamChunk::ToolResult {
                 call_id: "call-1".to_string(),
                 name: "search".to_string(),
                 result: "3 rows".to_string(),
                 is_error: false,
+                code_source: None,
+                host_calls: vec![],
+                limits_hit: None,
             })
             .unwrap(),
             json!({ "kind": "toolResult", "callId": "call-1", "name": "search", "result": "3 rows", "isError": false })
+        );
+        // A `run_code` ToolResult carries the additive code-mode transparency fields (W-AI-8): the
+        // script verbatim, the host-call timeline (camelCase + kebab-case limit per their serde),
+        // and the hard limit. These wire ONLY when populated, so the FE sees the code-mode trace.
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::ToolResult {
+                call_id: "call-2".to_string(),
+                name: "run_code".to_string(),
+                result: "{\"count\":3}".to_string(),
+                is_error: false,
+                code_source: Some("return query_history({query:'x'});".to_string()),
+                host_calls: vec![crate::ai::HostCallRecord {
+                    function: "query_history".to_string(),
+                    query: Some("x".to_string()),
+                    plane: Some("hybrid".to_string()),
+                    limit: Some(8),
+                    requested_ids: None,
+                    args_summary: "query=\"x\" plane=hybrid limit=8".to_string(),
+                    row_count: 3,
+                }],
+                limits_hit: Some(crate::ai::LimitsHit::Output),
+            })
+            .unwrap(),
+            json!({
+                "kind": "toolResult",
+                "callId": "call-2",
+                "name": "run_code",
+                "result": "{\"count\":3}",
+                "isError": false,
+                "codeSource": "return query_history({query:'x'});",
+                // The host-call timeline carries STRUCTURED args (query/plane/limit) the FE localizes,
+                // plus the non-localized argsSummary fallback — all camelCase; requestedIds omitted.
+                "hostCalls": [{
+                    "function": "query_history",
+                    "query": "x",
+                    "plane": "hybrid",
+                    "limit": 8,
+                    "argsSummary": "query=\"x\" plane=hybrid limit=8",
+                    "rowCount": 3
+                }],
+                "limitsHit": "output",
+            })
         );
         assert_eq!(
             serde_json::to_value(AiChatStreamChunk::Usage {

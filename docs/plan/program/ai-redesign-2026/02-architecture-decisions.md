@@ -163,6 +163,8 @@ trait LlmProvider {
 - **能力門檻**：小模型（0.6B 預設 tier）**不開 code-mode**；capable model（雲端或本機 8B+）才開。雙路徑：弱模型用 classic single-tool-call。
 - **「奇怪 properties」進階搜尋**：受限、參數化、read-only（`PRAGMA query_only`/immutable）、跑在 derived/intelligence sidecar 的 Text-to-SQL host fn；**絕不碰 canonical SQLCipher**。
 
+> **更新（2026-06，使用者決策 — 推翻上方「opt-in、capability-gated」）**：code-mode 改為 **預設開啟（default-enabled）**，**取消模型能力門檻**。理由：**Wasmtime 沙箱本身就是安全邊界**（零 ambient 權限、read-only host fn、epoch wall-time deadline + memory/host-call/output 硬上限），自動執行在限額內是安全的；且 LLM 是可替換的（雲端或本機皆可），因此不再用「0.6B 不開 / 8B+ 才開」之類的能力門檻 gate code-mode。W-AI-8 WU-2 落地時，`run_code` 工具與四個搜尋工具一起無條件註冊進每個 agent run（`with_default_search_tools()`）。本段上方 Layer 2 標題的「opt-in、capability-gated」描述以本註記為準。
+
 **Skills（SKILL.md / agentskills.io）**：用在**對外 MCP 面**（外部 agent 透過 progressive disclosure 學「顆粒度階梯 + BM25-vs-vector-vs-hybrid + 引用 visit id」）；**PathKeep 自家小模型烘一個緊湊 compiled prompt 即可**，不跑多檔 skill 協議。skills 與 MCP tools 互補不互斥。
 
 **透明度**：code-mode 對模型隱藏中間結果，但**使用者必須看到** agent 跑了什麼——UI 顯示執行的 script、每個 host-query、引用的 visit id（對齊 PME / evidence 契約）。

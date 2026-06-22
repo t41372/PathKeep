@@ -186,14 +186,35 @@ pub enum LimitsHit {
 
 /// A summary of one host-API call the script made (for WU-4 journaling + WU-5 transparency display).
 ///
-/// Carries the fn name, a bounded summary of the arguments, and the row count returned — enough for
-/// the user to SEE what the script queried (02 §G transparency) without re-deriving it.
+/// Carries the fn name, the STRUCTURED call arguments (so the WU-5 FE can localize + render across
+/// en/zh-CN/zh-TW without parsing a Rust-debug string), and the row count returned — enough for the
+/// user to SEE what the script queried (02 §G transparency) without re-deriving it.
+///
+/// The structured fields are populated per function: `query_history` carries `query`/`plane`/`limit`;
+/// `fetch_visits` carries `requested_ids` (the count of ids asked for). Each is omitted from the wire
+/// when absent (`skip_serializing_if`), so a record only ever advertises the args its function used.
+/// `args_summary` is kept as a non-localized human/debug fallback — it is the SAME string a Rust
+/// reader sees in a log, and it lets any consumer that does NOT localize (trace replay, a raw journal
+/// dump) still render the call without re-deriving it from the structured fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostCallRecord {
     /// The host fn invoked (`query_history` or `fetch_visits`).
     pub function: String,
-    /// A bounded, human-readable summary of the call arguments (e.g. the query string / id count).
+    /// The query string (`query_history` only) — verbatim, so the FE can render + translate around it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// The retrieval plane as a stable lowercase token (`hybrid`/`vector`/`bm25`; `query_history` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plane: Option<String>,
+    /// The effective row limit after clamping (`query_history` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// How many visit ids were requested (`fetch_visits` only; the call is capped at [`MAX_FETCH_IDS`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_ids: Option<u32>,
+    /// A bounded, non-localized human/debug fallback summary of the call arguments. Authoritative
+    /// rendering is the structured fields above; this stays for consumers that do not localize.
     pub args_summary: String,
     /// How many rows the call returned (0 on a refused/degraded call).
     pub row_count: u32,
@@ -273,6 +294,16 @@ impl CodeSearchPlane {
             Some("bm25") | Some("lexical") | Some("keyword") => Self::Bm25,
             Some("vector") | Some("semantic") => Self::Vector,
             _ => Self::Hybrid,
+        }
+    }
+
+    /// The stable lowercase token for this plane — the SAME spelling the model uses + the WU-5 FE keys
+    /// its localized label off (never the Rust enum `Debug`, which would leak `Bm25`/`Hybrid` casing).
+    fn as_token(self) -> &'static str {
+        match self {
+            Self::Bm25 => "bm25",
+            Self::Vector => "vector",
+            Self::Hybrid => "hybrid",
         }
     }
 }
@@ -438,7 +469,7 @@ impl HostState {
     /// shared `search_history_internal` (so code-mode and the plain tools never drift). It resolves
     /// `canonical_url` exactly as `agent_tools.rs` does so distilled output stays starrable.
     fn run_host_request(&mut self, request: HostRequest) -> Result<Vec<u8>> {
-        let (function, args_summary, response) = match request {
+        let (function, call_args, response) = match request {
             HostRequest::QueryHistory(args) => self.run_query_history(args)?,
             HostRequest::FetchVisits(args) => self.run_fetch_visits(args)?,
         };
@@ -470,7 +501,11 @@ impl HostState {
         }
         self.records.push(HostCallRecord {
             function: function.to_string(),
-            args_summary,
+            query: call_args.query,
+            plane: call_args.plane,
+            limit: call_args.limit,
+            requested_ids: call_args.requested_ids,
+            args_summary: call_args.args_summary,
             row_count,
         });
         let reply = json!({ "rows": rows, "notes": response.notes });
@@ -481,14 +516,22 @@ impl HostState {
     fn run_query_history(
         &mut self,
         args: QueryHistoryArgs,
-    ) -> Result<(&'static str, String, crate::models::AiSearchResponse)> {
+    ) -> Result<(&'static str, HostCallArgs, crate::models::AiSearchResponse)> {
         let query = args.query.trim().to_string();
         if query.is_empty() {
             anyhow::bail!("query_history requires a non-empty `query`");
         }
         let plane = CodeSearchPlane::parse(args.plane.as_deref());
         let limit = args.limit.unwrap_or(self.context.default_limit).clamp(1, MAX_ROWS_PER_CALL);
-        let summary = format!("query={query:?} plane={plane:?} limit={limit}");
+        // Structured args for the localizable FE timeline, plus a non-localized debug fallback. The
+        // `plane` token is the stable lowercase form the model/FE understand (not the Rust enum Debug).
+        let call_args = HostCallArgs {
+            query: Some(query.clone()),
+            plane: Some(plane.as_token().to_string()),
+            limit: Some(limit),
+            requested_ids: None,
+            args_summary: format!("query={query:?} plane={} limit={limit}", plane.as_token()),
+        };
         let request = AiSearchRequest {
             query,
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
@@ -506,7 +549,7 @@ impl HostState {
             }
         };
         let response = self.block_on_search(&request, provider)?;
-        Ok(("query_history", summary, response))
+        Ok(("query_history", call_args, response))
     }
 
     /// Services a `fetch_visits` call: bounded lookup of specific visit ids (read model only).
@@ -517,7 +560,7 @@ impl HostState {
     fn run_fetch_visits(
         &mut self,
         args: FetchVisitsArgs,
-    ) -> Result<(&'static str, String, crate::models::AiSearchResponse)> {
+    ) -> Result<(&'static str, HostCallArgs, crate::models::AiSearchResponse)> {
         if args.ids.is_empty() {
             anyhow::bail!("fetch_visits requires a non-empty `ids` array");
         }
@@ -527,9 +570,14 @@ impl HostState {
                 args.ids.len()
             );
         }
-        let summary = format!("ids={} (capped at {MAX_FETCH_IDS})", args.ids.len());
+        let requested_ids = args.ids.len() as u32;
+        let call_args = HostCallArgs {
+            requested_ids: Some(requested_ids),
+            args_summary: format!("ids={requested_ids} (capped at {MAX_FETCH_IDS})"),
+            ..HostCallArgs::default()
+        };
         let response = self.block_on_fetch(&args.ids)?;
-        Ok(("fetch_visits", summary, response))
+        Ok(("fetch_visits", call_args, response))
     }
 
     /// Drives the async `search_history_internal` from the sync RPC service via the tokio handle.
@@ -627,6 +675,25 @@ enum HostRequest {
     QueryHistory(QueryHistoryArgs),
     /// `fetch_visits(ids)` → bounded lookup of specific visit rows by id.
     FetchVisits(FetchVisitsArgs),
+}
+
+/// The STRUCTURED, effective arguments of one serviced host call — the localizable fields the WU-5 FE
+/// renders + translates, plus the non-localized `args_summary` debug fallback. Built INSIDE the
+/// `run_*` services (so they reflect the clamped/parsed values, not the raw guest input) and folded
+/// into the [`HostCallRecord`] alongside the row count. Each per-function field is `None` when the
+/// other function ran, so the record only ever advertises the args its function actually used.
+#[derive(Debug, Clone, Default)]
+struct HostCallArgs {
+    /// `query_history`: the query string verbatim.
+    query: Option<String>,
+    /// `query_history`: the resolved plane as a stable lowercase token (`hybrid`/`vector`/`bm25`).
+    plane: Option<String>,
+    /// `query_history`: the effective (clamped) row limit.
+    limit: Option<u32>,
+    /// `fetch_visits`: how many ids were requested (post-validation, pre-resolution).
+    requested_ids: Option<u32>,
+    /// A non-localized human/debug fallback summary (the same string a Rust log would show).
+    args_summary: String,
 }
 
 /// The full `Store` data: the scoped WASI ctx + the retrieval/limits state, plus the limiter the
@@ -991,12 +1058,24 @@ thread_local! {
     static TEST_WALL_TIME_BUDGET: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
 
+/// Test-only PROCESS-GLOBAL wall-time-budget override in milliseconds (0 = unset), for the rare test
+/// whose sandbox call runs on a DIFFERENT thread than the test (e.g. the `run_code` tool's
+/// `spawn_blocking` worker, where the thread-local override cannot reach). Set under a serialized
+/// guard so cross-thread tests don't race; the thread-local takes precedence when set.
+#[cfg(test)]
+pub(crate) static TEST_WALL_TIME_BUDGET_MS_GLOBAL: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 /// The effective wall-time budget for this run (the production [`WALL_TIME_BUDGET`], or a test override).
 fn wall_time_budget() -> Duration {
     #[cfg(test)]
     {
         if let Some(budget) = TEST_WALL_TIME_BUDGET.with(std::cell::Cell::get) {
             return budget;
+        }
+        let global_ms = TEST_WALL_TIME_BUDGET_MS_GLOBAL.load(std::sync::atomic::Ordering::Relaxed);
+        if global_ms != 0 {
+            return Duration::from_millis(global_ms);
         }
     }
     WALL_TIME_BUDGET

@@ -437,6 +437,8 @@ where
 
     let provider = RigLlmProvider::new(setup.llm_runtime.clone());
     let registry = ToolRegistry::with_default_search_tools();
+    let journal = AgentSqliteJournal { paths: setup.paths.clone(), run_id: run_id.to_string() };
+    let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl { cancel });
     let tool_context = AgentToolContext {
         paths: setup.paths.clone(),
         config: setup.config.clone(),
@@ -445,9 +447,10 @@ where
         default_profile_id: None,
         default_domain: None,
         default_limit: setup.config.ai.retrieval_top_k.max(1),
+        // Thread the SAME cancel control the harness loop uses into the tool context so a `run_code`
+        // sandbox traps promptly on a user cancel (the sandbox bumps its engine epoch from this hook).
+        run_control: Some(control.clone()),
     };
-    let journal = AgentSqliteJournal { paths: setup.paths.clone(), run_id: run_id.to_string() };
-    let control: Arc<dyn AiRunControl> = Arc::new(WorkerCancelControl { cancel });
 
     let outcome = stream_runtime.block_on(async {
         // Probe tool capability BEFORE attaching tools (02 §B). A transport/auth failure surfaces

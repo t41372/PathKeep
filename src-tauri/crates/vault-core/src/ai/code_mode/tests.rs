@@ -79,6 +79,9 @@ fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
         default_profile_id: None,
         default_domain: None,
         default_limit: 8,
+        // These code_mode tests pass `control` directly to `run_code_in_sandbox`/`execute_guest`,
+        // not through the tool context, so the context's own hook stays `None`.
+        run_control: None,
     };
     (paths, context)
 }
@@ -212,6 +215,14 @@ fn search_plane_parsing_defaults_to_hybrid() {
     assert_eq!(CodeSearchPlane::parse(Some("hybrid")), CodeSearchPlane::Hybrid);
     assert_eq!(CodeSearchPlane::parse(Some("garbage")), CodeSearchPlane::Hybrid);
     assert_eq!(CodeSearchPlane::parse(None), CodeSearchPlane::Hybrid);
+    // `as_token` yields the stable lowercase spelling the structured host-call record + the FE key on
+    // (never the Rust enum Debug), and it round-trips back through `parse` for every plane.
+    for plane in [CodeSearchPlane::Bm25, CodeSearchPlane::Vector, CodeSearchPlane::Hybrid] {
+        assert_eq!(CodeSearchPlane::parse(Some(plane.as_token())), plane);
+    }
+    assert_eq!(CodeSearchPlane::Bm25.as_token(), "bm25");
+    assert_eq!(CodeSearchPlane::Vector.as_token(), "vector");
+    assert_eq!(CodeSearchPlane::Hybrid.as_token(), "hybrid");
 }
 
 #[test]
@@ -254,14 +265,43 @@ fn limits_hit_and_records_serialize_camel_case() {
     // The outcome crosses to the FE/journal, so its serde shape is part of the WU-4/5 contract.
     let json = serde_json::to_string(&LimitsHit::HostCalls).unwrap();
     assert_eq!(json, "\"host-calls\"");
+    // A `query_history` record carries the STRUCTURED args (query/plane/limit) the WU-5 FE localizes,
+    // plus the non-localized `argsSummary` debug fallback — all camelCase on the wire.
     let record = HostCallRecord {
         function: "query_history".to_string(),
-        args_summary: "query=\"x\"".to_string(),
+        query: Some("x".to_string()),
+        plane: Some("bm25".to_string()),
+        limit: Some(10),
+        requested_ids: None,
+        args_summary: "query=\"x\" plane=bm25 limit=10".to_string(),
         row_count: 3,
     };
     let value = serde_json::to_value(&record).unwrap();
-    assert_eq!(value["argsSummary"], "query=\"x\"");
+    assert_eq!(value["function"], "query_history");
+    assert_eq!(value["query"], "x");
+    assert_eq!(value["plane"], "bm25");
+    assert_eq!(value["limit"], 10);
+    assert_eq!(value["argsSummary"], "query=\"x\" plane=bm25 limit=10");
     assert_eq!(value["rowCount"], 3);
+    // The fetch_visits-only field is omitted for a query_history record (per-function `skip`).
+    assert!(value.get("requestedIds").is_none(), "requestedIds omitted for query_history: {value}");
+
+    // A `fetch_visits` record carries `requestedIds` and omits the query_history-only fields.
+    let fetch = HostCallRecord {
+        function: "fetch_visits".to_string(),
+        query: None,
+        plane: None,
+        limit: None,
+        requested_ids: Some(2),
+        args_summary: "ids=2 (capped at 50)".to_string(),
+        row_count: 1,
+    };
+    let fetch_value = serde_json::to_value(&fetch).unwrap();
+    assert_eq!(fetch_value["function"], "fetch_visits");
+    assert_eq!(fetch_value["requestedIds"], 2);
+    assert!(fetch_value.get("query").is_none(), "query omitted for fetch_visits: {fetch_value}");
+    assert!(fetch_value.get("plane").is_none(), "plane omitted for fetch_visits: {fetch_value}");
+    assert!(fetch_value.get("limit").is_none(), "limit omitted for fetch_visits: {fetch_value}");
 }
 
 // ---- Functional CONTRACT — real LLM JS runs through the REAL Javy guest -----------------------
@@ -284,7 +324,14 @@ fn real_js_calls_query_history_and_returns_distilled_json_with_citations() {
     assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
     assert_eq!(outcome.limits_hit, None);
     assert_eq!(outcome.host_calls.len(), 1, "exactly one query_history call");
-    assert_eq!(outcome.host_calls[0].function, "query_history");
+    let record = &outcome.host_calls[0];
+    assert_eq!(record.function, "query_history");
+    // The structured args reflect the EFFECTIVE (parsed/clamped) call the WU-5 FE localizes.
+    assert_eq!(record.query.as_deref(), Some("rust"));
+    assert_eq!(record.plane.as_deref(), Some("bm25"));
+    assert_eq!(record.limit, Some(10));
+    assert_eq!(record.requested_ids, None, "requested_ids is fetch_visits-only");
+    assert!(record.args_summary.contains("plane=bm25"), "debug fallback: {}", record.args_summary);
 
     // The distilled JSON the model sees: a real JS aggregation over the seeded row.
     let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
@@ -364,7 +411,15 @@ fn fetch_visits_resolves_requested_ids_only() {
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
     assert!(outcome.error.is_none(), "got error: {:?}", outcome.error);
     assert_eq!(outcome.host_calls.len(), 1);
-    assert_eq!(outcome.host_calls[0].function, "fetch_visits");
+    let record = &outcome.host_calls[0];
+    assert_eq!(record.function, "fetch_visits");
+    // The structured args carry the requested-id COUNT (2 ids asked for); the query_history-only
+    // fields stay None so the WU-5 FE renders only this function's args.
+    assert_eq!(record.requested_ids, Some(2));
+    assert_eq!(record.query, None);
+    assert_eq!(record.plane, None);
+    assert_eq!(record.limit, None);
+    assert!(record.args_summary.contains("ids=2"), "debug fallback: {}", record.args_summary);
     assert!(outcome.citations.iter().any(|c| c.history_id == 101));
     assert!(!outcome.citations.iter().any(|c| c.history_id == 999999));
     let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON");

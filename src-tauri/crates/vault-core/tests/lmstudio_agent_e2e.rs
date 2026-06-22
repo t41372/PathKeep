@@ -245,6 +245,7 @@ fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
         default_profile_id: None,
         default_domain: None,
         default_limit: config.ai.retrieval_top_k.max(1),
+        run_control: None,
     }
 }
 
