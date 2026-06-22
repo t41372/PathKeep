@@ -407,6 +407,8 @@ describe('useSettingsAiState', () => {
     act(() => {
       result.current.ai.onToggleAi()
       result.current.ai.onResetAiConfig()
+      result.current.ai.onSearchTuningChange('lexicalWeight', 2)
+      result.current.ai.onResetSearchTuning()
     })
     await act(async () => {
       await result.current.ai.onSaveAiConfig()
@@ -458,6 +460,72 @@ describe('useSettingsAiState', () => {
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
+  })
+
+  test('mutates, clamps, resets, and persists the search-tuning knobs through Save', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({ ...snapshot, config }),
+    )
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig,
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    // A weight edit lands clamped on the draft (the handler sanitizes the raw
+    // slider/input value) without auto-saving.
+    act(() => {
+      result.current.ai.onSearchTuningChange('lexicalWeight', 2.5)
+      result.current.ai.onSearchTuningChange('starredBoost', 9)
+      result.current.ai.onSearchTuningChange('hybridRrfK', 80.7)
+    })
+    expect(result.current.ai.currentSettings?.lexicalWeight).toBe(2.5)
+    // Clamped to the [0, 0.5] cap and floored to an integer respectively.
+    expect(result.current.ai.currentSettings?.starredBoost).toBe(0.5)
+    expect(result.current.ai.currentSettings?.hybridRrfK).toBe(80)
+    expect(result.current.ai.configDirty).toBe(true)
+    expect(saveConfig).not.toHaveBeenCalled()
+
+    // An emptied number field arrives as NaN and resets that knob to its default.
+    act(() => {
+      result.current.ai.onSearchTuningChange('lexicalWeight', Number.NaN)
+    })
+    expect(result.current.ai.currentSettings?.lexicalWeight).toBe(1)
+
+    // Save round-trips the knobs through the shared AI config Save.
+    await act(async () => {
+      await result.current.ai.onSaveAiConfig()
+    })
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          starredBoost: 0.5,
+          hybridRrfK: 80,
+          lexicalWeight: 1,
+        }),
+      }),
+    )
+
+    // Reset returns all four knobs to their accepted defaults on the draft.
+    act(() => {
+      result.current.ai.onSearchTuningChange('semanticWeight', 0)
+    })
+    expect(result.current.ai.currentSettings?.semanticWeight).toBe(0)
+    act(() => {
+      result.current.ai.onResetSearchTuning()
+    })
+    expect(result.current.ai.currentSettings?.hybridRrfK).toBe(60)
+    expect(result.current.ai.currentSettings?.lexicalWeight).toBe(1)
+    expect(result.current.ai.currentSettings?.semanticWeight).toBe(1)
+    expect(result.current.ai.currentSettings?.starredBoost).toBe(0.15)
   })
 
   test('seeds an added provider from the chosen preset format', () => {

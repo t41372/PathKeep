@@ -24,6 +24,8 @@
 import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
+import { AiSearchTuningSection } from './ai-search-tuning-section'
+import type { SearchTuningKnob } from './search-tuning-helpers'
 import {
   PaperCard,
   PaperCardBadge,
@@ -102,8 +104,10 @@ export interface AiProvidersSectionState {
   ) => Promise<void>
   onRemoveProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
   onResetAiConfig: () => void
+  onResetSearchTuning: () => void
   onSaveAiApiKey: (providerId: string) => Promise<void>
   onSaveAiConfig: () => Promise<void>
+  onSearchTuningChange: (knob: SearchTuningKnob, value: number) => void
   onSelectProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
   onToggleAi: () => void
   onToggleAssistant: () => void
@@ -155,8 +159,10 @@ export function AiProvidersSection({
     onProviderProbe,
     onRemoveProvider,
     onResetAiConfig,
+    onResetSearchTuning,
     onSaveAiApiKey,
     onSaveAiConfig,
+    onSearchTuningChange,
     onSelectProvider,
     onToggleAi,
     onToggleAssistant,
@@ -323,6 +329,20 @@ export function AiProvidersSection({
             </p>
           ) : null}
         </div>
+
+        {/*
+          Power-user search tuning (W-AI-9 / W-AI-6). Tucked behind a collapsed
+          disclosure so it never clutters the normal AI config, and gated by the
+          same `editorsDisabled` as the provider editors — visible-but-inert while
+          AI is off so the user can see what tuning unlocks before opting in. The
+          knobs mutate the draft only and persist through the shared Save above.
+        */}
+        <AiSearchTuningSection
+          settings={currentSettings}
+          disabled={editorsDisabled}
+          onChange={onSearchTuningChange}
+          onReset={onResetSearchTuning}
+        />
 
         <AiProviderEditorList
           addLabel={t('settings.aiAddLlmProvider')}

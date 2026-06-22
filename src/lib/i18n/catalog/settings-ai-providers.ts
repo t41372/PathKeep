@@ -163,6 +163,23 @@ export const settingsAiProvidersNamespace = {
       'Local MCP client configuration snippet for PathKeep.',
     aiIntegrationGeneratedFileSkillPurpose:
       'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
+    aiSearchTuningTitle: 'Advanced search tuning',
+    aiSearchTuningIntro:
+      'Fine-tune how Smart search blends keyword and meaning-based matches when it ranks results. The defaults work well for most people — adjust only if you know what you want, and Save to apply.',
+    aiSearchTuningRrfKLabel: 'Rank smoothing (k)',
+    aiSearchTuningRrfKHelp:
+      'How much a result’s exact position in each list matters when the keyword and meaning lists are merged. A small value rewards the few top hits sharply; a larger value spreads credit more evenly so deeper matches still count. 60 is the standard balance.',
+    aiSearchTuningLexicalLabel: 'Keyword match weight',
+    aiSearchTuningLexicalHelp:
+      'How much exact word matches count toward the final ranking. Raise it to favor pages that literally contain your terms; set it to 0 to rank purely by meaning.',
+    aiSearchTuningSemanticLabel: 'Meaning match weight',
+    aiSearchTuningSemanticHelp:
+      'How much meaning-based (semantic) matches count toward the final ranking. Raise it to favor pages that are about your query even without the exact words; set it to 0 to rank purely by keyword.',
+    aiSearchTuningStarredLabel: 'Starred boost',
+    aiSearchTuningStarredHelp:
+      'A small nudge that lifts pages you’ve starred when they’re relevant. It is deliberately capped at 0.5 so a starred page can rank a bit higher but can never push an unrelated favorite above a strongly matching result — Smart search stays search, not your bookmark list. Set it to 0 to give stars no ranking effect.',
+    aiSearchTuningReset: 'Reset to defaults',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
   },
   'zh-CN': {
     aiMasterToggle: '启用 AI 功能',
@@ -301,6 +318,23 @@ export const settingsAiProvidersNamespace = {
       '供 PathKeep 使用的本地 MCP client 配置片段。',
     aiIntegrationGeneratedFileSkillPurpose:
       '教外部助手如何通过 MCP 查询 PathKeep 的 Codex skill 起始模板。',
+    aiSearchTuningTitle: '高级搜索调优',
+    aiSearchTuningIntro:
+      '微调智能搜索在排序时如何融合关键词匹配和语义匹配。默认值对大多数人都很合适——只有在你清楚自己想要什么时再调整，并点击保存以生效。',
+    aiSearchTuningRrfKLabel: '排名平滑（k）',
+    aiSearchTuningRrfKHelp:
+      '在合并关键词列表和语义列表时，结果在各自列表中的具体名次有多重要。数值越小，越偏向少数靠前的命中；数值越大，分数分布越平均，让排得更靠后的匹配也能计入。60 是标准的平衡值。',
+    aiSearchTuningLexicalLabel: '关键词匹配权重',
+    aiSearchTuningLexicalHelp:
+      '精确词语匹配在最终排序中所占的比重。调高它会更偏向真正包含你输入词语的页面；设为 0 则完全按语义排序。',
+    aiSearchTuningSemanticLabel: '语义匹配权重',
+    aiSearchTuningSemanticHelp:
+      '基于含义（语义）的匹配在最终排序中所占的比重。调高它会更偏向即使没有完全相同词语、但主题相关的页面；设为 0 则完全按关键词排序。',
+    aiSearchTuningStarredLabel: '收藏加权',
+    aiSearchTuningStarredHelp:
+      '当你收藏的页面与查询相关时，给它一点小幅提升。它被特意限制在 0.5 以内，所以收藏页面可以排得略高，却永远无法把一个不相关的收藏挤到强相关结果之上——智能搜索仍然是搜索，而不是你的书签列表。设为 0 则收藏不影响排序。',
+    aiSearchTuningReset: '恢复默认值',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
   },
   'zh-TW': {
     aiMasterToggle: '啟用 AI 功能',
@@ -439,5 +473,22 @@ export const settingsAiProvidersNamespace = {
       '供 PathKeep 使用的本機 MCP client 設定片段。',
     aiIntegrationGeneratedFileSkillPurpose:
       '教外部助手如何透過 MCP 查詢 PathKeep 的 Codex skill 起始模板。',
+    aiSearchTuningTitle: '進階搜尋調校',
+    aiSearchTuningIntro:
+      '微調智慧搜尋在排序時如何融合關鍵字比對與語意比對。預設值對大多數人都很合適——只有在你清楚自己想要什麼時再調整，並點擊儲存以生效。',
+    aiSearchTuningRrfKLabel: '排名平滑（k）',
+    aiSearchTuningRrfKHelp:
+      '在合併關鍵字清單與語意清單時，結果在各自清單中的確切名次有多重要。數值越小，越偏向少數靠前的命中；數值越大，分數分布越平均，讓排得更後面的比對也能計入。60 是標準的平衡值。',
+    aiSearchTuningLexicalLabel: '關鍵字比對權重',
+    aiSearchTuningLexicalHelp:
+      '精確詞語比對在最終排序中所占的比重。調高它會更偏向真正含有你輸入詞語的頁面；設為 0 則完全依語意排序。',
+    aiSearchTuningSemanticLabel: '語意比對權重',
+    aiSearchTuningSemanticHelp:
+      '基於含意（語意）的比對在最終排序中所占的比重。調高它會更偏向即使沒有完全相同詞語、但主題相關的頁面；設為 0 則完全依關鍵字排序。',
+    aiSearchTuningStarredLabel: '收藏加權',
+    aiSearchTuningStarredHelp:
+      '當你收藏的頁面與查詢相關時，給它一點小幅提升。它被特意限制在 0.5 以內，所以收藏頁面可以排得略高，卻永遠無法把一個不相關的收藏擠到強相關結果之上——智慧搜尋仍然是搜尋，而不是你的書籤清單。設為 0 則收藏不影響排序。',
+    aiSearchTuningReset: '還原預設值',
+    aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
   },
 } as const

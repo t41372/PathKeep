@@ -50,6 +50,11 @@ import {
   selectAiProviderDraft,
   serializeAiSettings,
 } from './helpers'
+import {
+  type SearchTuningKnob,
+  applySearchTuningKnob,
+  resetSearchTuningKnobs,
+} from './search-tuning-helpers'
 
 interface UseSettingsAiStateArgs {
   enableIntegrationPreview?: boolean
@@ -230,6 +235,23 @@ export function useSettingsAiState({
       ...current,
       semanticIndexEnabled: !current.semanticIndexEnabled,
     }))
+  }
+
+  // Hybrid-search tuning knobs (W-AI-9 / W-AI-6). They mutate ONLY the draft —
+  // persisted by the existing AI config Save, never auto-saved — and pass through
+  // the same client-side clamp the backend enforces on load, so a slider/input can
+  // never push an out-of-range or NaN value into the draft. `value` here is the raw
+  // input (possibly NaN from an emptied number field); `applySearchTuningKnob`
+  // sanitizes it per knob (RRF k floored to an integer ≥ 1; weights to [0, 100];
+  // starred boost to [0, 0.5]; NaN → that knob's conservative default).
+  function handleSearchTuningChange(knob: SearchTuningKnob, value: number) {
+    updateAiDraft((current) => applySearchTuningKnob(current, knob, value))
+  }
+
+  // Restore all four knobs to their accepted defaults (60 / 1.0 / 1.0 / 0.15) on
+  // the draft. Save still required to persist, consistent with every other knob.
+  function handleResetSearchTuning() {
+    updateAiDraft((current) => resetSearchTuningKnobs(current))
   }
 
   function handleAddProvider(
@@ -469,8 +491,10 @@ export function useSettingsAiState({
       onProviderProbe: handleProviderProbe,
       onRemoveProvider: handleRemoveProvider,
       onResetAiConfig: handleResetAiConfig,
+      onResetSearchTuning: handleResetSearchTuning,
       onSaveAiApiKey: handleSaveAiApiKey,
       onSaveAiConfig: handleSaveAiConfig,
+      onSearchTuningChange: handleSearchTuningChange,
       onSelectProvider: handleSelectProvider,
       onToggleAi: handleAiToggle,
       onToggleAssistant: handleAssistantToggle,
