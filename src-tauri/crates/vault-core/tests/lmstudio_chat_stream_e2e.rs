@@ -76,6 +76,7 @@ async fn lmstudio_chat_stream_yields_tokens_and_maybe_reasoning() {
     let mut tokens = 0usize;
     let mut reasoning = 0usize;
     let mut tool_calls = 0usize;
+    let mut usage_markers = 0usize;
     let mut errors = 0usize;
     let mut token_text = String::new();
     let mut reasoning_text = String::new();
@@ -91,6 +92,13 @@ async fn lmstudio_chat_stream_yields_tokens_and_maybe_reasoning() {
                 reasoning_text.push_str(&text);
             }
             Ok(LlmStreamChunk::ToolCall { .. }) => tool_calls += 1,
+            Ok(LlmStreamChunk::Usage(usage)) => {
+                usage_markers += 1;
+                eprintln!(
+                    "usage: prompt={} completion={}",
+                    usage.prompt_tokens, usage.completion_tokens
+                );
+            }
             Err(error) => {
                 errors += 1;
                 eprintln!("stream error: {error}");
@@ -99,7 +107,7 @@ async fn lmstudio_chat_stream_yields_tokens_and_maybe_reasoning() {
     }
 
     eprintln!(
-        "LM Studio e2e: tokens={tokens} reasoning={reasoning} toolCalls={tool_calls} errors={errors}"
+        "LM Studio e2e: tokens={tokens} reasoning={reasoning} toolCalls={tool_calls} usage={usage_markers} errors={errors}"
     );
     eprintln!("--- answer ---\n{}", token_text.trim());
     if reasoning > 0 {

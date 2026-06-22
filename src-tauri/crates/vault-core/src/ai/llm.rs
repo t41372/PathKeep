@@ -32,7 +32,9 @@ use anyhow::Result;
 // mutation-hardening unit tests — exist in test/coverage builds. The live client/model types stay
 // behind `cfg(not(any(test, coverage)))` because they need a real network model.
 use rig::OneOrMany;
-use rig::completion::{AssistantContent, Message as RigMessage, ToolDefinition, Usage as RigUsage};
+use rig::completion::{
+    AssistantContent, GetTokenUsage, Message as RigMessage, ToolDefinition, Usage as RigUsage,
+};
 use rig::streaming::StreamedAssistantContent;
 
 #[cfg(not(any(test, coverage)))]
@@ -68,12 +70,19 @@ impl RigLlmProvider {
     }
 }
 
-/// Derives the in-engine capability view from the provider config.
+/// Derives the in-engine capability view from the provider config (honest, not optimistic).
 ///
-/// Shared by `capabilities()` and the connection probe so both report the same thing.
-/// The OpenAI-compat floor and Anthropic/Gemini native adapters all support streaming
-/// chat in rig 0.34; `max_context_tokens` stays `None` here because rig does not expose
-/// a window size and PathKeep never hardcodes one per the model-agnostic rule (D4).
+/// Shared by `capabilities()` and the connection probe so both report the same thing. Every
+/// supported request format streams chat in rig 0.34; `max_context_tokens` stays `None` because
+/// rig exposes no window size and PathKeep never hardcodes one (D4).
+///
+/// Tool-call honesty (W-AI-7, 02 §B): the NATIVE adapters (Anthropic, Gemini) reliably encode
+/// tool calling, so `tool_call`/`structured_output` are `true`. The OpenAI-compat FLOOR
+/// (OpenAI/Ollama/LM Studio) is heterogeneous — many small local models behind the same shape do
+/// NOT actually honor a tools payload — so capabilities are reported as `false` here and the agent
+/// harness must call [`probe_tool_capability`] (a real, classified probe) before sending tools.
+/// This replaces the previous optimistic advertisement that claimed tool support for every floor
+/// provider unconditionally.
 pub(super) fn rig_llm_capabilities(config: &super::AiProviderConfig) -> LlmCapabilities {
     let interactive_chat = matches!(
         config.request_format,
@@ -83,19 +92,101 @@ pub(super) fn rig_llm_capabilities(config: &super::AiProviderConfig) -> LlmCapab
             | AiRequestFormat::Ollama
             | AiRequestFormat::LmStudio
     );
-    // TODO(W-AI-7): tool_call/structured_output are OPTIMISTIC advertisements for local
-    // providers; the agent must runtime-probe and degrade before sending a tools payload (02 §B).
-    // Anthropic and Gemini native adapters support prefix/prompt caching; the local
-    // OpenAI-compat floor (Ollama/LM Studio/OpenAI) does not advertise it through rig.
-    let prompt_cache =
+    let native_tool_calling =
         matches!(config.request_format, AiRequestFormat::Anthropic | AiRequestFormat::Google);
+    // Anthropic and Gemini native adapters support prefix/prompt caching; the local OpenAI-compat
+    // floor does not advertise it through rig.
+    let prompt_cache = native_tool_calling;
     LlmCapabilities {
-        tool_call: interactive_chat,
-        structured_output: interactive_chat,
+        // Honest floor: only native adapters self-certify tool calling; the OpenAI-compat floor
+        // must be probed (see `probe_tool_capability`) before the harness trusts it.
+        tool_call: native_tool_calling,
+        structured_output: native_tool_calling,
         streaming: interactive_chat,
         prompt_cache,
         max_context_tokens: None,
     }
+}
+
+/// Whether a request format self-certifies tool calling without a runtime probe.
+///
+/// The native Anthropic/Gemini adapters encode tool calls reliably (02 §B). Anything on the
+/// OpenAI-compat floor is probe-required because the same wire shape fronts models that silently
+/// ignore tools. Pure + cheap so the harness can ask before deciding whether to probe.
+pub(super) fn request_format_self_certifies_tools(format: &AiRequestFormat) -> bool {
+    matches!(format, AiRequestFormat::Anthropic | AiRequestFormat::Google)
+}
+
+/// Resolves whether the provider can execute tool calls, probing the OpenAI-compat floor.
+///
+/// The agent harness calls this BEFORE attaching a tools payload (02 §B degradation rule). Native
+/// adapters short-circuit to `true` with no network call. For the floor it issues one tiny chat
+/// turn carrying a single trivial tool definition: if that turn succeeds the provider is treated as
+/// tool-capable; if it fails, the error is run through the shared [`classify_provider_error`] and a
+/// transport/auth/network failure is surfaced as an error (so the caller does not silently mistake
+/// "the endpoint is down" for "no tool support"), while any other failure degrades to `false`
+/// (tool-incapable → retrieve-then-answer). The probe outcome is cached per provider config id so a
+/// multi-turn run probes at most once.
+pub async fn probe_tool_capability(provider: &RigLlmProvider) -> Result<bool> {
+    if request_format_self_certifies_tools(&provider.runtime.config.request_format) {
+        return Ok(true);
+    }
+    if let Some(cached) = tool_capability_cache_get(&provider.runtime.config.id) {
+        return Ok(cached);
+    }
+    let probe_request = LlmChatRequest {
+        messages: vec![LlmMessage::new(LlmRole::User, "Reply with OK.")],
+        temperature: Some(0.0),
+        max_tokens: Some(16),
+        tools: vec![super::traits::LlmToolDef {
+            name: "pathkeep_probe".to_string(),
+            description: "Capability probe; do not call.".to_string(),
+            parameters: serde_json::json!({ "type": "object", "properties": {} }),
+        }],
+        response_format: None,
+    };
+    let capable = match chat_impl(&provider.runtime, probe_request).await {
+        Ok(_) => true,
+        Err(error) => {
+            let (code, _, _) = super::provider::classify_provider_error(&error.to_string());
+            // A reachability/auth failure is not evidence of "no tool support" — surface it so the
+            // run fails honestly rather than silently degrading on a transient outage.
+            if matches!(code.as_deref(), Some("network-error") | Some("secret-missing")) {
+                return Err(error);
+            }
+            false
+        }
+    };
+    tool_capability_cache_put(&provider.runtime.config.id, capable);
+    Ok(capable)
+}
+
+/// Process-global cache of probe outcomes, keyed by provider config id.
+///
+/// Tool capability is a stable property of one configured provider within a process run, so a
+/// run-spanning probe should happen at most once. Cleared implicitly when the process restarts (a
+/// config change mints a new provider id via Settings, so a stale entry never masks a real change).
+fn tool_capability_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, bool>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Returns a cached probe outcome for one provider config id, if any.
+fn tool_capability_cache_get(provider_id: &str) -> Option<bool> {
+    tool_capability_cache()
+        .lock()
+        .expect("tool capability cache poisoned")
+        .get(provider_id)
+        .copied()
+}
+
+/// Records a probe outcome for one provider config id.
+fn tool_capability_cache_put(provider_id: &str, capable: bool) {
+    tool_capability_cache()
+        .lock()
+        .expect("tool capability cache poisoned")
+        .insert(provider_id.to_string(), capable);
 }
 
 impl LlmProvider for RigLlmProvider {
@@ -230,9 +321,15 @@ async fn complete_with_model<M: CompletionModel>(
 ///
 /// Reasoning (full block and delta) maps to `Reasoning` so thinking-heavy models such as
 /// gemma render in the reasoning lane; text maps to `Token`; complete tool calls map to
-/// `ToolCall`. The final usage marker and tool-call deltas are intentionally dropped here
-/// (deltas are aggregated by rig into the complete `ToolCall`).
-fn map_streamed_content<R: Clone + Unpin>(
+/// `ToolCall` carrying the provider call id (so the agent harness can correlate the executed
+/// result back to its call). The terminal `Final` marker maps to `Usage` when the provider
+/// reports token counts — the agent budget loop (W-AI-7, 02 §F) sums these. Tool-call deltas
+/// are still dropped (rig aggregates them into the complete `ToolCall`); a `Final` with no usage
+/// (or all-zero counts) yields `None` exactly as before so plain chat is unaffected.
+///
+/// The `GetTokenUsage` bound is what lets `Final` surface usage; it holds for every concrete rig
+/// streaming response type (and `()`), so it does not constrain any real call site.
+fn map_streamed_content<R: Clone + Unpin + GetTokenUsage>(
     item: StreamedAssistantContent<R>,
 ) -> Option<LlmStreamChunk> {
     match item {
@@ -243,13 +340,21 @@ fn map_streamed_content<R: Clone + Unpin>(
         StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
             Some(LlmStreamChunk::Reasoning(reasoning))
         }
-        StreamedAssistantContent::ToolCall { tool_call, .. } => Some(LlmStreamChunk::ToolCall {
-            name: tool_call.function.name,
-            arguments: tool_call.function.arguments.to_string(),
-        }),
-        // TODO(W-AI-7): Final carries token usage; the budget loop needs it surfaced (e.g. add
-        // LlmStreamChunk::Usage).
-        StreamedAssistantContent::ToolCallDelta { .. } | StreamedAssistantContent::Final(_) => None,
+        StreamedAssistantContent::ToolCall { tool_call, internal_call_id, .. } => {
+            // Prefer the provider's own id; fall back to rig's internal correlation id so a
+            // ToolResult can still be threaded back even on transports that omit one.
+            let call_id =
+                if tool_call.id.is_empty() { internal_call_id } else { tool_call.id.clone() };
+            Some(LlmStreamChunk::ToolCall {
+                call_id,
+                name: tool_call.function.name,
+                arguments: tool_call.function.arguments.to_string(),
+            })
+        }
+        StreamedAssistantContent::Final(response) => {
+            response.token_usage().and_then(|usage| to_llm_usage(usage).map(LlmStreamChunk::Usage))
+        }
+        StreamedAssistantContent::ToolCallDelta { .. } => None,
     }
 }
 
@@ -270,7 +375,7 @@ where
     S: futures_core::Stream<
             Item = Result<StreamedAssistantContent<R>, rig::completion::CompletionError>,
         > + Unpin,
-    R: Clone + Unpin,
+    R: Clone + Unpin + GetTokenUsage,
 {
     type Item = Result<LlmStreamChunk>;
 
@@ -418,14 +523,23 @@ fn build_gemini_client(runtime: &AiProviderRuntime) -> Result<gemini::Client> {
 
 // ---------------------------------------------------------------------------
 // Deterministic stub (test + coverage). Same public call graph as production:
-// `chat` returns stable text/reasoning/usage; `chat_stream` yields a Reasoning,
-// Token(s), a ToolCall, then ends — and surfaces a stream error for ids tagged
-// "stream-error" so the Err arm is exercised.
+// `chat` returns stable text/reasoning/usage; `chat_stream` is a TWO-TURN script
+// keyed on whether the request already carries a Tool-role message (the harness
+// threads a tool_result back as one). Turn 1 (no tool result yet) yields
+// Reasoning → Token → ToolCall(call_id); turn 2 (after a tool_result) yields
+// Token → Usage with NO tool call, so the agent harness loop terminates. Ids
+// tagged "stream-error" surface a mid-stream Err on turn 1 so the Err arm is
+// exercised. This is the fixture the W-AI-7 deterministic harness test drives.
 // ---------------------------------------------------------------------------
 
 /// Returns a stable, request-derived chat response without any network call.
 #[cfg(any(test, coverage))]
 async fn chat_impl(runtime: &AiProviderRuntime, req: LlmChatRequest) -> Result<LlmChatResponse> {
+    if runtime.config.id.contains("probe-network-error") {
+        // A reachability failure (classified `network-error`) so the tool-capability probe
+        // surfaces the error honestly instead of degrading to tool-incapable.
+        anyhow::bail!("connection refused: the local model endpoint is unreachable");
+    }
     if runtime.config.id.contains("chat-error") {
         anyhow::bail!("forced coverage chat error");
     }
@@ -446,7 +560,13 @@ async fn chat_impl(runtime: &AiProviderRuntime, req: LlmChatRequest) -> Result<L
     })
 }
 
-/// Returns a deterministic chunk stream that exercises every chunk variant + an error path.
+/// Returns the deterministic two-turn chunk stream that the agent harness loop drives.
+///
+/// Turn detection is purely structural: if the request already contains a `Tool`-role message the
+/// harness has threaded a tool result back, so this is the SECOND turn and the stub answers with
+/// `Token → Usage` and NO tool call (the loop then emits `Done`). Otherwise it is the FIRST turn
+/// and the stub yields `Reasoning → Token → ToolCall(call_id)`. Ids containing "stream-error"
+/// surface a mid-stream Err on turn 1 (the Err arm); the eager open-error path is unchanged.
 #[cfg(any(test, coverage))]
 async fn chat_stream_impl(
     runtime: &AiProviderRuntime,
@@ -457,15 +577,33 @@ async fn chat_stream_impl(
     }
     let format_tag = request_format_tag(&runtime.config.request_format).to_string();
     let message_count = req.messages.len();
-    let emit_error = runtime.config.id.contains("stream-error");
-    let mut chunks: Vec<Result<LlmStreamChunk>> = vec![
-        Ok(LlmStreamChunk::Reasoning(format!("{format_tag} thinking"))),
-        Ok(LlmStreamChunk::Token(format!("{format_tag}:{message_count}"))),
-        Ok(LlmStreamChunk::ToolCall { name: "search".to_string(), arguments: "{}".to_string() }),
-    ];
-    if emit_error {
-        chunks.push(Err(anyhow::anyhow!("forced coverage mid-stream error")));
-    }
+    let tool_result_threaded =
+        req.messages.iter().any(|message| message.role == super::traits::LlmRole::Tool);
+    let chunks: Vec<Result<LlmStreamChunk>> = if tool_result_threaded {
+        // Second turn: the model has the tool evidence, so it answers and reports usage.
+        vec![
+            Ok(LlmStreamChunk::Token(format!("{format_tag} final:{message_count}"))),
+            Ok(LlmStreamChunk::Usage(LlmUsage {
+                prompt_tokens: message_count as u64,
+                completion_tokens: 2,
+            })),
+        ]
+    } else {
+        // First turn: think, emit a token, then request a tool call (with a stable call id).
+        let mut chunks = vec![
+            Ok(LlmStreamChunk::Reasoning(format!("{format_tag} thinking"))),
+            Ok(LlmStreamChunk::Token(format!("{format_tag}:{message_count}"))),
+            Ok(LlmStreamChunk::ToolCall {
+                call_id: "call-1".to_string(),
+                name: "search_history".to_string(),
+                arguments: r#"{"query":"example"}"#.to_string(),
+            }),
+        ];
+        if runtime.config.id.contains("stream-error") {
+            chunks.push(Err(anyhow::anyhow!("forced coverage mid-stream error")));
+        }
+        chunks
+    };
     Ok(Box::pin(stub_stream(chunks)))
 }
 
@@ -582,7 +720,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_stream_yields_reasoning_token_and_tool_call() {
+    async fn chat_stream_turn_one_yields_reasoning_token_and_tool_call() {
+        // Turn 1 of the two-turn stub: the request carries no Tool-role message, so the stub asks
+        // for a tool call (with a stable call id) after thinking + a token.
         let provider = RigLlmProvider::new(runtime(AiRequestFormat::Google, "stream-ok"));
         let stream = provider.chat_stream(request_with_tools()).await.expect("stream");
         let (chunks, errors) = drain(stream).await;
@@ -592,8 +732,40 @@ mod tests {
         assert_eq!(chunks[1], LlmStreamChunk::Token("google:2".to_string()));
         assert!(matches!(
             &chunks[2],
-            LlmStreamChunk::ToolCall { name, .. } if name == "search"
+            LlmStreamChunk::ToolCall { name, call_id, .. }
+                if name == "search_history" && call_id == "call-1"
         ));
+    }
+
+    #[tokio::test]
+    async fn chat_stream_turn_two_yields_token_and_usage_no_tool_call() {
+        // Turn 2: once a Tool-role result is threaded back, the stub answers with a token + a Usage
+        // marker and NO tool call, so the agent harness loop terminates.
+        let provider = RigLlmProvider::new(runtime(AiRequestFormat::Google, "stream-ok"));
+        let request = LlmChatRequest {
+            messages: vec![
+                LlmMessage::new(LlmRole::User, "what did i read?"),
+                LlmMessage::new(LlmRole::Assistant, "let me search"),
+                LlmMessage::tool_result("call-1", "search_history", "3 rows"),
+            ],
+            temperature: Some(0.2),
+            max_tokens: Some(128),
+            tools: Vec::new(),
+            response_format: None,
+        };
+        let stream = provider.chat_stream(request).await.expect("stream");
+        let (chunks, errors) = drain(stream).await;
+        assert_eq!(errors, 0);
+        assert_eq!(chunks.len(), 2);
+        assert!(matches!(&chunks[0], LlmStreamChunk::Token(text) if text == "google final:3"));
+        assert!(matches!(
+            chunks[1],
+            LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 3, completion_tokens: 2 })
+        ));
+        assert!(
+            !chunks.iter().any(|chunk| matches!(chunk, LlmStreamChunk::ToolCall { .. })),
+            "turn 2 must not request a tool call"
+        );
     }
 
     #[tokio::test]
@@ -622,17 +794,74 @@ mod tests {
 
     #[test]
     fn capabilities_reflect_request_format() {
+        // Honest floor: the OpenAI-compat floor streams but does NOT self-certify tool calling /
+        // structured output — it is probe-required (W-AI-7).
         let openai = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "caps-openai"));
         let caps = openai.capabilities();
-        assert!(caps.streaming && caps.tool_call && caps.structured_output);
+        assert!(caps.streaming);
+        assert!(!caps.tool_call, "floor must not optimistically claim tool calling");
+        assert!(!caps.structured_output);
         assert!(!caps.prompt_cache);
         assert_eq!(caps.max_context_tokens, None);
 
+        // Native adapters self-certify tool calling + structured output + prompt caching.
         let anthropic = RigLlmProvider::new(runtime(AiRequestFormat::Anthropic, "caps-anthropic"));
-        assert!(anthropic.capabilities().prompt_cache);
+        let anthropic_caps = anthropic.capabilities();
+        assert!(anthropic_caps.tool_call && anthropic_caps.structured_output);
+        assert!(anthropic_caps.prompt_cache);
 
         let gemini = RigLlmProvider::new(runtime(AiRequestFormat::Google, "caps-gemini"));
-        assert!(gemini.capabilities().prompt_cache);
+        let gemini_caps = gemini.capabilities();
+        assert!(gemini_caps.tool_call && gemini_caps.structured_output);
+        assert!(gemini_caps.prompt_cache);
+    }
+
+    #[test]
+    fn request_format_self_certification_matches_native_adapters() {
+        assert!(request_format_self_certifies_tools(&AiRequestFormat::Anthropic));
+        assert!(request_format_self_certifies_tools(&AiRequestFormat::Google));
+        assert!(!request_format_self_certifies_tools(&AiRequestFormat::OpenAi));
+        assert!(!request_format_self_certifies_tools(&AiRequestFormat::Ollama));
+        assert!(!request_format_self_certifies_tools(&AiRequestFormat::LmStudio));
+    }
+
+    #[tokio::test]
+    async fn probe_tool_capability_short_circuits_for_native_adapters() {
+        let anthropic = RigLlmProvider::new(runtime(AiRequestFormat::Anthropic, "probe-native"));
+        assert!(probe_tool_capability(&anthropic).await.expect("native probe"));
+    }
+
+    #[tokio::test]
+    async fn probe_tool_capability_treats_a_successful_floor_turn_as_capable() {
+        // The stub chat succeeds for an ordinary floor id, so the probe reports capable and caches.
+        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-floor-ok"));
+        assert!(probe_tool_capability(&provider).await.expect("floor probe"));
+        // Cached: a second call returns the same outcome without re-running.
+        assert_eq!(tool_capability_cache_get("probe-floor-ok"), Some(true));
+        assert!(probe_tool_capability(&provider).await.expect("cached floor probe"));
+    }
+
+    #[tokio::test]
+    async fn probe_tool_capability_degrades_on_a_non_transport_failure() {
+        // A forced chat error that is NOT auth/network classifies as a generic provider error, so
+        // the probe degrades to tool-incapable (false) rather than aborting the run.
+        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-chat-error"));
+        assert!(!probe_tool_capability(&provider).await.expect("degraded probe"));
+        assert_eq!(tool_capability_cache_get("probe-chat-error"), Some(false));
+    }
+
+    #[tokio::test]
+    async fn probe_tool_capability_surfaces_a_transport_failure_as_an_error() {
+        // A reachability failure (classified `network-error`) is NOT evidence of "no tool support",
+        // so the probe returns the error instead of silently degrading — and never caches a verdict.
+        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-network-error"));
+        let error = probe_tool_capability(&provider).await.expect_err("transport failure surfaces");
+        assert!(error.to_string().contains("connection refused"));
+        assert_eq!(
+            tool_capability_cache_get("probe-network-error"),
+            None,
+            "a transport failure must not cache a capability verdict"
+        );
     }
 
     #[test]
@@ -728,7 +957,9 @@ mod tests {
             internal_call_id: "internal".to_string(),
         };
         match map_streamed_content(item) {
-            Some(LlmStreamChunk::ToolCall { name, arguments }) => {
+            Some(LlmStreamChunk::ToolCall { call_id, name, arguments }) => {
+                // The provider call id ("call-1") wins over rig's internal correlation id.
+                assert_eq!(call_id, "call-1");
                 assert_eq!(name, "search");
                 assert_eq!(arguments, serde_json::json!({ "q": "rust" }).to_string());
             }
@@ -737,8 +968,62 @@ mod tests {
     }
 
     #[test]
-    fn map_streamed_content_drops_final_and_tool_call_delta() {
-        let final_item: StreamedAssistantContent<u8> = StreamedAssistantContent::Final(0);
+    fn map_streamed_content_falls_back_to_internal_call_id_when_provider_id_is_empty() {
+        // A transport that does not assign a provider call id leaves `tool_call.id` empty; the
+        // mapper then uses rig's internal correlation id so the harness can still thread results.
+        let tool_call = rig::completion::message::ToolCall::new(
+            String::new(),
+            rig::completion::message::ToolFunction::new(
+                "search".to_string(),
+                serde_json::json!({}),
+            ),
+        );
+        let item: StreamedAssistantContent<()> = StreamedAssistantContent::ToolCall {
+            tool_call,
+            internal_call_id: "internal-7".to_string(),
+        };
+        match map_streamed_content(item) {
+            Some(LlmStreamChunk::ToolCall { call_id, .. }) => assert_eq!(call_id, "internal-7"),
+            other => panic!("expected ToolCall chunk, got {other:?}"),
+        }
+    }
+
+    /// A minimal `GetTokenUsage` fixture so the `Final` → `Usage` mapping is exercised without a
+    /// real rig streaming response type (those need a live model). It just reports a fixed usage.
+    #[derive(Clone)]
+    struct UsageFixture(Option<RigUsage>);
+    impl GetTokenUsage for UsageFixture {
+        fn token_usage(&self) -> Option<RigUsage> {
+            self.0
+        }
+    }
+
+    #[test]
+    fn map_streamed_content_maps_final_with_usage_to_usage_chunk() {
+        // A `Final` carrying token usage surfaces as a `Usage` chunk so the agent budget loop can
+        // sum it; the input/output → prompt/completion mapping reuses `to_llm_usage`.
+        let item: StreamedAssistantContent<UsageFixture> =
+            StreamedAssistantContent::Final(UsageFixture(Some(RigUsage {
+                input_tokens: 5,
+                output_tokens: 9,
+                total_tokens: 14,
+                cached_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+            })));
+        assert_eq!(
+            map_streamed_content(item),
+            Some(LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 5, completion_tokens: 9 }))
+        );
+        // A `Final` whose provider reported no usage yields nothing (plain-chat behaviour held).
+        let no_usage: StreamedAssistantContent<UsageFixture> =
+            StreamedAssistantContent::Final(UsageFixture(None));
+        assert_eq!(map_streamed_content(no_usage), None);
+    }
+
+    #[test]
+    fn map_streamed_content_drops_final_without_usage_and_tool_call_delta() {
+        // `()` reports no usage, so a `Final(())` yields nothing (plain chat is unaffected).
+        let final_item: StreamedAssistantContent<()> = StreamedAssistantContent::Final(());
         assert_eq!(map_streamed_content(final_item), None);
         let delta: StreamedAssistantContent<()> = StreamedAssistantContent::ToolCallDelta {
             id: "id".to_string(),

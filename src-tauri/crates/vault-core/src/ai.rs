@@ -8,6 +8,8 @@
 //! - vector/assistant state is rebuildable derived state, not canonical truth
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
 
+mod agent_harness;
+mod agent_tools;
 mod chat_stream;
 mod control;
 mod dedup;
@@ -84,6 +86,13 @@ pub use self::search::{
     answer_history_question, answer_history_question_with_control, semantic_search_history,
 };
 
+pub use self::agent_harness::{
+    AgentJournal, AgentRunOutcome, AgentRunSink, DEFAULT_MAX_ITERATIONS, DEFAULT_TOKEN_BUDGET,
+    drive_agent_run,
+};
+pub use self::agent_tools::{
+    AgentTool, AgentToolContext, HistorySearchTool, ToolOutcome, ToolRegistry,
+};
 pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
@@ -106,7 +115,7 @@ pub use self::embedding_static::{
     static_l2_normalize, static_repo_for_runtime,
 };
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
-pub use self::llm::RigLlmProvider;
+pub use self::llm::{RigLlmProvider, probe_tool_capability};
 pub use self::narrative::{
     NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
 };

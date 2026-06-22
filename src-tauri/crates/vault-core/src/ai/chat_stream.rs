@@ -123,13 +123,26 @@ pub async fn drive_chat_stream<P, S>(
 }
 
 /// Maps a boundary stream chunk onto the serde-ready IPC chunk.
-fn to_ipc_chunk(chunk: LlmStreamChunk) -> AiChatStreamChunk {
+///
+/// Shared by the plain W-AI-1 chat path and the W-AI-7 agent harness so the wire encoding lives in
+/// one place. The plain path only ever produces Token/Reasoning/ToolCall; `Usage` is forwarded
+/// (the FE ignores it on the non-agent path) and the harness additionally emits `ToolResult`
+/// directly (it is not a boundary chunk, so it has no arm here).
+pub(super) fn to_ipc_chunk(chunk: LlmStreamChunk) -> AiChatStreamChunk {
     match chunk {
         LlmStreamChunk::Token(text) => AiChatStreamChunk::Token { text },
         LlmStreamChunk::Reasoning(text) => AiChatStreamChunk::Reasoning { text },
-        LlmStreamChunk::ToolCall { name, arguments } => {
-            AiChatStreamChunk::ToolCall { name, arguments }
-        }
+        LlmStreamChunk::ToolCall { call_id, name, arguments } => AiChatStreamChunk::ToolCall {
+            name,
+            arguments,
+            // An empty provider call id is reported as `None` so the plain path keeps the W-AI-1
+            // (no `callId`) wire shape; the harness supplies a real id when present.
+            call_id: (!call_id.is_empty()).then_some(call_id),
+        },
+        LlmStreamChunk::Usage(usage) => AiChatStreamChunk::Usage {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+        },
     }
 }
 
@@ -194,9 +207,14 @@ mod tests {
                 LlmStreamChunk::Reasoning("thinking".to_string()),
                 LlmStreamChunk::Token("hello".to_string()),
                 LlmStreamChunk::ToolCall {
+                    call_id: "call-9".to_string(),
                     name: "search".to_string(),
                     arguments: "{}".to_string(),
                 },
+                LlmStreamChunk::Usage(crate::ai::traits::LlmUsage {
+                    prompt_tokens: 3,
+                    completion_tokens: 4,
+                }),
             ],
             trailing_error: false,
         };
@@ -215,10 +233,30 @@ mod tests {
                 AiChatStreamChunk::Token { text: "hello".to_string() },
                 AiChatStreamChunk::ToolCall {
                     name: "search".to_string(),
-                    arguments: "{}".to_string()
+                    arguments: "{}".to_string(),
+                    call_id: Some("call-9".to_string()),
                 },
+                AiChatStreamChunk::Usage { prompt_tokens: 3, completion_tokens: 4 },
                 AiChatStreamChunk::Done,
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn to_ipc_chunk_reports_empty_call_id_as_none() {
+        // The plain W-AI-1 path keeps the no-`callId` wire shape when the provider omits a call id.
+        let chunk = to_ipc_chunk(LlmStreamChunk::ToolCall {
+            call_id: String::new(),
+            name: "search".to_string(),
+            arguments: "{}".to_string(),
+        });
+        assert_eq!(
+            chunk,
+            AiChatStreamChunk::ToolCall {
+                name: "search".to_string(),
+                arguments: "{}".to_string(),
+                call_id: None,
+            }
         );
     }
 

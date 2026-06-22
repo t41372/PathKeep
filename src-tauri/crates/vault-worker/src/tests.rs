@@ -152,7 +152,7 @@ fn initialized_config() -> AppConfig {
     }
 }
 
-fn configured_ai_config() -> AppConfig {
+pub(crate) fn configured_ai_config() -> AppConfig {
     let mut config = initialized_config();
     config.ai.enabled = true;
     config.ai.assistant_enabled = true;
@@ -1218,6 +1218,7 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
             }],
             temperature: Some(0.6),
             max_tokens: Some(64),
+            ..Default::default()
         },
         chat_sink,
     )
@@ -1237,6 +1238,54 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     let empty_error = ai_chat_send(None, &vault_core::AiChatSendRequest::default(), |_| {})
         .expect_err("empty chat request rejected");
     assert!(empty_error.to_string().contains("at least one message"));
+
+    // W-AI-7: the SAME `ai_chat_send` with `toolsEnabled` routes through the durable agent harness
+    // (probe → owned tool registry → journal each step → finalize). Against this seeded archive the
+    // stub model's `search_history` call resolves the real `example.com` row, so the executed tool
+    // returns citations (the model-facing summary + canonical-url provenance) and the run completes.
+    let agent_events: std::sync::Arc<std::sync::Mutex<Vec<vault_core::AiChatStreamEvent>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let agent_sink = {
+        let events = agent_events.clone();
+        move |event: vault_core::AiChatStreamEvent| events.lock().expect("agent lock").push(event)
+    };
+    let agent_ack = ai_chat_send(
+        None,
+        &vault_core::AiChatSendRequest {
+            provider_id: Some("llm-primary".to_string()),
+            messages: vec![vault_core::AiChatMessage {
+                role: vault_core::AiChatRole::User,
+                content: "what did i read about example?".to_string(),
+            }],
+            temperature: Some(0.2),
+            max_tokens: Some(64),
+            tools_enabled: true,
+            conversation_id: None,
+            message_id: Some("agent-msg".to_string()),
+        },
+        agent_sink,
+    )
+    .expect("agent chat send");
+    let agent_captured = agent_events.lock().expect("agent lock");
+    assert!(agent_captured.iter().all(|event| event.run_id == agent_ack.run_id));
+    // A ToolResult that successfully returned the seeded row (not an is_error), proving the agent
+    // tool resolved real evidence + built citations.
+    assert!(agent_captured.iter().any(|event| matches!(
+        &event.chunk,
+        vault_core::AiChatStreamChunk::ToolResult { is_error: false, result, .. }
+            if result.contains("example.com")
+    )));
+    assert!(matches!(
+        agent_captured.last().expect("terminal agent chunk").chunk,
+        vault_core::AiChatStreamChunk::Done | vault_core::AiChatStreamChunk::Error { .. }
+    ));
+    // The durable header was finalized and the journaled steps replay from agent.sqlite.
+    let agent_trace =
+        vault_core::load_agent_run(&project_paths().expect("paths"), &agent_ack.run_id)
+            .expect("load agent trace")
+            .expect("agent trace present");
+    assert!(agent_trace.steps.iter().any(|step| step.kind == "tool-result"));
+    drop(agent_captured);
 
     unsafe {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);

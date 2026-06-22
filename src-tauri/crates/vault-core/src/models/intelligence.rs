@@ -744,17 +744,39 @@ pub struct AiChatMessage {
 ///
 /// `providerId` is optional; when absent the worker uses the configured default LLM provider.
 /// `temperature`/`maxTokens` override the provider defaults for this turn only.
+///
+/// W-AI-7 additive fields (all `#[serde(default)]` so the frozen W-AI-1 plain-chat payload still
+/// deserializes): `toolsEnabled` switches the run from plain streaming chat to the tool-executing
+/// agent harness; `conversationId`/`messageId` link the durable agent run trace to the chat turn it
+/// answers (used only on the agent path).
 pub struct AiChatSendRequest {
     pub provider_id: Option<String>,
     pub messages: Vec<AiChatMessage>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
+    /// When true, run the tool-executing agent harness instead of plain streaming chat (W-AI-7).
+    #[serde(default)]
+    pub tools_enabled: bool,
+    /// Conversation this run answers (links the agent trace; agent path only).
+    #[serde(default)]
+    pub conversation_id: Option<String>,
+    /// Message this run answers (links the agent trace; agent path only).
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 impl Default for AiChatSendRequest {
     /// Returns an empty default request used by shell forms before any input.
     fn default() -> Self {
-        Self { provider_id: None, messages: Vec::new(), temperature: None, max_tokens: None }
+        Self {
+            provider_id: None,
+            messages: Vec::new(),
+            temperature: None,
+            max_tokens: None,
+            tools_enabled: false,
+            conversation_id: None,
+            message_id: None,
+        }
     }
 }
 
@@ -779,13 +801,38 @@ pub struct AiChatCancelResult {
 ///
 /// Variants are tagged by `kind` so the front end can route tokens, reasoning, tool calls, the
 /// terminal `done` marker, and a terminal `error` into distinct UI lanes without guessing.
+///
+/// W-AI-7 is strictly ADDITIVE: it appends `Usage` (per-turn token accounting for the budget
+/// surface) and `ToolResult` (the executed result the harness journals + streams), and adds an
+/// optional `callId` to the existing `ToolCall` (so a result can be correlated to its call). No
+/// existing variant is renamed/reordered and no existing field is removed, so the W-AI-1 const-pin
+/// test and the plain (tools-off) streaming path stay green.
 pub enum AiChatStreamChunk {
     /// A fragment of the visible answer.
     Token { text: String },
     /// A fragment of the reasoning/thinking stream.
     Reasoning { text: String },
-    /// A tool/function call the model requested (execution arrives in W-AI-7).
-    ToolCall { name: String, arguments: String },
+    /// A tool/function call the model requested. `callId` is `None` for the plain W-AI-1 path and
+    /// `Some` when the agent harness (W-AI-7) reports the provider correlation id.
+    ///
+    /// `rename_all` is repeated on the variant because serde's container-level `rename_all` does
+    /// NOT cascade to struct-variant fields; without it the additive `call_id` would wire as the
+    /// snake_case `call_id`, breaking the FE camelCase contract.
+    #[serde(rename_all = "camelCase")]
+    ToolCall {
+        name: String,
+        arguments: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        call_id: Option<String>,
+    },
+    /// The executed result of a tool call (W-AI-7). `callId` correlates to the originating
+    /// `ToolCall`; `isError` is true when the tool failed and `result` is the honest error string
+    /// (the run continues — one tool failure never aborts the whole run).
+    #[serde(rename_all = "camelCase")]
+    ToolResult { call_id: String, name: String, result: String, is_error: bool },
+    /// Per-turn token accounting for the agent budget surface (W-AI-7).
+    #[serde(rename_all = "camelCase")]
+    Usage { prompt_tokens: u64, completion_tokens: u64 },
     /// Terminal success marker; no more chunks follow for this run.
     Done,
     /// Terminal failure marker carrying a user-facing message; no more chunks follow.
@@ -992,7 +1039,7 @@ pub struct AiAssistantRequest {
     pub domain: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Citation for one visit used in an assistant answer or insight.
 pub struct AiCitation {
@@ -1211,10 +1258,13 @@ mod tests {
             serde_json::to_value(AiChatStreamChunk::Reasoning { text: "why".to_string() }).unwrap(),
             json!({ "kind": "reasoning", "text": "why" })
         );
+        // W-AI-1 wire shape is PINNED: a `ToolCall` with no `callId` serializes exactly as before
+        // (the additive `callId` is `skip_serializing_if = None`), proving W-AI-7 is additive.
         assert_eq!(
             serde_json::to_value(AiChatStreamChunk::ToolCall {
                 name: "search".to_string(),
                 arguments: "{}".to_string(),
+                call_id: None,
             })
             .unwrap(),
             json!({ "kind": "toolCall", "name": "search", "arguments": "{}" })
@@ -1226,6 +1276,38 @@ mod tests {
         assert_eq!(
             serde_json::to_value(AiChatStreamChunk::Error { message: "boom".to_string() }).unwrap(),
             json!({ "kind": "error", "message": "boom" })
+        );
+    }
+
+    #[test]
+    fn ai_chat_stream_chunk_w_ai_7_additive_variants_serialize_with_kind_tag() {
+        // The agent harness emits a `callId` when the provider reports one.
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::ToolCall {
+                name: "search".to_string(),
+                arguments: "{}".to_string(),
+                call_id: Some("call-1".to_string()),
+            })
+            .unwrap(),
+            json!({ "kind": "toolCall", "name": "search", "arguments": "{}", "callId": "call-1" })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::ToolResult {
+                call_id: "call-1".to_string(),
+                name: "search".to_string(),
+                result: "3 rows".to_string(),
+                is_error: false,
+            })
+            .unwrap(),
+            json!({ "kind": "toolResult", "callId": "call-1", "name": "search", "result": "3 rows", "isError": false })
+        );
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Usage {
+                prompt_tokens: 12,
+                completion_tokens: 7,
+            })
+            .unwrap(),
+            json!({ "kind": "usage", "promptTokens": 12, "completionTokens": 7 })
         );
     }
 
@@ -1244,12 +1326,31 @@ mod tests {
             messages: vec![AiChatMessage { role: AiChatRole::User, content: "hi".to_string() }],
             temperature: Some(0.5),
             max_tokens: Some(64),
+            ..AiChatSendRequest::default()
         })
         .unwrap();
         assert_eq!(value["providerId"], json!("p1"));
         assert_eq!(value["maxTokens"], json!(64));
         // The nested message also uses camelCase role/content keys.
         assert_eq!(value["messages"][0], json!({ "role": "user", "content": "hi" }));
+        // W-AI-7 additive flag is camelCase and defaults to false (plain chat).
+        assert_eq!(value["toolsEnabled"], json!(false));
+    }
+
+    #[test]
+    fn ai_chat_send_request_deserializes_legacy_w_ai_1_payload() {
+        // The frozen W-AI-1 payload (no toolsEnabled/conversationId/messageId) still deserializes,
+        // defaulting to plain streaming chat — proving the W-AI-7 fields are additive.
+        let legacy = json!({
+            "providerId": "p1",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "temperature": 0.5,
+            "maxTokens": 64
+        });
+        let request: AiChatSendRequest = serde_json::from_value(legacy).expect("legacy payload");
+        assert!(!request.tools_enabled);
+        assert_eq!(request.conversation_id, None);
+        assert_eq!(request.message_id, None);
     }
 
     #[test]

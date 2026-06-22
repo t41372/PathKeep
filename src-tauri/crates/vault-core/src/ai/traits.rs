@@ -303,6 +303,12 @@ pub struct LlmChatResponse {
 ///
 /// W-AI-1 maps these onto the `pathkeep://ai-stream` Tauri event. The variants are split by
 /// kind up front so the UI can render tokens, reasoning, and tool calls in distinct lanes.
+///
+/// W-AI-7 is ADDITIVE here: `Usage` surfaces the per-turn token accounting the agent budget loop
+/// needs (mapped from the provider's terminal marker), and `ToolCall` now carries the provider
+/// `call_id` so an executed tool result can be correlated back to its originating call. Existing
+/// `Token`/`Reasoning` are untouched, so plain streaming chat (no tools, budget ignored) keeps the
+/// same observable behaviour.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LlmStreamChunk {
     /// A fragment of the visible answer.
@@ -311,11 +317,20 @@ pub enum LlmStreamChunk {
     Reasoning(String),
     /// A tool/function call the model wants executed.
     ToolCall {
+        /// Provider-assigned call id, when the transport reports one. The harness threads it back
+        /// to the model via [`LlmMessage::tool_result`] so multi-call turns stay correlated; an
+        /// empty string means the provider did not assign one (older / non-native transports).
+        call_id: String,
         /// Tool name to invoke.
         name: String,
         /// JSON-encoded arguments.
         arguments: String,
     },
+    /// The terminal token accounting for this turn, when the provider reports it.
+    ///
+    /// The agent harness sums these across turns to enforce a per-run token budget (02 §F). Plain
+    /// streaming chat ignores it; it carries no visible text.
+    Usage(LlmUsage),
 }
 
 /// Capabilities one configured LLM provider advertises.
@@ -477,6 +492,7 @@ mod tests {
                 Ok(LlmStreamChunk::Reasoning("thinking".to_string())),
                 Ok(LlmStreamChunk::Token(format!("turn:{}", req.messages.len()))),
                 Ok(LlmStreamChunk::ToolCall {
+                    call_id: "call-1".to_string(),
                     name: "search".to_string(),
                     arguments: "{}".to_string(),
                 }),
@@ -647,9 +663,17 @@ mod tests {
         assert_eq!(message.tool_call_id, None);
         assert_eq!(message.tool_name, None);
         assert_ne!(LlmRole::System, LlmRole::Tool);
-        let chunk =
-            LlmStreamChunk::ToolCall { name: "search".to_string(), arguments: "{}".to_string() };
+        let chunk = LlmStreamChunk::ToolCall {
+            call_id: "c1".to_string(),
+            name: "search".to_string(),
+            arguments: "{}".to_string(),
+        };
         assert_ne!(chunk, LlmStreamChunk::Token("x".to_string()));
+        // The additive Usage variant is distinct from a Token (carries no visible text).
+        assert_ne!(
+            LlmStreamChunk::Usage(LlmUsage::default()),
+            LlmStreamChunk::Token("x".to_string())
+        );
     }
 
     #[test]

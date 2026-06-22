@@ -515,6 +515,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             }],
             temperature: Some(0.6),
             max_tokens: Some(64),
+            ..Default::default()
         }),
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));

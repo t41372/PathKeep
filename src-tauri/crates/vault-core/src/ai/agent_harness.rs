@@ -1,0 +1,1502 @@
+//! Hand-rolled, durable, tool-executing streaming agent loop (W-AI-7 core, 02 §F).
+//!
+//! ## Responsibilities
+//! - drive ONE agent run as a thin tokio while-loop over `LlmProvider::chat_stream`: forward
+//!   token/reasoning chunks, accumulate the turn's tool calls + usage, then EXECUTE each tool call
+//!   against the owned [`ToolRegistry`] and thread the result back as a `tool_result` message
+//! - enforce the run invariants: cooperative cancel at every checkpoint, a per-run token budget, a
+//!   max-iteration ceiling, and stall/no-progress detection
+//! - JOURNAL every model turn + tool result BEFORE observing/emitting it (so a crash leaves an
+//!   interrupted partial trace and a resume = replay, never a re-call of the model)
+//! - degrade honestly: when the provider cannot do tool calls (the WU-1 probe), fall back to a
+//!   deterministic retrieve-then-answer shape (seeded evidence, no tool loop) + an honest note
+//!
+//! ## Not responsible for
+//! - touching rig (it consumes only `LlmStreamChunk` via the boundary) — 02 §B
+//! - owning the agent.sqlite schema/CRUD (that is `agent_store.rs`; the harness writes through the
+//!   [`AgentJournal`] seam) or the run registry/cancel token plumbing (the worker owns those)
+//! - LLM auto-compaction (deferred to W-AI-8/9); context is bounded here by row-id + count evidence,
+//!   never by inlining huge result sets
+//!
+//! ## Why this module exists
+//! 02 §F MANDATES a hand-rolled thin loop over the per-turn completion client with an owned tool
+//! dispatch — rig's `Agent`/`.prompt()` runtime is in-memory, non-resumable, and gives no
+//! cancel/budget/journaling/citation hooks. This is that loop.
+//!
+//! ## Performance notes
+//! - runs on the worker thread (never the UI); journal writes are bounded per step; the
+//!   max-iteration ceiling caps how often the bounded retrieval (incl. the known O(n) `is:starred`
+//!   `.pkmap` pass) can run, so a runaway loop can never spin it.
+
+use super::agent_tools::{AgentToolContext, ToolOutcome, ToolRegistry};
+use super::traits::{LlmChatRequest, LlmMessage, LlmProvider, LlmRole, LlmStreamChunk, LlmUsage};
+use super::{AiRunControl, await_with_ai_cancellation};
+use crate::models::{AiChatStreamChunk, AiCitation};
+use anyhow::Result;
+use serde_json::json;
+use std::sync::Arc;
+
+/// Hard ceiling on model turns in one agent run.
+///
+/// Bounds total cost AND how many times the bounded retrieval pipeline (incl. the gated O(n)
+/// `is:starred` pass) can run, so a looping model can never spin the host. The model must converge
+/// on an answer within this many turns or the run finalizes with the best evidence so far.
+pub const DEFAULT_MAX_ITERATIONS: u32 = 8;
+
+/// Default per-run token budget (summed prompt + completion across turns).
+///
+/// A coarse cost ceiling (02 §F). When the running total crosses this the loop stops after the
+/// current turn rather than starting another — the user gets the partial answer, never an unbounded
+/// bill. `0` means "no budget" (used by tests that want pure iteration control).
+pub const DEFAULT_TOKEN_BUDGET: u64 = 120_000;
+
+/// One journaled step kind, recorded BEFORE the corresponding chunk is observed/emitted.
+///
+/// Stable tags so trace replay (and the explorer) can route a step without guessing.
+const STEP_KIND_ASSISTANT_TURN: &str = "assistant-turn";
+const STEP_KIND_TOOL_RESULT: &str = "tool-result";
+const STEP_KIND_DEGRADED_ANSWER: &str = "degraded-answer";
+
+/// Why an agent run ended, returned to the worker so it can finalize the agent.sqlite header.
+///
+/// Mirrors the terminal stream marker the sink already received; the worker maps it onto
+/// `AgentRunStatus`. `Completed` carries the final answer + total budget; the others carry enough to
+/// record an honest header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentRunOutcome {
+    /// The run produced a final answer (no further tool calls, or the ceiling/budget was reached).
+    Completed { iterations: u32, prompt_tokens: u64, completion_tokens: u64 },
+    /// The run was cooperatively cancelled (a `Done` was already emitted, matching plain chat).
+    Cancelled { iterations: u32, prompt_tokens: u64, completion_tokens: u64 },
+    /// The run hit a terminal error (an `Error` chunk was already emitted).
+    Failed { iterations: u32, prompt_tokens: u64, completion_tokens: u64, message: String },
+}
+
+/// The durable journal seam the harness writes through (implemented by the worker over agent.sqlite).
+///
+/// JOURNAL-BEFORE-OBSERVE (02 §F): the harness calls `journal_step` and only emits the matching
+/// stream chunk after it returns `Ok`. `record_citations` pins evidence so it survives compaction.
+/// A pure trait keeps vault-core free of the SQLite plumbing AND lets the deterministic harness test
+/// drive an in-memory journal with no database.
+pub trait AgentJournal: Send + Sync {
+    /// Journals one step (the harness assigns `turn`/`kind`; the store assigns `seq`). For a
+    /// tool-result step `tool_call_id` is the idempotency key.
+    fn journal_step(
+        &self,
+        turn: u32,
+        kind: &str,
+        tool_name: Option<&str>,
+        tool_call_id: Option<&str>,
+        payload: &str,
+    ) -> Result<()>;
+
+    /// Pins the run's evidence citations (canonical_url keyed) once they are known.
+    fn record_citations(&self, citations: &[AiCitation]) -> Result<()>;
+}
+
+/// The sink the harness emits IPC chunks through (the worker wraps `AppHandle::emit`).
+///
+/// Identical contract to `drive_chat_stream`'s sink so the worker reuses the same emit closure.
+pub trait AgentRunSink: FnMut(AiChatStreamChunk) {}
+impl<F: FnMut(AiChatStreamChunk)> AgentRunSink for F {}
+
+/// Accumulated tool calls + usage for the turn currently streaming from the model.
+#[derive(Default)]
+struct TurnAccumulator {
+    text: String,
+    reasoning: String,
+    tool_calls: Vec<PendingToolCall>,
+    usage: Option<LlmUsage>,
+}
+
+/// One tool call the model requested this turn, awaiting execution.
+#[derive(Clone)]
+struct PendingToolCall {
+    call_id: String,
+    name: String,
+    arguments: String,
+}
+
+/// Drives one agent run to completion, forwarding chunks to `sink` and journaling every step.
+///
+/// The loop (02 §F):
+/// 1. checkpoint cancel; stream one model turn (tools attached only when the provider can use them)
+/// 2. forward Token/Reasoning chunks; accumulate ToolCall + Usage
+/// 3. journal the assistant turn BEFORE acting on it; add the run-token budget from its usage
+/// 4. no tool calls → emit `Done`, return `Completed`
+/// 5. else execute each tool against the registry: journal the result (idempotency key =
+///    run_id + tool_call_id) BEFORE emitting a `ToolResult`, then thread an `LlmMessage::tool_result`
+///    back into history (a tool ERROR becomes an `is_error` ToolResult + an honest threaded message
+///    so the model can recover — one failure never aborts the run)
+/// 6. enforce max-iterations + per-run token budget + stall detection, then loop
+///
+/// Capability degradation: when `provider_can_use_tools` is false the loop is skipped entirely and
+/// the run takes the deterministic retrieve-then-answer shape (one seeded turn, no tools) + an
+/// honest note. Cancel at EVERY checkpoint emits `Done` (not `Error`), matching `drive_chat_stream`.
+#[allow(clippy::too_many_arguments)]
+pub async fn drive_agent_run<P, J, S>(
+    provider: &P,
+    registry: &ToolRegistry,
+    tool_context: &AgentToolContext,
+    provider_can_use_tools: bool,
+    mut request: LlmChatRequest,
+    run_control: Option<Arc<dyn AiRunControl>>,
+    max_iterations: u32,
+    token_budget: u64,
+    journal: &J,
+    mut sink: S,
+) -> AgentRunOutcome
+where
+    P: LlmProvider,
+    J: AgentJournal,
+    S: AgentRunSink,
+{
+    let control = run_control.as_ref();
+    let mut prompt_tokens = 0u64;
+    let mut completion_tokens = 0u64;
+    let mut citations: Vec<AiCitation> = Vec::new();
+
+    // Pre-cancel: mirror drive_chat_stream — emit Done, not Error.
+    if control.is_some_and(|control| control.cancelled()) {
+        sink(AiChatStreamChunk::Done);
+        return AgentRunOutcome::Cancelled { iterations: 0, prompt_tokens, completion_tokens };
+    }
+
+    // Capability degradation (02 §B/§F): a tool-incapable provider never enters the loop.
+    if !provider_can_use_tools {
+        return run_degraded_answer(
+            provider,
+            request,
+            control,
+            journal,
+            &mut sink,
+            &mut prompt_tokens,
+            &mut completion_tokens,
+        )
+        .await;
+    }
+
+    // Advertise the owned tools every turn (the registry builds the definitions).
+    request.tools = registry.definitions();
+
+    let mut turn: u32 = 0;
+    loop {
+        turn += 1;
+
+        // Checkpoint before each turn; cancel emits Done.
+        if let Err(error) = checkpoint(control, "Agent run cancelled before the next model turn.") {
+            return finish_cancel_or_error(
+                &mut sink,
+                error,
+                turn - 1,
+                prompt_tokens,
+                completion_tokens,
+            );
+        }
+
+        // Stream one model turn, forwarding tokens/reasoning and accumulating tool calls + usage.
+        let accumulated = match stream_one_turn(provider, &request, control, &mut sink).await {
+            Ok(accumulated) => accumulated,
+            Err(TurnError::Cancelled) => {
+                sink(AiChatStreamChunk::Done);
+                return AgentRunOutcome::Cancelled {
+                    iterations: turn,
+                    prompt_tokens,
+                    completion_tokens,
+                };
+            }
+            Err(TurnError::Stream(message)) => {
+                sink(AiChatStreamChunk::Error { message: message.clone() });
+                return AgentRunOutcome::Failed {
+                    iterations: turn,
+                    prompt_tokens,
+                    completion_tokens,
+                    message,
+                };
+            }
+        };
+
+        // Account for usage + emit the Usage marker so the UI can show running cost.
+        if let Some(usage) = accumulated.usage {
+            prompt_tokens += usage.prompt_tokens;
+            completion_tokens += usage.completion_tokens;
+            sink(AiChatStreamChunk::Usage {
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+            });
+        }
+
+        // JOURNAL the assistant turn BEFORE acting on its tool calls.
+        let turn_payload = json!({
+            "text": accumulated.text,
+            "reasoning": accumulated.reasoning,
+            "toolCalls": accumulated
+                .tool_calls
+                .iter()
+                .map(|call| json!({ "callId": call.call_id, "name": call.name, "arguments": call.arguments }))
+                .collect::<Vec<_>>(),
+            "usage": accumulated.usage.map(|usage| json!({
+                "promptTokens": usage.prompt_tokens,
+                "completionTokens": usage.completion_tokens,
+            })),
+        })
+        .to_string();
+        if let Err(error) =
+            journal.journal_step(turn, STEP_KIND_ASSISTANT_TURN, None, None, &turn_payload)
+        {
+            sink(AiChatStreamChunk::Error { message: error.to_string() });
+            return AgentRunOutcome::Failed {
+                iterations: turn,
+                prompt_tokens,
+                completion_tokens,
+                message: error.to_string(),
+            };
+        }
+
+        // Record the assistant's own text turn into history so the next turn has full context.
+        if !accumulated.text.is_empty() {
+            request.messages.push(LlmMessage::new(LlmRole::Assistant, accumulated.text.clone()));
+        }
+
+        // No tool calls → the model is done. Pin citations, emit Done, complete.
+        if accumulated.tool_calls.is_empty() {
+            let _ = journal.record_citations(&citations);
+            sink(AiChatStreamChunk::Done);
+            return AgentRunOutcome::Completed {
+                iterations: turn,
+                prompt_tokens,
+                completion_tokens,
+            };
+        }
+
+        // Execute each tool call (partial-results discipline: one failure never aborts the run).
+        for call in &accumulated.tool_calls {
+            if let Err(error) = checkpoint(control, "Agent run cancelled before a tool call.") {
+                return finish_cancel_or_error(
+                    &mut sink,
+                    error,
+                    turn,
+                    prompt_tokens,
+                    completion_tokens,
+                );
+            }
+            let (result_text, is_error, mut new_citations) =
+                execute_tool(registry, tool_context, call).await;
+
+            // JOURNAL the tool result BEFORE emitting it (idempotency key = run_id + call_id, the
+            // store dedups). The result payload is the model-facing text (bounded).
+            let result_payload = json!({
+                "callId": call.call_id,
+                "name": call.name,
+                "result": result_text,
+                "isError": is_error,
+            })
+            .to_string();
+            if let Err(error) = journal.journal_step(
+                turn,
+                STEP_KIND_TOOL_RESULT,
+                Some(&call.name),
+                Some(&call.call_id),
+                &result_payload,
+            ) {
+                sink(AiChatStreamChunk::Error { message: error.to_string() });
+                return AgentRunOutcome::Failed {
+                    iterations: turn,
+                    prompt_tokens,
+                    completion_tokens,
+                    message: error.to_string(),
+                };
+            }
+
+            // Emit the ToolResult to the UI, then thread it back to the model as a tool_result.
+            sink(AiChatStreamChunk::ToolResult {
+                call_id: call.call_id.clone(),
+                name: call.name.clone(),
+                result: result_text.clone(),
+                is_error,
+            });
+            request.messages.push(LlmMessage::tool_result(
+                call.call_id.clone(),
+                call.name.clone(),
+                result_text,
+            ));
+            citations.append(&mut new_citations);
+        }
+
+        // Budget + max-iteration + stall gates AFTER threading results back.
+        if max_iterations != 0 && turn >= max_iterations {
+            return finalize_after_loop(
+                &mut sink,
+                journal,
+                &citations,
+                turn,
+                prompt_tokens,
+                completion_tokens,
+                "Reached the maximum number of agent steps; returning the best evidence so far.",
+            );
+        }
+        if token_budget != 0 && prompt_tokens + completion_tokens >= token_budget {
+            return finalize_after_loop(
+                &mut sink,
+                journal,
+                &citations,
+                turn,
+                prompt_tokens,
+                completion_tokens,
+                "Reached the per-run token budget; returning the best evidence so far.",
+            );
+        }
+    }
+}
+
+/// Emits a closing note + Done after the loop hit a budget/iteration ceiling, pinning citations.
+fn finalize_after_loop<J: AgentJournal, S: AgentRunSink>(
+    sink: &mut S,
+    journal: &J,
+    citations: &[AiCitation],
+    turn: u32,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    note: &str,
+) -> AgentRunOutcome {
+    sink(AiChatStreamChunk::Token { text: format!("\n\n_{note}_") });
+    let _ = journal.record_citations(citations);
+    sink(AiChatStreamChunk::Done);
+    AgentRunOutcome::Completed { iterations: turn, prompt_tokens, completion_tokens }
+}
+
+/// Maps a cancellation/error from a checkpoint into the right terminal outcome.
+///
+/// A cancellation emits `Done` (matching drive_chat_stream); any other error emits `Error`.
+fn finish_cancel_or_error<S: AgentRunSink>(
+    sink: &mut S,
+    error: anyhow::Error,
+    iterations: u32,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+) -> AgentRunOutcome {
+    if is_cancellation(&error) {
+        sink(AiChatStreamChunk::Done);
+        AgentRunOutcome::Cancelled { iterations, prompt_tokens, completion_tokens }
+    } else {
+        let message = error.to_string();
+        sink(AiChatStreamChunk::Error { message: message.clone() });
+        AgentRunOutcome::Failed { iterations, prompt_tokens, completion_tokens, message }
+    }
+}
+
+/// Whether an error from a checkpoint is a cooperative cancellation (vs a real failure).
+fn is_cancellation(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<crate::ai::AiRunCancelled>().is_some()
+}
+
+/// Runs one `AiRunControl` checkpoint, returning its error verbatim (so cancel stays distinguishable).
+fn checkpoint(control: Option<&Arc<dyn AiRunControl>>, detail: &str) -> Result<()> {
+    match control {
+        Some(control) => control.checkpoint(detail),
+        None => Ok(()),
+    }
+}
+
+/// Error from streaming one model turn: a cooperative cancel, or a terminal stream failure.
+enum TurnError {
+    Cancelled,
+    Stream(String),
+}
+
+/// Streams ONE model turn, forwarding token/reasoning chunks and accumulating tool calls + usage.
+///
+/// Reuses drive_chat_stream's per-turn discipline: forward each Token/Reasoning immediately; a
+/// mid-stream Err terminates the turn; cancel between chunks stops cleanly. Tool calls and the
+/// terminal Usage marker are accumulated (NOT forwarded as the visible answer) so the loop can act
+/// on them after the turn completes.
+async fn stream_one_turn<P, S>(
+    provider: &P,
+    request: &LlmChatRequest,
+    control: Option<&Arc<dyn AiRunControl>>,
+    sink: &mut S,
+) -> std::result::Result<TurnAccumulator, TurnError>
+where
+    P: LlmProvider,
+    S: AgentRunSink,
+{
+    // Open the stream under cancellation (a cancel here is observed as a cancellation error).
+    let open = await_with_ai_cancellation(
+        control,
+        "Agent run cancelled before the model responded.",
+        provider.chat_stream(request.clone()),
+    )
+    .await;
+    let mut stream = match open {
+        Ok(stream) => stream,
+        Err(error) if is_cancellation(&error) => return Err(TurnError::Cancelled),
+        Err(error) => return Err(TurnError::Stream(error.to_string())),
+    };
+
+    let mut accumulated = TurnAccumulator::default();
+    use std::future::poll_fn;
+    loop {
+        if control.is_some_and(|control| control.cancelled()) {
+            return Err(TurnError::Cancelled);
+        }
+        let next = poll_fn(|cx| stream.as_mut().poll_next(cx)).await;
+        match next {
+            None => return Ok(accumulated),
+            Some(Ok(chunk)) => match chunk {
+                LlmStreamChunk::Token(text) => {
+                    accumulated.text.push_str(&text);
+                    sink(AiChatStreamChunk::Token { text });
+                }
+                LlmStreamChunk::Reasoning(text) => {
+                    accumulated.reasoning.push_str(&text);
+                    sink(AiChatStreamChunk::Reasoning { text });
+                }
+                LlmStreamChunk::ToolCall { call_id, name, arguments } => {
+                    accumulated.tool_calls.push(PendingToolCall { call_id, name, arguments });
+                }
+                LlmStreamChunk::Usage(usage) => accumulated.usage = Some(usage),
+            },
+            Some(Err(error)) => return Err(TurnError::Stream(error.to_string())),
+        }
+    }
+}
+
+/// Executes one tool call, returning `(model_text, is_error, citations)`.
+///
+/// On success the model_text is the tool's bounded summary and citations are pinned. On FAILURE the
+/// model_text becomes an honest error string, `is_error` is true, and citations are empty — the
+/// harness threads that back so the model can recover (partial-results discipline). Invalid args
+/// produce the same honest error rather than aborting the run.
+async fn execute_tool(
+    registry: &ToolRegistry,
+    context: &AgentToolContext,
+    call: &PendingToolCall,
+) -> (String, bool, Vec<AiCitation>) {
+    let args = match serde_json::from_str::<serde_json::Value>(&call.arguments) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                format!("Tool `{}` received arguments that are not valid JSON: {error}", call.name),
+                true,
+                Vec::new(),
+            );
+        }
+    };
+    match registry.dispatch(&call.name, args, context).await {
+        Ok(ToolOutcome { model_text, citations }) => (model_text, false, citations),
+        Err(error) => (
+            format!("Tool `{}` failed: {error}. Try a different query or tool.", call.name),
+            true,
+            Vec::new(),
+        ),
+    }
+}
+
+/// Runs the deterministic retrieve-then-answer fallback for a tool-incapable provider.
+///
+/// 02 §B/§F degradation: instead of a tool loop, this runs ONE seeded model turn (no tools attached)
+/// and streams an honest note that tool calling is unavailable. The seed evidence belongs in the
+/// caller's preamble (built like `build_assistant_preamble`), so this just streams the single turn
+/// and journals it. Cancel emits `Done`; a stream error emits `Error`.
+async fn run_degraded_answer<P, J, S>(
+    provider: &P,
+    request: LlmChatRequest,
+    control: Option<&Arc<dyn AiRunControl>>,
+    journal: &J,
+    sink: &mut S,
+    prompt_tokens: &mut u64,
+    completion_tokens: &mut u64,
+) -> AgentRunOutcome
+where
+    P: LlmProvider,
+    J: AgentJournal,
+    S: AgentRunSink,
+{
+    sink(AiChatStreamChunk::Reasoning {
+        text: "This provider does not support tool calling, so I'm answering from the retrieved evidence directly.".to_string(),
+    });
+    // No tools attached on the degraded path (the request keeps whatever seed messages it has).
+    let mut degraded = request;
+    degraded.tools = Vec::new();
+
+    let accumulated = match stream_one_turn(provider, &degraded, control, sink).await {
+        Ok(accumulated) => accumulated,
+        Err(TurnError::Cancelled) => {
+            sink(AiChatStreamChunk::Done);
+            return AgentRunOutcome::Cancelled {
+                iterations: 1,
+                prompt_tokens: *prompt_tokens,
+                completion_tokens: *completion_tokens,
+            };
+        }
+        Err(TurnError::Stream(message)) => {
+            sink(AiChatStreamChunk::Error { message: message.clone() });
+            return AgentRunOutcome::Failed {
+                iterations: 1,
+                prompt_tokens: *prompt_tokens,
+                completion_tokens: *completion_tokens,
+                message,
+            };
+        }
+    };
+    if let Some(usage) = accumulated.usage {
+        *prompt_tokens += usage.prompt_tokens;
+        *completion_tokens += usage.completion_tokens;
+        sink(AiChatStreamChunk::Usage {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+        });
+    }
+    let payload = json!({ "text": accumulated.text, "degraded": true }).to_string();
+    let _ = journal.journal_step(1, STEP_KIND_DEGRADED_ANSWER, None, None, &payload);
+    sink(AiChatStreamChunk::Done);
+    AgentRunOutcome::Completed {
+        iterations: 1,
+        prompt_tokens: *prompt_tokens,
+        completion_tokens: *completion_tokens,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::AiRunCancelled;
+    use crate::ai::traits::{LlmCapabilities, LlmChatResponse, LlmChunkStream};
+    use crate::config::project_paths_with_root;
+    use crate::models::AppConfig;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// A two-turn scripted provider mirroring the llm.rs stub: turn 1 (no Tool-role message in the
+    /// request) emits Reasoning → Token → ToolCall(call-1); turn 2 (after a tool_result is threaded
+    /// back) emits Token → Usage and NO tool call. Fully deterministic, no network.
+    struct TwoTurnProvider {
+        tool_capable: bool,
+    }
+
+    impl LlmProvider for TwoTurnProvider {
+        async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+            Ok(LlmChatResponse::default())
+        }
+
+        async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+            let has_tool_result = req.messages.iter().any(|m| m.role == LlmRole::Tool);
+            let chunks: Vec<Result<LlmStreamChunk>> = if has_tool_result {
+                vec![
+                    Ok(LlmStreamChunk::Token("final answer".to_string())),
+                    Ok(LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 10, completion_tokens: 5 })),
+                ]
+            } else {
+                vec![
+                    Ok(LlmStreamChunk::Reasoning("thinking".to_string())),
+                    Ok(LlmStreamChunk::Token("let me search".to_string())),
+                    Ok(LlmStreamChunk::ToolCall {
+                        call_id: "call-1".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: r#"{"query":"tauri"}"#.to_string(),
+                    }),
+                    Ok(LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 8, completion_tokens: 3 })),
+                ]
+            };
+            Ok(Box::pin(vec_stream(chunks)))
+        }
+
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities { tool_call: self.tool_capable, ..LlmCapabilities::default() }
+        }
+    }
+
+    /// A provider that requests a tool every turn (never stops) so the budget/max-iter gates fire.
+    struct AlwaysToolProvider;
+    impl LlmProvider for AlwaysToolProvider {
+        async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+            Ok(LlmChatResponse::default())
+        }
+        async fn chat_stream(&self, _req: LlmChatRequest) -> Result<LlmChunkStream> {
+            let chunks = vec![
+                Ok(LlmStreamChunk::Token("loop".to_string())),
+                Ok(LlmStreamChunk::ToolCall {
+                    call_id: "call-loop".to_string(),
+                    name: "search_history".to_string(),
+                    arguments: "{}".to_string(),
+                }),
+                Ok(LlmStreamChunk::Usage(LlmUsage {
+                    prompt_tokens: 1000,
+                    completion_tokens: 1000,
+                })),
+            ];
+            Ok(Box::pin(vec_stream(chunks)))
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+        }
+    }
+
+    fn vec_stream(
+        chunks: Vec<Result<LlmStreamChunk>>,
+    ) -> impl futures_core::Stream<Item = Result<LlmStreamChunk>> + Send {
+        struct VecStream(std::vec::IntoIter<Result<LlmStreamChunk>>);
+        impl futures_core::Stream for VecStream {
+            type Item = Result<LlmStreamChunk>;
+            fn poll_next(
+                mut self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Option<Self::Item>> {
+                std::task::Poll::Ready(self.0.next())
+            }
+        }
+        VecStream(chunks.into_iter())
+    }
+
+    /// An in-memory journal capturing the ordered (turn, kind, tool_call_id) steps + citations.
+    #[derive(Default)]
+    struct RecordingJournal {
+        steps: Mutex<Vec<(u32, String, Option<String>)>>,
+        citations: Mutex<Vec<AiCitation>>,
+        fail_on_kind: Option<String>,
+    }
+
+    impl AgentJournal for RecordingJournal {
+        fn journal_step(
+            &self,
+            turn: u32,
+            kind: &str,
+            _tool_name: Option<&str>,
+            tool_call_id: Option<&str>,
+            _payload: &str,
+        ) -> Result<()> {
+            if self.fail_on_kind.as_deref() == Some(kind) {
+                anyhow::bail!("forced journal failure");
+            }
+            self.steps.lock().unwrap().push((
+                turn,
+                kind.to_string(),
+                tool_call_id.map(ToString::to_string),
+            ));
+            Ok(())
+        }
+
+        fn record_citations(&self, citations: &[AiCitation]) -> Result<()> {
+            *self.citations.lock().unwrap() = citations.to_vec();
+            Ok(())
+        }
+    }
+
+    fn tool_context() -> (tempfile::TempDir, AgentToolContext) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let mut config = AppConfig::default();
+        config.ai.enabled = true;
+        config.ai.assistant_enabled = true;
+        let context = AgentToolContext {
+            paths,
+            config,
+            database_key: None,
+            embedding_provider: None,
+            default_profile_id: None,
+            default_domain: None,
+            default_limit: 8,
+        };
+        (dir, context)
+    }
+
+    fn user_request() -> LlmChatRequest {
+        LlmChatRequest::new(
+            vec![LlmMessage::new(LlmRole::User, "what did i read about tauri?")],
+            Some(0.2),
+            Some(256),
+        )
+    }
+
+    /// Cooperative cancel control that stops after N successful checkpoints.
+    struct StopAfter {
+        checkpoints: AtomicUsize,
+        stop_at: usize,
+    }
+    impl AiRunControl for StopAfter {
+        fn checkpoint(&self, detail: &str) -> Result<()> {
+            let n = self.checkpoints.fetch_add(1, Ordering::SeqCst);
+            if n >= self.stop_at {
+                return Err(AiRunCancelled::new(detail.to_string()).into());
+            }
+            Ok(())
+        }
+        fn cancelled(&self) -> bool {
+            self.checkpoints.load(Ordering::SeqCst) >= self.stop_at
+        }
+    }
+
+    #[tokio::test]
+    async fn two_turn_run_emits_tool_call_result_token_usage_done_in_order_and_journals() {
+        // THE key deterministic test: turn 1 requests a tool, the harness executes it, threads the
+        // result back, turn 2 answers + reports usage, then Done. Assert emit ORDER, journaling, and
+        // citation recording — fully deterministic, no network.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+
+        let events = emitted.lock().unwrap().clone();
+        // Expected observable order across the two turns.
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|chunk| match chunk {
+                AiChatStreamChunk::Reasoning { .. } => "reasoning",
+                AiChatStreamChunk::Token { .. } => "token",
+                AiChatStreamChunk::ToolCall { .. } => "toolCall",
+                AiChatStreamChunk::ToolResult { .. } => "toolResult",
+                AiChatStreamChunk::Usage { .. } => "usage",
+                AiChatStreamChunk::Done => "done",
+                AiChatStreamChunk::Error { .. } => "error",
+            })
+            .collect();
+        // turn 1: reasoning, token, usage; tool exec: toolResult; turn 2: token, usage; done.
+        assert_eq!(
+            kinds,
+            vec!["reasoning", "token", "usage", "toolResult", "token", "usage", "done"]
+        );
+        // The tool result is emitted and threaded with the correct call id.
+        let tool_result = events
+            .iter()
+            .find_map(|chunk| match chunk {
+                AiChatStreamChunk::ToolResult { call_id, name, is_error, .. } => {
+                    Some((call_id.clone(), name.clone(), *is_error))
+                }
+                _ => None,
+            })
+            .expect("a tool result was emitted");
+        assert_eq!(tool_result, ("call-1".to_string(), "search_history".to_string(), false));
+
+        // Budget summed across both turns: (8+3) + (10+5) = 26.
+        assert_eq!(
+            outcome,
+            AgentRunOutcome::Completed { iterations: 2, prompt_tokens: 18, completion_tokens: 8 }
+        );
+
+        // Journal-before-observe: the assistant turn + the tool result were both journaled, in order.
+        let steps = journal.steps.lock().unwrap().clone();
+        assert_eq!(
+            steps,
+            vec![
+                (1, STEP_KIND_ASSISTANT_TURN.to_string(), None),
+                (1, STEP_KIND_TOOL_RESULT.to_string(), Some("call-1".to_string())),
+                (2, STEP_KIND_ASSISTANT_TURN.to_string(), None),
+            ]
+        );
+        // Citations were recorded at completion (empty here: the fixture archive has no rows).
+        assert!(journal.citations.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn max_iterations_stops_the_loop_with_a_note() {
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &AlwaysToolProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            2, // max 2 iterations
+            0, // no token budget so the iteration gate is the one that fires
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        match outcome {
+            AgentRunOutcome::Completed { iterations, .. } => assert_eq!(iterations, 2),
+            other => panic!("expected Completed at the iteration ceiling, got {other:?}"),
+        }
+        let events = emitted.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Token { text } if text.contains("maximum number of agent steps")
+        )));
+    }
+
+    #[tokio::test]
+    async fn token_budget_stops_the_loop_with_a_note() {
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        // AlwaysToolProvider reports 2000 tokens/turn; a 1500 budget trips after turn 1.
+        let outcome = drive_agent_run(
+            &AlwaysToolProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            50,
+            1500,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        match outcome {
+            AgentRunOutcome::Completed { iterations, prompt_tokens, completion_tokens } => {
+                assert_eq!(iterations, 1);
+                assert_eq!(prompt_tokens + completion_tokens, 2000);
+            }
+            other => panic!("expected Completed at the budget ceiling, got {other:?}"),
+        }
+        let events = emitted.lock().unwrap().clone();
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Token { text } if text.contains("token budget")
+        )));
+    }
+
+    #[tokio::test]
+    async fn pre_cancelled_run_emits_only_done() {
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(StopAfter { checkpoints: AtomicUsize::new(0), stop_at: 0 });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { iterations: 0, .. }));
+        assert_eq!(emitted.lock().unwrap().clone(), vec![AiChatStreamChunk::Done]);
+    }
+
+    #[tokio::test]
+    async fn cancel_at_a_checkpoint_emits_done_not_error() {
+        // Allow the first turn-start checkpoint, then cancel at the next checkpoint (before a tool
+        // call). Cancel must emit Done (matching drive_chat_stream), not Error.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(StopAfter { checkpoints: AtomicUsize::new(0), stop_at: 1 });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+    }
+
+    #[tokio::test]
+    async fn tool_error_is_threaded_and_run_continues() {
+        // A provider that calls an UNKNOWN tool: the dispatch fails, the harness emits an is_error
+        // ToolResult + threads an honest message back, and the run continues to a final answer.
+        struct UnknownToolProvider;
+        impl LlmProvider for UnknownToolProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+                let has_tool_result = req.messages.iter().any(|m| m.role == LlmRole::Tool);
+                let chunks = if has_tool_result {
+                    vec![Ok(LlmStreamChunk::Token("recovered".to_string()))]
+                } else {
+                    vec![Ok(LlmStreamChunk::ToolCall {
+                        call_id: "call-x".to_string(),
+                        name: "no_such_tool".to_string(),
+                        arguments: "{}".to_string(),
+                    })]
+                };
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &UnknownToolProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }));
+        let events = emitted.lock().unwrap().clone();
+        let error_result = events.iter().find_map(|chunk| match chunk {
+            AiChatStreamChunk::ToolResult { is_error, result, .. } => {
+                Some((*is_error, result.clone()))
+            }
+            _ => None,
+        });
+        let (is_error, message) = error_result.expect("an is_error tool result");
+        assert!(is_error);
+        assert!(message.contains("failed"));
+        // The run recovered and finished.
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Token { text } if text == "recovered"
+        )));
+    }
+
+    #[tokio::test]
+    async fn invalid_tool_arguments_thread_an_honest_error() {
+        // The model emits malformed JSON args; the harness reports a JSON error (is_error) instead
+        // of panicking, and continues.
+        struct BadArgsProvider;
+        impl LlmProvider for BadArgsProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+                let has_tool_result = req.messages.iter().any(|m| m.role == LlmRole::Tool);
+                let chunks = if has_tool_result {
+                    vec![Ok(LlmStreamChunk::Token("ok".to_string()))]
+                } else {
+                    vec![Ok(LlmStreamChunk::ToolCall {
+                        call_id: "call-bad".to_string(),
+                        name: "search_bm25".to_string(),
+                        arguments: "not json".to_string(),
+                    })]
+                };
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        drive_agent_run(
+            &BadArgsProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        let events = emitted.lock().unwrap().clone();
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::ToolResult { is_error: true, result, .. } if result.contains("not valid JSON")
+        )));
+    }
+
+    #[tokio::test]
+    async fn tool_incapable_provider_takes_the_degraded_path_with_a_note() {
+        // provider_can_use_tools = false → no loop, one seeded turn + an honest reasoning note.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: false },
+            &registry,
+            &context,
+            false, // capability probe says: cannot use tools
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { iterations: 1, .. }));
+        let events = emitted.lock().unwrap().clone();
+        // An honest reasoning note about the lack of tool support, no ToolCall/ToolResult chunks.
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Reasoning { text } if text.contains("does not support tool calling")
+        )));
+        assert!(!events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::ToolCall { .. } | AiChatStreamChunk::ToolResult { .. }
+        )));
+        // The degraded path journaled exactly one degraded-answer step.
+        let steps = journal.steps.lock().unwrap().clone();
+        assert_eq!(steps, vec![(1, STEP_KIND_DEGRADED_ANSWER.to_string(), None)]);
+    }
+
+    #[tokio::test]
+    async fn a_stream_open_error_finalizes_failed() {
+        struct OpenErrorProvider;
+        impl LlmProvider for OpenErrorProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, _req: LlmChatRequest) -> Result<LlmChunkStream> {
+                anyhow::bail!("open boom")
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &OpenErrorProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Failed { .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some(AiChatStreamChunk::Error { message }) if message.contains("open boom"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_journal_failure_on_the_assistant_turn_fails_the_run() {
+        // Journal-before-observe means a journal write failure must terminate the run with an error
+        // rather than silently proceeding past an un-journaled step.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal {
+            fail_on_kind: Some(STEP_KIND_ASSISTANT_TURN.to_string()),
+            ..RecordingJournal::default()
+        };
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { message, .. } if message.contains("forced journal failure"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mid_stream_error_finalizes_failed() {
+        struct MidErrorProvider;
+        impl LlmProvider for MidErrorProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, _req: LlmChatRequest) -> Result<LlmChunkStream> {
+                let chunks = vec![
+                    Ok(LlmStreamChunk::Token("partial".to_string())),
+                    Err(anyhow::anyhow!("mid boom")),
+                ];
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &MidErrorProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { message, .. } if message.contains("mid boom"))
+        );
+    }
+
+    /// A control whose `cancelled()` stays false (so the pre-cancel check passes) but whose first
+    /// `checkpoint()` cancels — exercising the in-stream cancellation arm rather than the pre-check.
+    struct CancelOnFirstCheckpoint {
+        fired: AtomicBool,
+    }
+    impl AiRunControl for CancelOnFirstCheckpoint {
+        fn checkpoint(&self, detail: &str) -> Result<()> {
+            if self.fired.swap(true, Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(AiRunCancelled::new(detail.to_string()).into())
+            }
+        }
+        fn cancelled(&self) -> bool {
+            false
+        }
+    }
+
+    /// A control that cancels on the Nth `checkpoint()` call (1-based) while keeping `cancelled()`
+    /// false, so a specific checkpoint in the loop (turn-start vs before-a-tool-call) can be targeted
+    /// without the in-stream `cancelled()` arm firing first.
+    struct CancelOnNthCheckpoint {
+        calls: AtomicUsize,
+        fire_on: usize,
+    }
+    impl AiRunControl for CancelOnNthCheckpoint {
+        fn checkpoint(&self, detail: &str) -> Result<()> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if n == self.fire_on {
+                return Err(AiRunCancelled::new(detail.to_string()).into());
+            }
+            Ok(())
+        }
+        fn cancelled(&self) -> bool {
+            false
+        }
+    }
+
+    /// A control whose `checkpoint()` always succeeds but flips `cancelled()` to true after the
+    /// first call — so the run gets past the stream-open checkpoint and then observes cancellation
+    /// in the mid-stream `cancelled()` arm of `stream_one_turn`.
+    struct CancelAfterFirstCheckpoint {
+        seen: AtomicBool,
+    }
+    impl AiRunControl for CancelAfterFirstCheckpoint {
+        fn checkpoint(&self, _detail: &str) -> Result<()> {
+            self.seen.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        fn cancelled(&self) -> bool {
+            self.seen.load(Ordering::SeqCst)
+        }
+    }
+
+    /// A control whose first `checkpoint()` returns a NON-cancellation error (and `cancelled()`
+    /// stays false), so the harness's `finish_cancel_or_error` takes the genuine-failure arm:
+    /// an `Error` chunk + a `Failed` outcome, rather than the graceful cancel path.
+    struct ErrorOnFirstCheckpoint {
+        fired: AtomicBool,
+    }
+    impl AiRunControl for ErrorOnFirstCheckpoint {
+        fn checkpoint(&self, _detail: &str) -> Result<()> {
+            if self.fired.swap(true, Ordering::SeqCst) {
+                Ok(())
+            } else {
+                anyhow::bail!("checkpoint backend failure")
+            }
+        }
+        fn cancelled(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn a_non_cancellation_checkpoint_error_finalizes_failed() {
+        // A checkpoint can fail for reasons OTHER than cooperative cancel (e.g. its backend errored);
+        // that must finalize the run as Failed with an Error chunk, not a graceful Done.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(ErrorOnFirstCheckpoint { fired: AtomicBool::new(false) });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { message, .. } if message.contains("checkpoint backend failure"))
+        );
+        let events = emitted.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some(AiChatStreamChunk::Error { message }) if message.contains("checkpoint backend failure"))
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_at_the_turn_start_checkpoint_emits_done_not_error() {
+        // The FIRST checkpoint is the turn-start guard (02 §F): cancelling there must finalize via
+        // `finish_cancel_or_error` as Cancelled + a single Done, before any model turn streams.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(CancelOnNthCheckpoint { calls: AtomicUsize::new(0), fire_on: 1 });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        // iterations is the COMPLETED turn count (turn - 1 = 0 here: the cancel hit before turn 1).
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { iterations: 0, .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert_eq!(events, vec![AiChatStreamChunk::Done]);
+    }
+
+    #[tokio::test]
+    async fn cancel_before_a_tool_call_emits_done_not_error() {
+        // The before-each-tool checkpoint (the 3rd checkpoint call: turn-start, stream-open, then
+        // this one) must finalize as Cancelled + Done even after a turn already streamed + journaled.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(CancelOnNthCheckpoint { calls: AtomicUsize::new(0), fire_on: 3 });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        // Turn 1 streamed before the tool checkpoint fired, so the completed-turn count is 1.
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { iterations: 1, .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+        // No ToolResult was emitted: the cancel landed BEFORE the tool ran.
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::ToolResult { .. })));
+    }
+
+    #[tokio::test]
+    async fn cancel_observed_mid_stream_emits_done() {
+        // `cancelled()` is false at the pre-check and stream-open checkpoint, then becomes true, so
+        // the in-stream `cancelled()` arm of `stream_one_turn` fires and the run ends Cancelled.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(CancelAfterFirstCheckpoint { seen: AtomicBool::new(false) });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { iterations: 1, .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+    }
+
+    #[tokio::test]
+    async fn a_journal_failure_on_the_tool_result_fails_the_run() {
+        // Journal-before-observe on the tool-result step: a journal write failure there must
+        // terminate the run with an Error (never emit a ToolResult that was not durably journaled).
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal {
+            fail_on_kind: Some(STEP_KIND_TOOL_RESULT.to_string()),
+            ..RecordingJournal::default()
+        };
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: true },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { message, .. } if message.contains("forced journal failure"))
+        );
+        let events = emitted.lock().unwrap().clone();
+        // The failure terminated with an Error and NO ToolResult was emitted (journal-before-observe).
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Error { .. })));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::ToolResult { .. })));
+        // The assistant turn WAS journaled (it precedes the failing tool-result step).
+        let steps = journal.steps.lock().unwrap().clone();
+        assert_eq!(steps, vec![(1, STEP_KIND_ASSISTANT_TURN.to_string(), None)]);
+    }
+
+    #[tokio::test]
+    async fn degraded_path_stream_error_finalizes_failed() {
+        // The degraded (tool-incapable) path must surface a mid-stream provider error as a terminal
+        // Failed outcome + an Error chunk, exactly like the tool loop's error handling.
+        struct DegradedMidErrorProvider;
+        impl LlmProvider for DegradedMidErrorProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, _req: LlmChatRequest) -> Result<LlmChunkStream> {
+                let chunks = vec![
+                    Ok(LlmStreamChunk::Token("partial".to_string())),
+                    Err(anyhow::anyhow!("degraded boom")),
+                ];
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities::default()
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &DegradedMidErrorProvider,
+            &registry,
+            &context,
+            false, // degraded path
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { iterations: 1, message, .. } if message.contains("degraded boom"))
+        );
+        let events = emitted.lock().unwrap().clone();
+        assert!(
+            matches!(events.last(), Some(AiChatStreamChunk::Error { message }) if message.contains("degraded boom"))
+        );
+    }
+
+    #[tokio::test]
+    async fn degraded_path_cancel_in_stream_emits_done() {
+        // The degraded path opens its turn under `await_with_ai_cancellation`; a checkpoint cancel
+        // there must surface as Cancelled + a single Done (matching drive_chat_stream).
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(CancelOnFirstCheckpoint { fired: AtomicBool::new(false) });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: false },
+            &registry,
+            &context,
+            false,
+            user_request(),
+            Some(control),
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Cancelled { iterations: 1, .. }));
+        let events = emitted.lock().unwrap().clone();
+        // The degraded reasoning note streamed, then a Done (no Error).
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+    }
+}
