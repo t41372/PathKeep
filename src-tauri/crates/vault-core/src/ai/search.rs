@@ -889,6 +889,13 @@ fn hydrate_semantic_hits(
     }
     let candidate_ids: Vec<i64> = key_by_history.keys().copied().collect();
 
+    // Attach the derived `search` plane so the hydration JOIN can read each page's enrichment excerpt
+    // (REACH-C3). The intelligence connection attaches only `archive` by default; the lexical path gets
+    // `search` for free because `open_archive_connection` attaches it, so we mirror that ATTACH here for
+    // the AI-search connection. Idempotent for this code path: `hydrate_semantic_hits` runs once per
+    // freshly-opened connection, so `search` is never already attached.
+    attach_search_database(connection, paths)?;
+
     // Batch-load the candidate visit rows (skips reverted), then per content_key keep the most-recent
     // VISIBLE visit that passes the facet filter. Every returned row.id is in `key_by_history` (the
     // SQL only queried those ids), so the lookup is total.
@@ -937,16 +944,25 @@ fn load_visit_rows(connection: &Connection, history_ids: &[i64]) -> Result<Vec<H
     let mut rows = Vec::new();
     for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
+        // The LEFT JOIN onto `search.search_documents` (keyed on the indexed `url_id` PK, for the
+        // already-bounded candidate set — no N+1, no scan) hydrates each row's enrichment summary so the
+        // semantic/hybrid path can show the SAME honest excerpt the lexical reader does (REACH-C3).
+        // Non-enriched pages have an empty/absent `enrichment_text`, which `cap_enrichment_excerpt`
+        // collapses to `None`, so the FE affordance stays suppressed for the vast majority of rows.
+        // Requires `search` to be ATTACHed on this connection — `hydrate_semantic_hits` attaches it
+        // before calling here (the intelligence connection attaches only `archive` by default).
         let sql = format!(
             "SELECT visits.id,
                     source_profiles.profile_key,
                     urls.url,
                     urls.title,
                     visits.visit_time_ms,
-                    (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
+                    (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time,
+                    search_documents.enrichment_text
              FROM archive.visits AS visits
              JOIN archive.urls AS urls ON urls.id = visits.url_id
              JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
+             LEFT JOIN search.search_documents AS search_documents ON search_documents.url_id = urls.id
              WHERE visits.reverted_at IS NULL
                AND visits.id IN ({placeholders})"
         );
@@ -967,7 +983,12 @@ fn load_visit_rows(connection: &Connection, history_ids: &[i64]) -> Result<Vec<H
                 transition: None,
                 source_visit_id: row.get(0)?,
                 app_id: None,
-                enrichment_excerpt: None,
+                // ONE cap implementation, reused from the lexical reader (CJK-safe, ≤180 chars):
+                // empty/whitespace text yields `None`.
+                enrichment_excerpt: row
+                    .get::<_, Option<String>>(6)?
+                    .as_deref()
+                    .and_then(cap_enrichment_excerpt),
             })
         })?;
         for entry in mapped {
@@ -1102,6 +1123,11 @@ pub(super) fn history_entry_to_search_entry(
         visited_at: item.visited_at.clone(),
         score,
         match_reason: reason.to_string(),
+        // The honest snippet (REACH-C3): carry whatever capped excerpt the hydration attached. The
+        // lexical reader sets this for keyword hits; `load_visit_rows` sets it for semantic/hybrid hits;
+        // every other hydration leaves it `None`, so non-enriched pages get no snippet (the band +
+        // reason carry the "why").
+        enrichment_excerpt: item.enrichment_excerpt.clone(),
     }
 }
 

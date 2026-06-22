@@ -37,7 +37,10 @@ use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
-    archive::{list_history, open_archive_connection, open_intelligence_connection},
+    archive::{
+        attach_search_database, cap_enrichment_excerpt, list_history, open_archive_connection,
+        open_intelligence_connection,
+    },
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{

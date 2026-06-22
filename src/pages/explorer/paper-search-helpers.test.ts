@@ -23,6 +23,12 @@ function intelligenceT(key: string) {
   return key
 }
 
+// Localized source label the route resolves from
+// `paperSearchView.enrichmentSourceGeneric` and threads into both adapters.
+// Stamped on enriched rows so the excerpt is framed by SOURCE, not a
+// match-claim (REACH-C3 F1/F2).
+const SOURCE_LABEL = 'Page summary'
+
 function makeAiItem(
   over: Partial<AiSearchResultItem> = {},
 ): AiSearchResultItem {
@@ -113,6 +119,7 @@ describe('paperSearchEntryFromHistoryEntry', () => {
   test('formats local time as HH:mm with zero padding', () => {
     const entry = paperSearchEntryFromHistoryEntry(
       makeEntry({ visitedAt: '2026-05-17T07:05:00' }),
+      SOURCE_LABEL,
     )
     expect(entry.time).toBe('07:05')
   })
@@ -120,10 +127,12 @@ describe('paperSearchEntryFromHistoryEntry', () => {
   test('falls back to URL when title is missing or whitespace', () => {
     const fromBlankTitle = paperSearchEntryFromHistoryEntry(
       makeEntry({ title: '   ', url: 'https://example.com/x' }),
+      SOURCE_LABEL,
     )
     expect(fromBlankTitle.title).toBe('https://example.com/x')
     const fromNullTitle = paperSearchEntryFromHistoryEntry(
       makeEntry({ title: null, url: 'https://example.com/y' }),
+      SOURCE_LABEL,
     )
     expect(fromNullTitle.title).toBe('https://example.com/y')
   })
@@ -144,62 +153,85 @@ describe('paperSearchEntryFromHistoryEntry', () => {
     ]
     for (const [code, label] of cases) {
       expect(
-        paperSearchEntryFromHistoryEntry(makeEntry({ transition: code }))
-          .transitionType,
+        paperSearchEntryFromHistoryEntry(
+          makeEntry({ transition: code }),
+          SOURCE_LABEL,
+        ).transitionType,
       ).toBe(label)
     }
   })
 
   test('returns undefined transitionType for unknown codes', () => {
     expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ transition: 999 }))
-        .transitionType,
+      paperSearchEntryFromHistoryEntry(
+        makeEntry({ transition: 999 }),
+        SOURCE_LABEL,
+      ).transitionType,
     ).toBeUndefined()
   })
 
   test('returns undefined transitionType when the entry has no transition', () => {
     expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ transition: null }))
-        .transitionType,
+      paperSearchEntryFromHistoryEntry(
+        makeEntry({ transition: null }),
+        SOURCE_LABEL,
+      ).transitionType,
     ).toBeUndefined()
   })
 
   test('time is empty when visitedAt is not parseable', () => {
     expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ visitedAt: 'nonsense' }))
-        .time,
+      paperSearchEntryFromHistoryEntry(
+        makeEntry({ visitedAt: 'nonsense' }),
+        SOURCE_LABEL,
+      ).time,
     ).toBe('')
   })
 
-  test('threads a non-empty enrichment excerpt through to the result entry', () => {
+  test('threads a non-empty enrichment excerpt + the source pill (REACH-C3)', () => {
     const entry = paperSearchEntryFromHistoryEntry(
       makeEntry({ enrichmentExcerpt: 'Reusable workflow runner • CI' }),
+      SOURCE_LABEL,
     )
     expect(entry.enrichmentExcerpt).toBe('Reusable workflow runner • CI')
+    // The excerpt is the page's summary, so the row is framed by SOURCE — the
+    // honest "Page summary" pill, never a match-claim caption.
+    expect(entry.enrichmentSourceLabel).toBe(SOURCE_LABEL)
   })
 
-  test('drops a blank or whitespace-only enrichment excerpt to undefined', () => {
-    expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ enrichmentExcerpt: '   ' }))
-        .enrichmentExcerpt,
-    ).toBeUndefined()
-    expect(
-      paperSearchEntryFromHistoryEntry(makeEntry({ enrichmentExcerpt: null }))
-        .enrichmentExcerpt,
-    ).toBeUndefined()
+  test('drops a blank or whitespace-only enrichment excerpt to undefined (and no pill)', () => {
+    const fromBlank = paperSearchEntryFromHistoryEntry(
+      makeEntry({ enrichmentExcerpt: '   ' }),
+      SOURCE_LABEL,
+    )
+    expect(fromBlank.enrichmentExcerpt).toBeUndefined()
+    // No excerpt → no source pill (the affordance stays fully suppressed).
+    expect(fromBlank.enrichmentSourceLabel).toBeUndefined()
+    const fromNull = paperSearchEntryFromHistoryEntry(
+      makeEntry({ enrichmentExcerpt: null }),
+      SOURCE_LABEL,
+    )
+    expect(fromNull.enrichmentExcerpt).toBeUndefined()
+    expect(fromNull.enrichmentSourceLabel).toBeUndefined()
   })
 
-  test('leaves the excerpt undefined for preview-fixture rows that omit it', () => {
+  test('leaves the excerpt + pill undefined for preview-fixture rows that omit it', () => {
     // The preview/browser fixtures build HistoryEntry without the field; the
     // mapping must not crash and must yield undefined (suppressing the affordance).
-    const entry = paperSearchEntryFromHistoryEntry(makeEntry())
+    const entry = paperSearchEntryFromHistoryEntry(makeEntry(), SOURCE_LABEL)
     expect(entry.enrichmentExcerpt).toBeUndefined()
+    expect(entry.enrichmentSourceLabel).toBeUndefined()
   })
 })
 
 describe('buildPaperSearchDayGroups', () => {
   test('returns empty array for empty input', () => {
-    expect(buildPaperSearchDayGroups([], { language: 'en' })).toEqual([])
+    expect(
+      buildPaperSearchDayGroups([], {
+        language: 'en',
+        enrichmentSourceLabel: SOURCE_LABEL,
+      }),
+    ).toEqual([])
   })
 
   test('groups by local day, sorts days newest-first, sorts entries within a day newest-first', () => {
@@ -209,7 +241,10 @@ describe('buildPaperSearchDayGroups', () => {
       makeEntry({ id: 3, visitedAt: '2026-05-17T10:30:00' }),
       makeEntry({ id: 4, visitedAt: '2026-05-16T22:00:00' }),
     ]
-    const groups = buildPaperSearchDayGroups(entries, { language: 'en' })
+    const groups = buildPaperSearchDayGroups(entries, {
+      language: 'en',
+      enrichmentSourceLabel: SOURCE_LABEL,
+    })
     expect(groups.map((g) => g.date)).toEqual([
       '2026-05-17',
       '2026-05-16',
@@ -219,10 +254,30 @@ describe('buildPaperSearchDayGroups', () => {
     expect(groups[0].label).toContain('17')
   })
 
+  test('threads the source label through to enriched grouped rows (REACH-C3)', () => {
+    const groups = buildPaperSearchDayGroups(
+      [
+        makeEntry({
+          id: 1,
+          visitedAt: '2026-05-17T10:30:00',
+          enrichmentExcerpt: 'Reusable workflow runner • CI',
+        }),
+        makeEntry({ id: 2, visitedAt: '2026-05-17T09:00:00' }),
+      ],
+      { language: 'en', enrichmentSourceLabel: SOURCE_LABEL },
+    )
+    const [enriched, plain] = groups[0].entries
+    // The enriched row carries the excerpt + source pill; the plain row neither.
+    expect(enriched.enrichmentExcerpt).toBe('Reusable workflow runner • CI')
+    expect(enriched.enrichmentSourceLabel).toBe(SOURCE_LABEL)
+    expect(plain.enrichmentExcerpt).toBeUndefined()
+    expect(plain.enrichmentSourceLabel).toBeUndefined()
+  })
+
   test('a single-entry day still gets a label', () => {
     const groups = buildPaperSearchDayGroups(
       [makeEntry({ id: 9, visitedAt: '2026-05-17T10:30:00' })],
-      { language: 'en' },
+      { language: 'en', enrichmentSourceLabel: SOURCE_LABEL },
     )
     expect(groups).toHaveLength(1)
     expect(groups[0].entries).toHaveLength(1)
@@ -238,7 +293,7 @@ describe('buildPaperSearchDayGroups', () => {
         makeEntry({ id: 1, visitedAt: 'bogus-date' }),
         makeEntry({ id: 2, visitedAt: 'bogus-date' }),
       ],
-      { language: 'en' },
+      { language: 'en', enrichmentSourceLabel: SOURCE_LABEL },
     )
     expect(groups).toHaveLength(1)
     expect(groups[0].entries).toHaveLength(2)
@@ -250,6 +305,7 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({ historyId: 1234 }),
       intelligenceT,
+      SOURCE_LABEL,
     )
     expect(entry.id).toBe(1234)
   })
@@ -258,11 +314,46 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({ matchReason: 'Semantic match (Starred)' }),
       intelligenceT,
+      SOURCE_LABEL,
     )
     expect(entry.matchReason).toBe('Semantic match (Starred)')
     // The AI item carries no snippet field, so the adapter must never invent one.
     expect(entry.snippet).toBeUndefined()
     expect(entry.enrichmentExcerpt).toBeUndefined()
+  })
+
+  test('a pure-semantic enriched hit is framed by SOURCE, not a match-claim (REACH-C3 F1)', () => {
+    // The honesty fix: on a "Semantic match" the excerpt is the page's summary
+    // (it may contain none of the query words), so the row labels it by SOURCE —
+    // the honest "Page summary" pill — never "Matched in enriched content".
+    const entry = paperSearchEntryFromAiSearchItem(
+      makeAiItem({
+        matchReason: 'Semantic match',
+        enrichmentExcerpt: 'Reusable workflow runner • CI',
+      }),
+      intelligenceT,
+      SOURCE_LABEL,
+    )
+    expect(entry.matchReason).toBe('Semantic match')
+    expect(entry.enrichmentExcerpt).toBe('Reusable workflow runner • CI')
+    expect(entry.enrichmentSourceLabel).toBe(SOURCE_LABEL)
+  })
+
+  test('suppresses a blank or null enrichment excerpt + pill (honest non-enriched row)', () => {
+    const fromBlank = paperSearchEntryFromAiSearchItem(
+      makeAiItem({ enrichmentExcerpt: '   ' }),
+      intelligenceT,
+      SOURCE_LABEL,
+    )
+    expect(fromBlank.enrichmentExcerpt).toBeUndefined()
+    expect(fromBlank.enrichmentSourceLabel).toBeUndefined()
+    const fromNull = paperSearchEntryFromAiSearchItem(
+      makeAiItem({ enrichmentExcerpt: null }),
+      intelligenceT,
+      SOURCE_LABEL,
+    )
+    expect(fromNull.enrichmentExcerpt).toBeUndefined()
+    expect(fromNull.enrichmentSourceLabel).toBeUndefined()
   })
 
   test('derives the relevance band from score via scoreBand thresholds (8b ladder tones)', () => {
@@ -272,18 +363,21 @@ describe('paperSearchEntryFromAiSearchItem', () => {
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.9 }),
         intelligenceT,
+        SOURCE_LABEL,
       ).relevanceBand,
     ).toEqual({ label: 'highConfidence', tone: 'success' })
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.7 }),
         intelligenceT,
+        SOURCE_LABEL,
       ).relevanceBand,
     ).toEqual({ label: 'relevant', tone: 'info' })
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.2 }),
         intelligenceT,
+        SOURCE_LABEL,
       ).relevanceBand,
     ).toEqual({ label: 'weakMatch', tone: 'blocked' })
   })
@@ -292,6 +386,7 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     const entry = paperSearchEntryFromAiSearchItem(
       makeAiItem({ visitedAt: '2026-05-17T10:30:00' }),
       intelligenceT,
+      SOURCE_LABEL,
     )
     expect(entry.dayKey).toBe('2026-05-17')
   })
@@ -301,12 +396,14 @@ describe('paperSearchEntryFromAiSearchItem', () => {
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ title: null, url: 'https://example.com/y' }),
         intelligenceT,
+        SOURCE_LABEL,
       ).title,
     ).toBe('https://example.com/y')
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ title: '   ', url: 'https://example.com/z' }),
         intelligenceT,
+        SOURCE_LABEL,
       ).title,
     ).toBe('https://example.com/z')
   })
@@ -321,6 +418,7 @@ describe('buildPaperSearchRelevanceList', () => {
         makeAiItem({ historyId: 2, visitedAt: '2026-05-12T08:00:00' }),
       ],
       intelligenceT,
+      SOURCE_LABEL,
     )
     // Ranking order is kept exactly as the backend returned it (3, 1, 2) — NOT
     // re-sorted newest-first the way the day-grouped keyword path would.
@@ -328,7 +426,9 @@ describe('buildPaperSearchRelevanceList', () => {
   })
 
   test('returns an empty list for no items', () => {
-    expect(buildPaperSearchRelevanceList([], intelligenceT)).toEqual([])
+    expect(
+      buildPaperSearchRelevanceList([], intelligenceT, SOURCE_LABEL),
+    ).toEqual([])
   })
 })
 

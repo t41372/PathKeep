@@ -3,18 +3,25 @@
  *
  * Visually distinct from PaperContactFrame: results have a domain swatch on
  * the left, a Newsreader title with `<mark>` highlights of the query, the
- * mono URL beneath, an optional italic-serif snippet (for semantic mode),
- * and a meta column on the right with time + transition type. A small
+ * mono URL beneath, an optional italic-serif snippet (for semantic mode), an
+ * optional enrichment excerpt tagged with a "Page summary" source pill, and a
+ * meta column on the right with time + transition type. A small
  * "See in context →" pill appears on hover that routes back into the
  * Browse contact sheet centred on the entry's day.
  *
  * ## Responsibilities
- * - Render the icon / title / url / snippet / meta blocks per the design.
- * - Highlight matching tokens of `query` inside the title and snippet.
+ * - Render the icon / title / url / snippet / enrichment / meta blocks per the
+ *   design.
+ * - Highlight matching tokens of `query` inside the title, snippet, and
+ *   enrichment excerpt (only real overlaps highlight — honest on every path).
+ * - Label the enrichment excerpt by its SOURCE (the page's summary), never with
+ *   a match-claim caption, so the framing stays honest on a pure-semantic hit
+ *   whose summary contains none of the query words.
  * - Surface the "see in context" jump as a separate handler.
  *
  * ## Not responsible for
- * - Resolving the snippet (semantic mode only; caller passes it ready).
+ * - Resolving the snippet / enrichment excerpt (caller passes them ready).
+ * - Deciding the enrichment source label (the adapters stamp it).
  * - Domain colour or abbreviation (caller passes them — same as
  *   PaperContactFrame).
  */
@@ -59,14 +66,21 @@ export interface PaperSearchResultEntry {
    */
   dayKey?: string
   /**
-   * Optional enrichment excerpt shown when a result matched on fetched site
-   * content (W-ENRICH-1, 06 §6) — e.g. a GitHub repo description or a page
-   * summary the query hit. Rendered consistently with `snippet`, tagged with a
-   * source affordance so the user knows the match came from enriched content,
-   * not the title/URL.
+   * Optional enrichment excerpt: a capped piece of the page's stored enrichment
+   * summary (W-ENRICH-1, 06 §6). Surfaced on BOTH lexical and semantic/hybrid
+   * rows when the page has enrichment text. It is the page's summary — NOT the
+   * matched span — so it is labelled by SOURCE (`enrichmentSourceLabel`), never
+   * with a match-claim caption: on a pure-semantic hit the summary may contain
+   * none of the query words, so "matched in …" would be dishonest. Query tokens
+   * that do appear get `<mark>` highlights (honest on both paths).
    */
   enrichmentExcerpt?: string
-  /** Source label for the enrichment excerpt (e.g. "GitHub" / "Page summary"). */
+  /**
+   * Source label for the enrichment excerpt ("Page summary"). Rendered as a pill
+   * above the excerpt so the user knows the snippet is the page's enrichment
+   * summary rather than the title/URL or a matched span. Set by the adapters for
+   * every enriched row; when absent the pill is suppressed.
+   */
   enrichmentSourceLabel?: string
 }
 
@@ -79,12 +93,6 @@ export interface PaperSearchResultProps {
   onSelect?: (entry: PaperSearchResultEntry) => void
   onSeeInContext?: (entry: PaperSearchResultEntry) => void
   seeInContextLabel?: string
-  /**
-   * Label prefixing an enrichment excerpt ("Matched in enriched content"). When
-   * omitted the excerpt still renders without the prefix; when the entry has no
-   * `enrichmentExcerpt` the whole affordance is suppressed.
-   */
-  enrichmentMatchLabel?: string
   /**
    * Per-row "Ask assistant" affordance for Smart (relevance-ranked) rows. When
    * supplied AND the entry carries a `matchReason` (i.e. it is a Smart result),
@@ -112,7 +120,6 @@ export function PaperSearchResult({
   onSelect,
   onSeeInContext,
   seeInContextLabel,
-  enrichmentMatchLabel,
   onAskAssistant,
   askAssistantLabel,
   star,
@@ -186,16 +193,18 @@ export function PaperSearchResult({
             }
             className="mt-1"
           >
-            <div className="text-ink-faint flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em]">
-              {entry.enrichmentSourceLabel ? (
+            {/* Label the excerpt by its SOURCE (the page's enrichment summary),
+                never with a match-claim — the summary is the same page text on
+                lexical AND semantic rows, so a "matched in …" caption would lie
+                on a pure-semantic hit. The pill carries the honest framing; the
+                row's `matchReason` separately explains WHY it matched. */}
+            {entry.enrichmentSourceLabel ? (
+              <div className="text-ink-faint flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em]">
                 <span className="border-border-light text-ink-secondary rounded-pill inline-flex items-center border px-[6px] py-[1px] tracking-[0.04em]">
                   {entry.enrichmentSourceLabel}
                 </span>
-              ) : null}
-              {enrichmentMatchLabel ? (
-                <span>{enrichmentMatchLabel}</span>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="text-ink-muted mt-1 line-clamp-2 font-serif text-[12.5px] italic leading-[1.4]">
               “…{highlightQuery(entry.enrichmentExcerpt, query)}…”
             </div>

@@ -50,6 +50,7 @@ pub(crate) use self::artifacts::{
     serialize_payload,
 };
 pub use self::backup::{run_backup, run_backup_with_progress};
+pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;
 #[cfg(test)]
 pub(crate) use self::intelligence_projection::{
@@ -68,7 +69,7 @@ pub(crate) use self::schema::export_archive_database;
 pub use self::schema::{create_schema, open_archive_connection};
 pub use self::schema::{current_version, max_schema_version, run_migrations};
 pub(crate) use self::search_projection::{
-    rebuild_search_projection, refresh_enrichment_text_for_history,
+    attach_search_database, rebuild_search_projection, refresh_enrichment_text_for_history,
     refresh_search_projection_for_import_batch,
 };
 pub use self::source_evidence::open_source_evidence_connection;

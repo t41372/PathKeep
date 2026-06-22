@@ -314,6 +314,35 @@ describe('PaperSearchView', () => {
       expect(bands[0]).toHaveAttribute('data-tone', 'success')
     })
 
+    test('REACH-C3: a Smart row frames its enrichment excerpt by source (no match-claim), and suppresses it when absent', () => {
+      renderView({
+        mode: 'smart',
+        resultLayout: 'relevance',
+        rankedEntries: [
+          {
+            ...RANKED[0],
+            // The adapter stamps both fields together on an enriched row.
+            enrichmentExcerpt: 'Reusable workflow runner for CI pipelines',
+            enrichmentSourceLabel: 'Page summary',
+          },
+          RANKED[1], // no excerpt → the affordance must stay suppressed on this row
+        ],
+        groups: [],
+        totalResults: 0,
+      })
+      // The enriched row surfaces its excerpt framed by the honest source pill —
+      // NEVER a "matched in" caption that would lie on a pure-semantic hit.
+      expect(screen.getByText('Page summary')).toBeVisible()
+      expect(screen.queryByText('Matched in enriched content')).toBeNull()
+      expect(
+        screen.getByText(/Reusable workflow runner for CI pipelines/),
+      ).toBeVisible()
+      // Exactly ONE enrichment block renders — the non-enriched ranked row stays suppressed.
+      expect(
+        screen.getAllByTestId('paper-search-result-enrichment'),
+      ).toHaveLength(1)
+    })
+
     test('preserves the backend ranking order (no day re-sort)', () => {
       renderView({
         mode: 'smart',

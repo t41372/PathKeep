@@ -541,6 +541,7 @@ mod tests {
                 visited_at: "2026-06-21T00:00:00Z".to_string(),
                 score: 0.42,
                 match_reason: "Lexical match".to_string(),
+                enrichment_excerpt: None,
             }],
             notes: vec!["lexical only".to_string()],
             next_cursor: None,

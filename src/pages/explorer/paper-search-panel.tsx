@@ -235,7 +235,14 @@ export function PaperSearchPanel({
       mode={paperMode}
       activeFilters={activeFilters}
       groups={
-        isRelevance ? [] : buildPaperSearchDayGroups(entries, { language })
+        isRelevance
+          ? []
+          : buildPaperSearchDayGroups(entries, {
+              language,
+              enrichmentSourceLabel: explorerT(
+                'paperSearchView.enrichmentSourceGeneric',
+              ),
+            })
       }
       totalResults={totalResults}
       resultLayout={isRelevance ? 'relevance' : 'day-grouped'}

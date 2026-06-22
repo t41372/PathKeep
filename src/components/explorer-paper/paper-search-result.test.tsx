@@ -303,23 +303,27 @@ describe('PaperSearchResult', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
-  test('renders the enrichment excerpt with its source + match labels', () => {
+  test('frames the enrichment excerpt by its source pill, with no match-claim caption (REACH-C3)', () => {
     render(
       <PaperSearchResult
         entry={makeEntry({
+          // A pure-semantic hit: the excerpt is the page summary, which need not
+          // contain the query, so the row must NOT claim "matched in" — only the
+          // honest source pill frames it.
+          matchReason: 'Semantic match',
           enrichmentExcerpt: 'An ergonomic async runtime for Rust',
-          enrichmentSourceLabel: 'GitHub',
+          enrichmentSourceLabel: 'Page summary',
         })}
         domainColor="#24292e"
         domainAbbr="GIT"
-        enrichmentMatchLabel="Matched in enriched content"
         testId="result-enrichment"
       />,
     )
 
     const block = screen.getByTestId('result-enrichment-enrichment')
-    expect(within(block).getByText('GitHub')).toBeVisible()
-    expect(within(block).getByText('Matched in enriched content')).toBeVisible()
+    expect(within(block).getByText('Page summary')).toBeVisible()
+    // No match-claim caption is rendered anywhere on the row.
+    expect(screen.queryByText('Matched in enriched content')).toBeNull()
     expect(
       within(block).getByText((content) =>
         content.includes('An ergonomic async runtime for Rust'),
@@ -351,7 +355,6 @@ describe('PaperSearchResult', () => {
         entry={makeEntry()}
         domainColor="#24292e"
         domainAbbr="GIT"
-        enrichmentMatchLabel="Matched in enriched content"
         testId="result-no-enrichment"
       />,
     )
@@ -359,7 +362,7 @@ describe('PaperSearchResult', () => {
     expect(screen.queryByTestId('result-no-enrichment-enrichment')).toBeNull()
   })
 
-  test('renders the enrichment excerpt with the default testId and no labels', () => {
+  test('renders the enrichment excerpt with the default testId and suppresses the pill when no source label is set', () => {
     render(
       <PaperSearchResult
         entry={makeEntry({
@@ -371,14 +374,14 @@ describe('PaperSearchResult', () => {
     )
 
     // No `testId` prop → the component falls back to its default enrichment id,
-    // and with neither a source label nor a match label only the excerpt shows.
+    // and with no source label only the excerpt shows (the pill is suppressed).
     const block = screen.getByTestId('paper-search-result-enrichment')
     expect(
       within(block).getByText((content) =>
         content.includes('An ergonomic async runtime for Rust'),
       ),
     ).toBeVisible()
-    expect(within(block).queryByText('GitHub')).toBeNull()
+    expect(within(block).queryByText('Page summary')).toBeNull()
   })
 
   test('renders the Smart match-reason caption when supplied', () => {

@@ -327,6 +327,26 @@ fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
     (paths, config, connection)
 }
 
+/// Seeds one `search.search_documents` row carrying `enrichment_text` for a URL (REACH-C3 tests).
+///
+/// `seed_visit` sets `urls.id == history_id`, and `search_documents` is keyed on that same `url_id`, so
+/// `url_id == history_id` here. Writes directly to the derived SEARCH plane (the same DB the lexical
+/// path projects into), so the semantic hydration JOIN finds an excerpt to cap. The other lexical
+/// columns are stubbed `''` because this path only reads `enrichment_text`.
+fn seed_enrichment_text(paths: &ProjectPaths, url_id: i64, url: &str, enrichment_text: &str) {
+    let search = Connection::open(&paths.search_database_path).expect("open search projection");
+    search
+        .execute(
+            "INSERT INTO search_documents
+               (url_id, url, title, search_terms, normalized_url, normalized_title,
+                normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at)
+             VALUES (?1, ?2, '', '', '', '', '', '', '', ?3, ?4)
+             ON CONFLICT(url_id) DO UPDATE SET enrichment_text = excluded.enrichment_text",
+            params![url_id, url, enrichment_text, now_rfc3339()],
+        )
+        .expect("seed enrichment_text");
+}
+
 fn seed_failed_index_ledger(
     connection: &Connection,
     provider: &AiProviderRuntime,
@@ -1088,6 +1108,7 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
                 visited_at: "2026-04-04T00:00:00Z".to_string(),
                 score: 0.91,
                 match_reason: "Semantic match".to_string(),
+                enrichment_excerpt: None,
             }],
             notes: Vec::new(),
             next_cursor: None,
@@ -2772,6 +2793,152 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
     let docs_hits: Vec<_> = report.hits.iter().filter(|hit| hit.url.contains("/docs")).collect();
     assert_eq!(docs_hits.len(), 1, "the page collapses to ONE representative hit");
     assert_eq!(docs_hits[0].history_id, 2, "the most-recent visit (time 9) represents the page");
+}
+
+#[test]
+fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
+    // REACH-C3: an enriched page's semantic hit carries the SAME honest excerpt the lexical reader does,
+    // capped on a CHAR boundary. Over-budget enrichment text proves the shared cap is applied (not the
+    // raw summary), so the search payload stays bounded at the 14.4M tail.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    // Enrichment text well over the 180-char budget → must come back capped + ellipsised.
+    let long_summary = "Reusable workflow runner. ".repeat(20);
+    seed_enrichment_text(&paths, 1, "https://example.com/docs", &long_summary);
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, docs_vector)]);
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+            None,
+        ))
+        .expect("semantic matches with an enriched hit");
+    assert_eq!(report.hits.len(), 1, "the enriched page returns one hit");
+    let excerpt = report.hits[0]
+        .enrichment_excerpt
+        .as_deref()
+        .expect("an enriched semantic hit must carry an excerpt");
+    assert!(excerpt.starts_with("Reusable workflow runner"), "the excerpt is the enrichment text");
+    assert!(excerpt.ends_with('…'), "over-budget text is capped with a trailing ellipsis");
+    // The shared cap takes ≤180 CONTENT chars, then appends one ellipsis glyph (so a truncated excerpt
+    // is at most 181 chars — the cap is on the content, not the rendered string).
+    assert!(excerpt.chars().count() <= 181, "the excerpt honors the shared char cap");
+    assert!(
+        excerpt.chars().filter(|character| *character != '…').count() <= 180,
+        "at most 180 content chars survive the cap"
+    );
+}
+
+#[test]
+fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
+    // The honest non-enriched outcome: a page with NO enrichment text gets NO snippet (the band + reason
+    // carry the "why"). The LEFT JOIN still returns the row — it is not dropped for lacking an excerpt.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    // No `seed_enrichment_text` → there is no `search_documents` row for this URL at all, so the LEFT
+    // JOIN yields a NULL `enrichment_text`. The row must still come back, just without an excerpt.
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    seed_vector_planes(&paths, &embedding, &[(1, 0x1111, docs_vector)]);
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+            None,
+        ))
+        .expect("semantic matches with a non-enriched hit");
+    assert_eq!(report.hits.len(), 1, "a non-enriched page is still returned (LEFT JOIN)");
+    assert_eq!(
+        report.hits[0].enrichment_excerpt, None,
+        "a non-enriched page gets NO snippet — never a fabricated one"
+    );
+}
+
+#[test]
+fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_page() {
+    // The hydration JOIN must not drop or DUPLICATE results: ONE enriched URL with TWO visits (one
+    // `search_documents` row) still collapses to ONE hit carrying the excerpt — the LEFT JOIN does not
+    // fan a result out per visit, and the dedup keeps the most-recent visit.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    let earlier = 13_300_000_000_000_000_i64;
+    let later = 13_400_000_000_000_000_i64;
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), earlier);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/docs", Some("Docs"), later);
+    // `seed_visit` keys `urls.id` off `history_id`, so the two visits are url_ids 1 and 2; both share
+    // ONE content_key (one page) for the dedup. Seed the excerpt on both url_ids so whichever visit wins
+    // the dedup carries it (the surviving visit's url_id drives the JOIN).
+    seed_enrichment_text(&paths, 1, "https://example.com/docs", "Shared page summary");
+    seed_enrichment_text(&paths, 2, "https://example.com/docs", "Shared page summary");
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    // Both visits map to the SAME content_key (one page) so the index returns one vector, two visits.
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x1111, docs_vector)],
+    );
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+            None,
+        ))
+        .expect("semantic matches over a multi-visit enriched page");
+    let docs_hits: Vec<_> = report.hits.iter().filter(|hit| hit.url.contains("/docs")).collect();
+    assert_eq!(docs_hits.len(), 1, "the JOIN must not duplicate a multi-visit page into many hits");
+    assert_eq!(docs_hits[0].history_id, 2, "the most-recent visit still represents the page");
+    assert_eq!(
+        docs_hits[0].enrichment_excerpt.as_deref(),
+        Some("Shared page summary"),
+        "the surviving hit carries the page's excerpt"
+    );
 }
 
 #[test]

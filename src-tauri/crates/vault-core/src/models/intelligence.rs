@@ -1085,6 +1085,17 @@ pub struct AiSearchEntry {
     pub visited_at: String,
     pub score: f32,
     pub match_reason: String,
+    /// Capped excerpt of the matched page's enrichment summary (W-ENRICH-1, 06 §6; REACH-C3).
+    ///
+    /// The ONLY honest snippet source on the semantic/hybrid path: an enriched page's stored summary
+    /// (≤180 chars, CJK-safe — see `cap_enrichment_excerpt`), not a fabricated match-text chunk. Present
+    /// only when the matched page has enrichment text; `None` for the (vast) majority of pages, where
+    /// `match_reason` + the relevance band carry the "why" and the FE suppresses the affordance. Mirrors
+    /// the lexical-search reader, which already attaches this same excerpt. `#[serde(default,
+    /// skip_serializing_if = "Option::is_none")]` keeps it additive: every pre-REACH-C3 payload still
+    /// serializes/deserializes byte-for-byte unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrichment_excerpt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

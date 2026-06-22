@@ -489,6 +489,15 @@ export interface AiSearchResultItem {
   visitedAt: string
   score: number
   matchReason: string
+  /**
+   * Capped excerpt of the matched page's enrichment summary (W-ENRICH-1, 06 §6; REACH-C3). The only
+   * honest snippet on the Smart/semantic path: an enriched page's stored summary (≤180 chars,
+   * CJK-safe), never a fabricated match-text chunk. Present only when the matched page has enrichment
+   * text; absent/undefined for the (vast) majority of pages, where `matchReason` + the relevance band
+   * carry the "why" and the row suppresses the affordance. Mirrors the Rust `enrichment_excerpt`
+   * (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
+   */
+  enrichmentExcerpt?: string | null
 }
 
 /**

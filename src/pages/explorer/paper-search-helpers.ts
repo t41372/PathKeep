@@ -117,7 +117,14 @@ function transitionTypeLabel(transition: number | null | undefined): string {
 
 export function paperSearchEntryFromHistoryEntry(
   entry: HistoryEntry,
+  enrichmentSourceLabel: string,
 ): PaperSearchResultEntry {
+  // Surface the enrichment excerpt when the lexical-search backend attached one
+  // (W-ENRICH-1, 06 §6). Browse/regex/fuzzy/preview rows leave it null/undefined,
+  // which the result row treats as "no excerpt" and suppresses the affordance.
+  const enrichmentExcerpt = entry.enrichmentExcerpt?.trim()
+    ? entry.enrichmentExcerpt
+    : undefined
   return {
     id: entry.id,
     title: entry.title?.trim() ? entry.title : entry.url,
@@ -125,11 +132,15 @@ export function paperSearchEntryFromHistoryEntry(
     domain: entry.domain,
     time: formatLocalTime(entry.visitedAt),
     transitionType: transitionTypeLabel(entry.transition ?? null) || undefined,
-    // Surface the enrichment excerpt when the lexical-search backend attached one
-    // (W-ENRICH-1, 06 §6). Browse/regex/fuzzy/preview rows leave it null/undefined,
-    // which the result row treats as "no excerpt" and suppresses the affordance.
-    enrichmentExcerpt: entry.enrichmentExcerpt?.trim()
-      ? entry.enrichmentExcerpt
+    enrichmentExcerpt,
+    // The excerpt is the page's enrichment SUMMARY, not the matched span, so label
+    // it by source ("Page summary") — honest whether the row matched lexically or
+    // semantically. Stamped only alongside an excerpt so the pill stays suppressed
+    // on non-enriched rows. (The github/generic split is not available at the
+    // result level — the search projection carries only `enrichment_text`, not the
+    // extractor kind — so a single honest generic label is used; see REACH-C3 F1/F2.)
+    enrichmentSourceLabel: enrichmentExcerpt
+      ? enrichmentSourceLabel
       : undefined,
   }
 }
@@ -137,6 +148,12 @@ export function paperSearchEntryFromHistoryEntry(
 export interface BuildPaperSearchDayGroupsOptions {
   /** BCP-47 language code for the day header label, e.g. "en" / "zh-CN". */
   language: string
+  /**
+   * Localized source label ("Page summary") stamped on enriched rows so the
+   * excerpt is framed by SOURCE, not by a match-claim. Passed straight through to
+   * `paperSearchEntryFromHistoryEntry`; only attached when a row has an excerpt.
+   */
+  enrichmentSourceLabel: string
 }
 
 /**
@@ -175,7 +192,12 @@ export function buildPaperSearchDayGroups(
       return {
         date,
         label: prettyDay(date, { language: options.language }),
-        entries: sorted.map(paperSearchEntryFromHistoryEntry),
+        entries: sorted.map((entry) =>
+          paperSearchEntryFromHistoryEntry(
+            entry,
+            options.enrichmentSourceLabel,
+          ),
+        ),
       }
     })
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -205,8 +227,16 @@ type IntelligenceTranslator = (
 export function paperSearchEntryFromAiSearchItem(
   item: AiSearchResultItem,
   intelligenceT: IntelligenceTranslator,
+  enrichmentSourceLabel: string,
 ): PaperSearchResultEntry {
   const band = scoreBand(item.score, intelligenceT)
+  // REACH-C3: surface the honest enrichment excerpt when the Smart-search backend attached one (only
+  // enriched pages have it). Non-enriched Smart rows leave it undefined, which the row treats as "no
+  // excerpt" and suppresses — `matchReason` + the relevance band carry the "why" there. Mirrors the
+  // keyword adapter's treatment exactly.
+  const enrichmentExcerpt = item.enrichmentExcerpt?.trim()
+    ? item.enrichmentExcerpt
+    : undefined
   // `localDayKey` always returns a non-empty key (a real YYYY-MM-DD, the raw
   // 10-char prefix for an unparseable timestamp, or the literal 'unknown' for a
   // blank one), so the stamped `dayKey` is always present. "See in context"
@@ -220,6 +250,16 @@ export function paperSearchEntryFromAiSearchItem(
     matchReason: item.matchReason,
     relevanceBand: { label: band.label, tone: band.tone },
     dayKey: localDayKey(item.visitedAt),
+    enrichmentExcerpt,
+    // The excerpt is the page's enrichment SUMMARY, not the matched span — on a
+    // pure-semantic hit it may contain none of the query words — so label it by
+    // source ("Page summary"), honest on both the lexical and semantic paths.
+    // Stamped only alongside an excerpt so the pill stays suppressed otherwise.
+    // (The github/generic split is not available at the result level, so a single
+    // honest generic label is used; see REACH-C3 F1/F2.)
+    enrichmentSourceLabel: enrichmentExcerpt
+      ? enrichmentSourceLabel
+      : undefined,
   }
 }
 
@@ -232,9 +272,14 @@ export function paperSearchEntryFromAiSearchItem(
 export function buildPaperSearchRelevanceList(
   items: readonly AiSearchResultItem[],
   intelligenceT: IntelligenceTranslator,
+  enrichmentSourceLabel: string,
 ): PaperSearchResultEntry[] {
   return items.map((item) =>
-    paperSearchEntryFromAiSearchItem(item, intelligenceT),
+    paperSearchEntryFromAiSearchItem(
+      item,
+      intelligenceT,
+      enrichmentSourceLabel,
+    ),
   )
 }
 

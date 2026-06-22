@@ -797,9 +797,13 @@ export function ExplorerPage() {
   const rankedSearchEntries = useMemo(
     () =>
       semanticResults
-        ? buildPaperSearchRelevanceList(semanticResults.items, intelligenceT)
+        ? buildPaperSearchRelevanceList(
+            semanticResults.items,
+            intelligenceT,
+            explorerT('paperSearchView.enrichmentSourceGeneric'),
+          )
         : [],
-    [semanticResults, intelligenceT],
+    [semanticResults, intelligenceT, explorerT],
   )
   const optionalAiReason = optionalAiAvailability.reason
   // The release flag is a hard-coded `true` const in this build, so

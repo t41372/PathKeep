@@ -989,7 +989,7 @@ const ENRICHMENT_EXCERPT_MAX_CHARS: usize = 180;
 /// by byte index, so a multi-byte CJK or emoji codepoint can never be split — and gets a trailing
 /// ellipsis. Mirrors the char-count cap pattern used by `enrichment::truncate_text` /
 /// `agent_store` auto-titles rather than inventing a new truncation idiom.
-fn cap_enrichment_excerpt(enrichment_text: &str) -> Option<String> {
+pub(crate) fn cap_enrichment_excerpt(enrichment_text: &str) -> Option<String> {
     let trimmed = enrichment_text.trim();
     if trimmed.is_empty() {
         return None;

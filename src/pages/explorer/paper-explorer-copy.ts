@@ -318,7 +318,6 @@ export function buildPaperSearchViewCopy(
     noMatchesBody: t('paperSearchView.noMatchesBody'),
     seeInContextLabel: t('paperSearchView.seeInContextLabel'),
     dayCountTemplate: t('paperSearchView.dayCountTemplate'),
-    enrichmentMatchLabel: t('paperSearchView.enrichmentMatchLabel'),
     relevance: {
       rankedCount: t('paperSearchView.relevanceRankedCount'),
       askAssistantLabel: t('paperSearchView.relevanceAskAssistant'),
