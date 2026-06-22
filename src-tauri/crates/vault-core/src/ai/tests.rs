@@ -444,11 +444,49 @@ fn preview_ai_integrations_returns_mcp_and_skill_artifacts() {
         vec!["MCP and skill integration are both disabled in Settings right now.".to_string()]
     );
 
+    // Skill OFF capability note is honest about the disabled state.
+    assert!(
+        preview
+            .capability_notes
+            .iter()
+            .any(|note| note.contains("Usage guide is disabled in saved Settings")),
+        "disabled skill capability note must read honestly"
+    );
+
     let mut partially_enabled = AppConfig::default();
     partially_enabled.ai.mcp_enabled = true;
     let enabled_preview =
         preview_ai_integrations(&paths, &partially_enabled).expect("enabled preview");
     assert!(enabled_preview.warnings.is_empty());
+
+    // Skill ON but the MCP server OFF: the capability note must disclose that the
+    // guide is enabled yet unreachable, so the user is never misled.
+    let mut skill_only = AppConfig::default();
+    skill_only.ai.skill_enabled = true;
+    let skill_only_preview =
+        preview_ai_integrations(&paths, &skill_only).expect("skill-only preview");
+    assert!(
+        skill_only_preview
+            .capability_notes
+            .iter()
+            .any(|note| note.contains("enabled but unreachable")),
+        "an enabled-but-unreachable guide must say so"
+    );
+    // The warning clears once either outward toggle is on (skill counts).
+    assert!(skill_only_preview.warnings.is_empty());
+
+    // Skill ON and the MCP server ON: the guide is reachable and read-only.
+    let mut both_on = AppConfig::default();
+    both_on.ai.mcp_enabled = true;
+    both_on.ai.skill_enabled = true;
+    let both_preview = preview_ai_integrations(&paths, &both_on).expect("both-on preview");
+    assert!(
+        both_preview
+            .capability_notes
+            .iter()
+            .any(|note| note.contains("read-only guide teaching connected tools")),
+        "a reachable guide note must describe the read-only guide"
+    );
 }
 
 #[test]

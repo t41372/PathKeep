@@ -250,6 +250,19 @@ export function useSettingsAiState({
     }))
   }
 
+  // Skill / usage-guide consent (W-AI-9 Sub-block C): turning this on lets the
+  // MCP server serve a built-in, machine-facing guide that teaches a connected
+  // external agent HOW to query your history effectively (granularity, how the
+  // search mode is chosen, citing evidence). It is guidance only — read-only,
+  // exposes no new data, and is only reachable when the MCP server is also on.
+  // Hard-default-OFF, mutates ONLY the draft, never cascades from the master.
+  function handleSkillToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      skillEnabled: !current.skillEnabled,
+    }))
+  }
+
   // Hybrid-search tuning knobs (W-AI-9 / W-AI-6). They mutate ONLY the draft —
   // persisted by the existing AI config Save, never auto-saved — and pass through
   // the same client-side clamp the backend enforces on load, so a slider/input can
@@ -512,6 +525,7 @@ export function useSettingsAiState({
       onToggleAi: handleAiToggle,
       onToggleAssistant: handleAssistantToggle,
       onToggleMcp: handleMcpToggle,
+      onToggleSkill: handleSkillToggle,
       onToggleSemanticIndex: handleSemanticIndexToggle,
       onUpdateProvider: handleUpdateProvider,
     },

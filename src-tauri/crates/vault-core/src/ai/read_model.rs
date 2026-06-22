@@ -400,9 +400,13 @@ pub fn preview_ai_integrations(
                 "MCP server toggle is currently disabled in saved Settings.".to_string()
             },
             if config.ai.skill_enabled {
-                "Skill integration toggle is currently enabled in saved Settings.".to_string()
+                if config.ai.mcp_enabled {
+                    "Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.".to_string()
+                } else {
+                    "Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.".to_string()
+                }
             } else {
-                "Skill integration toggle is currently disabled in saved Settings.".to_string()
+                "Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.".to_string()
             },
             providerless_note,
         ],

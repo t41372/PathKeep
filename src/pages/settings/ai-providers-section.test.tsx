@@ -256,6 +256,9 @@ describe('AiProvidersSection', () => {
     const mcpOff = screen.getByRole('checkbox', {
       name: 'External tool access (MCP)',
     })
+    const skillOff = screen.getByRole('checkbox', {
+      name: 'Usage guide for external tools',
+    })
     expect(assistantOff).not.toBeChecked()
     expect(assistantOff).toBeDisabled()
     expect(semanticOff).not.toBeChecked()
@@ -263,6 +266,9 @@ describe('AiProvidersSection', () => {
     // The outward MCP surface is gated behind the master switch like the rest.
     expect(mcpOff).not.toBeChecked()
     expect(mcpOff).toBeDisabled()
+    // The skill / usage-guide toggle is gated behind the master switch too.
+    expect(skillOff).not.toBeChecked()
+    expect(skillOff).toBeDisabled()
     expect(
       screen.getByText('Enable AI features above to turn these on.'),
     ).toBeVisible()
@@ -296,11 +302,17 @@ describe('AiProvidersSection', () => {
     const mcpOn = screen.getByRole('checkbox', {
       name: 'External tool access (MCP)',
     })
+    const skillOn = screen.getByRole('checkbox', {
+      name: 'Usage guide for external tools',
+    })
     expect(assistantOn).toBeEnabled()
     expect(semanticOn).toBeEnabled()
     expect(mcpOn).toBeEnabled()
+    expect(skillOn).toBeEnabled()
     // The outward data-surface toggle starts OFF and reflects the draft.
     expect(mcpOn).not.toBeChecked()
+    // The skill toggle is independent and also starts OFF.
+    expect(skillOn).not.toBeChecked()
     // The disclosure spells out the read-only / audited / opt-in boundary and
     // ties to the toggle for screen readers.
     expect(mcpOn).toHaveAttribute('aria-describedby', 'ai-mcp-disclosure')
@@ -316,6 +328,14 @@ describe('AiProvidersSection', () => {
       name: 'Review external-query activity',
     })
     expect(auditLink).toHaveAttribute('href', '/audit')
+    // The skill disclosure is honest: it is guidance only AND is only reachable
+    // when the MCP server above is on (it never claims to expose data alone).
+    expect(skillOn).toHaveAttribute('aria-describedby', 'ai-skill-disclosure')
+    const skillDisclosure = screen.getByTestId('ai-skill-disclosure')
+    expect(skillDisclosure).toHaveTextContent('guidance only')
+    expect(skillDisclosure).toHaveTextContent(
+      'only reachable when External tool access (MCP) above is also on',
+    )
     fireEvent.click(assistantOn)
     expect(handlers.onToggleAssistant).toHaveBeenCalledTimes(1)
     expect(handlers.onToggleAi).not.toHaveBeenCalled()
@@ -324,6 +344,10 @@ describe('AiProvidersSection', () => {
     expect(handlers.onToggleAi).not.toHaveBeenCalled()
     fireEvent.click(mcpOn)
     expect(handlers.onToggleMcp).toHaveBeenCalledTimes(1)
+    expect(handlers.onToggleAi).not.toHaveBeenCalled()
+    // The skill toggle routes to its own handler with no cascade to the master.
+    fireEvent.click(skillOn)
+    expect(handlers.onToggleSkill).toHaveBeenCalledTimes(1)
     expect(handlers.onToggleAi).not.toHaveBeenCalled()
   })
 
@@ -675,6 +699,7 @@ function handlerFixture() {
     onToggleAi: vi.fn(),
     onToggleAssistant: vi.fn(),
     onToggleMcp: vi.fn(),
+    onToggleSkill: vi.fn(),
     onToggleSemanticIndex: vi.fn(),
     onUpdateProvider: vi.fn(),
   }

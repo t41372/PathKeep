@@ -341,7 +341,7 @@ export function handlePreviewAiCommand<T>(
         ],
         capabilityNotes: [
           'MCP server toggle is currently disabled in saved Settings.',
-          'Skill integration toggle is currently disabled in saved Settings.',
+          'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.',
           'No embedding provider is selected right now, so external tools fall back to lexical recall only.',
         ],
         scopeBoundary: [

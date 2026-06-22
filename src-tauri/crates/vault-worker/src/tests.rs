@@ -660,6 +660,108 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
 }
 
 #[test]
+fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    // Start with the usage guide ENABLED: the JSON skill is served in full.
+    let mut config = configured_ai_config();
+    config.ai.job_queue_paused = true;
+    assert!(config.ai.skill_enabled);
+    initialize_archive_database(&config, None).expect("initialize archive");
+    save_user_config(&config, None).expect("save enabled config");
+
+    let count_usage_guide_runs = |config: &AppConfig| -> usize {
+        let paths = project_paths().expect("audit project paths");
+        let connection = vault_core::archive::open_intelligence_connection(&paths, config, None)
+            .expect("open audit connection");
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM runs WHERE run_type = 'mcp_query' AND stats_json LIKE '%usage-guide%'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("count usage-guide runs") as usize
+    };
+
+    let enabled = mcp_usage_guide_result(None).expect("enabled usage guide");
+    assert!(enabled.enabled, "guide must be served when skill_enabled");
+    assert!(enabled.notice.is_none(), "no disabled notice when enabled");
+    assert_eq!(enabled.version, 1);
+    // The four canonical sections the skill teaches, in ladder/mode/cite/bounds order.
+    let section_ids: Vec<&str> = enabled.sections.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(
+        section_ids,
+        vec!["granularity-ladder", "search-mode", "citation-discipline", "bounds"],
+        "the skill must teach all four canonical sections"
+    );
+    assert!(
+        enabled.sections.iter().all(|section| !section.points.is_empty()),
+        "every section must carry procedural points"
+    );
+    // Accuracy guard: the guide cites only fields the search-history tool really
+    // returns (historyId / url), never an invented visit_id or a `mode` arg.
+    let body = serde_json::to_string(&enabled).expect("serialize guide");
+    assert!(body.contains("historyId"), "guide must cite the real historyId field");
+    assert!(
+        !body.contains("visit_id") && !body.contains("\\\"mode\\\""),
+        "guide must not invent fields the MCP surface does not expose"
+    );
+    // A served fetch is an external touch → recorded once as a usage-guide run.
+    assert_eq!(count_usage_guide_runs(&config), 1, "an enabled fetch must be audited");
+
+    // Now DISABLE the skill: the same tool answers with an honest notice and an
+    // empty body, and records nothing (no archive touch to audit).
+    config.ai.skill_enabled = false;
+    save_user_config(&config, None).expect("save disabled config");
+    let disabled = mcp_usage_guide_result(None).expect("disabled usage guide");
+    assert!(!disabled.enabled, "guide is gated off when skill_enabled is false");
+    assert!(disabled.sections.is_empty(), "disabled guide carries no procedural body");
+    let notice = disabled.notice.expect("disabled notice");
+    assert!(notice.contains("disabled in Settings"), "notice must be honest about the toggle");
+    assert_eq!(count_usage_guide_runs(&config), 1, "a disabled fetch must not be audited");
+
+    // Re-enable, then lock: the guide stays readable (it touches no archive
+    // rows) but a locked fetch holds no writable connection, so it is not
+    // audited a second time.
+    config.ai.skill_enabled = true;
+    save_user_config(&config, None).expect("re-enable config");
+    configure_app_lock_passcode(&SetAppLockPasscodeRequest {
+        passcode: "1379".to_string(),
+        recovery_hint: None,
+    })
+    .expect("configure app lock passcode");
+    let mut locked_config = config.clone();
+    locked_config.app_lock.enabled = true;
+    save_user_config(&locked_config, None).expect("enable app lock");
+    let locked = lock_app_ui_session(Some("manual")).expect("lock app session");
+    assert!(locked.locked);
+
+    let locked_guide = mcp_usage_guide_result(None).expect("locked usage guide");
+    assert!(locked_guide.enabled, "the guide reads no archive rows, so it serves while locked");
+    assert!(!locked_guide.sections.is_empty());
+    assert_eq!(
+        count_usage_guide_runs(&config),
+        1,
+        "a locked fetch must not write a second audit run"
+    );
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
 fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -1242,6 +1344,12 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
     ))
     .expect("routed search history");
     assert!(routed_search.0.total >= 1);
+
+    // The usage-guide tool routes through the same server wrapper and, with the
+    // skill enabled in `configured_ai_config`, returns the full procedural body.
+    let routed_guide = block_on_ready(mcp_server.usage_guide()).expect("routed usage guide");
+    assert!(routed_guide.0.enabled);
+    assert!(!routed_guide.0.sections.is_empty());
 
     let index_json = run_worker_cli(&["ai-index".to_string()]).expect("ai-index cli");
     let index_report: AiIndexReport =

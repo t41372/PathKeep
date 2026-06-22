@@ -112,6 +112,7 @@ export interface AiProvidersSectionState {
   onToggleAi: () => void
   onToggleAssistant: () => void
   onToggleMcp: () => void
+  onToggleSkill: () => void
   onToggleSemanticIndex: () => void
   onUpdateProvider: (
     purpose: 'llm' | 'embedding',
@@ -168,6 +169,7 @@ export function AiProvidersSection({
     onToggleAi,
     onToggleAssistant,
     onToggleMcp,
+    onToggleSkill,
     onToggleSemanticIndex,
     onUpdateProvider,
   } = state
@@ -364,6 +366,31 @@ export function AiProvidersSection({
             <Link className="btn-tiny" to="/integrations">
               {t('settings.aiMcpToggleConnectLink')}
             </Link>
+          </div>
+          {/*
+            Skill / usage-guide consent (W-AI-9 Sub-block C). This does NOT expose
+            any new data: it serves a built-in, read-only guide that teaches a
+            connected external agent HOW to query effectively (granularity,
+            search-mode selection, citing evidence). The disclosure is honest
+            about the dependency — the guide is only reachable when the MCP
+            server above is also on — so the user is never misled into thinking
+            this alone opens anything. Hard-default-OFF, gated behind AI like the
+            others, mutates only the draft, never cascades from the master.
+          */}
+          <ToggleRow
+            checked={currentSettings.skillEnabled}
+            describedById="ai-skill-disclosure"
+            disabled={editorsDisabled}
+            label={t('settings.aiSkillToggle')}
+            onChange={onToggleSkill}
+          />
+          <div
+            className="text-ink-muted m-0 flex flex-col items-start gap-1.5 font-sans text-[12px] leading-[1.5]"
+            data-testid="ai-skill-disclosure"
+            id="ai-skill-disclosure"
+          >
+            <p className="m-0">{t('settings.aiSkillToggleHelp')}</p>
+            <p className="m-0">{t('settings.aiSkillToggleDependency')}</p>
           </div>
           {!aiOn ? (
             <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5] italic">

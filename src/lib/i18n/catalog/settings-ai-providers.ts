@@ -39,6 +39,11 @@ export const settingsAiProvidersNamespace = {
     aiMcpToggleConnect:
       'After enabling, open Integrations for the exact command and config to connect a tool.',
     aiMcpToggleConnectLink: 'Open Integrations',
+    aiSkillToggle: 'Usage guide for external tools',
+    aiSkillToggleHelp:
+      'Gives the external AI tools you connect a built-in guide on how to query your history well — which level of detail to ask for, how the search mode is chosen, and how to cite the visits behind an answer. It is guidance only: read-only, and it exposes no history beyond what External tool access already allows.',
+    aiSkillToggleDependency:
+      'The guide is only reachable when External tool access (MCP) above is also on, since it is served through that same server.',
     aiSubToggleDisabledHint: 'Enable AI features above to turn these on.',
     aiTestConnection: 'Test connection',
     aiTestingConnection: 'Testing…',
@@ -147,9 +152,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       'MCP server toggle is currently disabled in saved Settings.',
     aiIntegrationCapabilitySkillEnabled:
-      'Skill integration toggle is currently enabled in saved Settings.',
+      'Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.',
+    aiIntegrationCapabilitySkillUnreachable:
+      'Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.',
     aiIntegrationCapabilitySkillDisabled:
-      'Skill integration toggle is currently disabled in saved Settings.',
+      'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.',
     aiIntegrationCapabilityEmbeddingEnabled:
       'Semantic retrieval can use the configured embedding provider when the semantic index is built.',
     aiIntegrationCapabilityEmbeddingDisabled:
@@ -206,6 +213,11 @@ export const settingsAiProvidersNamespace = {
     aiMcpToggleConnect:
       '启用后，打开“集成”页面获取连接工具所需的确切命令和配置。',
     aiMcpToggleConnectLink: '打开集成',
+    aiSkillToggle: '外部工具使用指南',
+    aiSkillToggleHelp:
+      '为你连接的外部 AI 工具提供一份内置指南，告诉它们如何更好地查询你的历史记录——该请求哪种粒度、搜索模式如何选定，以及如何引用支撑答案的访问记录。它只是指引：只读，且不会暴露超出“外部工具访问”已允许范围的任何历史记录。',
+    aiSkillToggleDependency:
+      '该指南只有在上方的“外部工具访问（MCP）”同时开启时才可访问，因为它正是通过那个服务器提供的。',
     aiSubToggleDisabledHint: '请先在上方启用 AI 功能，才能开启这些选项。',
     aiTestConnection: '测试连接',
     aiTestingConnection: '测试中…',
@@ -311,9 +323,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       '已保存的设置里目前关闭了 MCP server toggle。',
     aiIntegrationCapabilitySkillEnabled:
-      '已保存的设置里目前开启了 Skill integration toggle。',
+      '使用指南已开启：MCP 服务器会提供一份只读指南，教已连接的工具如何高效查询。它不会暴露任何额外数据。',
+    aiIntegrationCapabilitySkillUnreachable:
+      '使用指南已开启但无法访问：只有在上方的 MCP 服务器同时开启时才会提供。可访问时它也不会暴露任何额外数据。',
     aiIntegrationCapabilitySkillDisabled:
-      '已保存的设置里目前关闭了 Skill integration toggle。',
+      '已保存的设置里关闭了使用指南，因此已连接的工具只会收到一条简短的停用提示，而不是查询指南。',
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立语义索引后，语义检索会使用当前已配置的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:
@@ -370,6 +384,11 @@ export const settingsAiProvidersNamespace = {
     aiMcpToggleConnect:
       '啟用後，開啟「整合」頁面取得連接工具所需的確切指令和設定。',
     aiMcpToggleConnectLink: '開啟整合',
+    aiSkillToggle: '外部工具使用指南',
+    aiSkillToggleHelp:
+      '為你連接的外部 AI 工具提供一份內建指南，告訴它們如何更好地查詢你的歷史紀錄——該請求哪種粒度、搜尋模式如何選定，以及如何引用支撐答案的造訪紀錄。它只是指引：唯讀，且不會暴露超出「外部工具存取」已允許範圍的任何歷史紀錄。',
+    aiSkillToggleDependency:
+      '該指南只有在上方的「外部工具存取（MCP）」同時開啟時才可存取，因為它正是透過那個伺服器提供的。',
     aiSubToggleDisabledHint: '請先在上方啟用 AI 功能，才能開啟這些選項。',
     aiTestConnection: '測試連線',
     aiTestingConnection: '測試中…',
@@ -475,9 +494,11 @@ export const settingsAiProvidersNamespace = {
     aiIntegrationCapabilityMcpDisabled:
       '已儲存的設定目前已關閉 MCP server toggle。',
     aiIntegrationCapabilitySkillEnabled:
-      '已儲存的設定目前已開啟 Skill integration toggle。',
+      '使用指南已開啟：MCP 伺服器會提供一份唯讀指南，教已連接的工具如何高效查詢。它不會暴露任何額外資料。',
+    aiIntegrationCapabilitySkillUnreachable:
+      '使用指南已開啟但無法存取：只有在上方的 MCP 伺服器同時開啟時才會提供。可存取時它也不會暴露任何額外資料。',
     aiIntegrationCapabilitySkillDisabled:
-      '已儲存的設定目前已關閉 Skill integration toggle。',
+      '已儲存的設定關閉了使用指南，因此已連接的工具只會收到一則簡短的停用提示，而不是查詢指南。',
     aiIntegrationCapabilityEmbeddingEnabled:
       '建立語義索引後，語義檢索會使用目前已設定的 embedding provider。',
     aiIntegrationCapabilityEmbeddingDisabled:

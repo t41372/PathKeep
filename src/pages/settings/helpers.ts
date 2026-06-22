@@ -388,9 +388,11 @@ function localizeAiIntegrationLine(
       return t('aiIntegrationCapabilityMcpEnabled')
     case 'MCP server toggle is currently disabled in saved Settings.':
       return t('aiIntegrationCapabilityMcpDisabled')
-    case 'Skill integration toggle is currently enabled in saved Settings.':
+    case 'Usage guide is enabled: the MCP server serves a read-only guide teaching connected tools how to query effectively. It exposes no extra data.':
       return t('aiIntegrationCapabilitySkillEnabled')
-    case 'Skill integration toggle is currently disabled in saved Settings.':
+    case 'Usage guide is enabled but unreachable: it is only served while the MCP server above is also on. It exposes no extra data when reachable.':
+      return t('aiIntegrationCapabilitySkillUnreachable')
+    case 'Usage guide is disabled in saved Settings, so connected tools receive only a short disabled notice instead of the querying guide.':
       return t('aiIntegrationCapabilitySkillDisabled')
     case 'Semantic retrieval can use the configured embedding provider when the semantic index is built.':
       return t('aiIntegrationCapabilityEmbeddingEnabled')

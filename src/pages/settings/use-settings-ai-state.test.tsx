@@ -436,10 +436,11 @@ describe('useSettingsAiState', () => {
       { wrapper: Wrapper },
     )
 
-    // All three default OFF in the fixture; flipping the master does NOT cascade.
+    // All four default OFF in the fixture; flipping the master does NOT cascade.
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
 
     act(() => {
       result.current.ai.onToggleAi()
@@ -450,24 +451,31 @@ describe('useSettingsAiState', () => {
     // The outward MCP surface stays OFF until explicitly opted into — turning
     // AI on never exposes the archive to external tools.
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
+    // The usage guide is its own consent and stays OFF too.
+    expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
 
     act(() => {
       result.current.ai.onToggleAssistant()
       result.current.ai.onToggleSemanticIndex()
       result.current.ai.onToggleMcp()
+      result.current.ai.onToggleSkill()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(true)
+    expect(result.current.ai.currentSettings?.skillEnabled).toBe(true)
 
-    // Toggling back off works independently too — the MCP consent is its own.
+    // Toggling back off works independently too — each consent is its own; the
+    // usage guide can be turned off without disturbing the MCP server toggle.
     act(() => {
       result.current.ai.onToggleAssistant()
       result.current.ai.onToggleMcp()
+      result.current.ai.onToggleSkill()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
   })
 
   test('mutates, clamps, resets, and persists the search-tuning knobs through Save', async () => {

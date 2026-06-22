@@ -78,6 +78,119 @@ pub(crate) struct McpSearchItem {
     pub(crate) match_reason: String,
 }
 
+/// One titled section of the machine-facing usage guide (skill).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpUsageGuideSection {
+    /// Stable section id (e.g. `granularity-ladder`) for an agent to key off.
+    pub(crate) id: String,
+    /// Short human/agent-readable title.
+    pub(crate) title: String,
+    /// Ordered procedural points the agent should follow for this section.
+    pub(crate) points: Vec<String>,
+}
+
+/// Structured, machine-facing usage guide (the JSON skill, W-AI-9 Sub-block C).
+///
+/// This is procedural knowledge served to an EXTERNAL agent connected through
+/// the MCP server: it teaches *how* to query PathKeep effectively. The body is
+/// English-only by design — it is consumed by an LLM, not rendered in the
+/// PathKeep UI — and it is gated on the separate `skill_enabled` consent flag.
+/// When the flag is off, `enabled` is false, `sections` is empty, and `notice`
+/// carries an honest "disabled in Settings" message instead of the guide.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpUsageGuide {
+    /// Whether the user has enabled the usage guide in Settings.
+    pub(crate) enabled: bool,
+    /// Guide version, so a consumer can detect content changes over time.
+    pub(crate) version: u32,
+    /// One-line summary of what this guide teaches (always present).
+    pub(crate) summary: String,
+    /// The procedural sections — empty when `enabled` is false.
+    pub(crate) sections: Vec<McpUsageGuideSection>,
+    /// Honesty note: a disabled-state explanation, or empty when enabled.
+    pub(crate) notice: Option<String>,
+}
+
+/// Current usage-guide content version (bump when the procedural body changes).
+const MCP_USAGE_GUIDE_VERSION: u32 = 1;
+
+/// Builds the canonical, machine-facing usage guide for external agents.
+///
+/// Authored faithfully to what the MCP tools actually accept and return: the
+/// only egress tools are `search-history` (which takes `query` + optional
+/// `profileId` / `domain` / `limit`, capped per call, and auto-selects its
+/// recall mode) and `archive-status`. The guide therefore never instructs the
+/// agent to pass a `mode` argument that does not exist, and it cites the
+/// `historyId` + `url` that the result rows actually carry — not invented
+/// fields. When `enabled` is false we return the same shape with an honest
+/// disabled notice and no procedural body, so a consumer always parses cleanly.
+fn build_mcp_usage_guide(enabled: bool) -> McpUsageGuide {
+    if !enabled {
+        return McpUsageGuide {
+            enabled: false,
+            version: MCP_USAGE_GUIDE_VERSION,
+            summary: "PathKeep usage guide for querying browser history.".to_string(),
+            sections: Vec::new(),
+            notice: Some(
+                "The PathKeep usage guide is disabled in Settings. Use the search-history and archive-status tools directly; enable the usage guide in PathKeep Settings to receive the full querying playbook."
+                    .to_string(),
+            ),
+        };
+    }
+    McpUsageGuide {
+        enabled: true,
+        version: MCP_USAGE_GUIDE_VERSION,
+        summary: "How to query a PathKeep browser-history archive effectively, read-only, with cited evidence.".to_string(),
+        sections: vec![
+            McpUsageGuideSection {
+                id: "granularity-ladder".to_string(),
+                title: "Granularity ladder — ask for the coarsest level that answers the question".to_string(),
+                points: vec![
+                    "PathKeep models history at increasing levels of aggregation: raw visits → sessions → trails (navigation paths) → query families (related searches) → domains → daily rollups → insights. Start coarse and drill down only when you need the underlying evidence.".to_string(),
+                    "For \"what / when did I look into X\" questions, a search-history call already returns the most relevant individual visits; do not enumerate the whole archive.".to_string(),
+                    "For trends or summaries (\"how often\", \"which sites most\", \"what was I doing that week\"), prefer reasoning over the returned visits' domains and timestamps rather than requesting more rows — the archive can hold tens of millions of visits and is never meant to be paged in full.".to_string(),
+                    "Drill down to specific visits (their historyId, url, title, visitedAt) only to ground a claim. Always keep the working set small.".to_string(),
+                ],
+            },
+            McpUsageGuideSection {
+                id: "search-mode".to_string(),
+                title: "Search mode is chosen for you — phrase the query to match what is available".to_string(),
+                points: vec![
+                    "The search-history tool takes a single `query` (plus optional `profileId`, `domain`, and `limit`); there is no mode parameter. PathKeep picks the recall mode automatically: semantic / hybrid when the user has a semantic index built, otherwise lexical (BM25 keyword) recall.".to_string(),
+                    "Read the response to learn which mode actually ran: `providerId` and `model` name the recall path, and `notes` states honestly when it fell back to lexical-only (e.g. no embedding provider configured).".to_string(),
+                    "When you can tell only lexical recall is available (a fallback note, or a lexical providerId), prefer precise keywords, distinctive terms, and exact phrases over conversational sentences.".to_string(),
+                    "When semantic / hybrid recall is available, natural-language intent (\"articles about retirement planning I read last spring\") works well; you do not need to guess keywords.".to_string(),
+                    "Narrow with `domain` or `profileId` instead of post-filtering large result sets, and issue a few focused queries rather than one broad one.".to_string(),
+                ],
+            },
+            McpUsageGuideSection {
+                id: "citation-discipline".to_string(),
+                title: "Cite real evidence — every claim must point to returned rows".to_string(),
+                points: vec![
+                    "Every result row carries a stable `historyId` (the canonical visit identifier in this archive) and a `url`. Cite the `historyId` as your evidence handle and quote the `url`, `title`, and `visitedAt` when you reference a visit.".to_string(),
+                    "Use `url` for a stable, human-readable reference; use `historyId` when you need to refer back to the exact visit unambiguously. Do not invent identifiers or fields that are not in the response.".to_string(),
+                    "If the results do not support a claim, say so rather than guessing — answer from the returned evidence only.".to_string(),
+                    "`matchReason` and `score` explain why a row matched and how strongly; surface that reasoning instead of asserting relevance without support.".to_string(),
+                ],
+            },
+            McpUsageGuideSection {
+                id: "bounds".to_string(),
+                title: "Bounds — read-only, capped, and respectful of the user's privacy".to_string(),
+                points: vec![
+                    "Every tool here is strictly read-only. There is no way to modify, delete, or export the archive through this surface, and there is no filesystem or network access.".to_string(),
+                    "Each search-history call returns a bounded page; `limit` is capped by the server, so a single call cannot pull the whole archive. Compose a few targeted calls instead of trying to widen one.".to_string(),
+                    "Queries only see currently-visible history: reverted or hidden visits never appear, and the server refuses to read while PathKeep is locked.".to_string(),
+                    "Every call you make is recorded in the user's local audit log. Query the minimum needed to answer, and treat the user's history as private.".to_string(),
+                    "Use archive-status to check whether the archive is initialized, unlocked, and whether semantic search is available before relying on a particular recall mode.".to_string(),
+                ],
+            },
+        ],
+        notice: None,
+    }
+}
+
 /// Compact MCP status snapshot for integration diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -274,6 +387,40 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
     })
 }
 
+/// Builds the MCP-facing usage guide (skill), gated on `skill_enabled`.
+///
+/// The guide is procedural knowledge for an external agent and reads nothing
+/// from the canonical archive, so it works while locked and needs no database
+/// key. Gating is honest rather than structural: rmcp registers every `#[tool]`
+/// statically, so instead of hiding the tool we always answer but return a
+/// disabled notice (and no body) when the user has not turned the skill on in
+/// Settings — a consumer always parses the same shape.
+///
+/// When the guide is enabled AND the session is unlocked we record one
+/// `mcp_query` audit run (`tool = "usage-guide"`) so a skill fetch is as
+/// auditable as any other external touch (Sub-block B completeness). The audit
+/// write needs a writable connection, which we only hold while unlocked; a
+/// disabled or locked fetch reads nothing and writes nothing.
+pub(crate) fn mcp_usage_guide_result(database_key: Option<&str>) -> Result<McpUsageGuide> {
+    let paths = vault_core::project_paths()?;
+    let config = load_hydrated_config(&paths)?;
+    let guide = build_mcp_usage_guide(config.ai.skill_enabled);
+    if guide.enabled && !resolved_app_lock_status(&paths, &config)?.locked && config.initialized {
+        let connection = ai_archive_connection(&paths, &config, database_key)?;
+        record_mcp_query_run(
+            &connection,
+            "usage-guide",
+            &[],
+            &[],
+            serde_json::json!({
+                "version": guide.version,
+                "sections": guide.sections.len(),
+            }),
+        )?;
+    }
+    Ok(guide)
+}
+
 #[tool_router]
 impl BrowserHistoryMcpServer {
     /// Exposes canonical PathKeep history search to MCP clients.
@@ -299,6 +446,20 @@ impl BrowserHistoryMcpServer {
         let snapshot = mcp_archive_status_result(self.database_key.as_deref())
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
         Ok(Json(snapshot))
+    }
+
+    /// Serves the read-only usage guide (skill) that teaches an external agent
+    /// how to query PathKeep effectively. Gated on the `skill_enabled` consent
+    /// flag: when off, the response carries an honest disabled notice and no
+    /// procedural body instead of the guide.
+    #[tool(
+        name = "usage-guide",
+        description = "Get PathKeep's read-only guide on how to query browser history effectively: granularity ladder, how search modes are selected, and how to cite evidence. Disabled by default; enable the usage guide in PathKeep Settings."
+    )]
+    pub(crate) async fn usage_guide(&self) -> Result<Json<McpUsageGuide>, rmcp::ErrorData> {
+        let guide = mcp_usage_guide_result(self.database_key.as_deref())
+            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+        Ok(Json(guide))
     }
 }
 
@@ -329,6 +490,7 @@ pub(crate) fn run_mcp_stdio_server() -> Result<()> {
     #[cfg(any(test, coverage))]
     {
         let _ = mcp_archive_status_result(database_key.as_deref());
+        let _ = mcp_usage_guide_result(database_key.as_deref());
         let _ = mcp_search_result(
             database_key.as_deref(),
             McpSearchRequest {

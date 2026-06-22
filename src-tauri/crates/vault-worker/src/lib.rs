@@ -97,6 +97,7 @@ pub(crate) use self::{
     },
     mcp::{
         BrowserHistoryMcpServer, McpSearchRequest, mcp_archive_status_result, mcp_search_result,
+        mcp_usage_guide_result,
     },
 };
 
