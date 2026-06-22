@@ -105,13 +105,13 @@
 
 **被 `#[cfg(test)]` 撐大、在 Rust-test tolerance 內接受**（production logic 本身不超標，多數行數來自同檔 inline tests；維持「新模組 100% coverage」的契約反而要求測試貼著代碼放）：
 
-| 檔案                                                                                              | 行數  | test 區佔比                | stance                                                                       |
-| ------------------------------------------------------------------------------------------------- | ----- | -------------------------- | ---------------------------------------------------------------------------- |
-| [`vault-core/src/ai/tests.rs`](../../../src-tauri/crates/vault-core/src/ai/tests.rs)              | ~3712 | 全檔即 AI 模組共用測試     | accepted；這是 `ai/` 的集中測試面，不是 production 巨檔。                     |
-| [`vault-core/src/ai/embedding_candle.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_candle.rs) | ~1756 | ~580 行 test               | accepted；candle 引擎 + 模型下載/驗證一體，production 主體 < 1000 行。        |
-| [`vault-core/src/ai/agent_harness.rs`](../../../src-tauri/crates/vault-core/src/ai/agent_harness.rs)       | ~1631 | ~1040 行 test（過半）      | accepted；agent run/journal durability，test 比 production code 還多。        |
-| [`vault-core/src/ai/llm.rs`](../../../src-tauri/crates/vault-core/src/ai/llm.rs)                  | ~1247 | ~527 行 test               | accepted；rig LLM provider + streaming transport，production 主體 ~720 行。   |
-| [`vault-core/src/ai/embedding_static.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_static.rs) | ~1045 | ~297 行 test               | accepted；model2vec 靜態引擎，production 主體 < 750 行。                      |
+| 檔案                                                                                                       | 行數  | test 區佔比            | stance                                                                      |
+| ---------------------------------------------------------------------------------------------------------- | ----- | ---------------------- | --------------------------------------------------------------------------- |
+| [`vault-core/src/ai/tests.rs`](../../../src-tauri/crates/vault-core/src/ai/tests.rs)                       | ~3712 | 全檔即 AI 模組共用測試 | accepted；這是 `ai/` 的集中測試面，不是 production 巨檔。                   |
+| [`vault-core/src/ai/embedding_candle.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_candle.rs) | ~1756 | ~580 行 test           | accepted；candle 引擎 + 模型下載/驗證一體，production 主體 < 1000 行。      |
+| [`vault-core/src/ai/agent_harness.rs`](../../../src-tauri/crates/vault-core/src/ai/agent_harness.rs)       | ~1631 | ~1040 行 test（過半）  | accepted；agent run/journal durability，test 比 production code 還多。      |
+| [`vault-core/src/ai/llm.rs`](../../../src-tauri/crates/vault-core/src/ai/llm.rs)                           | ~1247 | ~527 行 test           | accepted；rig LLM provider + streaming transport，production 主體 ~720 行。 |
+| [`vault-core/src/ai/embedding_static.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_static.rs) | ~1045 | ~297 行 test           | accepted；model2vec 靜態引擎，production 主體 < 750 行。                    |
 
 **真正的問題項（已處理）**：
 

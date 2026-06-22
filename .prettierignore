@@ -20,3 +20,9 @@ docs/design/handoff/
 # Generated W-AI-4c static-parity reference vectors (compact JSON emitted by
 # scripts/gen_static_parity_fixture.py; reformatting is meaningless and reverted on regen).
 src-tauri/crates/vault-core/tests/fixtures/static_parity_potion_multilingual.json
+
+# Code-mode guest source (W-AI-8). harness.js is hand-authored input to a
+# byte-reproducible javy build; its exact bytes feed the SHA-256 pin of the
+# committed harness.wasm, so prettier must never reformat it (formatter churn
+# would silently desync the source from the pinned artifact → fail-closed).
+src-tauri/crates/vault-core/src/ai/code_mode_guest/
