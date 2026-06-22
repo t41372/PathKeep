@@ -271,10 +271,16 @@ export function buildPaperSearchViewCopy(
       filtersLabel: t('paperSearchView.heroFiltersLabel'),
       modeKeyword: t('paperSearchView.heroModeKeyword'),
       modeRegex: t('paperSearchView.heroModeRegex'),
-      modeSemantic: t('paperSearchView.heroModeSemantic'),
+      modeSmart: t('paperSearchView.heroModeSmart'),
       modeHintKeyword: t('paperSearchView.heroModeHintKeyword'),
       modeHintRegex: t('paperSearchView.heroModeHintRegex'),
-      modeHintSemantic: t('paperSearchView.heroModeHintSemantic'),
+      modeHintSmart: t('paperSearchView.heroModeHintSmart'),
+      modeHintSmartUnavailable: t(
+        'paperSearchView.heroModeHintSmartUnavailable',
+      ),
+      modeSmartUnavailableAria: t(
+        'paperSearchView.heroModeSmartUnavailableAria',
+      ),
       addFilterDate: t('paperSearchView.heroAddFilterDate'),
       addFilterSource: t('paperSearchView.heroAddFilterSource'),
       addFilterDomain: t('paperSearchView.heroAddFilterDomain'),
@@ -312,5 +318,16 @@ export function buildPaperSearchViewCopy(
     seeInContextLabel: t('paperSearchView.seeInContextLabel'),
     dayCountTemplate: t('paperSearchView.dayCountTemplate'),
     enrichmentMatchLabel: t('paperSearchView.enrichmentMatchLabel'),
+    relevance: {
+      rankedCount: t('paperSearchView.relevanceRankedCount'),
+      askAssistantLabel: t('paperSearchView.relevanceAskAssistant'),
+      loadingLabel: t('paperSearchView.relevanceLoading'),
+      prevPageLabel: t('paperSearchView.relevancePrevPage'),
+      nextPageLabel: t('paperSearchView.relevanceNextPage'),
+      pageSummary: t('paperSearchView.relevancePageSummary'),
+      pageSummaryRanked: t('paperSearchView.relevancePageSummaryRanked'),
+      moreAvailable: t('paperSearchView.relevanceMoreAvailable'),
+      endOfResults: t('paperSearchView.relevanceEndOfResults'),
+    },
   }
 }

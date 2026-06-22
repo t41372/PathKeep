@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { ErrorState } from '../../components/primitives/error-state'
@@ -50,7 +50,7 @@ import { useExplorerOgImages } from './hooks/use-explorer-og-images'
 import { useExplorerUrlState } from './hooks/use-explorer-url-state'
 import { ExplorerDetailPanel } from './panels/detail-panel'
 import { ExplorerRuntimePanel } from './panels/runtime-panel'
-import { ExplorerSemanticPanel } from './panels/semantic-panel'
+import { SmartIndexStatusCallout } from './panels/smart-index-status'
 import { SessionGroupPanel } from './panels/session-group'
 import { TrailGroupPanel } from './panels/trail-group'
 import {
@@ -64,6 +64,12 @@ import {
 } from '../../components/explorer-paper'
 import { PaperExplorerView } from './paper-view'
 import { PaperSearchPanel } from './paper-search-panel'
+import {
+  buildPaperSearchRelevanceList,
+  buildSmartScopeLine,
+  deriveSmartIndexProgress,
+} from './paper-search-helpers'
+import { assistantHref } from '../../lib/intelligence-links'
 import { PaperDetailPanelMount } from './paper-detail-panel-mount'
 import { useVisitEnrichment } from './use-visit-enrichment'
 import { useLocalAnnotations } from './use-local-annotations'
@@ -74,6 +80,7 @@ import { hasStarredFacet } from './paper-search-filters'
 import { hasDesktopCommandTransport } from '../../lib/runtime'
 import type { StarListItem } from '../../lib/backend-client'
 import type { HistoryEntry } from '../../lib/types/archive'
+import type { AiSearchResultItem } from '../../lib/types/intelligence'
 import type { ExplorerVisitSelection } from './types'
 
 /**
@@ -100,6 +107,36 @@ function starredItemToHistoryEntry(
     sourceVisitId: -1 - index,
   }
 }
+
+/**
+ * Adapt one Smart (hybrid) search result into a `HistoryEntry` so selecting a
+ * ranked AI row opens the SAME paper detail panel a keyword row opens. The AI
+ * row carries a real `historyId`, so the panel binds to a real record; the
+ * synthesized entry only fills the fields the panel header reads (no transition
+ * / duration metadata is available from the search result, which the panel
+ * already renders as "—" when absent).
+ */
+function aiItemToHistoryEntry(item: AiSearchResultItem): HistoryEntry {
+  const visitTime = Date.parse(item.visitedAt)
+  return {
+    id: item.historyId,
+    profileId: item.profileId,
+    url: item.url,
+    title: item.title ?? item.url,
+    domain: item.domain,
+    visitedAt: item.visitedAt,
+    visitTime: Number.isNaN(visitTime) ? 0 : visitTime,
+    sourceVisitId: item.historyId,
+  }
+}
+
+/**
+ * How often (ms) the in-surface Smart-index status re-reads the queue while a
+ * backfill is active (REACH-B B1). 4s is frequent enough to feel live for a
+ * minutes-long backfill without hammering the IPC bridge; the poll is bounded —
+ * it only runs while a build is active and is cleared on completion/unmount.
+ */
+const SMART_INDEX_POLL_INTERVAL_MS = 4000
 
 /**
  * Renders the explorer route.
@@ -131,6 +168,7 @@ export function ExplorerPage() {
   // requiring the URL to carry `?surface=search`. The two should be
   // interchangeable signals: the route pathname or the explicit param.
   const routeIsSearchPath = useLocation().pathname === '/search'
+  const navigate = useNavigate()
 
   const {
     activeFilters,
@@ -218,6 +256,20 @@ export function ExplorerPage() {
   // uses (not the loaded keyword page), so it can report a TRUE starred set with
   // an honest total instead of an in-memory page slice + wrong count.
   const queryHasStarredFacet = hasStarredFacet(queryInput)
+  // REACH-B: Smart (relevance) search is the unified AI tab — it covers both the
+  // real `hybrid` URL mode and the legacy `semantic` alias. `is:starred` always
+  // stays on the keyword (day-grouped) layout, so a starred-facet query never
+  // flips into the ranked view even while in Smart mode.
+  //
+  // M-1: regex takes precedence in the panel/mapper
+  // (`paperSearchModeFromExplorerState`: `if (regexMode) return 'regex'`), so a
+  // `?mode=hybrid&regex=1` (or legacy `semantic&regex=1`) deep link renders the
+  // day-grouped regex layout. The route must agree, otherwise it resolves the
+  // detail selection against `semanticResults` and hydrates stars from semantic
+  // items while the rendered layout is keyword/regex. Requiring `!regexMode` here
+  // keeps the hero's selected tab and the rendered layout in lockstep.
+  const smartSearchActive =
+    mode !== 'keyword' && !regexMode && !queryHasStarredFacet
   const starredHub = useStarredHub(surfaceIsStarred || queryHasStarredFacet)
   const [paperDetailOpen, setPaperDetailOpen] = useState(false)
   const labels = useMemo(
@@ -584,8 +636,18 @@ export function ExplorerPage() {
   // and the mount's `onUpdateNotes` would then write any in-flight
   // debounce flush against the wrong URL.
   const selectedEntryPool = !loading ? renderedTimeResults : null
+  // Smart (ranked) rows are NOT in the keyword pool, but they carry a real
+  // historyId so selecting one must still open the detail panel. Resolve the
+  // selection against the ranked AI items first when in Smart search, then fall
+  // back to the keyword pool — keyword selection is byte-for-byte unchanged.
+  const selectedAiEntry =
+    smartSearchActive && selectedId != null
+      ? (semanticResults?.items.find((item) => item.historyId === selectedId) ??
+        null)
+      : null
   const selectedEntry =
-    selectedEntryPool?.items.find((item) => item.id === selectedId) ?? null
+    (selectedEntryPool?.items.find((item) => item.id === selectedId) ?? null) ||
+    (selectedAiEntry ? aiItemToHistoryEntry(selectedAiEntry) : null)
   const selectedGroupedVisit =
     selectedGroupedVisitState?.key === groupedSelectionKey
       ? selectedGroupedVisitState.visit
@@ -642,15 +704,28 @@ export function ExplorerPage() {
   // time view or the Search results (both read `renderedTimeResults`). Bounded
   // by the render window (one page of rows), deduped inside the hook — never a
   // full-archive scan.
-  const visibleTimeUrls = useMemo(
-    () =>
-      view === 'time' || surfaceIsSearch
-        ? (renderedTimeResults?.items
-            .map((item) => item.url)
-            .filter((url): url is string => Boolean(url)) ?? [])
-        : [],
-    [view, surfaceIsSearch, renderedTimeResults],
-  )
+  const visibleTimeUrls = useMemo(() => {
+    if (view !== 'time' && !surfaceIsSearch) return []
+    // In Smart mode the search surface renders the RANKED AI rows, not the
+    // day-grouped keyword pool, so hydrate stars for exactly those ranked urls
+    // (bounded to the current page of ranked results — never a full scan). The
+    // keyword/Browse path keeps hydrating the rendered time results unchanged.
+    const source =
+      surfaceIsSearch && smartSearchActive
+        ? semanticResults?.items
+        : renderedTimeResults?.items
+    return (
+      source
+        ?.map((item) => item.url)
+        .filter((url): url is string => Boolean(url)) ?? []
+    )
+  }, [
+    view,
+    surfaceIsSearch,
+    smartSearchActive,
+    semanticResults,
+    renderedTimeResults,
+  ])
   const visibleTimeUrlsKey = visibleTimeUrls.join('\n')
   useEffect(() => {
     if (visibleTimeUrls.length > 0) {
@@ -681,6 +756,17 @@ export function ExplorerPage() {
         : (renderedTimeResults?.items ?? []),
     [queryHasStarredFacet, starredSearchEntries, renderedTimeResults],
   )
+  // Map the backend hybrid results into the shared paper result-row shape. The
+  // adapter stamps `matchReason` + a `scoreBand`-derived relevance pill and the
+  // real `historyId` so selecting a row opens the detail panel exactly like a
+  // keyword row. Pure/cheap (no network), so it can live in render.
+  const rankedSearchEntries = useMemo(
+    () =>
+      semanticResults
+        ? buildPaperSearchRelevanceList(semanticResults.items, intelligenceT)
+        : [],
+    [semanticResults, intelligenceT],
+  )
   const optionalAiReason = optionalAiAvailability.reason
   // The release flag is a hard-coded `true` const in this build, so
   // `evaluateOptionalAiAvailability` can never return `release-deferred` here —
@@ -706,6 +792,88 @@ export function ExplorerPage() {
 
   const paperSearchSurface =
     routeIsSearchPath || searchParams.get('surface') === 'search'
+
+  // REACH-B Smart-search surface plumbing. All gated behind `smartSearchActive`
+  // so the keyword/regex/`is:starred` paths read `null`/defaults and stay
+  // byte-for-byte unchanged.
+  const smartAvailable = optionalAiAvailability.available
+  // Prev/next cursor pagination for the ranked list — reuses the route's
+  // existing `semanticTrail` + `handleNext/PreviousSemanticPage`. The page
+  // number is the trail depth + 1 (page 1 has an empty trail). The next cursor
+  // is normalized to `string | null` once here so the `onNext` closure stays a
+  // single straight call (no inline coalescing branch to leave uncovered).
+  const smartNextCursor = semanticResults?.nextCursor ?? null
+  const smartPagination =
+    smartSearchActive && semanticResults
+      ? {
+          prevDisabled: semanticTrail.length === 0,
+          nextDisabled: !smartNextCursor,
+          onPrev: handlePreviousSemanticPage,
+          onNext: () => handleNextSemanticPage(smartNextCursor),
+          page: semanticTrail.length + 1,
+          // I2: the honest total ranked count from `AiSearchResponse.total`, so
+          // the summary can say "Page N · M ranked" instead of a bare ordinal.
+          total: semanticResults.total,
+        }
+      : null
+  // REACH-B B1: the in-surface CTA must reflect the LIVE queue truth, not a
+  // blink. `buildAiIndex` only ENQUEUES a background backfill (the real work
+  // runs minutes-to-tens-of-minutes on the worker), so we derive the build phase
+  // from the queue read model — refreshed by the bounded poll below while a build
+  // is active — never from the instantly-resolved enqueue call. `pendingAction`
+  // carries the local "just clicked Build" intent across the gap before the
+  // first poll observes the new job. `snapshot` is guaranteed present here (the
+  // search surface renders only after the `!snapshot` early returns), but read it
+  // defensively via `?? null`/the AiIndexStatus fields so this stays render-safe.
+  const smartIndexProgress = deriveSmartIndexProgress({
+    queueStatus,
+    snapshotAiStatus: snapshot?.aiStatus ?? null,
+    pendingAction: Boolean(indexAction),
+  })
+  // I3: scope / freshness micro-line for the ranked header — index coverage +
+  // last-indexed, from real status fields only (omitted when unavailable). Gated
+  // to Smart search so the keyword path never computes it.
+  const smartScopeLine = smartSearchActive
+    ? buildSmartScopeLine({
+        indexedItems: smartIndexProgress.indexedItems,
+        lastIndexedAt: snapshot?.aiStatus.lastIndexedAt,
+        language,
+        explorerT,
+      })
+    : null
+  // REACH-B B1: keep the in-surface index status fresh while a backfill is in
+  // flight. The shell has no standing poll for `runtimeStatus.aiQueue`, so we add
+  // a BOUNDED one here: it ticks `refreshRuntimeStatus()` every few seconds ONLY
+  // while the Smart surface is showing AND a build is active, and the cleanup
+  // clears the interval the instant the build finishes (the effect re-runs with
+  // `shouldPoll === false`) or the route unmounts. No perpetual polling, no
+  // main-thread block — `refreshRuntimeStatus` is an async IPC read that resolves
+  // off the render path.
+  const shouldPollQueue =
+    paperSearchSurface &&
+    smartSearchActive &&
+    smartAvailable &&
+    smartIndexProgress.active
+  useEffect(() => {
+    if (!shouldPollQueue) return
+    const intervalId = window.setInterval(() => {
+      void refreshRuntimeStatus()
+    }, SMART_INDEX_POLL_INTERVAL_MS)
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [shouldPollQueue, refreshRuntimeStatus])
+  // Smart-mode error routes through the same `aboveResultsCallout` slot the
+  // keyword path uses, so the composer never unmounts mid-error.
+  const smartAboveResultsCallout =
+    smartSearchActive && semanticError
+      ? {
+          tone: 'blocked' as const,
+          eyebrow: explorerT('semanticStatusEyebrow'),
+          title: explorerT('semanticRecallDegradedTitle'),
+          body: semanticError,
+        }
+      : null
 
   // The full-page EmptyState below should only fire when the zero-result
   // came from an active filter on the *Browse* surface — a palette / hash
@@ -774,6 +942,17 @@ export function ExplorerPage() {
       </section>
     )
   }
+
+  // L-3: `snapshot` is narrowed non-null past the early returns above, so derive
+  // the ready-state title from a guaranteed `AiIndexStatus` here — a plain
+  // `string`, no `aiMeta?.label ?? …` coalescing and no `v8 ignore`. (The old
+  // standalone `smartIndexReadyTitle` was computed before these guards, so during
+  // loading its `?? eyebrow` fallback executed with its output discarded — the
+  // exact "reachable but never displayed" mismatch the v8-ignore comment denied.)
+  const smartIndexReadyTitle = aiStatusMeta(
+    snapshot.aiStatus,
+    intelligenceT,
+  ).label
 
   return (
     <section className="page-shell explorer-page" data-testid="explorer-page">
@@ -868,23 +1047,6 @@ export function ExplorerPage() {
         />
       )}
 
-      {mode !== 'keyword' && optionalAiAvailability.available && (
-        <ExplorerSemanticPanel
-          explorerT={explorerT}
-          intelligenceT={intelligenceT}
-          language={language}
-          mode={mode}
-          onNextPage={handleNextSemanticPage}
-          onPreviousPage={handlePreviousSemanticPage}
-          onSelectHistory={setSelectedId}
-          semanticError={semanticError}
-          semanticLoading={semanticLoading}
-          semanticQuery={semanticQuery}
-          semanticResults={semanticResults}
-          semanticTrailLength={semanticTrail.length}
-        />
-      )}
-
       {surfaceIsStarred ? (
         // Starred hub: a focused Explorer mode (not a 4th nav item). Reuses
         // the contact-sheet card renderer for pages and a source-chip row.
@@ -949,6 +1111,50 @@ export function ExplorerPage() {
           }
           language={language}
           explorerT={explorerT}
+          rankedEntries={rankedSearchEntries}
+          aiLoading={semanticLoading}
+          aiError={semanticError}
+          aiNotes={semanticResults?.notes}
+          pagination={smartPagination}
+          relevanceScopeLine={smartScopeLine}
+          smartAvailable={smartAvailable}
+          onAskAssistant={(entry) => {
+            // The ranked entry was built from `semanticResults.items`, so the
+            // lookup always resolves and `profileId` (a required field) is always
+            // present; the `?? null` fallback is a defensive guard.
+            const target = semanticResults?.items.find(
+              (item) => item.historyId === Number(entry.id),
+            )
+            const href = assistantHref(
+              explorerT('assistantExplainPrompt', {
+                item: entry.title,
+                query: queryInput,
+              }),
+              /* v8 ignore next */
+              target?.profileId ?? null,
+            )
+            // assistantHref is an in-app route; navigate via react-router so we
+            // hand the explain prompt + profile to the assistant without a
+            // shell hard-reload.
+            void navigate(href)
+          }}
+          relevanceHeaderSlot={
+            smartSearchActive && smartAvailable ? (
+              <SmartIndexStatusCallout
+                progress={smartIndexProgress}
+                readyTitle={smartIndexReadyTitle}
+                hasEmbeddingProvider={Boolean(embeddingProvider)}
+                language={language}
+                explorerT={explorerT}
+                onBuild={() =>
+                  void handleIndexAction(explorerT('buildingIndexAction'), {
+                    fullRebuild: false,
+                    clearOnly: false,
+                  })
+                }
+              />
+            ) : null
+          }
           aboveResultsCallout={
             historyBlockedByInvalidRegex
               ? {
@@ -957,14 +1163,16 @@ export function ExplorerPage() {
                   title: explorerT('regexInvalid'),
                   body: explorerT('regexInvalidDetail'),
                 }
-              : error
-                ? {
-                    tone: 'blocked',
-                    eyebrow: explorerT('noMatchesEyebrow'),
-                    title: explorerT('queryFailedTitle'),
-                    body: error,
-                  }
-                : null
+              : smartAboveResultsCallout
+                ? smartAboveResultsCallout
+                : error
+                  ? {
+                      tone: 'blocked',
+                      eyebrow: explorerT('noMatchesEyebrow'),
+                      title: explorerT('queryFailedTitle'),
+                      body: error,
+                    }
+                  : null
           }
           onQueryChange={(next) => {
             setQueryInput(next)

@@ -35,6 +35,30 @@ export interface PaperSearchResultEntry {
   /** Optional snippet to render below the URL (semantic mode). */
   snippet?: string
   /**
+   * Smart-search match reason — a short backend-supplied caption explaining why
+   * a row matched ("Semantic match", "Lexical + semantic match", "…(Starred)").
+   * Rendered as a mono caption on relevance-ranked rows. There is NO snippet on
+   * Smart results (`AiSearchResultItem` has no snippet field); this caption is
+   * the honest stand-in. Absent on keyword/regex rows.
+   */
+  matchReason?: string
+  /**
+   * Relevance band derived from the Smart result's `score` via `scoreBand(...)`.
+   * Rendered as a small status pill in the meta column on relevance-ranked rows
+   * so the user can read confidence at a glance. Absent on keyword/regex rows.
+   */
+  relevanceBand?: {
+    label: string
+    tone: 'success' | 'warning' | 'blocked' | 'info'
+  }
+  /**
+   * YYYY-MM-DD local day key for the row's visit. Keyword rows get their day
+   * from the enclosing day group; relevance (Smart) rows are ungrouped, so the
+   * adapter stamps this so "see in context" can still jump to the right Browse
+   * day. Optional — absent on rows without a parseable visit time.
+   */
+  dayKey?: string
+  /**
    * Optional enrichment excerpt shown when a result matched on fetched site
    * content (W-ENRICH-1, 06 §6) — e.g. a GitHub repo description or a page
    * summary the query hit. Rendered consistently with `snippet`, tagged with a
@@ -61,6 +85,14 @@ export interface PaperSearchResultProps {
    * `enrichmentExcerpt` the whole affordance is suppressed.
    */
   enrichmentMatchLabel?: string
+  /**
+   * Per-row "Ask assistant" affordance for Smart (relevance-ranked) rows. When
+   * supplied AND the entry carries a `matchReason` (i.e. it is a Smart result),
+   * a small pill renders below the row that hands the entry to the assistant.
+   * Keyword/regex rows never pass this, so the affordance stays Smart-only.
+   */
+  onAskAssistant?: (entry: PaperSearchResultEntry) => void
+  askAssistantLabel?: string
   /** Star affordance for this result. Omit to hide it. */
   star?: {
     starred: boolean
@@ -81,6 +113,8 @@ export function PaperSearchResult({
   onSeeInContext,
   seeInContextLabel,
   enrichmentMatchLabel,
+  onAskAssistant,
+  askAssistantLabel,
   star,
   className,
   testId,
@@ -128,6 +162,18 @@ export function PaperSearchResult({
         <div className="text-ink-faint truncate font-mono text-[10.5px]">
           {entry.domain} · {sanitizeExplorerDisplayText(entry.url, 96)}
         </div>
+        {entry.matchReason ? (
+          <div
+            data-testid={
+              testId
+                ? `${testId}-match-reason`
+                : 'paper-search-result-match-reason'
+            }
+            className="text-ink-muted mt-1 font-mono text-[10px] tracking-[0.02em]"
+          >
+            {entry.matchReason}
+          </div>
+        ) : null}
         {entry.snippet ? (
           <div className="text-ink-muted mt-1 line-clamp-2 font-serif text-[12.5px] italic leading-[1.4]">
             “…{entry.snippet}…”
@@ -155,29 +201,67 @@ export function PaperSearchResult({
             </div>
           </div>
         ) : null}
-        {onSeeInContext && seeInContextLabel ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              onSeeInContext(entry)
-            }}
-            data-testid="paper-search-result-see-in-context"
-            className={cn(
-              'mt-2 inline-flex items-center gap-[5px] rounded-pill',
-              'border-border-light text-ink-muted border bg-transparent px-[8px] py-[3px]',
-              'font-mono text-[10px] tracking-[0.04em] opacity-50',
-              'group-hover:opacity-100 transition-opacity duration-150',
-              'hover:border-accent hover:text-accent-text hover:bg-accent-soft',
-            )}
-          >
-            {seeInContextLabel} →
-          </button>
+        {(onSeeInContext && seeInContextLabel) ||
+        (onAskAssistant && askAssistantLabel && entry.matchReason) ? (
+          <div className="mt-2 flex flex-wrap items-center gap-[6px]">
+            {onSeeInContext && seeInContextLabel ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onSeeInContext(entry)
+                }}
+                data-testid="paper-search-result-see-in-context"
+                className={cn(
+                  'inline-flex items-center gap-[5px] rounded-pill',
+                  'border-border-light text-ink-muted border bg-transparent px-[8px] py-[3px]',
+                  'font-mono text-[10px] tracking-[0.04em] opacity-50',
+                  'group-hover:opacity-100 transition-opacity duration-150',
+                  'hover:border-accent hover:text-accent-text hover:bg-accent-soft',
+                )}
+              >
+                {seeInContextLabel} →
+              </button>
+            ) : null}
+            {onAskAssistant && askAssistantLabel && entry.matchReason ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onAskAssistant(entry)
+                }}
+                data-testid="paper-search-result-ask-assistant"
+                className={cn(
+                  'inline-flex items-center gap-[5px] rounded-pill',
+                  'border-border-light text-ink-muted border bg-transparent px-[8px] py-[3px]',
+                  'font-mono text-[10px] tracking-[0.04em] opacity-50',
+                  'group-hover:opacity-100 transition-opacity duration-150',
+                  'hover:border-accent hover:text-accent-text hover:bg-accent-soft',
+                )}
+              >
+                {askAssistantLabel} →
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
       <div className="flex shrink-0 items-start gap-2">
         <div className="text-ink-faint flex flex-col items-end gap-[2px] font-mono text-[10px]">
+          {entry.relevanceBand ? (
+            <span
+              data-testid={
+                testId ? `${testId}-band` : 'paper-search-result-band'
+              }
+              data-tone={entry.relevanceBand.tone}
+              className={cn(
+                'rounded-pill border px-[6px] py-[1px] text-[9px] uppercase tracking-[0.06em]',
+                bandToneClass(entry.relevanceBand.tone),
+              )}
+            >
+              {entry.relevanceBand.label}
+            </span>
+          ) : null}
           <span>{entry.time}</span>
           {entry.transitionType ? (
             <span className="text-ink-faint uppercase tracking-[0.06em] text-[9px]">
@@ -197,6 +281,27 @@ export function PaperSearchResult({
       </div>
     </div>
   )
+}
+
+/**
+ * Map a relevance-band tone onto the paper status-pill palette. Kept as a tiny
+ * pure lookup so the band pill stays consistent with the rest of the paper
+ * surface (accent for the strongest match, neutral ink for weaker ones) without
+ * pulling a heavier status component into the result row.
+ */
+function bandToneClass(
+  tone: 'success' | 'warning' | 'blocked' | 'info',
+): string {
+  switch (tone) {
+    case 'success':
+      return 'border-accent text-accent bg-accent-soft'
+    case 'warning':
+      return 'border-border-default text-ink-secondary bg-card-paper'
+    case 'blocked':
+      return 'border-border-default text-ink-faint bg-card-paper'
+    default:
+      return 'border-border-light text-ink-faint bg-transparent'
+  }
 }
 
 /**

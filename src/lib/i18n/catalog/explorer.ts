@@ -87,6 +87,28 @@ export const explorerNamespaceCatalog = {
     noSemanticTitle: 'No smart matches found',
     noSemanticDescription:
       "Smart search didn't find strong matches for this query. Keyword results are still shown below.",
+    smartIndexEyebrow: 'SMART INDEX',
+    smartIndexBuildTitle: 'Build the smart-search index',
+    smartIndexBuildBody:
+      'Smart search has nothing to rank yet. Build the index once to embed your history; new pages are indexed as you back them up.',
+    smartIndexReadyBody:
+      '{count} pages indexed. Rebuild after a large import to keep results fresh.',
+    smartIndexBuildCta: 'Build index',
+    smartIndexBuildingCta: 'Building…',
+    // REACH-B B1: live build-phase copy. The backfill runs in the background, so
+    // these states reflect the queue, not the (instant) enqueue call.
+    smartIndexBuildingTitle: 'Building the smart-search index',
+    smartIndexBuildingBody:
+      'Embedding your history in the background. You can keep searching — results improve as more pages are indexed.',
+    smartIndexBuildingDetail:
+      'This runs on the queue and can take a while for a large archive.',
+    smartIndexQueuedTitle: 'Index build queued',
+    smartIndexQueuedBody:
+      'Your build is waiting in the queue and will start shortly. The index is not ready yet.',
+    smartIndexPausedTitle: 'Index build paused',
+    smartIndexPausedBody:
+      'A build is queued but the smart-search queue is paused, so it will not finish until you resume it.',
+    smartIndexResumeCta: 'Resume in Settings',
     loadingArchive: 'Searching your history…',
     queryFailedTitle: 'Search failed',
     clearFilters: 'Clear filters',
@@ -163,6 +185,9 @@ export const explorerNamespaceCatalog = {
     modeKeyword: 'Keyword',
     modeSemantic: 'Semantic',
     modeHybrid: 'Hybrid',
+    // REACH-B: unified label for both the real `hybrid` mode and the legacy
+    // `semantic` alias — matches the "Smart search" tab in the search hero.
+    modeSmart: 'Smart',
     viewModeLabel: 'View by',
     viewModeTime: 'Time',
     viewModeSession: 'Session',
@@ -424,11 +449,14 @@ export const explorerNamespaceCatalog = {
       heroFiltersLabel: 'Filters',
       heroModeKeyword: 'Keyword',
       heroModeRegex: 'Regex',
-      heroModeSemantic: 'Semantic',
+      heroModeSmart: 'Smart search',
       heroModeHintKeyword: 'Match the exact words, with quotes and operators.',
       heroModeHintRegex: 'Rust regex — no lookaround or backreferences.',
-      heroModeHintSemantic:
-        'Ask in plain English; needs a local embedding model.',
+      heroModeHintSmart:
+        'Ask in plain English; ranks pages by meaning and keywords.',
+      heroModeHintSmartUnavailable:
+        'Available to turn on in Settings → AI with an embedding provider.',
+      heroModeSmartUnavailableAria: '(unavailable)',
       heroAddFilterDate: '+ Date',
       heroAddFilterSource: '+ Source',
       heroAddFilterDomain: '+ Domain',
@@ -453,6 +481,21 @@ export const explorerNamespaceCatalog = {
       enrichmentMatchLabel: 'Matched in enriched content',
       enrichmentSourceGithub: 'GitHub',
       enrichmentSourceGeneric: 'Page summary',
+      relevanceRankedCount: 'ranked by relevance',
+      relevanceAskAssistant: 'Ask assistant',
+      relevanceLoading: 'Finding related pages…',
+      relevancePrevPage: 'Previous',
+      relevanceNextPage: 'Next',
+      relevancePageSummary: 'Page {page}',
+      // I2: honest pagination — bound the page within the ranked result set
+      // instead of a bare ordinal.
+      relevancePageSummaryRanked: 'Page {page} · {total} ranked',
+      relevanceMoreAvailable: 'more available',
+      relevanceEndOfResults: 'end of results',
+      // I3: scope / freshness micro-line on the ranked header (real data only;
+      // a piece is omitted when its datum is unavailable, never faked).
+      relevanceScopeIndexed: '{count} pages indexed',
+      relevanceScopeUpdated: 'updated {date}',
     },
   },
   'zh-CN': {
@@ -515,6 +558,26 @@ export const explorerNamespaceCatalog = {
     noSemanticTitle: '没有找到智能匹配结果',
     noSemanticDescription:
       '智能搜索没有找到足够匹配的结果。下方仍会显示关键词搜索结果。',
+    smartIndexEyebrow: '智能索引',
+    smartIndexBuildTitle: '构建智能搜索索引',
+    smartIndexBuildBody:
+      '智能搜索还没有可排序的内容。先构建一次索引以嵌入你的历史记录;之后备份的新页面会自动加入索引。',
+    smartIndexReadyBody:
+      '已索引 {count} 个页面。大批量导入后可重建以保持结果新鲜。',
+    smartIndexBuildCta: '构建索引',
+    smartIndexBuildingCta: '正在构建…',
+    // REACH-B B1：实时构建阶段文案，反映队列状态而非瞬时的入队调用。
+    smartIndexBuildingTitle: '正在构建智能搜索索引',
+    smartIndexBuildingBody:
+      '正在后台嵌入你的历史记录。你可以继续搜索——索引的页面越多,结果越好。',
+    smartIndexBuildingDetail:
+      '该任务在队列中运行,对于大型存档可能需要一段时间。',
+    smartIndexQueuedTitle: '索引构建已排队',
+    smartIndexQueuedBody: '你的构建任务正在队列中等待,即将开始。索引尚未就绪。',
+    smartIndexPausedTitle: '索引构建已暂停',
+    smartIndexPausedBody:
+      '已有构建任务排队,但智能搜索队列处于暂停状态,需恢复后才能完成。',
+    smartIndexResumeCta: '在设置中恢复',
     loadingArchive: '正在搜索历史记录',
     queryFailedTitle: '搜索失败',
     clearFilters: '清除筛选条件',
@@ -588,6 +651,8 @@ export const explorerNamespaceCatalog = {
     modeKeyword: '关键词',
     modeSemantic: '智能搜索',
     modeHybrid: '混合搜索',
+    // REACH-B：与“智能搜索”标签一致，hybrid 与旧版 semantic 别名统一标注。
+    modeSmart: '智能',
     viewModeLabel: '排列方式',
     viewModeTime: '时间',
     viewModeSession: '会话',
@@ -844,10 +909,13 @@ export const explorerNamespaceCatalog = {
       heroFiltersLabel: '筛选',
       heroModeKeyword: '关键词',
       heroModeRegex: '正则',
-      heroModeSemantic: '语义',
+      heroModeSmart: '智能搜索',
       heroModeHintKeyword: '精确匹配，可用引号和运算符。',
       heroModeHintRegex: 'Rust 正则,不支持前后瞻和反向引用。',
-      heroModeHintSemantic: '用自然语言提问;需要本地 embedding 模型。',
+      heroModeHintSmart: '用自然语言提问;按语义和关键词排序相关页面。',
+      heroModeHintSmartUnavailable:
+        '可在 设置 → AI 中配置 embedding 服务后开启。',
+      heroModeSmartUnavailableAria: '（不可用）',
       heroAddFilterDate: '+ 时间',
       heroAddFilterSource: '+ 来源',
       heroAddFilterDomain: '+ 域名',
@@ -870,6 +938,19 @@ export const explorerNamespaceCatalog = {
       enrichmentMatchLabel: '命中补充内容',
       enrichmentSourceGithub: 'GitHub',
       enrichmentSourceGeneric: '页面摘要',
+      relevanceRankedCount: '按相关度排序',
+      relevanceAskAssistant: '问问 AI 助手',
+      relevanceLoading: '正在查找相关页面…',
+      relevancePrevPage: '上一页',
+      relevanceNextPage: '下一页',
+      relevancePageSummary: '第 {page} 页',
+      // I2：诚实分页——在结果集内定位当前页,而非仅显示页码。
+      relevancePageSummaryRanked: '第 {page} 页 · 共 {total} 条排序结果',
+      relevanceMoreAvailable: '还有更多',
+      relevanceEndOfResults: '已到结尾',
+      // I3：排序标题上的覆盖范围 / 新鲜度提示(仅用真实数据,缺失则省略而非虚构)。
+      relevanceScopeIndexed: '已索引 {count} 个页面',
+      relevanceScopeUpdated: '更新于 {date}',
     },
   },
   'zh-TW': {
@@ -932,6 +1013,26 @@ export const explorerNamespaceCatalog = {
     noSemanticTitle: '沒有找到智慧比對結果',
     noSemanticDescription:
       '智慧搜尋沒有找到足夠吻合的結果。下方仍會顯示關鍵字搜尋結果。',
+    smartIndexEyebrow: '智慧索引',
+    smartIndexBuildTitle: '建立智慧搜尋索引',
+    smartIndexBuildBody:
+      '智慧搜尋還沒有可排序的內容。先建立一次索引以嵌入你的歷史紀錄;之後備份的新頁面會自動加入索引。',
+    smartIndexReadyBody:
+      '已索引 {count} 個頁面。大量匯入後可重建以保持結果新鮮。',
+    smartIndexBuildCta: '建立索引',
+    smartIndexBuildingCta: '正在建立…',
+    // REACH-B B1：即時建立階段文案,反映佇列狀態而非瞬時的入列呼叫。
+    smartIndexBuildingTitle: '正在建立智慧搜尋索引',
+    smartIndexBuildingBody:
+      '正在背景嵌入你的歷史紀錄。你可以繼續搜尋——索引的頁面越多,結果越好。',
+    smartIndexBuildingDetail:
+      '此工作在佇列中執行,對於大型封存可能需要一段時間。',
+    smartIndexQueuedTitle: '索引建立已排入佇列',
+    smartIndexQueuedBody: '你的建立工作正在佇列中等待,即將開始。索引尚未就緒。',
+    smartIndexPausedTitle: '索引建立已暫停',
+    smartIndexPausedBody:
+      '已有建立工作排入佇列,但智慧搜尋佇列處於暫停狀態,需恢復後才能完成。',
+    smartIndexResumeCta: '在設定中恢復',
     loadingArchive: '正在搜尋歷史紀錄',
     queryFailedTitle: '搜尋失敗',
     clearFilters: '清除篩選條件',
@@ -1005,6 +1106,8 @@ export const explorerNamespaceCatalog = {
     modeKeyword: '關鍵字',
     modeSemantic: '智慧搜尋',
     modeHybrid: '混合搜尋',
+    // REACH-B：與「智慧搜尋」分頁一致，hybrid 與舊版 semantic 別名統一標註。
+    modeSmart: '智慧',
     viewModeLabel: '排列方式',
     viewModeTime: '時間',
     viewModeSession: '會話',
@@ -1261,10 +1364,13 @@ export const explorerNamespaceCatalog = {
       heroFiltersLabel: '篩選',
       heroModeKeyword: '關鍵字',
       heroModeRegex: '正則',
-      heroModeSemantic: '語意',
+      heroModeSmart: '智慧搜尋',
       heroModeHintKeyword: '精確匹配，可用引號和運算符。',
       heroModeHintRegex: 'Rust 正則，不支援前後瞻和反向引用。',
-      heroModeHintSemantic: '用自然語言提問；需要本機 embedding 模型。',
+      heroModeHintSmart: '用自然語言提問；依語意和關鍵字排序相關頁面。',
+      heroModeHintSmartUnavailable:
+        '可在 設定 → AI 中設定 embedding 服務後開啟。',
+      heroModeSmartUnavailableAria: '（無法使用）',
       heroAddFilterDate: '+ 時間',
       heroAddFilterSource: '+ 來源',
       heroAddFilterDomain: '+ 網域',
@@ -1287,6 +1393,19 @@ export const explorerNamespaceCatalog = {
       enrichmentMatchLabel: '命中補充內容',
       enrichmentSourceGithub: 'GitHub',
       enrichmentSourceGeneric: '頁面摘要',
+      relevanceRankedCount: '依相關度排序',
+      relevanceAskAssistant: '問問 AI 助手',
+      relevanceLoading: '正在尋找相關頁面…',
+      relevancePrevPage: '上一頁',
+      relevanceNextPage: '下一頁',
+      relevancePageSummary: '第 {page} 頁',
+      // I2：誠實分頁——在結果集內定位目前頁,而非僅顯示頁碼。
+      relevancePageSummaryRanked: '第 {page} 頁 · 共 {total} 筆排序結果',
+      relevanceMoreAvailable: '還有更多',
+      relevanceEndOfResults: '已到結尾',
+      // I3：排序標題上的涵蓋範圍 / 新鮮度提示(僅用真實資料,缺漏則省略而非虛構)。
+      relevanceScopeIndexed: '已索引 {count} 個頁面',
+      relevanceScopeUpdated: '更新於 {date}',
     },
   },
 } as const

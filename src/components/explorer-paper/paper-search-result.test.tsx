@@ -380,4 +380,112 @@ describe('PaperSearchResult', () => {
     ).toBeVisible()
     expect(within(block).queryByText('GitHub')).toBeNull()
   })
+
+  test('renders the Smart match-reason caption when supplied', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({ matchReason: 'Lexical + semantic match' })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId="result-reason"
+      />,
+    )
+    expect(screen.getByTestId('result-reason-match-reason')).toHaveTextContent(
+      'Lexical + semantic match',
+    )
+  })
+
+  test('omits the match-reason caption when the entry has none (keyword row)', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId="result-no-reason"
+      />,
+    )
+    expect(screen.queryByTestId('result-no-reason-match-reason')).toBeNull()
+  })
+
+  test('renders the relevance band pill with its tone and label', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({
+          relevanceBand: { label: 'High confidence', tone: 'success' },
+        })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId="result-band"
+      />,
+    )
+    const band = screen.getByTestId('result-band-band')
+    expect(band).toHaveTextContent('High confidence')
+    expect(band).toHaveAttribute('data-tone', 'success')
+  })
+
+  test.each([
+    ['warning', 'Relevant'],
+    ['blocked', 'No score'],
+    ['info', 'Weak match'],
+  ] as const)('renders the band pill for the %s tone', (tone, label) => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry({ relevanceBand: { label, tone } })}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId={`result-band-${tone}`}
+      />,
+    )
+    expect(screen.getByTestId(`result-band-${tone}-band`)).toHaveTextContent(
+      label,
+    )
+  })
+
+  test('omits the band pill when the entry has no relevance band', () => {
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        testId="result-no-band"
+      />,
+    )
+    expect(screen.queryByTestId('result-no-band-band')).toBeNull()
+  })
+
+  test('Ask assistant fires its handler (Smart rows only) without selecting the row', () => {
+    const onSelect = vi.fn()
+    const onAskAssistant = vi.fn()
+    const entry = makeEntry({ matchReason: 'Semantic match' })
+    render(
+      <PaperSearchResult
+        entry={entry}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        onSelect={onSelect}
+        onAskAssistant={onAskAssistant}
+        askAssistantLabel="Ask assistant"
+        testId="result-ask"
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-result-ask-assistant'))
+    expect(onAskAssistant).toHaveBeenCalledWith(entry)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  test('Ask assistant is suppressed on a row without a match reason (keyword row)', () => {
+    const onAskAssistant = vi.fn()
+    render(
+      <PaperSearchResult
+        entry={makeEntry()}
+        domainColor="#24292e"
+        domainAbbr="GIT"
+        onAskAssistant={onAskAssistant}
+        askAssistantLabel="Ask assistant"
+        testId="result-no-ask"
+      />,
+    )
+    // No matchReason → the Smart-only Ask-assistant affordance never renders.
+    expect(screen.queryByTestId('paper-search-result-ask-assistant')).toBeNull()
+  })
 })

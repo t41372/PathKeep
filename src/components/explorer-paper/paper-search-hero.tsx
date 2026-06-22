@@ -34,7 +34,7 @@ import {
   type PaperAdvancedSearchHelpCopy,
 } from './paper-advanced-search-help'
 
-export type PaperSearchMode = 'keyword' | 'regex' | 'semantic'
+export type PaperSearchMode = 'keyword' | 'regex' | 'smart'
 
 export interface PaperSearchHeroCopy {
   prompt: string
@@ -43,11 +43,20 @@ export interface PaperSearchHeroCopy {
   filtersLabel: string
   modeKeyword: string
   modeRegex: string
-  modeSemantic: string
+  /** "Smart search" — the single AI mode (REACH-B; maps to ?mode=hybrid). */
+  modeSmart: string
   /** Mode-specific tail hints, e.g. "Match the exact words…" */
   modeHintKeyword: string
   modeHintRegex: string
-  modeHintSemantic: string
+  modeHintSmart: string
+  /**
+   * Hint shown on the Smart tab when AI is off / unavailable, replacing
+   * `modeHintSmart`. REACH-A's honest "available to turn on" vocabulary — the
+   * tab stays visible but disabled so Smart search is discoverable, not hidden.
+   */
+  modeHintSmartUnavailable: string
+  /** Aria suffix appended to the disabled Smart tab, e.g. "(unavailable)". */
+  modeSmartUnavailableAria: string
   /**
    * Add-chip prefixes: "+ Date", "+ Source", "+ Domain", "+ Visit
    * count" plus the §3.3 A annotations chips "+ Tag" / "+ Note".
@@ -98,6 +107,16 @@ export interface PaperSearchHeroProps {
   onSubmit?: (query: string) => void
   /** True when this hero owns first-paint focus (Search route default). */
   autoFocus?: boolean
+  /**
+   * Whether the Smart tab is selectable. When false (AI off / no embedding
+   * provider / index empty per REACH-A's `optionalAiAvailability`) the tab still
+   * renders — discoverable, REACH-A pattern — but is disabled and shows the
+   * `modeHintSmartUnavailable` hint. Defaults to true so non-AI callers (and the
+   * preview fixtures) keep the tab live. The route never lets Smart be the
+   * *active* mode while unavailable, so the disabled tab is only ever reached
+   * from another mode.
+   */
+  smartAvailable?: boolean
   copy: PaperSearchHeroCopy
   className?: string
   testId?: string
@@ -119,6 +138,7 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
     onAddNoteFilter,
     onSubmit,
     autoFocus = false,
+    smartAvailable = true,
     copy,
     className,
     testId,
@@ -143,7 +163,9 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
       ? copy.modeHintKeyword
       : mode === 'regex'
         ? copy.modeHintRegex
-        : copy.modeHintSemantic
+        : smartAvailable
+          ? copy.modeHintSmart
+          : copy.modeHintSmartUnavailable
 
   return (
     <section
@@ -183,9 +205,13 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
         >
           {(
             [
-              { value: 'keyword', label: copy.modeKeyword },
-              { value: 'regex', label: copy.modeRegex },
-              { value: 'semantic', label: copy.modeSemantic },
+              { value: 'keyword', label: copy.modeKeyword, disabled: false },
+              { value: 'regex', label: copy.modeRegex, disabled: false },
+              {
+                value: 'smart',
+                label: copy.modeSmart,
+                disabled: !smartAvailable,
+              },
             ] as const
           ).map((item, index) => (
             <button
@@ -193,14 +219,22 @@ export const PaperSearchHero = forwardRef(function PaperSearchHero(
               type="button"
               role="tab"
               aria-selected={mode === item.value}
+              aria-label={
+                item.disabled
+                  ? `${item.label} ${copy.modeSmartUnavailableAria}`
+                  : undefined
+              }
+              disabled={item.disabled}
+              data-testid={`paper-search-mode-${item.value}`}
               onClick={() => onModeChange(item.value)}
               className={cn(
                 'border-border-default font-mono text-[11px] tracking-[0.02em] px-[11px] py-[4px]',
                 'transition-colors duration-150',
                 index < 2 && 'border-r',
+                item.disabled && 'cursor-not-allowed opacity-40',
                 mode === item.value
                   ? 'bg-accent text-paper'
-                  : 'text-ink-muted bg-transparent hover:bg-hover hover:text-ink',
+                  : 'text-ink-muted bg-transparent enabled:hover:bg-hover enabled:hover:text-ink',
               )}
             >
               {item.label}

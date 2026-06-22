@@ -17,6 +17,8 @@
  * - Fixtures stay bounded to one history row and do not hit IPC.
  */
 
+import type { ReactNode } from 'react'
+import type * as IntelligenceAiPresentation from '../../lib/intelligence-ai-presentation'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -64,10 +66,16 @@ vi.mock('../../lib/i18n', () => ({
   }),
 }))
 
-vi.mock('../../lib/intelligence-ai-presentation', () => ({
-  aiStatusMeta: aiStatusMetaMock,
-  selectedAiProvider: selectedAiProviderMock,
-}))
+vi.mock('../../lib/intelligence-ai-presentation', async (importOriginal) => {
+  const actual = await importOriginal<typeof IntelligenceAiPresentation>()
+  return {
+    // `scoreBand` is pure + cheap, so the ranked-result adapter uses the real
+    // one (honest band labels); only the snapshot-derived helpers are stubbed.
+    scoreBand: actual.scoreBand,
+    aiStatusMeta: aiStatusMetaMock,
+    selectedAiProvider: selectedAiProviderMock,
+  }
+})
 
 vi.mock('../../lib/release-capabilities', () => ({
   get optionalAiFeaturesAvailable() {
@@ -132,10 +140,6 @@ vi.mock('./use-desktop-annotations', () => ({
 
 vi.mock('./panels/runtime-panel', () => ({
   ExplorerRuntimePanel: () => <div data-testid="runtime-panel">runtime</div>,
-}))
-
-vi.mock('./panels/semantic-panel', () => ({
-  ExplorerSemanticPanel: () => <div data-testid="semantic-panel">semantic</div>,
 }))
 
 vi.mock('./panels/session-group', () => ({
@@ -391,6 +395,20 @@ vi.mock('./paper-search-panel', () => ({
   PaperSearchPanel: (props: {
     entries: Array<{ id: number }>
     totalResults: number
+    rankedEntries?: Array<{ id: number | string; title: string }>
+    aiLoading?: boolean
+    aiError?: string | null
+    aiNotes?: readonly string[]
+    pagination?: {
+      prevDisabled: boolean
+      nextDisabled: boolean
+      onPrev: () => void
+      onNext: () => void
+      page: number
+    } | null
+    smartAvailable?: boolean
+    onAskAssistant?: (entry: { id: number | string; title: string }) => void
+    relevanceHeaderSlot?: ReactNode
     onQueryChange: (next: string) => void
     onModeChange: (next: { mode: string; regexMode: boolean }) => void
     onSubmit: (query: string) => void
@@ -411,10 +429,49 @@ vi.mock('./paper-search-panel', () => ({
       data-testid="paper-search-panel"
       data-search-entry-count={props.entries.length}
       data-search-total={props.totalResults}
+      data-search-ranked-count={props.rankedEntries?.length ?? 0}
+      data-search-ai-loading={String(props.aiLoading ?? false)}
+      data-search-ai-error={props.aiError ?? ''}
+      data-search-ai-notes={(props.aiNotes ?? []).join('|')}
+      data-search-smart-available={String(props.smartAvailable ?? false)}
       data-search-star={String(
         props.entryStar?.isStarred('https://example.com/result') ?? 'no-star',
       )}
     >
+      {/* The route mounts the compact index-status + Build CTA here in Smart
+          mode; render it so its onClick build handler is exercised. */}
+      {props.relevanceHeaderSlot ? (
+        <div data-testid="paper-search-relevance-header-slot">
+          {props.relevanceHeaderSlot}
+        </div>
+      ) : null}
+      {props.rankedEntries?.[0] && props.onAskAssistant ? (
+        <button
+          type="button"
+          data-testid="paper-search-ask-assistant"
+          onClick={() => props.onAskAssistant?.(props.rankedEntries![0])}
+        >
+          ask
+        </button>
+      ) : null}
+      {props.pagination ? (
+        <>
+          <button
+            type="button"
+            data-testid="paper-search-page-next"
+            onClick={() => props.pagination?.onNext()}
+          >
+            next
+          </button>
+          <button
+            type="button"
+            data-testid="paper-search-page-prev"
+            onClick={() => props.pagination?.onPrev()}
+          >
+            prev
+          </button>
+        </>
+      ) : null}
       <button
         type="button"
         data-testid="paper-search-toggle-star"
@@ -445,9 +502,7 @@ vi.mock('./paper-search-panel', () => ({
       <button
         type="button"
         data-testid="paper-search-mode"
-        onClick={() =>
-          props.onModeChange({ mode: 'semantic', regexMode: true })
-        }
+        onClick={() => props.onModeChange({ mode: 'hybrid', regexMode: true })}
       >
         mode
       </button>
@@ -728,7 +783,7 @@ describe('ExplorerPage route shell', () => {
     expect(updateParam).toHaveBeenCalledWith('q', 'next-query')
 
     await user.click(screen.getByTestId('paper-search-mode'))
-    expect(updateParam).toHaveBeenCalledWith('mode', 'semantic')
+    expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
     expect(updateParam).toHaveBeenCalledWith('regex', '1')
 
     await user.click(screen.getByTestId('paper-search-mode-keyword'))
@@ -751,6 +806,374 @@ describe('ExplorerPage route shell', () => {
     expect(nextParams.get('q')).toBeNull()
     expect(nextParams.get('surface')).toBeNull()
     expect(setSelectedId).toHaveBeenCalledWith(17)
+  })
+
+  test('Smart search surface feeds ranked AI results, build CTA, pagination, and Ask assistant into PaperSearchPanel', async () => {
+    const user = userEvent.setup()
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    const handleNextSemanticPage = vi.fn()
+    const handlePreviousSemanticPage = vi.fn()
+    const handleIndexAction = vi.fn()
+    const setSelectedId = vi.fn()
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          // A non-empty index → the build CTA renders in its "rebuild" copy
+          // rather than the empty-index prominence path.
+          aiStatus: { state: 'ready', indexedItems: 1280 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async runtime',
+        searchParams: new URLSearchParams('surface=search&q=async%20runtime'),
+        semanticQuery: { query: 'async runtime' },
+        semanticTrail: ['cursor-1'],
+        handleNextSemanticPage,
+        handlePreviousSemanticPage,
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          handleIndexAction,
+          setSelectedId,
+          // Pin the selection to the ranked row's real historyId so the detail
+          // panel resolves it via `aiItemToHistoryEntry` (valid title + visit
+          // time → the non-fallback branches).
+          selectedId: 501,
+          semanticState: {
+            error: null,
+            requestKey: options.semanticRequestKey,
+            results: {
+              total: 2,
+              providerId: 'embed-1',
+              model: 'text-embedding-3-small',
+              notes: ['Lexical-only fallback while AI warms up.'],
+              nextCursor: 'cursor-2',
+              items: [
+                {
+                  historyId: 501,
+                  profileId: 'chrome:Default',
+                  url: 'https://tokio.rs/internals',
+                  title: 'tokio internals',
+                  domain: 'tokio.rs',
+                  visitedAt: '2026-05-16T10:00:00.000Z',
+                  score: 0.92,
+                  matchReason: 'Lexical + semantic match',
+                },
+              ],
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    const panel = screen.getByTestId('paper-search-panel')
+    // Ranked AI results, notes, and smart availability all flow into the panel.
+    expect(panel.getAttribute('data-search-ranked-count')).toBe('1')
+    expect(panel.getAttribute('data-search-smart-available')).toBe('true')
+    expect(panel.getAttribute('data-search-ai-notes')).toContain(
+      'Lexical-only fallback',
+    )
+
+    // The compact index-status + Build CTA renders in-surface and builds the index.
+    const buildButton = screen.getByTestId('explorer-smart-build-index')
+    expect(buildButton).toBeVisible()
+    await user.click(buildButton)
+    expect(handleIndexAction).toHaveBeenCalledTimes(1)
+
+    // Prev/next cursor pagination drives the route's semantic-page handlers.
+    await user.click(screen.getByTestId('paper-search-page-next'))
+    expect(handleNextSemanticPage).toHaveBeenCalledWith('cursor-2')
+    await user.click(screen.getByTestId('paper-search-page-prev'))
+    expect(handlePreviousSemanticPage).toHaveBeenCalledTimes(1)
+
+    // Ask assistant on a ranked row navigates to /assistant with the prompt.
+    await user.click(screen.getByTestId('paper-search-ask-assistant'))
+    // (navigation is internal to MemoryRouter; the click must not throw.)
+  })
+
+  test('selecting a ranked Smart row opens the detail panel against the real history id', async () => {
+    const user = userEvent.setup()
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    const setSelectedId = vi.fn()
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 0 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          selectedId: 501,
+          setSelectedId,
+          semanticState: {
+            error: null,
+            requestKey: options.semanticRequestKey,
+            results: {
+              total: 1,
+              providerId: 'embed-1',
+              model: 'm',
+              notes: [],
+              nextCursor: null,
+              items: [
+                {
+                  historyId: 501,
+                  profileId: 'chrome:Default',
+                  url: 'https://tokio.rs/x',
+                  // A null title + unparseable visit time exercises both
+                  // `aiItemToHistoryEntry` fallbacks (title → url, NaN → 0).
+                  title: null,
+                  domain: 'tokio.rs',
+                  visitedAt: 'not-a-real-date',
+                  score: 0.5,
+                  matchReason: 'Semantic match',
+                },
+              ],
+            },
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    // Index empty → the build CTA shows its prominent "build the index" title.
+    expect(screen.getByText('explorer.smartIndexBuildTitle')).toBeVisible()
+
+    // Selecting the ranked row (real historyId 501) opens the detail panel:
+    // the route resolves the AI item → a HistoryEntry so the panel binds.
+    await user.click(screen.getByTestId('paper-search-select'))
+    // The mock select fires `onSelectEntry(7)`, but selectedId is pinned to 501
+    // (an AI row) so the detail mount resolves it from the ranked items.
+    expect(setSelectedId).toHaveBeenCalled()
+    expect(screen.getByTestId('paper-detail-mount')).toBeInTheDocument()
+  })
+
+  test('Smart surface shows the building-state CTA label and routes a semantic error through the above-results callout', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 42 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(
+      (options: Parameters<typeof defaultExplorerData>[0]) =>
+        defaultExplorerData(options, {
+          // An in-flight index build → the CTA renders its "Building…" label.
+          indexAction: 'Building index',
+          semanticState: {
+            // A Smart-mode backend error must flow through the above-results
+            // callout (so the composer never unmounts mid-error).
+            error: 'embedding provider timed out',
+            requestKey: options.semanticRequestKey,
+            results: null,
+          },
+        }),
+    )
+
+    renderExplorer()
+
+    const panel = screen.getByTestId('paper-search-panel')
+    // REACH-B B1: a just-clicked build (local `indexAction`) with no live queue
+    // counts yet is honestly the QUEUED phase — the CTA must NOT flip back to the
+    // "ready / N indexed" copy on a bare enqueue. The disabled "Building…" label
+    // signals the build is pending, and the queued callout title is shown.
+    expect(screen.getByText('explorer.smartIndexQueuedTitle')).toBeVisible()
+    expect(screen.getByTestId('explorer-smart-build-index')).toHaveTextContent(
+      'explorer.smartIndexBuildingCta',
+    )
+    expect(screen.getByTestId('explorer-smart-build-index')).toBeDisabled()
+    // The semantic error is handed to the panel's above-results callout slot.
+    expect(panel.getAttribute('data-search-ai-error')).toBe(
+      'embedding provider timed out',
+    )
+    expect(screen.getByTestId('paper-search-callout-body')).toHaveTextContent(
+      'embedding provider timed out',
+    )
+  })
+
+  test('B1: a running backfill shows live queue progress and polls on a bounded interval', () => {
+    vi.useFakeTimers()
+    try {
+      optionalAiFeaturesAvailableState.value = true
+      selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+      const refreshRuntimeStatus = vi.fn().mockResolvedValue(undefined)
+      useShellDataMock.mockReturnValue(
+        defaultShellData({
+          refreshRuntimeStatus,
+          // A live queue with a running index job → the in-surface status must
+          // reflect the build, not the (instant) enqueue.
+          runtimeStatus: {
+            aiQueue: {
+              paused: false,
+              concurrency: 1,
+              queued: 4,
+              running: 1,
+              failed: 0,
+              recentJobs: [],
+            },
+            error: null,
+            intelligence: null,
+            loading: false,
+          },
+          snapshot: {
+            ...defaultShellData().snapshot,
+            aiStatus: { state: 'rebuilding', indexedItems: 12 },
+          },
+        }),
+      )
+      useExplorerUrlStateMock.mockReturnValue(
+        defaultUrlState({
+          mode: 'hybrid',
+          queryInput: 'async',
+          searchParams: new URLSearchParams('surface=search&q=async'),
+          semanticQuery: { query: 'async' },
+        }),
+      )
+      useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+      const { unmount } = renderExplorer()
+
+      // Live progress: the building title + the real queued/running counts via
+      // the shared LoadingState progress (no fabricated percent).
+      expect(screen.getByText('explorer.smartIndexBuildingTitle')).toBeVisible()
+      // The route i18n mock drops params, so assert the queue-derived progress
+      // label is wired (the queued/running interpolation is covered by the
+      // SmartIndexStatusCallout component test, which uses an echo translator).
+      const progress = screen.getByTestId('explorer-smart-build-progress')
+      expect(progress).toHaveTextContent('explorer.queueProgressLabel')
+      // The CTA is disabled (no double-enqueue) while building.
+      expect(screen.getByTestId('explorer-smart-build-index')).toBeDisabled()
+
+      // Bounded poll: the interval ticks `refreshRuntimeStatus` while building.
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(4000)
+      expect(refreshRuntimeStatus).toHaveBeenCalledTimes(1)
+      vi.advanceTimersByTime(4000)
+      expect(refreshRuntimeStatus).toHaveBeenCalledTimes(2)
+
+      // Unmount clears the interval — no leaked poll after the route is gone.
+      unmount()
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(12000)
+      expect(refreshRuntimeStatus).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('B1: an idle (non-building) Smart surface does not poll the queue', () => {
+    vi.useFakeTimers()
+    try {
+      optionalAiFeaturesAvailableState.value = true
+      selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+      const refreshRuntimeStatus = vi.fn().mockResolvedValue(undefined)
+      useShellDataMock.mockReturnValue(
+        defaultShellData({
+          refreshRuntimeStatus,
+          snapshot: {
+            ...defaultShellData().snapshot,
+            // Ready index, nothing queued/running → no build in flight.
+            aiStatus: { state: 'ready', indexedItems: 900 },
+          },
+        }),
+      )
+      useExplorerUrlStateMock.mockReturnValue(
+        defaultUrlState({
+          mode: 'hybrid',
+          queryInput: 'async',
+          searchParams: new URLSearchParams('surface=search&q=async'),
+          semanticQuery: { query: 'async' },
+        }),
+      )
+      useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+      renderExplorer()
+
+      // The ready state shows the AI status label + indexed count, not a build.
+      expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+      // No poll runs when nothing is building.
+      refreshRuntimeStatus.mockClear()
+      vi.advanceTimersByTime(12000)
+      expect(refreshRuntimeStatus).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('B1: a paused queue with an enqueued build points the user to resume', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        runtimeStatus: {
+          aiQueue: {
+            paused: true,
+            concurrency: 1,
+            queued: 2,
+            running: 0,
+            failed: 0,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 3 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    renderExplorer()
+
+    expect(screen.getByText('explorer.smartIndexPausedTitle')).toBeVisible()
+    const resume = screen.getByTestId('explorer-smart-resume-index')
+    expect(resume).toHaveAttribute('href', '/settings#settings-ai')
+    // Honest: a paused-but-enqueued build never shows the "building" progress.
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
   })
 
   test('PaperExplorerView callbacks drive the route selection + url-state setters', async () => {
@@ -1279,6 +1702,49 @@ describe('ExplorerPage route shell', () => {
     )
     rerender(<ExplorerWrapper />)
     expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+  })
+
+  test('AI-off + ?mode=hybrid deep link surfaces the honest repair callout, not an unexplained empty list', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    // AI is switched off entirely while the URL asks for the Smart surface.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 0 },
+          config: {
+            ...defaultShellData().snapshot.config,
+            ai: {
+              ...defaultShellData().snapshot.config.ai,
+              enabled: false,
+              semanticIndexEnabled: true,
+            },
+          },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    renderExplorer()
+
+    // The honest "AI off → configure in Settings" callout is surfaced.
+    expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toHaveAttribute('href', '/settings#settings-ai')
+    // Smart is unavailable, so the in-surface build/status CTA is NOT shown
+    // (no orphan "build index" affordance dangling under an unexplained list).
+    expect(screen.queryByTestId('explorer-smart-build-index')).toBeNull()
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
   })
 })
 

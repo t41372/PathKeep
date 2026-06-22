@@ -194,8 +194,9 @@ describe('useExplorerUrlState', () => {
       JSON.parse(window.localStorage.getItem(recentSearchesStorageKey) ?? '[]'),
     ).toEqual([
       expect.objectContaining({
+        // L-2: the unified "Smart" vocabulary covers the legacy `semantic` alias.
         label:
-          'Semantic · Enabled · sqlite · example.com · Chrome · Default · Chrome · Apr 1 - Apr 20',
+          'Smart · Enabled · sqlite · example.com · Chrome · Default · Chrome · Apr 1 - Apr 20',
         params: expect.objectContaining({ q: 'sqlite', sort: 'newest' }),
       }),
     ])

@@ -14,10 +14,12 @@ const COPY: PaperSearchHeroCopy = {
   filtersLabel: 'Filters',
   modeKeyword: 'keyword',
   modeRegex: 'regex',
-  modeSemantic: 'semantic',
+  modeSmart: 'smart',
   modeHintKeyword: 'Match the exact words.',
   modeHintRegex: 'JavaScript regex.',
-  modeHintSemantic: 'Meaning, not just words.',
+  modeHintSmart: 'Meaning, not just words.',
+  modeHintSmartUnavailable: 'Turn it on in Settings.',
+  modeSmartUnavailableAria: '(unavailable)',
   addFilterDate: '+ Date',
   addFilterSource: '+ Source',
   addFilterDomain: '+ Domain',
@@ -60,7 +62,7 @@ describe('PaperSearchHero', () => {
     expect(screen.getByTestId('paper-search-input')).toBeVisible()
     expect(screen.getByRole('tab', { name: 'keyword' })).toBeVisible()
     expect(screen.getByRole('tab', { name: 'regex' })).toBeVisible()
-    expect(screen.getByRole('tab', { name: 'semantic' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: 'smart' })).toBeVisible()
     expect(screen.getByTestId('paper-search-mode-hint')).toHaveTextContent(
       'Match the exact words.',
     )
@@ -162,17 +164,17 @@ describe('PaperSearchHero', () => {
     )
 
     const keyword = screen.getByRole('tab', { name: 'keyword' })
-    const semantic = screen.getByRole('tab', { name: 'semantic' })
+    const smart = screen.getByRole('tab', { name: 'smart' })
     expect(keyword.getAttribute('aria-selected')).toBe('true')
-    expect(semantic.getAttribute('aria-selected')).toBe('false')
+    expect(smart.getAttribute('aria-selected')).toBe('false')
 
-    fireEvent.click(semantic)
-    expect(onModeChange).toHaveBeenCalledWith('semantic')
+    fireEvent.click(smart)
+    expect(onModeChange).toHaveBeenCalledWith('smart')
 
     rerender(
       <PaperSearchHero
         query=""
-        mode="semantic"
+        mode="smart"
         activeFilters={[]}
         onQueryChange={() => {}}
         onModeChange={onModeChange}
@@ -181,12 +183,59 @@ describe('PaperSearchHero', () => {
       />,
     )
     expect(
-      screen
-        .getByRole('tab', { name: 'semantic' })
-        .getAttribute('aria-selected'),
+      screen.getByRole('tab', { name: 'smart' }).getAttribute('aria-selected'),
     ).toBe('true')
     expect(screen.getByTestId('paper-search-mode-hint')).toHaveTextContent(
       'Meaning, not just words.',
+    )
+  })
+
+  test('Smart tab is disabled and shows the unavailable hint when smartAvailable is false', () => {
+    const onModeChange = vi.fn()
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={onModeChange}
+        onRemoveFilter={() => {}}
+        smartAvailable={false}
+        copy={COPY}
+      />,
+    )
+
+    const smart = screen.getByTestId<HTMLButtonElement>(
+      'paper-search-mode-smart',
+    )
+    // Still visible (REACH-A "available to turn on" discoverability) but disabled.
+    expect(smart).toBeVisible()
+    expect(smart.disabled).toBe(true)
+    expect(smart).toHaveAttribute('aria-label', 'smart (unavailable)')
+    // A disabled tab swallows the click so it never flips the active mode.
+    fireEvent.click(smart)
+    expect(onModeChange).not.toHaveBeenCalled()
+    // The keyword-mode hero reads the unavailable hint on its Smart tab.
+    expect(screen.getByTestId('paper-search-mode-hint')).toHaveTextContent(
+      'Match the exact words.',
+    )
+  })
+
+  test('an active Smart mode that becomes unavailable shows the unavailable hint', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="smart"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        smartAvailable={false}
+        copy={COPY}
+      />,
+    )
+    expect(screen.getByTestId('paper-search-mode-hint')).toHaveTextContent(
+      'Turn it on in Settings.',
     )
   })
 

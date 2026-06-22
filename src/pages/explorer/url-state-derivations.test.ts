@@ -291,7 +291,9 @@ describe('explorer url-state derivations', () => {
       }),
     ).toEqual([
       { id: 'q', label: 'KEYWORD', value: 'sqlite' },
-      { id: 'mode', label: 'MODE', value: 'Hybrid' },
+      // L-2: the unified tab is "Smart search", so the mode chip says "Smart"
+      // for both `hybrid` and the legacy `semantic` alias.
+      { id: 'mode', label: 'MODE', value: 'Smart' },
       { id: 'view', label: 'View by', value: 'Search Trail' },
       { id: 'regex', label: 'REGEX', value: 'Enabled' },
       { id: 'domain', label: 'DOMAIN', value: 'example.com' },
@@ -330,7 +332,8 @@ describe('explorer url-state derivations', () => {
         view: 'session',
       }),
     ).toEqual([
-      { id: 'mode', label: 'MODE', value: 'Semantic' },
+      // L-2: the legacy `semantic` alias also surfaces as "Smart" now.
+      { id: 'mode', label: 'MODE', value: 'Smart' },
       { id: 'view', label: 'View by', value: 'Session' },
     ])
   })
@@ -358,7 +361,8 @@ describe('explorer url-state derivations', () => {
     })
 
     expect(label).toBe(
-      'Semantic · Session · Enabled · sqlite · example.com · Default Profile · Chrome · Apr 1 - Apr 20',
+      // L-2: recent-search chips share the unified "Smart" vocabulary.
+      'Smart · Session · Enabled · sqlite · example.com · Default Profile · Chrome · Apr 1 - Apr 20',
     )
 
     const fallbackDateLabel = buildExplorerRecentSearchLabel({
@@ -376,9 +380,7 @@ describe('explorer url-state derivations', () => {
         end: '2026-04-20',
       },
     })
-    expect(fallbackDateLabel).toBe(
-      'Hybrid · Search Trail · All time - All time',
-    )
+    expect(fallbackDateLabel).toBe('Smart · Search Trail · All time - All time')
 
     const bareKeywordLabel = buildExplorerRecentSearchLabel({
       explorerT,

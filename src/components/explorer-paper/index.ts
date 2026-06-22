@@ -185,6 +185,7 @@ export { PaperSearchView } from './paper-search-view'
 export type {
   PaperSearchViewCopy,
   PaperSearchViewDayGroup,
+  PaperSearchViewPagination,
   PaperSearchViewProps,
 } from './paper-search-view'
 
