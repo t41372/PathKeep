@@ -124,6 +124,19 @@ pub(crate) fn build_ai_index(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Returns a read-only cost/time estimate for a re-embed run of the given scope (W-AI-9 Sub-block D).
+///
+/// No model load, no embedding, no network: it sizes the work (bounded working-set length or unique
+/// page count) so the FE can show the cost BEFORE the user fires a re-embed (PME).
+pub(crate) fn estimate_reembed(
+    scope: vault_core::ReembedScope,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ReembedEstimate, String> {
+    worker_bridge::estimate_reembed_impl(scope, state.get_key().as_deref())
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Runs semantic-plus-lexical search over visible archive history.
 pub(crate) fn search_ai_history(
     request: vault_core::AiSearchRequest,

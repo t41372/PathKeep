@@ -715,6 +715,7 @@ mod tests {
             "candle:qwen3",
             "Qwen/Qwen3-Embedding-0.6B-GGUF",
             "Q8_0",
+            false,
         );
         let any = AnyEmbeddingProvider::Candle(Box::new(provider));
         // The candle model id carries the quant so a quant swap invalidates the fingerprint.

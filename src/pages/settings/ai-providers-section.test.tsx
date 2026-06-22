@@ -698,6 +698,7 @@ function handlerFixture() {
     onSelectProvider: vi.fn(),
     onToggleAi: vi.fn(),
     onToggleAssistant: vi.fn(),
+    onToggleGpu: vi.fn(),
     onToggleMcp: vi.fn(),
     onToggleSkill: vi.fn(),
     onToggleSemanticIndex: vi.fn(),

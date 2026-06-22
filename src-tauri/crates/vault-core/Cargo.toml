@@ -4,10 +4,35 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
+# --- Cargo features (W-AI-9 Sub-block D) ---------------------------------------------------------
+# DEFAULT is CPU-only: no candle accelerator feature is enabled, so the default build COMPILES zero
+# of the metal crates (`cargo tree -e features` on default features shows no `candle-metal-kernels`).
+# CI / `bun run verify` build default features only.
+#
+# REPRODUCIBILITY NOTE (judgment call, flagged in the W-AI-9-D closeout): merely DEFINING the `metal`
+# feature records its reachable crates (`candle-metal-kernels`, `objc2-metal`, `gemm 0.19`, …) in
+# `Cargo.lock`, because Cargo's lock captures the union of all feature-reachable deps — exactly like
+# the off-by-default `devtools-bridge` feature already records `axum`/`tower-http` in this repo's
+# lock. The default build still resolves+compiles NONE of them; only the lock GAINS the optional
+# (unbuilt) graph. A literally byte-unchanged lock is unachievable for any real cargo feature that
+# gates extra crates, so the reproducibility contract is met in substance (zero new compiled crates
+# in default/CI), not in lock bytes.
+[features]
+default = []
+# `metal` — opt-in Apple-Silicon Metal backend across the three candle crates (05 §7). OFF in
+# default/coverage/CI: Metal cannot run on the CI box (no GPU), and the metal crates only enter the
+# build graph under `--features metal`. The runtime `gpu_enabled` flag, the honest "needs a Metal
+# build" UX, the re-embed trigger, and the cost estimator all live in the DEFAULT build and are fully
+# covered; only the `Device::new_metal(0)` call site is compiled out (see `ai/embedding_candle.rs`
+# `select_device`). A future Metal CI lane that builds `--features metal` MUST re-run
+# `cargo deny check`, since the metal crates only enter the dependency graph there.
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+
 [dependencies]
 anyhow.workspace = true
 browser-history-parser = { version = "0.1.0", path = "../browser-history-parser" }
-# candle in-app embedding engine (W-AI-4b): CPU-only, default features (no accelerate/mkl/cuda/metal).
+# candle in-app embedding engine (W-AI-4b): CPU-only by DEFAULT (no accelerate/mkl/cuda/metal). The
+# Apple-Silicon Metal backend is the opt-in `metal` feature above — still OFF in default/CI builds.
 candle-core.workspace = true
 candle-nn.workspace = true
 candle-transformers.workspace = true

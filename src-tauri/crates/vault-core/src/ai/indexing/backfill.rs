@@ -19,7 +19,48 @@ use super::store_rows::{
     validate_embedding_batch_for_keys,
 };
 use super::{BackfillOutcome, IndexedVisit};
+use crate::models::ReembedScope;
 use std::collections::HashSet;
+
+/// Chrome-epoch offset in milliseconds (`urls.last_visit_ms` is Chrome-epoch ms).
+const CHROME_EPOCH_OFFSET_MS: i64 = 11_644_473_600_000;
+
+/// Resolves the WorkingSet scope filter: the canonical URLs of the bounded heavy-tier working set.
+///
+/// `WorkingSet` → `Some(set)` of canonical URLs (one per page) from [`select_working_set`], which is
+/// itself hard-capped at [`MAX_WORKING_SET`] (so this is BOUNDED, never a 14.4M scan). `Incremental` /
+/// `Full` → `None`, meaning "no scope filter — touch every candidate". Computed once per backfill, so
+/// the per-chunk membership test below is a cheap canonical-URL set lookup.
+fn working_set_canonical_urls(
+    connection: &Connection,
+    scope: ReembedScope,
+) -> Result<Option<HashSet<String>>> {
+    if scope != ReembedScope::WorkingSet {
+        return Ok(None);
+    }
+    let now_ms = chrono::Utc::now().timestamp_millis() + CHROME_EPOCH_OFFSET_MS;
+    let candidates = super::super::select_working_set(
+        connection,
+        &super::super::WorkingSetConfig::default(),
+        now_ms,
+        super::super::MAX_WORKING_SET,
+    )?;
+    Ok(Some(candidates.into_iter().map(|candidate| candidate.canonical_url).collect()))
+}
+
+/// Whether a candidate visit's page is inside the (optional) WorkingSet scope filter.
+///
+/// `None` filter (Incremental/Full) → always `true` (no restriction). With a filter, the visit's raw
+/// url is canonicalized the SAME way [`select_working_set`] keys its candidates so a tracking-param /
+/// host-casing variant still matches its page; an unparseable url is treated as NOT in the set (it was
+/// never a working-set member). PURE → unit-tested for both the no-filter and filtered branches.
+fn visit_in_working_set(filter: &Option<HashSet<String>>, raw_url: &str) -> bool {
+    match filter {
+        None => true,
+        Some(set) => crate::visit_taxonomy::normalize_visit_url(raw_url)
+            .is_some_and(|normalized| set.contains(&normalized.canonical_url)),
+    }
+}
 
 /// Builds or refreshes the semantic sidecar for one embedding provider.
 ///
@@ -96,8 +137,18 @@ pub async fn build_ai_index_with_control(
     // to false in the persisted payload once the first cursor is recorded, so a re-claim never sees
     // a destructive full_rebuild again; this `start_history_id` gate is the in-process backstop.
     let is_resume = start_history_id > 0;
-    let wipe_requested = request.full_rebuild || request.clear_only;
+    // `ReembedScope::Full` carries full-rebuild semantics (wipe the plane, embed all unique pages),
+    // so it triggers the one-shot wipe exactly like the legacy `full_rebuild` flag (W-AI-9-D). The
+    // WorkingSet/Incremental scopes never wipe — they append/update.
+    let scope_requests_full_rebuild = request.scope == ReembedScope::Full;
+    // The effective full-rebuild signal: the legacy flag OR a `Full` scope. Drives the plane wipe and
+    // the sidecar full-rebuild bookkeeping so a `Full` re-embed behaves identically to `full_rebuild`.
+    let full_rebuild = request.full_rebuild || scope_requests_full_rebuild;
+    let wipe_requested = full_rebuild || request.clear_only;
     let perform_wipe = wipe_requested && !is_resume;
+    // The Metal heavy-tier opt-in (W-AI-9-D): only changes the candle forward-pass device in a
+    // `metal` build; INERT (CPU) otherwise and never affects the vectors/fingerprint.
+    let gpu_enabled = config.ai.gpu_enabled;
 
     let result: Result<AiIndexReport> = async {
         let run_control = run_control.as_ref();
@@ -150,7 +201,7 @@ pub async fn build_ai_index_with_control(
         // ONLY at the true start of the job. On a resume the partial store must survive so the
         // backfill appends to it instead of deleting the rows it already embedded (CRITICAL-1). The
         // visit→content map (W-AI-4c) is reset alongside the store so the two planes stay consistent.
-        if request.full_rebuild && !is_resume {
+        if full_rebuild && !is_resume {
             VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model)
                 .delete()?;
             VisitContentMap::for_provider(
@@ -180,6 +231,7 @@ pub async fn build_ai_index_with_control(
             start_history_id,
             ledger.as_ref(),
             perform_wipe,
+            gpu_enabled,
         )
         .await?;
 
@@ -194,7 +246,7 @@ pub async fn build_ai_index_with_control(
                 &provider.config.id,
                 &provider.config.default_model,
                 &[],
-                request.full_rebuild,
+                full_rebuild,
                 false,
                 &stale_history_ids,
             ),
@@ -431,10 +483,18 @@ async fn run_embedding_backfill(
     start_history_id: i64,
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
+    gpu_enabled: bool,
 ) -> Result<BackfillOutcome> {
     // Config-driven engine selection: static (W-AI-4c) / candle (W-AI-4b) / external `/v1/embeddings`.
-    // The loop below is engine-agnostic.
-    let embedder = super::super::embedding_candle::select_embedding_provider(paths, provider)?;
+    // The loop below is engine-agnostic. `gpu_enabled` is the heavy-tier Metal opt-in (W-AI-9-D); it
+    // only changes the candle forward-pass device in a `metal` build and never the vectors/fingerprint.
+    let embedder =
+        super::super::embedding_candle::select_embedding_provider(paths, provider, gpu_enabled)?;
+    // WorkingSet scope filters this run's candidates to the BOUNDED heavy-tier set; Incremental/Full
+    // touch every candidate (Full's wipe is driven by `perform_wipe`, set by the caller). Computed
+    // ONCE up front (bounded `select_working_set`, hard-capped at MAX_WORKING_SET), then matched per
+    // chunk by canonical URL — `None` means "no scope filter" (Incremental/Full).
+    let working_set_filter = working_set_canonical_urls(connection, request.scope)?;
     let limit = request.limit.map(|value| value as usize);
     let mut outcome = BackfillOutcome::default();
     // The store is resolved lazily on the first chunk that actually embeds rows, once the real dim
@@ -474,8 +534,14 @@ async fn run_embedding_backfill(
         // next pass never re-scans this id range.
         cursor = last_history_id + 1;
 
-        let changed: Vec<&IndexedVisit> =
-            chunk.iter().filter(|visit| visit.needs_embedding).collect();
+        let changed: Vec<&IndexedVisit> = chunk
+            .iter()
+            .filter(|visit| visit.needs_embedding)
+            // WorkingSet scope: keep only candidates whose page is in the bounded working set. A
+            // `None` filter (Incremental/Full) keeps everything. Pages outside the set are counted as
+            // skipped below, exactly like an unchanged page — the loop body is otherwise unchanged.
+            .filter(|visit| visit_in_working_set(&working_set_filter, &visit.url))
+            .collect();
         outcome.skipped_items += chunk.len() - changed.len();
 
         if !changed.is_empty() {
@@ -622,6 +688,31 @@ mod tests {
             content_hash: content_hash.to_string(),
             needs_embedding: true,
         }
+    }
+
+    #[test]
+    fn visit_in_working_set_passes_everything_when_no_filter() {
+        // Incremental/Full → `None` filter → every candidate passes (no scope restriction).
+        assert!(visit_in_working_set(&None, "https://anything.example/x"));
+        assert!(visit_in_working_set(&None, "not a url"));
+    }
+
+    #[test]
+    fn visit_in_working_set_matches_by_canonical_url() {
+        // WorkingSet → only candidates whose CANONICAL url is in the set pass; a tracking-param variant
+        // of a member still matches (canonicalized the same way the selector keys members), and an
+        // unparseable url is treated as a non-member rather than crashing.
+        let canonical = crate::visit_taxonomy::normalize_visit_url("https://example.com/page")
+            .expect("canonical")
+            .canonical_url;
+        let filter = Some(HashSet::from([canonical]));
+        assert!(visit_in_working_set(&filter, "https://example.com/page"));
+        assert!(
+            visit_in_working_set(&filter, "https://example.com/page?utm_source=ad"),
+            "a tracking-param variant of a member matches its canonical url"
+        );
+        assert!(!visit_in_working_set(&filter, "https://other.example/page"));
+        assert!(!visit_in_working_set(&filter, "::: not a url :::"));
     }
 
     #[test]

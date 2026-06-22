@@ -280,6 +280,18 @@ export function useSettingsAiState({
     updateAiDraft((current) => resetSearchTuningKnobs(current))
   }
 
+  // GPU heavy-tier opt-in (W-AI-9 Sub-block D). Hard-default-OFF; mutates ONLY the
+  // draft, never cascades from the master. We persist the draft REGARDLESS of
+  // whether this binary is a Metal build, so a future Metal build honors the
+  // saved preference — the section renders the honest "needs a Metal build" state
+  // when the backend reports `gpuAvailable: false`, never a green toggle that lies.
+  function handleGpuEnabledToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      gpuEnabled: !current.gpuEnabled,
+    }))
+  }
+
   function handleAddProvider(
     purpose: 'llm' | 'embedding',
     format: AiRequestFormat = purpose === 'llm' ? 'lm-studio' : 'ollama',
@@ -524,6 +536,7 @@ export function useSettingsAiState({
       onSelectProvider: handleSelectProvider,
       onToggleAi: handleAiToggle,
       onToggleAssistant: handleAssistantToggle,
+      onToggleGpu: handleGpuEnabledToggle,
       onToggleMcp: handleMcpToggle,
       onToggleSkill: handleSkillToggle,
       onToggleSemanticIndex: handleSemanticIndexToggle,

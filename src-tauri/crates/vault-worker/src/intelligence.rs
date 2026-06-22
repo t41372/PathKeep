@@ -60,9 +60,9 @@ pub use self::agent_store::{
 };
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
-    ask_ai_assistant, build_ai_index_now, cancel_ai_job, load_ai_assistant_job, load_ai_queue,
-    preview_ai_integration_files, replay_ai_job, run_ai_queue_jobs, search_ai_history,
-    test_ai_provider_connection_report,
+    ask_ai_assistant, build_ai_index_now, cancel_ai_job, estimate_reembed_now,
+    load_ai_assistant_job, load_ai_queue, preview_ai_integration_files, replay_ai_job,
+    run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
 #[cfg(all(test, coverage))]
 pub(crate) use self::ai_queue::{

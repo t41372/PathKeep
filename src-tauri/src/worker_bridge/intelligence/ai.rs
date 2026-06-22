@@ -110,6 +110,15 @@ pub(crate) fn build_ai_index_impl(
     worker_result(vault_worker::build_ai_index_now(session_database_key, &request))
 }
 
+#[cfg_attr(test, allow(dead_code))]
+/// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D) — read-only.
+pub(crate) fn estimate_reembed_impl(
+    scope: vault_core::ReembedScope,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::ReembedEstimate, String> {
+    worker_result(vault_worker::estimate_reembed_now(session_database_key, scope))
+}
+
 /// Runs semantic-plus-lexical search through the worker layer.
 pub(crate) fn search_ai_history_impl(
     request: AiSearchRequest,

@@ -143,8 +143,8 @@ pub use self::vector_planes::{
 pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
 pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
 pub use self::working_set::{
-    CandidateSignals, MAX_WORKING_SET, WorkingSetCandidate, WorkingSetConfig, score_candidate,
-    select_working_set,
+    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, MAX_WORKING_SET, METAL_SPEEDUP, WorkingSetCandidate,
+    WorkingSetConfig, estimate_reembed, reembed_estimate_for, score_candidate, select_working_set,
 };
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};

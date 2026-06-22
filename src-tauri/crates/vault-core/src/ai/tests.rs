@@ -1310,12 +1310,7 @@ fn index_clear_only_and_sqlite_mirror_helpers_cover_stale_rows() {
             &config,
             None,
             &provider,
-            &AiIndexRequest {
-                provider_id: None,
-                full_rebuild: false,
-                clear_only: true,
-                limit: None,
-            },
+            &AiIndexRequest { clear_only: true, ..AiIndexRequest::default() },
         ))
         .expect("clear semantic index");
     assert_eq!(report.indexed_items, 0);
@@ -1414,12 +1409,7 @@ fn build_ai_index_returns_without_network_when_no_candidates_exist() {
             &config,
             None,
             &embedding_provider(),
-            &AiIndexRequest {
-                provider_id: None,
-                full_rebuild: true,
-                clear_only: false,
-                limit: Some(5),
-            },
+            &AiIndexRequest { full_rebuild: true, limit: Some(5), ..AiIndexRequest::default() },
         ))
         .expect("empty build");
     assert_eq!(report.indexed_items, 0);
@@ -1645,6 +1635,131 @@ fn select_working_set_marks_domain_starred_pages() {
     .expect("select");
     let github = candidates.iter().find(|c| c.canonical_url.contains("github.com")).unwrap();
     assert!(github.signals.starred, "a page on a starred domain inherits the starred signal");
+}
+
+#[test]
+fn estimate_reembed_full_counts_unique_pages_and_sizes_cost() {
+    // W-AI-9-D: a Full re-embed estimate counts unique pages (`COUNT(*) FROM urls`) and applies the
+    // S1 throughput constants. Three seeded pages → 3 / 1.25 / 60 CPU minutes, GPU = /10.
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/a", Some("A"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/b", Some("B"), 2);
+    seed_visit(&connection, 3, "chrome:Default", "https://example.com/c", Some("C"), 3);
+    drop(connection);
+
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    let estimate = crate::estimate_reembed(
+        &archive,
+        &crate::WorkingSetConfig::default(),
+        1_000_000_000_000,
+        crate::ReembedScope::Full,
+    )
+    .expect("estimate full");
+    assert_eq!(estimate.scope, crate::ReembedScope::Full);
+    assert_eq!(estimate.page_count, 3);
+    assert!((estimate.est_minutes_cpu - 3.0 / 1.25 / 60.0).abs() < 1e-9);
+    assert!((estimate.est_minutes_gpu - estimate.est_minutes_cpu / 10.0).abs() < 1e-9);
+    // Honest: in this CPU-only coverage build the GPU path is unavailable.
+    assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
+}
+
+#[test]
+fn estimate_reembed_working_set_counts_only_the_bounded_set() {
+    // The WorkingSet estimate counts only the bounded working set: here one starred page is a member,
+    // a cold page (no signal) is not — so the estimate's page_count is 1, not the whole archive.
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://starred.com/page", Some("Star"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://cold.com/page", Some("Cold"), 2);
+    // `seed_visit` gives every page visit_count=1 (a frequency signal). Zero the cold page's count so
+    // it has NO active signal and is genuinely outside the working set (the starred page is the lone
+    // member). An old last_visit keeps it out of the recency window too.
+    connection
+        .execute("UPDATE archive.urls SET visit_count = 0, last_visit_ms = 1 WHERE id = 2", [])
+        .expect("zero cold page");
+    drop(connection);
+
+    let archive = open_archive_connection(&paths, &config, None).expect("archive");
+    archive
+        .execute(
+            "INSERT INTO star (entity_kind, entity_key, starred_at) VALUES ('url', 'https://starred.com/page', '2026-01-01')",
+            [],
+        )
+        .expect("star");
+
+    let estimate = crate::estimate_reembed(
+        &archive,
+        &crate::WorkingSetConfig::default(),
+        1_000_000_000_000,
+        crate::ReembedScope::WorkingSet,
+    )
+    .expect("estimate working set");
+    assert_eq!(estimate.scope, crate::ReembedScope::WorkingSet);
+    assert_eq!(estimate.page_count, 1, "only the starred page is a working-set member");
+}
+
+#[test]
+fn build_ai_index_working_set_scope_embeds_only_working_set_pages() {
+    // W-AI-9-D: a WorkingSet re-embed touches ONLY the bounded heavy-tier set. The starred page is
+    // embedded; the cold (no-signal) page is skipped even though it is a fresh candidate.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://starred.com/page", Some("Star"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://cold.com/page", Some("Cold"), 2);
+    // Zero the cold page's signals (see the estimate test) so it is genuinely outside the working set.
+    connection
+        .execute("UPDATE archive.urls SET visit_count = 0, last_visit_ms = 1 WHERE id = 2", [])
+        .expect("zero cold page");
+    // Star page 1 so it (and only it) is in the working set.
+    connection
+        .execute(
+            "INSERT INTO archive.star (entity_kind, entity_key, starred_at) VALUES ('url', 'https://starred.com/page', '2026-01-01')",
+            [],
+        )
+        .expect("star");
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(
+            &paths,
+            &config,
+            None,
+            &provider,
+            &AiIndexRequest { scope: crate::ReembedScope::WorkingSet, ..AiIndexRequest::default() },
+        ))
+        .expect("working-set build");
+    // Only the starred page embedded; the cold page is counted as skipped (out of scope).
+    assert_eq!(report.indexed_items, 1);
+    assert!(report.skipped_items >= 1, "the cold page is skipped (out of working set)");
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 1, "one vector — only the working-set page");
+}
+
+#[test]
+fn build_ai_index_full_scope_wipes_and_rebuilds() {
+    // W-AI-9-D: `ReembedScope::Full` carries full-rebuild semantics — it wipes the plane then embeds
+    // every unique page, exactly like the legacy `full_rebuild` flag.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/a", Some("A"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/b", Some("B"), 2);
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(
+            &paths,
+            &config,
+            None,
+            &provider,
+            &AiIndexRequest { scope: crate::ReembedScope::Full, ..AiIndexRequest::default() },
+        ))
+        .expect("full-scope build");
+    assert_eq!(report.indexed_items, 2);
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 2);
 }
 
 #[test]

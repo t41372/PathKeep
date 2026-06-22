@@ -37,6 +37,8 @@ import type {
   DeleteAgentConversationResult,
   IntelligenceRuntimeSnapshot,
   ListAgentConversationsRequest,
+  ReembedEstimate,
+  ReembedScope,
   RenameAgentConversationRequest,
   SaveAgentConversationRequest,
 } from '../types'
@@ -71,6 +73,8 @@ export const intelligenceClient = {
   cancelJob: (jobId: number) => call<AiQueueJob>('cancel_ai_job', { jobId }),
   buildIndex: (request: AiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
+  estimateReembed: (scope: ReembedScope) =>
+    call<ReembedEstimate>('estimate_reembed', { scope }),
   searchHistory: (request: AiSearchRequest) =>
     call<AiSearchResponse>('search_ai_history', { request }),
   askAssistant: (request: AiAssistantRequest) =>

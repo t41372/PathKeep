@@ -8,6 +8,13 @@ license = "GPL-3.0-only"
 [features]
 default = []
 devtools-bridge = ["dep:axum", "dep:tower-http"]
+# Apple-Silicon Metal embedding backend (W-AI-9 Sub-block D): opt-in feature, still OFF in the
+# default/CI build. Forwards through vault-worker → vault-core → candle. The default `cargo build`,
+# CI, and `bun run verify` build default features only, so the metal crates are never COMPILED in the
+# default graph (`cargo tree -e features`). Defining the feature does add the optional metal crates
+# to `Cargo.lock` (same as the off-by-default `devtools-bridge`/`axum` already does). A future Metal
+# CI lane that builds `--features metal` must also re-run `cargo deny check` on that expanded graph.
+metal = ["vault-worker/metal", "vault-core/metal"]
 
 [lib]
 name = "pathkeep_desktop"

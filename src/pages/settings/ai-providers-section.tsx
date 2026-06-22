@@ -24,6 +24,7 @@
 import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
+import { AiGpuSection } from './ai-gpu-section'
 import { AiSearchTuningSection } from './ai-search-tuning-section'
 import type { SearchTuningKnob } from './search-tuning-helpers'
 import {
@@ -111,6 +112,7 @@ export interface AiProvidersSectionState {
   onSelectProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
   onToggleAi: () => void
   onToggleAssistant: () => void
+  onToggleGpu: () => void
   onToggleMcp: () => void
   onToggleSkill: () => void
   onToggleSemanticIndex: () => void
@@ -168,6 +170,7 @@ export function AiProvidersSection({
     onSelectProvider,
     onToggleAi,
     onToggleAssistant,
+    onToggleGpu,
     onToggleMcp,
     onToggleSkill,
     onToggleSemanticIndex,
@@ -411,6 +414,19 @@ export function AiProvidersSection({
           disabled={editorsDisabled}
           onChange={onSearchTuningChange}
           onReset={onResetSearchTuning}
+        />
+
+        {/*
+          GPU heavy-tier + re-embed (W-AI-9 Sub-block D). Same collapsed-disclosure
+          treatment + `editorsDisabled` gate as search tuning: visible-but-inert
+          while AI is off so the user can see what GPU acceleration unlocks before
+          opting in. The toggle mutates the draft only (persisted by the shared
+          Save); the section is honest when this build cannot run Metal.
+        */}
+        <AiGpuSection
+          settings={currentSettings}
+          disabled={editorsDisabled}
+          onToggleGpu={onToggleGpu}
         />
 
         <AiProviderEditorList

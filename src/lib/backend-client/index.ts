@@ -131,6 +131,7 @@ export const backend = {
   replayAiJob: intelligenceClient.replayJob,
   cancelAiJob: intelligenceClient.cancelJob,
   buildAiIndex: intelligenceClient.buildIndex,
+  estimateReembed: intelligenceClient.estimateReembed,
   searchAiHistory: intelligenceClient.searchHistory,
   askAiAssistant: intelligenceClient.askAssistant,
   loadAiAssistantJob: intelligenceClient.getAssistantJob,

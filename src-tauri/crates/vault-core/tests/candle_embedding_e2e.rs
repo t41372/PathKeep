@@ -68,7 +68,9 @@ fn load_candle_default() -> CandleEmbeddingProvider {
         &mut progress,
     )
     .expect("download + verify Qwen3-Embedding-0.6B-GGUF (Q8_0)");
-    CandleEmbeddingProvider::load_default(&paths).expect("load candle Q8_0 engine")
+    // `false`: the parity/throughput e2e measures the CPU baseline (S1); the Metal GPU opt-in
+    // (W-AI-9-D) is a separate build concern and does not change the vectors this parity test asserts.
+    CandleEmbeddingProvider::load_default(&paths, false).expect("load candle Q8_0 engine")
 }
 
 /// Loads a sideloaded quant for the comparison table (skips if its GGUF is not present).
@@ -85,8 +87,15 @@ fn try_load_sideloaded_quant(quant: &str, gguf: &'static str) -> Option<CandleEm
     }
     // The loader requires the verified marker (S5); the harness placed the files, so mark it loadable.
     std::fs::write(dir.join(".pathkeep-verified"), b"ok").ok()?;
-    CandleEmbeddingProvider::load(&paths, &repo, leak_quant_manifest(gguf), quant, QWEN3_QUERY_TASK)
-        .ok()
+    CandleEmbeddingProvider::load(
+        &paths,
+        &repo,
+        leak_quant_manifest(gguf),
+        quant,
+        QWEN3_QUERY_TASK,
+        false,
+    )
+    .ok()
 }
 
 /// Builds a leaked 'static manifest for a sideloaded quant (digests unused by the loadable check).

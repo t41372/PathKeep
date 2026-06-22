@@ -456,6 +456,16 @@ pub struct AiSettings {
     /// one (the normalized top is `1.0`, the boost cap is `0.5`). Zero disables the boost entirely.
     #[serde(default = "default_starred_boost")]
     pub starred_boost: f32,
+    /// Opt-in: run the heavy-tier candle embedding on the Apple-Silicon Metal GPU (W-AI-9 Sub-block D,
+    /// 05 §7). ADDITIVE + `#[serde(default)]` so a frozen config without the field deserializes to
+    /// `false`. HARD-DEFAULT-OFF: a fresh install never touches the GPU. INERT unless the binary was
+    /// built with the off-by-default `metal` cargo feature — in a CPU-only build the engine selects
+    /// `Device::Cpu` regardless of this flag (the FE renders an honest "needs a Metal build" state
+    /// rather than a green toggle that lies). Toggling this does NOT change `model_id`/fingerprint
+    /// (CPU and Metal produce the same vectors), so it never auto-invalidates the index — re-embedding
+    /// is an explicit user action.
+    #[serde(default)]
+    pub gpu_enabled: bool,
 }
 
 /// Default RRF `k` constant (the canonical Reciprocal Rank Fusion value).
@@ -533,6 +543,8 @@ impl Default for AiSettings {
             lexical_weight: default_search_weight(),
             semantic_weight: default_search_weight(),
             starred_boost: default_starred_boost(),
+            // Hard-default-OFF: no GPU is touched until the user opts in AND the binary is a Metal build.
+            gpu_enabled: false,
         }
     }
 }
@@ -693,6 +705,25 @@ pub struct AiProviderSecretInput {
     pub api_key: String,
 }
 
+/// Which slice of the archive a re-embed run touches (W-AI-9 Sub-block D, 05 §7).
+///
+/// ADDITIVE on [`AiIndexRequest`] via `#[serde(default)]` → [`ReembedScope::Incremental`], so a frozen
+/// payload that predates this field still deserializes to the historical "embed new/changed rows"
+/// behavior. The two new scopes are explicit user actions surfaced by the GPU/heavy-tier settings UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReembedScope {
+    /// Embed only new/changed rows (the historical default; the watermark resumes where it left off).
+    #[default]
+    Incremental,
+    /// Re-embed only the BOUNDED heavy-tier working set (starred ∪ recent ∪ annotated ∪ frequent),
+    /// hard-capped at [`crate::ai::MAX_WORKING_SET`]. Safe on the 14.4M tail because the set is bounded.
+    WorkingSet,
+    /// Re-embed the ENTIRE archive from scratch (full_rebuild semantics: wipe the plane, embed all
+    /// unique pages). The expensive option the GPU path exists for; gated behind the cost estimate.
+    Full,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Request payload for building or clearing the semantic index.
@@ -701,6 +732,33 @@ pub struct AiIndexRequest {
     pub full_rebuild: bool,
     pub clear_only: bool,
     pub limit: Option<u32>,
+    /// Which slice to re-embed (W-AI-9 Sub-block D). `#[serde(default)]` so the frozen payload still
+    /// deserializes; [`ReembedScope::Full`] implies full-rebuild wipe semantics, [`ReembedScope::WorkingSet`]
+    /// filters candidates to the bounded working set, [`ReembedScope::Incremental`] is the prior behavior.
+    #[serde(default)]
+    pub scope: ReembedScope,
+}
+
+/// Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7 PME "estimate ~X time").
+///
+/// Pure math over bounded reads (working-set length or unique-content-key count) and the S1 throughput
+/// constants — NO model load, NO network, NO embedding. Surfaced BEFORE a re-embed fires so the user
+/// sees the cost (PME transparency). `gpu_available` reflects whether this binary was built with the
+/// `metal` feature, so the FE can tell an honest story instead of promising a speedup a CPU-only build
+/// cannot deliver.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReembedEstimate {
+    /// The scope this estimate was computed for (echoed back so the FE can label it).
+    pub scope: ReembedScope,
+    /// How many pages would be embedded (working-set length, or unique `content_key` count for Full).
+    pub page_count: u64,
+    /// Estimated wall-clock minutes on the 4-core CPU baseline (S1: 1.25 docs/sec).
+    pub est_minutes_cpu: f64,
+    /// Estimated wall-clock minutes on the Metal GPU (CPU estimate ÷ the measured speedup).
+    pub est_minutes_gpu: f64,
+    /// Whether this binary can actually run the GPU path (`cfg!(feature = "metal")`).
+    pub gpu_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1675,6 +1733,41 @@ mod tests {
         assert_eq!(settings.lexical_weight, 1.0);
         assert_eq!(settings.semantic_weight, 1.0);
         assert_eq!(settings.starred_boost, 0.15);
+        // W-AI-9-D: the GPU opt-in is additive + hard-default-OFF, so an older config parses to false.
+        assert!(!settings.gpu_enabled);
+    }
+
+    #[test]
+    fn ai_settings_gpu_enabled_round_trips_when_present() {
+        // An explicit `gpuEnabled: true` deserializes (and survives re-serialization), so a future
+        // Metal build honors the persisted opt-in.
+        let payload = json!({ "gpuEnabled": true });
+        let settings: AiSettings = serde_json::from_value(payload).unwrap();
+        assert!(settings.gpu_enabled);
+        let reserialized = serde_json::to_value(&settings).unwrap();
+        assert_eq!(reserialized["gpuEnabled"], json!(true));
+    }
+
+    #[test]
+    fn ai_index_request_scope_defaults_to_incremental_and_round_trips() {
+        // The frozen payload (no `scope`) must deserialize to Incremental so prior behavior is kept.
+        let frozen = json!({ "fullRebuild": false, "clearOnly": false });
+        let request: AiIndexRequest = serde_json::from_value(frozen).unwrap();
+        assert_eq!(request.scope, ReembedScope::Incremental);
+        // The two new scopes round-trip in kebab-case (the FE sends `working-set` / `full` alongside
+        // the existing required `fullRebuild`/`clearOnly` flags).
+        let ws: AiIndexRequest = serde_json::from_value(
+            json!({ "fullRebuild": false, "clearOnly": false, "scope": "working-set" }),
+        )
+        .unwrap();
+        assert_eq!(ws.scope, ReembedScope::WorkingSet);
+        let full: AiIndexRequest = serde_json::from_value(
+            json!({ "fullRebuild": false, "clearOnly": false, "scope": "full" }),
+        )
+        .unwrap();
+        assert_eq!(full.scope, ReembedScope::Full);
+        let value = serde_json::to_value(&full).unwrap();
+        assert_eq!(value["scope"], json!("full"));
     }
 
     #[test]

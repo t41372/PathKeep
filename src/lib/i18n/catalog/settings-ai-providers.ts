@@ -196,6 +196,39 @@ export const settingsAiProvidersNamespace = {
       'A small nudge that lifts pages you’ve starred when they’re relevant. It is deliberately capped at 0.5 so a starred page can rank a bit higher but can never push an unrelated favorite above a strongly matching result — Smart search stays search, not your bookmark list. Set it to 0 to give stars no ranking effect.',
     aiSearchTuningReset: 'Reset to defaults',
     aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU acceleration & re-embedding',
+    aiGpuIntro:
+      'PathKeep’s in-app embedding model runs on the CPU by default. On Apple-Silicon Macs with a Metal-enabled build you can opt in to run it on the GPU, then re-embed your working set or whole archive — much faster, entirely on your machine.',
+    aiGpuToggleLabel: 'Use the GPU for in-app embedding',
+    aiGpuToggleHelp:
+      'When on, the in-app embedding model runs on the Apple-Silicon Metal GPU instead of the CPU. It produces the same results, just faster, so turning it on does not invalidate an existing index — re-embedding is always your explicit choice below.',
+    aiGpuUnavailable:
+      'GPU acceleration requires a Metal-enabled build. This build runs on the CPU only; your preference is saved and will apply automatically if you switch to a Metal build.',
+    aiGpuUnavailableBadge: 'CPU-only build',
+    aiGpuAvailableBadge: 'Metal build',
+    aiReembedTitle: 'Re-embed',
+    aiReembedWorkingSetLabel: 'Re-embed working set',
+    aiReembedWorkingSetHelp:
+      'Re-embed only your high-value pages (starred, recent, tagged, and frequently revisited). Bounded in scope, but it runs in the background and can take a while on the CPU — see the estimate.',
+    aiReembedFullLabel: 'Re-embed full archive',
+    aiReembedFullHelp:
+      'Re-embed every unique page in your archive from scratch. This is the expensive option — review the estimate before starting.',
+    aiReembedFullRequiresGpu:
+      'Re-embedding the full archive is available once GPU acceleration is on (and this is a Metal build). On the CPU it would take far too long.',
+    aiReembedEstimateLoading: 'Estimating…',
+    aiReembedEstimatePages: '{count} pages',
+    aiReembedEstimateCpu: '≈ {minutes} min on CPU',
+    aiReembedEstimateGpu: '≈ {minutes} min on GPU',
+    aiReembedEstimateGpuUnavailable: 'GPU estimate needs a Metal build',
+    aiReembedStart: 'Start',
+    aiReembedQueued:
+      'Re-embed queued — PathKeep is processing it in the background.',
+    aiReembedProgress: 'Re-embedding… {queued} queued, {running} running',
+    aiReembedDone: 'Re-embed complete.',
+    aiReembedBackground:
+      'Re-embed is running in the background — check Jobs for progress.',
+    aiReembedError: 'Could not start re-embedding. Please try again.',
+    aiReembedEstimateError: 'Could not load the estimate.',
   },
   'zh-CN': {
     aiMasterToggle: '启用 AI 功能',
@@ -367,6 +400,37 @@ export const settingsAiProvidersNamespace = {
       '当你收藏的页面与查询相关时，给它一点小幅提升。它被特意限制在 0.5 以内，所以收藏页面可以排得略高，却永远无法把一个不相关的收藏挤到强相关结果之上——智能搜索仍然是搜索，而不是你的书签列表。设为 0 则收藏不影响排序。',
     aiSearchTuningReset: '恢复默认值',
     aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU 加速与重嵌入',
+    aiGpuIntro:
+      'PathKeep 的内置嵌入模型默认在 CPU 上运行。在装有 Metal 版本的 Apple 芯片 Mac 上，你可以选择启用 GPU 运行，然后重嵌入工作集或整个存档——更快，且完全在本机进行。',
+    aiGpuToggleLabel: '使用 GPU 进行内置嵌入',
+    aiGpuToggleHelp:
+      '启用后，内置嵌入模型会在 Apple 芯片的 Metal GPU 上运行而非 CPU。结果完全相同，只是更快，因此启用它不会使现有索引失效——重嵌入始终由你在下方明确发起。',
+    aiGpuUnavailable:
+      'GPU 加速需要 Metal 版本。当前版本仅在 CPU 上运行；你的偏好会被保存，切换到 Metal 版本后将自动生效。',
+    aiGpuUnavailableBadge: '仅 CPU 版本',
+    aiGpuAvailableBadge: 'Metal 版本',
+    aiReembedTitle: '重嵌入',
+    aiReembedWorkingSetLabel: '重嵌入工作集',
+    aiReembedWorkingSetHelp:
+      '仅重嵌入你的高价值页面（已加星、近期、带标签以及频繁重访的页面）。范围有界，但会在后台运行，在 CPU 上可能需要一段时间——请参考预估。',
+    aiReembedFullLabel: '重嵌入整个存档',
+    aiReembedFullHelp:
+      '从头重嵌入存档中的每个唯一页面。这是开销较大的选项——开始前请查看预估。',
+    aiReembedFullRequiresGpu:
+      '启用 GPU 加速（且为 Metal 版本）后才能重嵌入整个存档。在 CPU 上耗时过长。',
+    aiReembedEstimateLoading: '预估中…',
+    aiReembedEstimatePages: '{count} 个页面',
+    aiReembedEstimateCpu: 'CPU 约 {minutes} 分钟',
+    aiReembedEstimateGpu: 'GPU 约 {minutes} 分钟',
+    aiReembedEstimateGpuUnavailable: 'GPU 预估需要 Metal 版本',
+    aiReembedStart: '开始',
+    aiReembedQueued: '重嵌入已加入队列——PathKeep 正在后台处理。',
+    aiReembedProgress: '重嵌入中…{queued} 个排队，{running} 个进行中',
+    aiReembedDone: '重嵌入完成。',
+    aiReembedBackground: '重嵌入正在后台运行——可在「任务」中查看进度。',
+    aiReembedError: '无法开始重嵌入，请重试。',
+    aiReembedEstimateError: '无法加载预估。',
   },
   'zh-TW': {
     aiMasterToggle: '啟用 AI 功能',
@@ -538,5 +602,36 @@ export const settingsAiProvidersNamespace = {
       '當你收藏的頁面與查詢相關時，給它一點小幅提升。它被特意限制在 0.5 以內，所以收藏頁面可以排得略高，卻永遠無法把一個不相關的收藏擠到強相關結果之上——智慧搜尋仍然是搜尋，而不是你的書籤清單。設為 0 則收藏不影響排序。',
     aiSearchTuningReset: '還原預設值',
     aiSearchTuningResetHint: '60 · 1.0 · 1.0 · 0.15',
+    aiGpuTitle: 'GPU 加速與重新嵌入',
+    aiGpuIntro:
+      'PathKeep 的內建嵌入模型預設在 CPU 上執行。在裝有 Metal 版本的 Apple 晶片 Mac 上，你可以選擇啟用 GPU 執行，然後重新嵌入工作集或整個封存——更快，且完全在本機進行。',
+    aiGpuToggleLabel: '使用 GPU 進行內建嵌入',
+    aiGpuToggleHelp:
+      '啟用後，內建嵌入模型會在 Apple 晶片的 Metal GPU 上執行而非 CPU。結果完全相同，只是更快，因此啟用它不會使現有索引失效——重新嵌入一律由你在下方明確發起。',
+    aiGpuUnavailable:
+      'GPU 加速需要 Metal 版本。目前版本僅在 CPU 上執行；你的偏好會被儲存，切換到 Metal 版本後將自動生效。',
+    aiGpuUnavailableBadge: '僅 CPU 版本',
+    aiGpuAvailableBadge: 'Metal 版本',
+    aiReembedTitle: '重新嵌入',
+    aiReembedWorkingSetLabel: '重新嵌入工作集',
+    aiReembedWorkingSetHelp:
+      '僅重新嵌入你的高價值頁面（已加星號、近期、帶標籤以及頻繁重訪的頁面）。範圍有界，但會在背景執行，在 CPU 上可能需要一段時間——請參考預估。',
+    aiReembedFullLabel: '重新嵌入整個封存',
+    aiReembedFullHelp:
+      '從頭重新嵌入封存中的每個唯一頁面。這是開銷較大的選項——開始前請查看預估。',
+    aiReembedFullRequiresGpu:
+      '啟用 GPU 加速（且為 Metal 版本）後才能重新嵌入整個封存。在 CPU 上耗時過長。',
+    aiReembedEstimateLoading: '預估中…',
+    aiReembedEstimatePages: '{count} 個頁面',
+    aiReembedEstimateCpu: 'CPU 約 {minutes} 分鐘',
+    aiReembedEstimateGpu: 'GPU 約 {minutes} 分鐘',
+    aiReembedEstimateGpuUnavailable: 'GPU 預估需要 Metal 版本',
+    aiReembedStart: '開始',
+    aiReembedQueued: '重新嵌入已加入佇列——PathKeep 正在背景處理。',
+    aiReembedProgress: '重新嵌入中…{queued} 個排隊，{running} 個進行中',
+    aiReembedDone: '重新嵌入完成。',
+    aiReembedBackground: '重新嵌入正在背景執行——可在「工作」中查看進度。',
+    aiReembedError: '無法開始重新嵌入，請重試。',
+    aiReembedEstimateError: '無法載入預估。',
   },
 } as const

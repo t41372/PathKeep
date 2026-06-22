@@ -206,10 +206,17 @@ pub fn candle_repo_for_runtime(runtime: &AiProviderRuntime) -> &str {
 ///
 /// The model id used to load comes from the provider config (`default_model`) when set, falling back
 /// to the default repo — never a hardcoded assumption baked into the selector.
+///
+/// `gpu_enabled` is the user's heavy-tier opt-in, threaded to [`CandleEmbeddingProvider::load`] →
+/// [`select_device`]; it only takes effect in a `metal`-feature build (INERT/CPU otherwise) and does
+/// NOT change the descriptor/fingerprint, so toggling it never auto-invalidates the index. Callers
+/// that only need the DESCRIPTOR (e.g. the search-time fingerprint-drift check) pass `false` — the
+/// device is irrelevant to the descriptor.
 #[cfg(not(any(test, coverage)))]
 pub fn select_embedding_provider(
     paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
+    gpu_enabled: bool,
 ) -> Result<AnyEmbeddingProvider> {
     if super::embedding_static::runtime_uses_static(runtime) {
         return super::embedding_static::select_static_embedding_provider(paths, runtime);
@@ -224,6 +231,7 @@ pub fn select_embedding_provider(
                 DEFAULT_CANDLE_MODEL_FILES,
                 DEFAULT_CANDLE_QUANT,
                 QWEN3_QUERY_TASK,
+                gpu_enabled,
             )?;
             return Ok(AnyEmbeddingProvider::Candle(Box::new(provider)));
         }
@@ -244,6 +252,7 @@ pub fn select_embedding_provider(
 pub fn select_embedding_provider(
     paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
+    gpu_enabled: bool,
 ) -> Result<AnyEmbeddingProvider> {
     if super::embedding_static::runtime_uses_static(runtime) {
         return super::embedding_static::select_static_embedding_provider(paths, runtime);
@@ -254,6 +263,7 @@ pub fn select_embedding_provider(
             &format!("candle:{repo}"),
             repo,
             DEFAULT_CANDLE_QUANT,
+            gpu_enabled,
         ))))
     } else {
         Ok(AnyEmbeddingProvider::External(ExternalEmbeddingProvider::new(runtime.clone())?))
@@ -943,6 +953,55 @@ struct CandleEngine {
     tokenizer: tokenizers::Tokenizer,
 }
 
+/// The candle forward-pass device DECISION for the heavy embedding tier (W-AI-9 Sub-block D, 05 §7).
+///
+/// A pure value (not candle's `Device`, which doesn't exist in test/coverage builds) so the decision
+/// is computed + 100%-covered in EVERY build. The actual candle `Device` is materialized from this by
+/// the cfg-split [`candle_device_for`] (real build only), keeping the one GPU-naming line isolated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectedDevice {
+    /// Run the forward pass on the CPU (the default, and the only option in a non-`metal` build).
+    Cpu,
+    /// Run the forward pass on the Apple-Silicon Metal GPU (only chosen in a `metal`-feature build).
+    Metal,
+}
+
+/// Decides the device from the user's `gpu_enabled` opt-in + whether THIS binary can run Metal.
+///
+/// PURE (no candle, no I/O) so it is unit-tested + 100%-covered in the default/test build for BOTH
+/// `gpu_enabled` values. `Metal` is returned ONLY when the binary was built with the `metal` feature
+/// AND the user opted in; otherwise `Cpu`. In a CPU-only (default) build `gpu_enabled = true` resolves
+/// to `Cpu` — INERT, never a crash — which is why the FE shows the honest "needs a Metal build" state
+/// rather than a green toggle. The `cfg!(feature = "metal")` here is a runtime read of a compile-time
+/// flag, so this whole fn stays compiled IN and covered; only [`candle_device_for`]'s
+/// `Device::new_metal` line is cfg-excluded.
+pub fn select_device(gpu_enabled: bool) -> SelectedDevice {
+    if gpu_enabled && cfg!(feature = "metal") { SelectedDevice::Metal } else { SelectedDevice::Cpu }
+}
+
+/// Materializes the candle `Device` from a [`SelectedDevice`] in a `metal`-feature real build.
+///
+/// This is the ONLY place `Device::new_metal` is named, so it is compiled OUT of the default/coverage
+/// build (Metal can't run in CI and a coverage gate can't exercise `new_metal` — mirroring this file's
+/// candle real-load split, header §"Why this module exists", ~lines 40-47, leaving NO coverage hole).
+/// `Metal` honestly falls back to CPU if Metal can't initialize (AGENTS.md principle 4: degrade, don't
+/// break). `select_device` only ever yields `Metal` in a metal build, so the `Cpu` arm here covers the
+/// opted-out case.
+#[cfg(all(not(any(test, coverage)), feature = "metal"))]
+fn candle_device_for(selected: SelectedDevice) -> Device {
+    match selected {
+        SelectedDevice::Metal => Device::new_metal(0).unwrap_or(Device::Cpu),
+        SelectedDevice::Cpu => Device::Cpu,
+    }
+}
+
+/// CPU-only `Device` materialization for the default (non-`metal`) real build (see
+/// [`candle_device_for`] docs). `select_device` can only return `Cpu` here, so this is always CPU.
+#[cfg(all(not(any(test, coverage)), not(feature = "metal")))]
+fn candle_device_for(_selected: SelectedDevice) -> Device {
+    Device::Cpu
+}
+
 impl CandleEmbeddingProvider {
     /// Composes the fingerprint-bearing model id from a repo and quant level (`<repo>:<quant>`).
     ///
@@ -958,20 +1017,27 @@ impl CandleEmbeddingProvider {
     /// This is the production entrypoint. It is consent-gated by CONSTRUCTION: the caller only ever
     /// calls it after the model is present + verified (the selector checks the availability gate,
     /// itself gated on a consented download, before selecting candle). Loading is offline (no
-    /// network): it reads only the files on disk.
+    /// network): it reads only the files on disk. `gpu_enabled` is the user's heavy-tier opt-in; it
+    /// only takes effect in a `metal`-feature build (see [`select_device`]).
     #[cfg(not(any(test, coverage)))]
-    pub fn load_default(paths: &ProjectPaths) -> Result<Self> {
+    pub fn load_default(paths: &ProjectPaths, gpu_enabled: bool) -> Result<Self> {
         Self::load(
             paths,
             DEFAULT_CANDLE_MODEL_REPO,
             DEFAULT_CANDLE_MODEL_FILES,
             DEFAULT_CANDLE_QUANT,
             QWEN3_QUERY_TASK,
+            gpu_enabled,
         )
     }
 
     /// Loads a candle engine for one repo from `models_dir`, verifying readiness first (S5: a cheap
     /// presence + verified-marker check, NOT a full re-hash of the weights on every load).
+    ///
+    /// `gpu_enabled` selects the forward-pass device via [`select_device`]: Metal when the binary was
+    /// built with the `metal` feature AND the user opted in (honest fallback to CPU if Metal can't
+    /// initialize), CPU otherwise. The device choice does NOT enter `model_id`/the fingerprint — CPU
+    /// and Metal produce the same vectors, so toggling GPU never auto-invalidates the index.
     #[cfg(not(any(test, coverage)))]
     pub fn load(
         paths: &ProjectPaths,
@@ -979,6 +1045,7 @@ impl CandleEmbeddingProvider {
         files: &[ModelFile],
         quant: &str,
         query_task: &str,
+        gpu_enabled: bool,
     ) -> Result<Self> {
         let model_dir = model_dir_for_repo(paths, repo);
         if !model_is_loadable(&model_dir, files) {
@@ -989,7 +1056,7 @@ impl CandleEmbeddingProvider {
         }
 
         let gguf_name = gguf_file_name(files)?;
-        let device = Device::Cpu;
+        let device = candle_device_for(select_device(gpu_enabled));
         let model = quant_engine::QuantizedQwen3Embedding::from_gguf_path(
             &model_dir.join(gguf_name),
             &device,
@@ -1034,9 +1101,14 @@ impl CandleEmbeddingProvider {
     /// Mirrors the real provider's public shape so [`super::embedding_external::AnyEmbeddingProvider`]
     /// `Candle` dispatch and the embed loop run at 100% coverage. The `hidden_size` is a small
     /// synthetic number with NO relationship to any real model (picking 1024 here would be the D4
-    /// truth-assumption this design removes).
+    /// truth-assumption this design removes). `gpu_enabled` is threaded so the stub's call graph
+    /// MATCHES the real `load` (both resolve [`select_device`]) — the pure device decision is computed
+    /// here too so the coverage build exercises it without a candle `Device` or any GPU.
     #[cfg(any(test, coverage))]
-    pub fn new_stub(provider_id: &str, repo: &str, quant: &str) -> Self {
+    pub fn new_stub(provider_id: &str, repo: &str, quant: &str, gpu_enabled: bool) -> Self {
+        // Mirror the real load path's device decision so it is covered in the stub call graph. The
+        // stub never runs a forward pass, so the result is only used to keep the call graph identical.
+        let _device = select_device(gpu_enabled);
         Self {
             provider_id: provider_id.to_string(),
             model_id: Self::model_id_for(repo, quant),
@@ -1446,8 +1518,12 @@ mod tests {
 
     #[tokio::test]
     async fn stub_embed_is_role_aware_normalized_and_distinct() {
-        let provider =
-            CandleEmbeddingProvider::new_stub("candle:test", "test-model", DEFAULT_CANDLE_QUANT);
+        let provider = CandleEmbeddingProvider::new_stub(
+            "candle:test",
+            "test-model",
+            DEFAULT_CANDLE_QUANT,
+            false,
+        );
         let docs = provider
             .embed(&["alpha".to_string(), "beta".to_string()], EmbeddingRole::Document)
             .await
@@ -1467,14 +1543,18 @@ mod tests {
 
     #[tokio::test]
     async fn stub_embed_empty_input_short_circuits() {
-        let provider =
-            CandleEmbeddingProvider::new_stub("candle:test", "test-model", DEFAULT_CANDLE_QUANT);
+        let provider = CandleEmbeddingProvider::new_stub(
+            "candle:test",
+            "test-model",
+            DEFAULT_CANDLE_QUANT,
+            false,
+        );
         assert!(provider.embed(&[], EmbeddingRole::Document).await.expect("empty").is_empty());
     }
 
     #[test]
     fn descriptor_records_candle_truth_including_quant_in_model_id() {
-        let provider = CandleEmbeddingProvider::new_stub("candle:test", "repo", "Q8_0");
+        let provider = CandleEmbeddingProvider::new_stub("candle:test", "repo", "Q8_0", true);
         let descriptor = provider.descriptor();
         assert_eq!(descriptor.provider_id, "candle:test");
         // The model id carries the quant so the fingerprint changes on a quant swap.
@@ -1492,9 +1572,34 @@ mod tests {
 
     #[test]
     fn descriptor_with_prefers_observed_dim() {
-        let provider = CandleEmbeddingProvider::new_stub("candle:test", "repo", "Q8_0");
+        let provider = CandleEmbeddingProvider::new_stub("candle:test", "repo", "Q8_0", false);
         // An observed length wins over the native hidden size (D4: the real returned length).
         assert_eq!(provider.descriptor_with(Some(42)).effective_dim, Some(42));
+    }
+
+    // ---- select_device pure decision (W-AI-9 Sub-block D) ----
+
+    #[test]
+    fn select_device_is_cpu_when_gpu_disabled() {
+        // Opted out → CPU in EVERY build (metal or not).
+        assert_eq!(select_device(false), SelectedDevice::Cpu);
+    }
+
+    #[test]
+    fn select_device_honors_metal_feature_when_gpu_enabled() {
+        // Opted in → Metal ONLY in a `metal`-feature build; INERT/CPU in the default CPU-only binary.
+        // The assertion tracks `cfg!(feature = "metal")` exactly so it is correct in both builds and
+        // the default (non-metal) coverage build exercises the CPU branch the shipped binary takes.
+        let selected = select_device(true);
+        if cfg!(feature = "metal") {
+            assert_eq!(selected, SelectedDevice::Metal);
+        } else {
+            assert_eq!(
+                selected,
+                SelectedDevice::Cpu,
+                "non-metal build must be inert, never a crash"
+            );
+        }
     }
 
     // ---- selector + graceful degradation (S3, coverage-F1) ----
@@ -1504,7 +1609,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = crate::config::project_paths_with_root(dir.path());
         // Default model empty → the candle stub for the DEFAULT repo, with the quant in the id.
-        let provider = select_embedding_provider(&paths, &candle_runtime("")).expect("candle");
+        let provider =
+            select_embedding_provider(&paths, &candle_runtime(""), false).expect("candle");
         match provider {
             AnyEmbeddingProvider::Candle(candle) => {
                 assert_eq!(
@@ -1523,8 +1629,8 @@ mod tests {
     fn select_embedding_provider_uses_configured_repo() {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = crate::config::project_paths_with_root(dir.path());
-        let provider =
-            select_embedding_provider(&paths, &candle_runtime("custom/repo")).expect("candle");
+        let provider = select_embedding_provider(&paths, &candle_runtime("custom/repo"), true)
+            .expect("candle");
         match provider {
             AnyEmbeddingProvider::Candle(candle) => {
                 assert_eq!(candle.model_id(), "custom/repo:Q8_0");
@@ -1540,6 +1646,7 @@ mod tests {
         let provider = select_embedding_provider(
             &paths,
             &external_runtime(AiRequestFormat::LmStudio, Some("http://localhost:1234/v1")),
+            false,
         )
         .expect("external");
         match provider {

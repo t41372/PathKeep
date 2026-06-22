@@ -367,12 +367,7 @@ mod tests {
         .expect("clear provider key");
         assert!(!cleared_provider_snapshot.config.ai.llm_providers[0].api_key_saved);
         let ai_index_report = build_ai_index_impl(
-            AiIndexRequest {
-                provider_id: None,
-                full_rebuild: false,
-                clear_only: false,
-                limit: Some(5),
-            },
+            AiIndexRequest { limit: Some(5), ..AiIndexRequest::default() },
             session_key(&session).as_deref(),
         )
         .expect("index build should queue a background job report");
@@ -384,6 +379,15 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("processing it in the background"))
         );
+
+        // W-AI-9-D: the read-only re-embed estimator returns a sized, honest report (no model load,
+        // no embedding) — `gpu_available` tracks the `metal` feature, so it is false in the default
+        // CPU-only build and true under `--all-features` (the authoritative coverage gate).
+        let estimate = estimate_reembed_impl(ReembedScope::Full, session_key(&session).as_deref())
+            .expect("estimate should compute over the seeded archive");
+        assert_eq!(estimate.scope, ReembedScope::Full);
+        assert!(estimate.est_minutes_gpu <= estimate.est_minutes_cpu);
+        assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
         let _ = run_ai_queue_jobs_impl(Some(1), session_key(&session).as_deref())
             .expect("drain queued index job before immediate assistant claim");
 

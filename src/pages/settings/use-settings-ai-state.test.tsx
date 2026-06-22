@@ -453,17 +453,27 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
     // The usage guide is its own consent and stays OFF too.
     expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
+    // The GPU heavy-tier opt-in (W-AI-9-D) is its own consent and stays OFF too.
+    expect(result.current.ai.currentSettings?.gpuEnabled ?? false).toBe(false)
 
     act(() => {
       result.current.ai.onToggleAssistant()
       result.current.ai.onToggleSemanticIndex()
       result.current.ai.onToggleMcp()
       result.current.ai.onToggleSkill()
+      result.current.ai.onToggleGpu()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.skillEnabled).toBe(true)
+    expect(result.current.ai.currentSettings?.gpuEnabled).toBe(true)
+
+    // Toggling the GPU opt-in back off is independent of the other consents.
+    act(() => {
+      result.current.ai.onToggleGpu()
+    })
+    expect(result.current.ai.currentSettings?.gpuEnabled).toBe(false)
 
     // Toggling back off works independently too — each consent is its own; the
     // usage guide can be turned off without disturbing the MCP server toggle.

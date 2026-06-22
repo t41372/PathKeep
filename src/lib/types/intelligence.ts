@@ -170,6 +170,14 @@ export interface AiSettings {
   lexicalWeight?: number
   semanticWeight?: number
   starredBoost?: number
+  /**
+   * Opt-in to the Apple-Silicon Metal GPU heavy embedding tier (W-AI-9 Sub-block D, 05 §7). Mirrors
+   * the Rust `gpu_enabled` (`#[serde(default)]`, hard-default-OFF). Optional here so older snapshots
+   * without it still type-check; absent/false means "off". INERT unless the binary was built with the
+   * `metal` cargo feature — the Settings UI reads `ReembedEstimate.gpuAvailable` to tell the honest
+   * story ("requires a Metal-enabled build") rather than showing a green toggle that does nothing.
+   */
+  gpuEnabled?: boolean
 }
 /**
  * Represents a read model or status snapshot for ai index.
@@ -432,11 +440,35 @@ export interface AiProviderSecretInput {
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
+/**
+ * Which slice of the archive a re-embed run touches (W-AI-9 Sub-block D, 05 §7). Mirrors the Rust
+ * `ReembedScope` (kebab-case on the wire). `incremental` is the historical default.
+ */
+export type ReembedScope = 'incremental' | 'working-set' | 'full'
+
 export interface AiIndexRequest {
   providerId?: string | null
   fullRebuild: boolean
   clearOnly: boolean
   limit?: number | null
+  /**
+   * Which slice to re-embed (W-AI-9 Sub-block D). Optional + defaults to `incremental` on the backend
+   * (`#[serde(default)]`), so omitting it preserves the historical "embed new/changed rows" behavior.
+   */
+  scope?: ReembedScope
+}
+
+/**
+ * Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7). Mirrors the Rust
+ * `ReembedEstimate`. Surfaced BEFORE a re-embed fires so the user sees the cost (PME). `gpuAvailable`
+ * is the single honest source of whether THIS binary can run the GPU path (built with `metal`).
+ */
+export interface ReembedEstimate {
+  scope: ReembedScope
+  pageCount: number
+  estMinutesCpu: number
+  estMinutesGpu: number
+  gpuAvailable: boolean
 }
 
 /**

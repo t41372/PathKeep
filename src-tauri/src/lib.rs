@@ -169,6 +169,7 @@ fn run_app() -> Result<()> {
             cancel_ai_job,
             load_ai_assistant_job,
             build_ai_index,
+            estimate_reembed,
             search_ai_history,
             ask_ai_assistant,
             ai_chat_send,

@@ -832,7 +832,9 @@ fn semantic_config_drift_reason(
     // ask whether the planes are stale against it. The selected engine carries the real
     // dtype/normalized/pooling/instruction (the build path uses these via `vector_store_for_chunk`);
     // we override the provider id/model + observed dim so the comparison keys match the stored stamp.
-    let engine = super::embedding_candle::select_embedding_provider(paths, provider)?;
+    // `false`: this path only needs the engine DESCRIPTOR for the fingerprint-drift comparison, and
+    // the forward-pass device (CPU vs Metal) does not affect the descriptor/fingerprint (W-AI-9-D).
+    let engine = super::embedding_candle::select_embedding_provider(paths, provider, false)?;
     let live = EmbeddingFingerprint::from_descriptor(&EmbeddingDescriptor {
         provider_id: provider.config.id.clone(),
         model_id: provider.config.default_model.clone(),

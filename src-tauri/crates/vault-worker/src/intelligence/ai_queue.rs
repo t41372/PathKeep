@@ -36,9 +36,10 @@ use std::{sync::Arc, time::Duration};
 use vault_core::{
     AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
     AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
-    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ai_queue,
-    answer_history_question_with_control, build_ai_index_with_control, load_assistant_run_response,
-    preview_ai_integrations, semantic_search_history, test_provider_connection,
+    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ReembedEstimate, ReembedScope,
+    WorkingSetConfig, ai_queue, answer_history_question_with_control, build_ai_index_with_control,
+    estimate_reembed, load_assistant_run_response, preview_ai_integrations,
+    semantic_search_history, test_provider_connection,
 };
 
 #[cfg(coverage)]
@@ -540,6 +541,29 @@ pub fn build_ai_index_now(
             queued.id
         )],
     })
+}
+
+/// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D, 05 §7).
+///
+/// Read-only: it opens the archive-attached connection and calls the PURE [`estimate_reembed`] (which
+/// reads only the bounded working set or the `COUNT(*)` of unique pages), so it NEVER loads a model,
+/// embeds, or touches the network. Surfaced to the FE BEFORE a re-embed fires so the user sees the
+/// cost (PME). `gpu_available` reflects whether THIS binary was built with the `metal` feature.
+pub fn estimate_reembed_now(
+    session_database_key: Option<&str>,
+    scope: ReembedScope,
+) -> Result<ReembedEstimate> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    // The working-set selector + unique-page count read the canonical `archive` schema; the
+    // intelligence connection attaches it, but the selector queries unqualified table names, so run
+    // the estimate against the archive connection directly (mirrors `enqueue_content_fetch_working_set`).
+    let archive =
+        vault_core::archive::open_archive_connection(&paths, &config, session_database_key)?;
+    // `urls.last_visit_ms` is Chrome-epoch ms; derive "now" in the same frame for the recency window.
+    const CHROME_EPOCH_OFFSET_MS: i64 = 11_644_473_600_000;
+    let now_ms = chrono::Utc::now().timestamp_millis() + CHROME_EPOCH_OFFSET_MS;
+    estimate_reembed(&archive, &WorkingSetConfig::default(), now_ms, scope)
 }
 
 /// Runs semantic search and degrades to lexical recall when embeddings are unavailable.

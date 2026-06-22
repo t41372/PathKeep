@@ -30,6 +30,7 @@
 //!   unbounded; the per-signal `LIMIT` keeps each gather O(window), and the final ranking sorts only
 //!   the (bounded) union — so the selector stays cheap at the 14.4M tail.
 
+use crate::models::{ReembedEstimate, ReembedScope};
 use crate::utils::url_domain;
 use crate::visit_taxonomy::{normalize_visit_url, registrable_domain_for_url};
 use anyhow::{Context, Result};
@@ -214,6 +215,78 @@ pub fn select_working_set(
     });
     ranked.truncate(cap);
     Ok(ranked)
+}
+
+/// Measured single-text candle throughput on the 4-core/8 GB CPU baseline, in documents per second.
+///
+/// SOURCE: the W-AI-4b **S1 benchmark** (doc 05 §intro / §7): candle 0.10.2's quantized CPU path has
+/// no native int8 kernel (every matmul dequantizes), so the Q8 0.6B engine sustains ~**1.25 docs/sec**
+/// on the target machine. The estimator multiplies this out so the user sees an HONEST CPU cost (a
+/// full 14.4M-tail re-embed is hours, which is exactly why the GPU/heavy-tier opt-in exists).
+pub const CANDLE_CPU_DOCS_PER_SEC: f64 = 1.25;
+
+/// How many times faster the Metal GPU path is than the CPU baseline (05 §7: "M-series GPU ~一個數量級").
+///
+/// A conservative one-order-of-magnitude (10×) speedup for the 0.6B embedding on Apple-Silicon Metal.
+/// The estimate is intentionally round (not a per-device benchmark) — it sizes the decision ("minutes
+/// vs hours"), not a guarantee. Used only for `est_minutes_gpu`; a CPU-only build still shows it so the
+/// user can see what a Metal build would buy, alongside the honest `gpu_available = false`.
+pub const METAL_SPEEDUP: f64 = 10.0;
+
+/// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D, 05 §7 PME estimate).
+///
+/// PURE math over BOUNDED reads + the S1 constants — it NEVER loads a model, opens a network socket, or
+/// embeds anything, so it is 100%-coverable and cheap to call before every re-embed:
+/// - [`ReembedScope::WorkingSet`] → `page_count` is the bounded working-set length (`select_working_set`,
+///   itself hard-capped at [`MAX_WORKING_SET`]).
+/// - [`ReembedScope::Full`] / [`ReembedScope::Incremental`] → `page_count` is the unique-page count, read
+///   as `COUNT(*)` over the `urls` table (one row per unique URL — a single indexed count, never a
+///   14.4M-visit scan). Incremental's true count is "new/changed only", but the honest UPPER bound the
+///   estimate shows is the full unique-page count, so the displayed cost is never an under-promise.
+///
+/// `est_minutes_cpu = page_count / CANDLE_CPU_DOCS_PER_SEC / 60`; `est_minutes_gpu = est_minutes_cpu /
+/// METAL_SPEEDUP`. `gpu_available = cfg!(feature = "metal")` — the single honest source of whether THIS
+/// binary can actually run the GPU path.
+pub fn estimate_reembed(
+    connection: &Connection,
+    config: &WorkingSetConfig,
+    now_ms: i64,
+    scope: ReembedScope,
+) -> Result<ReembedEstimate> {
+    let page_count = match scope {
+        ReembedScope::WorkingSet => {
+            select_working_set(connection, config, now_ms, MAX_WORKING_SET)?.len() as u64
+        }
+        ReembedScope::Full | ReembedScope::Incremental => unique_page_count(connection)?,
+    };
+    Ok(reembed_estimate_for(scope, page_count))
+}
+
+/// Builds the estimate value object from a known page count (PURE — split out so the math is unit-tested
+/// without a database, and the SQL count path is tested separately).
+///
+/// Keeps the division guarded by the compile-time-constant divisors (both `> 0`), so there is no
+/// divide-by-zero branch to cover; a zero `page_count` yields zero minutes, which is correct.
+pub fn reembed_estimate_for(scope: ReembedScope, page_count: u64) -> ReembedEstimate {
+    let est_minutes_cpu = page_count as f64 / CANDLE_CPU_DOCS_PER_SEC / 60.0;
+    ReembedEstimate {
+        scope,
+        page_count,
+        est_minutes_cpu,
+        est_minutes_gpu: est_minutes_cpu / METAL_SPEEDUP,
+        // The ONE honest source of "can this binary run the GPU path": the off-by-default cargo feature.
+        gpu_available: cfg!(feature = "metal"),
+    }
+}
+
+/// Counts unique pages as `COUNT(*)` over `urls` (one row per unique URL — a single indexed count).
+///
+/// Bounded: never scans `visits`; the count is the upper bound on pages a full re-embed would touch.
+fn unique_page_count(connection: &Connection) -> Result<u64> {
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM urls", [], |row| row.get(0))
+        .context("counting unique pages for the re-embed estimate")?;
+    Ok(count.max(0) as u64)
 }
 
 /// Mutable per-canonical accumulator while signals from the four queries are merged.
@@ -449,6 +522,52 @@ mod tests {
 
     fn config() -> WorkingSetConfig {
         WorkingSetConfig::default()
+    }
+
+    // ---- re-embed cost/time estimator (W-AI-9 Sub-block D) ----
+
+    #[test]
+    fn reembed_constants_match_s1_benchmark() {
+        // Pin the S1-sourced constants so a silent edit (which would mis-state the user-facing cost)
+        // is caught by the test gate.
+        assert_eq!(CANDLE_CPU_DOCS_PER_SEC, 1.25);
+        assert_eq!(METAL_SPEEDUP, 10.0);
+    }
+
+    #[test]
+    fn reembed_estimate_math_uses_constants_and_gpu_speedup() {
+        // 9000 docs / 1.25 docs/sec / 60 = 120.0 CPU minutes; GPU = /10 = 12.0 minutes.
+        let estimate = reembed_estimate_for(ReembedScope::Full, 9000);
+        assert_eq!(estimate.scope, ReembedScope::Full);
+        assert_eq!(estimate.page_count, 9000);
+        assert!((estimate.est_minutes_cpu - 120.0).abs() < 1e-9);
+        assert!((estimate.est_minutes_gpu - 12.0).abs() < 1e-9);
+        // The GPU estimate is exactly the CPU estimate divided by the speedup.
+        assert!((estimate.est_minutes_cpu / METAL_SPEEDUP - estimate.est_minutes_gpu).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reembed_estimate_zero_pages_is_zero_minutes() {
+        // A zero page count yields zero time (no divide-by-zero — the divisors are constants > 0).
+        let estimate = reembed_estimate_for(ReembedScope::WorkingSet, 0);
+        assert_eq!(estimate.page_count, 0);
+        assert_eq!(estimate.est_minutes_cpu, 0.0);
+        assert_eq!(estimate.est_minutes_gpu, 0.0);
+        assert_eq!(estimate.scope, ReembedScope::WorkingSet);
+    }
+
+    #[test]
+    fn reembed_estimate_gpu_available_tracks_metal_feature() {
+        // The ONE honest source of truth: `gpu_available` mirrors `cfg!(feature = "metal")`. In the
+        // default (CPU-only) coverage build this is `false`, so the FE shows "needs a Metal build".
+        let estimate = reembed_estimate_for(ReembedScope::Incremental, 100);
+        assert_eq!(estimate.gpu_available, cfg!(feature = "metal"));
+    }
+
+    #[test]
+    fn reembed_scope_defaults_to_incremental() {
+        // The `#[serde(default)]` default must be Incremental so a frozen payload keeps prior behavior.
+        assert_eq!(ReembedScope::default(), ReembedScope::Incremental);
     }
 
     #[test]

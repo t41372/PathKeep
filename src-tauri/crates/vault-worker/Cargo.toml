@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 license.workspace = true
 
+[features]
+# Passthrough for vault-core's opt-in Apple-Silicon Metal embedding backend (W-AI-9 Sub-block D).
+# Opt-in feature, still OFF in default/CI; only `--features metal` propagates it into vault-core (and
+# from there into candle). The worker holds no metal code of its own — it just forwards the feature.
+metal = ["vault-core/metal"]
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true

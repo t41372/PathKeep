@@ -568,6 +568,11 @@ describe('backend client', () => {
         args: { request },
       },
       {
+        run: () => backend.estimateReembed('working-set'),
+        command: 'estimate_reembed',
+        args: { scope: 'working-set' },
+      },
+      {
         run: () => backend.searchAiHistory(request),
         command: 'search_ai_history',
         args: { request },
