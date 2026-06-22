@@ -76,6 +76,7 @@ import { useLocalAnnotations } from './use-local-annotations'
 import { useDesktopAnnotations } from './use-desktop-annotations'
 import { useDesktopStars } from './use-desktop-stars'
 import { useStarredHub } from './use-starred-hub'
+import { useStarredCount } from './use-starred-count'
 import { hasStarredFacet } from './paper-search-filters'
 import { hasDesktopCommandTransport } from '../../lib/runtime'
 import type { StarListItem } from '../../lib/backend-client'
@@ -249,6 +250,20 @@ export function ExplorerPage() {
     ? desktopAnnotations
     : localAnnotations
   const stars = useDesktopStars()
+  // STAR-1: a bounded aggregate count behind the discoverable "Open starred"
+  // entry badge. The token bumps on every star toggle so the badge stays honest
+  // after the user stars/un-stars without ever listing the archive.
+  const [starCountToken, setStarCountToken] = useState(0)
+  const starredCount = useStarredCount(starCountToken)
+  // Single chokepoint for star toggles so the count badge re-reads its bounded
+  // aggregate after any star change, regardless of which surface fired it.
+  const toggleStar = useCallback(
+    (kind: 'url' | 'domain', key: string) => {
+      stars.toggle(kind, key)
+      setStarCountToken((token) => token + 1)
+    },
+    [stars],
+  )
   // Starred hub: a focused Explorer mode (NOT a 4th nav item) entered via
   // `?surface=starred`. The hub owns its own paginated read model.
   const surfaceIsStarred = searchParams.get('surface') === 'starred'
@@ -608,6 +623,22 @@ export function ExplorerPage() {
             <path d="M12 3.5l2.6 5.3 5.9.9-4.25 4.15 1 5.85L12 17.9l-5.25 2.65 1-5.85L3.5 9.7l5.9-.9z" />
           </svg>
           {explorerT('star.hubOpen')}
+          {/*
+            STAR-1: honest count badge. Renders only once a real bounded count
+            lands AND there is something starred — a fresh/empty archive shows
+            no badge instead of a misleading "0".
+          */}
+          {starredCount.loaded && starredCount.total > 0 ? (
+            <span
+              data-testid="explorer-starred-count"
+              aria-label={explorerT('star.hubCountAria', {
+                count: starredCount.total,
+              })}
+              className="bg-accent-soft text-accent-text rounded-pill ml-0.5 inline-flex min-w-[16px] items-center justify-center px-1 py-px text-[9.5px] font-semibold tabular-nums"
+            >
+              {starredCount.total.toLocaleString(language)}
+            </span>
+          ) : null}
         </button>
       </div>
     ),
@@ -620,8 +651,11 @@ export function ExplorerPage() {
       filterStripFormState,
       handleFilterStripApply,
       handleFilterStripRemove,
+      language,
       openStarredHub,
       profileOptions,
+      starredCount.loaded,
+      starredCount.total,
     ],
   )
 
@@ -1084,7 +1118,7 @@ export function ExplorerPage() {
               }
             }}
             onToggleStar={(item) => {
-              stars.toggle(item.entityKind, item.entityKey)
+              toggleStar(item.entityKind, item.entityKey)
               // Removing a star should drop it from the hub on the next read.
               starredHub.reload()
             }}
@@ -1213,7 +1247,7 @@ export function ExplorerPage() {
           }}
           entryStar={{
             isStarred: (url) => stars.isStarred('url', url),
-            onToggle: (url) => stars.toggle('url', url),
+            onToggle: (url) => toggleStar('url', url),
             starLabel: explorerT('star.starPageAria'),
             unstarLabel: explorerT('star.unstarPageAria'),
           }}
@@ -1270,7 +1304,7 @@ export function ExplorerPage() {
           }}
           entryStar={{
             isStarred: (url) => stars.isStarred('url', url),
-            onToggle: (url) => stars.toggle('url', url),
+            onToggle: (url) => toggleStar('url', url),
             starLabel: explorerT('star.starPageAria'),
             unstarLabel: explorerT('star.unstarPageAria'),
           }}
@@ -1369,7 +1403,7 @@ export function ExplorerPage() {
           enrichment={visitEnrichment}
           stars={{
             isStarred: (url) => stars.isStarred('url', url),
-            onToggleStar: (url) => stars.toggle('url', url),
+            onToggleStar: (url) => toggleStar('url', url),
           }}
           onClose={() => setPaperDetailOpen(false)}
           onOpen={(url) => void handleVisit(url)}

@@ -48,7 +48,7 @@ describe('Jobs readable-content enabled overview branch', () => {
     {
       name: 'missing plugin',
       plugin: null,
-      messageKey: 'contentFetchFallbackBody',
+      messageKey: 'contentFetchOffBody',
       storedRows: 0,
     },
     {
@@ -99,7 +99,7 @@ describe('Jobs readable-content enabled overview branch', () => {
       })
 
       const contentMessages = await screen.findAllByText(
-        jobsT(messageKey as 'contentFetchFallbackBody', {
+        jobsT(messageKey as 'contentFetchOffBody', {
           queued: plugin?.queuedJobs ?? 0,
           stored: plugin?.storedRecords ?? 0,
         }),

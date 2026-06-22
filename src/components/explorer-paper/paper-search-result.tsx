@@ -284,10 +284,14 @@ export function PaperSearchResult({
 }
 
 /**
- * Map a relevance-band tone onto the paper status-pill palette. Kept as a tiny
- * pure lookup so the band pill stays consistent with the rest of the paper
- * surface (accent for the strongest match, neutral ink for weaker ones) without
- * pulling a heavier status component into the result row.
+ * Map a relevance-band tone onto the paper status-pill palette as an honest
+ * relevance LADDER: accent for the strongest match (`success`), a neutral ink
+ * box for a mid "Relevant" match (`info`), and the faintest treatment for a weak
+ * or unscored match (`blocked`). Kept as a tiny pure lookup so the band pill
+ * stays consistent with the paper surface without pulling in a heavier status
+ * component. `warning` is intentionally NOT produced by `scoreBand` (a caution
+ * tone would misread on a positive match) but is mapped to the neutral mid step
+ * so the pill never renders unstyled if a caller passes it.
  */
 function bandToneClass(
   tone: 'success' | 'warning' | 'blocked' | 'info',
@@ -295,10 +299,9 @@ function bandToneClass(
   switch (tone) {
     case 'success':
       return 'border-accent text-accent bg-accent-soft'
+    case 'info':
     case 'warning':
       return 'border-border-default text-ink-secondary bg-card-paper'
-    case 'blocked':
-      return 'border-border-default text-ink-faint bg-card-paper'
     default:
       return 'border-border-light text-ink-faint bg-transparent'
   }

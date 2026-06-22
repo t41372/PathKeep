@@ -308,6 +308,7 @@ export function buildPaperSearchViewCopy(
       recentHeading: t('paperSearchView.emptyRecentHeading'),
       recentMeta: t('paperSearchView.emptyRecentMeta'),
       footer: t('paperSearchView.emptyFooter'),
+      smartPrompt: t('paperSearchView.emptySmartPrompt'),
     },
     resultsCount: t('paperSearchView.resultsCount'),
     resultsRange: t('paperSearchView.resultsRange'),

@@ -32,12 +32,20 @@
 export const optionalAiFeaturesAvailable = true
 
 /**
- * Marks network-backed readable-content fetching as tracked for v0.3 instead of v0.2.0.
+ * Marks the network-backed readable-content fetch surfaces as *live to report*.
  *
- * Core archive, keyword search, and deterministic Core Intelligence must remain
- * usable without claiming that PathKeep can fetch and store webpage bodies.
+ * `true` only means the Jobs and derived-state surfaces should show the real
+ * content-fetch queue/stored stats and honest live copy instead of the v0.2
+ * "deferred / coming in v0.3" placeholder — the W-ENRICH-1 backend has shipped.
+ *
+ * It does NOT enable egress. The actual consent to reach out to sites is the
+ * backend `content_fetch_enabled` (`config.ai.contentFetchEnabled`), which is
+ * hard-default-OFF and surfaced only in `content-fetch-section.tsx`. This flag
+ * answers "may the surfaces show real fetch status?", never "is fetching on?".
+ * The enrichment registry's `defaultEnabled` for the network plugin is kept
+ * decoupled (hard-false) so flipping this never defaults network enrichment on.
  */
-export const readableContentFetchAvailable = false
+export const readableContentFetchAvailable = true
 
 /**
  * Names the next planned release bucket for disabled future-facing surfaces.

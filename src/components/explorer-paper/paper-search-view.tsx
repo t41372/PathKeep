@@ -298,6 +298,7 @@ export function PaperSearchView({
           recent={recent}
           onPickSuggestion={onPickSuggestion}
           onRunRecent={onRunRecent}
+          smartActive={mode === 'smart'}
           copy={copy.empty}
           testId="paper-search-empty"
         />

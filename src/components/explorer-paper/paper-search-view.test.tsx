@@ -52,6 +52,7 @@ const COPY: PaperSearchViewCopy = {
     recentHeading: 'Recent',
     recentMeta: '{mode} · {count} · {when}',
     footer: 'Search is local.',
+    smartPrompt: 'Ask in plain language — that article about Rust async.',
   },
   resultsCount: '{noun} found',
   resultsRange: '{first} — {last} · {mode}',
@@ -179,6 +180,22 @@ describe('PaperSearchView', () => {
     expect(screen.getByTestId('paper-search-empty')).toBeVisible()
     expect(screen.queryByTestId('paper-search-results')).toBeNull()
     expect(screen.queryByTestId('paper-search-no-matches')).toBeNull()
+    // 8c: keyword empty state never shows the Smart prompt.
+    expect(screen.queryByTestId('paper-search-empty-smart-prompt')).toBeNull()
+  })
+
+  test('8c: the Smart-mode empty state surfaces the natural-language prompt', () => {
+    renderView({
+      query: '',
+      mode: 'smart',
+      groups: [],
+      totalResults: 0,
+    })
+
+    expect(screen.getByTestId('paper-search-empty')).toBeVisible()
+    expect(
+      screen.getByTestId('paper-search-empty-smart-prompt'),
+    ).toHaveTextContent(COPY.empty.smartPrompt)
   })
 
   test('renders the no-matches branch when query has no results', () => {

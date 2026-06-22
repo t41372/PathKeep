@@ -32,6 +32,7 @@
  */
 export const settingsContentFetchNamespace = {
   en: {
+    contentFetchNavLabel: 'Site content',
     contentFetchTitle: 'SITE CONTENT',
     contentFetchIntro:
       'Optionally enrich pages you already visited with structured detail — a GitHub repo’s description and topics, or a short readable summary of an article. Everything stays on this device.',
@@ -97,6 +98,7 @@ export const settingsContentFetchNamespace = {
       'Site content fetching only works in the desktop app.',
   },
   'zh-CN': {
+    contentFetchNavLabel: '站点内容',
     contentFetchTitle: '站点内容',
     contentFetchIntro:
       '可选：为你已经访问过的页面补充结构化信息——GitHub 仓库的描述和主题，或文章的简短可读摘要。所有内容都留在本机。',
@@ -160,6 +162,7 @@ export const settingsContentFetchNamespace = {
     contentFetchUnavailable: '站点内容抓取仅在桌面应用中可用。',
   },
   'zh-TW': {
+    contentFetchNavLabel: '網站內容',
     contentFetchTitle: '網站內容',
     contentFetchIntro:
       '可選：為你已經造訪過的頁面補充結構化資訊——GitHub 儲存庫的描述和主題，或文章的簡短可讀摘要。所有內容都留在本機。',

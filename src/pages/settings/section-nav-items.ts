@@ -34,6 +34,7 @@ export type SettingsSectionKey =
   | 'applock'
   | 'profiles'
   | 'ai'
+  | 'contentFetch'
   | 'derived'
   | 'migration'
   | 'linkPreviews'
@@ -76,6 +77,14 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     icon: 'smart_toy',
     labelKey: 'settings.aiProvider',
   },
+  contentFetch: {
+    // Anchor id MUST match the ContentFetchSection container's default
+    // `anchorId` ('content-fetch') so the sticky-nav scroll lands on the
+    // consent card, not a phantom id.
+    id: 'content-fetch',
+    icon: 'public',
+    labelKey: 'settings.contentFetchNavLabel',
+  },
   derived: {
     id: 'settings-derived',
     icon: 'memory',
@@ -105,6 +114,7 @@ const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'applock',
   'profiles',
   'ai',
+  'contentFetch',
   'derived',
   'migration',
   'linkPreviews',

@@ -441,6 +441,35 @@ describe('PaperSearchResult', () => {
     )
   })
 
+  // P3: `scoreBand` never emits `warning`, but `bandToneClass` keeps a
+  // defensive `warning` -> neutral arm so the pill never renders unstyled if an
+  // external caller ever passes it. The mid `info` ("Relevant") tier shares that
+  // exact neutral palette. Assert the resolved class (not just the label) so the
+  // defensive mapping is genuinely covered, not merely executed.
+  test.each(['warning', 'info'] as const)(
+    'maps the %s tone to the neutral mid pill palette',
+    (tone) => {
+      render(
+        <PaperSearchResult
+          entry={makeEntry({ relevanceBand: { label: 'Relevant', tone } })}
+          domainColor="#24292e"
+          domainAbbr="GIT"
+          testId={`result-neutral-${tone}`}
+        />,
+      )
+      const band = screen.getByTestId(`result-neutral-${tone}-band`)
+      // The neutral mid step: a default ink box, distinct from the accent
+      // `success` pill and the faintest `blocked`/unscored treatment.
+      expect(band).toHaveClass(
+        'border-border-default',
+        'text-ink-secondary',
+        'bg-card-paper',
+      )
+      expect(band).not.toHaveClass('border-accent')
+      expect(band).not.toHaveClass('bg-transparent')
+    },
+  )
+
   test('omits the band pill when the entry has no relevance band', () => {
     render(
       <PaperSearchResult

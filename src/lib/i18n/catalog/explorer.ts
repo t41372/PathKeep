@@ -243,6 +243,11 @@ export const explorerNamespaceCatalog = {
       hubEyebrow: 'STARRED',
       hubDescription: 'Pages and sources you keep close.',
       hubOpen: 'Open starred',
+      // P1/P2: the count sums starred urls AND domains, so the noun is the
+      // neutral "items" (not "pages"). "starred" is deliberately omitted because
+      // the button's own "Open starred" text already supplies it — keeping it
+      // here would make a screen reader announce "Open starred, N starred items".
+      hubCountAria: '{count} items',
       hubBack: 'Back to Browse',
       hubGroupPages: 'Pages',
       hubGroupSources: 'Sources',
@@ -469,6 +474,8 @@ export const explorerNamespaceCatalog = {
       emptyRecentMeta: '{mode} · {count} results · {when}',
       emptyFooter:
         'Memory is patient. Type something above to begin recalling.',
+      emptySmartPrompt:
+        'Ask in plain language — “that article about Rust async I read in spring” — and Smart search finds it by meaning, not just matching words.',
       resultsCount: '{count} {noun} found',
       resultsRange: '{first} — {last} · {mode}',
       pageSuffixSingular: 'page',
@@ -708,6 +715,9 @@ export const explorerNamespaceCatalog = {
       hubEyebrow: '已收藏',
       hubDescription: '你想随时找到的页面和来源。',
       hubOpen: '打开收藏',
+      // P1/P2: 计数同时包含已收藏的网址和来源，因此用中性的“项”而非“页面”；
+      // 不重复“收藏”，按钮自身的“打开收藏”已经表达了这一点。
+      hubCountAria: '{count} 个项目',
       hubBack: '返回浏览',
       hubGroupPages: '页面',
       hubGroupSources: '来源',
@@ -927,6 +937,8 @@ export const explorerNamespaceCatalog = {
       emptyRecentHeading: '最近搜索',
       emptyRecentMeta: '{mode} · {count} 条结果 · {when}',
       emptyFooter: '记忆需要时间。在上方输入,开始回忆。',
+      emptySmartPrompt:
+        '用自然语言提问——“春天读过的那篇关于 Rust 异步的文章”——智能搜索按含义查找，而不只是匹配字词。',
       resultsCount: '找到 {count} {noun}',
       resultsRange: '{first} — {last} · {mode}',
       pageSuffixSingular: '页',
@@ -1163,6 +1175,9 @@ export const explorerNamespaceCatalog = {
       hubEyebrow: '已收藏',
       hubDescription: '你想隨時找到的頁面和來源。',
       hubOpen: '打開收藏',
+      // P1/P2: 計數同時包含已收藏的網址與來源，因此用中性的「項」而非「頁面」；
+      // 不重複「收藏」，按鈕自身的「打開收藏」已經表達了這一點。
+      hubCountAria: '{count} 個項目',
       hubBack: '返回瀏覽',
       hubGroupPages: '頁面',
       hubGroupSources: '來源',
@@ -1382,6 +1397,8 @@ export const explorerNamespaceCatalog = {
       emptyRecentHeading: '最近搜尋',
       emptyRecentMeta: '{mode} · {count} 筆結果 · {when}',
       emptyFooter: '記憶需要時間。在上方輸入，開始回想。',
+      emptySmartPrompt:
+        '用自然語言提問——「春天讀過的那篇關於 Rust 非同步的文章」——智慧搜尋按含義查找，而不只是比對字詞。',
       resultsCount: '找到 {count} {noun}',
       resultsRange: '{first} — {last} · {mode}',
       pageSuffixSingular: '頁',

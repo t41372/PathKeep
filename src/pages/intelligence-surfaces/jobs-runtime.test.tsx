@@ -349,9 +349,14 @@ describe('intelligence surfaces', () => {
 
     expect(await screen.findByText(jobsT('failedTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('statusEyebrow'))).toBeVisible()
+    // ENR-2: content-fetch is now release-live, so the hero reports the real
+    // queued/stored backlog instead of the v0.2 "deferred" placeholder.
     expect(
-      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
+      screen.getAllByText(
+        jobsT('contentFetchBacklogBody', { queued: 1, stored: 5 }),
+      ).length,
     ).toBeGreaterThan(0)
+    expect(screen.queryByText(jobsT('contentFetchDeferredBody'))).toBeNull()
     const storedReadableContentStat = screen
       .getAllByText(jobsT('savedReadableContent'))[0]
       .closest('.jobs-hero-stat')
@@ -359,7 +364,7 @@ describe('intelligence surfaces', () => {
     if (!(storedReadableContentStat instanceof HTMLElement)) {
       throw new Error('expected stored readable content overview stat')
     }
-    expect(within(storedReadableContentStat).getByText('0')).toBeVisible()
+    expect(within(storedReadableContentStat).getByText('5')).toBeVisible()
     expect(screen.getByText(jobsT('runtimeSummaryTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('runtimeHealthTitle'))).toBeVisible()
     expect(screen.getByText(jobsT('pluginsTitle'))).toBeVisible()
@@ -617,9 +622,12 @@ describe('intelligence surfaces', () => {
     })
 
     expect(screen.getByText(jobsT('runningTitle'))).toBeVisible()
+    // ENR-2: live content-fetch → real "ready" status (queued/running both 0),
+    // not the deferred placeholder.
     expect(
-      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
+      screen.getAllByText(jobsT('contentFetchReadyBody', { stored: 4 })).length,
     ).toBeGreaterThan(0)
+    expect(screen.queryByText(jobsT('contentFetchDeferredBody'))).toBeNull()
     expect(screen.queryByText('jobs.contentFetchHealthyBody')).toBeNull()
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
     expect(loadRuntimeSpy).not.toHaveBeenCalled()
@@ -677,9 +685,12 @@ describe('intelligence surfaces', () => {
     })
 
     await screen.findByText('runtime degraded but usable')
+    // ENR-2: live content-fetch → real running status with honest stored count.
     expect(
-      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
+      screen.getAllByText(jobsT('contentFetchRunningBody', { stored: 9 }))
+        .length,
     ).toBeGreaterThan(0)
+    expect(screen.queryByText(jobsT('contentFetchDeferredBody'))).toBeNull()
     expect(screen.getByText('runtime degraded but usable')).toBeVisible()
     runtimeOnly.unmount()
 
@@ -723,9 +734,12 @@ describe('intelligence surfaces', () => {
     })
 
     await screen.findByText(jobsT('recentAiJobs'))
+    // ENR-2 / R2: live content-fetch with no runtime plugin → honest off-state
+    // "opt in" copy, never the deferred placeholder ("future release").
     expect(
-      screen.getAllByText(jobsT('contentFetchDeferredBody')).length,
+      screen.getAllByText(jobsT('contentFetchOffBody')).length,
     ).toBeGreaterThan(0)
+    expect(screen.queryByText(jobsT('contentFetchDeferredBody'))).toBeNull()
     expect(
       screen.getAllByText(jobsT('sidebarIdleDetail')).length,
     ).toBeGreaterThan(0)

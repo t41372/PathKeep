@@ -169,7 +169,11 @@ describe('intelligence surfaces settings runtime and search rules', () => {
     expect(
       screen.getAllByText('Readable content fetcher').length,
     ).toBeGreaterThan(0)
-    expect(screen.getAllByText('Coming in v0.3').length).toBeGreaterThan(0)
+    // ENR-2: content-fetch is now release-live, so the card shows its real
+    // network boundary + live queue counts instead of the "Coming in v0.3"
+    // deferred placeholder.
+    expect(screen.queryByText('Coming in v0.3')).toBeNull()
+    expect(screen.getAllByText('Network').length).toBeGreaterThan(0)
     expect(
       screen.getAllByText('1 queued / 0 running / 1 failed').length,
     ).toBeGreaterThan(0)

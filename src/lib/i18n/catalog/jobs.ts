@@ -104,7 +104,7 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: 'Review',
     needsReviewIdle: 'No failed work needs review.',
     needsReviewBacklog: '{count} failed job(s) still need review or retry.',
-    contentFetchTitle: 'Readable content',
+    contentFetchTitle: 'Site content',
     contentFetchDeferredBadge: 'Coming in v0.3',
     contentFetchDeferredBody:
       'Webpage body fetching is tracked for v0.3 and is not available in v0.2.0. This area stays visible for the roadmap, but PathKeep is not revisiting pages or saving readable copies yet.',
@@ -114,8 +114,9 @@ export const jobsNamespaceCatalog = {
       'PathKeep already saved {stored} readable pages and is still fetching more page text in the background.',
     contentFetchReadyBody:
       'PathKeep already saved {stored} readable pages and the fetch queue is currently clear.',
-    contentFetchFallbackBody:
-      'Readable content fetching will add deeper local evidence in a future release.',
+    contentFetchOffBody:
+      'Site content fetching is available but off — PathKeep is not contacting any site. Turn it on in Settings to enrich the pages you care about.',
+    contentFetchOpenSettings: 'Turn on in Settings',
     titleNormalizationBody:
       'Title cleanup runs on this device so search, summaries, and cards use steadier labels.',
     moduleAttentionBody: '{count} analysis module(s) need refresh or review.',
@@ -274,7 +275,7 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: '需处理',
     needsReviewIdle: '当前没有失败任务需要处理。',
     needsReviewBacklog: '还有 {count} 个失败任务等待你查看或重试。',
-    contentFetchTitle: '网页可读内容',
+    contentFetchTitle: '站点内容',
     contentFetchDeferredBadge: 'v0.3 开放',
     contentFetchDeferredBody:
       '网页正文抓取已排入 v0.3，v0.2.0 暂不开放。这里先保留路线图入口，但 PathKeep 现在不会重新访问网页，也不会保存正文副本。',
@@ -284,8 +285,9 @@ export const jobsNamespaceCatalog = {
       '已保存 {stored} 条可读网页内容。PathKeep 正在继续补抓网页正文。',
     contentFetchReadyBody:
       '已保存 {stored} 条可读网页内容。当前没有待处理的网页正文抓取。',
-    contentFetchFallbackBody:
-      '网页正文抓取会在后续版本为本地证据补充更多可引用内容。',
+    contentFetchOffBody:
+      '站点内容抓取可用，但目前关闭——PathKeep 不会联系任何站点。在设置中打开它，为你关心的页面补充内容。',
+    contentFetchOpenSettings: '在设置中打开',
     titleNormalizationBody:
       '标题规范化会在本机运行，帮助搜索、摘要和卡片使用更稳定的标签。',
     moduleAttentionBody: '{count} 个分析模块需要刷新或检查。',
@@ -439,7 +441,7 @@ export const jobsNamespaceCatalog = {
     needsReviewNow: '待處理',
     needsReviewIdle: '目前沒有失敗任務需要處理。',
     needsReviewBacklog: '還有 {count} 個失敗任務等你查看或重試。',
-    contentFetchTitle: '網頁可讀內容',
+    contentFetchTitle: '網站內容',
     contentFetchDeferredBadge: 'v0.3 開放',
     contentFetchDeferredBody:
       '網頁正文擷取已排入 v0.3，v0.2.0 暫不開放。這裡先保留路線圖入口，但 PathKeep 現在不會重新造訪網頁，也不會保存正文副本。',
@@ -449,8 +451,9 @@ export const jobsNamespaceCatalog = {
       '已保存 {stored} 筆可讀網頁內容。PathKeep 正在繼續補抓網頁正文。',
     contentFetchReadyBody:
       '已保存 {stored} 筆可讀網頁內容。現在沒有待處理的網頁正文抓取。',
-    contentFetchFallbackBody:
-      '網頁正文擷取會在後續版本替本機證據補上更多可引用內容。',
+    contentFetchOffBody:
+      '網站內容擷取可用，但目前關閉——PathKeep 不會聯絡任何網站。在設定中打開它，為你在意的頁面補充內容。',
+    contentFetchOpenSettings: '在設定中打開',
     titleNormalizationBody:
       '標題正規化會在本機執行，幫助搜尋、摘要與卡片使用更穩定的標籤。',
     moduleAttentionBody: '{count} 個分析模組需要重新整理或檢查。',

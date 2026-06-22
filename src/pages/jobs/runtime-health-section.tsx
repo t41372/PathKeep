@@ -22,6 +22,7 @@
  * - Works entirely from the already-loaded runtime snapshot; it does not trigger additional reads.
  */
 
+import { Link } from 'react-router-dom'
 import {
   PaperCard,
   PaperCardBadge,
@@ -103,6 +104,13 @@ export function JobsRuntimeHealthSection({
     },
     null,
   )
+  // The default unconsented state every fresh user is in: the feature shipped
+  // (`readableContentFetchAvailable`) but the user has not turned egress on, so
+  // there is no `readable-content-refetch` runtime plugin yet. Show an honest
+  // "off — opt in" body with a deep-link to the consent section, NOT the
+  // genuinely-deferred placeholder (which stays on the flag-false branch only).
+  const contentFetchOffByDefault =
+    readableContentFetchAvailable && !contentPlugin
   const contentQueueMessage = !readableContentFetchAvailable
     ? jobsT('contentFetchDeferredBody')
     : contentPlugin?.lastError
@@ -120,7 +128,7 @@ export function JobsRuntimeHealthSection({
             : jobsT('contentFetchReadyBody', {
                 stored: contentPlugin.storedRecords,
               })
-        : jobsT('contentFetchFallbackBody')
+        : jobsT('contentFetchOffBody')
   const visibleContentStats = readableContentFetchAvailable
     ? {
         queued: contentPlugin?.queuedJobs ?? 0,
@@ -151,6 +159,15 @@ export function JobsRuntimeHealthSection({
           />
           <PaperCardBody className="jobs-panel-stack">
             <p>{contentQueueMessage}</p>
+            {contentFetchOffByDefault ? (
+              <Link
+                className="btn-secondary"
+                to="/settings#content-fetch"
+                data-testid="jobs-content-fetch-settings-link"
+              >
+                {jobsT('contentFetchOpenSettings')}
+              </Link>
+            ) : null}
             <div className="jobs-meta-grid mono-support">
               <span>
                 {jobsT('queuedCount')}:{' '}

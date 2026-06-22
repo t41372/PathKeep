@@ -104,16 +104,28 @@ describe('App shell', () => {
       throw new Error('Expected readable content plugin card to be present')
     }
 
+    // ENR-2: content-fetch is now release-live, so the derived-state card no
+    // longer wears the v0.2 "deferred" badge. It defaults OFF (decoupled
+    // `defaultEnabled: false`) and offers an ENABLED toggle — egress itself
+    // still stays off until the user opts in via the Site content section.
     expect(
-      within(readableContentCard).getAllByText(
+      within(readableContentCard).queryByText(
         settingsT('readableContentDeferredBadge'),
-      ).length,
-    ).toBeGreaterThan(0)
+      ),
+    ).toBeNull()
     expect(
-      within(readableContentCard).getByRole('button', {
-        name: settingsT('enablePlugin'),
-      }),
-    ).toBeDisabled()
+      within(readableContentCard).getAllByText(settingsT('networkAccess'))
+        .length,
+    ).toBeGreaterThan(0)
+    const readableContentToggle = within(readableContentCard).getByRole(
+      'button',
+      {
+        name: new RegExp(
+          `${settingsT('enablePlugin')}|${settingsT('disablePlugin')}`,
+        ),
+      },
+    )
+    expect(readableContentToggle).toBeEnabled()
 
     await user.click(
       within(maintenancePage).getByRole('button', {

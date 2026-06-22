@@ -385,7 +385,9 @@ export function JobsPage() {
   let contentQueueMessage = jobsT('contentFetchDeferredBody')
   if (readableContentFetchAvailable) {
     if (!contentPlugin) {
-      contentQueueMessage = jobsT('contentFetchFallbackBody')
+      // Default unconsented state: feature shipped, egress off, no runtime
+      // plugin yet. Honest "off — opt in" copy, not a "future release" claim.
+      contentQueueMessage = jobsT('contentFetchOffBody')
     } else if (contentPlugin.queuedJobs > 0) {
       contentQueueMessage = jobsT('contentFetchBacklogBody', {
         queued: contentPlugin.queuedJobs,

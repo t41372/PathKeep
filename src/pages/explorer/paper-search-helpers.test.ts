@@ -265,7 +265,9 @@ describe('paperSearchEntryFromAiSearchItem', () => {
     expect(entry.enrichmentExcerpt).toBeUndefined()
   })
 
-  test('derives the relevance band from score via scoreBand thresholds', () => {
+  test('derives the relevance band from score via scoreBand thresholds (8b ladder tones)', () => {
+    // The ladder: strong match → accent (`success`), mid → neutral (`info`,
+    // never the caution `warning`), weak → faint (`blocked`).
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.9 }),
@@ -277,13 +279,13 @@ describe('paperSearchEntryFromAiSearchItem', () => {
         makeAiItem({ score: 0.7 }),
         intelligenceT,
       ).relevanceBand,
-    ).toEqual({ label: 'relevant', tone: 'warning' })
+    ).toEqual({ label: 'relevant', tone: 'info' })
     expect(
       paperSearchEntryFromAiSearchItem(
         makeAiItem({ score: 0.2 }),
         intelligenceT,
       ).relevanceBand,
-    ).toEqual({ label: 'weakMatch', tone: 'info' })
+    ).toEqual({ label: 'weakMatch', tone: 'blocked' })
   })
 
   test('stamps the local day key for see-in-context', () => {

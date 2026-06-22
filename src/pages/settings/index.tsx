@@ -88,6 +88,7 @@ export function SettingsPage() {
     'profiles',
     'applock',
     'ai',
+    'contentFetch',
     'migration',
     'linkPreviews',
   ])
@@ -214,7 +215,7 @@ export function SettingsPage() {
           navItem={settingsSection('ai')}
           state={routeState.ai}
         />
-        <ContentFetchSection />
+        <ContentFetchSection anchorId={settingsSection('contentFetch').id} />
       </div>
 
       <div className="settings-group">

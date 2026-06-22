@@ -1342,6 +1342,43 @@ describe('ExplorerPage route shell', () => {
     expect(screen.queryByTestId('paper-detail-mount')).toBeNull()
   })
 
+  test('STAR-1: the Starred-hub entry shows an honest bounded count badge', async () => {
+    desktopCommandTransportAvailable.value = true
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockResolvedValue({
+      urls: 11,
+      domains: 4,
+    })
+
+    renderExplorer()
+
+    const badge = await screen.findByTestId('explorer-starred-count')
+    // Total is the sum of the bounded url + domain counts, sourced from
+    // get_star_counts (a COUNT, not the archive scan).
+    expect(badge).toHaveTextContent('15')
+    // The aria-label comes from the dedicated localized key (vars are stripped
+    // by the i18n test stub).
+    expect(badge).toHaveAttribute('aria-label', 'explorer.star.hubCountAria')
+    // The badge reads from the aggregate count, never list_stars (the hub list
+    // stays unloaded on the Browse surface).
+    expect(backend.listStars).not.toHaveBeenCalled()
+  })
+
+  test('STAR-1: a zero starred count hides the badge (no misleading "0")', async () => {
+    desktopCommandTransportAvailable.value = true
+    ;(backend.getStarCounts as ReturnType<typeof vi.fn>).mockResolvedValue({
+      urls: 0,
+      domains: 0,
+    })
+
+    renderExplorer()
+
+    // The discoverable entry is present...
+    expect(await screen.findByTestId('explorer-open-starred')).toBeVisible()
+    // ...but with nothing starred the count badge never renders.
+    await waitFor(() => expect(backend.getStarCounts).toHaveBeenCalled())
+    expect(screen.queryByTestId('explorer-starred-count')).toBeNull()
+  })
+
   test('selecting an is:starred row opens it via handleVisit (synthetic ids)', async () => {
     const user = userEvent.setup()
     const handleVisit = vi.fn()

@@ -19,13 +19,28 @@
  */
 
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import type { ReactElement } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import type { IntelligenceRuntimeSnapshot } from '../../lib/types'
 import { JobsRuntimeHealthSection } from './runtime-health-section'
 
+// The honest off-state body renders a `<Link>` to the consent section, so the
+// section must be mounted inside a router context (matching the real Jobs
+// route, which already lives under the app router).
+function renderSection(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>)
+}
+
 describe('JobsRuntimeHealthSection', () => {
-  test('renders fallback plugin copy and keeps the latest completed module timestamp', () => {
-    render(
+  // ENR-2 / R2: `readableContentFetchAvailable` now ships TRUE, so the default
+  // (unmocked) render shows the LIVE content-fetch branch. With no runtime
+  // plugin yet (the default unconsented state every fresh user is in) the card
+  // must show the honest "off — opt in" body plus a deep-link to the consent
+  // section — NEVER the genuinely-deferred placeholder, which only belongs on
+  // the flag-false branch exercised separately below.
+  test('renders the honest off-state body + consent deep-link in the default unconsented state', () => {
+    renderSection(
       <JobsRuntimeHealthSection
         commonT={translate}
         jobsT={translate}
@@ -35,14 +50,22 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+    // No readable-content plugin in the fixture → live branch resolves the
+    // honest off-state body, not the deferred placeholder ("future release").
+    expect(screen.getByText('contentFetchOffBody')).toBeVisible()
+    expect(screen.queryByText('contentFetchDeferredBody')).toBeNull()
+    // The off-state offers a concrete next step: a deep-link straight to the
+    // Settings content-fetch consent section.
+    const settingsLink = screen.getByTestId('jobs-content-fetch-settings-link')
+    expect(settingsLink).toHaveTextContent('contentFetchOpenSettings')
+    expect(settingsLink).toHaveAttribute('href', '/settings#content-fetch')
     expect(screen.getByText('moduleHealthyBody')).toBeVisible()
     expect(screen.getAllByText(/Apr 25, 2026/).length).toBeGreaterThan(0)
     expect(screen.getAllByText('notAvailable').length).toBeGreaterThan(0)
   })
 
-  test('renders queued content runtime, attention modules, notes, and raw invalid timestamps', () => {
-    render(
+  test('renders live content runtime error, attention modules, notes, and raw invalid timestamps', () => {
+    renderSection(
       <JobsRuntimeHealthSection
         commonT={translate}
         jobsT={translate}
@@ -87,7 +110,12 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+    // Live branch surfaces the real plugin error (a 429 → rate-limited copy)
+    // instead of the deferred placeholder or the off-state opt-in.
+    expect(screen.getAllByText('errorRateLimited').length).toBeGreaterThan(0)
+    expect(screen.queryByText('contentFetchDeferredBody')).toBeNull()
+    expect(screen.queryByText('contentFetchOffBody')).toBeNull()
+    expect(screen.queryByTestId('jobs-content-fetch-settings-link')).toBeNull()
     expect(screen.getByText('moduleAttentionBody:{"count":1}')).toBeVisible()
     expect(
       screen.getByText('Rebuild semantic sidecars before export.'),
@@ -97,8 +125,8 @@ describe('JobsRuntimeHealthSection', () => {
     expect(screen.getByText('sessions are stale')).toBeVisible()
   })
 
-  test('keeps content runtime branches deferred while webpage body fetch is unavailable', () => {
-    const queuedView = render(
+  test('renders live content runtime queued/running/ready branches with honest stats', () => {
+    const queuedView = renderSection(
       <JobsRuntimeHealthSection
         commonT={translate}
         jobsT={translate}
@@ -123,12 +151,14 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
-    expect(screen.getAllByText(/queuedCount:\s*0/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/savedReadableContent:\s*0/).length).toBe(1)
+    // Live queued copy plus the REAL stored count (12), never the masked 0.
+    expect(
+      screen.getByText('contentFetchBacklogBody:{"queued":5,"stored":12}'),
+    ).toBeVisible()
+    expect(screen.getAllByText(/savedReadableContent:\s*12/).length).toBe(1)
     queuedView.unmount()
 
-    const runningView = render(
+    const runningView = renderSection(
       <JobsRuntimeHealthSection
         commonT={translate}
         jobsT={translate}
@@ -153,10 +183,12 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+    expect(
+      screen.getByText('contentFetchRunningBody:{"stored":12}'),
+    ).toBeVisible()
     runningView.unmount()
 
-    render(
+    renderSection(
       <JobsRuntimeHealthSection
         commonT={translate}
         jobsT={translate}
@@ -181,66 +213,55 @@ describe('JobsRuntimeHealthSection', () => {
       />,
     )
 
-    expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+    expect(screen.getByText('contentFetchReadyBody:{"stored":8}')).toBeVisible()
   })
 
-  test('renders live content runtime branches when webpage body fetch is release-enabled', async () => {
+  test('keeps the deferred placeholder branch covered when the release flag is off', async () => {
     vi.resetModules()
     vi.doMock('../../lib/release-capabilities', () => ({
       deferredFeatureReleaseLabel: 'v0.3',
       optionalAiFeaturesAvailable: false,
-      readableContentFetchAvailable: true,
+      readableContentFetchAvailable: false,
     }))
 
     try {
-      const { JobsRuntimeHealthSection: EnabledJobsRuntimeHealthSection } =
+      const { JobsRuntimeHealthSection: DeferredJobsRuntimeHealthSection } =
         await import('./runtime-health-section')
-      const renderWithContentPlugin = (
-        plugin: IntelligenceRuntimeSnapshot['plugins'][number] | null,
-      ) =>
-        render(
-          <EnabledJobsRuntimeHealthSection
-            commonT={translate}
-            jobsT={translate}
-            language="en"
-            runtime={{
-              ...runtimeFixture(),
-              plugins: plugin ? [plugin] : [],
-            }}
-            settingsT={translate}
-          />,
-        )
-
-      const fallbackView = renderWithContentPlugin(null)
-      expect(screen.getByText('contentFetchFallbackBody')).toBeVisible()
-      fallbackView.unmount()
-
-      const errorView = renderWithContentPlugin(
-        contentPluginFixture({ lastError: 'HTTP 500' }),
+      renderSection(
+        <DeferredJobsRuntimeHealthSection
+          commonT={translate}
+          jobsT={translate}
+          language="en"
+          runtime={{
+            ...runtimeFixture(),
+            plugins: [
+              {
+                pluginId: 'readable-content-refetch',
+                sourceKind: 'network',
+                enabled: true,
+                storedRecords: 12,
+                queuedJobs: 5,
+                runningJobs: 0,
+                failedJobs: 0,
+                lastCompletedAt: null,
+                lastError: null,
+              },
+            ],
+          }}
+          settingsT={translate}
+        />,
       )
-      expect(screen.getAllByText('HTTP 500').length).toBeGreaterThan(0)
-      errorView.unmount()
 
-      const queuedView = renderWithContentPlugin(
-        contentPluginFixture({ queuedJobs: 5, storedRecords: 12 }),
-      )
+      // Deferred branch masks live counts (stored shows 0) and shows the
+      // placeholder badge + body — never the honest off-state opt-in (that is
+      // only correct once the feature has actually shipped).
+      expect(screen.getByText('contentFetchDeferredBody')).toBeVisible()
+      expect(screen.getByText('contentFetchDeferredBadge')).toBeVisible()
+      expect(screen.queryByText('contentFetchOffBody')).toBeNull()
       expect(
-        screen.getByText('contentFetchBacklogBody:{"queued":5,"stored":12}'),
-      ).toBeVisible()
-      queuedView.unmount()
-
-      const runningView = renderWithContentPlugin(
-        contentPluginFixture({ runningJobs: 2, storedRecords: 12 }),
-      )
-      expect(
-        screen.getByText('contentFetchRunningBody:{"stored":12}'),
-      ).toBeVisible()
-      runningView.unmount()
-
-      renderWithContentPlugin(contentPluginFixture({ storedRecords: 8 }))
-      expect(
-        screen.getByText('contentFetchReadyBody:{"stored":8}'),
-      ).toBeVisible()
+        screen.queryByTestId('jobs-content-fetch-settings-link'),
+      ).toBeNull()
+      expect(screen.getAllByText(/savedReadableContent:\s*0/).length).toBe(1)
     } finally {
       vi.doUnmock('../../lib/release-capabilities')
       vi.resetModules()
@@ -321,22 +342,5 @@ function runtimeFixture(): IntelligenceRuntimeSnapshot {
     ],
     recentJobs: [],
     notes: [],
-  }
-}
-
-function contentPluginFixture(
-  overrides: Partial<IntelligenceRuntimeSnapshot['plugins'][number]> = {},
-): IntelligenceRuntimeSnapshot['plugins'][number] {
-  return {
-    pluginId: 'readable-content-refetch',
-    sourceKind: 'network',
-    enabled: true,
-    storedRecords: 0,
-    queuedJobs: 0,
-    runningJobs: 0,
-    failedJobs: 0,
-    lastCompletedAt: null,
-    lastError: null,
-    ...overrides,
   }
 }
