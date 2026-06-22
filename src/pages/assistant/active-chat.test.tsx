@@ -1,9 +1,10 @@
 /**
  * @file active-chat.test.tsx
  * @description Covers the active streaming-chat surface of the rebuilt Assistant route — the
- *              W-AI-2 marquee. The deferred / setup / locked gates live in `index.test.tsx`
- *              (which runs against the real release-capabilities `false` flag); this file flips
- *              the flag to `true` so the live chat branches render.
+ *              W-AI-2 marquee. The AI-off / setup / locked gates live in `index.test.tsx`
+ *              (which runs against the real release-capabilities flag and the seeded default-OFF
+ *              `config.ai.enabled`); this file mocks the flag `true` and enables AI so the live
+ *              chat branches render.
  *
  * Approach: `release-capabilities` is mocked to enable optional AI; `subscribeToAiChatStream` is
  * mocked to capture the listener and feed scripted chunk sequences (real streaming only works
@@ -152,7 +153,7 @@ describe('AssistantPage — active streaming chat', () => {
     expect(screen.getByText(assistantT('emptyDescription'))).toBeVisible()
     expect(
       screen.getByRole('link', { name: assistantT('openSettings') }),
-    ).toHaveAttribute('href', '/settings')
+    ).toHaveAttribute('href', '/settings#settings-ai')
   })
 
   test('falls back to a null system prompt when none is configured', async () => {
@@ -188,7 +189,7 @@ describe('AssistantPage — active streaming chat', () => {
     ).toBeVisible()
     expect(
       screen.getByRole('link', { name: assistantT('openSettings') }),
-    ).toHaveAttribute('href', '/settings')
+    ).toHaveAttribute('href', '/settings#settings-ai')
   })
 
   test('renders the greeting and seeds a clicked prompt into the composer', async () => {

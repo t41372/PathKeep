@@ -12,7 +12,7 @@
  * - Keep assertions on review visibility and handler calls rather than decorative panel structure.
  */
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
@@ -75,6 +75,25 @@ function renderSection(state: AiProvidersSectionState) {
   )
 }
 
+const previewFixture = (overrides = {}) => ({
+  mcpCommand: 'pathkeep mcp serve',
+  consentSummary: 'Manual localhost bridge preview only.',
+  manualSteps: ['Review the generated file before use.'],
+  capabilityNotes: ['Read-only local history lookup.'],
+  scopeBoundary: ['No cloud upload.'],
+  auditTrace: ['Generated during Settings review.'],
+  generatedFiles: [
+    {
+      relativePath: 'integrations/pathkeep-mcp.json',
+      absolutePath: '/tmp/pathkeep/integrations/pathkeep-mcp.json',
+      purpose: 'MCP JSON',
+      contents: '{"command":"pathkeep"}',
+    },
+  ],
+  warnings: ['Keep the local server disabled when unused.'],
+  ...overrides,
+})
+
 describe('AiIntegrationReviewSection', () => {
   test('renders nothing until current AI settings exist', () => {
     const { container } = render(
@@ -90,79 +109,82 @@ describe('AiIntegrationReviewSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  test('shows deferred MCP and skill artifact placeholders', () => {
+  test('shows the honest loading state until a preview is available', () => {
+    renderSection(baseState())
+
+    expect(screen.getByText('Preparing integration preview')).toBeVisible()
+    // No roadmap copy leaks into the live surface.
+    expect(screen.queryByText('Coming in v0.3')).toBeNull()
+  })
+
+  test('renders the live MCP + generated-file review and wires copy/open', () => {
     const onCopyIntegrationValue = vi.fn().mockResolvedValue(undefined)
     const onOpenPath = vi.fn()
     renderSection(
       baseState({
         onCopyIntegrationValue,
         onOpenPath,
-        integrationPreview: {
-          mcpCommand: 'pathkeep mcp serve',
-          consentSummary: 'Manual localhost bridge preview only.',
-          manualSteps: ['Review the generated file before use.'],
-          capabilityNotes: ['Read-only local history lookup.'],
-          scopeBoundary: ['No cloud upload.'],
-          auditTrace: ['Generated during Settings review.'],
-          generatedFiles: [
-            {
-              relativePath: 'integrations/pathkeep-mcp.json',
-              absolutePath: '/tmp/pathkeep/integrations/pathkeep-mcp.json',
-              purpose: 'MCP JSON',
-              contents: '{"command":"pathkeep"}',
-            },
-          ],
-          warnings: ['Keep the local server disabled when unused.'],
-        },
+        integrationPreview: previewFixture(),
       }),
     )
 
-    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
+    // The real consent summary + MCP command + generated files render.
     expect(
-      screen.getByText(
-        'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the v0.3 roadmap, but v0.2.0 does not generate or install them.',
-      ),
+      screen.getByText('Manual localhost bridge preview only.'),
     ).toBeVisible()
+    expect(screen.getByText('pathkeep mcp serve')).toBeVisible()
     expect(screen.getByText('MCP command')).toBeVisible()
     expect(screen.getByText('Generated files')).toBeVisible()
-    expect(screen.getAllByText('Coming in v0.3')).toHaveLength(3)
+    expect(screen.getByText('Read-only local history lookup.')).toBeVisible()
 
-    expect(onCopyIntegrationValue).not.toHaveBeenCalled()
-    expect(onOpenPath).not.toHaveBeenCalled()
+    // The artifact viewer routes copy/open through the route-owned handlers.
+    fireEvent.click(screen.getByRole('button', { name: 'Open path' }))
+    expect(onOpenPath).toHaveBeenCalledWith(
+      '/tmp/pathkeep/integrations/pathkeep-mcp.json',
+    )
+    // Copy buttons (path + contents) route to onCopyIntegrationValue.
+    screen
+      .getAllByRole('button', { name: 'Copy' })
+      .forEach((button) => fireEvent.click(button))
+    expect(onCopyIntegrationValue).toHaveBeenCalled()
   })
 
-  test('ignores preview errors and generated files while AI integrations are deferred', () => {
-    const { rerender } = renderSection(
+  test('surfaces a preview error honestly', () => {
+    renderSection(
       baseState({
         integrationError: 'local preview is unavailable',
       }),
     )
 
-    expect(screen.queryByText('local preview is unavailable')).toBeNull()
-    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
+    expect(screen.getByText('local preview is unavailable')).toBeVisible()
+    expect(screen.getByText('Integration preview unavailable')).toBeVisible()
+  })
 
-    rerender(
-      <I18nProvider>
-        <MemoryRouter>
-          <AiIntegrationReviewSection
-            state={baseState({
-              integrationPreview: {
-                mcpCommand: 'pathkeep mcp serve',
-                consentSummary: 'Manual localhost bridge preview only.',
-                manualSteps: ['Review the generated file before use.'],
-                capabilityNotes: ['Read-only local history lookup.'],
-                scopeBoundary: ['No cloud upload.'],
-                auditTrace: ['Generated during Settings review.'],
-                generatedFiles: [],
-                warnings: [],
-              },
-            })}
-          />
-        </MemoryRouter>
-      </I18nProvider>,
+  test('shows the localized copy-failed message when a copy fails', () => {
+    renderSection(
+      baseState({
+        integrationPreview: previewFixture(),
+        copyFeedback: {
+          key: 'contents:integrations/pathkeep-mcp.json',
+          tone: 'error',
+        },
+      }),
     )
 
-    expect(screen.getByText('AI integrations are coming later')).toBeVisible()
-    expect(screen.queryByText('Open path')).toBeNull()
+    expect(screen.getByText("Couldn't copy that artifact.")).toBeVisible()
+  })
+
+  test('renders without a generated-file viewer when none are produced', () => {
+    renderSection(
+      baseState({
+        integrationPreview: previewFixture({
+          generatedFiles: [],
+          warnings: [],
+        }),
+      }),
+    )
+
+    expect(screen.getByText('pathkeep mcp serve')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Open path' })).toBeNull()
   })
 })

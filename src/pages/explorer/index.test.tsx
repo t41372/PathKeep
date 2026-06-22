@@ -1232,20 +1232,6 @@ describe('ExplorerPage route shell', () => {
     )
   })
 
-  test('shows the deferred semantic callout when optional AI is unavailable', () => {
-    useExplorerUrlStateMock.mockReturnValue(
-      defaultUrlState({
-        mode: 'semantic',
-      }),
-    )
-
-    renderExplorer()
-
-    expect(screen.getByText('explorer.optionalAiDeferredTitle')).toBeVisible()
-    expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('semantic-panel')).not.toBeInTheDocument()
-  })
-
   test('shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
     optionalAiFeaturesAvailableState.value = true
     selectedAiProviderMock.mockReturnValue(null)
@@ -1253,9 +1239,11 @@ describe('ExplorerPage route shell', () => {
     const { rerender } = renderExplorer()
 
     expect(screen.getByText('explorer.optionalAiNoProviderTitle')).toBeVisible()
+    // The repair callout deep-links straight to the AI section so the fragment
+    // scroll lands the user on the providers card.
     expect(
       screen.getByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
-    ).toHaveAttribute('href', '/settings')
+    ).toHaveAttribute('href', '/settings#settings-ai')
 
     selectedAiProviderMock.mockReturnValue({
       id: 'provider-1',

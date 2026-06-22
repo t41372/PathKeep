@@ -137,7 +137,7 @@ describe('Settings trust surfaces', () => {
     runSpy.mockRestore()
   })
 
-  test('localizes AI integration review copy in non-English integrations surfaces', async () => {
+  test('localizes the live AI integration review copy in non-English integrations surfaces', async () => {
     const { snapshot, dashboard } = await seedInitializedSnapshot()
     const settingsT = createNamespaceTranslator('zh-TW', 'settings')
 
@@ -148,20 +148,15 @@ describe('Settings trust surfaces', () => {
       snapshot,
     })
 
+    // The Integrations route disables the preview load, so the live section
+    // shows its localized summary + honest loading state — not roadmap copy.
     expect(
-      await screen.findByText(settingsT('aiIntegrationDeferredTitle')),
+      await screen.findByText(settingsT('aiIntegrationArtifactsSummaryTitle')),
     ).toBeVisible()
     expect(
-      screen.getByText(settingsT('aiIntegrationDeferredBody')),
+      screen.getByText(settingsT('aiIntegrationLoadingTitle')),
     ).toBeVisible()
-    expect(
-      screen.getAllByText(settingsT('aiIntegrationDeferredFilesBody')).length,
-    ).toBeGreaterThan(0)
-    expect(
-      screen.queryByText(
-        'Enable MCP or Skill integration in Settings first. Both are off by default.',
-      ),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/v0\.3/)).toBeNull()
   })
 
   test('shows loading and unavailable recovery states for integrations and maintenance without a snapshot', async () => {

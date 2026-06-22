@@ -32,6 +32,8 @@ import { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
   AiIntegrationPreview,
   AiProviderConfig,
+  AiProviderConnectionTestReport,
+  AiProviderPurpose,
   AiRequestFormat,
   AiSettings,
   AppConfig,
@@ -73,6 +75,15 @@ export function useSettingsAiState({
     snapshot?.config.ai ? cloneAiSettings(snapshot.config.ai) : null,
   )
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({})
+  // Per-provider connection-probe state. Keyed by provider id so each editor
+  // card shows only its own result; `testing` tracks which probe is in flight so
+  // a single button can disable + relabel without freezing the others.
+  const [aiProviderProbes, setAiProviderProbes] = useState<
+    Record<string, AiProviderConnectionTestReport>
+  >({})
+  const [aiTestingProviderId, setAiTestingProviderId] = useState<string | null>(
+    null,
+  )
   const [aiIntegrationPreview, setAiIntegrationPreview] =
     useState<AiIntegrationPreview | null>(null)
   const [aiIntegrationError, setAiIntegrationError] = useState<string | null>(
@@ -203,11 +214,78 @@ export function useSettingsAiState({
     }))
   }
 
-  function handleAddProvider(purpose: 'llm' | 'embedding') {
-    const newProvider = makeDefaultAiProviderDraft(purpose, 'ollama')
+  // Granular consent: the assistant and semantic-search capabilities each have
+  // their own opt-in below the master switch. They mutate ONLY the draft (the
+  // master `enabled` is intentionally NOT cascaded) and never auto-start work —
+  // semantic search still requires an explicit one-time index build elsewhere.
+  function handleAssistantToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      assistantEnabled: !current.assistantEnabled,
+    }))
+  }
+
+  function handleSemanticIndexToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      semanticIndexEnabled: !current.semanticIndexEnabled,
+    }))
+  }
+
+  function handleAddProvider(
+    purpose: 'llm' | 'embedding',
+    format: AiRequestFormat = purpose === 'llm' ? 'lm-studio' : 'ollama',
+  ) {
+    const newProvider = makeDefaultAiProviderDraft(purpose, format)
     updateAiDraft((current) =>
       appendAiProviderDraft(current, purpose, newProvider),
     )
+  }
+
+  // Probe a configured provider's base URL so the user gets reachable / latency
+  // / error feedback right in Settings instead of discovering a dead endpoint
+  // only when a chat fails far away. Uses the persisted provider id, so it only
+  // works once the provider exists in saved config (the button is gated on that
+  // in the section). Failures degrade into a synthetic not-ok report rather than
+  // throwing, so one unreachable endpoint never breaks the editor.
+  async function handleProviderProbe(
+    purpose: AiProviderPurpose,
+    providerId: string,
+  ) {
+    setAiTestingProviderId(providerId)
+    try {
+      const report = await backend.testAiProviderConnection({
+        providerId,
+        purpose,
+      })
+      setAiProviderProbes((prev) => ({ ...prev, [providerId]: report }))
+    } catch (error) {
+      setAiProviderProbes((prev) => ({
+        ...prev,
+        [providerId]: {
+          providerId,
+          purpose,
+          model: '',
+          ok: false,
+          latencyMs: 0,
+          capabilities: {
+            supportsChat: false,
+            supportsEmbeddings: false,
+            supportsStreaming: false,
+            supportsToolUse: false,
+            supportsStructuredOutput: false,
+          },
+          llmCapabilities: null,
+          errorCode: null,
+          actionHint: null,
+          retryHint: null,
+          warnings: [],
+          message: describeError(error, 'test_ai_provider_connection'),
+        },
+      }))
+    } finally {
+      setAiTestingProviderId(null)
+    }
   }
 
   function handleUpdateProvider(
@@ -326,6 +404,10 @@ export function useSettingsAiState({
     saveKey: string
     clearKey: string
     remove: string
+    testConnection: string
+    testingConnection: string
+    probeReachable: string
+    probeUnreachable: string
     requestFormatLabels: Record<AiRequestFormat, string>
   } = {
     providerName: t('settings.aiProviderName'),
@@ -348,6 +430,10 @@ export function useSettingsAiState({
     saveKey: t('settings.aiSaveKey'),
     clearKey: t('settings.aiClearKey'),
     remove: t('settings.aiRemoveProvider'),
+    testConnection: t('settings.aiTestConnection'),
+    testingConnection: t('settings.aiTestingConnection'),
+    probeReachable: t('settings.aiProbeReachable'),
+    probeUnreachable: t('settings.aiProbeUnreachable'),
     requestFormatLabels: {
       openai: t('settings.aiRequestFormatOpenai'),
       anthropic: t('settings.aiRequestFormatAnthropic'),
@@ -369,8 +455,10 @@ export function useSettingsAiState({
       integrationPreview: localizedAiIntegrationPreview,
       noProviders: noAiProviders,
       persistedProviderIds,
+      providerProbes: aiProviderProbes,
       providerTranslations: aiProviderTranslations,
       saving,
+      testingProviderId: aiTestingProviderId,
       onAddProvider: handleAddProvider,
       onApiKeyChange: handleAiApiKeyChange,
       onClearAiApiKey: handleClearAiApiKey,
@@ -378,12 +466,15 @@ export function useSettingsAiState({
       onOpenPath: (path: string) => {
         void backend.openPathInFileManager(path)
       },
+      onProviderProbe: handleProviderProbe,
       onRemoveProvider: handleRemoveProvider,
       onResetAiConfig: handleResetAiConfig,
       onSaveAiApiKey: handleSaveAiApiKey,
       onSaveAiConfig: handleSaveAiConfig,
       onSelectProvider: handleSelectProvider,
       onToggleAi: handleAiToggle,
+      onToggleAssistant: handleAssistantToggle,
+      onToggleSemanticIndex: handleSemanticIndexToggle,
       onUpdateProvider: handleUpdateProvider,
     },
   }

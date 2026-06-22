@@ -89,6 +89,8 @@ describe('useSettingsAiState', () => {
 
     expect(result.current.ai.configDirty).toBe(true)
     expect(result.current.ai.currentSettings?.enabled).toBe(true)
+    // A bare onAddProvider('llm') defaults to the LM Studio preset (the headline
+    // local path), so the seeded draft id carries the lm-studio format prefix.
     expect(result.current.ai.currentSettings?.llmProviders).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -96,8 +98,9 @@ describe('useSettingsAiState', () => {
           defaultModel: 'patched-model',
         }),
         expect.objectContaining({
-          id: 'ollama-llm-12345',
+          id: 'lm-studio-llm-12345',
           purpose: 'llm',
+          requestFormat: 'lm-studio',
         }),
       ]),
     )
@@ -111,7 +114,7 @@ describe('useSettingsAiState', () => {
         ai: expect.objectContaining({
           enabled: true,
           llmProviders: expect.arrayContaining([
-            expect.objectContaining({ id: 'ollama-llm-12345' }),
+            expect.objectContaining({ id: 'lm-studio-llm-12345' }),
           ]),
         }),
       }),
@@ -412,6 +415,158 @@ describe('useSettingsAiState', () => {
     expect(saveConfig).not.toHaveBeenCalled()
     expect(refreshAppData).not.toHaveBeenCalled()
     expect(preview).not.toHaveBeenCalled()
+  })
+
+  test('toggles the assistant + semantic sub-flags on the draft without cascading from the master', () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    // Both default OFF in the fixture; flipping the master does NOT cascade.
+    expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(false)
+
+    act(() => {
+      result.current.ai.onToggleAi()
+    })
+    expect(result.current.ai.currentSettings?.enabled).toBe(true)
+    expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(false)
+
+    act(() => {
+      result.current.ai.onToggleAssistant()
+      result.current.ai.onToggleSemanticIndex()
+    })
+    expect(result.current.ai.currentSettings?.assistantEnabled).toBe(true)
+    expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
+
+    // Toggling back off works independently too.
+    act(() => {
+      result.current.ai.onToggleAssistant()
+    })
+    expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
+  })
+
+  test('seeds an added provider from the chosen preset format', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(99)
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    act(() => {
+      result.current.ai.onAddProvider('embedding', 'openai')
+    })
+    expect(result.current.ai.currentSettings?.embeddingProviders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'openai-embedding-99',
+          requestFormat: 'openai',
+          purpose: 'embedding',
+        }),
+      ]),
+    )
+  })
+
+  test('probes a provider and records the reachable report by id', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const probe = vi
+      .spyOn(backend, 'testAiProviderConnection')
+      .mockResolvedValue({
+        providerId: 'llm-1',
+        purpose: 'llm',
+        model: 'local-model',
+        ok: true,
+        latencyMs: 21,
+        capabilities: {
+          supportsChat: true,
+          supportsEmbeddings: false,
+          supportsStreaming: true,
+          supportsToolUse: true,
+          supportsStructuredOutput: true,
+        },
+        llmCapabilities: null,
+        errorCode: null,
+        actionHint: null,
+        retryHint: null,
+        warnings: [],
+        message: 'Reachable',
+      })
+    const snapshot = snapshotFixture()
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    await act(async () => {
+      await result.current.ai.onProviderProbe('llm', 'llm-1')
+    })
+    expect(probe).toHaveBeenCalledWith({ providerId: 'llm-1', purpose: 'llm' })
+    expect(result.current.ai.providerProbes['llm-1'].ok).toBe(true)
+    expect(result.current.ai.testingProviderId).toBeNull()
+  })
+
+  test('degrades a failed probe into a not-ok report instead of throwing', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    vi.spyOn(backend, 'testAiProviderConnection').mockRejectedValue(
+      new Error('Connection refused'),
+    )
+    const snapshot = snapshotFixture()
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    await act(async () => {
+      await result.current.ai.onProviderProbe('embedding', 'embed-1')
+    })
+    expect(result.current.ai.providerProbes['embed-1'].ok).toBe(false)
+    expect(result.current.ai.providerProbes['embed-1'].message).toBe(
+      'Connection refused',
+    )
+    expect(result.current.ai.testingProviderId).toBeNull()
   })
 })
 

@@ -44,13 +44,25 @@ function focusSection(element: HTMLElement) {
   }
 }
 
+function prefersReducedMotion() {
+  return (
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
 function scrollSectionIntoView(sectionId: string) {
   const target = document.getElementById(sectionId)
   if (!(target instanceof HTMLElement)) {
     return
   }
 
-  target.scrollIntoView({ block: 'start' })
+  // Smooth-scroll the deep-linked / clicked section into view, but fall back to
+  // an instant jump when the user has asked for reduced motion (a11y).
+  target.scrollIntoView({
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    block: 'start',
+  })
   focusSection(target)
 }
 

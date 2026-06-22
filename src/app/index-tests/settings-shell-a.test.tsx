@@ -26,7 +26,6 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router-dom'
 import App from '../index'
 import { appRoutes } from '../router'
-import { backend } from '../../lib/backend-client'
 import { backendTestHarness } from '../../lib/backend'
 import {
   expectHtmlElement,
@@ -158,6 +157,7 @@ describe('App shell', () => {
       await screen.findByTestId('maintenance-page')
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
           block: 'start',
         }),
       )
@@ -170,11 +170,9 @@ describe('App shell', () => {
     }
   })
 
-  test('keeps AI provider settings disabled for the v0.1 release', async () => {
+  test('renders the live AI provider editor with an always-visible consent disclosure', async () => {
     await seedArchiveRun()
     await seedAiProviders()
-    const user = userEvent.setup()
-    const saveConfigSpy = vi.spyOn(backend, 'saveConfig')
     const router = createMemoryRouter(appRoutes, {
       initialEntries: ['/settings'],
     })
@@ -185,24 +183,37 @@ describe('App shell', () => {
     const aiPanel = expectHtmlElement(
       within(settingsPage)
         .getAllByText(settingsT('aiProvider'))
-        .map((node) => node.closest('section, .panel'))
+        .map((node) =>
+          node.closest('section, .panel, [data-testid="settings-ai"]'),
+        )
         .find((node): node is HTMLElement => node instanceof HTMLElement) ??
         null,
     )
-    const enableAiButton = within(aiPanel).getByRole('button', {
+
+    // The master toggle reflects the persisted (seedAiProviders enables it) state
+    // and is a real checkbox, not a disabled roadmap button.
+    const masterToggle = within(aiPanel).getByRole('checkbox', {
       name: settingsT('aiMasterToggle'),
     })
-    expect(enableAiButton).toBeDisabled()
-    expect(
-      within(aiPanel).getByText(settingsT('aiDeferredTitle')),
-    ).toBeVisible()
-    expect(within(aiPanel).queryByDisplayValue('Local LLM')).toBeNull()
+    expect(masterToggle).toBeEnabled()
+    expect(masterToggle).toBeChecked()
 
-    await user.click(enableAiButton)
-    expect(saveConfigSpy).not.toHaveBeenCalled()
+    // The seeded provider is editable in the real provider editor.
+    expect(within(aiPanel).getByDisplayValue('Local LLM')).toBeVisible()
+
+    // The consent disclosure is always visible.
+    expect(
+      within(aiPanel).getByText(settingsT('aiConsentDisclosureTitle')),
+    ).toBeVisible()
+    expect(
+      within(aiPanel).getByText(settingsT('aiConsentDisclosureNoProvider')),
+    ).toBeVisible()
+
+    // No roadmap badge / deferred copy leaks into the live surface.
+    expect(within(aiPanel).queryByText('Coming in v0.3')).toBeNull()
   })
 
-  test('shows AI integration roadmap placeholders in integrations', async () => {
+  test('renders the live AI integration artifact review surface', async () => {
     await seedArchiveRun()
     await seedAiProviders()
     const router = createMemoryRouter(appRoutes, {
@@ -218,20 +229,17 @@ describe('App shell', () => {
         .closest('section, .panel'),
     )
 
+    // The Integrations route disables the integration preview load, so the
+    // section shows its honest loading state rather than deferred roadmap copy.
     expect(
-      await within(aiPanel).findByText(settingsT('aiIntegrationDeferredTitle')),
+      await within(aiPanel).findByText(
+        settingsT('aiIntegrationArtifactsSummaryTitle'),
+      ),
     ).toBeVisible()
     expect(
-      within(aiPanel).getByText(settingsT('aiIntegrationDeferredBody')),
+      within(aiPanel).getByText(settingsT('aiIntegrationLoadingTitle')),
     ).toBeVisible()
-    expect(
-      within(aiPanel).getByText(settingsT('aiGeneratedFiles')),
-    ).toBeVisible()
-    expect(
-      within(aiPanel).getByText(settingsT('aiIntegrationDeferredFilesBody')),
-    ).toBeVisible()
-    expect(within(aiPanel).queryByText(/"mcpServers"/)).toBeNull()
-    expect(within(aiPanel).queryByText(/# PathKeep Search/)).toBeNull()
+    expect(within(aiPanel).queryByText('Coming in v0.3')).toBeNull()
   })
 })
 

@@ -15,6 +15,7 @@
 
 import type {
   AiProviderConfig,
+  AiProviderConnectionTestReport,
   AiProviderPurpose,
   AiRequestFormat,
 } from '../lib/types'
@@ -30,6 +31,19 @@ const aiRequestFormats: AiRequestFormat[] = [
 ]
 // Stryker restore ArrayDeclaration
 
+// Presets offered at "Add provider". LM Studio leads because the product's
+// headline value is a local LM Studio endpoint; the rest follow the same order
+// as the API-format select so the chooser reads consistently.
+// Stryker disable ArrayDeclaration: option order/labels asserted in ai-provider-editor.test.
+const aiProviderPresets: AiRequestFormat[] = [
+  'lm-studio',
+  'ollama',
+  'openai',
+  'anthropic',
+  'google',
+]
+// Stryker restore ArrayDeclaration
+
 /**
  * Explains how ai provider editor list works.
  *
@@ -39,36 +53,50 @@ export function AiProviderEditorList({
   addLabel,
   apiKeys,
   disabled = false,
+  formatLabel,
+  presetLabel,
+  presetLabels,
   onAdd,
   onApiKeyChange,
   onClearKey,
   onClearKeyDisabled,
+  onProbe,
+  onProbeDisabled,
   onRemove,
   onSaveKey,
   onSaveKeyDisabled,
   onSelect,
   onUpdate,
+  providerProbes,
   providers,
   purpose,
   selectedProviderId,
+  testingProviderId,
   title,
   translations,
 }: {
   addLabel: string
   apiKeys: Record<string, string>
   disabled?: boolean
-  onAdd: () => void
+  formatLabel: (latency: number, model: string) => string
+  presetLabel: string
+  presetLabels: Record<AiRequestFormat, string>
+  onAdd: (format: AiRequestFormat) => void
   onApiKeyChange: (providerId: string, value: string) => void
   onClearKey: (providerId: string) => void
   onClearKeyDisabled?: (providerId: string) => boolean
+  onProbe?: (providerId: string) => void
+  onProbeDisabled?: (providerId: string) => boolean
   onRemove: (providerId: string) => void
   onSaveKey: (providerId: string) => void
   onSaveKeyDisabled?: (providerId: string) => boolean
   onSelect: (providerId: string) => void
   onUpdate: (providerId: string, patch: Partial<AiProviderConfig>) => void
+  providerProbes?: Record<string, AiProviderConnectionTestReport>
   providers: AiProviderConfig[]
   purpose: AiProviderPurpose
   selectedProviderId: string | null
+  testingProviderId?: string | null
   title: string
   translations: {
     providerName: string
@@ -91,6 +119,10 @@ export function AiProviderEditorList({
     saveKey: string
     clearKey: string
     remove: string
+    testConnection: string
+    testingConnection: string
+    probeReachable: string
+    probeUnreachable: string
     requestFormatLabels: Record<AiRequestFormat, string>
   }
 }) {
@@ -98,14 +130,37 @@ export function AiProviderEditorList({
     <div className="surfaceInset providerPanel">
       <div className="toolbarLine">
         <h3>{title}</h3>
-        <button
-          className="secondaryButton"
-          type="button"
+        {/*
+          Add-provider is a preset chooser, not a single button: the user picks
+          the API shape they want to seed (LM Studio first, since local LM Studio
+          is the headline path) and the route hook expands it into a truthful
+          provider draft via makeDefaultAiProviderDraft. The disabled first option
+          is the visible "Add provider" prompt; the select's aria-label names the
+          control for assistive tech.
+        */}
+        <select
+          aria-label={presetLabel}
+          className="secondaryButton providerPresetPicker"
           disabled={disabled}
-          onClick={onAdd}
+          value=""
+          onChange={(event) => {
+            const format = event.target.value as AiRequestFormat
+            if (format) {
+              onAdd(format)
+              // Reset so re-picking the same preset fires onChange again.
+              event.target.value = ''
+            }
+          }}
         >
-          {addLabel}
-        </button>
+          <option value="" disabled>
+            {addLabel}
+          </option>
+          {aiProviderPresets.map((format) => (
+            <option key={format} value={format}>
+              {presetLabels[format]}
+            </option>
+          ))}
+        </select>
       </div>
       {providers.length ? (
         <div className="providerList">
@@ -347,8 +402,46 @@ export function AiProviderEditorList({
                   >
                     {translations.clearKey}
                   </button>
+                  {onProbe ? (
+                    <button
+                      className="ghostButton"
+                      type="button"
+                      disabled={onProbeDisabled?.(provider.id) ?? false}
+                      onClick={() => onProbe(provider.id)}
+                    >
+                      {testingProviderId === provider.id
+                        ? translations.testingConnection
+                        : translations.testConnection}
+                    </button>
+                  ) : null}
                 </div>
               </div>
+
+              {providerProbes?.[provider.id] ? (
+                <div className="result-row providerProbeResult">
+                  <div className="result-row__header">
+                    <strong>
+                      {providerProbes[provider.id].ok
+                        ? translations.probeReachable
+                        : translations.probeUnreachable}
+                    </strong>
+                    {providerProbes[provider.id].ok ? (
+                      <span className="mono-support">
+                        {formatLabel(
+                          providerProbes[provider.id].latencyMs,
+                          providerProbes[provider.id].model,
+                        )}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p>{providerProbes[provider.id].message}</p>
+                  {providerProbes[provider.id].actionHint ? (
+                    <p className="mono-support">
+                      {providerProbes[provider.id].actionHint}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </article>
           ))}
         </div>

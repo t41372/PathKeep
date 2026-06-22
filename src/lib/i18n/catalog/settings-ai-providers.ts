@@ -23,12 +23,35 @@
  */
 export const settingsAiProvidersNamespace = {
   en: {
-    aiMasterToggle: 'AI features coming in v0.3',
-    aiDeferredBadge: 'Coming in v0.3',
-    aiDeferredTitle: 'Optional AI is coming in v0.3',
-    aiDeferredBody:
-      'Assistant answers, embeddings, semantic search, vector indexes, MCP, and skill artifacts are tracked for v0.3. v0.2.0 ships the local archive and Core Intelligence first.',
-    aiDeferredTooltip: 'This feature is coming in a future update.',
+    aiMasterToggle: 'Enable AI features',
+    aiAssistantToggle: 'AI assistant (chat)',
+    aiAssistantToggleHelp:
+      'Lets you chat with your history on the Assistant page using your configured chat provider.',
+    aiSemanticToggle: 'Smart search',
+    aiSemanticToggleHelp:
+      'Semantic and hybrid search in Explorer. Needs an embedding provider configured and a one-time index build (run it from Explorer → smart search) before results appear.',
+    aiSubToggleDisabledHint: 'Enable AI features above to turn these on.',
+    aiTestConnection: 'Test connection',
+    aiTestingConnection: 'Testing…',
+    aiProbeReachable: 'Connected',
+    aiProbeUnreachable: 'Connection issue',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: 'Start from a preset',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'How AI uses your data',
+    aiConsentDisclosureBody:
+      'AI is optional and stays off until you turn it on here. Once enabled, the text of the matching history, your search queries, and your chat messages are sent to whichever LLM and embedding provider you configure below — for example a local LM Studio endpoint or your own cloud provider key.',
+    aiConsentDisclosureNoProvider:
+      'PathKeep ships no AI provider of its own. Nothing leaves your machine until you both enable AI and configure a provider.',
+    aiConsentDisclosureEgress:
+      'A configured provider only receives what a given request needs (matching history snippets and your prompt). It does not get a copy of your whole archive.',
+    aiConsentDisclosureLocal:
+      'Vectors and audit traces are stored locally beside your archive, and chat transcripts are excluded from export.',
+    aiIntegrationCopyFailed: "Couldn't copy that artifact.",
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
     aiAddLlmProvider: 'Add chat provider',
@@ -83,13 +106,6 @@ export const settingsAiProvidersNamespace = {
     aiIndexWarningEmbeddingMissing:
       'Select an embedding provider in Settings before enabling semantic retrieval.',
     aiIntegrationUnavailable: 'Integration preview unavailable',
-    aiIntegrationDeferredTitle: 'AI integrations are coming later',
-    aiIntegrationDeferredBody:
-      'MCP commands and skill files depend on the same assistant and embedding runtime. They stay visible here for the v0.3 roadmap, but v0.2.0 does not generate or install them.',
-    aiIntegrationDeferredMcpBody:
-      'PathKeep v0.2.0 does not expose an MCP search surface.',
-    aiIntegrationDeferredFilesBody:
-      'Generated assistant skill files will return after the AI runtime is reliable enough to ship.',
     aiIntegrationArtifactsTitle: 'AI integration artifacts',
     aiIntegrationArtifactsSummaryTitle:
       'Review generated files before using them externally',
@@ -147,12 +163,34 @@ export const settingsAiProvidersNamespace = {
       'Codex skill starter that teaches an external assistant how to query PathKeep through MCP.',
   },
   'zh-CN': {
-    aiMasterToggle: 'AI 功能将在 v0.3 开放',
-    aiDeferredBadge: 'v0.3 开放',
-    aiDeferredTitle: '可选 AI 将在 v0.3 开放',
-    aiDeferredBody:
-      '助手回答、embedding、智能搜索、向量索引、MCP 和 skill 产物已排入 v0.3。v0.2.0 会先交付本地存档和确定性智能分析。',
-    aiDeferredTooltip: '这个功能会在后续版本开放。',
+    aiMasterToggle: '启用 AI 功能',
+    aiAssistantToggle: 'AI 助手（对话）',
+    aiAssistantToggleHelp: '在助手页面用你配置的对话模型与历史记录对话。',
+    aiSemanticToggle: '智能搜索',
+    aiSemanticToggleHelp:
+      '在浏览器页面使用语义和混合搜索。需要先配置向量模型，并完成一次索引构建（在浏览器 → 智能搜索里运行），结果才会出现。',
+    aiSubToggleDisabledHint: '请先在上方启用 AI 功能，才能开启这些选项。',
+    aiTestConnection: '测试连接',
+    aiTestingConnection: '测试中…',
+    aiProbeReachable: '连接正常',
+    aiProbeUnreachable: '连接异常',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: '从预设开始',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'AI 如何使用你的数据',
+    aiConsentDisclosureBody:
+      'AI 是可选功能，在你于此处开启之前一直保持关闭。开启后，匹配到的历史记录文本、你的搜索查询和聊天消息会发送给你在下方配置的 LLM 与向量模型——例如本地 LM Studio 端点，或你自己的云服务密钥。',
+    aiConsentDisclosureNoProvider:
+      'PathKeep 自身不附带任何 AI 服务。只有当你同时启用 AI 并配置好服务后，数据才会离开你的设备。',
+    aiConsentDisclosureEgress:
+      '已配置的服务只会收到单次请求所需的内容（匹配到的历史片段和你的提问），不会拿到你整个存档的副本。',
+    aiConsentDisclosureLocal:
+      '向量和审计记录保存在存档旁的本地，聊天记录也不会包含在导出里。',
+    aiIntegrationCopyFailed: '复制该产物失败。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '添加对话模型',
@@ -206,12 +244,6 @@ export const settingsAiProvidersNamespace = {
     aiIndexWarningEmbeddingMissing:
       '请先在设置里选择向量模型，再启用语义检索。',
     aiIntegrationUnavailable: '集成预览不可用',
-    aiIntegrationDeferredTitle: 'AI 集成稍后开放',
-    aiIntegrationDeferredBody:
-      'MCP 命令和 skill 文件依赖同一套助手与 embedding runtime。这里先保留 v0.3 路线图入口，但 v0.2.0 不会生成或安装这些产物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.2.0 不提供 MCP 搜索接口。',
-    aiIntegrationDeferredFilesBody:
-      '等 AI runtime 足够可靠后，助手 skill 文件生成会在后续版本回来。',
     aiIntegrationArtifactsTitle: 'AI 集成产物',
     aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
     aiIntegrationArtifactsSummaryBody:
@@ -267,12 +299,34 @@ export const settingsAiProvidersNamespace = {
       '教外部助手如何通过 MCP 查询 PathKeep 的 Codex skill 起始模板。',
   },
   'zh-TW': {
-    aiMasterToggle: 'AI 功能會在 v0.3 開放',
-    aiDeferredBadge: 'v0.3 開放',
-    aiDeferredTitle: '可選 AI 將在 v0.3 開放',
-    aiDeferredBody:
-      '助手回答、embedding、智慧搜尋、向量索引、MCP 和 skill 產物已排入 v0.3。v0.2.0 會先交付本機封存和確定性智慧分析。',
-    aiDeferredTooltip: '這個功能會在後續版本開放。',
+    aiMasterToggle: '啟用 AI 功能',
+    aiAssistantToggle: 'AI 助手（對話）',
+    aiAssistantToggleHelp: '在助手頁面用你設定的對話模型與歷史紀錄對話。',
+    aiSemanticToggle: '智慧搜尋',
+    aiSemanticToggleHelp:
+      '在瀏覽器頁面使用語義和混合搜尋。需要先設定向量模型，並完成一次索引建立（在瀏覽器 → 智慧搜尋裡執行），結果才會出現。',
+    aiSubToggleDisabledHint: '請先在上方啟用 AI 功能，才能開啟這些選項。',
+    aiTestConnection: '測試連線',
+    aiTestingConnection: '測試中…',
+    aiProbeReachable: '連線正常',
+    aiProbeUnreachable: '連線異常',
+    aiProbeLatency: '{model} · {latency} ms',
+    aiAddProviderPresetLabel: '從預設開始',
+    aiPresetLmStudio: 'LM Studio',
+    aiPresetOllama: 'Ollama',
+    aiPresetOpenai: 'OpenAI',
+    aiPresetAnthropic: 'Anthropic',
+    aiPresetGoogle: 'Google',
+    aiConsentDisclosureTitle: 'AI 如何使用你的資料',
+    aiConsentDisclosureBody:
+      'AI 是選用功能，在你於此處開啟之前都保持關閉。開啟後，比對到的歷史紀錄文字、你的搜尋查詢和聊天訊息會傳送給你在下方設定的 LLM 與向量模型——例如本機 LM Studio 端點，或你自己的雲端服務金鑰。',
+    aiConsentDisclosureNoProvider:
+      'PathKeep 本身不附帶任何 AI 服務。只有當你同時啟用 AI 並設定好服務後，資料才會離開你的裝置。',
+    aiConsentDisclosureEgress:
+      '已設定的服務只會收到單次請求所需的內容（比對到的歷史片段和你的提問），不會拿到你整個封存的副本。',
+    aiConsentDisclosureLocal:
+      '向量和稽核記錄保存在封存旁的本機，聊天紀錄也不會包含在匯出裡。',
+    aiIntegrationCopyFailed: '複製該產物失敗。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',
     aiAddLlmProvider: '新增對話模型',
@@ -326,12 +380,6 @@ export const settingsAiProvidersNamespace = {
     aiIndexWarningEmbeddingMissing:
       '請先在設定裡選擇向量模型，再啟用語義檢索。',
     aiIntegrationUnavailable: '整合預覽無法使用',
-    aiIntegrationDeferredTitle: 'AI 整合稍後開放',
-    aiIntegrationDeferredBody:
-      'MCP 指令和 skill 檔案依賴同一套助手與 embedding runtime。這裡先保留 v0.3 路線圖入口，但 v0.2.0 不會產生或安裝這些產物。',
-    aiIntegrationDeferredMcpBody: 'PathKeep v0.2.0 不提供 MCP 搜尋介面。',
-    aiIntegrationDeferredFilesBody:
-      '等 AI runtime 足夠可靠後，助手 skill 檔案產生會在後續版本回來。',
     aiIntegrationArtifactsTitle: 'AI 整合產物',
     aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',
     aiIntegrationArtifactsSummaryBody:

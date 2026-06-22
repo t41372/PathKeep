@@ -217,6 +217,7 @@ describe('intelligence surfaces settings core sections', () => {
       await user.click(migrationNavLink)
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
           block: 'start',
         }),
       )
@@ -273,6 +274,7 @@ describe('intelligence surfaces settings core sections', () => {
       await screen.findByTestId('settings-page')
       await waitFor(() =>
         expect(scrollDoubles.scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
           block: 'start',
         }),
       )

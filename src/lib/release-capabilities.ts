@@ -21,13 +21,15 @@
  */
 
 /**
- * Marks optional AI capabilities that are intentionally tracked for v0.3 instead of v0.2.0.
+ * Marks the optional AI surfaces as available to *configure* in this release.
  *
- * The disabled UI surfaces stay visible so users can see the roadmap, but they
- * must not call provider probes, embedding builds, semantic search, assistant,
- * MCP, or skill-preview commands while this flag is false.
+ * `true` only lifts the v0.2 blackout that hid the AI configuration front door;
+ * it does NOT turn AI on. Every actual AI operation (provider probes, embedding
+ * builds, semantic search, assistant chat, MCP, skill previews) stays gated by
+ * the user's own off-by-default `config.ai.enabled` consent. The flag answers
+ * "may the user see and edit the AI settings?", never "is AI running?".
  */
-export const optionalAiFeaturesAvailable = false
+export const optionalAiFeaturesAvailable = true
 
 /**
  * Marks network-backed readable-content fetching as tracked for v0.3 instead of v0.2.0.

@@ -91,7 +91,11 @@ describe('SettingsSectionNav', () => {
         }),
       )
 
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+      // No reduced-motion preference (jsdom has no matchMedia): smooth scroll.
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
+      })
       expect(document.getElementById('settings-migration')).toHaveAttribute(
         'tabindex',
         '0',
@@ -101,6 +105,63 @@ describe('SettingsSectionNav', () => {
       Element.prototype.scrollIntoView = originalScrollIntoView
       window.requestAnimationFrame = originalRequestAnimationFrame
       window.cancelAnimationFrame = originalCancelAnimationFrame
+    }
+  })
+
+  test('jumps instantly (no smooth scroll) when the user prefers reduced motion', async () => {
+    const user = userEvent.setup()
+    const originalScrollIntoView = Reflect.get(
+      Element.prototype,
+      'scrollIntoView',
+    )
+    const originalRequestAnimationFrame = window.requestAnimationFrame
+    const originalCancelAnimationFrame = window.cancelAnimationFrame
+    const originalMatchMedia = window.matchMedia
+    const scrollIntoView = vi.fn()
+
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    window.cancelAnimationFrame = vi.fn()
+    window.matchMedia = vi.fn(
+      (query: string) =>
+        ({
+          matches: query.includes('prefers-reduced-motion'),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          onchange: null,
+          dispatchEvent: vi.fn(),
+        }) as unknown as MediaQueryList,
+    )
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/settings']}>
+          <section id="settings-migration" tabIndex={0} />
+          <SettingsSectionNav items={navItems} label="Settings sections" />
+        </MemoryRouter>,
+      )
+
+      await user.click(
+        screen.getByRole('link', {
+          name: 'Data migration',
+        }),
+      )
+
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'start',
+      })
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      window.requestAnimationFrame = originalRequestAnimationFrame
+      window.cancelAnimationFrame = originalCancelAnimationFrame
+      window.matchMedia = originalMatchMedia
     }
   })
 

@@ -83,7 +83,6 @@ const expectedAppShellScreens: AppScreen[] = [
     subtitleKey: 'navigation.assistantSubtitle',
     icon: 'smart_toy',
     href: '/assistant',
-    badgeKey: 'navigation.assistantBadge',
     section: 'CORE',
   },
   {

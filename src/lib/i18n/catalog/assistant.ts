@@ -35,16 +35,9 @@ export const assistantNamespaceCatalog = {
     lockedDetail:
       'The archive is locked. Unlock it to ask questions about your history.',
     lockedEyebrow: 'LOCKED',
-    disabledTitle: 'Assistant is turned off',
+    disabledTitle: 'Turn on the assistant to chat with your history',
     disabledBody:
-      'Assistant and smart search are coming in v0.3. Keyword search and Core Intelligence are available now.',
-    deferredTitle: 'Assistant is coming in v0.3',
-    deferredBody:
-      'This part of PathKeep is tracked for v0.3. v0.2.0 ships the local archive, keyword search, and Core Intelligence first.',
-    deferredPanelEyebrow: 'IN PROGRESS',
-    deferredBadge: 'Coming in v0.3',
-    deferredPanelBody:
-      'The path is still extending. Assistant answers, embeddings, and vector search will open in a future release after they are reliable enough to trust.',
+      'The assistant is optional and off by default. In Settings → AI, enable AI features and the AI assistant (chat) toggle, then add a chat provider. Keyword search and Core Intelligence work without it.',
     statusEyebrow: 'STATUS',
     testProvider: 'Test connection',
     refreshQueue: 'Refresh',
@@ -197,16 +190,9 @@ export const assistantNamespaceCatalog = {
     lockedTitle: '请先解锁数据库',
     lockedDetail: '解锁数据库后才能使用 AI 助手。',
     lockedEyebrow: '已锁定',
-    disabledTitle: 'AI 助手已关闭',
+    disabledTitle: '开启助手即可与你的历史对话',
     disabledBody:
-      'AI 助手和智能搜索会在 v0.3 开放。现在可以使用关键词搜索和确定性智能分析。',
-    deferredTitle: 'AI 助手将在 v0.3 中开放',
-    deferredBody:
-      '这个功能已排入 v0.3。v0.2.0 会先把本地存档、关键词搜索和确定性智能分析做好。',
-    deferredPanelEyebrow: '建设中',
-    deferredBadge: 'v0.3 开放',
-    deferredPanelBody:
-      '这条路还在延伸。助手回答、embedding 和向量搜索会在足够可靠之后，于后续版本开放。',
+      'AI 助手是可选功能，默认关闭。请在「设置 → AI」中启用 AI 功能和「AI 助手（对话）」开关，再添加一个对话模型，就能向你的历史提问。关键词搜索和确定性智能分析无需它也可使用。',
     statusEyebrow: '助手状态',
     testProvider: '测试连接',
     refreshQueue: '刷新队列',
@@ -356,16 +342,9 @@ export const assistantNamespaceCatalog = {
     lockedTitle: '請先解鎖資料庫',
     lockedDetail: '解鎖資料庫後才能使用 AI 助手。',
     lockedEyebrow: '已鎖定',
-    disabledTitle: 'AI 助手已關閉',
+    disabledTitle: '開啟助手即可與你的歷史對話',
     disabledBody:
-      'AI 助手和智慧搜尋會在 v0.3 開放。現在可以使用關鍵字搜尋和確定性智慧分析。',
-    deferredTitle: 'AI 助手會在 v0.3 開放',
-    deferredBody:
-      '這個功能已排入 v0.3。v0.2.0 會先把本機封存、關鍵字搜尋和確定性智慧分析做好。',
-    deferredPanelEyebrow: '建設中',
-    deferredBadge: 'v0.3 開放',
-    deferredPanelBody:
-      '這條路還在延伸。助手回答、embedding 和向量搜尋會在足夠可靠之後，於後續版本開放。',
+      'AI 助手是選用功能，預設關閉。請在「設定 → AI」中啟用 AI 功能和「AI 助手（對話）」開關，再新增一個對話模型，就能向你的歷史提問。關鍵字搜尋和確定性智慧分析不需要它也能使用。',
     statusEyebrow: '助手狀態',
     testProvider: '測試連線',
     refreshQueue: '重新整理佇列',

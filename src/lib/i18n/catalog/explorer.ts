@@ -47,12 +47,6 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: 'Smart search is limited right now',
     semanticRecallNeedsAttentionBody:
       'Check the provider, queue, and index status below before trying the same query again.',
-    optionalAiDeferredTitle: 'Smart search is coming in v0.3',
-    optionalAiDeferredBody:
-      'Semantic and hybrid search need embeddings and a vector index, so they are tracked for v0.3. Keyword search below still works against your local archive.',
-    optionalAiDeferredTooltip:
-      'Semantic and hybrid search are coming in a future update.',
-    optionalAiUnavailableReleaseDeferred: 'Smart search is coming in v0.3.',
     optionalAiUnavailableAiDisabled:
       'Enable AI in Settings before using smart search.',
     optionalAiUnavailableNoProvider:
@@ -61,10 +55,10 @@ export const explorerNamespaceCatalog = {
       'The embedding provider has an error. Fix it in Settings before using smart search.',
     optionalAiNoProviderTitle: 'Choose an embedding provider',
     optionalAiNoProviderBody:
-      'Smart search needs an embedding provider. Add one in Settings → AI to enable semantic and hybrid search.',
-    optionalAiDisabledTitle: 'AI is turned off',
+      'Smart search needs an embedding provider, then a one-time index build. Add one in Settings → AI and enable Smart search; the build panel appears here once that is done, and results follow after the build finishes.',
+    optionalAiDisabledTitle: 'Smart search is turned off',
     optionalAiDisabledBody:
-      'Smart search needs AI and semantic indexing enabled in Settings before semantic and hybrid search can run.',
+      'Enable AI and the Smart search toggle in Settings → AI and configure an embedding provider; the build panel appears here once that is done, so you can build the index. Keyword search below already works without it.',
     optionalAiProviderErrorTitle: 'Embedding provider has an error',
     optionalAiProviderErrorBody:
       'Check Settings → AI to fix the embedding provider before retrying smart search.',
@@ -482,11 +476,6 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智能搜索暂时不可用',
     semanticRecallNeedsAttentionBody:
       '请先检查下方的 provider、队列和索引状态，再重试相同查询。',
-    optionalAiDeferredTitle: '智能搜索将在 v0.3 中开放',
-    optionalAiDeferredBody:
-      '语义搜索和混合搜索需要 embedding 与向量索引，已排入 v0.3。下方关键词搜索仍会读取你的本地存档。',
-    optionalAiDeferredTooltip: '语义搜索和混合搜索会在后续版本开放。',
-    optionalAiUnavailableReleaseDeferred: '智能搜索将在 v0.3 中开放。',
     optionalAiUnavailableAiDisabled: '请先在设置中启用 AI，再使用智能搜索。',
     optionalAiUnavailableNoProvider:
       '请在设置中选择一个向量模型来启用智能搜索。',
@@ -494,10 +483,10 @@ export const explorerNamespaceCatalog = {
       '当前向量模型出现错误，请先在设置中修复后再使用智能搜索。',
     optionalAiNoProviderTitle: '请选择一个向量模型',
     optionalAiNoProviderBody:
-      '智能搜索需要一个向量模型。请在「设置 → AI」中添加，以启用语义和混合搜索。',
-    optionalAiDisabledTitle: 'AI 已关闭',
+      '智能搜索需要一个向量模型，然后还要构建一次索引。请在「设置 → AI」中添加并开启智能搜索；完成后，构建面板会出现在这里，索引构建完成后才会显示结果。',
+    optionalAiDisabledTitle: '智能搜索已关闭',
     optionalAiDisabledBody:
-      '智能搜索需要先在「设置」中启用 AI 与语义索引，之后才能运行语义和混合搜索。',
+      '请在「设置 → AI」中启用 AI 和智能搜索开关，并配置一个向量模型；完成后，构建面板会出现在这里，供你构建索引。下方关键词搜索无需它也能使用。',
     optionalAiProviderErrorTitle: '向量模型出现错误',
     optionalAiProviderErrorBody:
       '请前往「设置 → AI」修复向量模型，然后再重试智能搜索。',
@@ -904,11 +893,6 @@ export const explorerNamespaceCatalog = {
     semanticRecallDegradedTitle: '智慧搜尋暫時無法使用',
     semanticRecallNeedsAttentionBody:
       '請先檢查下方的 provider、佇列與索引狀態，再重試相同查詢。',
-    optionalAiDeferredTitle: '智慧搜尋會在 v0.3 開放',
-    optionalAiDeferredBody:
-      '語義搜尋和混合搜尋需要 embedding 與向量索引，已排入 v0.3。下方關鍵字搜尋仍會讀取你的本機封存。',
-    optionalAiDeferredTooltip: '語義搜尋和混合搜尋會在後續版本開放。',
-    optionalAiUnavailableReleaseDeferred: '智慧搜尋會在 v0.3 開放。',
     optionalAiUnavailableAiDisabled: '請先在設定中啟用 AI，再使用智慧搜尋。',
     optionalAiUnavailableNoProvider:
       '請在設定中選擇一個向量模型來啟用智慧搜尋。',
@@ -916,10 +900,10 @@ export const explorerNamespaceCatalog = {
       '目前的向量模型出現錯誤，請先在設定中修復後再使用智慧搜尋。',
     optionalAiNoProviderTitle: '請選擇一個向量模型',
     optionalAiNoProviderBody:
-      '智慧搜尋需要一個向量模型。請在「設定 → AI」中加入，以啟用語義與混合搜尋。',
-    optionalAiDisabledTitle: 'AI 已關閉',
+      '智慧搜尋需要一個向量模型，然後還要建立一次索引。請在「設定 → AI」中加入並開啟智慧搜尋；完成後，建立面板會出現在這裡，索引建立完成後才會顯示結果。',
+    optionalAiDisabledTitle: '智慧搜尋已關閉',
     optionalAiDisabledBody:
-      '智慧搜尋需要先在「設定」中啟用 AI 與語義索引，之後才能執行語義與混合搜尋。',
+      '請在「設定 → AI」中啟用 AI 和智慧搜尋開關，並設定一個向量模型；完成後，建立面板會出現在這裡，供你建立索引。下方關鍵字搜尋不需要它也能使用。',
     optionalAiProviderErrorTitle: '向量模型出現錯誤',
     optionalAiProviderErrorBody:
       '請前往「設定 → AI」修復向量模型，然後再重試智慧搜尋。',

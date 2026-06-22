@@ -295,8 +295,11 @@ export function AssistantPage() {
     )
   }
 
-  // Availability gate: release flag + AI toggle + assistant toggle. When closed, show the
-  // roadmap / disabled state — never a broken chat box.
+  // Availability gate: the AI configuration surface is reachable (release flag is on), but the
+  // assistant only runs once the user has opted in. When AI or the assistant toggle is off, show an
+  // honest, actionable "configure your AI provider" callout that deep-links to the AI settings
+  // section — never a roadmap placeholder and never a broken chat box. The release flag is referenced
+  // so a future re-gating still funnels through this single gate.
   if (
     !optionalAiFeaturesAvailable ||
     !snapshot.config.ai.enabled ||
@@ -310,45 +313,21 @@ export function AssistantPage() {
         <StatusCallout
           tone="info"
           eyebrow={assistantT('statusEyebrow')}
-          title={
-            optionalAiFeaturesAvailable
-              ? assistantT('disabledTitle')
-              : assistantT('deferredTitle')
-          }
-          body={
-            optionalAiFeaturesAvailable
-              ? assistantT('disabledBody')
-              : assistantT('deferredBody')
-          }
+          title={assistantT('disabledTitle')}
+          body={assistantT('disabledBody')}
           actions={
-            optionalAiFeaturesAvailable ? (
-              <Link className="btn-secondary" to="/settings">
-                {assistantT('openSettings')}
-              </Link>
-            ) : undefined
+            <Link className="btn-secondary" to="/settings#settings-ai">
+              {assistantT('openSettings')}
+            </Link>
           }
         />
-        <PaperCard testId="assistant-deferred-panel">
+        <PaperCard testId="assistant-setup-panel">
           <PaperCardHeader
-            title={
-              optionalAiFeaturesAvailable
-                ? assistantT('emptyEyebrow')
-                : assistantT('deferredPanelEyebrow')
-            }
-            right={
-              <PaperCardBadge>
-                {optionalAiFeaturesAvailable
-                  ? assistantT('emptyTitle')
-                  : assistantT('deferredBadge')}
-              </PaperCardBadge>
-            }
+            title={assistantT('emptyEyebrow')}
+            right={<PaperCardBadge>{assistantT('emptyTitle')}</PaperCardBadge>}
           />
           <PaperCardBody className="intelligence-stack">
-            <p className="mono-support">
-              {optionalAiFeaturesAvailable
-                ? assistantT('emptyDescription')
-                : assistantT('deferredPanelBody')}
-            </p>
+            <p className="mono-support">{assistantT('emptyDescription')}</p>
           </PaperCardBody>
         </PaperCard>
       </div>
@@ -369,7 +348,7 @@ export function AssistantPage() {
           title={assistantT('chatNoProviderTitle')}
           body={assistantT('chatNoProviderBody')}
           actions={
-            <Link className="btn-secondary" to="/settings">
+            <Link className="btn-secondary" to="/settings#settings-ai">
               {assistantT('openSettings')}
             </Link>
           }

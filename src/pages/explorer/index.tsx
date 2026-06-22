@@ -682,6 +682,11 @@ export function ExplorerPage() {
     [queryHasStarredFacet, starredSearchEntries, renderedTimeResults],
   )
   const optionalAiReason = optionalAiAvailability.reason
+  // The release flag is a hard-coded `true` const in this build, so
+  // `evaluateOptionalAiAvailability` can never return `release-deferred` here —
+  // every reachable unavailable reason is a user-fixable configuration gap. The
+  // helper keeps `release-deferred` as a defensive path (covered by its own unit
+  // tests), but this surface only renders the three actionable repair states.
   const optionalAiFixableReason =
     optionalAiReason === 'ai-disabled' ||
     optionalAiReason === 'no-embedding-provider' ||
@@ -691,17 +696,13 @@ export function ExplorerPage() {
       ? explorerT('optionalAiDisabledTitle')
       : optionalAiReason === 'no-embedding-provider'
         ? explorerT('optionalAiNoProviderTitle')
-        : optionalAiReason === 'embedding-provider-error'
-          ? explorerT('optionalAiProviderErrorTitle')
-          : explorerT('optionalAiDeferredTitle')
+        : explorerT('optionalAiProviderErrorTitle')
   const optionalAiUnavailableBody =
     optionalAiReason === 'ai-disabled'
       ? explorerT('optionalAiDisabledBody')
       : optionalAiReason === 'no-embedding-provider'
         ? explorerT('optionalAiNoProviderBody')
-        : optionalAiReason === 'embedding-provider-error'
-          ? explorerT('optionalAiProviderErrorBody')
-          : explorerT('optionalAiDeferredBody')
+        : explorerT('optionalAiProviderErrorBody')
 
   const paperSearchSurface =
     routeIsSearchPath || searchParams.get('surface') === 'search'
@@ -803,21 +804,10 @@ export function ExplorerPage() {
           title={optionalAiUnavailableTitle}
           body={optionalAiUnavailableBody}
           actions={
-            <Link className="btn-secondary" to="/settings">
+            <Link className="btn-secondary" to="/settings#settings-ai">
               {explorerT('optionalAiOpenSettings')}
             </Link>
           }
-        />
-      ) : null}
-
-      {mode !== 'keyword' &&
-      !optionalAiAvailability.available &&
-      !optionalAiFixableReason ? (
-        <StatusCallout
-          tone="info"
-          eyebrow={explorerT('semanticStatusEyebrow')}
-          title={optionalAiUnavailableTitle}
-          body={optionalAiUnavailableBody}
         />
       ) : null}
 

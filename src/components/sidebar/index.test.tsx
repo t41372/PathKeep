@@ -27,7 +27,9 @@ import { backendTestHarness } from '../../lib/backend'
 import { I18nProvider } from '../../lib/i18n'
 import { ProfileScopeProvider } from '../../lib/profile-scope'
 import { ProfileScopeContext } from '../../lib/profile-scope-context'
+import type { AppScreen } from '../../app/router'
 import { Sidebar } from './index'
+import { SidebarNavItem } from './nav-item'
 
 describe('Sidebar', () => {
   beforeEach(() => {
@@ -81,7 +83,7 @@ describe('Sidebar', () => {
     expect(window.localStorage.getItem('pathkeep.theme')).toBe('light')
   })
 
-  test('renders the optional assistant badge', () => {
+  test('renders the assistant nav item without a roadmap badge', () => {
     const router = createMemoryRouter(
       [
         {
@@ -102,7 +104,48 @@ describe('Sidebar', () => {
       </I18nProvider>,
     )
 
-    expect(screen.getByText('v0.3')).toBeVisible()
+    // AI is now a shipped (consent-gated) feature, so the assistant nav entry no
+    // longer advertises a "v0.3" roadmap badge.
+    expect(screen.getByRole('link', { name: 'AI Assistant' })).toBeVisible()
+    expect(screen.queryByText('v0.3')).toBeNull()
+    expect(document.querySelector('.nav-badge')).toBeNull()
+  })
+
+  test('renders a nav badge when a screen still carries a badgeKey', () => {
+    const screenWithBadge: AppScreen = {
+      id: 'assistant',
+      labelKey: 'navigation.assistantLabel',
+      titleKey: 'navigation.assistantTitle',
+      subtitleKey: 'navigation.assistantSubtitle',
+      icon: 'smart_toy',
+      href: '/assistant',
+      badgeKey: 'navigation.assistantLabel',
+      section: 'CORE',
+    }
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: (
+            <SidebarNavItem collapsed={false} screen={screenWithBadge} />
+          ),
+        },
+      ],
+      { initialEntries: ['/'] },
+    )
+
+    render(
+      <I18nProvider>
+        <RouterProvider router={router} />
+      </I18nProvider>,
+    )
+
+    // The badge-rendering branch stays exercised even though no shipped screen
+    // currently uses it: the badge resolves its i18n key and is hidden when
+    // the rail is collapsed.
+    const badge = document.querySelector('.nav-badge')
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toBe('AI Assistant')
   })
 
   test('keeps the root link inactive when another route is selected', () => {
