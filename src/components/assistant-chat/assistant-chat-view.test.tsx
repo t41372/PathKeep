@@ -104,6 +104,28 @@ const copy: AssistantChatViewCopy = {
       doneLabel: 'Done',
       failedLabel: 'Failed',
       resultToggleLabel: 'Toggle tool result',
+      code: {
+        ranLabel: 'Wrote and ran a small program',
+        sourceLabel: 'Code the assistant ran',
+        sourceToggleLabel: 'Toggle the code the assistant ran',
+        hostCallsLabel: 'What it looked up',
+        queryRowTemplate:
+          'Searched your history for “{query}” — {count} matches ({plane}, limit {limit})',
+        fetchRowTemplate: 'Opened {ids} pages — {count} loaded',
+        genericRowTemplate: '{fn} · {count} rows',
+        limitLabel: 'Safety limit reached',
+        limits: {
+          time: 'Hit the time limit — this answer may be based on partial results',
+          memory:
+            'Hit the memory limit — this answer may be based on partial results',
+          'host-calls':
+            'Hit the query budget — this answer may be based on fewer results',
+          output:
+            'Output was truncated at the size limit — this answer may be incomplete',
+          cancelled:
+            'Cancelled before it finished — this answer may be incomplete',
+        },
+      },
     },
   },
   composer: {

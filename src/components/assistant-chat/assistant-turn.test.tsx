@@ -8,7 +8,13 @@
  * select handler.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 vi.mock('streamdown', () => ({
@@ -53,6 +59,28 @@ const copy: AssistantTurnCopy = {
     doneLabel: 'Done',
     failedLabel: 'Failed',
     resultToggleLabel: 'Toggle tool result',
+    code: {
+      ranLabel: 'Wrote and ran a small program',
+      sourceLabel: 'Code the assistant ran',
+      sourceToggleLabel: 'Toggle the code the assistant ran',
+      hostCallsLabel: 'What it looked up',
+      queryRowTemplate:
+        'Searched your history for “{query}” — {count} matches ({plane}, limit {limit})',
+      fetchRowTemplate: 'Opened {ids} pages — {count} loaded',
+      genericRowTemplate: '{fn} · {count} rows',
+      limitLabel: 'Safety limit reached',
+      limits: {
+        time: 'Hit the time limit — this answer may be based on partial results',
+        memory:
+          'Hit the memory limit — this answer may be based on partial results',
+        'host-calls':
+          'Hit the query budget — this answer may be based on fewer results',
+        output:
+          'Output was truncated at the size limit — this answer may be incomplete',
+        cancelled:
+          'Cancelled before it finished — this answer may be incomplete',
+      },
+    },
   },
 }
 
@@ -112,6 +140,65 @@ describe('AssistantTurn', () => {
     expect(
       screen.queryByTestId('assistant-typing-indicator'),
     ).not.toBeInTheDocument()
+  })
+
+  test('renders a code-mode run end-to-end: source label, host-call row, and limit chip', () => {
+    // W-AI-8 WU-5: prove the code copy bundle reaches ToolCallBlock through the turn, so a reopened
+    // or live code run renders its verbatim source + structured host-call timeline + limit chip.
+    render(
+      <AssistantTurn
+        message={{
+          id: 'a-code',
+          role: 'assistant',
+          content: '8 rust pages.',
+          status: 'done',
+          toolCalls: [
+            {
+              id: 't1',
+              name: 'run_code',
+              arguments: '{"source":"…"}',
+              callId: 'c1',
+              status: 'success',
+              isError: false,
+              result: '8 rust pages.',
+              codeSource:
+                'return (await query_history({ query: "rust" })).length;',
+              hostCalls: [
+                {
+                  function: 'query_history',
+                  query: 'rust',
+                  plane: 'hybrid',
+                  limit: 8,
+                  argsSummary: 'query="rust" plane=hybrid limit=8',
+                  rowCount: 12,
+                },
+              ],
+              limitsHit: 'time',
+            },
+          ],
+        }}
+        copy={copy}
+      />,
+    )
+    const tools = screen.getByTestId('assistant-tools-a-code')
+    // The code-run step renders the humanized header + verbatim-source label + the humanized
+    // host-call row + the limit chip carrying its consequence (end-to-end through the real turn).
+    expect(
+      within(tools).getByText('Wrote and ran a small program'),
+    ).toBeVisible()
+    expect(within(tools).queryByText('Ran run_code')).not.toBeInTheDocument()
+    expect(within(tools).getByText('Code the assistant ran')).toBeVisible()
+    expect(within(tools).getByText('What it looked up')).toBeVisible()
+    expect(
+      within(tools).getByText(
+        'Searched your history for “rust” — 12 matches (hybrid, limit 8)',
+      ),
+    ).toBeVisible()
+    expect(
+      within(tools).getByText(
+        'Hit the time limit — this answer may be based on partial results',
+      ),
+    ).toBeVisible()
   })
 
   test('renders the error state for a failed turn', () => {

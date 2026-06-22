@@ -51,6 +51,8 @@ export const settingsAiProvidersNamespace = {
       'A configured provider only receives what a given request needs (matching history snippets and your prompt). It does not get a copy of your whole archive.',
     aiConsentDisclosureLocal:
       'Vectors and audit traces are stored locally beside your archive, and chat transcripts are excluded from export.',
+    aiConsentDisclosureCodeMode:
+      'To answer a question, the assistant may write and run a small program over your history to search and combine results. These programs are sandboxed and read-only — they cannot reach the network or your files and run under strict time, memory, and output limits. Every answer shows the exact code and the queries it ran.',
     aiIntegrationCopyFailed: "Couldn't copy that artifact.",
     aiLlmProviders: 'CHAT PROVIDERS',
     aiEmbeddingProviders: 'EMBEDDING PROVIDERS',
@@ -190,6 +192,8 @@ export const settingsAiProvidersNamespace = {
       '已配置的服务只会收到单次请求所需的内容（匹配到的历史片段和你的提问），不会拿到你整个存档的副本。',
     aiConsentDisclosureLocal:
       '向量和审计记录保存在存档旁的本地，聊天记录也不会包含在导出里。',
+    aiConsentDisclosureCodeMode:
+      '为了回答问题，助手可能会编写并运行一个小程序，在你的历史记录上搜索并整合结果。这些程序运行在沙箱中且只读——无法访问网络或你的文件，并受到严格的时间、内存和输出限制。每个回答都会展示它实际运行的代码和查询。',
     aiIntegrationCopyFailed: '复制该产物失败。',
     aiLlmProviders: '对话模型',
     aiEmbeddingProviders: '向量模型',
@@ -326,6 +330,8 @@ export const settingsAiProvidersNamespace = {
       '已設定的服務只會收到單次請求所需的內容（比對到的歷史片段和你的提問），不會拿到你整個封存的副本。',
     aiConsentDisclosureLocal:
       '向量和稽核記錄保存在封存旁的本機，聊天紀錄也不會包含在匯出裡。',
+    aiConsentDisclosureCodeMode:
+      '為了回答問題，助手可能會撰寫並執行一個小程式，在你的歷史紀錄上搜尋並整合結果。這些程式執行於沙箱中且唯讀——無法存取網路或你的檔案，並受到嚴格的時間、記憶體和輸出限制。每個回答都會顯示它實際執行的程式碼和查詢。',
     aiIntegrationCopyFailed: '複製該產物失敗。',
     aiLlmProviders: '對話模型',
     aiEmbeddingProviders: '向量模型',

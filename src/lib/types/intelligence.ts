@@ -620,6 +620,46 @@ export interface AiChatCitation {
 }
 
 /**
+ * Which hard sandbox limit (if any) stopped a code-mode `run_code` script (W-AI-8 WU-5). The wire
+ * values are the kebab tokens the Rust `LimitsHit` serializes (`#[serde(rename_all = "kebab-case")]`):
+ * `time` (wall-time deadline), `memory` (memory cap), `host-calls` (host-call budget), `output`
+ * (output byte cap), `cancelled` (user cancelled). The FE maps each to a localized chip; it is never
+ * shown raw. Absent when the script finished within every bound.
+ */
+export type LimitsHit =
+  | 'time'
+  | 'memory'
+  | 'host-calls'
+  | 'output'
+  | 'cancelled'
+
+/**
+ * A summary of one host-API call a code-mode script made (W-AI-8 WU-5), mirroring the Rust
+ * `HostCallRecord` (camelCase serde). The STRUCTURED fields drive a translatable, per-row timeline:
+ *
+ * - `query` / `plane` / `limit` are populated for a `query_history` call (`plane` is the stable
+ *   lowercase token `hybrid` / `vector` / `bm25`).
+ * - `requestedIds` is populated for a `fetch_visits` call (how many visit ids it asked for).
+ *
+ * Each per-function field is absent when its call did not use it (`skip_serializing_if` on the Rust
+ * side), so a record only advertises the args its function used. `argsSummary` is a NON-localized,
+ * debug-only fallback (the same string a Rust log shows) — the FE composes its visible row from the
+ * structured fields and never renders `argsSummary`. `rowCount` is how many rows the call returned.
+ */
+export interface HostCallRecord {
+  function: string
+  query?: string
+  /** Stable lowercase plane token (`hybrid` / `vector` / `bm25`); present on `query_history`. */
+  plane?: string
+  limit?: number
+  /** Count of visit ids requested; present on `fetch_visits`. */
+  requestedIds?: number
+  /** Non-localized debug fallback; the FE renders from the structured fields, never from this. */
+  argsSummary: string
+  rowCount: number
+}
+
+/**
  * One streamed chat chunk delivered over `pathkeep://ai-stream`.
  *
  * The `kind` tag routes each chunk into its UI lane: visible `token` text, model `reasoning`,
@@ -630,6 +670,11 @@ export interface AiChatCitation {
  * by `callId`; `usage` reports per-turn token accounting; `citations` carries the run's accumulated
  * evidence rows once, right before `done`. No existing variant changed shape, so the plain
  * (tools-off) stream is byte-for-byte unaffected.
+ *
+ * W-AI-8 WU-5 is also ADDITIVE on `toolResult`: a code-mode (`run_code`) result appends `codeSource`
+ * (the verbatim script that ran), `hostCalls` (its host-call timeline), and `limitsHit` (the hard
+ * sandbox limit, if any). These are absent for the search tools, so the W-AI-7 search step stays
+ * byte-for-byte unchanged.
  */
 export type AiChatStreamChunk =
   | { kind: 'token'; text: string }
@@ -641,6 +686,12 @@ export type AiChatStreamChunk =
       name: string
       result: string
       isError: boolean
+      /** The verbatim `run_code` script (transparency); absent for the search tools. */
+      codeSource?: string
+      /** The `run_code` host-call timeline; absent/empty for the search tools. */
+      hostCalls?: HostCallRecord[]
+      /** Which hard sandbox limit bounded a `run_code` script, if any. */
+      limitsHit?: LimitsHit
     }
   | { kind: 'usage'; promptTokens: number; completionTokens: number }
   | { kind: 'citations'; citations: AiChatCitation[] }

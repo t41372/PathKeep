@@ -599,6 +599,78 @@ describe('useAiChatStream', () => {
     expect(call?.isError).toBe(false)
   })
 
+  test('a code-mode toolResult populates codeSource/hostCalls/limitsHit on the matching call', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({
+      kind: 'toolCall',
+      name: 'run_code',
+      arguments: '{"source":"…"}',
+      callId: 'code-1',
+    })
+    h.feed({
+      kind: 'toolResult',
+      callId: 'code-1',
+      name: 'run_code',
+      result: '8 rust pages.',
+      isError: false,
+      codeSource:
+        'const r = await query_history({ query: "rust" }); return r.length;',
+      hostCalls: [
+        {
+          function: 'query_history',
+          query: 'rust',
+          plane: 'hybrid',
+          limit: 8,
+          argsSummary: 'query="rust" plane=hybrid limit=8',
+          rowCount: 12,
+        },
+      ],
+      limitsHit: 'output',
+    })
+    act(() => runFrame())
+    const call = h.hook.result.current.messages[1].toolCalls?.[0]
+    expect(call?.status).toBe('success')
+    expect(call?.result).toBe('8 rust pages.')
+    expect(call?.codeSource).toContain('query_history')
+    expect(call?.hostCalls).toHaveLength(1)
+    expect(call?.hostCalls?.[0]).toMatchObject({
+      function: 'query_history',
+      query: 'rust',
+      plane: 'hybrid',
+      limit: 8,
+      rowCount: 12,
+    })
+    expect(call?.limitsHit).toBe('output')
+  })
+
+  test('a non-code toolResult leaves the code-mode fields undefined', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({
+      kind: 'toolCall',
+      name: 'search_bm25',
+      arguments: '{"q":"x"}',
+      callId: 'call-1',
+    })
+    h.feed({
+      kind: 'toolResult',
+      callId: 'call-1',
+      name: 'search_bm25',
+      result: '3 rows',
+      isError: false,
+    })
+    act(() => runFrame())
+    const call = h.hook.result.current.messages[1].toolCalls?.[0]
+    expect(call?.status).toBe('success')
+    // The search step carries no code-mode fields, so a search step renders exactly as W-AI-7.
+    expect(call?.codeSource).toBeUndefined()
+    expect(call?.hostCalls).toBeUndefined()
+    expect(call?.limitsHit).toBeUndefined()
+  })
+
   test('a failed toolResult marks the matching call as error with isError true', async () => {
     const h = makeHarness()
     act(() => h.hook.result.current.send('q'))

@@ -24,6 +24,32 @@ describe('buildAssistantChatCopy', () => {
     expect(copy.turn.typingLabel).toBe(t('chatTyping'))
     expect(copy.turn.reasoning.thinkingLabel).toBe(t('chatReasoningThinking'))
     expect(copy.turn.toolCalls.label).toBe(t('chatToolsLabel'))
+    // W-AI-8 WU-5 code-mode observability copy is wired through the tool-call copy bundle from the
+    // live catalog, so a catalog rename surfaces here. Includes all 5 localized limit labels.
+    expect(copy.turn.toolCalls.code.sourceLabel).toBe(t('chatCodeSourceLabel'))
+    expect(copy.turn.toolCalls.code.sourceToggleLabel).toBe(
+      t('chatCodeSourceToggle'),
+    )
+    expect(copy.turn.toolCalls.code.hostCallsLabel).toBe(
+      t('chatCodeHostCallsLabel'),
+    )
+    expect(copy.turn.toolCalls.code.queryRowTemplate).toBe(
+      t('chatCodeHostCallQuery'),
+    )
+    expect(copy.turn.toolCalls.code.fetchRowTemplate).toBe(
+      t('chatCodeHostCallFetch'),
+    )
+    expect(copy.turn.toolCalls.code.genericRowTemplate).toBe(
+      t('chatCodeHostCallGeneric'),
+    )
+    expect(copy.turn.toolCalls.code.limitLabel).toBe(t('chatCodeLimitLabel'))
+    expect(copy.turn.toolCalls.code.limits).toEqual({
+      time: t('chatCodeLimitTime'),
+      memory: t('chatCodeLimitMemory'),
+      'host-calls': t('chatCodeLimitHostCalls'),
+      output: t('chatCodeLimitOutput'),
+      cancelled: t('chatCodeLimitCancelled'),
+    })
     expect(copy.turn.evidenceLabel).toBe(t('chatEvidenceLabel'))
     // New W-AI-2 review keys are wired through the turn + composer copy.
     expect(copy.turn.errorGeneric).toBe(t('chatErrorGeneric'))

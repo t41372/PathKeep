@@ -205,6 +205,19 @@ describe('AiProvidersSection', () => {
     expect(
       within(disclosure).getByText(/chat transcripts are excluded from export/),
     ).toBeVisible()
+    // W-AI-8 WU-3: the disclosure also states the (default-enabled) sandboxed code-mode plainly —
+    // read-only, no network/file access, bounded, and the exact code + queries are always shown.
+    const codeBullet = within(disclosure).getByText(
+      /write and run a small program over your history/,
+    )
+    expect(codeBullet).toBeVisible()
+    expect(codeBullet).toHaveTextContent(/sandboxed and read-only/)
+    expect(codeBullet).toHaveTextContent(
+      /cannot reach the network or your files/,
+    )
+    expect(codeBullet).toHaveTextContent(
+      /shows the exact code and the queries it ran/,
+    )
   })
 
   test('keeps the provider editors visible but inert while AI is off', () => {

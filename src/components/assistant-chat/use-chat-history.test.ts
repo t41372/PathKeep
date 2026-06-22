@@ -251,6 +251,111 @@ describe('useChatHistory', () => {
     expect(assistant.status).toBe('done')
   })
 
+  test('W-AI-8 WU-4: a code-mode tool call survives a save → reopen round-trip (opaque JSON)', async () => {
+    // The reopen path reconstructs the tool timeline from `tool_calls_json` (the FE-serialized
+    // AssistantToolCall[]), which both the FE (JSON.stringify/parse) and the Rust store
+    // (`tool_calls_json: Option<String>`) treat as OPAQUE JSON. So the W-AI-8 code-mode fields
+    // (codeSource / hostCalls / limitsHit) must round-trip for free. This drives the FULL cycle:
+    // persistTurn serializes a code run, and the SAME serialized blob, fed back through
+    // loadConversation, must rehydrate the code run intact — no field dropped.
+    const codeRun: ChatMessage = {
+      id: 'a-code',
+      role: 'assistant',
+      content: '8 rust pages.',
+      toolCalls: [
+        {
+          id: 't1',
+          name: 'run_code',
+          arguments: '{"source":"…"}',
+          callId: 'c1',
+          status: 'success',
+          isError: false,
+          result: '8 rust pages.',
+          codeSource:
+            'const r = await query_history({ query: "rust", limit: 8 });\nreturn r.length;',
+          hostCalls: [
+            {
+              function: 'query_history',
+              query: 'rust',
+              plane: 'hybrid',
+              limit: 8,
+              argsSummary: 'query="rust" plane=hybrid limit=8',
+              rowCount: 12,
+            },
+          ],
+          limitsHit: 'output',
+        },
+      ],
+      status: 'done',
+    }
+
+    // 1) SAVE: capture the serialized tool_calls_json the FE persists.
+    const saveBackend = makeBackend()
+    const saveHook = renderHook(() => useChatHistory({ backend: saveBackend }))
+    await waitFor(() =>
+      expect(saveBackend.listConversations).toHaveBeenCalled(),
+    )
+    act(() =>
+      saveHook.result.current.persistTurn([
+        { id: 'u', role: 'user', content: 'rust?' },
+        codeRun,
+      ]),
+    )
+    await waitFor(() =>
+      expect(saveBackend.saveConversation).toHaveBeenCalledTimes(1),
+    )
+    const saved = vi.mocked(saveBackend.saveConversation).mock.calls[0][0]
+    const serialized = saved.messages[1].toolCallsJson
+    expect(serialized).toBeTruthy()
+    // The serialized blob carries every code-mode field verbatim (opaque JSON, nothing stripped).
+    expect(serialized).toContain('codeSource')
+    expect(serialized).toContain('hostCalls')
+    expect(serialized).toContain('"limitsHit":"output"')
+
+    // 2) LOAD: feed that exact blob back as a stored AgentMessage and reopen.
+    const detail: AgentConversationDetail = {
+      ...summary({ id: 'conv-code' }),
+      messages: [
+        {
+          id: 'u',
+          role: 'user',
+          content: 'rust?',
+          reasoning: null,
+          toolCallsJson: null,
+          status: null,
+        },
+        {
+          id: 'a-code',
+          role: 'assistant',
+          content: '8 rust pages.',
+          reasoning: null,
+          toolCallsJson: serialized,
+          status: 'done',
+        },
+      ],
+    }
+    const loadBackend = makeBackend({
+      loadConversation: vi.fn().mockResolvedValue(detail),
+    })
+    const loadHook = renderHook(() => useChatHistory({ backend: loadBackend }))
+    await waitFor(() =>
+      expect(loadBackend.listConversations).toHaveBeenCalled(),
+    )
+    let hydrated: ChatMessage[] | null = null
+    await act(async () => {
+      hydrated = await loadHook.result.current.openConversation('conv-code')
+    })
+
+    // 3) The reopened code run reconstructs its source / host calls / limit — identical to the save.
+    const reopened = hydrated![1].toolCalls?.[0]
+    expect(reopened?.name).toBe('run_code')
+    expect(reopened?.codeSource).toBe(codeRun.toolCalls![0].codeSource)
+    expect(reopened?.hostCalls).toEqual(codeRun.toolCalls![0].hostCalls)
+    expect(reopened?.limitsHit).toBe('output')
+    expect(reopened?.status).toBe('success')
+    expect(reopened?.result).toBe('8 rust pages.')
+  })
+
   test('openConversation reconstructs the durable trace: citations + usage on the answering turn', async () => {
     // W-AI-7 WU-7: a reopened assistant turn must carry the run's reconstructed evidence rows (with
     // the canonical_url star key) + token usage, so it renders the SAME stars + footer as the live

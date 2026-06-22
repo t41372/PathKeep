@@ -227,6 +227,14 @@ export function AiProvidersSection({
           <ul className="text-ink-muted mt-2 flex list-none flex-col gap-1.5 p-0 font-sans text-[12px] leading-[1.5]">
             <li>{t('settings.aiConsentDisclosureNoProvider')}</li>
             <li>{t('settings.aiConsentDisclosureEgress')}</li>
+            {/*
+              W-AI-8 WU-3 — code-mode disclosure (not a per-run gate): the assistant's tool harness
+              is default-enabled and can WRITE + RUN small sandboxed (read-only, no egress, bounded)
+              programs over the history to search/combine results, always showing the exact code +
+              queries it ran. Stated here so the always-visible consent surface is complete; there is
+              no "agent wants to run code" affordance because the sandbox makes a per-run gate noise.
+            */}
+            <li>{t('settings.aiConsentDisclosureCodeMode')}</li>
             <li>{t('settings.aiConsentDisclosureLocal')}</li>
           </ul>
         </div>

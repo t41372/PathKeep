@@ -31,6 +31,8 @@ import type {
   AiChatStreamChunk,
   AiChatMessage,
   AiChatCitation,
+  HostCallRecord,
+  LimitsHit,
 } from '../../lib/types'
 
 /** One cited history page the agent grounded its answer on (W-AI-7). Re-export of the IPC shape. */
@@ -64,6 +66,17 @@ export interface AssistantToolCall {
   result?: string
   /** True when the matching `toolResult` reported a failure (honest error state). */
   isError?: boolean
+  /**
+   * The verbatim `run_code` script the assistant wrote and ran (W-AI-8 WU-5). Present ONLY on a
+   * code-mode step; its presence is what marks a tool call as a code run for the renderer. Absent for
+   * the search tools, so a search step renders exactly as W-AI-7. Per the transparency contract the
+   * user must see the EXACT source that ran — it is never truncated.
+   */
+  codeSource?: string
+  /** The code run's host-call timeline (W-AI-8 WU-5); absent/empty for the search tools. */
+  hostCalls?: HostCallRecord[]
+  /** Which hard sandbox limit bounded the code run, if any (W-AI-8 WU-5). */
+  limitsHit?: LimitsHit
 }
 
 /** Running token accounting for one assistant turn, summed from `usage` chunks (W-AI-7). */
@@ -381,6 +394,12 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
                   result: chunk.result,
                   isError: chunk.isError,
                   status: chunk.isError ? 'error' : 'success',
+                  // W-AI-8 WU-5 code-mode transparency fields ride the SAME buffer as the existing
+                  // result fields (no new render path). They are present only on a `run_code` step;
+                  // for the search tools the chunk omits them, so a search step is unchanged.
+                  codeSource: chunk.codeSource,
+                  hostCalls: chunk.hostCalls,
+                  limitsHit: chunk.limitsHit,
                 }
               }
               return call

@@ -81,6 +81,27 @@ export function buildAssistantChatCopy(
         doneLabel: t('chatToolDone'),
         failedLabel: t('chatToolFailed'),
         resultToggleLabel: t('chatToolResultToggle'),
+        // W-AI-8 WU-5 code-mode observability copy. These ride the same tool-call copy bundle so the
+        // tool-call block can render a code run's verbatim source + host-call timeline + limit chip
+        // without a separate copy plumbing. The host-call row templates are composed from the
+        // STRUCTURED HostCallRecord fields (never the non-localized argsSummary) so they translate.
+        code: {
+          ranLabel: t('chatCodeRanLabel'),
+          sourceLabel: t('chatCodeSourceLabel'),
+          sourceToggleLabel: t('chatCodeSourceToggle'),
+          hostCallsLabel: t('chatCodeHostCallsLabel'),
+          queryRowTemplate: t('chatCodeHostCallQuery'),
+          fetchRowTemplate: t('chatCodeHostCallFetch'),
+          genericRowTemplate: t('chatCodeHostCallGeneric'),
+          limitLabel: t('chatCodeLimitLabel'),
+          limits: {
+            time: t('chatCodeLimitTime'),
+            memory: t('chatCodeLimitMemory'),
+            'host-calls': t('chatCodeLimitHostCalls'),
+            output: t('chatCodeLimitOutput'),
+            cancelled: t('chatCodeLimitCancelled'),
+          },
+        },
       },
     },
     composer: {
