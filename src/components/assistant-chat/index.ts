@@ -13,6 +13,9 @@ export type {
   AiChatStreamDeps,
   AiChatStreamState,
   AssistantToolCall,
+  AssistantToolCallStatus,
+  AssistantUsage,
+  AssistantCitation,
   AssistantTurnStatus,
   ChatMessage,
 } from './use-ai-chat-stream'

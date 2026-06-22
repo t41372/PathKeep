@@ -32,12 +32,25 @@ const copy: AssistantTurnCopy = {
   statusUsingTool: 'Using tool: {name}',
   statusAnswering: 'Answering…',
   statusComplete: 'Answer complete',
+  usageLabel: '{prompt} prompt · {completion} completion tokens',
+  evidenceStar: {
+    starLabel: 'Star this source',
+    unstarLabel: 'Unstar this source',
+    status: { starred: 'Source starred', unstarred: 'Source unstarred' },
+  },
   reasoning: {
     thinkingLabel: 'Thinking…',
     thoughtLabel: 'Thought process',
     toggleLabel: 'Toggle the thought process',
   },
-  toolCalls: { label: 'Tools used', ranTemplate: 'Ran {name}' },
+  toolCalls: {
+    label: 'Tools used',
+    ranTemplate: 'Ran {name}',
+    runningLabel: 'Running…',
+    doneLabel: 'Done',
+    failedLabel: 'Failed',
+    resultToggleLabel: 'Toggle tool result',
+  },
 }
 
 function userMessage(content: string): ChatMessage {
@@ -309,6 +322,69 @@ describe('AssistantTurn', () => {
     expect(
       screen.queryByTestId('assistant-no-answer-a13'),
     ).not.toBeInTheDocument()
+  })
+
+  test('renders the token-usage footer when the turn carries usage', () => {
+    render(
+      <AssistantTurn
+        message={{
+          id: 'a14',
+          role: 'assistant',
+          content: 'answer',
+          usage: { promptTokens: 120, completionTokens: 35 },
+          status: 'done',
+        }}
+        copy={copy}
+      />,
+    )
+    expect(screen.getByTestId('assistant-usage-a14')).toHaveTextContent(
+      '120 prompt · 35 completion tokens',
+    )
+  })
+
+  test('omits the usage footer when the turn has no usage', () => {
+    render(
+      <AssistantTurn
+        message={{
+          id: 'a15',
+          role: 'assistant',
+          content: 'answer',
+          status: 'done',
+        }}
+        copy={copy}
+      />,
+    )
+    expect(screen.queryByTestId('assistant-usage-a15')).not.toBeInTheDocument()
+  })
+
+  test('forwards evidence-row star props to the message bubble', () => {
+    const onToggleStar = vi.fn()
+    render(
+      <AssistantTurn
+        message={{
+          id: 'a16',
+          role: 'assistant',
+          content: 'answer',
+          status: 'done',
+        }}
+        copy={copy}
+        evidence={[
+          {
+            id: 'cite-1',
+            date: '2026-01-01',
+            title: 'A',
+            domain: 'a.example',
+            url: 'https://a.example/x',
+            canonicalUrl: 'https://a.example/x',
+          },
+        ]}
+        isEvidenceStarred={() => false}
+        onToggleEvidenceStar={onToggleStar}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-assistant-evidence-star-cite-1'))
+    expect(onToggleStar).toHaveBeenCalledTimes(1)
+    expect(onToggleStar).toHaveBeenCalledWith('https://a.example/x')
   })
 
   describe('coarse aria-live milestones', () => {

@@ -50,6 +50,8 @@ function makeHarness(options?: {
   unsubscribe?: ReturnType<typeof vi.fn>
   systemPrompt?: string | null
   providerId?: string | null
+  toolsEnabled?: boolean
+  conversationId?: string | null
 }) {
   let feed: ((chunk: AiChatStreamChunk) => void) | null = null
   const unsubscribe = options?.unsubscribe ?? vi.fn()
@@ -68,6 +70,9 @@ function makeHarness(options?: {
       sendChat: sendChat as (request: {
         messages: AiChatMessage[]
         providerId?: string | null
+        toolsEnabled?: boolean
+        conversationId?: string | null
+        messageId?: string | null
       }) => Promise<{ runId: string }>,
       cancelChat: cancelChat as (
         runId: string,
@@ -75,6 +80,8 @@ function makeHarness(options?: {
       subscribe,
       systemPrompt: options?.systemPrompt,
       providerId: options?.providerId,
+      toolsEnabled: options?.toolsEnabled,
+      conversationId: options?.conversationId,
     }),
   )
   return {
@@ -554,5 +561,217 @@ describe('useAiChatStream', () => {
     expect(h.hook.result.current.messages[1].content).toBe('hydrated answer')
     // reset on an idle hook (no live run) does not call cancelChat.
     expect(h.cancelChat).not.toHaveBeenCalled()
+  })
+
+  // ---------------------------------------------------------------------------
+  // W-AI-7: agent observability chunks (toolResult / usage / citations) + the
+  // tools-enabled send wiring. All still go through the SAME rAF flush.
+  // ---------------------------------------------------------------------------
+
+  test('correlates a toolResult back to its toolCall by callId and marks success', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+
+    h.feed({
+      kind: 'toolCall',
+      name: 'search_bm25',
+      arguments: '{"q":"x"}',
+      callId: 'call-1',
+    })
+    act(() => runFrame())
+    // The call starts pending (no result yet).
+    expect(h.hook.result.current.messages[1].toolCalls?.[0].status).toBe(
+      'pending',
+    )
+
+    h.feed({
+      kind: 'toolResult',
+      callId: 'call-1',
+      name: 'search_bm25',
+      result: '3 rows',
+      isError: false,
+    })
+    act(() => runFrame())
+    const call = h.hook.result.current.messages[1].toolCalls?.[0]
+    expect(call?.status).toBe('success')
+    expect(call?.result).toBe('3 rows')
+    expect(call?.isError).toBe(false)
+  })
+
+  test('a failed toolResult marks the matching call as error with isError true', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({
+      kind: 'toolCall',
+      name: 'no_such_tool',
+      arguments: '{}',
+      callId: 'call-x',
+    })
+    h.feed({
+      kind: 'toolResult',
+      callId: 'call-x',
+      name: 'no_such_tool',
+      result: 'failed: unknown tool',
+      isError: true,
+    })
+    act(() => runFrame())
+    const call = h.hook.result.current.messages[1].toolCalls?.[0]
+    expect(call?.status).toBe('error')
+    expect(call?.isError).toBe(true)
+    expect(call?.result).toBe('failed: unknown tool')
+  })
+
+  test('matches the LAST pending call with a reused callId', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    // Two calls share an id (a model reusing an id across turns); the result should resolve the
+    // most-recent pending one, leaving the earlier one pending.
+    h.feed({ kind: 'toolCall', name: 'a', arguments: '{}', callId: 'dup' })
+    h.feed({ kind: 'toolCall', name: 'b', arguments: '{}', callId: 'dup' })
+    h.feed({
+      kind: 'toolResult',
+      callId: 'dup',
+      name: 'b',
+      result: 'b done',
+      isError: false,
+    })
+    act(() => runFrame())
+    const calls = h.hook.result.current.messages[1].toolCalls
+    expect(calls?.[0].status).toBe('pending')
+    expect(calls?.[1].status).toBe('success')
+    expect(calls?.[1].result).toBe('b done')
+  })
+
+  test('drops a toolResult that matches no pending call (no fabricated row)', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({ kind: 'token', text: 'hi' })
+    act(() => runFrame())
+    // A toolResult with an unknown callId is ignored: no tool rows appear.
+    h.feed({
+      kind: 'toolResult',
+      callId: 'ghost',
+      name: 'x',
+      result: 'r',
+      isError: false,
+    })
+    act(() => runFrame())
+    expect(h.hook.result.current.messages[1].toolCalls).toHaveLength(0)
+  })
+
+  test('accumulates usage across multiple usage chunks', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({ kind: 'usage', promptTokens: 10, completionTokens: 5 })
+    h.feed({ kind: 'usage', promptTokens: 7, completionTokens: 3 })
+    act(() => runFrame())
+    expect(h.hook.result.current.messages[1].usage).toEqual({
+      promptTokens: 17,
+      completionTokens: 8,
+    })
+  })
+
+  test('stores the terminal citations set and seals it on done', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({ kind: 'token', text: 'answer' })
+    h.feed({
+      kind: 'citations',
+      citations: [
+        {
+          historyId: 1,
+          profileId: 'p',
+          url: 'https://a.example/x',
+          title: 'A',
+          visitedAt: '2026-01-01T00:00:00Z',
+          score: 0.9,
+          canonicalUrl: 'https://a.example/x',
+        },
+      ],
+    })
+    h.feed({ kind: 'done' })
+    const assistant = h.hook.result.current.messages[1]
+    expect(assistant.status).toBe('done')
+    expect(assistant.citations).toHaveLength(1)
+    expect(assistant.citations?.[0].canonicalUrl).toBe('https://a.example/x')
+  })
+
+  test('all four W-AI-7 chunks before any frame coalesce into a single flush', async () => {
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('q'))
+    await settle()
+    h.feed({ kind: 'toolCall', name: 't', arguments: '{}', callId: 'c1' })
+    h.feed({
+      kind: 'toolResult',
+      callId: 'c1',
+      name: 't',
+      result: 'r',
+      isError: false,
+    })
+    h.feed({ kind: 'usage', promptTokens: 1, completionTokens: 1 })
+    h.feed({
+      kind: 'citations',
+      citations: [
+        {
+          historyId: 2,
+          profileId: 'p',
+          url: 'https://b.example/',
+          visitedAt: '2026-02-02T00:00:00Z',
+        },
+      ],
+    })
+    // The no-freeze contract: a burst of W-AI-7 chunks queues exactly ONE frame.
+    expect(frameQueue.length).toBe(1)
+    act(() => runFrame())
+    const assistant = h.hook.result.current.messages[1]
+    expect(assistant.toolCalls?.[0].result).toBe('r')
+    expect(assistant.usage).toEqual({ promptTokens: 1, completionTokens: 1 })
+    expect(assistant.citations).toHaveLength(1)
+  })
+
+  type SendRequest = {
+    messages: AiChatMessage[]
+    providerId?: string | null
+    toolsEnabled?: boolean
+    conversationId?: string | null
+    messageId?: string | null
+  }
+
+  test('threads toolsEnabled + conversationId + the assistant messageId into sendChat', async () => {
+    const sendChat = vi.fn<
+      (request: SendRequest) => Promise<{ runId: string }>
+    >(() => Promise.resolve({ runId: 'run-1' }))
+    const h = makeHarness({
+      sendChat,
+      toolsEnabled: true,
+      conversationId: 'conv-7',
+    })
+    act(() => h.hook.result.current.send('hello'))
+    await settle()
+    expect(sendChat).toHaveBeenCalledTimes(1)
+    const request = sendChat.mock.calls[0][0]
+    expect(request.toolsEnabled).toBe(true)
+    expect(request.conversationId).toBe('conv-7')
+    // The messageId is the active assistant message's id, so the trace links to this turn.
+    const assistantId = h.hook.result.current.messages[1].id
+    expect(request.messageId).toBe(assistantId)
+  })
+
+  test('plain-chat send omits tools (toolsEnabled undefined) and carries no conversation link', async () => {
+    const sendChat = vi.fn<
+      (request: SendRequest) => Promise<{ runId: string }>
+    >(() => Promise.resolve({ runId: 'run-1' }))
+    const h = makeHarness({ sendChat })
+    act(() => h.hook.result.current.send('hello'))
+    await settle()
+    const request = sendChat.mock.calls[0][0]
+    expect(request.toolsEnabled).toBeUndefined()
+    expect(request.conversationId).toBeUndefined()
   })
 })

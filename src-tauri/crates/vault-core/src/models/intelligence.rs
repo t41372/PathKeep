@@ -795,7 +795,10 @@ pub struct AiChatCancelResult {
     pub cancelled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+// `Eq` is intentionally NOT derived: the additive W-AI-7 `Citations` variant carries `AiCitation`,
+// whose `score: Option<f32>` is not `Eq`. `PartialEq` is enough for every consumer (`assert_eq!` /
+// `matches!`); nothing pins a chunk in a `HashSet`/`BTreeMap` key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 /// One streamed chat chunk delivered over `pathkeep://ai-stream`.
 ///
@@ -803,10 +806,12 @@ pub struct AiChatCancelResult {
 /// terminal `done` marker, and a terminal `error` into distinct UI lanes without guessing.
 ///
 /// W-AI-7 is strictly ADDITIVE: it appends `Usage` (per-turn token accounting for the budget
-/// surface) and `ToolResult` (the executed result the harness journals + streams), and adds an
-/// optional `callId` to the existing `ToolCall` (so a result can be correlated to its call). No
-/// existing variant is renamed/reordered and no existing field is removed, so the W-AI-1 const-pin
-/// test and the plain (tools-off) streaming path stay green.
+/// surface), `ToolResult` (the executed result the harness journals + streams), and `Citations`
+/// (the run's accumulated evidence rows, emitted once right before `Done` so the front end can
+/// render starrable evidence), and adds an optional `callId` to the existing `ToolCall` (so a
+/// result can be correlated to its call). No existing variant is renamed/reordered and no existing
+/// field is removed, so the W-AI-1 const-pin test and the plain (tools-off) streaming path stay
+/// green.
 pub enum AiChatStreamChunk {
     /// A fragment of the visible answer.
     Token { text: String },
@@ -833,6 +838,12 @@ pub enum AiChatStreamChunk {
     /// Per-turn token accounting for the agent budget surface (W-AI-7).
     #[serde(rename_all = "camelCase")]
     Usage { prompt_tokens: u64, completion_tokens: u64 },
+    /// The run's accumulated evidence rows (W-AI-7), emitted ONCE right before a terminal `Done`.
+    ///
+    /// Each citation carries its `canonicalUrl` (the W-STAR star key) so the front end renders
+    /// starrable evidence rows without re-normalizing. Empty when no tool surfaced a row. This is
+    /// the streaming twin of the harness's `record_citations` journal write (02 §G transparency).
+    Citations { citations: Vec<AiCitation> },
     /// Terminal success marker; no more chunks follow for this run.
     Done,
     /// Terminal failure marker carrying a user-facing message; no more chunks follow.
@@ -846,7 +857,8 @@ pub enum AiChatStreamChunk {
 /// matching literal. Both sides MUST agree on this exact string.
 pub const AI_CHAT_STREAM_EVENT: &str = "pathkeep://ai-stream";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+// `Eq` dropped to match `AiChatStreamChunk` (its `Citations` variant is `PartialEq` only).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 /// Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.
 pub struct AiChatStreamEvent {
@@ -1042,6 +1054,12 @@ pub struct AiAssistantRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Citation for one visit used in an assistant answer or insight.
+///
+/// `canonical_url` (W-AI-7, additive) is the W-STAR star key, resolved at the agent tool-call site
+/// via `visit_taxonomy::normalize_visit_url` so the front end can star a cited page directly from a
+/// streamed `Citations` chunk without re-normalizing. It is `#[serde(default, skip_serializing_if =
+/// "Option::is_none")]` so every pre-W-AI-7 payload (insights, the old assistant response) still
+/// serializes/deserializes byte-for-byte unchanged.
 pub struct AiCitation {
     pub history_id: i64,
     pub profile_id: String,
@@ -1049,6 +1067,9 @@ pub struct AiCitation {
     pub title: Option<String>,
     pub visited_at: String,
     pub score: Option<f32>,
+    /// W-STAR star key (canonicalized URL); `None` on the legacy/insight paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1309,6 +1330,70 @@ mod tests {
             .unwrap(),
             json!({ "kind": "usage", "promptTokens": 12, "completionTokens": 7 })
         );
+        // The agent emits the run's accumulated evidence once before Done; each citation carries its
+        // canonicalUrl (the W-STAR star key) so the FE renders starrable evidence rows.
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Citations {
+                citations: vec![AiCitation {
+                    history_id: 7,
+                    profile_id: "p".to_string(),
+                    url: "https://a.example/x".to_string(),
+                    title: Some("X".to_string()),
+                    visited_at: "2026-01-01T00:00:00Z".to_string(),
+                    score: Some(0.5),
+                    canonical_url: Some("https://a.example/x".to_string()),
+                }],
+            })
+            .unwrap(),
+            json!({
+                "kind": "citations",
+                "citations": [{
+                    "historyId": 7,
+                    "profileId": "p",
+                    "url": "https://a.example/x",
+                    "title": "X",
+                    "visitedAt": "2026-01-01T00:00:00Z",
+                    "score": 0.5,
+                    "canonicalUrl": "https://a.example/x",
+                }],
+            })
+        );
+        // An empty Citations chunk (no tool surfaced a row) is still well-formed.
+        assert_eq!(
+            serde_json::to_value(AiChatStreamChunk::Citations { citations: vec![] }).unwrap(),
+            json!({ "kind": "citations", "citations": [] })
+        );
+    }
+
+    #[test]
+    fn ai_citation_omits_canonical_url_on_the_legacy_path() {
+        // The additive `canonicalUrl` is `skip_serializing_if = None`, so a legacy/insight citation
+        // (resolved without a canonical url) serializes EXACTLY as it did before W-AI-7.
+        let legacy = AiCitation {
+            history_id: 3,
+            profile_id: "p".to_string(),
+            url: "https://b.example/".to_string(),
+            title: None,
+            visited_at: "2026-02-02T00:00:00Z".to_string(),
+            score: None,
+            canonical_url: None,
+        };
+        let value = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "historyId": 3,
+                "profileId": "p",
+                "url": "https://b.example/",
+                "title": null,
+                "visitedAt": "2026-02-02T00:00:00Z",
+                "score": null,
+            })
+        );
+        assert!(value.get("canonicalUrl").is_none());
+        // And a payload without the key round-trips back to `None`.
+        let parsed: AiCitation = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.canonical_url, None);
     }
 
     #[test]

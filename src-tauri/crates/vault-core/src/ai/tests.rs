@@ -924,6 +924,7 @@ fn persisted_assistant_run_loader_marks_cited_answers_completed() {
         title: Some("Example report".to_string()),
         visited_at: "2026-04-27T00:00:00Z".to_string(),
         score: Some(0.91),
+        canonical_url: None,
     }])
     .expect("serialize citation");
     connection

@@ -208,6 +208,7 @@ impl Tool for SearchHistoryTool {
                 title: item.title.clone(),
                 visited_at: item.visited_at.clone(),
                 score: Some(item.score),
+                canonical_url: None,
             })
             .collect::<Vec<_>>();
         self.context.citations.lock().await.extend(citations);
@@ -303,6 +304,7 @@ pub async fn answer_history_question_with_control(
                 title: item.title.clone(),
                 visited_at: item.visited_at.clone(),
                 score: Some(item.score),
+                canonical_url: None,
             })
             .collect::<Vec<_>>();
         let citations = Arc::new(Mutex::new(seeded_citations.clone()));

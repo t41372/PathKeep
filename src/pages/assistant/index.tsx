@@ -20,8 +20,8 @@
  * - Stay aligned with `docs/design/screens-and-nav.md` and `docs/design/ux-principles.md`.
  */
 
-import { useCallback, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import {
   PaperCard,
@@ -41,12 +41,43 @@ import {
   useAiChatStream,
   useChatHistory,
   type ChatHistoryBackend,
+  type ChatMessage,
 } from '../../components/assistant-chat'
+import type { PaperAssistantEvidence } from '../../components/explorer-paper'
+import { useDesktopStars } from '../explorer/use-desktop-stars'
 import { backend } from '../../lib/backend-client'
 import { subscribeToAiChatStream } from '../../lib/ipc/ai-stream'
 import { useI18n } from '../../lib/i18n'
 import { selectedAiProvider } from '../../lib/intelligence-ai-presentation'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
+
+/**
+ * Project a turn's streamed citations into the evidence-row shape, keyed by `canonicalUrl` (the
+ * W-STAR star key). Citations without a canonical url still render (just not starrable). The mono
+ * date is the leading 10 chars of the ISO `visitedAt` to match the evidence panel's date column.
+ */
+function citationsToEvidence(
+  message: ChatMessage,
+): readonly PaperAssistantEvidence[] | undefined {
+  const citations = message.citations
+  if (!citations || citations.length === 0) return undefined
+  return citations.map((citation) => {
+    let domain = citation.url
+    try {
+      domain = new URL(citation.url).hostname
+    } catch {
+      // Keep the raw url as the domain label when it does not parse (degrade, never throw).
+    }
+    return {
+      id: `cite-${citation.historyId}`,
+      date: citation.visitedAt.slice(0, 10),
+      title: citation.title ?? citation.url,
+      domain,
+      url: citation.url,
+      canonicalUrl: citation.canonicalUrl ?? null,
+    }
+  })
+}
 
 /** Stable backend bindings for the conversation-history controller (identity never changes). */
 const chatHistoryBackend: ChatHistoryBackend = {
@@ -124,9 +155,72 @@ export function AssistantPage() {
       ),
       subscribe: subscribeToAiChatStream,
       providerId: llmProvider?.id ?? null,
+      // The history assistant answers OVER history: it runs WITH the tool-executing agent harness by
+      // default (the search tools retrieve real rows, the answer cites them). `conversationId` links
+      // the durable agent trace to this conversation (the backend FK self-heals if not yet saved).
+      toolsEnabled: true,
+      conversationId: history.activeId,
       systemPrompt: snapshot?.config.ai.assistantSystemPrompt ?? null,
       onTurnFinalized: history.persistTurn,
     })
+
+  // Evidence-row stars: reuse the batched/optimistic stars hook (kind `url`, keyed by the citation's
+  // canonical url — the W-STAR key). The bubble only renders a star toggle for rows that carry a
+  // `canonicalUrl`, so these callbacks receive a guaranteed string and need no guard. Hydration is
+  // lazy + bounded to the cited rows, so even a long chat never fans out across the whole archive.
+  const evidenceStars = useDesktopStars()
+  const isEvidenceStarred = useCallback(
+    (canonicalUrl: string) => evidenceStars.isStarred('url', canonicalUrl),
+    [evidenceStars],
+  )
+  const onToggleEvidenceStar = useCallback(
+    (canonicalUrl: string) => evidenceStars.toggle('url', canonicalUrl),
+    [evidenceStars],
+  )
+  // Resolve a turn's evidence rows, hydrating their star status for just those rows.
+  //
+  // FLUIDITY (FE-2): `evidenceFor` runs inside `messages.map(...)` on EVERY render, and `ChatRow`
+  // is `memo`'d on a shallow prop compare — so a fresh `evidence` array identity per render would
+  // re-render every on-screen finalized turn that HAS citations on every streaming frame, defeating
+  // the memo contract the chat-view/turn headers promise. The rAF flush in `useAiChatStream` returns
+  // finalized `message` objects UNCHANGED across frames (only the actively-streaming message gets a
+  // new object), so a message-keyed `WeakMap` gives referential stability for finalized turns while
+  // the streaming turn naturally re-projects (new object → cache miss → fresh projection, correct).
+  const evidenceCacheRef = useRef(
+    new WeakMap<ChatMessage, readonly PaperAssistantEvidence[] | undefined>(),
+  )
+  const evidenceFor = useCallback(
+    (message: ChatMessage) => {
+      const cache = evidenceCacheRef.current
+      let evidence = cache.get(message)
+      if (!cache.has(message)) {
+        evidence = citationsToEvidence(message)
+        cache.set(message, evidence)
+      }
+      // Hydration stays on every call (it dedups via the hook's knownRef, so it is idempotent and
+      // bounded to the cited rows) — the array identity is what the memo needs stable, not this.
+      if (evidence) {
+        const keys = evidence
+          .map((row) => row.canonicalUrl)
+          .filter((key): key is string => Boolean(key))
+        if (keys.length > 0) evidenceStars.hydrate('url', keys)
+      }
+      return evidence
+    },
+    [evidenceStars],
+  )
+
+  // Deep-link a cited source into Explorer search (canonical filter), honoring the transparency
+  // contract: every answer's evidence routes back to the real history row.
+  const navigate = useNavigate()
+  const handleSelectEvidence = useCallback(
+    (evidence: PaperAssistantEvidence) => {
+      void navigate(
+        `/explorer?surface=search&q=${encodeURIComponent(evidence.url)}`,
+      )
+    },
+    [navigate],
+  )
 
   // Responsive deferral (W-AI-3 review item 14): on a narrow window the 260px drawer should
   // auto-collapse / overlay rather than squeeze the chat column. That needs a width observer to flip
@@ -325,6 +419,10 @@ export function AssistantPage() {
           onCancel={cancel}
           onRetry={handleRetry}
           onPickPrompt={(prompt) => setInput(prompt.text)}
+          evidenceFor={evidenceFor}
+          onSelectEvidence={handleSelectEvidence}
+          isEvidenceStarred={isEvidenceStarred}
+          onToggleEvidenceStar={onToggleEvidenceStar}
           testId="assistant-chat-view"
         />
       </div>

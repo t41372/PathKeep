@@ -241,6 +241,11 @@ impl AgentTool for HistorySearchTool {
                 title: item.title.clone(),
                 visited_at: item.visited_at.clone(),
                 score: Some(item.score),
+                // Resolve the W-STAR star key here (the same canonicalization stars/refind use), so a
+                // streamed `Citations` chunk can render a starrable evidence row without the FE — or
+                // the worker journal — re-normalizing the raw url.
+                canonical_url: crate::visit_taxonomy::normalize_visit_url(&item.url)
+                    .map(|normalized| normalized.canonical_url),
             })
             .collect::<Vec<_>>();
         let model_text = summarize_search_for_model(self.name, &response);

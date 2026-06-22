@@ -143,6 +143,7 @@ export type {
 export { PaperAssistantMessage } from './paper-assistant-message'
 export type {
   PaperAssistantEvidence,
+  PaperAssistantEvidenceStarCopy,
   PaperAssistantMessageProps,
   PaperAssistantRole,
 } from './paper-assistant-message'

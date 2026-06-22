@@ -83,12 +83,25 @@ const copy: AssistantChatViewCopy = {
     statusUsingTool: 'Using tool: {name}',
     statusAnswering: 'Answering…',
     statusComplete: 'Answer complete',
+    usageLabel: '{prompt} prompt · {completion} completion tokens',
+    evidenceStar: {
+      starLabel: 'Star this source',
+      unstarLabel: 'Unstar this source',
+      status: { starred: 'Source starred', unstarred: 'Source unstarred' },
+    },
     reasoning: {
       thinkingLabel: 'Thinking…',
       thoughtLabel: 'Thought process',
       toggleLabel: 'Toggle',
     },
-    toolCalls: { label: 'Tools used', ranTemplate: 'Ran {name}' },
+    toolCalls: {
+      label: 'Tools used',
+      ranTemplate: 'Ran {name}',
+      runningLabel: 'Running…',
+      doneLabel: 'Done',
+      failedLabel: 'Failed',
+      resultToggleLabel: 'Toggle tool result',
+    },
   },
   composer: {
     placeholder: 'Ask about your archive…',

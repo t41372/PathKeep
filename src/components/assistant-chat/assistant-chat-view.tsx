@@ -81,11 +81,15 @@ export interface AssistantChatViewProps {
   /** Re-send the last user prompt; wired onto error/cancelled turns for in-place recovery. */
   onRetry?: () => void
   onPickPrompt?: (prompt: PaperAssistantGreetingPrompt) => void
-  /** Resolve citations for a turn (scaffold; populated by the agent in W-AI-7). */
+  /** Resolve citations for a turn (real agent evidence rows, W-AI-7). */
   evidenceFor?: (
     message: ChatMessage,
   ) => readonly PaperAssistantEvidence[] | undefined
   onSelectEvidence?: (evidence: PaperAssistantEvidence) => void
+  /** Whether a cited source is starred, keyed by its `canonicalUrl` (the W-STAR key). */
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  /** Toggle the star for a cited source by its canonical url (optimistic; caller writes through). */
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
   /** Disable viewport virtualization (tests / short lists). */
   disableVirtualization?: boolean
   testId?: string
@@ -101,6 +105,8 @@ const ChatRow = memo(function ChatRow({
   copy,
   evidence,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
   onRetry,
   pinned,
   disableVirtualization,
@@ -109,6 +115,8 @@ const ChatRow = memo(function ChatRow({
   copy: AssistantTurnCopy
   evidence?: readonly PaperAssistantEvidence[]
   onSelectEvidence?: (evidence: PaperAssistantEvidence) => void
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
   onRetry?: () => void
   /** When true, never virtualize (active streaming turn). */
   pinned: boolean
@@ -131,6 +139,8 @@ const ChatRow = memo(function ChatRow({
           copy={copy}
           evidence={evidence}
           onSelectEvidence={onSelectEvidence}
+          isEvidenceStarred={isEvidenceStarred}
+          onToggleEvidenceStar={onToggleEvidenceStar}
           onRetry={onRetry}
         />
       ) : null}
@@ -153,6 +163,8 @@ export function AssistantChatView({
   onPickPrompt,
   evidenceFor,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
   disableVirtualization,
   testId,
 }: AssistantChatViewProps) {
@@ -260,6 +272,8 @@ export function AssistantChatView({
               copy={copy.turn}
               evidence={evidenceFor?.(message)}
               onSelectEvidence={onSelectEvidence}
+              isEvidenceStarred={isEvidenceStarred}
+              onToggleEvidenceStar={onToggleEvidenceStar}
               onRetry={message.id === lastId ? onRetry : undefined}
               pinned={message.id === lastId}
               disableVirtualization={disableVirtualization}

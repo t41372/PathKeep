@@ -27,18 +27,49 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AiChatStreamChunk, AiChatMessage } from '../../lib/types'
+import type {
+  AiChatStreamChunk,
+  AiChatMessage,
+  AiChatCitation,
+} from '../../lib/types'
+
+/** One cited history page the agent grounded its answer on (W-AI-7). Re-export of the IPC shape. */
+export type AssistantCitation = AiChatCitation
 
 /** Stable id factory for messages; collisions are practically impossible within one session. */
 function nextMessageId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Lifecycle of one tool call in the transparency timeline (W-AI-7). */
+export type AssistantToolCallStatus = 'pending' | 'success' | 'error'
+
 /** One requested tool call surfaced in the transparency timeline. */
 export interface AssistantToolCall {
   id: string
   name: string
   arguments: string
+  /**
+   * Provider correlation id (W-AI-7 agent path). A streamed `toolResult` is matched back to its
+   * `toolCall` by this id; absent on the plain W-AI-1 path (those calls stay `pending` forever,
+   * which the UI renders without a result — honest, since no result is coming).
+   */
+  callId?: string
+  /**
+   * Lifecycle: `pending` from the call until its result lands, then `success`/`error` (W-AI-7).
+   * Absent (treated as `pending`) on the plain path that never streams a result.
+   */
+  status?: AssistantToolCallStatus
+  /** The executed tool result text (W-AI-7), present once the matching `toolResult` arrives. */
+  result?: string
+  /** True when the matching `toolResult` reported a failure (honest error state). */
+  isError?: boolean
+}
+
+/** Running token accounting for one assistant turn, summed from `usage` chunks (W-AI-7). */
+export interface AssistantUsage {
+  promptTokens: number
+  completionTokens: number
 }
 
 /** Terminal status of an assistant turn, used to drive finalized UI affordances. */
@@ -54,6 +85,10 @@ export interface ChatMessage {
   reasoning?: string
   /** Visible tool calls in request order (assistant only). */
   toolCalls?: AssistantToolCall[]
+  /** Running token accounting summed from `usage` chunks (assistant agent path only). */
+  usage?: AssistantUsage
+  /** Cited history pages the agent grounded its answer on (assistant agent path only). */
+  citations?: AssistantCitation[]
   /** Terminal status (assistant only); undefined while a user message. */
   status?: AssistantTurnStatus
   /** Error message when `status === 'error'`. */
@@ -66,6 +101,12 @@ export interface AiChatStreamDeps {
   sendChat: (request: {
     messages: AiChatMessage[]
     providerId?: string | null
+    /** When true, the worker runs the tool-executing agent harness (W-AI-7). */
+    toolsEnabled?: boolean
+    /** Conversation this run answers — links the durable agent trace (agent path only). */
+    conversationId?: string | null
+    /** Message this run answers — links the durable agent trace (agent path only). */
+    messageId?: string | null
   }) => Promise<{ runId: string }>
   /** Asks the worker to stop a live run. */
   cancelChat: (runId: string) => Promise<{ cancelled: boolean }>
@@ -76,6 +117,17 @@ export interface AiChatStreamDeps {
   ) => Promise<() => void>
   /** Provider id forwarded to `sendChat` (null → worker default). */
   providerId?: string | null
+  /**
+   * When true, every turn runs the W-AI-7 agent harness (tool-executing loop) instead of plain
+   * streaming chat. The history assistant sets this so it answers OVER history via the search
+   * tools; omit/false for a plain-chat surface (streams exactly as W-AI-1).
+   */
+  toolsEnabled?: boolean
+  /**
+   * Active conversation id, forwarded on the agent path so the durable trace links to the chat
+   * turn it answers (the backend FK self-heals when the conversation is not yet saved).
+   */
+  conversationId?: string | null
   /** System prompt prepended to the transcript on each turn, when set. */
   systemPrompt?: string | null
   /**
@@ -138,10 +190,14 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
   }, [messages])
 
   // Live-turn accumulators. Kept in refs so chunk arrival never triggers a render directly.
+  // `usage`/`citations` are W-AI-7 additions: usage sums across the turn's `usage` chunks; citations
+  // is the run's terminal evidence set (replaced wholesale by the single `citations` chunk).
   const bufferRef = useRef({
     content: '',
     reasoning: '',
     toolCalls: [] as AssistantToolCall[],
+    usage: null as AssistantUsage | null,
+    citations: [] as AssistantCitation[],
     sawFirstChunk: false,
   })
   const activeIdRef = useRef<string | null>(null)
@@ -188,6 +244,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
       content: buffer.content,
       reasoning: buffer.reasoning,
       toolCalls: buffer.toolCalls.slice(),
+      usage: buffer.usage,
+      citations: buffer.citations.slice(),
     }
     setMessages((current) =>
       current.map((message) =>
@@ -197,6 +255,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
               content: snapshot.content,
               reasoning: snapshot.reasoning,
               toolCalls: snapshot.toolCalls,
+              usage: snapshot.usage ?? undefined,
+              citations: snapshot.citations,
             }
           : message,
       ),
@@ -235,6 +295,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         content: buffer.content,
         reasoning: buffer.reasoning,
         toolCalls: buffer.toolCalls.slice(),
+        usage: buffer.usage,
+        citations: buffer.citations.slice(),
       }
       // The finalized list to persist: the committed messages (from the ref, which holds the
       // transcript that `send` set + every flush) with the active assistant turn sealed with its
@@ -247,6 +309,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
               content: snapshot.content,
               reasoning: snapshot.reasoning,
               toolCalls: snapshot.toolCalls,
+              usage: snapshot.usage ?? undefined,
+              citations: snapshot.citations,
               status,
               error,
             }
@@ -292,8 +356,53 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
               id: nextMessageId('tool'),
               name: chunk.name,
               arguments: chunk.arguments,
+              callId: chunk.callId,
+              // The agent path will stream a matching `toolResult` (correlated by callId); start
+              // `pending`. The plain path has no callId and never resolves — that stays honest.
+              status: 'pending',
             },
           ]
+          scheduleFlush()
+          break
+        case 'toolResult': {
+          // Correlate the executed result back to its pending call by the provider `callId`. Match
+          // the LAST still-pending call with that id (ids are unique per provider turn, but matching
+          // the latest pending one is robust to a model reusing an id across turns). If no call
+          // matches (a result with no prior call — unexpected), drop it rather than fabricate a row.
+          let matched = false
+          buffer.toolCalls = buffer.toolCalls
+            .slice()
+            .reverse()
+            .map((call): AssistantToolCall => {
+              if (!matched && call.callId === chunk.callId) {
+                matched = true
+                return {
+                  ...call,
+                  result: chunk.result,
+                  isError: chunk.isError,
+                  status: chunk.isError ? 'error' : 'success',
+                }
+              }
+              return call
+            })
+            .reverse()
+          if (matched) scheduleFlush()
+          break
+        }
+        case 'usage': {
+          // Accumulate a running prompt/completion total across the turn's usage chunks (the agent
+          // emits one per model turn). The footer shows the summed budget for the whole turn.
+          const prior = buffer.usage ?? { promptTokens: 0, completionTokens: 0 }
+          buffer.usage = {
+            promptTokens: prior.promptTokens + chunk.promptTokens,
+            completionTokens: prior.completionTokens + chunk.completionTokens,
+          }
+          scheduleFlush()
+          break
+        }
+        case 'citations':
+          // The terminal evidence set, emitted once right before `done`. Replace wholesale.
+          buffer.citations = chunk.citations.slice()
           scheduleFlush()
           break
         case 'done':
@@ -316,9 +425,19 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
 
   /** Kick off the desktop run + subscription for a built transcript. */
   const startRun = useCallback(
-    (transcript: AiChatMessage[], generation: number) => {
-      const { sendChat, subscribe, providerId } = depsRef.current
-      sendChat({ messages: transcript, providerId })
+    (transcript: AiChatMessage[], generation: number, messageId: string) => {
+      const { sendChat, subscribe, providerId, toolsEnabled, conversationId } =
+        depsRef.current
+      sendChat({
+        messages: transcript,
+        providerId,
+        // The history assistant runs WITH tools by default (toolsEnabled true) so it answers over
+        // history via the search tools; a plain-chat caller omits it and the worker streams exactly
+        // as W-AI-1. The conversation/message ids link the durable agent trace to this turn.
+        toolsEnabled,
+        conversationId,
+        messageId,
+      })
         .then((ack) => {
           if (generation !== genRef.current) return
           runIdRef.current = ack.runId
@@ -358,6 +477,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         content: '',
         reasoning: '',
         toolCalls: [],
+        usage: null,
+        citations: [],
         sawFirstChunk: false,
       }
 
@@ -373,6 +494,7 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         content: '',
         reasoning: '',
         toolCalls: [],
+        citations: [],
         status: 'streaming',
       }
       activeIdRef.current = assistantId
@@ -397,7 +519,9 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
       setMessages((current) => [...current, userMessage, assistantMessage])
       setStreaming(true)
       setAwaitingFirstChunk(true)
-      startRun(transcript, generation)
+      // The assistant message id doubles as the agent run's `messageId` so the durable trace links
+      // to the exact turn it answers.
+      startRun(transcript, generation, assistantId)
     },
     [startRun, stopRaf, teardownSubscription],
   )
@@ -438,6 +562,8 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         content: '',
         reasoning: '',
         toolCalls: [],
+        usage: null,
+        citations: [],
         sawFirstChunk: false,
       }
       activeIdRef.current = null

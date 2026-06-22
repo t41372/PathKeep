@@ -17,6 +17,7 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type * as AssistantChatModule from '../../components/assistant-chat'
 
 vi.mock('../../lib/release-capabilities', () => ({
   deferredFeatureReleaseLabel: 'v0.3',
@@ -41,9 +42,30 @@ vi.mock('../../lib/ipc/ai-stream', () => ({
   ) => subscribeMock(runId, listener),
 }))
 
+// Capture the route's `evidenceFor` so the FE-2 memo-contract test can call the real route closure
+// directly (it is an internal `useCallback`, exercised here through the spy the route passes down).
+// Default mock = the real view; tests that need the capture install their own implementation.
+const chatViewProps = vi.fn<(props: unknown) => void>()
+vi.mock('../../components/assistant-chat', async () => {
+  const actual = await vi.importActual<typeof AssistantChatModule>(
+    '../../components/assistant-chat',
+  )
+  return {
+    ...actual,
+    AssistantChatView: (props: { testId?: string }) => {
+      chatViewProps(props)
+      return actual.AssistantChatView(props as never)
+    },
+  }
+})
+
 import { backend } from '../../lib/backend-client'
 import { createNamespaceTranslator } from '../../lib/i18n'
 import type { AiChatStreamChunk, AppSnapshot } from '../../lib/types'
+import type {
+  AssistantChatViewProps,
+  ChatMessage,
+} from '../../components/assistant-chat'
 import { AssistantPage } from './index'
 import {
   createShellValue,
@@ -63,6 +85,7 @@ beforeEach(() => {
   resetIntelligenceSurfaceHarness()
   feed = null
   unsubscribe.mockClear()
+  chatViewProps.mockClear()
   subscribeMock.mockReset()
   subscribeMock.mockImplementation(
     (_runId: string, listener: (chunk: AiChatStreamChunk) => void) => {
@@ -568,6 +591,118 @@ describe('AssistantPage — active streaming chat', () => {
     expect(deleteConversation).toHaveBeenCalledWith('conv-del')
   })
 
+  test('runs the agent path: threads toolsEnabled + the assistant messageId into sendAiChat', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    const sendChat = vi
+      .spyOn(backend, 'sendAiChat')
+      .mockResolvedValue({ runId: 'run-agent' })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'what did I read about tauri?{enter}')
+    await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1))
+    const request = sendChat.mock.calls[0][0]
+    // The history assistant runs WITH tools by default (the agent harness answers over history).
+    expect(request.toolsEnabled).toBe(true)
+    // A messageId links the durable agent trace to this turn (no conversation saved yet → undefined).
+    expect(typeof request.messageId).toBe('string')
+    expect(request.conversationId == null).toBe(true)
+  })
+
+  test('renders cited evidence rows, hydrates their star status, and stars by canonicalUrl', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-cite' })
+    const getStarStatus = vi
+      .spyOn(backend, 'getStarStatus')
+      .mockResolvedValue({ 'https://a.example/x': false })
+    const setStar = vi.spyOn(backend, 'setStar').mockResolvedValue(undefined)
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'cite something{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'Here is the answer.' })
+    emit({
+      kind: 'citations',
+      citations: [
+        {
+          historyId: 7,
+          profileId: 'p',
+          url: 'https://a.example/x',
+          title: 'Cited page',
+          visitedAt: '2026-04-05T10:00:00Z',
+          score: 0.9,
+          canonicalUrl: 'https://a.example/x',
+        },
+      ],
+    })
+    emit({ kind: 'done' })
+
+    // The evidence row renders (title + the mono date column = first 10 chars of visitedAt).
+    expect(await screen.findByText('Cited page')).toBeVisible()
+    expect(screen.getByText('2026-04-05')).toBeVisible()
+    // Star status hydrates for just this row's canonical key.
+    await waitFor(() =>
+      expect(getStarStatus).toHaveBeenCalledWith({
+        entityKind: 'url',
+        entityKeys: ['https://a.example/x'],
+      }),
+    )
+    // Starring writes through keyed by the canonical url (the W-STAR key).
+    await user.click(screen.getByTestId('paper-assistant-evidence-star-cite-7'))
+    expect(setStar).toHaveBeenCalledWith({
+      entityKind: 'url',
+      entityKey: 'https://a.example/x',
+    })
+  })
+
+  test('clicking an evidence row deep-links to Explorer search (transparency contract)', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-link' })
+    vi.spyOn(backend, 'getStarStatus').mockResolvedValue({})
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'link it{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'answer' })
+    emit({
+      kind: 'citations',
+      // A url that does NOT parse exercises the domain-label fallback, and a NULL title exercises
+      // the `title ?? url` fallback in citationsToEvidence.
+      citations: [
+        {
+          historyId: 3,
+          profileId: 'p',
+          url: 'not a url',
+          title: null,
+          visitedAt: '2026-03-03T00:00:00Z',
+          canonicalUrl: null,
+        },
+      ],
+    })
+    emit({ kind: 'done' })
+
+    const row = await screen.findByTestId('paper-assistant-evidence-cite-3')
+    // The fallback uses the raw url as both the title and the domain label (no throw, no crash).
+    expect(row).toHaveTextContent('not a url')
+    // Clicking routes to Explorer search (the navigate call is exercised).
+    await user.click(row)
+    // No star toggle for a citation without a canonical url.
+    expect(
+      screen.queryByTestId('paper-assistant-evidence-star-cite-3'),
+    ).not.toBeInTheDocument()
+  })
+
   test('renames a saved conversation from the explorer', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
@@ -613,5 +748,67 @@ describe('AssistantPage — active streaming chat', () => {
       id: 'conv-rn',
       title: 'New title',
     })
+  })
+
+  // FE-2: `evidenceFor` runs inside `messages.map(...)` on every render and feeds `memo`'d ChatRow /
+  // AssistantTurn rows. A fresh `evidence` array identity per call would defeat the memo, re-rendering
+  // every on-screen finalized cited turn on every streaming frame. The route caches the projection on
+  // the stable (finalized) message object via a WeakMap; this locks that contract so it can't regress.
+  test('evidenceFor caches the projection per message object (memo-stable identity)', async () => {
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'getStarStatus').mockResolvedValue({})
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // The mock records every AssistantChatView render; grab the live `evidenceFor` closure.
+    await waitFor(() => expect(chatViewProps).toHaveBeenCalled())
+    const evidenceFor = (
+      chatViewProps.mock.calls.at(-1)![0] as AssistantChatViewProps
+    ).evidenceFor!
+    expect(typeof evidenceFor).toBe('function')
+
+    // A finalized assistant turn that HAS a citation. The hook returns this exact object unchanged
+    // across frames once finalized, so the WeakMap keyed on it must hand back ONE array reference.
+    const cited: ChatMessage = {
+      id: 'm-cited',
+      role: 'assistant',
+      content: 'an answer',
+      status: 'done',
+      citations: [
+        {
+          historyId: 11,
+          profileId: 'p',
+          url: 'https://example.com/page',
+          title: 'A cited page',
+          visitedAt: '2026-05-01T12:00:00Z',
+          score: 0.9,
+          canonicalUrl: 'https://example.com/page',
+        },
+      ],
+    }
+
+    // Cache-miss then cache-hit on the SAME object: identical array reference (the memo contract).
+    const first = evidenceFor(cited)
+    const second = evidenceFor(cited)
+    expect(first).toBeDefined()
+    expect(second).toBe(first)
+
+    // A DIFFERENT message object (e.g. the actively-streaming turn, a fresh ref each flush) must
+    // re-project — a distinct array — so streaming content is never stale.
+    const otherCited: ChatMessage = { ...cited, id: 'm-cited-2' }
+    const third = evidenceFor(otherCited)
+    expect(third).not.toBe(first)
+    expect(third).toEqual(first)
+
+    // No-citations turn: stable `undefined`, cached so repeated calls stay referentially equal.
+    const plain: ChatMessage = {
+      id: 'm-plain',
+      role: 'assistant',
+      content: 'no sources',
+      status: 'done',
+    }
+    expect(evidenceFor(plain)).toBeUndefined()
+    expect(evidenceFor(plain)).toBeUndefined()
   })
 })

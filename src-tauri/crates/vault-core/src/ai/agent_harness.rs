@@ -258,9 +258,10 @@ where
             request.messages.push(LlmMessage::new(LlmRole::Assistant, accumulated.text.clone()));
         }
 
-        // No tool calls → the model is done. Pin citations, emit Done, complete.
+        // No tool calls → the model is done. Pin citations, stream them, emit Done, complete.
         if accumulated.tool_calls.is_empty() {
             let _ = journal.record_citations(&citations);
+            emit_citations(&mut sink, &citations);
             sink(AiChatStreamChunk::Done);
             return AgentRunOutcome::Completed {
                 iterations: turn,
@@ -361,8 +362,23 @@ fn finalize_after_loop<J: AgentJournal, S: AgentRunSink>(
 ) -> AgentRunOutcome {
     sink(AiChatStreamChunk::Token { text: format!("\n\n_{note}_") });
     let _ = journal.record_citations(citations);
+    emit_citations(sink, citations);
     sink(AiChatStreamChunk::Done);
     AgentRunOutcome::Completed { iterations: turn, prompt_tokens, completion_tokens }
+}
+
+/// Emits the run's accumulated evidence as ONE `Citations` chunk right before a terminal `Done`.
+///
+/// Deduped by `history_id` to mirror the journal's `agent_citations` primary key (`(run_id,
+/// history_id)`), so the streamed set matches the pinned trace exactly. Always emitted on a
+/// successful finish (even when empty) so the FE has a single, unambiguous "evidence is final"
+/// signal it can map onto starrable evidence rows (02 §G transparency: the user sees what the agent
+/// cited). The `canonicalUrl` already carried on each citation is the W-STAR star key.
+fn emit_citations<S: AgentRunSink>(sink: &mut S, citations: &[AiCitation]) {
+    let mut seen = std::collections::HashSet::new();
+    let deduped: Vec<AiCitation> =
+        citations.iter().filter(|c| seen.insert(c.history_id)).cloned().collect();
+    sink(AiChatStreamChunk::Citations { citations: deduped });
 }
 
 /// Maps a cancellation/error from a checkpoint into the right terminal outcome.
@@ -549,6 +565,9 @@ where
     }
     let payload = json!({ "text": accumulated.text, "degraded": true }).to_string();
     let _ = journal.journal_step(1, STEP_KIND_DEGRADED_ANSWER, None, None, &payload);
+    // The degraded path runs no tools, so the evidence set is empty — but still emit the terminal
+    // `Citations` signal so the FE's success contract is uniform across both paths.
+    emit_citations(sink, &[]);
     sink(AiChatStreamChunk::Done);
     AgentRunOutcome::Completed {
         iterations: 1,
@@ -761,15 +780,28 @@ mod tests {
                 AiChatStreamChunk::ToolCall { .. } => "toolCall",
                 AiChatStreamChunk::ToolResult { .. } => "toolResult",
                 AiChatStreamChunk::Usage { .. } => "usage",
+                AiChatStreamChunk::Citations { .. } => "citations",
                 AiChatStreamChunk::Done => "done",
                 AiChatStreamChunk::Error { .. } => "error",
             })
             .collect();
-        // turn 1: reasoning, token, usage; tool exec: toolResult; turn 2: token, usage; done.
+        // turn 1: reasoning, token, usage; tool exec: toolResult; turn 2: token, usage; then the
+        // terminal evidence (citations) right before done.
         assert_eq!(
             kinds,
-            vec!["reasoning", "token", "usage", "toolResult", "token", "usage", "done"]
+            vec![
+                "reasoning",
+                "token",
+                "usage",
+                "toolResult",
+                "token",
+                "usage",
+                "citations",
+                "done"
+            ]
         );
+        // The terminal Citations chunk lands exactly once, immediately before Done.
+        assert!(matches!(events.iter().rev().nth(1), Some(AiChatStreamChunk::Citations { .. })));
         // The tool result is emitted and threaded with the correct call id.
         let tool_result = events
             .iter()
@@ -1498,5 +1530,71 @@ mod tests {
         // The degraded reasoning note streamed, then a Done (no Error).
         assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
         assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+    }
+
+    #[tokio::test]
+    async fn degraded_path_completion_emits_an_empty_citations_chunk_before_done() {
+        // The degraded path runs no tools, so the terminal Citations chunk is present but empty —
+        // the FE success contract (Citations then Done) is uniform across both paths.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &TwoTurnProvider { tool_capable: false },
+            &registry,
+            &context,
+            false,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { iterations: 1, .. }));
+        let events = emitted.lock().unwrap().clone();
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        // The penultimate chunk is an empty Citations marker.
+        assert!(matches!(
+            events.iter().rev().nth(1),
+            Some(AiChatStreamChunk::Citations { citations }) if citations.is_empty()
+        ));
+    }
+
+    #[test]
+    fn emit_citations_dedups_by_history_id_and_carries_the_canonical_url() {
+        // The streamed Citations set mirrors the journal's (run_id, history_id) primary key: one row
+        // per history_id (first wins), each keeping the canonical_url star key intact for the FE.
+        let citation = |history_id: i64, canonical: &str| AiCitation {
+            history_id,
+            profile_id: "p".to_string(),
+            url: format!("{canonical}?utm=x"),
+            title: None,
+            visited_at: "2026-01-01T00:00:00Z".to_string(),
+            score: Some(0.5),
+            canonical_url: Some(canonical.to_string()),
+        };
+        let input = vec![
+            citation(1, "https://a.example/"),
+            citation(2, "https://b.example/"),
+            citation(1, "https://a.example/"), // duplicate history_id → dropped
+        ];
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let mut sink = move |chunk: AiChatStreamChunk| sink_events.lock().unwrap().push(chunk);
+        emit_citations(&mut sink, &input);
+        let events = emitted.lock().unwrap().clone();
+        match events.as_slice() {
+            [AiChatStreamChunk::Citations { citations }] => {
+                assert_eq!(citations.len(), 2);
+                assert_eq!(citations[0].history_id, 1);
+                assert_eq!(citations[0].canonical_url.as_deref(), Some("https://a.example/"));
+                assert_eq!(citations[1].history_id, 2);
+            }
+            other => panic!("expected exactly one Citations chunk, got {other:?}"),
+        }
     }
 }

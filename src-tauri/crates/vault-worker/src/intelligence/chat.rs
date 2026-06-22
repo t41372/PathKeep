@@ -332,18 +332,21 @@ impl AgentJournal for AgentSqliteJournal {
     }
 
     fn record_citations(&self, citations: &[AiCitation]) -> Result<()> {
-        // Dedup by history_id (the agent_citations primary key is (run_id, history_id)) and derive
-        // the canonical url (the star key) from each raw url; a url that does not normalize falls
-        // back to itself so the citation is never dropped.
+        // Dedup by history_id (the agent_citations primary key is (run_id, history_id)). The star
+        // key (canonical_url) is resolved at the tool-call site (W-AI-7), so prefer the carried
+        // value; only re-derive it from the raw url for a legacy citation that lacks one, and fall
+        // back to the raw url so the citation is never dropped.
         let mut seen = std::collections::HashSet::new();
         let records: Vec<AgentCitationRecord> = citations
             .iter()
             .filter(|citation| seen.insert(citation.history_id))
             .map(|citation| AgentCitationRecord {
                 history_id: citation.history_id,
-                canonical_url: vault_core::visit_taxonomy::normalize_visit_url(&citation.url)
-                    .map(|normalized| normalized.canonical_url)
-                    .unwrap_or_else(|| citation.url.clone()),
+                canonical_url: citation.canonical_url.clone().unwrap_or_else(|| {
+                    vault_core::visit_taxonomy::normalize_visit_url(&citation.url)
+                        .map(|normalized| normalized.canonical_url)
+                        .unwrap_or_else(|| citation.url.clone())
+                }),
                 url: citation.url.clone(),
                 title: citation.title.clone(),
                 visited_at: Some(citation.visited_at.clone()),
@@ -583,6 +586,74 @@ mod tests {
     fn cancel_unknown_run_reports_not_cancelled() {
         let result = ai_chat_cancel(None, "definitely-not-a-live-run").expect("cancel");
         assert!(!result.cancelled);
+    }
+
+    #[test]
+    fn agent_journal_record_citations_prefers_carried_canonical_url_then_falls_back() {
+        // The journal pins one row per history_id. W-AI-7 resolves the W-STAR star key
+        // (canonical_url) at the tool-call site, so record_citations must PREFER the carried value
+        // and only re-derive it from the raw url for a citation that lacks one. This exercises both
+        // arms of the `unwrap_or_else` plus the history_id dedup, against a real agent.sqlite.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let journal =
+            AgentSqliteJournal { paths: paths.clone(), run_id: "run-cite-pref".to_string() };
+        // begin a header so the citation FK has a parent row to cascade from.
+        vault_core::begin_agent_run(
+            &paths,
+            &vault_core::BeginAgentRun {
+                id: "run-cite-pref".to_string(),
+                conversation_id: None,
+                message_id: None,
+                provider_id: None,
+                embedding_provider_id: None,
+            },
+        )
+        .expect("begin run");
+
+        journal
+            .record_citations(&[
+                // Carried canonical_url is preferred verbatim (NOT re-normalized from the raw url).
+                AiCitation {
+                    history_id: 1,
+                    profile_id: "p".to_string(),
+                    url: "https://a.example/x?utm=1".to_string(),
+                    title: Some("A".to_string()),
+                    visited_at: "2026-01-01T00:00:00Z".to_string(),
+                    score: Some(0.5),
+                    canonical_url: Some("https://carried.example/star-key".to_string()),
+                },
+                // No carried value → fall back to normalizing the raw url.
+                AiCitation {
+                    history_id: 2,
+                    profile_id: "p".to_string(),
+                    url: "https://b.example/y".to_string(),
+                    title: None,
+                    visited_at: "2026-01-02T00:00:00Z".to_string(),
+                    score: None,
+                    canonical_url: None,
+                },
+                // Duplicate history_id is dropped (the (run_id, history_id) primary key).
+                AiCitation {
+                    history_id: 1,
+                    profile_id: "p".to_string(),
+                    url: "https://a.example/x?utm=2".to_string(),
+                    title: Some("A2".to_string()),
+                    visited_at: "2026-01-03T00:00:00Z".to_string(),
+                    score: Some(0.1),
+                    canonical_url: Some("https://other.example/".to_string()),
+                },
+            ])
+            .expect("record citations");
+
+        let trace = vault_core::load_agent_run(&paths, "run-cite-pref")
+            .expect("load trace")
+            .expect("trace present");
+        assert_eq!(trace.citations.len(), 2, "history_id 1 was deduped");
+        let first = trace.citations.iter().find(|c| c.history_id == 1).expect("row 1");
+        assert_eq!(first.canonical_url, "https://carried.example/star-key");
+        let second = trace.citations.iter().find(|c| c.history_id == 2).expect("row 2");
+        assert_eq!(second.canonical_url, "https://b.example/y");
     }
 
     // Coverage-only: under a plain `cargo test` build `vault-core`'s `RigLlmProvider` compiles

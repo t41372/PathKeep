@@ -562,12 +562,22 @@ export interface AiChatMessage {
 /**
  * Request payload for `ai_chat_send`. `providerId` defaults to the configured LLM provider when
  * omitted; `temperature`/`maxTokens` override that provider's defaults for this turn only.
+ *
+ * W-AI-7 additive fields (all optional, mirroring the Rust `#[serde(default)]` so the frozen W-AI-1
+ * plain-chat payload still serializes byte-for-byte):
+ * - `toolsEnabled` switches the run from plain streaming chat to the tool-executing agent harness.
+ *   Absent/false → plain chat (unchanged).
+ * - `conversationId` / `messageId` link the durable agent run trace to the chat turn it answers
+ *   (used only on the agent path; the backend FK self-heals if the conversation is not yet saved).
  */
 export interface AiChatSendRequest {
   providerId?: string | null
   messages: AiChatMessage[]
   temperature?: number | null
   maxTokens?: number | null
+  toolsEnabled?: boolean
+  conversationId?: string | null
+  messageId?: string | null
 }
 
 /**
@@ -585,15 +595,46 @@ export interface AiChatCancelResult {
 }
 
 /**
+ * One cited history page surfaced by the agent run (W-AI-7), streamed in the terminal `citations`
+ * chunk. Mirrors the Rust `AiCitation` (camelCase serde). `canonicalUrl` is the W-STAR star key,
+ * resolved backend-side, so the UI can star a cited page directly without re-normalizing the url.
+ */
+export interface AiChatCitation {
+  historyId: number
+  profileId: string
+  url: string
+  title?: string | null
+  visitedAt: string
+  score?: number | null
+  /** W-STAR star key (canonicalized URL). Present on the agent path; absent on legacy citations. */
+  canonicalUrl?: string | null
+}
+
+/**
  * One streamed chat chunk delivered over `pathkeep://ai-stream`.
  *
  * The `kind` tag routes each chunk into its UI lane: visible `token` text, model `reasoning`,
  * a requested `toolCall`, the terminal `done` marker, or a terminal `error` with a message.
+ *
+ * W-AI-7 is ADDITIVE (mirrors the Rust `AiChatStreamChunk`): `toolCall` gains an optional `callId`
+ * (correlation id, present on the agent path); `toolResult` carries the executed result correlated
+ * by `callId`; `usage` reports per-turn token accounting; `citations` carries the run's accumulated
+ * evidence rows once, right before `done`. No existing variant changed shape, so the plain
+ * (tools-off) stream is byte-for-byte unaffected.
  */
 export type AiChatStreamChunk =
   | { kind: 'token'; text: string }
   | { kind: 'reasoning'; text: string }
-  | { kind: 'toolCall'; name: string; arguments: string }
+  | { kind: 'toolCall'; name: string; arguments: string; callId?: string }
+  | {
+      kind: 'toolResult'
+      callId: string
+      name: string
+      result: string
+      isError: boolean
+    }
+  | { kind: 'usage'; promptTokens: number; completionTokens: number }
+  | { kind: 'citations'; citations: AiChatCitation[] }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
 

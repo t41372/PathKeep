@@ -31,6 +31,7 @@ import { cn } from '@/lib/cn'
 import {
   PaperAssistantMessage,
   type PaperAssistantEvidence,
+  type PaperAssistantEvidenceStarCopy,
 } from '@/components/explorer-paper'
 import { ReasoningBlock, type ReasoningBlockCopy } from './reasoning-block'
 import { ToolCallBlock, type ToolCallBlockCopy } from './tool-call-block'
@@ -60,6 +61,10 @@ export interface AssistantTurnCopy {
   statusAnswering: string
   /** Coarse live-region milestone: "Answer complete". */
   statusComplete: string
+  /** Per-turn token-usage footer template, e.g. "{prompt} prompt · {completion} completion tokens". */
+  usageLabel: string
+  /** Evidence-row star toggle copy (aria + live-region words). */
+  evidenceStar: PaperAssistantEvidenceStarCopy
   reasoning: ReasoningBlockCopy
   toolCalls: ToolCallBlockCopy
 }
@@ -67,9 +72,13 @@ export interface AssistantTurnCopy {
 export interface AssistantTurnProps {
   message: ChatMessage
   copy: AssistantTurnCopy
-  /** Citations for this turn (scaffolded; real ones land with the agent in W-AI-7). */
+  /** Citations for this turn (real agent evidence rows, W-AI-7). */
   evidence?: readonly PaperAssistantEvidence[]
   onSelectEvidence?: (evidence: PaperAssistantEvidence) => void
+  /** Whether an evidence row is starred, keyed by its `canonicalUrl` (the W-STAR key). */
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  /** Toggle the star for an evidence row by its canonical url (optimistic; caller writes through). */
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
   /** Re-send the last user prompt; wired on error/cancelled turns for in-place recovery. */
   onRetry?: () => void
 }
@@ -142,6 +151,8 @@ export const AssistantTurn = memo(function AssistantTurn({
   copy,
   evidence,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
   onRetry,
 }: AssistantTurnProps) {
   if (message.role === 'user') {
@@ -171,6 +182,7 @@ export const AssistantTurn = memo(function AssistantTurn({
   const showNoAnswer = isDone && !hasAnswer && !hasReasoning && !hasTools
   const milestone = liveMilestone(message, copy)
 
+  const usage = message.usage
   return (
     <PaperAssistantMessage
       role="ai"
@@ -178,6 +190,9 @@ export const AssistantTurn = memo(function AssistantTurn({
       evidence={evidence}
       evidenceLabel={copy.evidenceLabel}
       onSelectEvidence={onSelectEvidence}
+      isEvidenceStarred={isEvidenceStarred}
+      onToggleEvidenceStar={onToggleEvidenceStar}
+      evidenceStarCopy={copy.evidenceStar}
       testId={`assistant-turn-${message.id}`}
     >
       <div className="flex flex-col gap-[10px]">
@@ -278,6 +293,19 @@ export const AssistantTurn = memo(function AssistantTurn({
                 {copy.retryLabel}
               </button>
             ) : null}
+          </div>
+        ) : null}
+
+        {/* Per-turn token-usage footer (agent path). Quiet mono line so cost stays visible but
+            never competes with the answer. Omitted when the turn reported no usage. */}
+        {usage ? (
+          <div
+            data-testid={`assistant-usage-${message.id}`}
+            className="text-ink-faint font-mono text-[10px] tracking-[0.02em]"
+          >
+            {copy.usageLabel
+              .replace('{prompt}', String(usage.promptTokens))
+              .replace('{completion}', String(usage.completionTokens))}
           </div>
         ) : null}
       </div>

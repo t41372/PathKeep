@@ -23,6 +23,7 @@
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { PKGlyph } from '@/components/shell/pk-glyph'
+import { StarToggle } from '@/components/shell/star-toggle'
 
 export type PaperAssistantRole = 'user' | 'ai'
 
@@ -33,6 +34,21 @@ export interface PaperAssistantEvidence {
   title: string
   domain: string
   url: string
+  /**
+   * W-STAR star key (canonicalized URL) for this cited page (W-AI-7). When present alongside the
+   * star handlers, the row shows a star toggle; absent → no star (e.g. legacy evidence).
+   */
+  canonicalUrl?: string | null
+}
+
+/** i18n copy for the evidence-row star toggle (mirrors `StarToggle`'s a11y contract). */
+export interface PaperAssistantEvidenceStarCopy {
+  /** aria-label when NOT starred, e.g. "Star this source". */
+  starLabel: string
+  /** aria-label when starred, e.g. "Unstar this source". */
+  unstarLabel: string
+  /** Live-region state words announced after a toggle. */
+  status: { starred: string; unstarred: string }
 }
 
 export interface PaperAssistantMessageProps {
@@ -44,11 +60,16 @@ export interface PaperAssistantMessageProps {
   evidence?: readonly PaperAssistantEvidence[]
   evidenceLabel?: string
   onSelectEvidence?: (item: PaperAssistantEvidence) => void
-  // TODO(W-AI-7): re-add an evidence-row star (isEvidenceStarred / onToggleStar
-  // + star/unstar labels) once the agent emits real citations. The earlier
-  // plumbing was removed because no live path could ever fire it — the
-  // assistant produces no citations yet and AssistantTurn forwards no star
-  // props — so shipping it was dead, untestable surface.
+  /**
+   * Whether a cited source is starred, keyed by its `canonicalUrl` (the W-STAR key, W-AI-7). Only
+   * called for rows that HAVE a canonical url, so the caller receives a guaranteed string. When
+   * supplied with `onToggleEvidenceStar` + `evidenceStarCopy`, each starrable row renders a toggle.
+   */
+  isEvidenceStarred?: (canonicalUrl: string) => boolean
+  /** Toggle the star for a cited source by its canonical url (optimistic; caller writes through). */
+  onToggleEvidenceStar?: (canonicalUrl: string) => void
+  /** i18n copy for the evidence-row star toggle. */
+  evidenceStarCopy?: PaperAssistantEvidenceStarCopy
   className?: string
   testId?: string
 }
@@ -60,6 +81,9 @@ export function PaperAssistantMessage({
   evidence,
   evidenceLabel,
   onSelectEvidence,
+  isEvidenceStarred,
+  onToggleEvidenceStar,
+  evidenceStarCopy,
   className,
   testId,
 }: PaperAssistantMessageProps) {
@@ -133,10 +157,46 @@ export function PaperAssistantMessage({
                   </span>
                 </span>
               </button>
+              <EvidenceStar
+                item={item}
+                isStarred={isEvidenceStarred}
+                onToggle={onToggleEvidenceStar}
+                copy={evidenceStarCopy}
+              />
             </div>
           ))}
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * The per-evidence-row star toggle. Renders nothing unless the caller wired BOTH handlers' copy AND
+ * the row carries a `canonicalUrl` (the W-STAR key) — a single gate, so the toggle below works on
+ * guaranteed-present values (no optional-chaining at the call site). Mirrors `StarToggle`'s a11y.
+ */
+function EvidenceStar({
+  item,
+  isStarred,
+  onToggle,
+  copy,
+}: {
+  item: PaperAssistantEvidence
+  isStarred?: (canonicalUrl: string) => boolean
+  onToggle?: (canonicalUrl: string) => void
+  copy?: PaperAssistantEvidenceStarCopy
+}) {
+  const canonicalUrl = item.canonicalUrl
+  if (!onToggle || !copy || !canonicalUrl) return null
+  return (
+    <StarToggle
+      starred={isStarred ? isStarred(canonicalUrl) : false}
+      onToggle={() => onToggle(canonicalUrl)}
+      starLabel={copy.starLabel}
+      unstarLabel={copy.unstarLabel}
+      statusLabel={copy.status}
+      testId={`paper-assistant-evidence-star-${item.id}`}
+    />
   )
 }

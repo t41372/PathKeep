@@ -54,6 +54,15 @@ export function buildAssistantChatCopy(
       statusUsingTool: t('chatStatusUsingTool'),
       statusAnswering: t('chatStatusAnswering'),
       statusComplete: t('chatStatusComplete'),
+      usageLabel: t('chatUsageLabel'),
+      evidenceStar: {
+        starLabel: t('chatEvidenceStar'),
+        unstarLabel: t('chatEvidenceUnstar'),
+        status: {
+          starred: t('chatEvidenceStarred'),
+          unstarred: t('chatEvidenceUnstarred'),
+        },
+      },
       reasoning: {
         thinkingLabel: t('chatReasoningThinking'),
         thoughtLabel: t('chatReasoningThought'),
@@ -62,6 +71,10 @@ export function buildAssistantChatCopy(
       toolCalls: {
         label: t('chatToolsLabel'),
         ranTemplate: t('chatToolRan'),
+        runningLabel: t('chatToolRunning'),
+        doneLabel: t('chatToolDone'),
+        failedLabel: t('chatToolFailed'),
+        resultToggleLabel: t('chatToolResultToggle'),
       },
     },
     composer: {
