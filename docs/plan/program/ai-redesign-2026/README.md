@@ -1,5 +1,7 @@
 # AI Redesign 2026
 
+> **狀態（2026-06-22）：DELIVERED。** 本提案集的全部 work block（W-AI-1..9，含 W-STAR / W-ENRICH / W-AI-4c）已在 `feat/ai-redesign-2026` 實作、reachable 並通過 gate：streaming external LLM chat、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索、code-mode（Wasmtime + Javy）沙箱、MCP 對外面、skills、site content-fetch enrichment、opt-in Metal GPU tier。整個 AI 面 **off by default + consent-gated**。安全邊界與 threat model 見 [../../../architecture/ai-security-posture.md](../../../architecture/ai-security-posture.md)。推薦 follow-ups（14.4M profiling / 完整 prompt-injection red-team / Metal CI lane re-run deny / per-job MCP progress）見該 memo §7 與下方 03/04。
+>
 > 這是 PathKeep AI 接入的 **乾淨重做（clean-slate redesign）** 提案集，獨立於主線開發（在 `feat/ai-redesign-2026` worktree 上工作）。
 >
 > 既有的 `rig.rs` / `LanceDB` / `ai_sidecar` 等 AI 相關決策與實作，**僅供參考、不具約束力**——使用者已明確指示重新設計。
@@ -22,4 +24,4 @@
 3. **Decide** ✅：綜合研究結論，與使用者鎖定 4 個高槓桿 decision forks（2026-06-20）。
 4. **Plan** ✅：產出可執行的分階段實作計畫（03）。
 
-下一步（需使用者啟動）：把 03 的 milestones 拆進 `STATUS.md` work blocks；先跑 S1/S2 兩個 benchmark spike。本分支 `feat/ai-redesign-2026` 的變更尚未 commit。
+5. **Build** ✅：03 的 milestones 已拆進 STATUS work blocks（W-AI-0..9）並全數交付；S1（embedding 吞吐）/ S2（vector 規模）benchmark 已內嵌跑過，artifact 在 `artifacts/benchmarks/`。code-mode 改為 default-enabled（沙箱即安全邊界）、rerank deferred（只 RRF + bounded starred boost）、Metal GPU 為 opt-in cargo feature、MCP 為 expose-only read-only 面——這些變動見 02/03/04 的對應 closeout note。

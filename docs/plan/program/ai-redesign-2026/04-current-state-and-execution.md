@@ -1,5 +1,7 @@
 # AI Redesign 2026 — Current-State Reconciliation & Execution Sequence
 
+> **2026-06-22 DELIVERED：** §3 的整條執行序（W-AI-0..9）已全數交付並 reachable。下表的「現實（main 上的真實狀態）」描述的是 **動手前** 的 baseline；它記錄了我們從哪裡出發，仍有歷史價值，但「缺口」欄位現已全部補完：向量儲存（自製 `FlatVectorIndex`）、embedding 持久化 + backfill、in-app candle 引擎、streaming transport、AI 可觀測性前端、agent harness durability、hybrid（RRF，rerank deferred）、code-mode（default-enabled）、MCP 對外面 + skills、D4 dim 修正、`secrecy::SecretString`、新 storage planes 都已落地。安全邊界與 threat model 見 [../../../architecture/ai-security-posture.md](../../../architecture/ai-security-posture.md)；交付期變動的決策（code-mode default-enabled / rerank deferred / Metal GPU opt-in / MCP expose-only / Turbovec 未採用改自製 flat index）見 [03 closeout](03-implementation-plan.md)。推薦 follow-ups：14.4M profiling、完整 prompt-injection red-team、Metal CI lane（re-run `cargo deny`）、per-job MCP progress。
+>
 > 承 [02-architecture-decisions.md](02-architecture-decisions.md) + [03-implementation-plan.md](03-implementation-plan.md)。
 > **這份文檔是所有 AI 實作 / review subagent 的第一份「讀先」。** 它把鎖定的架構決策對齊到 `main`（intelligence-overhaul squash-merge 後）的**真實代碼狀態**——02/03 與舊 memory 寫於 overhaul 之前，有數處與現實不符，以本文檔為準。
 >

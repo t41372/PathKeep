@@ -3,6 +3,16 @@
 > 承 [02-architecture-decisions.md](02-architecture-decisions.md)。分階段、可驗收、風險前置。
 > 鐵律：每階段改了代碼就跑 `bun run check`（權威 gate），過了才提交；功能改動同步回寫 `docs/features/` 與 `docs/architecture/`。
 > 這是 proposal 階段的計畫文檔；正式啟動時把各 milestone 拆成 `STATUS.md` 的 work block。
+>
+> **2026-06-22 DELIVERED closeout：** 下方 milestones M-AI0..8 已全數交付為 STATUS work blocks W-AI-0..9（external chat / agent harness / embedding / vector store / hybrid search / code-mode / MCP / consent UX / hardening）。實作期間有幾個鎖定決策被 owner 修正——以下為準：
+>
+> - **code-mode 改為 default-enabled（取消模型能力門檻）**：M-AI6 原寫「capable model 才開 code-mode、弱模型走 classic tool-call」，已被 2026-06 owner 決策推翻——Wasmtime 沙箱本身即安全邊界（零 ambient 權限），故 `run_code` 與四個搜尋工具一起無條件註冊進每個 agent run。詳見 [02 §G](02-architecture-decisions.md) 的 2026-06 註記。R3 的「capability-gated」緩解項相應改為「沙箱即邊界」。
+> - **rerank deferred**：M-AI4 的 candle cross-encoder rerank **未交付**；hybrid 只用 RRF（k 預設 60，weights 可調）+ bounded starred boost + `is:starred` facet。rerank 留作後續 opt-in work。
+> - **Metal GPU 為 opt-in 交付**：W-AI-9 Sub-block D 加了 off-by-default `metal` cargo feature（reproducible build；CPU-only 預設/CI build 不觸 GPU 碼），加上 `gpu_enabled` runtime flag、re-embed scope（incremental / working-set / full）與 CPU-vs-GPU cost estimator。
+> - **MCP 為 expose-only read-only 面**：W-AI-9-B 的 MCP server 是 localhost stdio、read-only（search / status / usage-guide）、opt-in + hard-default-OFF + unlock-gated、audited（`mcp_query`）；不暴露任何 write/mutation tool。
+> - **vector store = 自製 `FlatVectorIndex`**：Turbovec（S2 評估）最終未採用為 production index；shipped 的是 hand-rolled binary-recall → int8-rescore flat index（`derived/vectors/` 的 `.pkvec/.pkbin/.pki8/.pkmap`）。
+>
+> 推薦 follow-ups（未阻塞交付）：14.4M「全 AI 開」profiling artifact、完整 prompt-injection red-team、Metal CI lane（須 re-run `cargo deny`）、per-job MCP progress。完整安全邊界與 threat model 見 [../../../architecture/ai-security-posture.md](../../../architecture/ai-security-posture.md)。
 
 ---
 

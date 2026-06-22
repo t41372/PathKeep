@@ -266,11 +266,11 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - Transition / referrer 信息
 - Favicon
 
-**第二層：背景 refetch（v0.2.0 deferred）**
+**第二層：背景 content-fetch（W-ENRICH，已交付但 egress hard-default-OFF）**
 
-- v0.2.0 不抓取網頁正文，也不重新訪問使用者歷史 URL。
-- 後續版本若重新啟用，才可抓取 readable text、meta description、OG tags 與頁面語言。
-- Best-effort / failure surface / rate-limit policy 都屬 v0.3+ roadmap，不是 v0.2.0 promise。
+- master switch `content_fetch_enabled` **預設 OFF**：開啟前完全不抓取網頁正文、不重新訪問使用者歷史 URL、無任何網路 egress。
+- 開啟後可抓取 readable text / meta description / OG tags（含 og:image 卡片預覽）；site adapters 解析結構化欄位。
+- 邊界：triple consent gate（master + per-extractor + per-domain）、SSRF-guarded（每個 URL + redirect hop + sub-resource）、無 cookie/Referer/fingerprinting、per-host rate-limited、offline-first。詳見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 
 **第三層：基於 URL 的專屬 enrichment 插件**
 
@@ -301,11 +301,10 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 ### M4-A / v1 已落地邊界
 
-- 2026-04-29 v0.1.0 release amendment：`readable-content-refetch` 未達可發佈標準，預設 disabled，UI 僅保留 next-release roadmap 狀態；PathKeep v0.1.0 不抓取或保存網頁正文。2026-05-10 note below supersedes the visible label to `Coming in v0.3` for v0.2.0.
-- 2026-05-10 v0.2.0 planning repair：readable-content fetch 仍未達可發佈標準，已移到 v0.3.0 blocker。UI 必須改為 roadmap / `Coming in v0.3` 狀態；PathKeep v0.2.0 仍不抓取或保存網頁正文。
-- `readable-content-refetch` 的 future contract 是掛在 insights rebuild flow，而不是獨立的 canonical ingest pipeline；它只能寫入 derived enrichment / insight tables，不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
+- 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前沒有任何網路存取。
+- content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed、不進 export），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
 - manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
-- future readable-content freshness window、refetch client timeout、redirect policy、failure taxonomy、以及 site adapters 都需要重新驗證後才能進 v0.3+；v0.2.0 不宣稱它們已可用。
+- content-fetch 的 freshness window（負緩存退避）、client timeout、redirect policy（每 hop SSRF-guarded）、failure taxonomy（PDF / sign-in redirect / rate-limit 等人話邊界）與 site adapters 都已落地；詳見 [og-images.md](og-images.md) 與 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。
 
