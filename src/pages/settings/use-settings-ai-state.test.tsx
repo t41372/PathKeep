@@ -436,9 +436,10 @@ describe('useSettingsAiState', () => {
       { wrapper: Wrapper },
     )
 
-    // Both default OFF in the fixture; flipping the master does NOT cascade.
+    // All three default OFF in the fixture; flipping the master does NOT cascade.
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(false)
+    expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
 
     act(() => {
       result.current.ai.onToggleAi()
@@ -446,20 +447,27 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.enabled).toBe(true)
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(false)
+    // The outward MCP surface stays OFF until explicitly opted into — turning
+    // AI on never exposes the archive to external tools.
+    expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
 
     act(() => {
       result.current.ai.onToggleAssistant()
       result.current.ai.onToggleSemanticIndex()
+      result.current.ai.onToggleMcp()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
+    expect(result.current.ai.currentSettings?.mcpEnabled).toBe(true)
 
-    // Toggling back off works independently too.
+    // Toggling back off works independently too — the MCP consent is its own.
     act(() => {
       result.current.ai.onToggleAssistant()
+      result.current.ai.onToggleMcp()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
+    expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
   })
 
   test('mutates, clamps, resets, and persists the search-tuning knobs through Save', async () => {

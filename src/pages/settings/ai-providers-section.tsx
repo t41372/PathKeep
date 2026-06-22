@@ -111,6 +111,7 @@ export interface AiProvidersSectionState {
   onSelectProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
   onToggleAi: () => void
   onToggleAssistant: () => void
+  onToggleMcp: () => void
   onToggleSemanticIndex: () => void
   onUpdateProvider: (
     purpose: 'llm' | 'embedding',
@@ -166,6 +167,7 @@ export function AiProvidersSection({
     onSelectProvider,
     onToggleAi,
     onToggleAssistant,
+    onToggleMcp,
     onToggleSemanticIndex,
     onUpdateProvider,
   } = state
@@ -323,6 +325,46 @@ export function AiProvidersSection({
           <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
             {t('settings.aiSemanticToggleHelp')}
           </p>
+          {/*
+            Outward data-surface consent (W-AI-9 Sub-block B). This is the ONLY
+            switch that exposes the archive to tools outside PathKeep, so the
+            disclosure is calmer and more explicit than the in-app sub-toggles:
+            it names exactly what enabling does (a localhost-only server that
+            lets external AI tools you connect run the same bounded, read-only
+            search the in-app agent uses, with every query audited), states that
+            nothing is exposed until you turn it on, and points to Integrations
+            for the connect command. Hard-default-OFF, gated behind AI like the
+            others, mutates only the draft, and never auto-starts the worker.
+          */}
+          <ToggleRow
+            checked={currentSettings.mcpEnabled}
+            describedById="ai-mcp-disclosure"
+            disabled={editorsDisabled}
+            label={t('settings.aiMcpToggle')}
+            onChange={onToggleMcp}
+          />
+          <div
+            className="text-ink-muted m-0 flex flex-col items-start gap-1.5 font-sans text-[12px] leading-[1.5]"
+            data-testid="ai-mcp-disclosure"
+            id="ai-mcp-disclosure"
+          >
+            <p className="m-0">{t('settings.aiMcpToggleHelp')}</p>
+            <p className="m-0">{t('settings.aiMcpToggleAudit')}</p>
+            {/*
+              The audit sentence above promises every external query is logged,
+              so give the user a way to actually read it: mcp_query runs surface
+              on the Audit Ledger (route /audit), filterable by run type. Mirror
+              the connect link's btn-tiny pattern so the trust signal is
+              actionable, not just a claim.
+            */}
+            <Link className="btn-tiny" to="/audit">
+              {t('settings.aiMcpToggleAuditLink')}
+            </Link>
+            <p className="m-0">{t('settings.aiMcpToggleConnect')}</p>
+            <Link className="btn-tiny" to="/integrations">
+              {t('settings.aiMcpToggleConnectLink')}
+            </Link>
+          </div>
           {!aiOn ? (
             <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5] italic">
               {t('settings.aiSubToggleDisabledHint')}

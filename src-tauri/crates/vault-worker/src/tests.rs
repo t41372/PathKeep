@@ -538,6 +538,65 @@ fn mcp_surface_respects_visibility_and_locked_app_sessions() {
     .expect("hidden mcp search");
     assert_eq!(hidden.total, 0);
 
+    // Transparency contract: every external touch — both tools — lands an
+    // auditable `mcp_query` run the user can inspect. The status probe audits
+    // too, so this call seeds an `archive-status` row alongside the two
+    // `search-history` rows above.
+    let unlocked_status = mcp_archive_status_result(None).expect("unlocked archive status");
+    assert!(unlocked_status.unlocked, "archive must read while unlocked");
+
+    {
+        let audit_paths = project_paths().expect("audit project paths");
+        let audit_connection =
+            vault_core::archive::open_intelligence_connection(&audit_paths, &config, None)
+                .expect("open audit connection");
+        let mut audit = audit_connection
+            .prepare(
+                "SELECT trigger, stats_json FROM runs WHERE run_type = 'mcp_query' ORDER BY id",
+            )
+            .expect("prepare audit query");
+        let entries: Vec<(String, String)> = audit
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .expect("query audit rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect audit rows");
+        // Two searches + one status probe = three external touches recorded.
+        assert_eq!(entries.len(), 3, "every external MCP touch must be audited");
+        assert!(
+            entries.iter().all(|(trigger, _)| trigger == "external"),
+            "MCP runs must be tagged as external triggers"
+        );
+        let tools: Vec<String> = entries
+            .iter()
+            .map(|(_, stats_json)| {
+                let stats: serde_json::Value =
+                    serde_json::from_str(stats_json).expect("parse stats json");
+                stats["tool"].as_str().expect("tool label").to_string()
+            })
+            .collect();
+        assert_eq!(
+            tools,
+            vec!["search-history", "search-history", "archive-status"],
+            "audit must distinguish which tool ran"
+        );
+        // The bounded query summary is present, but the SQLCipher key (and any
+        // raw archive row) never crosses into the audit trace.
+        let first_search: serde_json::Value =
+            serde_json::from_str(&entries[0].1).expect("parse search stats");
+        assert_eq!(first_search["query"], "Imported");
+        assert_eq!(first_search["total"], 1);
+        for (_, stats_json) in &entries {
+            let lowered = stats_json.to_lowercase();
+            assert!(
+                !lowered.contains("databasekey")
+                    && !lowered.contains("apikey")
+                    && !lowered.contains("secret")
+                    && !lowered.contains("passcode"),
+                "audit must never record the database key or any secret material"
+            );
+        }
+    }
+
     configure_app_lock_passcode(&SetAppLockPasscodeRequest {
         passcode: "2468".to_string(),
         recovery_hint: Some("desk drawer".to_string()),

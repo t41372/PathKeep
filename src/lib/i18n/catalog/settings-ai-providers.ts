@@ -30,6 +30,15 @@ export const settingsAiProvidersNamespace = {
     aiSemanticToggle: 'Smart search',
     aiSemanticToggleHelp:
       'Semantic and hybrid search in Explorer. Needs an embedding provider configured and a one-time index build (run it from Explorer → smart search) before results appear.',
+    aiMcpToggle: 'External tool access (MCP)',
+    aiMcpToggleHelp:
+      'Lets external AI tools you connect (such as Claude Code or Cursor) search your history through a localhost-only server PathKeep runs on demand. They get the same bounded, read-only search the in-app assistant uses — nothing more — and nothing is exposed until you turn this on.',
+    aiMcpToggleAudit:
+      'Every external query is recorded as an entry in your archive activity log, and the server refuses to run while PathKeep is locked.',
+    aiMcpToggleAuditLink: 'Review external-query activity',
+    aiMcpToggleConnect:
+      'After enabling, open Integrations for the exact command and config to connect a tool.',
+    aiMcpToggleConnectLink: 'Open Integrations',
     aiSubToggleDisabledHint: 'Enable AI features above to turn these on.',
     aiTestConnection: 'Test connection',
     aiTestingConnection: 'Testing…',
@@ -188,6 +197,15 @@ export const settingsAiProvidersNamespace = {
     aiSemanticToggle: '智能搜索',
     aiSemanticToggleHelp:
       '在浏览器页面使用语义和混合搜索。需要先配置向量模型，并完成一次索引构建（在浏览器 → 智能搜索里运行），结果才会出现。',
+    aiMcpToggle: '外部工具访问（MCP）',
+    aiMcpToggleHelp:
+      '让你连接的外部 AI 工具（如 Claude Code 或 Cursor）通过 PathKeep 按需运行的仅本机服务器搜索你的历史记录。它们获得的是与应用内助手相同的、有界的只读搜索——仅此而已——在你开启之前不会暴露任何内容。',
+    aiMcpToggleAudit:
+      '每次外部查询都会作为一条记录写入你的归档活动日志，并且在 PathKeep 锁定时服务器会拒绝运行。',
+    aiMcpToggleAuditLink: '查看外部查询活动',
+    aiMcpToggleConnect:
+      '启用后，打开“集成”页面获取连接工具所需的确切命令和配置。',
+    aiMcpToggleConnectLink: '打开集成',
     aiSubToggleDisabledHint: '请先在上方启用 AI 功能，才能开启这些选项。',
     aiTestConnection: '测试连接',
     aiTestingConnection: '测试中…',
@@ -343,6 +361,15 @@ export const settingsAiProvidersNamespace = {
     aiSemanticToggle: '智慧搜尋',
     aiSemanticToggleHelp:
       '在瀏覽器頁面使用語義和混合搜尋。需要先設定向量模型，並完成一次索引建立（在瀏覽器 → 智慧搜尋裡執行），結果才會出現。',
+    aiMcpToggle: '外部工具存取（MCP）',
+    aiMcpToggleHelp:
+      '讓你連接的外部 AI 工具（如 Claude Code 或 Cursor）透過 PathKeep 按需執行的僅本機伺服器搜尋你的歷史紀錄。它們獲得的是與應用內助手相同的、有界的唯讀搜尋——僅此而已——在你開啟之前不會暴露任何內容。',
+    aiMcpToggleAudit:
+      '每次外部查詢都會作為一筆紀錄寫入你的封存活動紀錄，並且在 PathKeep 鎖定時伺服器會拒絕執行。',
+    aiMcpToggleAuditLink: '檢視外部查詢活動',
+    aiMcpToggleConnect:
+      '啟用後，開啟「整合」頁面取得連接工具所需的確切指令和設定。',
+    aiMcpToggleConnectLink: '開啟整合',
     aiSubToggleDisabledHint: '請先在上方啟用 AI 功能，才能開啟這些選項。',
     aiTestConnection: '測試連線',
     aiTestingConnection: '測試中…',

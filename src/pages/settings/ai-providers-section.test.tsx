@@ -253,10 +253,16 @@ describe('AiProvidersSection', () => {
       name: 'AI assistant (chat)',
     })
     const semanticOff = screen.getByRole('checkbox', { name: 'Smart search' })
+    const mcpOff = screen.getByRole('checkbox', {
+      name: 'External tool access (MCP)',
+    })
     expect(assistantOff).not.toBeChecked()
     expect(assistantOff).toBeDisabled()
     expect(semanticOff).not.toBeChecked()
     expect(semanticOff).toBeDisabled()
+    // The outward MCP surface is gated behind the master switch like the rest.
+    expect(mcpOff).not.toBeChecked()
+    expect(mcpOff).toBeDisabled()
     expect(
       screen.getByText('Enable AI features above to turn these on.'),
     ).toBeVisible()
@@ -287,13 +293,37 @@ describe('AiProvidersSection', () => {
       name: 'AI assistant (chat)',
     })
     const semanticOn = screen.getByRole('checkbox', { name: 'Smart search' })
+    const mcpOn = screen.getByRole('checkbox', {
+      name: 'External tool access (MCP)',
+    })
     expect(assistantOn).toBeEnabled()
     expect(semanticOn).toBeEnabled()
+    expect(mcpOn).toBeEnabled()
+    // The outward data-surface toggle starts OFF and reflects the draft.
+    expect(mcpOn).not.toBeChecked()
+    // The disclosure spells out the read-only / audited / opt-in boundary and
+    // ties to the toggle for screen readers.
+    expect(mcpOn).toHaveAttribute('aria-describedby', 'ai-mcp-disclosure')
+    const disclosure = screen.getByTestId('ai-mcp-disclosure')
+    expect(disclosure).toHaveTextContent('read-only')
+    expect(disclosure).toHaveTextContent('Every external query is recorded')
+    expect(disclosure).toHaveTextContent(
+      'nothing is exposed until you turn this on',
+    )
+    // The audit promise is actionable: a link points the user at the ledger
+    // where their recorded external-query (mcp_query) runs are reviewable.
+    const auditLink = within(disclosure).getByRole('link', {
+      name: 'Review external-query activity',
+    })
+    expect(auditLink).toHaveAttribute('href', '/audit')
     fireEvent.click(assistantOn)
     expect(handlers.onToggleAssistant).toHaveBeenCalledTimes(1)
     expect(handlers.onToggleAi).not.toHaveBeenCalled()
     fireEvent.click(semanticOn)
     expect(handlers.onToggleSemanticIndex).toHaveBeenCalledTimes(1)
+    expect(handlers.onToggleAi).not.toHaveBeenCalled()
+    fireEvent.click(mcpOn)
+    expect(handlers.onToggleMcp).toHaveBeenCalledTimes(1)
     expect(handlers.onToggleAi).not.toHaveBeenCalled()
   })
 
@@ -644,6 +674,7 @@ function handlerFixture() {
     onSelectProvider: vi.fn(),
     onToggleAi: vi.fn(),
     onToggleAssistant: vi.fn(),
+    onToggleMcp: vi.fn(),
     onToggleSemanticIndex: vi.fn(),
     onUpdateProvider: vi.fn(),
   }

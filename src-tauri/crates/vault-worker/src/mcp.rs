@@ -114,14 +114,23 @@ impl BrowserHistoryMcpServer {
     }
 }
 
-/// Persists one MCP search as a dedicated `mcp_query` run.
+/// Persists one external MCP request as a dedicated `mcp_query` run.
+///
+/// This is the transparency contract for the outward data surface: every
+/// external tool call (`search-history` and `archive-status` alike) lands one
+/// auditable row in the unified archive ledger so the user can see *what* an
+/// external assistant asked and *how much* came back. The recorded
+/// `stats_json` carries only a bounded query summary — the SQLCipher key and
+/// raw archive rows are never written here, and never leave the worker
+/// process.
 fn record_mcp_query_run(
     connection: &rusqlite::Connection,
-    request: &McpSearchRequest,
-    response: &vault_core::AiSearchResponse,
+    tool: &str,
+    profile_scope: &[String],
+    warnings: &[String],
+    summary: serde_json::Value,
 ) -> Result<i64> {
-    let started_at = chrono::Utc::now().to_rfc3339();
-    let finished_at = chrono::Utc::now().to_rfc3339();
+    let now = chrono::Utc::now().to_rfc3339();
     connection.execute(
         "INSERT INTO runs (
            run_type,
@@ -135,29 +144,19 @@ fn record_mcp_query_run(
            stats_json,
            due_only
          )
-         VALUES (?1, ?2, ?3, ?4, 'UTC', 'success', ?5, ?6, ?7, 0)",
+         VALUES ('mcp_query', 'external', ?1, ?2, 'UTC', 'success', ?3, ?4, ?5, 0)",
         rusqlite::params![
-            "mcp_query",
-            "external",
-            started_at,
-            finished_at,
-            serde_json::to_string(
-                &request
-                    .profile_id
-                    .as_ref()
-                    .map(|profile_id| vec![profile_id.clone()])
-                    .unwrap_or_default(),
-            )?,
-            serde_json::to_string(&response.notes)?,
-            serde_json::to_string(&serde_json::json!({
-                "query": request.query,
-                "profileId": request.profile_id,
-                "domain": request.domain,
-                "limit": request.limit,
-                "providerId": response.provider_id,
-                "model": response.model,
-                "total": response.total,
-            }))?,
+            now,
+            now,
+            serde_json::to_string(profile_scope)?,
+            serde_json::to_string(warnings)?,
+            serde_json::to_string(&{
+                let mut stats = summary;
+                if let serde_json::Value::Object(map) = &mut stats {
+                    map.insert("tool".to_string(), serde_json::json!(tool));
+                }
+                stats
+            })?,
         ],
     )?;
     Ok(connection.last_insert_rowid())
@@ -181,7 +180,21 @@ pub(crate) fn mcp_search_result(
     };
     let response = search_ai_history(database_key, &search_request)?;
     let connection = ai_archive_connection(&paths, &config, database_key)?;
-    record_mcp_query_run(&connection, &request, &response)?;
+    record_mcp_query_run(
+        &connection,
+        "search-history",
+        &request.profile_id.as_ref().map(|profile_id| vec![profile_id.clone()]).unwrap_or_default(),
+        &response.notes,
+        serde_json::json!({
+            "query": request.query,
+            "profileId": request.profile_id,
+            "domain": request.domain,
+            "limit": request.limit,
+            "providerId": response.provider_id,
+            "model": response.model,
+            "total": response.total,
+        }),
+    )?;
     Ok(McpSearchResult {
         total: response.total,
         provider_id: response.provider_id,
@@ -227,6 +240,24 @@ pub(crate) fn mcp_archive_status_result(database_key: Option<&str>) -> Result<Mc
     } else {
         derive_ai_status(&paths, &config, database_key)
     };
+    // Audit the status probe too, so the user sees every external touch — not
+    // just searches. We can only write when unlocked: a locked status reads
+    // nothing from the encrypted archive and we hold no writable connection,
+    // so there is no archive access to record.
+    if !lock.locked {
+        let connection = ai_archive_connection(&paths, &config, database_key)?;
+        record_mcp_query_run(
+            &connection,
+            "archive-status",
+            &[],
+            &[],
+            serde_json::json!({
+                "initialized": archive_status.initialized,
+                "unlocked": archive_status.unlocked,
+                "indexedItems": ai_status.indexed_items,
+            }),
+        )?;
+    }
     Ok(McpArchiveStatus {
         initialized: archive_status.initialized,
         encrypted: archive_status.encrypted,
@@ -287,51 +318,31 @@ pub(crate) fn run_mcp_stdio_server() -> Result<()> {
         anyhow::bail!("Unlock PathKeep before starting the MCP server worker.");
     }
 
+    let database_key = read_database_key_from_keyring()?;
+
+    // Under test/coverage builds we exercise the gated entry point and the real
+    // read-only helpers, but never bind stdio: `serve(...).waiting()` blocks
+    // forever on the transport, which can't run inside a unit test. We call the
+    // synchronous helpers directly (the same ones the tool handlers delegate to)
+    // — they own their own runtime, so we must not wrap them in an outer
+    // `block_on` or tokio refuses to nest runtimes.
     #[cfg(any(test, coverage))]
     {
-        let database_key = read_database_key_from_keyring()?;
-        let _server = BrowserHistoryMcpServer::new(database_key.clone());
-        let request = McpSearchRequest {
-            query: "coverage".to_string(),
-            profile_id: None,
-            domain: None,
-            limit: Some(1),
-        };
-        let _item = McpSearchItem {
-            history_id: 0,
-            profile_id: "coverage".to_string(),
-            url: "https://example.test".to_string(),
-            title: Some("coverage".to_string()),
-            domain: "example.test".to_string(),
-            visited_at: "1970-01-01T00:00:00+00:00".to_string(),
-            score: 0.0,
-            match_reason: "coverage".to_string(),
-        };
-        let _result = McpSearchResult {
-            total: 0,
-            provider_id: "coverage".to_string(),
-            model: "coverage".to_string(),
-            items: Vec::new(),
-            notes: Vec::new(),
-        };
-        let _status = McpArchiveStatus {
-            initialized: false,
-            encrypted: false,
-            unlocked: false,
-            ai_enabled: false,
-            assistant_enabled: false,
-            semantic_index_enabled: false,
-            indexed_items: 0,
-            warning: None,
-        };
         let _ = mcp_archive_status_result(database_key.as_deref());
-        let _ = mcp_search_result(database_key.as_deref(), request);
+        let _ = mcp_search_result(
+            database_key.as_deref(),
+            McpSearchRequest {
+                query: "coverage".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(1),
+            },
+        );
         Ok(())
     }
 
     #[cfg(not(any(test, coverage)))]
     {
-        let database_key = read_database_key_from_keyring()?;
         crate::context::tokio_runtime()?.block_on(async move {
             let service = BrowserHistoryMcpServer::new(database_key)
                 .serve(rmcp::transport::io::stdio())

@@ -237,6 +237,19 @@ export function useSettingsAiState({
     }))
   }
 
+  // Outward data-surface consent (W-AI-9 Sub-block B): turning this on lets the
+  // worker expose a localhost-only, stdio MCP server so external AI tools you
+  // connect can run the SAME bounded, read-only search the in-app agent uses —
+  // every query audited, nothing exposed until enabled. Hard-default-OFF: it
+  // mutates ONLY the draft, never cascades from the master, and the worker
+  // still refuses to start unless this is saved-on AND the session is unlocked.
+  function handleMcpToggle() {
+    updateAiDraft((current) => ({
+      ...current,
+      mcpEnabled: !current.mcpEnabled,
+    }))
+  }
+
   // Hybrid-search tuning knobs (W-AI-9 / W-AI-6). They mutate ONLY the draft —
   // persisted by the existing AI config Save, never auto-saved — and pass through
   // the same client-side clamp the backend enforces on load, so a slider/input can
@@ -498,6 +511,7 @@ export function useSettingsAiState({
       onSelectProvider: handleSelectProvider,
       onToggleAi: handleAiToggle,
       onToggleAssistant: handleAssistantToggle,
+      onToggleMcp: handleMcpToggle,
       onToggleSemanticIndex: handleSemanticIndexToggle,
       onUpdateProvider: handleUpdateProvider,
     },
