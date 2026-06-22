@@ -55,6 +55,17 @@ export interface UseChatHistoryOptions {
   providerId?: string | null
   /** When false, the controller is dormant (no list load) — used by the route's gate branches. */
   enabled?: boolean
+  /**
+   * Fired AFTER a turn is genuinely persisted (the backend `saveConversation` resolved). It never
+   * fires on a failed save, so the UI can only ever claim "saved" when the write actually landed.
+   *
+   * `wasNewConversation` is true ONLY on the turn that minted a fresh conversation id (null→set) —
+   * i.e. the moment a transcript first becomes durable. The route surfaces its visible "saved"
+   * signal solely on that first persist: every subsequent turn of the SAME conversation still saves
+   * (durability is unchanged), but silently, so the badge/announcer don't fire per-turn ceremony on
+   * top of each answer's own "Answer complete" milestone.
+   */
+  onSaved?: (event: { wasNewConversation: boolean }) => void
 }
 
 export interface ChatHistoryState {
@@ -153,7 +164,7 @@ function toChatMessage(message: AgentMessage): ChatMessage {
 export function useChatHistory(
   options: UseChatHistoryOptions,
 ): ChatHistoryState {
-  const { backend, providerId = null, enabled = true } = options
+  const { backend, providerId = null, enabled = true, onSaved } = options
 
   const [conversations, setConversations] = useState<
     AgentConversationSummary[]
@@ -166,12 +177,14 @@ export function useChatHistory(
   // load cannot clobber a newer one (generation guard, like the streaming hook).
   const backendRef = useRef(backend)
   const providerIdRef = useRef(providerId)
+  const onSavedRef = useRef<UseChatHistoryOptions['onSaved']>(onSaved)
   const activeIdRef = useRef<string | null>(activeId)
   const loadGenRef = useRef(0)
   useEffect(() => {
     backendRef.current = backend
     providerIdRef.current = providerId
-  }, [backend, providerId])
+    onSavedRef.current = onSaved
+  }, [backend, providerId, onSaved])
   useEffect(() => {
     activeIdRef.current = activeId
   }, [activeId])
@@ -217,6 +230,9 @@ export function useChatHistory(
       // Nothing to persist for an empty transcript (e.g. a cancelled turn before any user message).
       if (messages.length === 0) return
       let id = activeIdRef.current
+      // True only when THIS turn mints a fresh id (null→set) — the moment the conversation first
+      // becomes durable. Captured before the save so a concurrent save can't shift the verdict.
+      const wasNewConversation = !id
       if (!id) {
         id = nextConversationId()
         activeIdRef.current = id
@@ -233,10 +249,15 @@ export function useChatHistory(
       backendRef.current
         .saveConversation(request)
         .then(() => {
+          // Only signal "saved" after the write actually landed — never optimistically. The route
+          // shows the visible signal solely when `wasNewConversation` is true (the first persist),
+          // so subsequent re-saves stay silent and never stack ceremony on each answer.
+          onSavedRef.current?.({ wasNewConversation })
           refresh()
         })
         .catch(() => {
           // Best-effort persistence; the live transcript is unaffected and a later turn retries.
+          // No "saved" signal fires here, so the UI never claims a save that did not happen.
         })
     },
     [refresh],

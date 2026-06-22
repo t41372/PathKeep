@@ -36,6 +36,15 @@ describe('buildAssistantChatCopy', () => {
     expect(copy.composer.connectingLabel).toBe(
       t('chatConnecting', { provider: 'Local LLM / g4' }),
     )
+    // ASSIST-2 per-message action copy is wired through the turn copy.
+    expect(copy.turn.copyLabel).toBe(t('chatCopyAnswer'))
+    expect(copy.turn.copiedLabel).toBe(t('chatCopiedAnswer'))
+    expect(copy.turn.regenerateLabel).toBe(t('chatRegenerateAnswer'))
+    // ASSIST-3 / C1-3 honesty: the whole-archive scope fact now rides the PERSISTENT composer
+    // footer (so it survives the whole conversation, not just the empty greeting), and the greeting
+    // subtitle is just the focused greeting — no longer carries the scope sentence.
+    expect(copy.composer.scopeNote).toBe(t('chatScopeNote'))
+    expect(copy.greetingSubtitle).toBe(t('chatGreetingSubtitle'))
   })
 
   test('falls back to the keyword-only string when no provider is set', () => {

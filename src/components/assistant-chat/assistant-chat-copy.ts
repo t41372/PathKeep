@@ -41,6 +41,9 @@ export function buildAssistantChatCopy(
 
   return {
     greetingTitle: t('chatGreetingTitle'),
+    // The full-archive scope fact now lives in the composer footer (`scopeNote`) so it stays
+    // ambient through the WHOLE conversation, not only on this empty greeting (ASSIST-3). The
+    // greeting subtitle stays focused; the persistent footer carries scope honesty.
     greetingSubtitle: t('chatGreetingSubtitle'),
     turn: {
       assistantByline,
@@ -50,6 +53,9 @@ export function buildAssistantChatCopy(
       errorGeneric: t('chatErrorGeneric'),
       stoppedLabel: t('chatStopped'),
       retryLabel: t('chatTryAgain'),
+      copyLabel: t('chatCopyAnswer'),
+      copiedLabel: t('chatCopiedAnswer'),
+      regenerateLabel: t('chatRegenerateAnswer'),
       noAnswerLabel: t('chatNoAnswer'),
       statusUsingTool: t('chatStatusUsingTool'),
       statusAnswering: t('chatStatusAnswering'),
@@ -86,6 +92,10 @@ export function buildAssistantChatCopy(
       connectingLabel: providerLabel
         ? t('chatConnecting', { provider: providerLabel })
         : t('chatConnecting', { provider: t('chatAttributionFallback') }),
+      // Short, ambient scope micro-line for the footer (the full sentence lived in the empty-state
+      // greeting before; scope must persist, so a concise mono note rides the always-visible
+      // attribution row instead).
+      scopeNote: t('chatScopeNote'),
     },
   }
 }

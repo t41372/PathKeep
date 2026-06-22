@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { backend } from '../../lib/backend-client'
 import { mockBuildInfo, mockSnapshot } from '../../lib/backend-preview-fixtures'
@@ -212,6 +212,30 @@ vi.mock('./schedule-step', () => ({
   ),
 }))
 
+vi.mock('./ai-step', () => ({
+  AiStep: ({
+    onBack,
+    onSetUpAi,
+    onSkip,
+  }: {
+    onBack: () => void
+    onSetUpAi: () => void
+    onSkip: () => void
+  }) => (
+    <section>
+      <button type="button" onClick={onBack}>
+        ai-back
+      </button>
+      <button type="button" onClick={onSetUpAi}>
+        ai-setup
+      </button>
+      <button type="button" onClick={onSkip}>
+        ai-skip
+      </button>
+    </section>
+  ),
+}))
+
 vi.mock('./ready-step', () => ({
   ReadyStep: ({
     localError,
@@ -381,12 +405,12 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
+    // Ready → Back lands on the optional AI step (the route owner wires ReadyStep.onBack to it).
     await user.click(screen.getByRole('button', { name: 'ready-back' }))
-    expect(
-      screen.getByRole('button', { name: 'schedule-install' }),
-    ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    expect(screen.getByRole('button', { name: 'ai-skip' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({
@@ -442,6 +466,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 
     shellData.current = shellDataFixture({
       snapshot: snapshotFixture({ archiveMode: 'Encrypted' }),
@@ -615,6 +640,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-skip' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(backend.applySchedule).not.toHaveBeenCalled()
@@ -660,6 +686,7 @@ describe('OnboardingPage', () => {
     )
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(backend.previewSchedule).toHaveBeenCalledTimes(2)
@@ -711,6 +738,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).not.toHaveBeenCalled()
@@ -858,6 +886,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).toHaveBeenCalledWith(
@@ -896,6 +925,7 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
     await user.click(screen.getByRole('button', { name: 'finish' }))
 
     expect(initializeArchive).toHaveBeenCalledWith(
@@ -927,7 +957,76 @@ describe('OnboardingPage', () => {
       screen.getByRole('button', { name: 'security-continue' }),
     ).toBeInTheDocument()
   })
+
+  test('inserts the optional AI step between Schedule and Ready; Skip advances to the final review', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+
+    // Schedule advances to the AI step (not straight to Ready).
+    expect(screen.getByRole('button', { name: 'ai-skip' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'finish' }),
+    ).not.toBeInTheDocument()
+
+    // AI back returns to the schedule step.
+    await user.click(screen.getByRole('button', { name: 'ai-back' }))
+    expect(
+      screen.getByRole('button', { name: 'schedule-install' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+    await user.click(screen.getByRole('button', { name: 'ai-skip' }))
+    // Skip advances to the Ready step.
+    expect(screen.getByRole('button', { name: 'finish' })).toBeInTheDocument()
+  })
+
+  test('deep-links "Set up AI in Settings" to the AI settings section', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/onboarding']}>
+        <I18nProvider>
+          <OnboardingPage />
+          <LocationProbe />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'begin' }))
+    await user.click(screen.getByRole('button', { name: 'browser-continue' }))
+    await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    await user.click(
+      screen.getByRole('button', { name: 'security-password-match' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'security-continue' }))
+    await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'schedule-skip' }))
+    await user.click(screen.getByRole('button', { name: 'ai-setup' }))
+
+    expect(screen.getByTestId('location-probe')).toHaveTextContent(
+      '/settings#settings-ai',
+    )
+  })
 })
+
+/** Surfaces the current router location so navigation side effects are assertable. */
+function LocationProbe() {
+  const location = useLocation()
+  return (
+    <span data-testid="location-probe">
+      {`${location.pathname}${location.hash}`}
+    </span>
+  )
+}
 
 async function advanceToReady(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'begin' }))
@@ -939,6 +1038,8 @@ async function advanceToReady(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'security-continue' }))
   await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
   await user.click(screen.getByRole('button', { name: 'schedule-install' }))
+  // The optional AI step sits between Schedule and Ready; skip it to reach the final review.
+  await user.click(screen.getByRole('button', { name: 'ai-skip' }))
 }
 
 function renderPage() {

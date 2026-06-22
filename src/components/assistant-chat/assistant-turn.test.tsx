@@ -8,8 +8,8 @@
  * select handler.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, test, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 vi.mock('streamdown', () => ({
   Streamdown: (props: { children?: unknown }) => (
@@ -28,6 +28,9 @@ const copy: AssistantTurnCopy = {
   errorGeneric: "The assistant couldn't finish this answer.",
   stoppedLabel: 'Generation stopped',
   retryLabel: 'Try again',
+  copyLabel: 'Copy answer',
+  copiedLabel: 'Copied',
+  regenerateLabel: 'Regenerate this answer',
   noAnswerLabel: 'No answer was returned.',
   statusUsingTool: 'Using tool: {name}',
   statusAnswering: 'Answering…',
@@ -385,6 +388,180 @@ describe('AssistantTurn', () => {
     fireEvent.click(screen.getByTestId('paper-assistant-evidence-star-cite-1'))
     expect(onToggleStar).toHaveBeenCalledTimes(1)
     expect(onToggleStar).toHaveBeenCalledWith('https://a.example/x')
+  })
+
+  describe('per-message copy + regenerate (ASSIST-2)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    function doneTurn(content = 'final answer'): ChatMessage {
+      return { id: 'done1', role: 'assistant', content, status: 'done' }
+    }
+
+    test('shows Copy + Regenerate on a completed answer', () => {
+      render(
+        <AssistantTurn
+          message={doneTurn()}
+          copy={copy}
+          onRegenerate={vi.fn()}
+        />,
+      )
+      expect(screen.getByTestId('assistant-actions-done1')).toBeInTheDocument()
+      expect(screen.getByTestId('assistant-copy-done1')).toHaveAttribute(
+        'aria-label',
+        'Copy answer',
+      )
+      expect(screen.getByTestId('assistant-regenerate-done1')).toHaveAttribute(
+        'aria-label',
+        'Regenerate this answer',
+      )
+    })
+
+    test('does NOT show the actions while the turn is still streaming', () => {
+      render(
+        <AssistantTurn
+          message={{
+            id: 's1',
+            role: 'assistant',
+            content: 'partial',
+            status: 'streaming',
+          }}
+          copy={copy}
+          onRegenerate={vi.fn()}
+        />,
+      )
+      expect(
+        screen.queryByTestId('assistant-actions-s1'),
+      ).not.toBeInTheDocument()
+    })
+
+    test('does NOT show the actions on a completed turn with no answer text', () => {
+      render(
+        <AssistantTurn
+          message={{ id: 'e1', role: 'assistant', content: '', status: 'done' }}
+          copy={copy}
+          onRegenerate={vi.fn()}
+        />,
+      )
+      expect(
+        screen.queryByTestId('assistant-actions-e1'),
+      ).not.toBeInTheDocument()
+    })
+
+    test('copies the answer text and shows a brief copied confirmation', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      })
+      render(
+        <AssistantTurn message={doneTurn('the answer body')} copy={copy} />,
+      )
+
+      fireEvent.click(screen.getByTestId('assistant-copy-done1'))
+      expect(writeText).toHaveBeenCalledWith('the answer body')
+      // The label flips to the copied confirmation once the write resolves.
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-copy-done1')).toHaveTextContent(
+          'Copied',
+        ),
+      )
+    })
+
+    test('does NOT claim copied when the clipboard write fails', async () => {
+      const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      })
+      render(<AssistantTurn message={doneTurn()} copy={copy} />)
+
+      fireEvent.click(screen.getByTestId('assistant-copy-done1'))
+      await waitFor(() => expect(writeText).toHaveBeenCalled())
+      // The label must remain the copy label — never falsely report success.
+      expect(screen.getByTestId('assistant-copy-done1')).toHaveTextContent(
+        'Copy answer',
+      )
+      expect(screen.getByTestId('assistant-copy-done1')).not.toHaveTextContent(
+        'Copied',
+      )
+    })
+
+    test('routes Regenerate to the handler with the regenerate intent', () => {
+      const onRegenerate = vi.fn()
+      render(
+        <AssistantTurn
+          message={doneTurn()}
+          copy={copy}
+          onRegenerate={onRegenerate}
+        />,
+      )
+      fireEvent.click(screen.getByTestId('assistant-regenerate-done1'))
+      expect(onRegenerate).toHaveBeenCalledTimes(1)
+    })
+
+    test('omits Regenerate when no handler is provided but still allows Copy', () => {
+      render(<AssistantTurn message={doneTurn()} copy={copy} />)
+      expect(screen.getByTestId('assistant-copy-done1')).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('assistant-regenerate-done1'),
+      ).not.toBeInTheDocument()
+    })
+
+    test('a rapid second copy resets the confirmation window (clears the pending timer)', async () => {
+      vi.useFakeTimers()
+      try {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText },
+        })
+        render(<AssistantTurn message={doneTurn('twice')} copy={copy} />)
+
+        // First copy arms the confirmation timer.
+        fireEvent.click(screen.getByTestId('assistant-copy-done1'))
+        await vi.waitFor(() =>
+          expect(screen.getByTestId('assistant-copy-done1')).toHaveTextContent(
+            'Copied',
+          ),
+        )
+        // A second copy before the window elapses must clear the pending timer and re-arm it.
+        fireEvent.click(screen.getByTestId('assistant-copy-done1'))
+        await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+        expect(screen.getByTestId('assistant-copy-done1')).toHaveTextContent(
+          'Copied',
+        )
+        // After the (single, re-armed) window the label returns to the copy label.
+        await vi.advanceTimersByTimeAsync(1600)
+        expect(screen.getByTestId('assistant-copy-done1')).toHaveTextContent(
+          'Copy answer',
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('clears a pending confirmation timer on unmount (no late setState)', async () => {
+      vi.useFakeTimers()
+      try {
+        const writeText = vi.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText },
+        })
+        const { unmount } = render(
+          <AssistantTurn message={doneTurn('unmount me')} copy={copy} />,
+        )
+        fireEvent.click(screen.getByTestId('assistant-copy-done1'))
+        await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+        // Unmount with a timer still pending; the cleanup effect must clear it without throwing.
+        expect(() => unmount()).not.toThrow()
+        await vi.advanceTimersByTimeAsync(1600)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   describe('coarse aria-live milestones', () => {

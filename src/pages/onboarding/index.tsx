@@ -41,6 +41,7 @@ import {
   macosFullDiskAccessSettingsUrl,
 } from '../../lib/platform-guidance'
 import type { AppConfig, SchedulePlan, ScheduleStatus } from '../../lib/types'
+import { AiStep } from './ai-step'
 import { BrowserDetectionStep } from './browser-detection-step'
 import { ReadyStep } from './ready-step'
 import { ScheduleStep } from './schedule-step'
@@ -262,6 +263,19 @@ export function OnboardingPage() {
     setStep(5)
   }
 
+  // The AI step is purely optional and never enables AI or writes config; both "Set up AI in
+  // Settings" and "Skip for now" simply advance to the final review. Setting up AI is deferred to
+  // Settings on purpose (keeps onboarding light and AI off-by-default).
+  function handleAiSetUp() {
+    setLocalError(null)
+    void navigate('/settings#settings-ai')
+  }
+
+  function handleAiContinue() {
+    setLocalError(null)
+    setStep(6)
+  }
+
   async function handleFinish() {
     setLocalError(null)
     if (selectedCount === 0) {
@@ -462,6 +476,14 @@ export function OnboardingPage() {
       ) : null}
 
       {step === 5 ? (
+        <AiStep
+          onBack={() => setStep(4)}
+          onSetUpAi={handleAiSetUp}
+          onSkip={handleAiContinue}
+        />
+      ) : null}
+
+      {step === 6 ? (
         <ReadyStep
           appRoot={snapshot.directories.appRoot}
           archiveMode={currentConfig.archiveMode}
@@ -471,7 +493,7 @@ export function OnboardingPage() {
           scheduleSetupMode={scheduleSetupMode}
           selectedAccessIssueCount={selectedAccessIssueCount}
           selectedCount={selectedCount}
-          onBack={() => setStep(4)}
+          onBack={() => setStep(5)}
           onFinish={() => {
             void handleFinish()
           }}

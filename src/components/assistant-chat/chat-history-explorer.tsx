@@ -64,6 +64,13 @@ export interface ChatHistoryCopy {
 export interface ChatHistoryExplorerProps {
   /** Whether the drawer is open (route-owned so it can be responsive / collapsible). */
   open: boolean
+  /**
+   * When true, an EXTERNAL affordance owns opening the drawer (e.g. the assistant route's labeled
+   * header doorway), so the drawer suppresses its OWN collapsed icon-only open-button to keep
+   * exactly one open affordance. The in-drawer close button is unaffected. Defaults to false, so
+   * standalone uses (no external doorway) keep their built-in open toggle.
+   */
+  externalOpenControl?: boolean
   conversations: readonly AgentConversationSummary[]
   /** The conversation currently loaded into the chat, if any. */
   activeId: string | null
@@ -92,6 +99,7 @@ const SKELETON_ROWS = 4
  */
 export function ChatHistoryExplorer({
   open,
+  externalOpenControl = false,
   conversations,
   activeId,
   loading = false,
@@ -139,6 +147,9 @@ export function ChatHistoryExplorer({
   )
 
   if (!open) {
+    // An external doorway (the route's labeled header button) owns opening the drawer — render no
+    // collapsed open-button here so there is exactly ONE, more-accessible open affordance.
+    if (externalOpenControl) return null
     return (
       <button
         type="button"

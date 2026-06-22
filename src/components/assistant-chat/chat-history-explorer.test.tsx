@@ -104,6 +104,26 @@ describe('ChatHistoryExplorer', () => {
     expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
+  test('collapsed + externalOpenControl: renders nothing (no duplicate open-button) — C1-2', () => {
+    const { container } = render(
+      <ChatHistoryExplorer
+        open={false}
+        externalOpenControl
+        conversations={[]}
+        activeId={null}
+        copy={copy}
+        onToggle={vi.fn()}
+        onNewChat={vi.fn()}
+        onOpenConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        testId="explorer"
+      />,
+    )
+    // An external doorway owns opening: the drawer's own collapsed open-button is suppressed.
+    expect(screen.queryByTestId('explorer-open')).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
+  })
+
   test('open: header shows title, close, and new-chat actions', () => {
     const handlers = renderExplorer()
     expect(screen.getByText('Conversations')).toBeVisible()

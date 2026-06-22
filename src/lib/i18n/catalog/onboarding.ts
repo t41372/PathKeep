@@ -32,6 +32,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: 'Storage',
     stepSecurity: 'Security',
     stepSchedule: 'Schedule',
+    stepAi: 'AI',
     stepReady: 'Ready',
     loadingDecisions: 'Loading setup…',
     errorTitle: 'Setup data unavailable',
@@ -215,6 +216,22 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: 'Back up history from {count} profile',
     initStep3DetailPlural: 'Back up history from {count} profiles',
     initButton: 'Create Archive & Back Up →',
+    aiStepTitle: 'Optional: AI features',
+    aiStepDesc:
+      'PathKeep is fully usable without AI. This step is entirely optional — you can skip it and set it up anytime later.',
+    aiStepOffByDefaultTitle: 'Off by default',
+    aiStepOffByDefaultBody:
+      'AI is turned off until you explicitly enable it. Keyword search and local Core Intelligence work right now, with no AI.',
+    aiStepLocalFirstTitle: 'Local-first',
+    aiStepLocalFirstBody:
+      'Point PathKeep at a local model (for example LM Studio) or your own provider. Nothing leaves your machine until you enable AI and configure a provider yourself.',
+    aiStepCitationsTitle: 'Always cited',
+    aiStepCitationsBody:
+      'When enabled, the assistant answers from your own history and cites the pages it used — no black box.',
+    aiStepSetUpAction: 'Set up AI in Settings',
+    aiStepSkipAction: "Skip for now — I'll do this later",
+    aiStepSkipHint:
+      "Skipping is completely fine. PathKeep works fully without AI, and you can turn it on later in Settings → AI whenever you're ready.",
   },
   'zh-CN': {
     stepWelcome: '欢迎',
@@ -222,6 +239,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: '存储',
     stepSecurity: '加密',
     stepSchedule: '定时',
+    stepAi: 'AI',
     stepReady: '完成',
     loadingDecisions: '加载中…',
     errorTitle: '设置数据不可用',
@@ -397,6 +415,22 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '从 {count} 个浏览器备份历史记录',
     initStep3DetailPlural: '从 {count} 个浏览器备份历史记录',
     initButton: '创建存档并备份 →',
+    aiStepTitle: '可选：AI 功能',
+    aiStepDesc:
+      '没有 AI，PathKeep 也完全可用。这一步完全是可选的 —— 你可以跳过，之后随时再来设置。',
+    aiStepOffByDefaultTitle: '默认关闭',
+    aiStepOffByDefaultBody:
+      '在你明确启用之前，AI 始终处于关闭状态。关键词搜索和本地 Core Intelligence 现在就能用，完全不需要 AI。',
+    aiStepLocalFirstTitle: '本地优先',
+    aiStepLocalFirstBody:
+      '把 PathKeep 指向本地模型（例如 LM Studio）或你自己的提供方。在你亲自启用 AI 并配置好提供方之前，没有任何数据离开你的电脑。',
+    aiStepCitationsTitle: '始终标注引用',
+    aiStepCitationsBody:
+      '启用后，助手会根据你自己的历史记录作答，并标注引用的页面 —— 没有黑盒。',
+    aiStepSetUpAction: '在设置中配置 AI',
+    aiStepSkipAction: '暂时跳过 —— 之后再设置',
+    aiStepSkipHint:
+      '跳过完全没问题。没有 AI，PathKeep 也能完整使用；准备好之后，随时可以在「设置 → AI」中开启。',
   },
   'zh-TW': {
     stepWelcome: '歡迎',
@@ -404,6 +438,7 @@ export const onboardingNamespaceCatalog = {
     stepStorage: '儲存',
     stepSecurity: '加密',
     stepSchedule: '定時',
+    stepAi: 'AI',
     stepReady: '完成',
     loadingDecisions: '載入中…',
     errorTitle: '設定資料無法使用',
@@ -579,5 +614,21 @@ export const onboardingNamespaceCatalog = {
     initStep3DetailSingular: '從 {count} 個瀏覽器備份歷史紀錄',
     initStep3DetailPlural: '從 {count} 個瀏覽器備份歷史紀錄',
     initButton: '建立封存並備份 →',
+    aiStepTitle: '選用：AI 功能',
+    aiStepDesc:
+      '沒有 AI，PathKeep 也完全可用。這一步完全是選用的 —— 你可以略過，之後隨時再來設定。',
+    aiStepOffByDefaultTitle: '預設關閉',
+    aiStepOffByDefaultBody:
+      '在你明確啟用之前，AI 始終處於關閉狀態。關鍵字搜尋和本機 Core Intelligence 現在就能用，完全不需要 AI。',
+    aiStepLocalFirstTitle: '本地優先',
+    aiStepLocalFirstBody:
+      '把 PathKeep 指向本機模型（例如 LM Studio）或你自己的提供方。在你親自啟用 AI 並設定好提供方之前，沒有任何資料離開你的電腦。',
+    aiStepCitationsTitle: '始終標註引用',
+    aiStepCitationsBody:
+      '啟用後，助手會根據你自己的歷史紀錄作答，並標註引用的頁面 —— 沒有黑盒。',
+    aiStepSetUpAction: '在設定中設定 AI',
+    aiStepSkipAction: '暫時略過 —— 之後再設定',
+    aiStepSkipHint:
+      '略過完全沒問題。沒有 AI，PathKeep 也能完整使用；準備好之後，隨時可以在「設定 → AI」中開啟。',
   },
 } as const

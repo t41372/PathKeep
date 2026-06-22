@@ -79,6 +79,9 @@ const copy: AssistantChatViewCopy = {
     errorGeneric: "The assistant couldn't finish this answer.",
     stoppedLabel: 'Generation stopped',
     retryLabel: 'Try again',
+    copyLabel: 'Copy answer',
+    copiedLabel: 'Copied',
+    regenerateLabel: 'Regenerate this answer',
     noAnswerLabel: 'No answer was returned.',
     statusUsingTool: 'Using tool: {name}',
     statusAnswering: 'Answering…',
@@ -110,6 +113,7 @@ const copy: AssistantChatViewCopy = {
     attribution: 'Local · keyword only',
     keyHint: '↵ send · ⇧↵ newline',
     connectingLabel: 'Connecting to Local LLM…',
+    scopeNote: 'Searches your whole archive',
   },
 }
 
@@ -161,6 +165,22 @@ describe('AssistantChatView', () => {
     expect(props.onPickPrompt).toHaveBeenCalledWith(prompts[0])
     expect(screen.getByTestId('assistant-chat-attribution')).toHaveTextContent(
       'Local · keyword only',
+    )
+    // C1-3: the whole-archive scope note rides the always-visible composer footer (persistent
+    // scope honesty), not the empty-state greeting.
+    expect(screen.getByTestId('assistant-chat-scope-note')).toHaveTextContent(
+      'Searches your whole archive',
+    )
+  })
+
+  test('keeps the scope note visible once a conversation has started (C1-3)', () => {
+    const props = baseProps()
+    // A non-empty transcript: the greeting is gone, but the persistent footer scope note remains.
+    props.messages = [{ id: 'u1', role: 'user', content: 'a question' }]
+    render(<AssistantChatView {...props} />)
+    expect(screen.queryByText('Ask anything')).not.toBeInTheDocument()
+    expect(screen.getByTestId('assistant-chat-scope-note')).toHaveTextContent(
+      'Searches your whole archive',
     )
   })
 

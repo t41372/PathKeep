@@ -165,6 +165,52 @@ describe('useChatHistory', () => {
     expect(result.current.error).toBe(false)
   })
 
+  test('fires onSaved with wasNewConversation=true on the FIRST persist (C1-1)', async () => {
+    const onSaved = vi.fn()
+    const backend = makeBackend()
+    const { result } = renderHook(() => useChatHistory({ backend, onSaved }))
+    await waitFor(() => expect(backend.listConversations).toHaveBeenCalled())
+
+    // The first persist mints a fresh id (null→set), so it is flagged as new.
+    act(() => result.current.persistTurn([userMessage]))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+    expect(onSaved).toHaveBeenCalledWith({ wasNewConversation: true })
+  })
+
+  test('fires onSaved with wasNewConversation=false on subsequent persists of the SAME conversation (C1-1)', async () => {
+    const onSaved = vi.fn()
+    const backend = makeBackend()
+    const { result } = renderHook(() => useChatHistory({ backend, onSaved }))
+    await waitFor(() => expect(backend.listConversations).toHaveBeenCalled())
+
+    // First turn mints the id → new.
+    act(() => result.current.persistTurn([userMessage]))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+    expect(onSaved).toHaveBeenNthCalledWith(1, { wasNewConversation: true })
+
+    // A second turn of the same conversation reuses the active id → NOT new (silent re-save). The
+    // signal still fires (the save landed) so the route can decide; the flag is what gates the UI.
+    act(() =>
+      result.current.persistTurn([userMessage, assistantMessage, userMessage]),
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2))
+    expect(onSaved).toHaveBeenNthCalledWith(2, { wasNewConversation: false })
+  })
+
+  test('does NOT fire onSaved when the persist fails (honest signal)', async () => {
+    const onSaved = vi.fn()
+    const saveConversation = vi.fn().mockRejectedValue(new Error('disk full'))
+    const backend = makeBackend({ saveConversation })
+    const { result } = renderHook(() => useChatHistory({ backend, onSaved }))
+    await waitFor(() => expect(backend.listConversations).toHaveBeenCalled())
+
+    act(() => result.current.persistTurn([userMessage]))
+    await waitFor(() => expect(saveConversation).toHaveBeenCalledTimes(1))
+    // The reject settles on a microtask; give it a tick, then assert no signal fired.
+    await Promise.resolve()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
   test('openConversation hydrates messages and parses tool calls', async () => {
     const detail: AgentConversationDetail = {
       ...summary({ id: 'conv-h' }),

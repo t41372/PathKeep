@@ -20,7 +20,7 @@
  * - Stay aligned with `docs/design/screens-and-nav.md` and `docs/design/ux-principles.md`.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import {
@@ -29,6 +29,7 @@ import {
   PaperCardBody,
   PaperCardHeader,
 } from '../../components/cards'
+import { PKGlyph } from '../../components/shell/pk-glyph'
 import { EmptyState } from '../../components/primitives/empty-state'
 import { PermissionGate } from '../../components/primitives/permission-gate'
 import { StatusCallout } from '../../components/primitives/status-callout'
@@ -135,11 +136,40 @@ export function AssistantPage() {
     llmProvider,
   )
 
+  // A transient, honest "saved" signal, surfaced ONLY on the FIRST persist of a conversation — the
+  // turn that mints a fresh id (null→set), i.e. when the transcript first becomes durable. Driven
+  // straight from the `onSaved` event (not an effect), which the history controller fires only
+  // after a real successful persist — never on a failed save — so the UI can never claim a save
+  // that did not land. Subsequent turns of the same conversation keep saving silently, so the badge
+  // + announcer never stack per-turn ceremony on top of each answer's own "Answer complete"
+  // milestone (the a11y-chatter the guardrails reject). A ref-held timer auto-clears the signal
+  // after a short, non-intrusive window and is cleared on unmount so no late setState fires.
+  const [savedVisible, setSavedVisible] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    },
+    [],
+  )
+  const handleSaved = useCallback(
+    ({ wasNewConversation }: { wasNewConversation: boolean }) => {
+      // Only the first persist of a conversation gets the visible/announced signal; re-saves of an
+      // existing conversation are durable but silent.
+      if (!wasNewConversation) return
+      setSavedVisible(true)
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSavedVisible(false), 2200)
+    },
+    [],
+  )
+
   // Conversation-persistence controller: lists past chats, saves on finalize, opens / deletes.
   const history = useChatHistory({
     backend: chatHistoryBackend,
     providerId: llmProvider?.id ?? null,
     enabled: chatActive,
+    onSaved: handleSaved,
   })
 
   // The streaming engine. Deps are stable-ish; the hook reads them via a ref each turn so a
@@ -229,12 +259,22 @@ export function AssistantPage() {
   // narrow windows are usable today; the auto-behavior is the only gap.
   const [historyOpen, setHistoryOpen] = useState(false)
 
+  // CH-3: an honest "opening…" state on the chat canvas while a reopened conversation loads and
+  // reconstructs, so the canvas never shows a blank/janky gap during the async load.
+  const [openingConversation, setOpeningConversation] = useState(false)
+
   // Open a past conversation: load it, then hydrate the chat hook with its messages.
   const handleOpenConversation = useCallback(
     (id: string) => {
-      void history.openConversation(id).then((hydrated) => {
-        if (hydrated) reset(hydrated)
-      })
+      setOpeningConversation(true)
+      void history
+        .openConversation(id)
+        .then((hydrated) => {
+          if (hydrated) reset(hydrated)
+        })
+        .finally(() => {
+          setOpeningConversation(false)
+        })
     },
     [history, reset],
   )
@@ -364,6 +404,9 @@ export function AssistantPage() {
     >
       <ChatHistoryExplorer
         open={historyOpen}
+        // The labeled header doorway below owns opening the drawer, so the explorer suppresses its
+        // own collapsed icon-only open-button — exactly one open affordance.
+        externalOpenControl
         conversations={history.conversations}
         activeId={history.activeId}
         loading={history.loading}
@@ -382,28 +425,95 @@ export function AssistantPage() {
         testId="assistant-chat-history"
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <AssistantChatView
-          messages={messages}
-          input={input}
-          streaming={streaming}
-          awaitingFirstChunk={awaitingFirstChunk}
-          canSend={Boolean(llmProvider)}
-          prompts={prompts}
-          copy={copy}
-          onInputChange={setInput}
-          onSend={(text) => {
-            send(text)
-            setInput('')
-          }}
-          onCancel={cancel}
-          onRetry={handleRetry}
-          onPickPrompt={(prompt) => setInput(prompt.text)}
-          evidenceFor={evidenceFor}
-          onSelectEvidence={handleSelectEvidence}
-          isEvidenceStarred={isEvidenceStarred}
-          onToggleEvidenceStar={onToggleEvidenceStar}
-          testId="assistant-chat-view"
-        />
+        {/* CH-1: a discoverable doorway to past conversations. A labeled header affordance (not just
+            the bare drawer toggle) so a user knows past chats exist and can open them — and the
+            ONLY open affordance, since the drawer suppresses its own collapsed button here
+            (externalOpenControl). Chosen over a global nav entry: it is lower-risk (touches no
+            shell/router contract) and lives right on the surface where conversations are created.
+            The aria-label and title are aligned on the action-oriented "Show conversations" (an
+            actionable control reads better as a verb than the bare noun). */}
+        <div className="border-border-light mb-2 flex items-center justify-between border-b pb-2">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((current) => !current)}
+            aria-label={historyCopy.openLabel}
+            aria-expanded={historyOpen}
+            title={historyCopy.openLabel}
+            data-testid="assistant-history-doorway"
+            className="text-ink-secondary hover:text-accent hover:border-accent border-border-default rounded-paper bg-card-paper flex items-center gap-2 border px-3 py-1.5 font-serif text-[13px] transition-colors duration-150"
+          >
+            <PKGlyph icon="history" size={15} strokeWidth={1.8} />
+            <span>{assistantT('historyDoorway')}</span>
+          </button>
+          {/* CH-2: transient, non-intrusive "saved" badge. Only visible after a real persist. */}
+          {savedVisible ? (
+            <span
+              data-testid="assistant-saved-signal"
+              className="text-ink-faint flex items-center gap-[5px] font-mono text-[11px]"
+            >
+              <PKGlyph icon="check" size={13} strokeWidth={1.8} />
+              <span>{assistantT('chatSavedAnnouncement')}</span>
+            </span>
+          ) : null}
+        </div>
+
+        {/* CH-2: a polite aria-live announcer that reads the saved confirmation. Because the signal
+            fires only on a conversation's FIRST persist (see `handleSaved`), the region's text
+            transitions empty→filled exactly once per conversation — so a screen reader announces
+            "Conversation saved" a single time, never per turn, and never on top of the per-answer
+            "Answer complete" milestone. No heavy toast system. */}
+        <span
+          data-testid="assistant-saved-announcer"
+          role="status"
+          aria-live="polite"
+          className="sr-only"
+        >
+          {savedVisible ? assistantT('chatSavedAnnouncement') : ''}
+        </span>
+
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {/* CH-3: honest "opening…" overlay while a reopened conversation loads/reconstructs. */}
+          {openingConversation ? (
+            <div
+              data-testid="assistant-opening-conversation"
+              role="status"
+              aria-live="polite"
+              className="bg-bg-paper/70 absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[1px]"
+            >
+              <span className="text-ink-secondary flex items-center gap-[6px] font-mono text-[12px]">
+                <span
+                  aria-hidden="true"
+                  className="pk-typing-dot bg-accent inline-block h-[5px] w-[5px] rounded-full animate-[pk-pulse_1.2s_ease-in-out_infinite]"
+                />
+                <span>{assistantT('chatOpeningConversation')}</span>
+              </span>
+            </div>
+          ) : null}
+
+          <AssistantChatView
+            messages={messages}
+            input={input}
+            streaming={streaming}
+            awaitingFirstChunk={awaitingFirstChunk}
+            canSend={Boolean(llmProvider)}
+            prompts={prompts}
+            copy={copy}
+            onInputChange={setInput}
+            onSend={(text) => {
+              send(text)
+              setInput('')
+            }}
+            onCancel={cancel}
+            onRetry={handleRetry}
+            onRegenerate={handleRetry}
+            onPickPrompt={(prompt) => setInput(prompt.text)}
+            evidenceFor={evidenceFor}
+            onSelectEvidence={handleSelectEvidence}
+            isEvidenceStarred={isEvidenceStarred}
+            onToggleEvidenceStar={onToggleEvidenceStar}
+            testId="assistant-chat-view"
+          />
+        </div>
       </div>
     </div>
   )

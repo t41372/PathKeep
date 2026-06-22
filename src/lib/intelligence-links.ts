@@ -29,12 +29,18 @@ export function evidenceHref(evidence: {
   return query ? `/explorer?${query}` : '/explorer'
 }
 
-export function assistantHref(question: string, profileId?: string | null) {
+/**
+ * Builds an in-app link to the assistant, prefilling only the question.
+ *
+ * No profile scope is appended on purpose: the live agent chat path (`ai_chat_send`) searches the
+ * WHOLE archive — its `AiChatSendRequest` carries no profile filter and the worker builds the agent
+ * tool context with `default_profile_id: None`. Advertising a `?profileId=` here would be a scope
+ * the backend silently drops (dishonest), so this helper deliberately takes only the question. If
+ * per-profile scoping is plumbed end-to-end later, re-add the param AND read it in the route.
+ */
+export function assistantHref(question: string) {
   const params = new URLSearchParams()
   params.set('question', question)
-  if (profileId) {
-    params.set('profileId', profileId)
-  }
   return `/assistant?${params.toString()}`
 }
 

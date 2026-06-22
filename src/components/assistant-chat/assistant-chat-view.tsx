@@ -56,6 +56,12 @@ export interface AssistantChatComposerCopy {
   keyHint: string
   /** Mono "Connecting to {provider}…" affordance shown before the first chunk arrives. */
   connectingLabel: string
+  /**
+   * Ambient, always-visible scope note (e.g. "Searches your whole archive"). Surfaced in the
+   * composer footer so the assistant's scope stays honest through the whole conversation — not
+   * just on the empty greeting (ASSIST-3 persistent scope honesty).
+   */
+  scopeNote: string
 }
 
 export interface AssistantChatViewCopy {
@@ -80,6 +86,8 @@ export interface AssistantChatViewProps {
   onCancel: () => void
   /** Re-send the last user prompt; wired onto error/cancelled turns for in-place recovery. */
   onRetry?: () => void
+  /** Re-run the assistant on the same question; wired onto the latest completed answer's actions. */
+  onRegenerate?: () => void
   onPickPrompt?: (prompt: PaperAssistantGreetingPrompt) => void
   /** Resolve citations for a turn (real agent evidence rows, W-AI-7). */
   evidenceFor?: (
@@ -108,6 +116,7 @@ const ChatRow = memo(function ChatRow({
   isEvidenceStarred,
   onToggleEvidenceStar,
   onRetry,
+  onRegenerate,
   pinned,
   disableVirtualization,
 }: {
@@ -118,6 +127,7 @@ const ChatRow = memo(function ChatRow({
   isEvidenceStarred?: (canonicalUrl: string) => boolean
   onToggleEvidenceStar?: (canonicalUrl: string) => void
   onRetry?: () => void
+  onRegenerate?: () => void
   /** When true, never virtualize (active streaming turn). */
   pinned: boolean
   disableVirtualization?: boolean
@@ -142,6 +152,7 @@ const ChatRow = memo(function ChatRow({
           isEvidenceStarred={isEvidenceStarred}
           onToggleEvidenceStar={onToggleEvidenceStar}
           onRetry={onRetry}
+          onRegenerate={onRegenerate}
         />
       ) : null}
     </div>
@@ -160,6 +171,7 @@ export function AssistantChatView({
   onSend,
   onCancel,
   onRetry,
+  onRegenerate,
   onPickPrompt,
   evidenceFor,
   onSelectEvidence,
@@ -275,6 +287,7 @@ export function AssistantChatView({
               isEvidenceStarred={isEvidenceStarred}
               onToggleEvidenceStar={onToggleEvidenceStar}
               onRetry={message.id === lastId ? onRetry : undefined}
+              onRegenerate={message.id === lastId ? onRegenerate : undefined}
               pinned={message.id === lastId}
               disableVirtualization={disableVirtualization}
             />
@@ -357,9 +370,17 @@ export function AssistantChatView({
             </button>
           )}
         </div>
-        <div className="text-ink-faint mt-2 flex justify-between font-mono text-[10px]">
-          <span data-testid="assistant-chat-attribution">
-            {copy.composer.attribution}
+        <div className="text-ink-faint mt-2 flex items-center justify-between font-mono text-[10px]">
+          <span className="flex items-center gap-2">
+            <span data-testid="assistant-chat-attribution">
+              {copy.composer.attribution}
+            </span>
+            {/* ASSIST-3: ambient, always-visible scope note so the assistant's whole-archive scope
+                stays honest through the entire conversation, not only on the empty greeting. */}
+            <span aria-hidden="true">·</span>
+            <span data-testid="assistant-chat-scope-note">
+              {copy.composer.scopeNote}
+            </span>
           </span>
           <span>{copy.composer.keyHint}</span>
         </div>

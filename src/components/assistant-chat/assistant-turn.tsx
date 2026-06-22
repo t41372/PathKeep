@@ -26,13 +26,15 @@
  *   active turn's props change frame to frame.
  */
 
-import { memo } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
+import { PKGlyph } from '@/components/shell/pk-glyph'
 import {
   PaperAssistantMessage,
   type PaperAssistantEvidence,
   type PaperAssistantEvidenceStarCopy,
 } from '@/components/explorer-paper'
+import { copyReviewValue } from '@/components/review/clipboard'
 import { ReasoningBlock, type ReasoningBlockCopy } from './reasoning-block'
 import { ToolCallBlock, type ToolCallBlockCopy } from './tool-call-block'
 import { StreamingMarkdown } from './streaming-markdown'
@@ -53,6 +55,12 @@ export interface AssistantTurnCopy {
   stoppedLabel: string
   /** "Try again" action label (re-sends the last user prompt). */
   retryLabel: string
+  /** aria-label for the per-message Copy action on a completed answer. */
+  copyLabel: string
+  /** Transient confirmation shown after a successful copy. */
+  copiedLabel: string
+  /** aria-label for the per-message Regenerate action ("regenerate this answer"). */
+  regenerateLabel: string
   /** Fallback shown when a finished turn returned no answer/reasoning/tools. */
   noAnswerLabel: string
   /** Coarse live-region milestone: "Using tool: {name}". */
@@ -81,6 +89,11 @@ export interface AssistantTurnProps {
   onToggleEvidenceStar?: (canonicalUrl: string) => void
   /** Re-send the last user prompt; wired on error/cancelled turns for in-place recovery. */
   onRetry?: () => void
+  /**
+   * Re-run the assistant on the same question for a COMPLETED answer ("regenerate this answer").
+   * Aliases the same send mechanism as `onRetry`; wired only on `done` turns (never while streaming).
+   */
+  onRegenerate?: () => void
 }
 
 /** A three-dot typing indicator (animated; honors prefers-reduced-motion via paper.css). */
@@ -146,6 +159,98 @@ function liveMilestone(
   }
 }
 
+/**
+ * Per-message actions for a COMPLETED assistant answer: Copy (with a brief copied confirmation) and
+ * Regenerate (re-runs the same question via the aliased send mechanism). Never rendered while a turn
+ * streams. The copied confirmation lives in an `aria-live="polite"` region so it is announced once,
+ * then clears after a short delay (no toast system needed).
+ *
+ * Resting contrast (C1-6): these actions use `text-ink-faint` so they defer to the answer content.
+ * That is intentional and AA-clean — `--ink-faint` is measured at 4.6:1 (cream paper) / 5.0:1 (card)
+ * in light mode and 4.9:1 / 4.6:1 in darkroom, all ≥ the 4.5:1 normal-text AA bar that
+ * `tokens.contrast.test.ts` enforces on every shipped ink token. No bump needed.
+ */
+function AnswerActions({
+  messageId,
+  content,
+  copy,
+  onRegenerate,
+}: {
+  messageId: string
+  content: string
+  copy: AssistantTurnCopy
+  onRegenerate?: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  // Track the latest timer so a rapid second copy resets the window instead of clearing early, and
+  // so we never call setState after unmount.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    [],
+  )
+
+  const handleCopy = useCallback(() => {
+    void copyReviewValue(content, {
+      onFeedback: (feedback) => {
+        // Only claim "Copied" on an actual successful write; a failed copy leaves the label alone.
+        if (feedback.tone !== 'success') return
+        setCopied(true)
+        if (timerRef.current) clearTimeout(timerRef.current)
+        timerRef.current = setTimeout(() => setCopied(false), 1600)
+      },
+    })
+  }, [content])
+
+  return (
+    <div
+      data-testid={`assistant-actions-${messageId}`}
+      className="flex items-center gap-3"
+    >
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={copy.copyLabel}
+        title={copy.copyLabel}
+        data-testid={`assistant-copy-${messageId}`}
+        className={cn(
+          'text-ink-faint hover:text-accent flex items-center gap-[5px]',
+          'font-mono text-[11px] transition-colors duration-150',
+        )}
+      >
+        <PKGlyph
+          icon={copied ? 'check' : 'content_copy'}
+          size={14}
+          strokeWidth={1.8}
+        />
+        <span>{copied ? copy.copiedLabel : copy.copyLabel}</span>
+      </button>
+      {onRegenerate ? (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          aria-label={copy.regenerateLabel}
+          title={copy.regenerateLabel}
+          data-testid={`assistant-regenerate-${messageId}`}
+          className={cn(
+            'text-ink-faint hover:text-accent flex items-center gap-[5px]',
+            'font-mono text-[11px] transition-colors duration-150',
+          )}
+        >
+          <PKGlyph icon="refresh" size={14} strokeWidth={1.8} />
+          <span>{copy.regenerateLabel}</span>
+        </button>
+      ) : null}
+      {/* Polite live region: announces "Copied" once on success, then clears. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {copied ? copy.copiedLabel : ''}
+      </span>
+    </div>
+  )
+}
+
 export const AssistantTurn = memo(function AssistantTurn({
   message,
   copy,
@@ -154,6 +259,7 @@ export const AssistantTurn = memo(function AssistantTurn({
   isEvidenceStarred,
   onToggleEvidenceStar,
   onRetry,
+  onRegenerate,
 }: AssistantTurnProps) {
   if (message.role === 'user') {
     return (
@@ -307,6 +413,17 @@ export const AssistantTurn = memo(function AssistantTurn({
               .replace('{prompt}', String(usage.promptTokens))
               .replace('{completion}', String(usage.completionTokens))}
           </div>
+        ) : null}
+
+        {/* Per-message actions on a COMPLETED answer only (Copy + Regenerate). Never while streaming,
+            and only when there is answer text to copy. */}
+        {isDone && hasAnswer ? (
+          <AnswerActions
+            messageId={message.id}
+            content={message.content}
+            copy={copy}
+            onRegenerate={onRegenerate}
+          />
         ) : null}
       </div>
     </PaperAssistantMessage>

@@ -293,13 +293,10 @@ describe('intelligence helpers', () => {
     ).toBe(
       '/explorer?profileId=chrome%3ADefault&domain=example.com&start=2026-04-07&end=2026-04-07&q=https%3A%2F%2Fexample.com%2Fdocs',
     )
+    // No profile scope is ever appended: the agent chat path searches the whole archive, so
+    // advertising a `?profileId=` would imply a scope the backend silently drops.
     expect(assistantHref('What did I read about SQLite?')).toBe(
       '/assistant?question=What+did+I+read+about+SQLite%3F',
-    )
-    expect(
-      assistantHref('What did I read about SQLite?', 'chrome:Default'),
-    ).toBe(
-      '/assistant?question=What+did+I+read+about+SQLite%3F&profileId=chrome%3ADefault',
     )
     expect(
       evidenceHref({

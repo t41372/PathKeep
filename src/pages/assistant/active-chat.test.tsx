@@ -499,7 +499,7 @@ describe('AssistantPage — active streaming chat', () => {
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
 
     // Open the (collapsed) history drawer.
-    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
     // The list row appears once the list load resolves.
     await user.click(
       await screen.findByRole('button', {
@@ -545,7 +545,7 @@ describe('AssistantPage — active streaming chat', () => {
 
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
 
-    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
     await user.click(
       await screen.findByRole('button', {
         name: 'Open conversation: Vanished chat',
@@ -583,7 +583,7 @@ describe('AssistantPage — active streaming chat', () => {
     emit({ kind: 'done' })
     expect(await screen.findByText('an answer')).toBeVisible()
 
-    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
     await user.click(screen.getByTestId('assistant-chat-history-new-chat'))
 
     // Back to the greeting; the prior answer is gone.
@@ -615,7 +615,7 @@ describe('AssistantPage — active streaming chat', () => {
 
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
 
-    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
     await user.click(
       await screen.findByTestId('assistant-chat-history-row-conv-del-delete'),
     )
@@ -766,7 +766,7 @@ describe('AssistantPage — active streaming chat', () => {
 
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
 
-    await user.click(await screen.findByTestId('assistant-chat-history-open'))
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
     await user.click(
       await screen.findByTestId('assistant-chat-history-row-conv-rn-rename'),
     )
@@ -844,5 +844,416 @@ describe('AssistantPage — active streaming chat', () => {
     }
     expect(evidenceFor(plain)).toBeUndefined()
     expect(evidenceFor(plain)).toBeUndefined()
+  })
+
+  // CH-1: a discoverable doorway to past conversations in the chat header (not just the bare drawer
+  // toggle). The header button must open the same history drawer and stay accessible.
+  test('CH-1: a labeled header doorway opens the conversation drawer', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const doorway = await screen.findByTestId('assistant-history-doorway')
+    // Action-oriented + accessible: the aria-label and title align on "Show conversations" (a verb,
+    // not the bare noun), and the button reports its collapsed state.
+    expect(doorway).toHaveAccessibleName(assistantT('historyOpen'))
+    expect(doorway).toHaveAttribute('title', assistantT('historyOpen'))
+    expect(doorway).toHaveAttribute('aria-expanded', 'false')
+    expect(doorway).toHaveTextContent(assistantT('historyDoorway'))
+
+    // The drawer starts collapsed; the doorway opens it (the panel becomes visible).
+    expect(
+      screen.queryByTestId('assistant-chat-history'),
+    ).not.toBeInTheDocument()
+    await user.click(doorway)
+    expect(await screen.findByTestId('assistant-chat-history')).toBeVisible()
+    expect(doorway).toHaveAttribute('aria-expanded', 'true')
+
+    // Clicking again collapses it (the existing toggle behavior is preserved).
+    await user.click(doorway)
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('assistant-chat-history'),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  // C1-2: exactly ONE open affordance. The header doorway drives the drawer (externalOpenControl),
+  // so the drawer must NOT also render its own collapsed icon-only open-button while closed. The
+  // in-drawer close button still works once the drawer is open.
+  test('C1-2: only the header doorway opens the drawer (no duplicate collapsed toggle)', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // The header doorway exists; the drawer's own collapsed open-button does NOT (suppressed).
+    expect(
+      await screen.findByTestId('assistant-history-doorway'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByTestId('assistant-chat-history-open'),
+    ).not.toBeInTheDocument()
+
+    // Open via the doorway, then the in-drawer close button collapses it (close button preserved).
+    await user.click(screen.getByTestId('assistant-history-doorway'))
+    expect(await screen.findByTestId('assistant-chat-history')).toBeVisible()
+    await user.click(screen.getByTestId('assistant-chat-history-close'))
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('assistant-chat-history'),
+      ).not.toBeInTheDocument(),
+    )
+    // After closing, the collapsed open-button is STILL suppressed — only the doorway reopens it.
+    expect(
+      screen.queryByTestId('assistant-chat-history-open'),
+    ).not.toBeInTheDocument()
+  })
+
+  // CH-2: an honest, transient "saved" signal after a real successful persist — visible badge plus a
+  // polite aria-live announcement, with no heavy toast system.
+  test('CH-2: shows a transient saved signal only after a successful persist', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-saved' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-saved',
+      title: 'saved one',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 2,
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // No saved signal before any turn lands.
+    expect(
+      screen.queryByTestId('assistant-saved-signal'),
+    ).not.toBeInTheDocument()
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'save me{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'kept answer' })
+    emit({ kind: 'done' })
+
+    // After the real save resolves, the transient badge + the aria-live announcement appear.
+    const signal = await screen.findByTestId('assistant-saved-signal')
+    expect(signal).toHaveTextContent(assistantT('chatSavedAnnouncement'))
+    expect(screen.getByTestId('assistant-saved-announcer')).toHaveTextContent(
+      assistantT('chatSavedAnnouncement'),
+    )
+
+    // The signal is transient: after its window the badge + announcement clear on their own
+    // (proving the auto-clear timer callback runs, not just the arm path).
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByTestId('assistant-saved-signal'),
+        ).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    )
+    expect(
+      screen.getByTestId('assistant-saved-announcer'),
+    ).toBeEmptyDOMElement()
+  })
+
+  test('CH-2: does NOT show the saved signal when the persist fails', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-fail' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    const saveConversation = vi
+      .spyOn(backend, 'saveAiConversation')
+      .mockRejectedValue(new Error('disk full'))
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'try save{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'answer' })
+    emit({ kind: 'done' })
+
+    await waitFor(() => expect(saveConversation).toHaveBeenCalledTimes(1))
+    // The save rejected, so the UI must never claim "saved".
+    await Promise.resolve()
+    expect(
+      screen.queryByTestId('assistant-saved-signal'),
+    ).not.toBeInTheDocument()
+  })
+
+  // CH-3: an honest "opening…" indicator on the chat canvas while a reopened conversation loads.
+  test('CH-3: shows an opening indicator on the canvas while a reopened conversation loads', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'getStarStatus').mockResolvedValue({})
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-slow',
+          title: 'A slow conversation',
+          providerId: 'llm-local',
+          createdAt: '2026-06-19T09:00:00Z',
+          updatedAt: '2026-06-19T09:30:00Z',
+          messageCount: 2,
+        },
+      ],
+    })
+    // A deferred load lets us observe the in-flight "opening…" state on the canvas.
+    type LoadResult = Awaited<ReturnType<typeof backend.loadAiConversation>>
+    let resolveLoad: ((detail: LoadResult) => void) | null = null
+    const loadPromise = new Promise<LoadResult>((resolve) => {
+      resolveLoad = resolve
+    })
+    vi.spyOn(backend, 'loadAiConversation').mockReturnValue(loadPromise)
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    await user.click(await screen.findByTestId('assistant-history-doorway'))
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Open conversation: A slow conversation',
+      }),
+    )
+
+    // While the load is in flight the canvas shows the honest opening indicator.
+    expect(
+      await screen.findByTestId('assistant-opening-conversation'),
+    ).toHaveTextContent(assistantT('chatOpeningConversation'))
+
+    // Resolve the load → the indicator clears.
+    await act(async () => {
+      resolveLoad?.({
+        id: 'conv-slow',
+        title: 'A slow conversation',
+        providerId: 'llm-local',
+        createdAt: '2026-06-19T09:00:00Z',
+        updatedAt: '2026-06-19T09:30:00Z',
+        messageCount: 1,
+        messages: [
+          {
+            id: 'sm1',
+            role: 'user',
+            content: 'reopened question',
+            reasoning: null,
+            toolCallsJson: null,
+            status: null,
+          },
+        ],
+      })
+      // Let the open-conversation promise chain (load → reset → finally) settle within act().
+      await loadPromise
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('assistant-opening-conversation'),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('reopened question')).toBeVisible()
+  })
+
+  // ASSIST-2: per-message Copy + Regenerate on a COMPLETED answer; Regenerate re-runs the question.
+  test('ASSIST-2: Copy + Regenerate appear on a completed answer and Regenerate re-sends', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    const sendChat = vi
+      .spyOn(backend, 'sendAiChat')
+      .mockResolvedValue({ runId: 'run-regen' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-regen',
+      title: 'regen',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 2,
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'first question{enter}')
+    await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'a completed answer' })
+    emit({ kind: 'done' })
+
+    // The per-message actions appear on the finalized answer.
+    const copyButton = await screen.findByLabelText(
+      assistantT('chatCopyAnswer'),
+    )
+    expect(copyButton).toBeVisible()
+    const regenerate = screen.getByLabelText(assistantT('chatRegenerateAnswer'))
+    expect(regenerate).toBeVisible()
+
+    // Regenerate re-runs the assistant on the same question (a second sendAiChat call).
+    await user.click(regenerate)
+    await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(2))
+    const secondTurn = sendChat.mock.calls[1][0]
+    expect(secondTurn.messages.at(-1)).toMatchObject({
+      role: 'user',
+      content: 'first question',
+    })
+  })
+
+  // C1-1/F1: the saved signal fires only on a conversation's FIRST persist. A SECOND turn of the
+  // SAME conversation still saves (durable) but must NOT re-show the badge/announcement — otherwise
+  // the per-turn ceremony stacks on each answer's "Answer complete" milestone (the a11y chatter the
+  // guardrails reject). We wait for the first signal to auto-clear, then prove a second turn of the
+  // same conversation leaves it cleared.
+  test('C1-1: does NOT re-show the saved signal on a subsequent turn of the same conversation', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-quiet' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-quiet',
+      title: 'quiet',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 4,
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    // First turn mints the conversation → the signal fires once.
+    await user.type(input, 'first save{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'answer one' })
+    emit({ kind: 'done' })
+    await screen.findByTestId('assistant-saved-signal')
+    // Let the first signal's window elapse so it clears on its own.
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByTestId('assistant-saved-signal'),
+        ).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    )
+
+    // A second turn of the SAME conversation re-saves silently — the badge stays absent.
+    await user.type(input, 'second save{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(2))
+    emit({ kind: 'token', text: 'answer two' })
+    emit({ kind: 'done' })
+    await waitFor(() =>
+      expect(backend.saveAiConversation).toHaveBeenCalledTimes(2),
+    )
+    // The save landed (durable), but the first-persist-only signal does not re-fire.
+    await Promise.resolve()
+    expect(
+      screen.queryByTestId('assistant-saved-signal'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByTestId('assistant-saved-announcer'),
+    ).toBeEmptyDOMElement()
+  })
+
+  // C1-1: a NEW conversation (after New chat resets the active id) re-arms the signal. When the
+  // second mint lands while the first 2200ms window is still pending, `handleSaved` clears the
+  // pending timer first (the truthy `if (savedTimerRef.current)` branch) then re-shows — so the
+  // badge is visible for the new conversation too.
+  test('C1-1: a NEW conversation re-arms the saved signal (clears the pending timer)', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-rearm' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-rearm',
+      title: 'rearm',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 2,
+    })
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'first save{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'answer one' })
+    emit({ kind: 'done' })
+    await screen.findByTestId('assistant-saved-signal')
+
+    // Start a NEW chat (resets the active id), then send again while the first 2200ms window is
+    // still open → the next persist mints a fresh id → the signal re-arms (timer cleared + re-shown).
+    await user.click(screen.getByTestId('assistant-history-doorway'))
+    await user.click(
+      await screen.findByTestId('assistant-chat-history-new-chat'),
+    )
+    await user.type(
+      screen.getByTestId('assistant-chat-input'),
+      'second save{enter}',
+    )
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(2))
+    emit({ kind: 'token', text: 'answer two' })
+    emit({ kind: 'done' })
+    // The badge is visible for the new conversation (re-armed via the clear-pending-timer branch).
+    expect(
+      await screen.findByTestId('assistant-saved-signal'),
+    ).toBeInTheDocument()
+  })
+
+  // CH-2: unmounting with a pending saved-signal timer must clear it (no late setState / no throw).
+  test('CH-2: clears the pending saved-signal timer on unmount', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-unmount' })
+    vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
+      conversations: [],
+    })
+    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
+      id: 'conv-unmount',
+      title: 'unmount',
+      providerId: 'llm-local',
+      createdAt: '2026-06-20T12:00:00Z',
+      updatedAt: '2026-06-20T12:00:00Z',
+      messageCount: 2,
+    })
+
+    const view = renderSurface(<AssistantPage />, {
+      route: '/assistant',
+      snapshot,
+    })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'save then leave{enter}')
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'kept' })
+    emit({ kind: 'done' })
+    // Wait for the real save to arm the signal timer, then unmount with it still pending.
+    await screen.findByTestId('assistant-saved-signal')
+    expect(() => view.unmount()).not.toThrow()
   })
 })

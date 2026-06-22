@@ -1119,23 +1119,17 @@ export function ExplorerPage() {
           relevanceScopeLine={smartScopeLine}
           smartAvailable={smartAvailable}
           onAskAssistant={(entry) => {
-            // The ranked entry was built from `semanticResults.items`, so the
-            // lookup always resolves and `profileId` (a required field) is always
-            // present; the `?? null` fallback is a defensive guard.
-            const target = semanticResults?.items.find(
-              (item) => item.historyId === Number(entry.id),
-            )
+            // Hand the assistant only the explain prompt — no profile scope. The agent chat path
+            // searches the whole archive (the backend request carries no profile filter), so
+            // passing a `?profileId=` here would imply a scope the assistant cannot honor.
             const href = assistantHref(
               explorerT('assistantExplainPrompt', {
                 item: entry.title,
                 query: queryInput,
               }),
-              /* v8 ignore next */
-              target?.profileId ?? null,
             )
             // assistantHref is an in-app route; navigate via react-router so we
-            // hand the explain prompt + profile to the assistant without a
-            // shell hard-reload.
+            // hand the explain prompt to the assistant without a shell hard-reload.
             void navigate(href)
           }}
           relevanceHeaderSlot={

@@ -31,6 +31,7 @@ export const onboardingStepKeys = [
   'stepStorage',
   'stepSecurity',
   'stepSchedule',
+  'stepAi',
   'stepReady',
 ] as const
 
