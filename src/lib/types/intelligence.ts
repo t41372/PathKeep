@@ -647,9 +647,43 @@ export interface AiChatStreamEvent {
 }
 
 /**
+ * One pinned evidence row reconstructed for a reopened assistant turn (W-AI-7 WU-7). Mirrors the
+ * Rust `AgentCitation` (camelCase serde). Sourced from the durable `agent_citations` journal so a
+ * reopened conversation renders the same starrable evidence the live turn streamed; `profileId` is
+ * empty on a reconstructed row (the journal pins the star key, not the profile).
+ */
+export interface AgentCitation {
+  historyId: number
+  /** Empty on a reconstructed citation: the journal does not retain the profile. */
+  profileId: string
+  url: string
+  title?: string | null
+  /** ISO visit time; empty string when the journaled row had no timestamp. */
+  visitedAt: string
+  score?: number | null
+  /** W-STAR star key (canonicalized url). */
+  canonicalUrl?: string | null
+}
+
+/**
+ * Per-turn token accounting reconstructed for a reopened assistant turn (W-AI-7 WU-7). Mirrors the
+ * Rust `AgentUsage`; sourced from the `agent_runs` header that answered the message.
+ */
+export interface AgentUsage {
+  promptTokens: number
+  completionTokens: number
+}
+
+/**
  * One persisted assistant-chat message (mirrors the backend `AgentMessage` and the in-memory
  * `ChatMessage` shape). `toolCallsJson` is the serialized `AssistantToolCall[]` exactly as it was
  * rendered; persisting it as opaque JSON keeps the store decoupled from the evolving tool schema.
+ *
+ * W-AI-7 WU-7: `citations` and `usage` are load-only RECONSTRUCTION fields. They are not stored on
+ * the message row — `loadAiConversation` joins the message's agent run → its pinned citations + token
+ * tally — so a reopened conversation shows the same evidence rows + star keys + token footer the live
+ * turn did. They are absent on the save payload (the backend skips them), so persist-on-finalize is
+ * unchanged.
  */
 export interface AgentMessage {
   id: string
@@ -660,6 +694,10 @@ export interface AgentMessage {
   toolCallsJson?: string | null
   /** Terminal turn status (`done` / `error` / `cancelled`); absent for user messages. */
   status?: string | null
+  /** Reconstructed evidence rows for this assistant turn (load-only; omitted on save). */
+  citations?: AgentCitation[] | null
+  /** Reconstructed per-turn token usage (load-only; omitted on save). */
+  usage?: AgentUsage | null
 }
 
 /**

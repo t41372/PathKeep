@@ -468,10 +468,31 @@ describe('AssistantPage — active streaming chat', () => {
           role: 'assistant',
           content: 'old hydrated answer',
           reasoning: null,
-          toolCallsJson: null,
+          toolCallsJson:
+            '[{"id":"t1","name":"search_history","arguments":"{}","status":"success","callId":"c1","result":"[10] https://tauri.app/"}]',
           status: 'done',
+          // W-AI-7 WU-7: the durable trace reconstructed on reopen — the run's pinned evidence rows
+          // (with the canonical_url star key) + token usage, so the reopened turn renders the SAME
+          // evidence + stars + footer the live turn streamed.
+          citations: [
+            {
+              historyId: 10,
+              profileId: '',
+              url: 'https://tauri.app/',
+              title: 'Tauri',
+              visitedAt: '2026-04-01T00:00:00Z',
+              score: 0.9,
+              canonicalUrl: 'https://tauri.app/',
+            },
+          ],
+          usage: { promptTokens: 128, completionTokens: 64 },
         },
       ],
+    })
+    // The reopened evidence row hydrates its star status; mark it starred so the reconstructed star
+    // toggle resolves is_starred by canonicalUrl.
+    vi.spyOn(backend, 'getStarStatus').mockResolvedValue({
+      'https://tauri.app/': true,
     })
 
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
@@ -488,6 +509,18 @@ describe('AssistantPage — active streaming chat', () => {
     // The hydrated transcript replaces the empty greeting.
     expect(await screen.findByText('old question')).toBeVisible()
     expect(screen.getByText('old hydrated answer')).toBeVisible()
+    // The reconstructed tool-use timeline renders via the same tool-call-block as the live path.
+    expect(screen.getByTestId('assistant-tools-pm2')).toBeVisible()
+    // The reconstructed evidence row renders (keyed by the citation's history id) and is starrable
+    // by its canonical url — identical to the live turn.
+    expect(
+      await screen.findByTestId('paper-assistant-evidence-cite-10'),
+    ).toBeVisible()
+    expect(
+      screen.getByTestId('paper-assistant-evidence-star-cite-10'),
+    ).toBeVisible()
+    // The reconstructed per-turn usage footer renders.
+    expect(screen.getByTestId('assistant-usage-pm2')).toBeVisible()
   })
 
   test('opening a conversation that vanished leaves the transcript untouched', async () => {

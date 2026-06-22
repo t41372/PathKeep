@@ -89,6 +89,7 @@ mod tests {
                     reasoning: None,
                     tool_calls_json: None,
                     status: None,
+                    ..Default::default()
                 },
                 AgentMessage {
                     id: "m2".to_string(),
@@ -97,6 +98,7 @@ mod tests {
                     reasoning: Some("r".to_string()),
                     tool_calls_json: None,
                     status: Some("done".to_string()),
+                    ..Default::default()
                 },
             ],
         })

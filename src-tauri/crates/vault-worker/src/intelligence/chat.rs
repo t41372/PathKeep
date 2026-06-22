@@ -929,10 +929,12 @@ mod tests {
     #[cfg(coverage)]
     #[test]
     fn coverage_agent_run_surfaces_a_probe_transport_failure() {
-        // A reachability failure during the tool-capability probe (id "probe-network-error") is
-        // surfaced as a terminal Error + a Failed header noting the probe failure (None outcome arm).
+        // A reachability failure during the tool-capability probe is surfaced as a terminal Error +
+        // a Failed header noting the probe failure (None outcome arm). Every shipping format now
+        // self-certifies, so the `probe-roundtrip` id opts this fixture out of the short-circuit to
+        // force the real probe round-trip; `network-error` makes the stubbed probe chat fail.
         let dir = tempdir().expect("tempdir");
-        let setup = agent_setup(dir.path(), "llm-agent-probe-network-error");
+        let setup = agent_setup(dir.path(), "llm-agent-probe-roundtrip-network-error");
         let paths = setup.paths.clone();
         let (events, sink) = agent_events_sink();
         let cancel = Arc::new(AtomicBool::new(false));

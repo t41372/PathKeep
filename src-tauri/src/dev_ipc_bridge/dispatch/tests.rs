@@ -535,6 +535,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
                 reasoning: None,
                 tool_calls_json: None,
                 status: None,
+                ..Default::default()
             }],
         }),
     );

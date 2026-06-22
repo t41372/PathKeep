@@ -46,9 +46,11 @@ zip.workspace = true
 [dev-dependencies]
 browser-history-fixtures = { version = "0.1.0", path = "../browser-history-fixtures" }
 # Already regular deps of the crate; restated here only so the env-gated LM Studio e2e
-# integration test (compiled as a separate crate) can drive the real async stream.
+# integration tests (compiled as separate crates) can drive the real async stream, seed an isolated
+# project root, and read the durable agent trace back.
 futures-core.workspace = true
 mockito = "1.7.0"
+tempfile.workspace = true
 tokio.workspace = true
 
 [lints.rust]

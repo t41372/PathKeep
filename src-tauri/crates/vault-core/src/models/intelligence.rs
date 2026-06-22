@@ -892,7 +892,43 @@ pub enum ModelDownloadProgressEvent {
     Error { message: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+/// One pinned evidence row reconstructed for a reopened assistant turn (W-AI-7 WU-7).
+///
+/// Mirrors the front-end `AiChatCitation` shape so a reopened conversation renders the SAME
+/// starrable evidence rows the live turn streamed. The fields come from the durable `agent_citations`
+/// journal (keyed by the run that answered this message), so the evidence — and its W-STAR star key —
+/// survives a reopen exactly as it survived a crash. `profile_id` is not journaled with a citation
+/// (the star key is the canonical url, not the profile), so it is empty on the reconstructed row;
+/// every consumer (the evidence panel) keys off `canonical_url` / `url`, never `profile_id`.
+pub struct AgentCitation {
+    pub history_id: i64,
+    /// Empty on a reconstructed citation: the agent_citations journal does not retain the profile.
+    #[serde(default)]
+    pub profile_id: String,
+    pub url: String,
+    pub title: Option<String>,
+    /// ISO visit time; empty string when the journaled row had no timestamp (degrade, never drop).
+    #[serde(default)]
+    pub visited_at: String,
+    pub score: Option<f32>,
+    /// W-STAR star key (canonicalized url); the agent_citations journal always pins one.
+    pub canonical_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Per-turn token accounting reconstructed for a reopened assistant turn (W-AI-7 WU-7).
+///
+/// Mirrors the front-end `AssistantUsage`; sourced from the `agent_runs` header (the run that
+/// answered this message), so the reopened turn shows the same token footer the live turn did.
+pub struct AgentUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 /// One persisted assistant-chat message as stored in `derived/agent.sqlite`.
 ///
@@ -900,6 +936,13 @@ pub enum ModelDownloadProgressEvent {
 /// past conversation can rehydrate the streaming chat hook verbatim. `toolCallsJson` is the
 /// serialized `AssistantToolCall[]` exactly as the UI rendered it; persisting it as opaque JSON
 /// keeps the agent sidecar decoupled from the tool schema (which W-AI-7 will evolve).
+///
+/// W-AI-7 WU-7 makes the full agent trace durable across reopen. `citations` and `usage` are NOT
+/// stored on the message row — they live in the parallel agent run/citation journal — so they are
+/// read-only RECONSTRUCTION fields, populated by [`crate::agent_store::load_conversation`] (which
+/// joins the message's run → its citations + token tally) and ignored on save. They are
+/// `#[serde(default, skip_serializing_if)]` so the persist-on-finalize save payload, which never
+/// carries them, round-trips byte-for-byte unchanged (the W-AI-3 conversation-replace contract).
 pub struct AgentMessage {
     pub id: String,
     /// `"user"` or `"assistant"` (the persisted transcript roles).
@@ -911,6 +954,14 @@ pub struct AgentMessage {
     pub tool_calls_json: Option<String>,
     /// Terminal turn status (`done` / `error` / `cancelled`); absent for user messages.
     pub status: Option<String>,
+    /// Reconstructed evidence rows for this assistant turn (load-only; absent on save). Empty when
+    /// the turn's run pinned no citations (or no run answered this message).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<AgentCitation>,
+    /// Reconstructed per-turn token usage (load-only; absent on save). `None` when no run answered
+    /// this message or the run never tallied tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<AgentUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -929,7 +980,10 @@ pub struct AgentConversationSummary {
     pub message_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+// `Eq` is intentionally NOT derived: the WU-7 reconstruction fields on `AgentMessage`
+// (`citations`/`usage`) carry `Option<f32>` scores, which are not `Eq`. `PartialEq` covers every
+// consumer (`assert_eq!` in tests); nothing keys a detail in a hash/btree set.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 /// One conversation plus its full (bounded) message transcript.
 pub struct AgentConversationDetail {
@@ -938,7 +992,10 @@ pub struct AgentConversationDetail {
     pub messages: Vec<AgentMessage>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+// `Eq` dropped to match `AgentMessage` (its WU-7 reconstruction fields carry `Option<f32>`). The
+// save payload never carries those fields (they `skip_serializing_if`), so the request is unchanged
+// on the wire; only the derive narrows from `Eq` to `PartialEq`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 /// Request payload for `save_ai_conversation`: upsert a conversation + replace its messages.
 ///

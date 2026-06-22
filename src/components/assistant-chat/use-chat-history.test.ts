@@ -205,6 +205,113 @@ describe('useChatHistory', () => {
     expect(assistant.status).toBe('done')
   })
 
+  test('openConversation reconstructs the durable trace: citations + usage on the answering turn', async () => {
+    // W-AI-7 WU-7: a reopened assistant turn must carry the run's reconstructed evidence rows (with
+    // the canonical_url star key) + token usage, so it renders the SAME stars + footer as the live
+    // turn. The user turn must stay trace-free.
+    const detail: AgentConversationDetail = {
+      ...summary({ id: 'conv-trace' }),
+      messages: [
+        {
+          id: 'u1',
+          role: 'user',
+          content: 'what did i read about tauri?',
+          reasoning: null,
+          toolCallsJson: null,
+          status: null,
+        },
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'You read the Tauri guide.',
+          reasoning: null,
+          toolCallsJson:
+            '[{"id":"t1","name":"search_history","arguments":"{}"}]',
+          status: 'done',
+          citations: [
+            {
+              historyId: 10,
+              profileId: '',
+              url: 'https://tauri.app/',
+              title: 'Tauri',
+              visitedAt: '2026-04-01T00:00:00Z',
+              score: 0.9,
+              canonicalUrl: 'https://tauri.app/',
+            },
+            // A row with null/absent title, score, and canonicalUrl exercises the `?? null`
+            // fallbacks (a citation must still reconstruct, just not starrable).
+            {
+              historyId: 11,
+              profileId: '',
+              url: 'https://tauri.app/blog',
+              title: null,
+              visitedAt: '2026-04-02T00:00:00Z',
+              score: null,
+              canonicalUrl: null,
+            },
+          ],
+          usage: { promptTokens: 128, completionTokens: 64 },
+        },
+      ],
+    }
+    const backend = makeBackend({
+      loadConversation: vi.fn().mockResolvedValue(detail),
+    })
+    const { result } = renderHook(() => useChatHistory({ backend }))
+    await waitFor(() => expect(backend.listConversations).toHaveBeenCalled())
+
+    let hydrated: ChatMessage[] | null = null
+    await act(async () => {
+      hydrated = await result.current.openConversation('conv-trace')
+    })
+    expect(hydrated).toHaveLength(2)
+    const user = hydrated![0]
+    expect(user.citations).toBeUndefined()
+    expect(user.usage).toBeUndefined()
+    const assistant = hydrated![1]
+    expect(assistant.citations).toHaveLength(2)
+    expect(assistant.citations?.[0].canonicalUrl).toBe('https://tauri.app/')
+    expect(assistant.citations?.[0].historyId).toBe(10)
+    // The null-field row reconstructs with the `?? null` fallbacks (still renders, not starrable).
+    expect(assistant.citations?.[1].historyId).toBe(11)
+    expect(assistant.citations?.[1].title).toBeNull()
+    expect(assistant.citations?.[1].score).toBeNull()
+    expect(assistant.citations?.[1].canonicalUrl).toBeNull()
+    expect(assistant.usage).toEqual({ promptTokens: 128, completionTokens: 64 })
+  })
+
+  test('openConversation leaves a plain turn trace-free when no citations/usage were journaled', async () => {
+    // An assistant turn with no run (empty/absent citations + no usage) must reopen with no evidence
+    // rows and no footer — the reconstruction is purely additive.
+    const detail: AgentConversationDetail = {
+      ...summary({ id: 'conv-plain' }),
+      messages: [
+        {
+          id: 'a1',
+          role: 'assistant',
+          content: 'hello',
+          reasoning: null,
+          toolCallsJson: null,
+          status: 'done',
+          citations: [],
+          usage: null,
+        },
+      ],
+    }
+    const backend = makeBackend({
+      loadConversation: vi.fn().mockResolvedValue(detail),
+    })
+    const { result } = renderHook(() => useChatHistory({ backend }))
+    await waitFor(() => expect(backend.listConversations).toHaveBeenCalled())
+
+    let hydrated: ChatMessage[] | null = null
+    await act(async () => {
+      hydrated = await result.current.openConversation('conv-plain')
+    })
+    expect(hydrated![0].citations).toBeUndefined()
+    expect(hydrated![0].usage).toBeUndefined()
+  })
+
   test('openConversation tolerates a corrupt tool-calls blob', async () => {
     const detail: AgentConversationDetail = {
       ...summary({ id: 'conv-bad' }),

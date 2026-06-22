@@ -281,6 +281,16 @@ where
                     completion_tokens,
                 );
             }
+            // Emit the ToolCall BEFORE executing it so the FE creates the pending row (args +
+            // spinner) that the matching ToolResult then resolves by call_id (02 §G transparency:
+            // the user sees the live tool-use timeline on the agent path, not only the result).
+            // `stream_one_turn` accumulates the call rather than forwarding it, so this is the one
+            // place the agent path advertises a call before acting on it.
+            sink(AiChatStreamChunk::ToolCall {
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+                call_id: Some(call.call_id.clone()),
+            });
             let (result_text, is_error, mut new_citations) =
                 execute_tool(registry, tool_context, call).await;
 
@@ -785,14 +795,15 @@ mod tests {
                 AiChatStreamChunk::Error { .. } => "error",
             })
             .collect();
-        // turn 1: reasoning, token, usage; tool exec: toolResult; turn 2: token, usage; then the
-        // terminal evidence (citations) right before done.
+        // turn 1: reasoning, token, usage; tool exec: toolCall (the live transparency row) then its
+        // toolResult; turn 2: token, usage; then the terminal evidence (citations) right before done.
         assert_eq!(
             kinds,
             vec![
                 "reasoning",
                 "token",
                 "usage",
+                "toolCall",
                 "toolResult",
                 "token",
                 "usage",
@@ -802,6 +813,26 @@ mod tests {
         );
         // The terminal Citations chunk lands exactly once, immediately before Done.
         assert!(matches!(events.iter().rev().nth(1), Some(AiChatStreamChunk::Citations { .. })));
+        // F1 transparency: a ToolCall chunk is emitted immediately BEFORE its ToolResult and carries
+        // the SAME call_id, so the FE creates the pending row (args + spinner) the result resolves.
+        let tool_call_index = events
+            .iter()
+            .position(|chunk| matches!(chunk, AiChatStreamChunk::ToolCall { .. }))
+            .expect("a tool call was streamed before execution");
+        match (&events[tool_call_index], &events[tool_call_index + 1]) {
+            (
+                AiChatStreamChunk::ToolCall { name, arguments, call_id },
+                AiChatStreamChunk::ToolResult { call_id: result_call_id, .. },
+            ) => {
+                assert_eq!(name, "search_history");
+                assert_eq!(arguments, r#"{"query":"tauri"}"#);
+                assert_eq!(call_id.as_deref(), Some("call-1"));
+                assert_eq!(result_call_id, "call-1", "the ToolResult resolves the ToolCall by id");
+            }
+            other => {
+                panic!("expected ToolCall immediately followed by its ToolResult, got {other:?}")
+            }
+        }
         // The tool result is emitted and threaded with the correct call id.
         let tool_result = events
             .iter()

@@ -110,34 +110,87 @@ pub(super) fn rig_llm_capabilities(config: &super::AiProviderConfig) -> LlmCapab
 
 /// Whether a request format self-certifies tool calling without a runtime probe.
 ///
-/// The native Anthropic/Gemini adapters encode tool calls reliably (02 §B). Anything on the
-/// OpenAI-compat floor is probe-required because the same wire shape fronts models that silently
-/// ignore tools. Pure + cheap so the harness can ask before deciding whether to probe.
+/// The native Anthropic/Gemini adapters encode tool calls reliably (02 §B), and so does every
+/// OpenAI-compat Chat Completions floor (OpenAI/Ollama/LM Studio): that wire shape RELIABLY accepts
+/// a `tools` payload, and a budgeted model (e.g. gemma via LM Studio) does call tools — the live
+/// agent e2e proves it. The earlier fragile 16-token probe false-negatived reasoning models (they
+/// spend the budget thinking and return empty/length, which the catch-all mis-read as "no tool
+/// support"), forcing gemma to run TOOL-LESS in production. Self-certifying the floor skips that
+/// probe entirely; the harness still degrades gracefully at runtime if a loop genuinely yields no
+/// tool calls. Pure + cheap so the harness can ask before deciding whether to probe.
 pub(super) fn request_format_self_certifies_tools(format: &AiRequestFormat) -> bool {
-    matches!(format, AiRequestFormat::Anthropic | AiRequestFormat::Google)
+    // Exhaustive (no `matches!` wildcard) so every arm is a reachable, covered region and a NEW
+    // request format must consciously declare its tool-calling story rather than defaulting in.
+    match format {
+        AiRequestFormat::Anthropic
+        | AiRequestFormat::Google
+        | AiRequestFormat::OpenAi
+        | AiRequestFormat::LmStudio
+        | AiRequestFormat::Ollama => true,
+    }
 }
 
 /// Resolves whether the provider can execute tool calls, probing the OpenAI-compat floor.
 ///
-/// The agent harness calls this BEFORE attaching a tools payload (02 §B degradation rule). Native
-/// adapters short-circuit to `true` with no network call. For the floor it issues one tiny chat
-/// turn carrying a single trivial tool definition: if that turn succeeds the provider is treated as
-/// tool-capable; if it fails, the error is run through the shared [`classify_provider_error`] and a
-/// transport/auth/network failure is surfaced as an error (so the caller does not silently mistake
-/// "the endpoint is down" for "no tool support"), while any other failure degrades to `false`
-/// (tool-incapable → retrieve-then-answer). The probe outcome is cached per provider config id so a
-/// multi-turn run probes at most once.
+/// The agent harness calls this BEFORE attaching a tools payload (02 §B degradation rule). Every
+/// supported request format now self-certifies (see [`request_format_self_certifies_tools`]), so in
+/// practice this short-circuits to `true` with no network call — the floor's Chat Completions shape
+/// reliably accepts a tools payload and a budgeted model calls tools (the live e2e proves it).
+///
+/// The probe below remains as a robust safety net (e.g. for a future probe-required format). It
+/// issues one chat turn carrying a single trivial tool definition with a REAL token budget (512, not
+/// the old 16 — a reasoning model truncated at 16 returns empty/length, which is NOT evidence of "no
+/// tool support"). The verdict is biased toward CAPABLE: only a transport/auth failure is surfaced
+/// as an error (so the caller never mistakes "the endpoint is down" for "no tool support"); a genuine
+/// tools-REJECTION (the endpoint explicitly refuses the tools payload) degrades to `false`; and any
+/// other failure — truncation/length/empty/generic provider-error — is treated as CAPABLE, letting
+/// the harness degrade gracefully at runtime if the loop genuinely yields no tool calls. The outcome
+/// is cached per provider config id so a multi-turn run probes at most once.
 pub async fn probe_tool_capability(provider: &RigLlmProvider) -> Result<bool> {
-    if request_format_self_certifies_tools(&provider.runtime.config.request_format) {
+    if request_format_self_certifies_tools(&provider.runtime.config.request_format)
+        && !forces_a_probe_round_trip(&provider.runtime.config.id)
+    {
         return Ok(true);
     }
-    if let Some(cached) = tool_capability_cache_get(&provider.runtime.config.id) {
+    probe_floor_tool_capability(&provider.runtime).await
+}
+
+/// Whether a config id opts OUT of the self-cert short-circuit so the floor probe still runs.
+///
+/// Every shipping format self-certifies, so the public probe never reaches [`probe_floor_tool_capability`]
+/// in production (a real config id is an opaque mint, never this marker). The worker's defensive
+/// probe-error arm (a probe `Err` aborts the run + records a failed header) still needs an honest
+/// path to exercise it; a test/coverage fixture sets a `probe-roundtrip` id to force the round-trip
+/// and drive that arm. Always `false` in a real build, so production LM Studio config skips the probe
+/// exactly as documented.
+#[cfg(any(test, coverage))]
+fn forces_a_probe_round_trip(provider_id: &str) -> bool {
+    provider_id.contains("probe-roundtrip")
+}
+
+/// In a real build no id forces a probe — every shipping format self-certifies and skips it.
+#[cfg(not(any(test, coverage)))]
+fn forces_a_probe_round_trip(_provider_id: &str) -> bool {
+    false
+}
+
+/// Runs the real, classified tool-capability probe for a non-self-certifying format.
+///
+/// Split out from [`probe_tool_capability`] so the network-bound probe body (and its classification
+/// arms) stays exercisable: with every shipping format now self-certifying, the public entry never
+/// reaches this — but a future probe-required format would, and the unit tests drive it directly.
+/// Caches per provider config id so a multi-turn run probes at most once. See the caller's doc for
+/// the capable-biased verdict rules.
+async fn probe_floor_tool_capability(runtime: &AiProviderRuntime) -> Result<bool> {
+    if let Some(cached) = tool_capability_cache_get(&runtime.config.id) {
         return Ok(cached);
     }
     let probe_request = LlmChatRequest {
         messages: vec![LlmMessage::new(LlmRole::User, "Reply with OK.")],
         temperature: Some(0.0),
-        max_tokens: Some(16),
+        // A real budget so a reasoning model can finish thinking and actually respond instead of
+        // truncating mid-thought (the old 16-token budget false-negatived reasoning models).
+        max_tokens: Some(512),
         tools: vec![super::traits::LlmToolDef {
             name: "pathkeep_probe".to_string(),
             description: "Capability probe; do not call.".to_string(),
@@ -145,20 +198,43 @@ pub async fn probe_tool_capability(provider: &RigLlmProvider) -> Result<bool> {
         }],
         response_format: None,
     };
-    let capable = match chat_impl(&provider.runtime, probe_request).await {
+    let capable = match chat_impl(runtime, probe_request).await {
         Ok(_) => true,
         Err(error) => {
-            let (code, _, _) = super::provider::classify_provider_error(&error.to_string());
+            let message = error.to_string();
+            let (code, _, _) = super::provider::classify_provider_error(&message);
             // A reachability/auth failure is not evidence of "no tool support" — surface it so the
             // run fails honestly rather than silently degrading on a transient outage.
             if matches!(code.as_deref(), Some("network-error") | Some("secret-missing")) {
                 return Err(error);
             }
-            false
+            // Only a GENUINE tools-rejection (the endpoint refusing the tools payload) is evidence
+            // of no tool support. Truncation/length/empty/generic provider-error is NOT, so default
+            // to CAPABLE and let the harness degrade at runtime if the loop yields no tool calls.
+            !error_rejects_tools(&message)
         }
     };
-    tool_capability_cache_put(&provider.runtime.config.id, capable);
+    tool_capability_cache_put(&runtime.config.id, capable);
     Ok(capable)
+}
+
+/// Whether a provider error message is a GENUINE tools-rejection (vs an unrelated failure).
+///
+/// An OpenAI-compat endpoint that does not honor tools rejects the `tools` payload with a message
+/// naming tools/function calling explicitly. This is the only error class that proves "no tool
+/// support" — everything else (a length/truncation/empty completion, a generic provider error) is
+/// NOT, so the probe must NOT read those as incapable. Kept narrow on purpose: a false positive
+/// here would wrongly drop a tool-capable model onto the degraded path.
+fn error_rejects_tools(message: &str) -> bool {
+    let normalized = message.to_lowercase();
+    let mentions_tools = normalized.contains("tool") || normalized.contains("function call");
+    let mentions_refusal = normalized.contains("not support")
+        || normalized.contains("unsupported")
+        || normalized.contains("does not support")
+        || normalized.contains("not allowed")
+        || normalized.contains("not enabled")
+        || normalized.contains("no tools");
+    mentions_tools && mentions_refusal
 }
 
 /// Process-global cache of probe outcomes, keyed by provider config id.
@@ -535,10 +611,15 @@ fn build_gemini_client(runtime: &AiProviderRuntime) -> Result<gemini::Client> {
 /// Returns a stable, request-derived chat response without any network call.
 #[cfg(any(test, coverage))]
 async fn chat_impl(runtime: &AiProviderRuntime, req: LlmChatRequest) -> Result<LlmChatResponse> {
-    if runtime.config.id.contains("probe-network-error") {
+    if runtime.config.id.contains("network-error") {
         // A reachability failure (classified `network-error`) so the tool-capability probe
         // surfaces the error honestly instead of degrading to tool-incapable.
         anyhow::bail!("connection refused: the local model endpoint is unreachable");
+    }
+    if runtime.config.id.contains("tools-rejection") {
+        // A GENUINE tools-rejection: the endpoint names tool/function calling and refuses it, the
+        // only error class that proves "no tool support" (probe degrades to tool-incapable).
+        anyhow::bail!("this model does not support tool calling / function calls");
     }
     if runtime.config.id.contains("chat-error") {
         anyhow::bail!("forced coverage chat error");
@@ -817,51 +898,95 @@ mod tests {
     }
 
     #[test]
-    fn request_format_self_certification_matches_native_adapters() {
+    fn request_format_self_certification_covers_every_shipping_format() {
+        // F2 layer 3: the native adapters AND the OpenAI-compat Chat Completions floor all reliably
+        // ACCEPT a tools payload, so every shipping format self-certifies and skips the fragile probe.
         assert!(request_format_self_certifies_tools(&AiRequestFormat::Anthropic));
         assert!(request_format_self_certifies_tools(&AiRequestFormat::Google));
-        assert!(!request_format_self_certifies_tools(&AiRequestFormat::OpenAi));
-        assert!(!request_format_self_certifies_tools(&AiRequestFormat::Ollama));
-        assert!(!request_format_self_certifies_tools(&AiRequestFormat::LmStudio));
+        assert!(request_format_self_certifies_tools(&AiRequestFormat::OpenAi));
+        assert!(request_format_self_certifies_tools(&AiRequestFormat::Ollama));
+        assert!(request_format_self_certifies_tools(&AiRequestFormat::LmStudio));
     }
 
     #[tokio::test]
-    async fn probe_tool_capability_short_circuits_for_native_adapters() {
+    async fn probe_tool_capability_short_circuits_for_self_certifying_formats() {
+        // Both a native adapter and an LM Studio floor provider self-certify, so the public probe
+        // returns capable with no network round-trip and never caches (the floor skips the probe).
         let anthropic = RigLlmProvider::new(runtime(AiRequestFormat::Anthropic, "probe-native"));
         assert!(probe_tool_capability(&anthropic).await.expect("native probe"));
+        let lmstudio = RigLlmProvider::new(runtime(AiRequestFormat::LmStudio, "probe-lmstudio"));
+        assert!(probe_tool_capability(&lmstudio).await.expect("lmstudio self-certifies"));
+        assert_eq!(
+            tool_capability_cache_get("probe-lmstudio"),
+            None,
+            "a self-certifying format never runs (or caches) a probe"
+        );
     }
 
     #[tokio::test]
-    async fn probe_tool_capability_treats_a_successful_floor_turn_as_capable() {
-        // The stub chat succeeds for an ordinary floor id, so the probe reports capable and caches.
-        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-floor-ok"));
+    async fn floor_probe_treats_a_successful_turn_as_capable() {
+        // The floor probe, driven through the PUBLIC entry via a `probe-roundtrip` id that opts out
+        // of the self-cert short-circuit (every shipping format self-certifies in production): the
+        // stub chat succeeds, so the probe reports capable and caches.
+        let provider =
+            RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-roundtrip-floor-ok"));
         assert!(probe_tool_capability(&provider).await.expect("floor probe"));
         // Cached: a second call returns the same outcome without re-running.
-        assert_eq!(tool_capability_cache_get("probe-floor-ok"), Some(true));
+        assert_eq!(tool_capability_cache_get("probe-roundtrip-floor-ok"), Some(true));
         assert!(probe_tool_capability(&provider).await.expect("cached floor probe"));
     }
 
     #[tokio::test]
-    async fn probe_tool_capability_degrades_on_a_non_transport_failure() {
-        // A forced chat error that is NOT auth/network classifies as a generic provider error, so
-        // the probe degrades to tool-incapable (false) rather than aborting the run.
-        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-chat-error"));
-        assert!(!probe_tool_capability(&provider).await.expect("degraded probe"));
-        assert_eq!(tool_capability_cache_get("probe-chat-error"), Some(false));
+    async fn floor_probe_treats_a_generic_failure_as_capable() {
+        // F2 layer 2: a forced chat error that is NOT a tools-rejection / transport failure (a
+        // generic provider-error, e.g. a truncated/length/empty completion) is NOT evidence of "no
+        // tool support", so the probe defaults to CAPABLE and lets the harness degrade at runtime.
+        let provider =
+            RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-roundtrip-chat-error"));
+        assert!(probe_tool_capability(&provider).await.expect("capable-biased probe"));
+        assert_eq!(tool_capability_cache_get("probe-roundtrip-chat-error"), Some(true));
     }
 
     #[tokio::test]
-    async fn probe_tool_capability_surfaces_a_transport_failure_as_an_error() {
+    async fn floor_probe_degrades_only_on_a_genuine_tools_rejection() {
+        // A GENUINE tools-rejection (the endpoint naming + refusing tool/function calling) is the
+        // only error class that proves "no tool support", so the probe degrades to incapable.
+        let provider = RigLlmProvider::new(runtime(
+            AiRequestFormat::OpenAi,
+            "probe-roundtrip-tools-rejection",
+        ));
+        assert!(!probe_tool_capability(&provider).await.expect("tools-rejection probe"));
+        assert_eq!(tool_capability_cache_get("probe-roundtrip-tools-rejection"), Some(false));
+    }
+
+    #[tokio::test]
+    async fn floor_probe_surfaces_a_transport_failure_as_an_error() {
         // A reachability failure (classified `network-error`) is NOT evidence of "no tool support",
         // so the probe returns the error instead of silently degrading — and never caches a verdict.
-        let provider = RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-network-error"));
+        let provider =
+            RigLlmProvider::new(runtime(AiRequestFormat::OpenAi, "probe-roundtrip-network-error"));
         let error = probe_tool_capability(&provider).await.expect_err("transport failure surfaces");
         assert!(error.to_string().contains("connection refused"));
         assert_eq!(
-            tool_capability_cache_get("probe-network-error"),
+            tool_capability_cache_get("probe-roundtrip-network-error"),
             None,
             "a transport failure must not cache a capability verdict"
         );
+    }
+
+    #[test]
+    fn error_rejects_tools_matches_only_a_genuine_tools_refusal() {
+        // Pins the narrow tools-rejection classifier: a message naming tool/function calling AND a
+        // refusal is a rejection; an unrelated failure (or a tools mention without a refusal) is NOT.
+        assert!(error_rejects_tools("This model does not support tool calling"));
+        assert!(error_rejects_tools("tools are not allowed for this endpoint"));
+        assert!(error_rejects_tools("function call is unsupported here"));
+        // A truncation/length/empty/generic error is not a tools-rejection (defaults to capable).
+        assert!(!error_rejects_tools("finish_reason: length"));
+        assert!(!error_rejects_tools("forced coverage chat error"));
+        // A tools mention with no refusal, or a refusal with no tools mention, is not a rejection.
+        assert!(!error_rejects_tools("the tool ran fine"));
+        assert!(!error_rejects_tools("the model is not enabled"));
     }
 
     #[test]

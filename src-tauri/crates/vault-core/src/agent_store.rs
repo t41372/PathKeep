@@ -29,7 +29,7 @@
 use crate::{
     config::{ProjectPaths, ensure_paths},
     models::{
-        AgentConversationDetail, AgentConversationSummary, AgentMessage,
+        AgentCitation, AgentConversationDetail, AgentConversationSummary, AgentMessage, AgentUsage,
         SaveAgentConversationRequest,
     },
     utils::{now_rfc3339, sha256_hex},
@@ -469,7 +469,8 @@ pub fn list_conversations(
     Ok(conversations)
 }
 
-/// Loads one conversation plus its FULL message transcript in `seq` order.
+/// Loads one conversation plus its FULL message transcript in `seq` order, with each assistant
+/// turn's durable agent trace (citations + token usage) RECONSTRUCTED from the run journal.
 ///
 /// Returns `None` when the id is unknown. The transcript is read ascending from the
 /// `(conversation_id, seq)` index and is intentionally NOT capped: a single chat is bounded by real
@@ -478,6 +479,15 @@ pub fn list_conversations(
 /// Capping the load was a data-loss trap: the front end rehydrates the loaded view and re-saves it
 /// on the next turn, which (with a wholesale replace) would have permanently dropped every message
 /// beyond the cap. Loading all messages keeps re-save lossless.
+///
+/// W-AI-7 WU-7 — durable trace on reopen: reasoning + tool calls + status already round-trip on the
+/// message row, but the run's CITATIONS and USAGE live in the parallel `agent_runs`/`agent_citations`
+/// journal (keyed by run_id; `agent_runs.message_id` links a run to its assistant message). So this
+/// also reads, scoped to THIS conversation, each message's latest run usage and its pinned citations,
+/// and stitches them onto the assistant turns — so a reopened conversation shows the SAME evidence
+/// rows + star keys + token footer the live turn did. Both reads are bounded to this conversation's
+/// runs/citations (a message has one run; a chat has few turns) via the `idx_agent_runs_conversation`
+/// index — never a corpus scan or an N+1 across the 14.4M baseline.
 pub fn load_conversation(
     paths: &ProjectPaths,
     conversation_id: &str,
@@ -511,7 +521,7 @@ pub fn load_conversation(
          WHERE conversation_id = ?1
          ORDER BY seq ASC",
     )?;
-    let messages = statement
+    let mut messages = statement
         .query_map(params![conversation_id], |row| {
             Ok(AgentMessage {
                 id: row.get(0)?,
@@ -520,11 +530,120 @@ pub fn load_conversation(
                 reasoning: row.get(3)?,
                 tool_calls_json: row.get(4)?,
                 status: row.get(5)?,
+                citations: Vec::new(),
+                usage: None,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
+    // Reconstruct each message's run trace (usage + citations) from the parallel journal and stitch
+    // it onto the matching assistant turn (drops the borrow of `connection` held by `statement`).
+    drop(statement);
+    let runs = load_conversation_message_runs(&connection, conversation_id)?;
+    if !runs.is_empty() {
+        let mut citations =
+            load_conversation_message_citations(&connection, conversation_id, &runs)?;
+        for message in &mut messages {
+            if let Some(run) = runs.get(&message.id) {
+                if run.prompt_tokens > 0 || run.completion_tokens > 0 {
+                    message.usage = Some(AgentUsage {
+                        prompt_tokens: run.prompt_tokens.max(0) as u64,
+                        completion_tokens: run.completion_tokens.max(0) as u64,
+                    });
+                }
+                if let Some(rows) = citations.remove(&run.run_id) {
+                    message.citations = rows;
+                }
+            }
+        }
+    }
+
     Ok(Some(AgentConversationDetail { summary, messages }))
+}
+
+/// The single most-recent run that answered one assistant message, with its token tally.
+struct MessageRun {
+    run_id: String,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+}
+
+/// Resolves, for each `message_id` in this conversation, the most-recent run that answered it.
+///
+/// A message normally has exactly one run, but a re-begin or a re-asked turn could leave more than
+/// one `agent_runs` row pointing at the same `message_id`; the latest (`updated_at` then `id`) is the
+/// honest trace to show on reopen, so this keeps that one. Scoped to the conversation via the
+/// `idx_agent_runs_conversation` index — bounded by the chat's turn count, never the corpus.
+fn load_conversation_message_runs(
+    connection: &Connection,
+    conversation_id: &str,
+) -> Result<HashMap<String, MessageRun>> {
+    let mut statement = connection.prepare(
+        "SELECT message_id, id, prompt_tokens, completion_tokens, updated_at
+         FROM agent_runs
+         WHERE conversation_id = ?1 AND message_id IS NOT NULL
+         ORDER BY message_id ASC, updated_at ASC, id ASC",
+    )?;
+    let mut runs: HashMap<String, MessageRun> = HashMap::new();
+    let rows = statement.query_map(params![conversation_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+    // Ascending order means the LAST row written per message_id wins (the most recent run).
+    for row in rows {
+        let (message_id, run_id, prompt_tokens, completion_tokens) = row?;
+        runs.insert(message_id, MessageRun { run_id, prompt_tokens, completion_tokens });
+    }
+    Ok(runs)
+}
+
+/// Loads the pinned citations for this conversation's runs, grouped by `run_id`, ordered by
+/// `history_id`.
+///
+/// One bounded read over THIS conversation's citations (joined through its runs via the
+/// `idx_agent_runs_conversation` index), so the caller stitches each run's evidence onto its message
+/// without a per-message round trip (no N+1). Only the runs the caller resolved as the latest per
+/// message (`runs`) are surfaced; a citation for a superseded run of the same conversation is dropped
+/// client-side so a reopened turn shows exactly the run it now reflects.
+fn load_conversation_message_citations(
+    connection: &Connection,
+    conversation_id: &str,
+    runs: &HashMap<String, MessageRun>,
+) -> Result<HashMap<String, Vec<AgentCitation>>> {
+    let wanted: BTreeSet<&str> = runs.values().map(|run| run.run_id.as_str()).collect();
+    let mut statement = connection.prepare(
+        "SELECT r.id, c.history_id, c.canonical_url, c.url, c.title, c.visited_at, c.score
+         FROM agent_citations c
+         JOIN agent_runs r ON c.run_id = r.id
+         WHERE r.conversation_id = ?1 AND r.message_id IS NOT NULL
+         ORDER BY r.id ASC, c.history_id ASC",
+    )?;
+    let mut grouped: HashMap<String, Vec<AgentCitation>> = HashMap::new();
+    let rows = statement.query_map(params![conversation_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            AgentCitation {
+                history_id: row.get(1)?,
+                profile_id: String::new(),
+                canonical_url: Some(row.get::<_, String>(2)?),
+                url: row.get(3)?,
+                title: row.get(4)?,
+                visited_at: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                score: row.get(6)?,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (run_id, citation) = row?;
+        if wanted.contains(run_id.as_str()) {
+            grouped.entry(run_id).or_default().push(citation);
+        }
+    }
+    Ok(grouped)
 }
 
 /// Deletes one conversation and (via cascade) its messages. Returns whether a row existed.
@@ -1016,6 +1135,7 @@ mod tests {
             reasoning: None,
             tool_calls_json: None,
             status: None,
+            ..Default::default()
         }
     }
 
@@ -1029,6 +1149,7 @@ mod tests {
                 "[{\"id\":\"t1\",\"name\":\"search_bm25\",\"arguments\":\"{}\"}]".to_string(),
             ),
             status: Some("done".to_string()),
+            ..Default::default()
         }
     }
 
@@ -2036,5 +2157,162 @@ mod tests {
         }
         // An unknown tag reads as the honest "interrupted" Running state.
         assert_eq!(AgentRunStatus::from_tag("nonsense"), AgentRunStatus::Running);
+    }
+
+    // -----------------------------------------------------------------------
+    // W-AI-7 WU-7: citations + usage reconstructed on reopen (load_conversation).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn load_conversation_reconstructs_citations_and_usage_for_the_answering_turn() {
+        // The durable trace must survive a reopen: a run linked to an assistant message (by
+        // message_id) pins citations + tallies tokens, and a later load_conversation stitches BOTH
+        // onto that assistant turn (and only that one) — so a reopened conversation renders the same
+        // evidence rows + star keys + token footer the live turn streamed.
+        let (_dir, paths) = run_trace_paths();
+        save_conversation(
+            &paths,
+            &SaveAgentConversationRequest {
+                id: "conv-trace".to_string(),
+                title: None,
+                provider_id: Some("llm-local".to_string()),
+                messages: vec![
+                    user_message("u1", "what did i read about tauri?"),
+                    assistant_message("a1", "You read the Tauri guide in April."),
+                ],
+            },
+        )
+        .expect("save conversation");
+
+        // The agent run that ANSWERED message a1 (the FE passes the assistant message id as the run's
+        // message_id), pins two citations, and finalizes with a token tally.
+        begin_agent_run(
+            &paths,
+            &BeginAgentRun {
+                id: "run-trace".to_string(),
+                conversation_id: Some("conv-trace".to_string()),
+                message_id: Some("a1".to_string()),
+                provider_id: Some("llm-local".to_string()),
+                embedding_provider_id: None,
+            },
+        )
+        .expect("begin run");
+        record_agent_citations(
+            &paths,
+            "run-trace",
+            &[citation(20, "https://tauri.app/guide/"), citation(10, "https://tauri.app/")],
+        )
+        .expect("record citations");
+        finalize_agent_run(&paths, "run-trace", AgentRunStatus::Completed, 2, 128, 64, None)
+            .expect("finalize");
+
+        let detail = load_conversation(&paths, "conv-trace").expect("load").expect("present");
+        assert_eq!(detail.messages.len(), 2);
+        // The user turn carries NO reconstructed trace.
+        let user = &detail.messages[0];
+        assert_eq!(user.id, "u1");
+        assert!(user.citations.is_empty(), "user turn must not carry citations");
+        assert!(user.usage.is_none(), "user turn must not carry usage");
+        // The assistant turn carries the run's usage + citations (ordered by history_id, with the
+        // canonical_url star key preserved).
+        let assistant = &detail.messages[1];
+        assert_eq!(assistant.id, "a1");
+        assert_eq!(
+            assistant.usage,
+            Some(AgentUsage { prompt_tokens: 128, completion_tokens: 64 }),
+            "assistant turn must carry the run's reconstructed usage"
+        );
+        assert_eq!(assistant.citations.len(), 2, "both pinned citations are reconstructed");
+        assert_eq!(assistant.citations[0].history_id, 10);
+        assert_eq!(
+            assistant.citations[0].canonical_url.as_deref(),
+            Some("https://tauri.app/"),
+            "the W-STAR star key survives the reopen"
+        );
+        assert_eq!(assistant.citations[1].history_id, 20);
+        // profile_id is not journaled with a citation; it reconstructs empty (every consumer keys off
+        // canonical_url/url, never profile_id).
+        assert!(assistant.citations[0].profile_id.is_empty());
+    }
+
+    #[test]
+    fn load_conversation_without_a_run_leaves_turns_trace_free() {
+        // A plain conversation (no agent run journaled) must reopen with no citations + no usage on
+        // any turn — the reconstruction is purely additive and never fabricates a trace.
+        let (_dir, paths) = run_trace_paths();
+        save_conversation(
+            &paths,
+            &SaveAgentConversationRequest {
+                id: "conv-plain".to_string(),
+                title: None,
+                provider_id: None,
+                messages: vec![user_message("u1", "hi"), assistant_message("a1", "hello")],
+            },
+        )
+        .expect("save");
+
+        let detail = load_conversation(&paths, "conv-plain").expect("load").expect("present");
+        for message in &detail.messages {
+            assert!(message.citations.is_empty(), "no run → no citations");
+            assert!(message.usage.is_none(), "no run → no usage");
+        }
+    }
+
+    #[test]
+    fn load_conversation_uses_the_latest_run_per_message_and_zero_tokens_yield_no_usage() {
+        // Two runs answer the SAME assistant message (e.g. a re-asked turn reusing the id): the LATEST
+        // run's trace wins on reopen, and a run that tallied zero tokens surfaces no usage footer (the
+        // honest "no accounting" state), while its citations still reconstruct.
+        let (_dir, paths) = run_trace_paths();
+        save_conversation(
+            &paths,
+            &SaveAgentConversationRequest {
+                id: "conv-latest".to_string(),
+                title: None,
+                provider_id: None,
+                messages: vec![user_message("u1", "ask"), assistant_message("a1", "answer")],
+            },
+        )
+        .expect("save");
+
+        // The earlier run pins one citation + a token tally.
+        begin_agent_run(
+            &paths,
+            &BeginAgentRun {
+                id: "run-old".to_string(),
+                conversation_id: Some("conv-latest".to_string()),
+                message_id: Some("a1".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("begin old");
+        record_agent_citations(&paths, "run-old", &[citation(1, "https://old.example/")])
+            .expect("old citations");
+        finalize_agent_run(&paths, "run-old", AgentRunStatus::Completed, 1, 50, 20, None)
+            .expect("finalize old");
+
+        // A later run for the same message tallies ZERO tokens and pins a different citation. Force a
+        // strictly later updated_at so the "latest run wins" tie-break is meaningful.
+        std::thread::sleep(StdDuration::from_millis(5));
+        begin_agent_run(
+            &paths,
+            &BeginAgentRun {
+                id: "run-new".to_string(),
+                conversation_id: Some("conv-latest".to_string()),
+                message_id: Some("a1".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("begin new");
+        record_agent_citations(&paths, "run-new", &[citation(2, "https://new.example/")])
+            .expect("new citations");
+        finalize_agent_run(&paths, "run-new", AgentRunStatus::Completed, 1, 0, 0, None)
+            .expect("finalize new");
+
+        let detail = load_conversation(&paths, "conv-latest").expect("load").expect("present");
+        let assistant = &detail.messages[1];
+        assert!(assistant.usage.is_none(), "a zero-token run surfaces no usage footer");
+        assert_eq!(assistant.citations.len(), 1, "only the latest run's citation is shown");
+        assert_eq!(assistant.citations[0].history_id, 2, "latest run's evidence wins on reopen");
     }
 }

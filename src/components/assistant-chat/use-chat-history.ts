@@ -111,12 +111,37 @@ function toChatMessage(message: AgentMessage): ChatMessage {
       toolCalls = undefined
     }
   }
+  // Reconstruct the durable agent trace (W-AI-7 WU-7): the backend joins the message's run → its
+  // pinned citations + token tally, so a reopened turn renders the SAME evidence rows + star keys +
+  // usage footer the live turn streamed. Mirrors the toolCalls reconstruction above: shape-compatible
+  // (the backend `AgentCitation`/`AgentUsage` are the camelCase twins of `AssistantCitation`/
+  // `AssistantUsage`), so the rendered turn reuses the live assistant-turn path with no special case.
+  const citations =
+    message.citations && message.citations.length > 0
+      ? message.citations.map((citation) => ({
+          historyId: citation.historyId,
+          profileId: citation.profileId,
+          url: citation.url,
+          title: citation.title ?? null,
+          visitedAt: citation.visitedAt,
+          score: citation.score ?? null,
+          canonicalUrl: citation.canonicalUrl ?? null,
+        }))
+      : undefined
+  const usage = message.usage
+    ? {
+        promptTokens: message.usage.promptTokens,
+        completionTokens: message.usage.completionTokens,
+      }
+    : undefined
   return {
     id: message.id,
     role: message.role === 'assistant' ? 'assistant' : 'user',
     content: message.content,
     reasoning: message.reasoning ?? undefined,
     toolCalls,
+    citations,
+    usage,
     status:
       (message.status as ChatMessage['status'] | null | undefined) ?? undefined,
   }
