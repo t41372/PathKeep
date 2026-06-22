@@ -45,7 +45,7 @@ describe('intelligence runtime helpers', () => {
     )
     expect(
       enrichmentPluginDescription('readable-content-refetch', t),
-    ).toContain('disabled in v0.2')
+    ).toContain('off by default')
   })
 
   test('falls back for unknown plugin ids and source kinds', () => {

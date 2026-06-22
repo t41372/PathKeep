@@ -64,7 +64,7 @@ export const jobsNamespaceCatalog = {
     overviewHeadlineFailures: 'Needs review: {count}',
     jumpToFailures: 'Review failed items: {count}',
     overviewBody:
-      'Local rebuilds update cards and evidence without waiting on future AI or webpage-body fetch features.',
+      'Local rebuilds update cards and evidence without waiting on future AI features or optional site-content fetches.',
     queueSummaryTitle: 'Assistant and embedding queue',
     queueSummaryBody:
       'Optional assistant and embedding work is tracked for v0.3. Existing queued items stay reviewable if they are present.',
@@ -138,14 +138,11 @@ export const jobsNamespaceCatalog = {
     errorRateLimited:
       'The upstream site temporarily refused the fetch. Retry it later.',
     deterministicRuntimeSummary:
-      'PathKeep is refreshing local analysis first. Webpage body fetching is tracked for v0.3.',
-    contentFetchQueuedSummaryHost:
-      'Readable-content work for {host} is tracked for v0.3.',
-    contentFetchQueuedSummary: 'Readable-content work is tracked for v0.3.',
-    contentFetchRunningSummaryHost:
-      'PathKeep is not revisiting {host} for readable content in v0.2.0.',
-    contentFetchRunningSummary:
-      'PathKeep is not capturing readable page text in v0.2.0.',
+      'PathKeep is refreshing local analysis first; any site-content fetches run separately in the background.',
+    contentFetchQueuedSummaryHost: 'Queued to fetch site content for {host}.',
+    contentFetchQueuedSummary: 'Queued to fetch site content.',
+    contentFetchRunningSummaryHost: 'Fetching site content for {host}.',
+    contentFetchRunningSummary: 'Fetching site content.',
     sidebarTitle: 'Background work',
     sidebarNeedsSetup: 'Background work appears after setup.',
     sidebarLocked: 'Unlock the archive first',
@@ -236,7 +233,7 @@ export const jobsNamespaceCatalog = {
     overviewHeadlineFailures: '{count} 项需要复核',
     jumpToFailures: '跳到 {count} 项失败',
     overviewBody:
-      '本地重建会更新卡片和证据，不会等待后续版本才开放的 AI 或网页正文抓取。',
+      '本地重建会更新卡片和证据，不会等待后续版本才开放的 AI 功能或可选的站点内容抓取。',
     queueSummaryTitle: '助手与嵌入队列',
     queueSummaryBody:
       '助手与嵌入任务已排入 v0.3；如果存在旧的排队项，仍可在这里检查。',
@@ -307,12 +304,11 @@ export const jobsNamespaceCatalog = {
       '这个页面跳进了登录或跳转边界，PathKeep 目前拿不到稳定的正文。',
     errorRateLimited: '上游网站暂时拒绝了抓取请求，稍后可以再试一次。',
     deterministicRuntimeSummary:
-      'PathKeep 会先刷新本地分析。网页正文抓取已排入 v0.3。',
-    contentFetchQueuedSummaryHost: '{host} 的网页正文任务已排入 v0.3。',
-    contentFetchQueuedSummary: '网页正文任务已排入 v0.3。',
-    contentFetchRunningSummaryHost:
-      'PathKeep v0.2.0 不会重新访问 {host} 抓取网页正文。',
-    contentFetchRunningSummary: 'PathKeep v0.2.0 不会抓取网页正文。',
+      'PathKeep 会先刷新本地分析；站点内容抓取会在后台单独运行。',
+    contentFetchQueuedSummaryHost: '已排队抓取 {host} 的站点内容。',
+    contentFetchQueuedSummary: '已排队抓取站点内容。',
+    contentFetchRunningSummaryHost: '正在抓取 {host} 的站点内容。',
+    contentFetchRunningSummary: '正在抓取站点内容。',
     sidebarTitle: '后台工作',
     sidebarNeedsSetup: '完成设置后才会显示后台工作。',
     sidebarLocked: '先解锁存档',
@@ -402,7 +398,7 @@ export const jobsNamespaceCatalog = {
     overviewHeadlineFailures: '{count} 項需要複核',
     jumpToFailures: '跳到 {count} 項失敗',
     overviewBody:
-      '本機重建會更新卡片和證據，不會等待後續版本才開放的 AI 或網頁正文擷取。',
+      '本機重建會更新卡片和證據，不會等待後續版本才開放的 AI 功能或可選的網站內容擷取。',
     queueSummaryTitle: '助手與嵌入佇列',
     queueSummaryBody:
       '助手與嵌入工作已排入 v0.3；如果存在舊的排隊項，仍可在這裡檢查。',
@@ -473,12 +469,11 @@ export const jobsNamespaceCatalog = {
       '這個頁面跳進了登入或重新導向邊界，PathKeep 目前拿不到穩定的正文。',
     errorRateLimited: '上游網站暫時拒絕了抓取請求，稍後可以再試一次。',
     deterministicRuntimeSummary:
-      'PathKeep 會先重新整理本機分析。網頁正文擷取已排入 v0.3。',
-    contentFetchQueuedSummaryHost: '{host} 的網頁正文工作已排入 v0.3。',
-    contentFetchQueuedSummary: '網頁正文工作已排入 v0.3。',
-    contentFetchRunningSummaryHost:
-      'PathKeep v0.2.0 不會重新造訪 {host} 擷取網頁正文。',
-    contentFetchRunningSummary: 'PathKeep v0.2.0 不會擷取網頁正文。',
+      'PathKeep 會先重新整理本機分析；網站內容擷取會在背景單獨執行。',
+    contentFetchQueuedSummaryHost: '已排隊擷取 {host} 的網站內容。',
+    contentFetchQueuedSummary: '已排隊擷取網站內容。',
+    contentFetchRunningSummaryHost: '正在擷取 {host} 的網站內容。',
+    contentFetchRunningSummary: '正在擷取網站內容。',
     sidebarTitle: '背景工作',
     sidebarNeedsSetup: '完成設定後才會顯示背景工作。',
     sidebarLocked: '先解鎖封存',

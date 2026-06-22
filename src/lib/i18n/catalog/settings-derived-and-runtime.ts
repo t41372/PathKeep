@@ -76,7 +76,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       'Tracked for v0.3 and not available in v0.2.0. This future worker will revisit pages only after the feature is reliable enough to ship.',
     readableContentPlugin: 'Readable content fetcher',
     readableContentDescription:
-      'This future worker will fetch readable webpage bodies. It is disabled in v0.2.0 so PathKeep does not pretend it can save page text today.',
+      'Fetches site content for pages you already visited — a GitHub repo’s description and topics, or a short readable page summary — and enriches them locally. Optional and off by default; you turn it on under Site content, where it stays offline-first and contacts no site until you consent.',
     readableContentDeferredBadge: 'Coming in v0.3',
     readableContentDeferredTooltip:
       'Webpage body fetching is coming in a future update.',
@@ -263,7 +263,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       '已排入 v0.3，v0.2.0 暂不开放。这个未来任务会在足够可靠后，再重新访问页面并提取正文。',
     readableContentPlugin: '网页可读内容抓取',
     readableContentDescription:
-      '这个未来任务会抓取网页正文。v0.2.0 中它保持禁用，PathKeep 不会假装现在已经能保存网页正文。',
+      '为你已经访问过的页面抓取站点内容——GitHub 仓库的描述和主题，或网页的简短可读摘要——并在本机补充进去。可选，默认关闭；你可在「站点内容」里打开，它始终离线优先，在你同意前绝不会联系任何站点。',
     readableContentDeferredBadge: 'v0.3 开放',
     readableContentDeferredTooltip: '网页正文抓取会在后续版本开放。',
     visitDerivedFactsModule: '访问派生事实',
@@ -441,7 +441,7 @@ export const settingsDerivedAndRuntimeNamespace = {
       '已排入 v0.3，v0.2.0 暫不開放。這個未來工作會在足夠可靠後，再重新造訪頁面並提取正文。',
     readableContentPlugin: '網頁可讀內容擷取',
     readableContentDescription:
-      '這個未來工作會擷取網頁正文。v0.2.0 中它保持停用，PathKeep 不會假裝現在已經能保存網頁正文。',
+      '為你已經造訪過的頁面擷取網站內容——GitHub 儲存庫的描述和主題，或網頁的簡短可讀摘要——並在本機補充進去。可選，預設關閉；你可在「網站內容」裡打開，它始終離線優先，在你同意前絕不會聯絡任何網站。',
     readableContentDeferredBadge: 'v0.3 開放',
     readableContentDeferredTooltip: '網頁正文擷取會在後續版本開放。',
     visitDerivedFactsModule: '造訪衍生事實',
