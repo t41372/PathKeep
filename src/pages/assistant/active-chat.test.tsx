@@ -1077,8 +1077,11 @@ describe('AssistantPage — active streaming chat', () => {
     expect(screen.getByText('reopened question')).toBeVisible()
   })
 
-  // ASSIST-2: per-message Copy + Regenerate on a COMPLETED answer; Regenerate re-runs the question.
-  test('ASSIST-2: Copy + Regenerate appear on a completed answer and Regenerate re-sends', async () => {
+  // M-9 / ASSIST-2: Regenerate on the latest completed turn replaces the answer IN PLACE — it does
+  // NOT append a duplicate question or leave the stale answer behind. This drives the real
+  // `useAiChatStream` end-to-end and asserts the END STATE (rendered transcript + the persisted
+  // transcript shape), not merely that a second `sendAiChat` fired.
+  test('M-9: Regenerate replaces the latest answer in place (no duplicate question, old answer gone)', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()
     enableAi(snapshot)
@@ -1088,22 +1091,29 @@ describe('AssistantPage — active streaming chat', () => {
     vi.spyOn(backend, 'listAiConversations').mockResolvedValue({
       conversations: [],
     })
-    vi.spyOn(backend, 'saveAiConversation').mockResolvedValue({
-      id: 'conv-regen',
-      title: 'regen',
-      providerId: 'llm-local',
-      createdAt: '2026-06-20T12:00:00Z',
-      updatedAt: '2026-06-20T12:00:00Z',
-      messageCount: 2,
-    })
+    const saveConversation = vi
+      .spyOn(backend, 'saveAiConversation')
+      .mockResolvedValue({
+        id: 'conv-regen',
+        title: 'regen',
+        providerId: 'llm-local',
+        createdAt: '2026-06-20T12:00:00Z',
+        updatedAt: '2026-06-20T12:00:00Z',
+        messageCount: 2,
+      })
 
     renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
 
     const input = await screen.findByTestId('assistant-chat-input')
     await user.type(input, 'first question{enter}')
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(1))
-    emit({ kind: 'token', text: 'a completed answer' })
+    emit({ kind: 'token', text: 'the first answer' })
     emit({ kind: 'done' })
+
+    // The first turn persisted exactly one Q + one A.
+    await waitFor(() => expect(saveConversation).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('first question')).toBeVisible()
+    expect(screen.getByText('the first answer')).toBeVisible()
 
     // The per-message actions appear on the finalized answer.
     const copyButton = await screen.findByLabelText(
@@ -1113,13 +1123,50 @@ describe('AssistantPage — active streaming chat', () => {
     const regenerate = screen.getByLabelText(assistantT('chatRegenerateAnswer'))
     expect(regenerate).toBeVisible()
 
-    // Regenerate re-runs the assistant on the same question (a second sendAiChat call).
+    // Regenerate the latest completed turn: a fresh run re-answers the SAME existing user turn.
     await user.click(regenerate)
     await waitFor(() => expect(sendChat).toHaveBeenCalledTimes(2))
+
+    // The re-run's model transcript ends with the SAME user question — and carries NO duplicate of
+    // it (exactly one user message in the request transcript).
     const secondTurn = sendChat.mock.calls[1][0]
     expect(secondTurn.messages.at(-1)).toMatchObject({
       role: 'user',
       content: 'first question',
+    })
+    expect(
+      secondTurn.messages.filter(
+        (m) => m.role === 'user' && m.content === 'first question',
+      ),
+    ).toHaveLength(1)
+
+    // Stream the regenerated answer and finalize it.
+    emit({ kind: 'token', text: 'a regenerated answer' })
+    emit({ kind: 'done' })
+
+    // END STATE in the rendered transcript: the question is NOT duplicated, the old answer is gone,
+    // and only the regenerated answer remains.
+    expect(screen.getAllByText('first question')).toHaveLength(1)
+    expect(screen.getByText('a regenerated answer')).toBeVisible()
+    expect(screen.queryByText('the first answer')).not.toBeInTheDocument()
+
+    // The PERSISTED transcript reflects the replacement: still exactly one user turn + one assistant
+    // turn (the regenerated answer), never a duplicated question or a stale answer.
+    await waitFor(() => expect(saveConversation).toHaveBeenCalledTimes(2))
+    const firstPersisted = saveConversation.mock.calls[0][0]
+    const persisted = saveConversation.mock.calls[1][0]
+    // Same conversation row — the regeneration replaces the transcript in place, not a new chat.
+    expect(persisted.id).toBe(firstPersisted.id)
+    expect(persisted.messages).toHaveLength(2)
+    expect(persisted.messages.filter((m) => m.role === 'user')).toHaveLength(1)
+    expect(persisted.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'first question',
+    })
+    expect(persisted.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: 'a regenerated answer',
+      status: 'done',
     })
   })
 

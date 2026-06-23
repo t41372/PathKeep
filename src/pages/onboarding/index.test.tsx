@@ -990,8 +990,15 @@ describe('OnboardingPage', () => {
     expect(screen.getByRole('button', { name: 'finish' })).toBeInTheDocument()
   })
 
-  test('deep-links "Set up AI in Settings" to the AI settings section', async () => {
+  // M-10: "Set up AI in Settings" must NOT navigate away mid-onboarding (that would unmount the page
+  // and discard the local `step` + the confirmed master-password draft). Instead it records an
+  // in-flow intent and advances to the final review; the entered password survives, and the deep-link
+  // to AI settings is honored only AFTER the archive is initialized via Finish.
+  test('M-10: "Set up AI in Settings" keeps the flow + password draft, then deep-links after finish', async () => {
     const user = userEvent.setup()
+    const initializeArchive = vi.fn().mockResolvedValue(undefined)
+    const runBackup = vi.fn().mockResolvedValue(undefined)
+    shellData.current = shellDataFixture({ initializeArchive, runBackup })
     render(
       <MemoryRouter initialEntries={['/onboarding']}>
         <I18nProvider>
@@ -1004,16 +1011,34 @@ describe('OnboardingPage', () => {
     await user.click(screen.getByRole('button', { name: 'begin' }))
     await user.click(screen.getByRole('button', { name: 'browser-continue' }))
     await user.click(screen.getByRole('button', { name: 'storage-continue' }))
+    // Encrypted mode + a matching, confirmed master password (the draft that must NOT be lost).
     await user.click(
       screen.getByRole('button', { name: 'security-password-match' }),
     )
     await user.click(screen.getByRole('button', { name: 'security-continue' }))
     await waitFor(() => expect(backend.previewSchedule).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'schedule-skip' }))
-    await user.click(screen.getByRole('button', { name: 'ai-setup' }))
 
+    // Tapping the AI CTA does NOT leave onboarding: the route is still /onboarding (no deep-link
+    // yet) and the flow lands on the final review (the Finish affordance is present).
+    await user.click(screen.getByRole('button', { name: 'ai-setup' }))
     expect(screen.getByTestId('location-probe')).toHaveTextContent(
-      '/settings#settings-ai',
+      '/onboarding',
+    )
+    expect(screen.getByRole('button', { name: 'finish' })).toBeInTheDocument()
+
+    // Finish: the master-password draft survived (initializeArchive runs with 'secret'), and the
+    // recorded intent deep-links to AI settings AFTER the archive is set up.
+    await user.click(screen.getByRole('button', { name: 'finish' }))
+    expect(initializeArchive).toHaveBeenCalledWith(
+      expect.objectContaining({ archiveMode: 'Encrypted' }),
+      'secret',
+    )
+    expect(runBackup).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe')).toHaveTextContent(
+        '/settings#settings-ai',
+      ),
     )
   })
 })

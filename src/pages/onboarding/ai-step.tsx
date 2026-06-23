@@ -30,7 +30,12 @@ import {
 import { useI18n } from '../../lib/i18n'
 
 export interface AiStepProps {
-  /** Deep-link the user to the AI section of Settings (`/settings#settings-ai`). */
+  /**
+   * Record the in-flow "open AI settings after finishing setup" intent and advance to the final
+   * review (M-10). It does NOT navigate away here — the route owner deep-links to
+   * `/settings#settings-ai` only after the archive is initialized, so the onboarding step + the
+   * confirmed master-password draft are never discarded mid-flow.
+   */
   onSetUpAi: () => void
   /** Advance past this optional step without enabling AI. */
   onSkip: () => void

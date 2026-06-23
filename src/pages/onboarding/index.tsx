@@ -89,6 +89,11 @@ export function OnboardingPage() {
   const [scheduleSetupMode, setScheduleSetupMode] = useState<
     'install' | 'skip' | null
   >(null)
+  // M-10: an IN-FLOW intent — "after this archive is set up, open AI settings". The AI step's CTA
+  // records this and advances to the final review WITHOUT navigating away, so the entered/confirmed
+  // master-password draft + step position are never discarded mid-onboarding. `handleFinish` honors
+  // it as a post-initialize deep-link (AI settings need an initialized archive anyway).
+  const [aiSetupRequested, setAiSetupRequested] = useState(false)
 
   useEffect(() => {
     if (step !== 4 || !snapshot) {
@@ -264,15 +269,20 @@ export function OnboardingPage() {
   }
 
   // The AI step is purely optional and never enables AI or writes config; both "Set up AI in
-  // Settings" and "Skip for now" simply advance to the final review. Setting up AI is deferred to
-  // Settings on purpose (keeps onboarding light and AI off-by-default).
+  // Settings" and "Skip for now" advance to the final review. "Set up AI in Settings" does NOT
+  // navigate away mid-flow (M-10) — that would unmount this page and discard the local `step` +
+  // `securityDraft` (the confirmed master password). Instead it records an intent and advances to
+  // review; `handleFinish` deep-links to AI settings AFTER the archive is initialized (which is the
+  // correct order anyway — configuring an AI provider needs an initialized, unlocked archive).
   function handleAiSetUp() {
     setLocalError(null)
-    void navigate('/settings#settings-ai')
+    setAiSetupRequested(true)
+    setStep(6)
   }
 
   function handleAiContinue() {
     setLocalError(null)
+    setAiSetupRequested(false)
     setStep(6)
   }
 
@@ -327,7 +337,10 @@ export function OnboardingPage() {
         }
       }
       await runBackup()
-      void navigate('/')
+      // M-10: honor the in-flow "set up AI" intent now that the archive is initialized + unlocked —
+      // deep-link straight to AI settings instead of the dashboard. The master-password draft was
+      // never discarded because the AI step never navigated away.
+      void navigate(aiSetupRequested ? '/settings#settings-ai' : '/')
     } catch (nextError) {
       setLocalError(formatOnboardingError(nextError, t))
     }

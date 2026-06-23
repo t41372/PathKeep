@@ -550,6 +550,169 @@ describe('useAiChatStream', () => {
     })
   })
 
+  describe('regenerate (M-9 true in-place replace)', () => {
+    /** Drive one full completed turn so the transcript holds exactly [user, doneAssistant]. */
+    async function completedTurn(h: ReturnType<typeof makeHarness>) {
+      act(() => h.hook.result.current.send('the question'))
+      await settle()
+      h.feed({ kind: 'token', text: 'first answer' })
+      act(() => runFrame())
+      h.feed({ kind: 'done' })
+      await settle()
+    }
+
+    test('drops the stale answer and re-streams a fresh one for the SAME user turn', async () => {
+      const sendChat = vi.fn().mockResolvedValue({ runId: 'run-regen' })
+      const h = makeHarness({ sendChat })
+      await completedTurn(h)
+
+      expect(h.hook.result.current.messages).toHaveLength(2)
+      const userId = h.hook.result.current.messages[0].id
+      const firstAssistantId = h.hook.result.current.messages[1].id
+
+      act(() => h.hook.result.current.regenerate())
+      await settle()
+
+      // Still exactly two messages: the EXISTING user turn (unchanged id) + a NEW streaming
+      // assistant turn — no duplicate question was appended.
+      const after = h.hook.result.current.messages
+      expect(after).toHaveLength(2)
+      expect(after[0].id).toBe(userId)
+      expect(after[0]).toMatchObject({ role: 'user', content: 'the question' })
+      expect(after[1].role).toBe('assistant')
+      expect(after[1].id).not.toBe(firstAssistantId) // the stale answer object is gone
+      expect(after[1].status).toBe('streaming')
+      expect(after[1].content).toBe('')
+
+      // The model transcript for the re-run is the history UP TO the user turn: exactly one user
+      // message, no stale assistant answer, no duplicated question.
+      expect(sendChat).toHaveBeenCalledTimes(2)
+      const transcript = sendChat.mock.calls[1][0].messages as AiChatMessage[]
+      expect(transcript).toEqual([{ role: 'user', content: 'the question' }])
+    })
+
+    test('the regenerated answer replaces the old one in the finalized transcript', async () => {
+      const onTurnFinalized = vi.fn()
+      const sendChat = vi.fn().mockResolvedValue({ runId: 'run-regen' })
+      let feed: ((chunk: AiChatStreamChunk) => void) | null = null
+      const subscribe = vi.fn(
+        (_runId: string, listener: (chunk: AiChatStreamChunk) => void) => {
+          feed = listener
+          return Promise.resolve(vi.fn() as () => void)
+        },
+      )
+      const hook = renderHook(() =>
+        useAiChatStream({
+          sendChat,
+          cancelChat: vi.fn().mockResolvedValue({ cancelled: true }),
+          subscribe,
+          onTurnFinalized,
+        }),
+      )
+
+      act(() => hook.result.current.send('q'))
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      act(() => feed?.({ kind: 'token', text: 'old answer' }))
+      act(() => runFrame())
+      act(() => feed?.({ kind: 'done' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      onTurnFinalized.mockClear()
+      act(() => hook.result.current.regenerate())
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      act(() => feed?.({ kind: 'token', text: 'new answer' }))
+      act(() => runFrame())
+      act(() => feed?.({ kind: 'done' }))
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      // The finalized transcript carries one user turn + the regenerated answer — not both answers
+      // and not a duplicated question.
+      expect(onTurnFinalized).toHaveBeenCalledTimes(1)
+      const finalized = onTurnFinalized.mock.calls[0][0] as Array<{
+        role: string
+        content: string
+        status?: string
+      }>
+      expect(finalized).toHaveLength(2)
+      expect(finalized[0]).toMatchObject({ role: 'user', content: 'q' })
+      expect(finalized[1]).toMatchObject({
+        role: 'assistant',
+        content: 'new answer',
+        status: 'done',
+      })
+    })
+
+    test('is a no-op while a turn is still streaming', async () => {
+      const sendChat = vi.fn().mockResolvedValue({ runId: 'run-1' })
+      const h = makeHarness({ sendChat })
+      act(() => h.hook.result.current.send('streaming q'))
+      await settle()
+      // Mid-stream (no terminal chunk yet): regenerate must not start a second run.
+      act(() => h.hook.result.current.regenerate())
+      expect(sendChat).toHaveBeenCalledTimes(1)
+      expect(h.hook.result.current.messages).toHaveLength(2)
+    })
+
+    test('is a no-op on an empty transcript', () => {
+      const h = makeHarness()
+      act(() => h.hook.result.current.regenerate())
+      expect(h.sendChat).not.toHaveBeenCalled()
+      expect(h.hook.result.current.messages).toHaveLength(0)
+    })
+
+    test('is a no-op when the last message is not an assistant turn', () => {
+      const h = makeHarness()
+      // A hydrated transcript whose last message is a USER turn (no assistant answer to replace).
+      act(() =>
+        h.hook.result.current.reset([
+          { id: 'a', role: 'assistant', content: 'prior', status: 'done' },
+          { id: 'u', role: 'user', content: 'dangling question' },
+        ]),
+      )
+      act(() => h.hook.result.current.regenerate())
+      expect(h.sendChat).not.toHaveBeenCalled()
+      expect(h.hook.result.current.messages).toHaveLength(2)
+    })
+
+    test('is a no-op on a lone assistant turn (no preceding message at all)', () => {
+      const h = makeHarness()
+      // A lone assistant turn with no preceding message: nothing to re-answer (length guard).
+      act(() =>
+        h.hook.result.current.reset([
+          { id: 'a', role: 'assistant', content: 'orphan', status: 'done' },
+        ]),
+      )
+      act(() => h.hook.result.current.regenerate())
+      expect(h.sendChat).not.toHaveBeenCalled()
+      expect(h.hook.result.current.messages).toHaveLength(1)
+    })
+
+    test('is a no-op when the message before the answer is not a user turn', () => {
+      const h = makeHarness()
+      // The completed assistant answer is preceded by ANOTHER assistant turn, not a user turn — so
+      // there is no single user question to re-answer in place (precedingUser guard).
+      act(() =>
+        h.hook.result.current.reset([
+          { id: 'a1', role: 'assistant', content: 'note', status: 'done' },
+          { id: 'a2', role: 'assistant', content: 'answer', status: 'done' },
+        ]),
+      )
+      act(() => h.hook.result.current.regenerate())
+      expect(h.sendChat).not.toHaveBeenCalled()
+      expect(h.hook.result.current.messages).toHaveLength(2)
+    })
+  })
+
   test('reset clears the transcript, tears down a live turn, and cancels the run', async () => {
     const h = makeHarness()
     act(() => h.hook.result.current.send('q'))

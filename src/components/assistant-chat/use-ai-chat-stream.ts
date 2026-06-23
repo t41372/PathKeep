@@ -44,6 +44,19 @@ function nextMessageId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** Build a fresh, streaming assistant message (the empty turn that a run fills in). */
+function freshAssistantMessage(id: string): ChatMessage {
+  return {
+    id,
+    role: 'assistant',
+    content: '',
+    reasoning: '',
+    toolCalls: [],
+    citations: [],
+    status: 'streaming',
+  }
+}
+
 /** Lifecycle of one tool call in the transparency timeline (W-AI-7). */
 export type AssistantToolCallStatus = 'pending' | 'success' | 'error'
 
@@ -176,6 +189,15 @@ export interface AiChatStreamState {
   awaitingFirstChunk: boolean
   /** Send a new user turn. No-op when blank or already streaming. */
   send: (text: string) => void
+  /**
+   * Regenerate the LATEST completed assistant turn IN PLACE: drop the trailing assistant answer and
+   * re-stream a fresh one for the SAME existing user turn — no duplicate question is appended. The
+   * model transcript for the re-run is the conversation UP TO (and including) that user turn, and the
+   * finalized/persisted transcript reflects the replacement (one Q + the regenerated A), never a
+   * duplicate. No-op while streaming, or when the last message is not a completed assistant turn with
+   * a preceding user turn.
+   */
+  regenerate: () => void
   /** Cancel the in-flight turn (best-effort; UI finalizes immediately). */
   cancel: () => void
   /**
@@ -503,13 +525,44 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
     [finalize, handleChunk],
   )
 
-  const send = useCallback(
-    (text: string) => {
-      const prompt = text.trim()
-      if (!prompt) return
-      if (streamingRef.current) return
+  /**
+   * Project an in-memory chat-message list into the model transcript: the optional system prompt
+   * followed by every user turn and every non-empty assistant turn, in order. Shared by `send` and
+   * `regenerate` so both build the request identically — the only difference is WHICH slice of the
+   * transcript each passes in (send: the whole prior history; regenerate: history up to and including
+   * the user turn being re-answered, with the stale assistant answer excluded).
+   */
+  const buildModelTranscript = useCallback(
+    (history: readonly ChatMessage[]): AiChatMessage[] => {
+      const transcript: AiChatMessage[] = []
+      const system = depsRef.current.systemPrompt
+      if (system && system.trim()) {
+        transcript.push({ role: 'system', content: system })
+      }
+      for (const message of history) {
+        if (message.role === 'user') {
+          transcript.push({ role: 'user', content: message.content })
+        } else if (message.content) {
+          transcript.push({ role: 'assistant', content: message.content })
+        }
+      }
+      return transcript
+    },
+    [],
+  )
 
-      // Supersede any prior turn; reset the live buffer.
+  /**
+   * Common turn bootstrap shared by `send` and `regenerate`: supersede any prior turn, reset the
+   * live buffer, mint a fresh assistant message id, flip the stream flags, and start the run. The
+   * caller supplies the next committed message list (with the fresh `streaming` assistant turn
+   * already appended) and the model transcript to send.
+   */
+  const beginTurn = useCallback(
+    (params: {
+      nextMessages: ChatMessage[]
+      assistantId: string
+      transcript: AiChatMessage[]
+    }) => {
       const generation = ++genRef.current
       stopRaf()
       teardownSubscription()
@@ -521,6 +574,22 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         citations: [],
         sawFirstChunk: false,
       }
+      activeIdRef.current = params.assistantId
+      setMessages(params.nextMessages)
+      setStreaming(true)
+      setAwaitingFirstChunk(true)
+      // The assistant message id doubles as the agent run's `messageId` so the durable trace links
+      // to the exact turn it answers.
+      startRun(params.transcript, generation, params.assistantId)
+    },
+    [startRun, stopRaf, teardownSubscription],
+  )
+
+  const send = useCallback(
+    (text: string) => {
+      const prompt = text.trim()
+      if (!prompt) return
+      if (streamingRef.current) return
 
       const userMessage: ChatMessage = {
         id: nextMessageId('user'),
@@ -528,43 +597,50 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
         content: prompt,
       }
       const assistantId = nextMessageId('assistant')
-      const assistantMessage: ChatMessage = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        reasoning: '',
-        toolCalls: [],
-        citations: [],
-        status: 'streaming',
-      }
-      activeIdRef.current = assistantId
+      const assistantMessage = freshAssistantMessage(assistantId)
 
-      // Build the transcript from the prior messages (read from the ref so the
-      // setState updater stays side-effect free) plus this prompt.
+      // The model transcript is the prior history (read from the ref so the setState updater stays
+      // side-effect free) plus this new prompt.
       const prior = messagesRef.current
-      const transcript: AiChatMessage[] = []
-      const system = depsRef.current.systemPrompt
-      if (system && system.trim()) {
-        transcript.push({ role: 'system', content: system })
-      }
-      for (const message of prior) {
-        if (message.role === 'user') {
-          transcript.push({ role: 'user', content: message.content })
-        } else if (message.content) {
-          transcript.push({ role: 'assistant', content: message.content })
-        }
-      }
+      const transcript = buildModelTranscript(prior)
       transcript.push({ role: 'user', content: prompt })
 
-      setMessages((current) => [...current, userMessage, assistantMessage])
-      setStreaming(true)
-      setAwaitingFirstChunk(true)
-      // The assistant message id doubles as the agent run's `messageId` so the durable trace links
-      // to the exact turn it answers.
-      startRun(transcript, generation, assistantId)
+      beginTurn({
+        nextMessages: [...prior, userMessage, assistantMessage],
+        assistantId,
+        transcript,
+      })
     },
-    [startRun, stopRaf, teardownSubscription],
+    [beginTurn, buildModelTranscript],
   )
+
+  const regenerate = useCallback(() => {
+    if (streamingRef.current) return
+    const prior = messagesRef.current
+    // Regenerate is only valid on the LATEST completed turn: the last message must be an assistant
+    // turn that has finished (done / error / cancelled), with a user turn immediately before it.
+    const lastIndex = prior.length - 1
+    if (lastIndex < 1) return
+    const last = prior[lastIndex]
+    if (last.role !== 'assistant' || last.status === 'streaming') return
+    const precedingUser = prior[lastIndex - 1]
+    if (precedingUser.role !== 'user') return
+
+    // Drop the stale assistant answer; keep the existing user turn in place (no duplicate question).
+    // The history up to and including that user turn is both the new committed prefix and the basis
+    // for the model transcript, so the re-run answers the SAME question without re-appending it.
+    const historyThroughUser = prior.slice(0, lastIndex)
+    const transcript = buildModelTranscript(historyThroughUser)
+
+    const assistantId = nextMessageId('assistant')
+    const assistantMessage = freshAssistantMessage(assistantId)
+
+    beginTurn({
+      nextMessages: [...historyThroughUser, assistantMessage],
+      assistantId,
+      transcript,
+    })
+  }, [beginTurn, buildModelTranscript])
 
   const cancel = useCallback(() => {
     if (!streamingRef.current) return
@@ -624,5 +700,13 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
     }
   }, [stopRaf, teardownSubscription])
 
-  return { messages, streaming, awaitingFirstChunk, send, cancel, reset }
+  return {
+    messages,
+    streaming,
+    awaitingFirstChunk,
+    send,
+    regenerate,
+    cancel,
+    reset,
+  }
 }

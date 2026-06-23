@@ -178,29 +178,33 @@ export function AssistantPage() {
   // provider change between turns is picked up without re-subscribing mid-stream. `onTurnFinalized`
   // persists each finished turn off the main thread (never per chunk), so saving cannot jank the
   // stream.
-  const { messages, streaming, awaitingFirstChunk, send, cancel, reset } =
-    useAiChatStream({
-      sendChat: useCallback((request) => backend.sendAiChat(request), []),
-      cancelChat: useCallback(
-        (runId: string) => backend.cancelAiChat(runId),
-        [],
-      ),
-      subscribe: subscribeToAiChatStream,
-      providerId: llmProvider?.id ?? null,
-      // The history assistant answers OVER history: it runs WITH the tool-executing agent harness by
-      // default (the search tools retrieve real rows, the answer cites them). `conversationId` links
-      // the durable agent trace to this conversation (the backend FK self-heals if not yet saved).
-      toolsEnabled: true,
-      conversationId: history.activeId,
-      systemPrompt: snapshot?.config.ai.assistantSystemPrompt ?? null,
-      onTurnFinalized: history.persistTurn,
-      // Resolve the harness's stable control-note CODES (review-fix M-6) to localized copy; the
-      // harness never streams raw English for these now.
-      localizeAgentNote: useCallback(
-        (code: AiAgentNote) => localizeAiAgentNote(code, assistantT),
-        [assistantT],
-      ),
-    })
+  const {
+    messages,
+    streaming,
+    awaitingFirstChunk,
+    send,
+    regenerate,
+    cancel,
+    reset,
+  } = useAiChatStream({
+    sendChat: useCallback((request) => backend.sendAiChat(request), []),
+    cancelChat: useCallback((runId: string) => backend.cancelAiChat(runId), []),
+    subscribe: subscribeToAiChatStream,
+    providerId: llmProvider?.id ?? null,
+    // The history assistant answers OVER history: it runs WITH the tool-executing agent harness by
+    // default (the search tools retrieve real rows, the answer cites them). `conversationId` links
+    // the durable agent trace to this conversation (the backend FK self-heals if not yet saved).
+    toolsEnabled: true,
+    conversationId: history.activeId,
+    systemPrompt: snapshot?.config.ai.assistantSystemPrompt ?? null,
+    onTurnFinalized: history.persistTurn,
+    // Resolve the harness's stable control-note CODES (review-fix M-6) to localized copy; the
+    // harness never streams raw English for these now.
+    localizeAgentNote: useCallback(
+      (code: AiAgentNote) => localizeAiAgentNote(code, assistantT),
+      [assistantT],
+    ),
+  })
 
   // Evidence-row stars: reuse the batched/optimistic stars hook (kind `url`, keyed by the citation's
   // canonical url — the W-STAR key). The bubble only renders a star toggle for rows that carry a
@@ -513,7 +517,7 @@ export function AssistantPage() {
             }}
             onCancel={cancel}
             onRetry={handleRetry}
-            onRegenerate={handleRetry}
+            onRegenerate={regenerate}
             onPickPrompt={(prompt) => setInput(prompt.text)}
             evidenceFor={evidenceFor}
             onSelectEvidence={handleSelectEvidence}
