@@ -39,10 +39,11 @@ pub fn ai_index_status(
             queue_paused: default_queue_status.paused,
             queue_concurrency: default_queue_status.concurrency,
             warning: if config.ai.enabled {
-                Some("Initialize the archive before using AI analysis features.".to_string())
+                Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized))
             } else {
                 None
             },
+            warning_code: config.ai.enabled.then_some(AiIndexWarning::ArchiveNotInitialized),
             ..AiIndexStatus::default()
         });
     }
@@ -117,7 +118,7 @@ pub fn ai_index_status(
         )
     });
     let ready = indexed_items > 0 && provider_readiness.available;
-    let (state, warning) = ai_index_state_and_warning(
+    let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
         &queue_status,
@@ -147,7 +148,48 @@ pub fn ai_index_status(
         semantic_metadata_bytes,
         estimated_embedding_tokens,
         warning,
+        warning_code,
     })
+}
+
+/// Renders the English MODEL-facing / legacy text for an index-health warning CODE (review-fix M-7).
+///
+/// The wire now carries the stable [`AiIndexWarning`] CODE so the FE localizes it; this keeps the
+/// legacy `AiIndexStatus.warning` string populated (for backward compatibility and any non-localizing
+/// consumer) from the SAME code, so the code and its English rendering can never drift. Interpolated
+/// variants compose the same sentence shape the prior `format!` calls produced.
+pub(super) fn ai_index_warning_text(code: &AiIndexWarning) -> String {
+    match code {
+        AiIndexWarning::ArchiveNotInitialized => {
+            "Initialize the archive before using AI analysis features.".to_string()
+        }
+        AiIndexWarning::NoEmbeddingProvider => {
+            "Select an embedding provider in Settings before enabling semantic retrieval."
+                .to_string()
+        }
+        AiIndexWarning::EmbeddingProviderMissing { provider_id } => {
+            format!("Embedding provider {provider_id} is no longer available in Settings.")
+        }
+        AiIndexWarning::EmbeddingProviderDisabled { provider_name } => {
+            format!("Enable provider {provider_name} before using semantic retrieval.")
+        }
+        AiIndexWarning::EmbeddingProviderNoApiKey { provider_name } => {
+            format!(
+                "Store an API key for provider {provider_name} before using semantic retrieval."
+            )
+        }
+        AiIndexWarning::EmbeddingProviderNoModel { provider_name } => {
+            format!(
+                "Choose a default model for provider {provider_name} before using semantic retrieval."
+            )
+        }
+        AiIndexWarning::IndexNotBuilt => {
+            "Run Build index after configuring an embedding provider to enable semantic search."
+                .to_string()
+        }
+        AiIndexWarning::IndexStale { reason } => reason.model_facing_text().to_string(),
+        AiIndexWarning::BuildFailed { reason } => reason.clone(),
+    }
 }
 
 fn ai_index_state_and_warning(
@@ -156,9 +198,9 @@ fn ai_index_state_and_warning(
     queue_status: &AiQueueStatus,
     index_queue_counts: &ai_queue::QueueJobCounts,
     ledger: &AiIndexLedgerRow,
-    staleness_reason: Option<String>,
+    staleness_reason: Option<AiSemanticStaleness>,
     ready: bool,
-) -> (String, Option<String>) {
+) -> (String, Option<String>, Option<AiIndexWarning>) {
     let state = if !config.ai.enabled {
         "disabled".to_string()
     } else if !provider_readiness.available {
@@ -178,21 +220,29 @@ fn ai_index_state_and_warning(
     } else {
         "empty".to_string()
     };
-    let warning = if ledger.state == "failed" {
-        ledger.failure_reason.clone().or_else(|| ledger.last_failure_at.clone())
+    // Resolve the legacy English STRING and the stable CODE together so the FE always has a code to
+    // localize and the legacy string stays populated for any non-localizing consumer. A failed build
+    // carries its opaque transport reason (no fixed vocabulary, so the code wraps the same text);
+    // when it has no failure_reason it falls back to the last-failure timestamp (uncoded). The
+    // unavailable-provider branch reuses the readiness's own pre-rendered string + code so the exact
+    // missing prerequisite is preserved on both surfaces.
+    let (warning, warning_code) = if ledger.state == "failed" {
+        match ledger.failure_reason.clone() {
+            Some(reason) => (Some(reason.clone()), Some(AiIndexWarning::BuildFailed { reason })),
+            None => (ledger.last_failure_at.clone(), None),
+        }
     } else if !provider_readiness.available {
-        provider_readiness.warning.clone()
-    } else if staleness_reason.is_some() {
-        staleness_reason
+        (provider_readiness.warning.clone(), provider_readiness.warning_code.clone())
+    } else if let Some(reason) = staleness_reason {
+        let code = AiIndexWarning::IndexStale { reason };
+        (Some(ai_index_warning_text(&code)), Some(code))
     } else if config.ai.enabled && !ready {
-        Some(
-            "Run Build index after configuring an embedding provider to enable semantic search."
-                .to_string(),
-        )
+        let code = AiIndexWarning::IndexNotBuilt;
+        (Some(ai_index_warning_text(&code)), Some(code))
     } else {
-        None
+        (None, None)
     };
-    (state, warning)
+    (state, warning, warning_code)
 }
 
 /// Loads the persisted AI queue read model.
@@ -473,11 +523,13 @@ mod tests {
         let ready_provider = ProviderReadiness {
             available: true,
             warning: None,
+            warning_code: None,
             selected_model: Some("model".to_string()),
         };
         let unavailable_provider = ProviderReadiness {
             available: false,
             warning: Some("provider warning".to_string()),
+            warning_code: Some(AiIndexWarning::NoEmbeddingProvider),
             selected_model: None,
         };
         let queue = AiQueueStatus::default();
@@ -515,7 +567,14 @@ mod tests {
             None,
             false,
         );
-        assert_eq!(degraded, ("degraded".to_string(), Some("provider warning".to_string())));
+        assert_eq!(
+            degraded,
+            (
+                "degraded".to_string(),
+                Some("provider warning".to_string()),
+                Some(AiIndexWarning::NoEmbeddingProvider),
+            )
+        );
         assert_eq!(
             ai_index_state_and_warning(
                 &config,
@@ -552,20 +611,47 @@ mod tests {
                 None,
                 false,
             ),
-            ("failed".to_string(), Some("embedding run failed".to_string()))
+            (
+                "failed".to_string(),
+                Some("embedding run failed".to_string()),
+                Some(AiIndexWarning::BuildFailed { reason: "embedding run failed".to_string() }),
+            )
         );
+        // A failed ledger with NO failure_reason falls back to the (uncoded) last-failure timestamp.
+        let failed_no_reason = AiIndexLedgerRow {
+            state: "failed".to_string(),
+            failure_reason: None,
+            last_failure_at: Some("2026-06-23T00:00:00Z".to_string()),
+            ..AiIndexLedgerRow::default()
+        };
         assert_eq!(
             ai_index_state_and_warning(
                 &config,
                 &ready_provider,
                 &queue,
                 &empty_counts,
-                &AiIndexLedgerRow::default(),
-                Some("source watermark moved".to_string()),
-                true,
+                &failed_no_reason,
+                None,
+                false,
             ),
-            ("stale".to_string(), Some("source watermark moved".to_string()))
+            ("failed".to_string(), Some("2026-06-23T00:00:00Z".to_string()), None)
         );
+        let stale = ai_index_state_and_warning(
+            &config,
+            &ready_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            Some(AiSemanticStaleness::Watermark),
+            true,
+        );
+        assert_eq!(stale.0, "stale");
+        assert_eq!(
+            stale.2,
+            Some(AiIndexWarning::IndexStale { reason: AiSemanticStaleness::Watermark })
+        );
+        // The legacy string is the watermark sentence derived from the same code.
+        assert!(stale.1.expect("stale warning").contains("import watermark"));
         assert_eq!(
             ai_index_state_and_warning(
                 &config,

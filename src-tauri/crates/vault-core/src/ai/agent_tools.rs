@@ -722,6 +722,7 @@ mod tests {
                 enrichment_excerpt: None,
             }],
             notes: vec!["lexical only".to_string()],
+            note_codes: Vec::new(),
             next_cursor: None,
         };
         let text = summarize_search_for_model("search_hybrid", &response);
@@ -736,6 +737,7 @@ mod tests {
             model: "m1".to_string(),
             items: Vec::new(),
             notes: vec!["nothing".to_string()],
+            note_codes: Vec::new(),
             next_cursor: None,
         };
         let empty_text = summarize_search_for_model("search_bm25", &empty);

@@ -67,7 +67,7 @@ export const jobsNamespaceCatalog = {
       'Local rebuilds update cards and evidence without waiting on future AI features or optional site-content fetches.',
     queueSummaryTitle: 'Assistant and embedding queue',
     queueSummaryBody:
-      'Optional assistant and embedding work is tracked for v0.3. Existing queued items stay reviewable if they are present.',
+      'Optional assistant and embedding work is available but off by default — enable it in Settings. Queued items show their live counts below and stay reviewable here.',
     runtimeSummaryTitle: 'Local analysis',
     runtimeSummaryBody:
       'Analysis refreshes and content work keep a recoverable record of what ran, failed, or still waits.',
@@ -236,7 +236,7 @@ export const jobsNamespaceCatalog = {
       '本地重建会更新卡片和证据，不会等待后续版本才开放的 AI 功能或可选的站点内容抓取。',
     queueSummaryTitle: '助手与嵌入队列',
     queueSummaryBody:
-      '助手与嵌入任务已排入 v0.3；如果存在旧的排队项，仍可在这里检查。',
+      '可选的助手与嵌入任务已可用，但默认关闭——在设置中开启即可。排队项的实时计数显示在下方，并可在这里查看。',
     runtimeSummaryTitle: '本地分析',
     runtimeSummaryBody:
       '分析刷新和内容任务会保留可恢复记录，方便查看哪些已完成、失败或仍在等待。',
@@ -401,7 +401,7 @@ export const jobsNamespaceCatalog = {
       '本機重建會更新卡片和證據，不會等待後續版本才開放的 AI 功能或可選的網站內容擷取。',
     queueSummaryTitle: '助手與嵌入佇列',
     queueSummaryBody:
-      '助手與嵌入工作已排入 v0.3；如果存在舊的排隊項，仍可在這裡檢查。',
+      '可選的助手與嵌入工作已可用，但預設關閉——在設定中開啟即可。排隊項的即時計數顯示在下方，並可在這裡查看。',
     runtimeSummaryTitle: '本機分析',
     runtimeSummaryBody:
       '分析重新整理和內容任務會保留可恢復紀錄，方便查看哪些已完成、失敗或仍在等待。',

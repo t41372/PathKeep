@@ -252,6 +252,12 @@ describe('AssistantPage — active streaming chat', () => {
     expect(
       screen.getByText('You first read about Tauri in April.'),
     ).toBeVisible()
+    // A harness control note (review-fix M-6) is resolved to LOCALIZED copy through the route's
+    // assistant translator and appended to the visible answer — never the raw English code/sentence.
+    emit({ kind: 'note', code: { code: 'maxStepsReached' } })
+    expect(
+      await screen.findByText(/maximum number of assistant steps/),
+    ).toBeVisible()
     // Cancel button is shown while streaming.
     expect(screen.getByTestId('assistant-chat-cancel')).toBeVisible()
 

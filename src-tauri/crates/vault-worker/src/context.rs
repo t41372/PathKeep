@@ -20,8 +20,8 @@
 use anyhow::{Context, Result};
 use tokio::runtime::Runtime;
 use vault_core::{
-    AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchResponse,
-    AppConfig, AppLockStatus, IntelligenceStatus, ai_index_status, ai_queue,
+    AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchNote,
+    AiSearchResponse, AppConfig, AppLockStatus, IntelligenceStatus, ai_index_status, ai_queue,
     app_lock_status_with_biometric, archive, ensure_app_lock_unlocked, hydrate_app_lock_config,
     intelligence_status, load_config,
 };
@@ -200,15 +200,19 @@ pub(crate) fn selected_optional_embedding_runtime(
 }
 
 /// Adds an explicit lexical-fallback note when semantic provider resolution fails.
+///
+/// Review-fix M-6: emit a stable [`AiSearchNote::ProviderResolutionFailed`] CODE (carrying the opaque
+/// transport error STRUCTURALLY) so the front end localizes it, and derive the legacy English
+/// `notes` string from that SAME code via [`AiSearchNote::model_facing_text`] (model-facing /
+/// persisted-trace only) — never push raw English prose onto the user-facing wire.
 pub(crate) fn search_response_with_resolution_note(
     mut response: AiSearchResponse,
     resolution_error: Option<anyhow::Error>,
 ) -> AiSearchResponse {
     if let Some(error) = resolution_error {
-        response.notes.push(format!(
-            "Semantic retrieval is unavailable right now: {}. Showing lexical results only.",
-            error
-        ));
+        let note = AiSearchNote::ProviderResolutionFailed { reason: error.to_string() };
+        response.notes.push(note.model_facing_text());
+        response.note_codes.push(note);
     }
     response
 }

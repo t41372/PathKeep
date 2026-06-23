@@ -184,6 +184,24 @@ export interface AiSettings {
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
+/**
+ * One stable, locale-independent index-health warning CODE (review-fix M-7). Mirrors the Rust
+ * `AiIndexWarning` (`#[serde(tag = "code", rename_all = "camelCase")]`). Interpolated variants carry
+ * their params STRUCTURALLY (provider id / name) so the FE composes the localized string; `buildFailed`
+ * carries the opaque transport reason (no fixed vocabulary). The FE maps ALL variants to localized
+ * copy and NEVER matches on the English `AiIndexStatus.warning` sentence.
+ */
+export type AiIndexWarning =
+  | { code: 'archiveNotInitialized' }
+  | { code: 'noEmbeddingProvider' }
+  | { code: 'embeddingProviderMissing'; providerId: string }
+  | { code: 'embeddingProviderDisabled'; providerName: string }
+  | { code: 'embeddingProviderNoApiKey'; providerName: string }
+  | { code: 'embeddingProviderNoModel'; providerName: string }
+  | { code: 'indexNotBuilt' }
+  | { code: 'indexStale'; reason: AiSemanticStaleness }
+  | { code: 'buildFailed'; reason: string }
+
 export interface AiIndexStatus {
   enabled: boolean
   assistantEnabled: boolean
@@ -204,7 +222,16 @@ export interface AiIndexStatus {
   semanticSidecarBytes: number
   semanticMetadataBytes: number
   estimatedEmbeddingTokens: number
+  /**
+   * English warning prose, retained for backward compatibility. The user-facing Settings surface
+   * reads `warningCode` instead and never renders this raw for a code it can localize.
+   */
   warning?: string | null
+  /**
+   * Stable index-health warning CODE (review-fix M-7), additive (mirrors Rust
+   * `#[serde(default, skip_serializing_if)]`). The FE maps ALL variants to localized copy.
+   */
+  warningCode?: AiIndexWarning | null
 }
 
 /**
@@ -549,12 +576,43 @@ export interface AiSearchResultItem {
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
+/**
+ * Why the semantic index is stale (review-fix M-6/M-7). Stable, locale-independent reason CODE shared
+ * by the AI-search degradation notes and the Settings index-health warning. Mirrors the Rust
+ * `AiSemanticStaleness` (`#[serde(rename_all = "camelCase")]`). The FE NEVER renders these raw.
+ */
+export type AiSemanticStaleness = 'watermark' | 'enrichment'
+
+/**
+ * One stable, locale-independent AI-search degradation note CODE (review-fix M-6). Mirrors the Rust
+ * `AiSearchNote` (`#[serde(tag = "code", rename_all = "camelCase")]`). The FE resolves each to
+ * localized copy and NEVER renders these raw; the legacy English `AiSearchResponse.notes` are kept
+ * only for the model-facing agent-tool path + the persisted run trace.
+ */
+export type AiSearchNote =
+  | { code: 'lexicalFallbackNoProvider' }
+  | { code: 'emptySemanticIndex' }
+  | { code: 'semanticMatchesFilteredOut' }
+  | { code: 'configDriftDimension' }
+  | { code: 'configDriftFingerprint' }
+  | { code: 'stale'; reason: AiSemanticStaleness }
+  | { code: 'providerResolutionFailed'; reason: string }
+
 export interface AiSearchResponse {
   total: number
   providerId: string
   model: string
   items: AiSearchResultItem[]
+  /**
+   * English degradation prose, retained for the model-facing agent-tool path + the persisted trace.
+   * The user-facing surface reads `noteCodes` instead and never renders these raw.
+   */
   notes: string[]
+  /**
+   * Stable degradation note CODES (review-fix M-6), additive (mirrors Rust `#[serde(default)]`). One
+   * code per English note in `notes`, same order. The FE resolves each to localized copy.
+   */
+  noteCodes?: AiSearchNote[]
   nextCursor?: string | null
 }
 
@@ -739,8 +797,21 @@ export type AiChatStreamChunk =
     }
   | { kind: 'usage'; promptTokens: number; completionTokens: number }
   | { kind: 'citations'; citations: AiChatCitation[] }
+  | { kind: 'note'; code: AiAgentNote }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
+
+/**
+ * One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+ * Mirrors the Rust `AiAgentNote` (`#[serde(tag = "code", rename_all = "camelCase")]`), streamed inside
+ * an `AiChatStreamChunk` `note` chunk. The FE resolves each to localized copy; these are the
+ * user-facing twin of the harness's model-facing English (which stays English to steer the LLM). The
+ * FE NEVER renders these raw.
+ */
+export type AiAgentNote =
+  | { code: 'maxStepsReached' }
+  | { code: 'tokenBudgetReached' }
+  | { code: 'toolCallingUnavailable' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.

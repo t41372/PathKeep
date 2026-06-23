@@ -119,8 +119,25 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite metadata',
     aiEstimatedTokens: 'Estimated tokens',
     aiIndexWarning: 'Current index warning',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized:
+      'Initialize the archive before using AI analysis features.',
+    aiIndexWarningNoEmbeddingProvider:
       'Select an embedding provider in Settings before enabling semantic retrieval.',
+    aiIndexWarningEmbeddingProviderMissing:
+      'Embedding provider {providerId} is no longer available in Settings.',
+    aiIndexWarningEmbeddingProviderDisabled:
+      'Enable provider {providerName} before using semantic retrieval.',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      'Store an API key for provider {providerName} before using semantic retrieval.',
+    aiIndexWarningEmbeddingProviderNoModel:
+      'Choose a default model for provider {providerName} before using semantic retrieval.',
+    aiIndexWarningIndexNotBuilt:
+      'Run Build index after configuring an embedding provider to enable semantic search.',
+    aiIndexWarningStaleWatermark:
+      'The semantic index no longer matches the current archive. Run Build index so semantic retrieval includes recent imports and reflects reverted rows.',
+    aiIndexWarningStaleEnrichment:
+      'Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text.',
+    aiIndexWarningBuildFailed: 'The last index build failed: {reason}',
     aiIntegrationUnavailable: 'Integration preview unavailable',
     aiIntegrationArtifactsTitle: 'AI integration artifacts',
     aiIntegrationArtifactsSummaryTitle:
@@ -327,8 +344,24 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite 元数据',
     aiEstimatedTokens: '预估 tokens',
     aiIndexWarning: '当前索引警告',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized: '请先初始化存档，再使用 AI 分析功能。',
+    aiIndexWarningNoEmbeddingProvider:
       '请先在设置里选择向量模型，再启用语义检索。',
+    aiIndexWarningEmbeddingProviderMissing:
+      '向量模型 {providerId} 已不在设置中可用。',
+    aiIndexWarningEmbeddingProviderDisabled:
+      '请先启用 {providerName}，再使用语义检索。',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      '请先为 {providerName} 保存 API 密钥，再使用语义检索。',
+    aiIndexWarningEmbeddingProviderNoModel:
+      '请先为 {providerName} 选择默认模型，再使用语义检索。',
+    aiIndexWarningIndexNotBuilt:
+      '配置好向量模型后，运行“构建索引”即可启用语义搜索。',
+    aiIndexWarningStaleWatermark:
+      '语义索引已与当前存档不一致。运行“构建索引”，让语义检索纳入最新导入并反映已撤销的记录。',
+    aiIndexWarningStaleEnrichment:
+      '上次语义构建后，可读正文 enrichment 发生了变化。运行“构建索引”，用最新提取的文本刷新向量。',
+    aiIndexWarningBuildFailed: '上次索引构建失败：{reason}',
     aiIntegrationUnavailable: '集成预览不可用',
     aiIntegrationArtifactsTitle: 'AI 集成产物',
     aiIntegrationArtifactsSummaryTitle: '使用前先检查生成文件',
@@ -531,8 +564,24 @@ export const settingsAiProvidersNamespace = {
     aiSemanticMetadata: 'SQLite 中繼資料',
     aiEstimatedTokens: '預估 tokens',
     aiIndexWarning: '目前索引警告',
-    aiIndexWarningEmbeddingMissing:
+    aiIndexWarningArchiveNotInitialized: '請先初始化封存，再使用 AI 分析功能。',
+    aiIndexWarningNoEmbeddingProvider:
       '請先在設定裡選擇向量模型，再啟用語義檢索。',
+    aiIndexWarningEmbeddingProviderMissing:
+      '向量模型 {providerId} 已不在設定中可用。',
+    aiIndexWarningEmbeddingProviderDisabled:
+      '請先啟用 {providerName}，再使用語義檢索。',
+    aiIndexWarningEmbeddingProviderNoApiKey:
+      '請先為 {providerName} 儲存 API 金鑰，再使用語義檢索。',
+    aiIndexWarningEmbeddingProviderNoModel:
+      '請先為 {providerName} 選擇預設模型，再使用語義檢索。',
+    aiIndexWarningIndexNotBuilt:
+      '設定好向量模型後，執行「建立索引」即可啟用語義搜尋。',
+    aiIndexWarningStaleWatermark:
+      '語義索引已與目前封存不一致。執行「建立索引」，讓語義檢索納入最新匯入並反映已撤銷的紀錄。',
+    aiIndexWarningStaleEnrichment:
+      '上次語義建立後，可讀正文 enrichment 發生了變化。執行「建立索引」，用最新擷取的文字重新整理向量。',
+    aiIndexWarningBuildFailed: '上次索引建立失敗：{reason}',
     aiIntegrationUnavailable: '整合預覽無法使用',
     aiIntegrationArtifactsTitle: 'AI 整合產物',
     aiIntegrationArtifactsSummaryTitle: '使用前先檢查生成檔案',

@@ -131,6 +131,11 @@ pub(super) fn embedding_descriptor_for(
 pub(super) struct ProviderReadiness {
     pub available: bool,
     pub warning: Option<String>,
+    /// Stable index-health warning CODE for the unavailable reason (review-fix M-7). `Some` whenever
+    /// `available` is false; the read model carries it onto `AiIndexStatus.warning_code` so the FE
+    /// localizes the exact missing prerequisite (provider missing / disabled / no key / no model)
+    /// instead of matching the English `warning` sentence.
+    pub warning_code: Option<AiIndexWarning>,
     pub selected_model: Option<String>,
 }
 
@@ -356,60 +361,51 @@ pub(super) fn classify_provider_error(
 /// Semantic search should degrade honestly before any build/search call starts. This
 /// helper lets the status read model explain the exact missing prerequisite.
 pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadiness {
-    let Some(provider_id) = config.ai.embedding_provider_id.as_deref() else {
-        return ProviderReadiness {
+    // Build each unavailable readiness from its stable warning CODE (review-fix M-7), deriving the
+    // legacy English `warning` from the same code so the wire carries a localizable code and the
+    // FE never falls back to English-sentence matching.
+    fn unavailable(code: AiIndexWarning, selected_model: Option<String>) -> ProviderReadiness {
+        ProviderReadiness {
             available: false,
-            warning: Some(
-                "Select an embedding provider in Settings before enabling semantic retrieval."
-                    .to_string(),
-            ),
-            selected_model: None,
-        };
+            warning: Some(super::read_model::ai_index_warning_text(&code)),
+            warning_code: Some(code),
+            selected_model,
+        }
+    }
+
+    let Some(provider_id) = config.ai.embedding_provider_id.as_deref() else {
+        return unavailable(AiIndexWarning::NoEmbeddingProvider, None);
     };
     let Some(provider) =
         config.ai.embedding_providers.iter().find(|provider| provider.id == provider_id)
     else {
-        return ProviderReadiness {
-            available: false,
-            warning: Some(format!(
-                "Embedding provider {provider_id} is no longer available in Settings."
-            )),
-            selected_model: None,
-        };
+        return unavailable(
+            AiIndexWarning::EmbeddingProviderMissing { provider_id: provider_id.to_string() },
+            None,
+        );
     };
     if !provider.enabled {
-        return ProviderReadiness {
-            available: false,
-            warning: Some(format!(
-                "Enable provider {} before using semantic retrieval.",
-                provider.name
-            )),
-            selected_model: Some(provider.default_model.clone()),
-        };
+        return unavailable(
+            AiIndexWarning::EmbeddingProviderDisabled { provider_name: provider.name.clone() },
+            Some(provider.default_model.clone()),
+        );
     }
     if !provider.api_key_saved {
-        return ProviderReadiness {
-            available: false,
-            warning: Some(format!(
-                "Store an API key for provider {} before using semantic retrieval.",
-                provider.name
-            )),
-            selected_model: Some(provider.default_model.clone()),
-        };
+        return unavailable(
+            AiIndexWarning::EmbeddingProviderNoApiKey { provider_name: provider.name.clone() },
+            Some(provider.default_model.clone()),
+        );
     }
     if provider.default_model.trim().is_empty() {
-        return ProviderReadiness {
-            available: false,
-            warning: Some(format!(
-                "Choose a default model for provider {} before using semantic retrieval.",
-                provider.name
-            )),
-            selected_model: None,
-        };
+        return unavailable(
+            AiIndexWarning::EmbeddingProviderNoModel { provider_name: provider.name.clone() },
+            None,
+        );
     }
     ProviderReadiness {
         available: true,
         warning: None,
+        warning_code: None,
         selected_model: Some(provider.default_model.clone()),
     }
 }

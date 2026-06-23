@@ -854,7 +854,12 @@ describe('ExplorerPage route shell', () => {
               total: 2,
               providerId: 'embed-1',
               model: 'text-embedding-3-small',
-              notes: ['Lexical-only fallback while AI warms up.'],
+              // English `notes` are model-facing only; the route localizes the stable `noteCodes`
+              // (review-fix M-6) for the user-facing relevance-notes region.
+              notes: [
+                'No embedding provider is selected, so results use lexical retrieval only.',
+              ],
+              noteCodes: [{ code: 'lexicalFallbackNoProvider' }],
               nextCursor: 'cursor-2',
               items: [
                 {
@@ -879,8 +884,15 @@ describe('ExplorerPage route shell', () => {
     // Ranked AI results, notes, and smart availability all flow into the panel.
     expect(panel.getAttribute('data-search-ranked-count')).toBe('1')
     expect(panel.getAttribute('data-search-smart-available')).toBe('true')
+    // The route resolves the stable note CODE through the explorer translator (review-fix M-6), not
+    // the raw English `notes`. The i18n mock echoes the namespaced key, so the relevance-notes region
+    // carries the localized KEY — proving the code path is exercised (real copy is covered in
+    // note-codes.test.ts), never the raw English fallback sentence.
     expect(panel.getAttribute('data-search-ai-notes')).toContain(
-      'Lexical-only fallback',
+      'explorer.aiSearchNoteLexicalFallbackNoProvider',
+    )
+    expect(panel.getAttribute('data-search-ai-notes')).not.toContain(
+      'lexical retrieval only',
     )
 
     // The compact index-status + Build CTA renders in-surface and builds the index.

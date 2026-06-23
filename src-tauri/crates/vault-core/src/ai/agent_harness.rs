@@ -31,7 +31,7 @@
 use super::agent_tools::{AgentToolContext, HostCallRecord, LimitsHit, ToolOutcome, ToolRegistry};
 use super::traits::{LlmChatRequest, LlmMessage, LlmProvider, LlmRole, LlmStreamChunk, LlmUsage};
 use super::{AiRunControl, await_with_ai_cancellation};
-use crate::models::{AiChatStreamChunk, AiCitation};
+use crate::models::{AiAgentNote, AiChatStreamChunk, AiCitation};
 use anyhow::Result;
 use serde_json::json;
 use std::sync::Arc;
@@ -356,7 +356,7 @@ where
                 turn,
                 prompt_tokens,
                 completion_tokens,
-                "Reached the maximum number of agent steps; returning the best evidence so far.",
+                AiAgentNote::MaxStepsReached,
             );
         }
         if token_budget != 0 && prompt_tokens + completion_tokens >= token_budget {
@@ -367,13 +367,19 @@ where
                 turn,
                 prompt_tokens,
                 completion_tokens,
-                "Reached the per-run token budget; returning the best evidence so far.",
+                AiAgentNote::TokenBudgetReached,
             );
         }
     }
 }
 
-/// Emits a closing note + Done after the loop hit a budget/iteration ceiling, pinning citations.
+/// Emits a closing control NOTE + Done after the loop hit a budget/iteration ceiling, pinning
+/// citations (review-fix M-6).
+///
+/// The closing note is streamed as a localized [`AiChatStreamChunk::Note`] CODE — NOT raw English —
+/// so the front end renders it in the user's locale. This note is purely USER-facing (the loop has
+/// ended, so there is no model-facing counterpart to thread back); the model-facing English that
+/// steers the LLM lives in the threaded `tool_result` messages + preamble, which are untouched.
 fn finalize_after_loop<J: AgentJournal, S: AgentRunSink>(
     sink: &mut S,
     journal: &J,
@@ -381,9 +387,9 @@ fn finalize_after_loop<J: AgentJournal, S: AgentRunSink>(
     turn: u32,
     prompt_tokens: u64,
     completion_tokens: u64,
-    note: &str,
+    note: AiAgentNote,
 ) -> AgentRunOutcome {
-    sink(AiChatStreamChunk::Token { text: format!("\n\n_{note}_") });
+    sink(AiChatStreamChunk::Note { code: note });
     let _ = journal.record_citations(citations);
     emit_citations(sink, citations);
     sink(AiChatStreamChunk::Done);
@@ -624,9 +630,10 @@ where
     J: AgentJournal,
     S: AgentRunSink,
 {
-    sink(AiChatStreamChunk::Reasoning {
-        text: "This provider does not support tool calling, so I'm answering from the retrieved evidence directly.".to_string(),
-    });
+    // USER-facing control note as a localized CODE (review-fix M-6), not raw English. The model is
+    // NOT told it is degraded (it answers from the seeded evidence in its preamble), so this note has
+    // no model-facing counterpart to thread back — the split is clean.
+    sink(AiChatStreamChunk::Note { code: AiAgentNote::ToolCallingUnavailable });
     // No tools attached on the degraded path (the request keeps whatever seed messages it has).
     let mut degraded = request;
     degraded.tools = Vec::new();
@@ -886,6 +893,7 @@ mod tests {
                 AiChatStreamChunk::ToolResult { .. } => "toolResult",
                 AiChatStreamChunk::Usage { .. } => "usage",
                 AiChatStreamChunk::Citations { .. } => "citations",
+                AiChatStreamChunk::Note { .. } => "note",
                 AiChatStreamChunk::Done => "done",
                 AiChatStreamChunk::Error { .. } => "error",
             })
@@ -986,7 +994,13 @@ mod tests {
         }
         let events = emitted.lock().unwrap().clone();
         assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
         assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
+        )));
+        // No raw English max-steps sentence leaks onto the user-facing token stream.
+        assert!(!events.iter().any(|chunk| matches!(
             chunk,
             AiChatStreamChunk::Token { text } if text.contains("maximum number of agent steps")
         )));
@@ -1021,7 +1035,12 @@ mod tests {
             other => panic!("expected Completed at the budget ceiling, got {other:?}"),
         }
         let events = emitted.lock().unwrap().clone();
+        // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
         assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::TokenBudgetReached }
+        )));
+        assert!(!events.iter().any(|chunk| matches!(
             chunk,
             AiChatStreamChunk::Token { text } if text.contains("token budget")
         )));
@@ -1220,8 +1239,13 @@ mod tests {
         .await;
         assert!(matches!(outcome, AgentRunOutcome::Completed { iterations: 1, .. }));
         let events = emitted.lock().unwrap().clone();
-        // An honest reasoning note about the lack of tool support, no ToolCall/ToolResult chunks.
+        // An honest control note (localized CODE, review-fix M-6) about the lack of tool support, no
+        // ToolCall/ToolResult chunks, and no raw English reasoning sentence on the user stream.
         assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::ToolCallingUnavailable }
+        )));
+        assert!(!events.iter().any(|chunk| matches!(
             chunk,
             AiChatStreamChunk::Reasoning { text } if text.contains("does not support tool calling")
         )));

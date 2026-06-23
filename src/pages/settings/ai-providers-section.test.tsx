@@ -557,27 +557,57 @@ describe('AiProvidersSection', () => {
     },
   )
 
-  test('localizes the embedding-missing index warning and passes other warnings through', () => {
+  test('localizes the index-health warning CODE and weaves interpolation params (M-7)', () => {
+    // Review-fix M-7: a stable `warningCode` is resolved to localized copy for EVERY variant — never
+    // an English-sentence match. The interpolated variant must weave its structural param.
     const { rerender } = renderSection({
       aiStatus: aiStatusFixture({
-        warning:
-          'Select an embedding provider in Settings before enabling semantic retrieval.',
+        warning: 'Enable provider My Embed before using semantic retrieval.',
+        warningCode: {
+          code: 'embeddingProviderDisabled',
+          providerName: 'My Embed',
+        },
       }),
       currentSettings: settingsFixture({ enabled: true }),
       indexMeta: { label: 'Warning', tone: 'warning', description: 'warn' },
     })
 
-    // The known backend string is mapped through the embedding-missing i18n key
-    // (whose English copy happens to read identically), exercising the
-    // string-equality branch and the warning header.
     expect(screen.getByText('Current index warning')).toBeVisible()
+    // The localized copy is composed from the structural `providerName` param, not pre-baked English.
     expect(
       screen.getByText(
-        'Select an embedding provider in Settings before enabling semantic retrieval.',
+        'Enable provider My Embed before using semantic retrieval.',
       ),
     ).toBeVisible()
 
-    // …while any other warning string is shown verbatim (the else branch).
+    // A `buildFailed` code carries its opaque transport reason verbatim, wrapped in localized copy.
+    rerender(
+      <MemoryRouter>
+        <I18nProvider>
+          <AiProvidersSection
+            navItem={navItem}
+            state={{
+              ...baseState(),
+              aiStatus: aiStatusFixture({
+                warning: 'The last index build failed: disk full',
+                warningCode: { code: 'buildFailed', reason: 'disk full' },
+              }),
+              currentSettings: settingsFixture({ enabled: true }),
+              indexMeta: {
+                label: 'Failed',
+                tone: 'blocked',
+                description: 'failed',
+              },
+            }}
+          />
+        </I18nProvider>
+      </MemoryRouter>,
+    )
+    expect(
+      screen.getByText('The last index build failed: disk full'),
+    ).toBeVisible()
+
+    // An older payload with only the legacy English `warning` (no code) falls back verbatim.
     rerender(
       <MemoryRouter>
         <I18nProvider>

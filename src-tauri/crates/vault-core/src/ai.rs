@@ -46,10 +46,10 @@ use crate::{
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
         AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
-        AiIndexStatus, AiProviderCapabilityReport, AiProviderConfig,
+        AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
         AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
-        AiRequestFormat, AiSearchEntry, AiSearchRequest, AiSearchResponse, AppConfig, HistoryEntry,
-        HistoryQuery,
+        AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
+        AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
     },
     utils::{now_rfc3339, url_domain},
 };

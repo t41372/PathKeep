@@ -172,6 +172,12 @@ export const assistantNamespaceCatalog = {
     chatSavedAnnouncement: 'Conversation saved',
     chatOpeningConversation: 'Opening conversation…',
     chatScopeNote: 'Searches your whole archive',
+    chatAgentNoteMaxStepsReached:
+      'Reached the maximum number of assistant steps; showing the best evidence so far.',
+    chatAgentNoteTokenBudgetReached:
+      'Reached this run’s token budget; showing the best evidence so far.',
+    chatAgentNoteToolCallingUnavailable:
+      'This provider cannot run search tools, so the answer is based on the retrieved evidence directly.',
     historyDoorway: 'Conversations',
     historyTitle: 'Conversations',
     historyOpen: 'Show conversations',
@@ -342,6 +348,12 @@ export const assistantNamespaceCatalog = {
     chatSavedAnnouncement: '对话已保存',
     chatOpeningConversation: '正在打开对话…',
     chatScopeNote: '搜索你的整个存档',
+    chatAgentNoteMaxStepsReached:
+      '已达到助手的最大步数；先展示目前最相关的证据。',
+    chatAgentNoteTokenBudgetReached:
+      '已达到本次运行的 token 预算；先展示目前最相关的证据。',
+    chatAgentNoteToolCallingUnavailable:
+      '该模型无法运行搜索工具，因此直接根据检索到的证据作答。',
     historyDoorway: '会话记录',
     historyTitle: '会话记录',
     historyOpen: '显示会话记录',
@@ -512,6 +524,12 @@ export const assistantNamespaceCatalog = {
     chatSavedAnnouncement: '對話已儲存',
     chatOpeningConversation: '正在開啟對話…',
     chatScopeNote: '搜尋你的整個歸檔',
+    chatAgentNoteMaxStepsReached:
+      '已達到助手的最大步數；先顯示目前最相關的證據。',
+    chatAgentNoteTokenBudgetReached:
+      '已達到本次執行的 token 預算；先顯示目前最相關的證據。',
+    chatAgentNoteToolCallingUnavailable:
+      '此模型無法執行搜尋工具，因此直接依檢索到的證據作答。',
     historyDoorway: '對話記錄',
     historyTitle: '對話記錄',
     historyOpen: '顯示對話記錄',

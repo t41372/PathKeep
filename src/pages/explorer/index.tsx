@@ -28,6 +28,7 @@ import {
   aiStatusMeta,
   selectedAiProvider,
 } from '../../lib/intelligence-ai-presentation'
+import { localizeAiSearchNotes } from '../../lib/ai/note-codes'
 import { evaluateOptionalAiAvailability } from '../../lib/optional-ai-availability'
 import { optionalAiFeaturesAvailable } from '../../lib/release-capabilities'
 import {
@@ -840,6 +841,13 @@ export function ExplorerPage() {
   // number is the trail depth + 1 (page 1 has an empty trail). The next cursor
   // is normalized to `string | null` once here so the `onNext` closure stays a
   // single straight call (no inline coalescing branch to leave uncovered).
+  // Localize the backend's stable degradation note CODES (review-fix M-6) — never the raw English
+  // `notes`, which are model-facing only. Memoized so the relevance-notes region keeps a stable array
+  // identity across streaming frames (no needless re-render of the results list).
+  const smartNotes = useMemo(
+    () => localizeAiSearchNotes(semanticResults?.noteCodes, explorerT),
+    [semanticResults?.noteCodes, explorerT],
+  )
   const smartNextCursor = semanticResults?.nextCursor ?? null
   const smartPagination =
     smartSearchActive && semanticResults
@@ -1172,7 +1180,7 @@ export function ExplorerPage() {
           rankedEntries={rankedSearchEntries}
           aiLoading={semanticLoading}
           aiError={semanticError}
-          aiNotes={semanticResults?.notes}
+          aiNotes={smartNotes}
           pagination={smartPagination}
           relevanceScopeLine={smartScopeLine}
           smartAvailable={smartAvailable}

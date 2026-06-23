@@ -78,10 +78,14 @@ pub(super) struct StoredEmbedding {
 /// attached here prevents that honesty metadata from getting lost during score merging. `hits`
 /// carries the hydrated semantic matches (one per unique page, most-recent visit) ready to merge
 /// with lexical recall; it is empty when the index is absent/stale/empty (with a matching note).
+///
+/// Each note is carried as a stable [`AiSearchNote`] CODE (review-fix M-6), NOT English prose, so the
+/// front end can localize it; the English sentence is derived from the code only on the MODEL-facing
+/// path ([`ai_search_note_text`]).
 #[derive(Debug, Default)]
 pub(super) struct SemanticMatchReport {
     pub hits: Vec<AiSearchEntry>,
-    pub notes: Vec<String>,
+    pub notes: Vec<AiSearchNote>,
 }
 
 /// One hydrated semantic hit: a result content_key resolved to its representative visit + score.
@@ -498,7 +502,10 @@ pub(super) async fn search_history_internal(
         .take(limit)
         .collect();
 
-    let mut notes = Vec::new();
+    // Degradation notes are carried as stable CODES (review-fix M-6) so the FE can localize them; the
+    // English `notes` strings on the response are derived from these codes for the MODEL-facing
+    // agent-tool path + the persisted run trace, never rendered raw to the user.
+    let mut note_codes: Vec<AiSearchNote> = Vec::new();
     let mut provider_id = "lexical-fallback".to_string();
     let mut model = "none".to_string();
     let mut semantic_hits: Vec<AiSearchEntry> = Vec::new();
@@ -517,12 +524,10 @@ pub(super) async fn search_history_internal(
             starred_content_keys.as_deref(),
         )
         .await?;
-        notes.extend(semantic.notes);
+        note_codes.extend(semantic.notes);
         semantic_hits = semantic.hits;
     } else {
-        notes.push(
-            "No embedding provider is selected, so results use lexical retrieval only.".to_string(),
-        );
+        note_codes.push(AiSearchNote::LexicalFallbackNoProvider);
     }
 
     // FUSE the two ranked lists with RRF, then apply the bounded starred boost.
@@ -542,7 +547,11 @@ pub(super) async fn search_history_internal(
     let next_cursor = (next_offset < total).then(|| next_offset.to_string());
     let items = items.into_iter().skip(offset).take(limit).collect();
 
-    Ok(AiSearchResponse { total, provider_id, model, items, notes, next_cursor })
+    // Derive the English prose (model-facing + persisted trace) from the codes, in code order. The
+    // single owner of the English rendering is [`AiSearchNote::model_facing_text`] (review-fix M-6),
+    // so the wire codes and the prose can never drift per call site.
+    let notes = note_codes.iter().map(AiSearchNote::model_facing_text).collect();
+    Ok(AiSearchResponse { total, provider_id, model, items, notes, note_codes, next_cursor })
 }
 
 /// One fused result mid-pipeline: the chosen entry plus its rank in each recall list (W-AI-6 RRF).
@@ -825,7 +834,7 @@ pub(super) async fn semantic_matches(
 ) -> Result<SemanticMatchReport> {
     let connection = open_intelligence_connection(paths, config, key)?;
     ensure_ai_schema(&connection)?;
-    let mut notes = Vec::new();
+    let mut notes: Vec<AiSearchNote> = Vec::new();
     let ledger =
         load_index_ledger(&connection, &provider.config.id, &provider.config.default_model)?;
     if let Some(reason) = semantic_index_staleness_reason(
@@ -835,17 +844,14 @@ pub(super) async fn semantic_matches(
         ledger.source_watermark,
         ledger.last_indexed_at.as_deref(),
     )? {
-        notes.push(reason);
+        notes.push(AiSearchNote::Stale { reason });
     }
 
     // Load the flat index over the derived planes. A never-built / empty index loads cleanly to zero
     // vectors (no panic); we report an honest note and return lexical-only.
     let index = FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)?;
     if index.is_empty() {
-        notes.push(
-            "The semantic index has no vectors yet; run Build index to enable meaning-based search. Showing lexical results only."
-                .to_string(),
-        );
+        notes.push(AiSearchNote::EmptySemanticIndex);
         return Ok(SemanticMatchReport { hits: Vec::new(), notes });
     }
 
@@ -880,10 +886,7 @@ pub(super) async fn semantic_matches(
     let matches = index.search(&query_vector, recall_k, starred_content_keys)?;
     let hits = hydrate_semantic_hits(&connection, paths, provider, &matches, request, limit)?;
     if hits.is_empty() {
-        notes.push(
-            "Semantic matches were found but none are currently visible under the active filters."
-                .to_string(),
-        );
+        notes.push(AiSearchNote::SemanticMatchesFilteredOut);
     }
     Ok(SemanticMatchReport {
         hits: hits.into_iter().map(semantic_hit_to_search_entry).collect(),
@@ -914,14 +917,11 @@ fn semantic_config_drift_reason(
     provider: &AiProviderRuntime,
     index: &FlatVectorIndex,
     query_dim: usize,
-) -> Result<Option<String>> {
+) -> Result<Option<AiSearchNote>> {
     // Dim mismatch: the binarized query byte width differs from the plane's, so a search would
     // prefix-compare and score garbage. Reject loudly with a rebuild note.
     if query_dim != index.dim() {
-        return Ok(Some(
-            "The semantic index was built under a different embedding configuration (vector dimension changed), so meaning-based search is disabled until you run Build index. Showing lexical results only."
-                .to_string(),
-        ));
+        return Ok(Some(AiSearchNote::ConfigDriftDimension));
     }
 
     // Same-dim fingerprint drift: build the live fingerprint exactly as the build path stamps it and
@@ -941,10 +941,7 @@ fn semantic_config_drift_reason(
     // dim, so this is infallible — an unwrap rather than a dead else-branch keeps the invariant honest.
     .expect("live fingerprint always has the observed query dim");
     if planes_are_stale(paths, &provider.config.id, &provider.config.default_model, &live)? {
-        return Ok(Some(
-            "The semantic index was built under a different embedding configuration (model, pooling, normalization, or output type changed), so meaning-based search is disabled until you rebuild the semantic index. Showing lexical results only."
-                .to_string(),
-        ));
+        return Ok(Some(AiSearchNote::ConfigDriftFingerprint));
     }
     Ok(None)
 }
@@ -1266,23 +1263,24 @@ pub(super) fn sqlite_table_exists(connection: &Connection, table_name: &str) -> 
 }
 
 /// Explains why the semantic index should be considered stale for the selected provider/model.
+///
+/// Returns a stable [`AiSemanticStaleness`] reason CODE (review-fix M-6/M-7), shared by the AI-search
+/// degradation notes and the Settings index-health warning so both surfaces localize the same
+/// vocabulary; the English rendering lives in [`semantic_staleness_text`].
 pub(super) fn semantic_index_staleness_reason(
     connection: &Connection,
     provider_id: &str,
     model: &str,
     source_watermark: i64,
     last_indexed_at: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<Option<AiSemanticStaleness>> {
     if provider_embedding_count(connection, provider_id, model)? == 0 {
         return Ok(None);
     }
 
     let visible_watermark = current_source_watermark(connection)?;
     if source_watermark != 0 && visible_watermark != source_watermark {
-        return Ok(Some(
-            "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
-                .to_string(),
-        ));
+        return Ok(Some(AiSemanticStaleness::Watermark));
     }
 
     if let Some(last_indexed_at) = last_indexed_at {
@@ -1299,10 +1297,7 @@ pub(super) fn semantic_index_staleness_reason(
                 )
                 .optional()?;
             if latest_enrichment.as_deref().is_some_and(|value| value > last_indexed_at) {
-                return Ok(Some(
-                    "Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text."
-                        .to_string(),
-                ));
+                return Ok(Some(AiSemanticStaleness::Enrichment));
             }
         }
     }

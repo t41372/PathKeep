@@ -1220,6 +1220,7 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
                 enrichment_excerpt: None,
             }],
             notes: Vec::new(),
+            note_codes: Vec::new(),
             next_cursor: None,
         },
     );
@@ -2662,8 +2663,8 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
         .expect("semantic matches on empty index");
     assert!(report.hits.is_empty());
     assert!(
-        report.notes.iter().any(|note| note.contains("has no vectors yet")),
-        "empty index must surface an honest note: {:?}",
+        report.notes.iter().any(|note| matches!(note, AiSearchNote::EmptySemanticIndex)),
+        "empty index must surface an honest note CODE: {:?}",
         report.notes
     );
 
@@ -2702,11 +2703,7 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
         Some("2026-01-01T00:00:00Z"),
     )
     .expect("stale watermark");
-    assert!(
-        stale_watermark
-            .as_deref()
-            .is_some_and(|reason| reason.contains("visibility or import watermark"))
-    );
+    assert_eq!(stale_watermark, Some(AiSemanticStaleness::Watermark));
 
     connection
         .execute(
@@ -2734,11 +2731,7 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
         Some("2026-04-01T00:00:00Z"),
     )
     .expect("stale enrichment");
-    assert!(
-        stale_enrichment
-            .as_deref()
-            .is_some_and(|reason| reason.contains("Readable-content enrichment changed"))
-    );
+    assert_eq!(stale_enrichment, Some(AiSemanticStaleness::Enrichment));
 }
 
 #[test]
@@ -2790,8 +2783,11 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
     assert_eq!(report.hits[0].match_reason, "Semantic match");
     assert!(report.hits[0].url.contains("/docs"));
     assert!(
-        report.notes.iter().any(|note| note.contains("visibility or import watermark")),
-        "the stale ledger note must still surface: {:?}",
+        report.notes.iter().any(|note| matches!(
+            note,
+            AiSearchNote::Stale { reason: AiSemanticStaleness::Watermark }
+        )),
+        "the stale ledger note CODE must still surface: {:?}",
         report.notes
     );
 }
@@ -2873,8 +2869,8 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
         .expect("semantic matches under a dim mismatch");
     assert!(report.hits.is_empty(), "a dim mismatch must yield NO semantic hits");
     assert!(
-        report.notes.iter().any(|note| note.contains("vector dimension changed")),
-        "the dim-mismatch note must surface: {:?}",
+        report.notes.iter().any(|note| matches!(note, AiSearchNote::ConfigDriftDimension)),
+        "the dim-mismatch note CODE must surface: {:?}",
         report.notes
     );
 }
@@ -2939,11 +2935,8 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
         .expect("semantic matches under fingerprint drift");
     assert!(report.hits.is_empty(), "a fingerprint drift must yield NO semantic hits");
     assert!(
-        report
-            .notes
-            .iter()
-            .any(|note| note.contains("model, pooling, normalization, or output type")),
-        "the fingerprint-drift note must surface: {:?}",
+        report.notes.iter().any(|note| matches!(note, AiSearchNote::ConfigDriftFingerprint)),
+        "the fingerprint-drift note CODE must surface: {:?}",
         report.notes
     );
 }
@@ -3244,8 +3237,8 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
         .expect("semantic matches");
     assert!(report.hits.is_empty());
     assert!(
-        report.notes.iter().any(|note| note.contains("none are currently visible")),
-        "must surface the filtered-out note: {:?}",
+        report.notes.iter().any(|note| matches!(note, AiSearchNote::SemanticMatchesFilteredOut)),
+        "must surface the filtered-out note CODE: {:?}",
         report.notes
     );
 }
@@ -4324,4 +4317,134 @@ fn await_with_ai_cancellation_polls_control_while_provider_future_is_pending() {
 
     assert_eq!(value, 7);
     assert!(control.cancelled());
+}
+
+// ---------------------------------------------------------------------------
+// Review-fix M-6 / M-7: stable note/warning CODES replace raw English prose.
+// These exhaustively exercise every code variant's MODEL-facing English rendering
+// so the wire codes and their English twins can never drift per call site, and
+// confirm the search response carries a code per English note in lockstep.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ai_search_note_text_covers_every_search_note_code() {
+    // Every variant of the closed set maps to a non-empty, distinct English sentence (model-facing /
+    // persisted trace), and the staleness variant defers to the shared staleness vocabulary.
+    let cases = [
+        AiSearchNote::LexicalFallbackNoProvider,
+        AiSearchNote::EmptySemanticIndex,
+        AiSearchNote::SemanticMatchesFilteredOut,
+        AiSearchNote::ConfigDriftDimension,
+        AiSearchNote::ConfigDriftFingerprint,
+        AiSearchNote::Stale { reason: AiSemanticStaleness::Watermark },
+        AiSearchNote::Stale { reason: AiSemanticStaleness::Enrichment },
+        AiSearchNote::ProviderResolutionFailed { reason: "connection refused".to_string() },
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for code in &cases {
+        let text = code.model_facing_text();
+        assert!(!text.trim().is_empty(), "note {code:?} must render English text");
+        assert!(seen.insert(text), "note {code:?} must render a DISTINCT sentence");
+    }
+    // The provider-resolution-failed note weaves its opaque reason.
+    assert!(
+        AiSearchNote::ProviderResolutionFailed { reason: "connection refused".to_string() }
+            .model_facing_text()
+            .contains("connection refused")
+    );
+    // The two staleness reasons render their shared sentences.
+    assert!(AiSemanticStaleness::Watermark.model_facing_text().contains("import watermark"));
+    assert!(
+        AiSemanticStaleness::Enrichment.model_facing_text().contains("Readable-content enrichment")
+    );
+}
+
+#[test]
+fn ai_index_warning_text_covers_every_warning_code() {
+    // Every index-health warning variant renders a non-empty English sentence; interpolated variants
+    // weave their structural params; the staleness variant defers to the shared vocabulary.
+    let cases = [
+        AiIndexWarning::ArchiveNotInitialized,
+        AiIndexWarning::NoEmbeddingProvider,
+        AiIndexWarning::EmbeddingProviderMissing { provider_id: "emb-9".to_string() },
+        AiIndexWarning::EmbeddingProviderDisabled { provider_name: "My Embed".to_string() },
+        AiIndexWarning::EmbeddingProviderNoApiKey { provider_name: "My Embed".to_string() },
+        AiIndexWarning::EmbeddingProviderNoModel { provider_name: "My Embed".to_string() },
+        AiIndexWarning::IndexNotBuilt,
+        AiIndexWarning::IndexStale { reason: AiSemanticStaleness::Watermark },
+        AiIndexWarning::IndexStale { reason: AiSemanticStaleness::Enrichment },
+        AiIndexWarning::BuildFailed { reason: "boom from provider".to_string() },
+    ];
+    for code in &cases {
+        let text = super::read_model::ai_index_warning_text(code);
+        assert!(!text.trim().is_empty(), "warning {code:?} must render English text");
+    }
+    // Interpolation params are woven in (structural carry, not pre-baked English).
+    assert!(
+        super::read_model::ai_index_warning_text(&AiIndexWarning::EmbeddingProviderMissing {
+            provider_id: "emb-9".to_string()
+        })
+        .contains("emb-9")
+    );
+    assert!(
+        super::read_model::ai_index_warning_text(&AiIndexWarning::EmbeddingProviderDisabled {
+            provider_name: "My Embed".to_string()
+        })
+        .contains("My Embed")
+    );
+    // BuildFailed carries its opaque transport text verbatim (no fixed vocabulary).
+    assert_eq!(
+        super::read_model::ai_index_warning_text(&AiIndexWarning::BuildFailed {
+            reason: "boom from provider".to_string()
+        }),
+        "boom from provider"
+    );
+}
+
+#[test]
+fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
+    // No embedding provider → the lexical-fallback degradation must surface BOTH the stable CODE
+    // (for FE localization) and the English note (model-facing), in lockstep and same order.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None, // no embedding provider → lexical fallback
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("lexical-fallback search");
+    assert_eq!(response.note_codes, vec![AiSearchNote::LexicalFallbackNoProvider]);
+    // The English note is DERIVED from the code, in code order — never raw prose pushed ad hoc.
+    assert_eq!(response.notes, vec![AiSearchNote::LexicalFallbackNoProvider.model_facing_text()]);
+}
+
+#[test]
+fn ai_search_note_and_warning_codes_serialize_camelcase_for_the_fe() {
+    // The FE resolves codes by their camelCase wire token; pin a representative of each enum so a
+    // rename can't silently break the FE localizer contract.
+    let note = serde_json::to_string(&AiSearchNote::LexicalFallbackNoProvider).expect("note json");
+    assert_eq!(note, r#"{"code":"lexicalFallbackNoProvider"}"#);
+    let stale =
+        serde_json::to_string(&AiSearchNote::Stale { reason: AiSemanticStaleness::Watermark })
+            .expect("stale json");
+    assert_eq!(stale, r#"{"code":"stale","reason":"watermark"}"#);
+    let warning = serde_json::to_string(&AiIndexWarning::EmbeddingProviderDisabled {
+        provider_name: "Embed".to_string(),
+    })
+    .expect("warning json");
+    assert_eq!(warning, r#"{"code":"embeddingProviderDisabled","providerName":"Embed"}"#);
+    let agent = serde_json::to_string(&crate::models::AiAgentNote::MaxStepsReached)
+        .expect("agent note json");
+    assert_eq!(agent, r#"{"code":"maxStepsReached"}"#);
 }

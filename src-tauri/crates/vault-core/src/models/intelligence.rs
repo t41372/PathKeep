@@ -613,6 +613,46 @@ impl Default for AiSettings {
     }
 }
 
+/// One stable, locale-independent index-health warning CODE for Settings (review-fix M-7).
+///
+/// The Settings index-health surface used to receive ≥8 distinct English sentences (several
+/// `format!`-interpolated) on [`AiIndexStatus::warning`] and could only localize ONE of them via a
+/// full-sentence string match — every other warning fell through to raw English for all locales, and
+/// a one-character drift silently regressed the mapped case. This closed enum is carried additively
+/// on [`AiIndexStatus::warning_code`]; the front end maps ALL variants by code to localized copy.
+/// Interpolated warnings carry their interpolation params STRUCTURALLY (provider id / name) so the FE
+/// composes the localized string rather than receiving pre-baked English. The wire is `code`-tagged
+/// camelCase; the FE NEVER renders these raw. A `reason` opaque string is carried only for
+/// [`Self::BuildFailed`], whose text comes from the provider/transport and has no fixed vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum AiIndexWarning {
+    /// The archive is not initialized yet, so AI analysis cannot run.
+    ArchiveNotInitialized,
+    /// No embedding provider is selected in Settings.
+    NoEmbeddingProvider,
+    /// The selected embedding provider id is no longer present in Settings.
+    #[serde(rename_all = "camelCase")]
+    EmbeddingProviderMissing { provider_id: String },
+    /// The selected embedding provider is disabled.
+    #[serde(rename_all = "camelCase")]
+    EmbeddingProviderDisabled { provider_name: String },
+    /// The selected embedding provider has no stored API key.
+    #[serde(rename_all = "camelCase")]
+    EmbeddingProviderNoApiKey { provider_name: String },
+    /// The selected embedding provider has no default model chosen.
+    #[serde(rename_all = "camelCase")]
+    EmbeddingProviderNoModel { provider_name: String },
+    /// A provider is configured but no index has been built yet.
+    IndexNotBuilt,
+    /// The built index is stale for the carried reason (shared with the search degradation notes).
+    #[serde(rename_all = "camelCase")]
+    IndexStale { reason: AiSemanticStaleness },
+    /// The last index build failed; `reason` is the opaque transport/provider failure text.
+    #[serde(rename_all = "camelCase")]
+    BuildFailed { reason: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Shell-facing semantic-index readiness snapshot.
@@ -636,7 +676,15 @@ pub struct AiIndexStatus {
     pub semantic_sidecar_bytes: u64,
     pub semantic_metadata_bytes: u64,
     pub estimated_embedding_tokens: u64,
+    /// English warning prose, retained for backward compatibility and any non-localizing consumer.
+    /// The USER-facing Settings surface reads [`Self::warning_code`] instead and never renders this
+    /// raw for a code it can localize.
     pub warning: Option<String>,
+    /// Stable index-health warning CODE (review-fix M-7), additive (`#[serde(default,
+    /// skip_serializing_if)]`) so older payloads still deserialize. The front end maps ALL variants
+    /// to localized copy; `None` mirrors `warning == None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning_code: Option<AiIndexWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -991,10 +1039,37 @@ pub enum AiChatStreamChunk {
     /// starrable evidence rows without re-normalizing. Empty when no tool surfaced a row. This is
     /// the streaming twin of the harness's `record_citations` journal write (02 §G transparency).
     Citations { citations: Vec<AiCitation> },
+    /// A harness CONTROL note for the USER (review-fix M-6), carried as a stable locale-independent
+    /// CODE the front end resolves to localized copy — NOT raw English prose.
+    ///
+    /// The agent harness used to stream its control notes (max-steps / token-budget reached,
+    /// tool-calling unavailable) as raw English `Token`/`Reasoning` text, which rendered untranslated
+    /// to zh-CN/zh-TW users. This variant cleanly SPLITS the model-facing English (still threaded into
+    /// the conversation to steer the LLM) from the user-facing rendered text (now a localized code).
+    /// Additive: a `#[serde(tag = "kind")]` variant the plain (tools-off) path never emits, so the
+    /// W-AI-1 const-pin test + the plain stream stay byte-for-byte unchanged.
+    Note { code: AiAgentNote },
     /// Terminal success marker; no more chunks follow for this run.
     Done,
     /// Terminal failure marker carrying a user-facing message; no more chunks follow.
     Error { message: String },
+}
+
+/// One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+///
+/// Streamed inside [`AiChatStreamChunk::Note`]. The closed set covers the harness's control notes;
+/// the front end resolves each to localized copy. These are the USER-facing twin of the harness's
+/// MODEL-facing English (which stays English so it can steer the LLM); the two are emitted
+/// separately so the model-facing text is never shown to the user untranslated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum AiAgentNote {
+    /// The run hit the max-iteration ceiling; the best evidence so far is returned.
+    MaxStepsReached,
+    /// The run hit the per-run token budget; the best evidence so far is returned.
+    TokenBudgetReached,
+    /// The provider cannot do tool calls, so the run answered from seeded evidence directly.
+    ToolCallingUnavailable,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
@@ -1245,6 +1320,107 @@ pub struct AiSearchEntry {
     pub enrichment_excerpt: Option<String>,
 }
 
+/// Why the semantic index is stale for the selected provider/model (review-fix M-6/M-7).
+///
+/// Stable, locale-independent reason CODE replacing the prior English staleness prose. It is shared
+/// by BOTH user-facing surfaces that report staleness — the AI-search degradation notes
+/// ([`AiSearchNote`]) and the Settings index-health warning ([`AiIndexWarning`]) — so the backend
+/// emits ONE reason vocabulary and each front-end surface resolves it to localized copy. The wire
+/// values are camelCase tokens; the FE NEVER renders these raw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AiSemanticStaleness {
+    /// The index no longer matches the current archive visibility / import watermark.
+    Watermark,
+    /// Readable-content enrichment changed after the last semantic build.
+    Enrichment,
+}
+
+impl AiSemanticStaleness {
+    /// The English MODEL-facing / legacy sentence for this staleness reason.
+    ///
+    /// Shared by the AI-search degradation notes and the Settings index-health warning so the one
+    /// staleness vocabulary has one English rendering for the model-facing/legacy paths. The USER sees
+    /// localized copy resolved from the CODE on the front end instead.
+    pub fn model_facing_text(self) -> &'static str {
+        match self {
+            AiSemanticStaleness::Watermark => {
+                "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
+            }
+            AiSemanticStaleness::Enrichment => {
+                "Readable-content enrichment changed after the last semantic build. Run Build index to refresh embeddings with the latest extracted text."
+            }
+        }
+    }
+}
+
+/// One stable, locale-independent degradation note CODE for AI history search (review-fix M-6).
+///
+/// The backend used to push full English sentences into [`AiSearchResponse::notes`], which rendered
+/// raw to zh-CN/zh-TW users on the trust-critical lexical-fallback path. The closed set of variants
+/// here is carried additively on [`AiSearchResponse::note_codes`] (camelCase on the wire) so the
+/// front end can resolve each to localized copy in its i18n catalog. The legacy English `notes`
+/// remain for the MODEL-facing tool path (the agent threads them back to the LLM) and the persisted
+/// run trace; only the USER-facing surface switched to codes.
+// `Copy` is intentionally NOT derived: the `ProviderResolutionFailed` variant carries an owned
+// `reason: String` (the opaque transport/provider error has no fixed vocabulary). `Clone` covers
+// every consumer (the by-value `ai_search_note_text`, the response builder, tests).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum AiSearchNote {
+    /// No embedding provider is selected, so results use lexical retrieval only.
+    LexicalFallbackNoProvider,
+    /// The semantic index has no vectors yet; the user must run Build index.
+    EmptySemanticIndex,
+    /// Semantic matches existed but none are visible under the active filters.
+    SemanticMatchesFilteredOut,
+    /// The index was built under a different vector DIMENSION; meaning-search is disabled.
+    ConfigDriftDimension,
+    /// The index was built under a different embedding FINGERPRINT (model/pooling/etc.).
+    ConfigDriftFingerprint,
+    /// The index is stale for the carried reason (shared vocabulary with the index-health warning).
+    #[serde(rename_all = "camelCase")]
+    Stale { reason: AiSemanticStaleness },
+    /// Semantic provider resolution failed at search time (worker-side degradation, review-fix M-6).
+    /// Carries the opaque transport/provider error STRUCTURALLY so the front end composes the
+    /// localized "semantic unavailable: {reason}" sentence instead of receiving pre-baked English.
+    #[serde(rename_all = "camelCase")]
+    ProviderResolutionFailed { reason: String },
+}
+
+impl AiSearchNote {
+    /// The English MODEL-facing / persisted-trace sentence for this note CODE.
+    ///
+    /// This is what the agent harness threads back into the LLM conversation (so the model can
+    /// reflect limited recall) and what is persisted in the run trace; the USER sees localized copy
+    /// resolved from the CODE on the front end. Keeping the English in ONE owner means the wire codes
+    /// and the model-facing prose can never drift per call site. Owned `String` because
+    /// [`Self::ProviderResolutionFailed`] interpolates its opaque reason.
+    pub fn model_facing_text(&self) -> String {
+        match self {
+            AiSearchNote::LexicalFallbackNoProvider => {
+                "No embedding provider is selected, so results use lexical retrieval only.".to_string()
+            }
+            AiSearchNote::EmptySemanticIndex => {
+                "The semantic index has no vectors yet; run Build index to enable meaning-based search. Showing lexical results only.".to_string()
+            }
+            AiSearchNote::SemanticMatchesFilteredOut => {
+                "Semantic matches were found but none are currently visible under the active filters.".to_string()
+            }
+            AiSearchNote::ConfigDriftDimension => {
+                "The semantic index was built under a different embedding configuration (vector dimension changed), so meaning-based search is disabled until you run Build index. Showing lexical results only.".to_string()
+            }
+            AiSearchNote::ConfigDriftFingerprint => {
+                "The semantic index was built under a different embedding configuration (model, pooling, normalization, or output type changed), so meaning-based search is disabled until you rebuild the semantic index. Showing lexical results only.".to_string()
+            }
+            AiSearchNote::Stale { reason } => reason.model_facing_text().to_string(),
+            AiSearchNote::ProviderResolutionFailed { reason } => {
+                format!("Semantic retrieval is unavailable right now: {reason}. Showing lexical results only.")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 /// Full response for semantic-plus-lexical history search.
@@ -1253,7 +1429,15 @@ pub struct AiSearchResponse {
     pub provider_id: String,
     pub model: String,
     pub items: Vec<AiSearchEntry>,
+    /// English degradation prose, retained for the MODEL-facing agent-tool path (the harness threads
+    /// these back to the LLM so it can reflect limited recall) and the persisted run trace. The
+    /// USER-facing surface reads [`Self::note_codes`] instead and never renders these raw.
     pub notes: Vec<String>,
+    /// Stable degradation note CODES (review-fix M-6), additive so older shell payloads without the
+    /// field still deserialize (`#[serde(default)]`). The front end resolves each to localized copy;
+    /// there is one code per English note in [`Self::notes`], in the same order.
+    #[serde(default)]
+    pub note_codes: Vec<AiSearchNote>,
     pub next_cursor: Option<String>,
 }
 

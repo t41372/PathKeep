@@ -1371,11 +1371,20 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
         AiSearchResponse::default(),
         Some(anyhow::anyhow!("semantic backend offline")),
     );
+    // Review-fix M-6: the user-facing wire carries a stable CODE (with the opaque reason structural),
+    // and the legacy English `notes` string is derived from that SAME code — never raw prose.
+    assert_eq!(
+        response.note_codes,
+        vec![vault_core::AiSearchNote::ProviderResolutionFailed {
+            reason: "semantic backend offline".to_string()
+        }]
+    );
     assert!(
         response
             .notes
             .iter()
-            .any(|note| note.contains("Semantic retrieval is unavailable right now"))
+            .any(|note| note.contains("Semantic retrieval is unavailable right now")
+                && note.contains("semantic backend offline"))
     );
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());

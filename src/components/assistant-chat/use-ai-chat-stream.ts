@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  AiAgentNote,
   AiChatStreamChunk,
   AiChatMessage,
   AiChatCitation,
@@ -156,6 +157,14 @@ export interface AiChatStreamDeps {
    * `setMessages`, so it is off the render path.
    */
   onTurnFinalized?: (messages: ChatMessage[]) => void
+  /**
+   * Resolves an agent-harness control note CODE (review-fix M-6) to localized, user-facing text.
+   * The harness streams these control notes (max-steps / token-budget reached, tool-calling
+   * unavailable) as stable CODES — never raw English — so the route binds this to its `assistant`
+   * translator. When omitted (e.g. a plain-chat surface that never runs the harness), a `note` chunk
+   * is dropped rather than rendered raw.
+   */
+  localizeAgentNote?: (code: AiAgentNote) => string
 }
 
 /** What the hook hands back to the chat view. */
@@ -424,6 +433,18 @@ export function useAiChatStream(deps: AiChatStreamDeps): AiChatStreamState {
           buffer.citations = chunk.citations.slice()
           scheduleFlush()
           break
+        case 'note': {
+          // A harness control note (review-fix M-6) carried as a stable CODE — resolve it to
+          // localized text and append it as an italic line to the visible answer, mirroring the old
+          // raw-English `_note_` token but now in the user's locale. Dropped (never rendered raw)
+          // when the surface did not bind a localizer.
+          const localize = depsRef.current.localizeAgentNote
+          if (localize) {
+            buffer.content += `\n\n_${localize(chunk.code)}_`
+            scheduleFlush()
+          }
+          break
+        }
         case 'done':
           finalize('done')
           break

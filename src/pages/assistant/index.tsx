@@ -47,6 +47,8 @@ import {
 import type { PaperAssistantEvidence } from '../../components/explorer-paper'
 import { useDesktopStars } from '../explorer/use-desktop-stars'
 import { backend } from '../../lib/backend-client'
+import { localizeAiAgentNote } from '../../lib/ai/note-codes'
+import type { AiAgentNote } from '../../lib/types'
 import { subscribeToAiChatStream } from '../../lib/ipc/ai-stream'
 import { useI18n } from '../../lib/i18n'
 import { selectedAiProvider } from '../../lib/intelligence-ai-presentation'
@@ -192,6 +194,12 @@ export function AssistantPage() {
       conversationId: history.activeId,
       systemPrompt: snapshot?.config.ai.assistantSystemPrompt ?? null,
       onTurnFinalized: history.persistTurn,
+      // Resolve the harness's stable control-note CODES (review-fix M-6) to localized copy; the
+      // harness never streams raw English for these now.
+      localizeAgentNote: useCallback(
+        (code: AiAgentNote) => localizeAiAgentNote(code, assistantT),
+        [assistantT],
+      ),
     })
 
   // Evidence-row stars: reuse the batched/optimistic stars hook (kind `url`, keyed by the citation's

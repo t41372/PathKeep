@@ -645,6 +645,7 @@ impl HostState {
             model: "none".to_string(),
             items,
             notes: Vec::new(),
+            note_codes: Vec::new(),
             next_cursor: None,
         })
     }

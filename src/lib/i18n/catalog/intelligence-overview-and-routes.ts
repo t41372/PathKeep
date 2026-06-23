@@ -49,7 +49,7 @@ export const intelligenceOverviewAndRoutesNamespace = {
       'Set up and unlock the archive before using smart search.',
     statusDisabledLabel: 'AI features off',
     statusDisabledDescription:
-      'Assistant and smart search are coming in v0.3. Keyword search and Core Intelligence are available now.',
+      'Assistant and smart search are available but off by default. Enable them in Settings; keyword search and Core Intelligence work now without them.',
     statusEmptyLabel: 'No index yet',
     statusEmptyDescription:
       'Build the search index first to enable natural language search.',
@@ -224,7 +224,7 @@ export const intelligenceOverviewAndRoutesNamespace = {
       '请先完成初始设置并解锁数据库，然后才能使用智能功能。',
     statusDisabledLabel: 'AI 功能已关闭',
     statusDisabledDescription:
-      'AI 助手和智能搜索会在 v0.3 开放。现在可以使用关键词搜索和确定性智能分析。',
+      'AI 助手和智能搜索已可用，但默认关闭。在设置中开启即可；不开启时，关键词搜索和确定性智能分析也能正常使用。',
     statusEmptyLabel: '索引为空',
     statusEmptyDescription:
       '还没有建立搜索索引。请先构建索引，才能使用智能搜索。',
@@ -395,7 +395,7 @@ export const intelligenceOverviewAndRoutesNamespace = {
       '請先完成初始設定並解鎖資料庫，然後才能使用智慧功能。',
     statusDisabledLabel: 'AI 功能已關閉',
     statusDisabledDescription:
-      'AI 助手和智慧搜尋會在 v0.3 開放。現在可以使用關鍵字搜尋和確定性智慧分析。',
+      'AI 助手和智慧搜尋已可用，但預設關閉。在設定中開啟即可；不開啟時，關鍵字搜尋和確定性智慧分析也能正常使用。',
     statusEmptyLabel: '索引為空',
     statusEmptyDescription:
       '還沒有建立搜尋索引。請先建立索引，才能使用智慧搜尋。',

@@ -63,6 +63,22 @@ export const explorerNamespaceCatalog = {
     optionalAiProviderErrorBody:
       'Check Settings → AI to fix the embedding provider before retrying smart search.',
     optionalAiOpenSettings: 'Open Settings',
+    aiSearchNoteLexicalFallbackNoProvider:
+      'No embedding provider is selected, so results use keyword search only.',
+    aiSearchNoteEmptySemanticIndex:
+      'The smart-search index has no entries yet; build it to enable meaning-based search. Showing keyword results only.',
+    aiSearchNoteSemanticMatchesFilteredOut:
+      'Smart matches were found, but none are visible under the active filters.',
+    aiSearchNoteConfigDriftDimension:
+      'The smart-search index was built with a different embedding setup (vector size changed), so meaning-based search is paused until you rebuild it. Showing keyword results only.',
+    aiSearchNoteConfigDriftFingerprint:
+      'The smart-search index was built with a different embedding setup (model or settings changed), so meaning-based search is paused until you rebuild it. Showing keyword results only.',
+    aiSearchNoteStaleWatermark:
+      'The smart-search index no longer matches your current history. Rebuild it so smart search includes recent imports and reflects removed pages.',
+    aiSearchNoteStaleEnrichment:
+      'Page content changed after the last smart-search build. Rebuild the index to refresh results with the latest text.',
+    aiSearchNoteProviderResolutionFailed:
+      'Smart search is unavailable right now ({reason}); showing keyword results only.',
     searchHeroEyebrow: 'SEARCH HISTORY',
     searchHeroPlaceholder: 'Type to search your history…',
     searchHeroLabel: 'Search mode',
@@ -539,6 +555,22 @@ export const explorerNamespaceCatalog = {
     optionalAiProviderErrorBody:
       '请前往「设置 → AI」修复向量模型，然后再重试智能搜索。',
     optionalAiOpenSettings: '打开设置',
+    aiSearchNoteLexicalFallbackNoProvider:
+      '尚未选择向量模型，因此结果仅使用关键词搜索。',
+    aiSearchNoteEmptySemanticIndex:
+      '智能搜索索引还没有内容；先构建它即可启用按语义搜索。当前仅显示关键词结果。',
+    aiSearchNoteSemanticMatchesFilteredOut:
+      '找到了智能匹配，但在当前筛选条件下都不可见。',
+    aiSearchNoteConfigDriftDimension:
+      '智能搜索索引是用不同的向量设置（向量维度已改变）构建的，因此在重新构建前会暂停按语义搜索。当前仅显示关键词结果。',
+    aiSearchNoteConfigDriftFingerprint:
+      '智能搜索索引是用不同的向量设置（模型或参数已改变）构建的，因此在重新构建前会暂停按语义搜索。当前仅显示关键词结果。',
+    aiSearchNoteStaleWatermark:
+      '智能搜索索引已与当前历史不一致。重新构建它，让智能搜索纳入最新导入并反映已删除的页面。',
+    aiSearchNoteStaleEnrichment:
+      '上次智能搜索构建后页面内容发生了变化。重新构建索引，用最新文本刷新结果。',
+    aiSearchNoteProviderResolutionFailed:
+      '智能搜索当前不可用（{reason}）；仅显示关键词结果。',
     searchHeroEyebrow: '搜索历史',
     searchHeroPlaceholder: '输入关键词搜索你的历史记录…',
     searchHeroLabel: '搜索模式',
@@ -997,6 +1029,22 @@ export const explorerNamespaceCatalog = {
     optionalAiProviderErrorBody:
       '請前往「設定 → AI」修復向量模型，然後再重試智慧搜尋。',
     optionalAiOpenSettings: '開啟設定',
+    aiSearchNoteLexicalFallbackNoProvider:
+      '尚未選擇向量模型，因此結果僅使用關鍵字搜尋。',
+    aiSearchNoteEmptySemanticIndex:
+      '智慧搜尋索引還沒有內容；先建立它即可啟用依語義搜尋。目前僅顯示關鍵字結果。',
+    aiSearchNoteSemanticMatchesFilteredOut:
+      '找到了智慧比對，但在目前的篩選條件下都不可見。',
+    aiSearchNoteConfigDriftDimension:
+      '智慧搜尋索引是用不同的向量設定（向量維度已改變）建立的，因此在重新建立前會暫停依語義搜尋。目前僅顯示關鍵字結果。',
+    aiSearchNoteConfigDriftFingerprint:
+      '智慧搜尋索引是用不同的向量設定（模型或參數已改變）建立的，因此在重新建立前會暫停依語義搜尋。目前僅顯示關鍵字結果。',
+    aiSearchNoteStaleWatermark:
+      '智慧搜尋索引已與目前歷史不一致。重新建立它，讓智慧搜尋納入最新匯入並反映已刪除的頁面。',
+    aiSearchNoteStaleEnrichment:
+      '上次智慧搜尋建立後頁面內容發生了變化。重新建立索引，用最新文字重新整理結果。',
+    aiSearchNoteProviderResolutionFailed:
+      '智慧搜尋目前無法使用（{reason}）；僅顯示關鍵字結果。',
     searchHeroEyebrow: '搜尋歷史',
     searchHeroPlaceholder: '輸入關鍵字搜尋你的歷史紀錄…',
     searchHeroLabel: '搜尋模式',

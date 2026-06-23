@@ -35,6 +35,7 @@ import {
 } from '@/components/cards'
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ToggleRow } from '../../components/ui'
+import { localizeAiIndexWarning } from '../../lib/ai/note-codes'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
@@ -571,15 +572,20 @@ export function AiProvidersSection({
                 </span>
               </div>
             </div>
-            {aiStatus.warning ? (
+            {aiStatus.warning || aiStatus.warningCode ? (
               <div className="result-row">
                 <div className="result-row__header">
                   <strong>{t('settings.aiIndexWarning')}</strong>
                 </div>
                 <p>
-                  {aiStatus.warning ===
-                  'Select an embedding provider in Settings before enabling semantic retrieval.'
-                    ? t('settings.aiIndexWarningEmbeddingMissing')
+                  {/* Resolve the stable warning CODE (review-fix M-7) to localized copy for ALL
+                      variants — never an English-sentence match. Fall back to the legacy English
+                      `warning` only when an older payload carried no code (additive contract). */}
+                  {aiStatus.warningCode
+                    ? localizeAiIndexWarning(
+                        aiStatus.warningCode,
+                        (key, vars) => t(`settings.${key}`, vars),
+                      )
                     : aiStatus.warning}
                 </p>
               </div>

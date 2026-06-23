@@ -17,7 +17,11 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { useAiChatStream } from './use-ai-chat-stream'
-import type { AiChatStreamChunk, AiChatMessage } from '../../lib/types'
+import type {
+  AiAgentNote,
+  AiChatStreamChunk,
+  AiChatMessage,
+} from '../../lib/types'
 
 /** Controllable rAF: queued callbacks fire only when `runFrame()` is called. */
 let frameQueue: FrameRequestCallback[] = []
@@ -52,6 +56,7 @@ function makeHarness(options?: {
   providerId?: string | null
   toolsEnabled?: boolean
   conversationId?: string | null
+  localizeAgentNote?: (code: AiAgentNote) => string
 }) {
   let feed: ((chunk: AiChatStreamChunk) => void) | null = null
   const unsubscribe = options?.unsubscribe ?? vi.fn()
@@ -82,6 +87,7 @@ function makeHarness(options?: {
       providerId: options?.providerId,
       toolsEnabled: options?.toolsEnabled,
       conversationId: options?.conversationId,
+      localizeAgentNote: options?.localizeAgentNote,
     }),
   )
   return {
@@ -147,6 +153,39 @@ describe('useAiChatStream', () => {
     expect(assistant.toolCalls?.[0].name).toBe('search_bm25')
     expect(assistant.toolCalls?.[0].arguments).toBe('{"q":"x"}')
     expect(h.hook.result.current.awaitingFirstChunk).toBe(false)
+  })
+
+  test('a note chunk appends the LOCALIZED control note to the visible answer (M-6)', async () => {
+    // Review-fix M-6: the harness streams its control notes as stable CODES; the hook resolves them
+    // via the injected localizer and appends the localized text — never raw English.
+    const localizeAgentNote = vi.fn(
+      (code: AiAgentNote) => `localized:${code.code}`,
+    )
+    const h = makeHarness({ localizeAgentNote })
+    act(() => h.hook.result.current.send('hi'))
+    await settle()
+
+    h.feed({ kind: 'token', text: 'partial' })
+    h.feed({ kind: 'note', code: { code: 'maxStepsReached' } })
+    act(() => runFrame())
+
+    expect(localizeAgentNote).toHaveBeenCalledWith({ code: 'maxStepsReached' })
+    const assistant = h.hook.result.current.messages[1]
+    expect(assistant.content).toBe('partial\n\n_localized:maxStepsReached_')
+  })
+
+  test('a note chunk is dropped (never rendered raw) when no localizer is bound', async () => {
+    // A plain-chat surface that never runs the harness binds no localizer; a stray note chunk must
+    // not leak a raw code/English onto the visible answer.
+    const h = makeHarness()
+    act(() => h.hook.result.current.send('hi'))
+    await settle()
+
+    h.feed({ kind: 'token', text: 'partial' })
+    h.feed({ kind: 'note', code: { code: 'tokenBudgetReached' } })
+    act(() => runFrame())
+
+    expect(h.hook.result.current.messages[1].content).toBe('partial')
   })
 
   test('coalesces a burst of chunks into exactly one flush per frame', async () => {
