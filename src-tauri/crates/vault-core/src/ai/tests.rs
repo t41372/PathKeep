@@ -75,7 +75,7 @@ fn embedding_provider() -> AiProviderRuntime {
             dimensions: Some(3),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".into(),
+        api_key: Some("secret".into()),
     }
 }
 
@@ -90,7 +90,7 @@ fn llm_provider() -> AiProviderRuntime {
             default_model: "gpt-4.1-mini".to_string(),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".into(),
+        api_key: Some("secret".into()),
     }
 }
 
@@ -573,7 +573,7 @@ fn validate_provider_rejects_anthropic_embeddings() {
                 default_model: "claude-3-7-sonnet".to_string(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".into(),
+            api_key: Some("secret".into()),
         },
         AiProviderPurpose::Embedding,
     )
@@ -594,7 +594,7 @@ fn validate_provider_rejects_disabled_wrong_purpose_and_missing_model() {
                 default_model: "text-embedding-3-small".to_string(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".into(),
+            api_key: Some("secret".into()),
         },
         AiProviderPurpose::Embedding,
     )
@@ -616,7 +616,7 @@ fn validate_provider_rejects_disabled_wrong_purpose_and_missing_model() {
                 default_model: String::new(),
                 ..AiProviderConfig::default()
             },
-            api_key: "secret".into(),
+            api_key: Some("secret".into()),
         },
         AiProviderPurpose::Llm,
     )
@@ -997,11 +997,15 @@ fn provider_validation_readiness_and_error_branches_stay_actionable() {
     assert!(!readiness.available);
     assert_eq!(readiness.selected_model.as_deref(), Some("text-embedding-3-small"));
 
+    // OPTIONAL key: a missing API key MUST NOT make the embedding provider unavailable — a keyless
+    // local endpoint (LM Studio / Ollama) needs none, so the index build proceeds. (Before the fix
+    // this returned `available == false` with an "API key" warning, blocking keyless providers.)
     config.ai.embedding_providers[0].enabled = true;
     config.ai.embedding_providers[0].api_key_saved = false;
     let readiness = embedding_provider_readiness(&config);
-    assert!(!readiness.available);
-    assert!(readiness.warning.as_deref().expect("warning").contains("API key"));
+    assert!(readiness.available, "a keyless provider stays available; key is optional");
+    assert!(readiness.warning.is_none(), "no blocking warning for a missing optional key");
+    assert!(readiness.warning_code.is_none());
 
     config.ai.embedding_providers[0].api_key_saved = true;
     config.ai.embedding_providers[0].default_model = " ".to_string();
@@ -4108,7 +4112,7 @@ fn stubbed_llm_and_embedding_helpers_cover_supported_formats() {
             dimensions: Some(4),
             ..AiProviderConfig::default()
         },
-        api_key: "secret".into(),
+        api_key: Some("secret".into()),
     };
     let embedding = runtime
         .block_on(embed_query(&google_embedding_provider, "hello", EmbeddingRole::Query))
@@ -4143,7 +4147,7 @@ fn stubbed_llm_and_embedding_helpers_cover_supported_formats() {
                     default_model: "claude-embedding".to_string(),
                     ..AiProviderConfig::default()
                 },
-                api_key: "secret".into(),
+                api_key: Some("secret".into()),
             },
             "hello",
             EmbeddingRole::Query,

@@ -100,12 +100,18 @@ mod tests {
         config.ai.skill_enabled = true;
         config.ai.llm_provider_id = Some("llm-primary".to_string());
         config.ai.embedding_provider_id = Some("embed-primary".to_string());
+        // Point at a loopback discard port so that when this crate links the REAL (non-stub)
+        // vault-core under plain `cargo test`, a keyless run fails FAST and DETERMINISTICALLY with
+        // a connection error instead of reaching out to a real cloud endpoint (api.openai.com). The
+        // coverage gate links the stub and never opens a socket. The OPTIONAL-key assertions below
+        // are written to accept either outcome, asserting only that we never pre-empt on a key.
         config.ai.llm_providers = vec![AiProviderConfig {
             id: "llm-primary".to_string(),
             name: "Primary LLM".to_string(),
             purpose: AiProviderPurpose::Llm,
             request_format: AiRequestFormat::OpenAi,
             enabled: true,
+            base_url: Some("http://127.0.0.1:9/v1".to_string()),
             default_model: "gpt-4.1-mini".to_string(),
             ..AiProviderConfig::default()
         }];
@@ -115,6 +121,7 @@ mod tests {
             purpose: AiProviderPurpose::Embedding,
             request_format: AiRequestFormat::OpenAi,
             enabled: true,
+            base_url: Some("http://127.0.0.1:9/v1".to_string()),
             default_model: "text-embedding-3-large".to_string(),
             dimensions: Some(1536),
             ..AiProviderConfig::default()
@@ -405,16 +412,35 @@ mod tests {
         .expect("ai search");
         assert_eq!(ai_search.total, 2);
 
-        let assistant_error = ask_ai_assistant_impl(
+        // OPTIONAL key: even with NO stored provider key (the key was cleared above), the
+        // assistant must NOT bail on PathKeep's own "store an API key" precondition — a key is not
+        // a prerequisite. This crate links the REAL (non-stub) vault-core, so the outcome is
+        // mode-dependent: under the coverage stub the run completes; against the real default
+        // OpenAI endpoint the PROVIDER answers with its own 401. Either way is acceptable; the ONLY
+        // forbidden outcome is our removed synthetic precondition. (Before the fix this bailed with
+        // "store an API key" before any provider was even contacted.)
+        match ask_ai_assistant_impl(
             AiAssistantRequest {
                 question: "What did I visit?".to_string(),
                 profile_id: None,
                 domain: None,
             },
             session_key(&session).as_deref(),
-        )
-        .expect_err("assistant should require saved provider key");
-        assert!(assistant_error.contains("API key"), "assistant error: {assistant_error}");
+        ) {
+            Ok(response) => {
+                // Stub path: the keyless run proceeds to a completed answer end to end.
+                assert_eq!(response.state, "completed");
+                assert!(!response.answer.is_empty(), "keyless assistant answers: {response:?}");
+            }
+            Err(error) => {
+                // Real-network path: only a PROVIDER-returned error may block — never PathKeep's
+                // own missing-key precondition.
+                assert!(
+                    !error.contains("store an API key"),
+                    "must not pre-empt on a missing key; got: {error}"
+                );
+            }
+        }
 
         let preview = preview_ai_integrations_impl().expect("preview ai integrations");
         assert!(preview.mcp_command.contains("mcp-server"));
@@ -796,6 +822,13 @@ mod tests {
             repair_health_impl(session_key(&session).as_deref()).expect("repair health report");
         assert!(repair.run_id.is_none() || repair.run_id > Some(run_id));
 
+        // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
+        // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
+        // so the verdict is mode-dependent: under the coverage stub the keyless probe reports `ok`;
+        // against the real default OpenAI endpoint it reports `!ok` carrying the PROVIDER's own
+        // error. Either is acceptable — the invariant is that the probe RAN (returned a report) and
+        // never surfaced our removed "store an API key" precondition. (Before the fix this reported
+        // `secret-missing` purely from our assumption, without contacting the provider at all.)
         let connection_probe = test_ai_provider_connection_impl(
             AiProviderConnectionTestRequest {
                 provider_id: "embed-primary".to_string(),
@@ -803,9 +836,12 @@ mod tests {
             },
             session_key(&session).as_deref(),
         )
-        .expect("missing provider key should surface in the report");
-        assert!(!connection_probe.ok);
-        assert_eq!(connection_probe.error_code.as_deref(), Some("secret-missing"));
+        .expect("a keyless provider probe must run, not bail on a missing key");
+        assert_eq!(connection_probe.provider_id, "embed-primary");
+        assert!(
+            !connection_probe.message.contains("store an API key"),
+            "the probe must contact the provider, not pre-empt on a missing key: {connection_probe:?}"
+        );
 
         let queue = load_ai_queue_status_impl(session_key(&session).as_deref())
             .expect("load ai queue status");

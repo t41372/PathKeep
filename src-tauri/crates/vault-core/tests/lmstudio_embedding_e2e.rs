@@ -35,7 +35,7 @@ fn lmstudio_embedding_runtime() -> AiProviderRuntime {
             ..AiProviderConfig::default()
         },
         // LM Studio accepts any non-empty key.
-        api_key: SecretString::from("lm-studio".to_string()),
+        api_key: Some(SecretString::from("lm-studio".to_string())),
     }
 }
 

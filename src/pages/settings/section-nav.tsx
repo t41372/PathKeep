@@ -19,7 +19,7 @@
  * - 本模組只渲染少量 anchors，不做資料查詢或重計算。
  */
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Glyph } from '../../components/ui'
 import type { SettingsSectionNavItem } from './section-nav-items'
@@ -92,18 +92,41 @@ function sectionIdFromLocationHash(hash: string, sectionIds: string[]) {
 export function SettingsSectionNav({ items, label }: SettingsSectionNavProps) {
   const location = useLocation()
   const sectionIds = useMemo(() => items.map((item) => item.id), [items])
+  // Mirror the (possibly re-derived) section-id membership into a ref so the
+  // auto-scroll effect can depend ONLY on the hash. Without this, a parent that
+  // hands us a fresh `items` array each render (e.g. an unrelated state change)
+  // would change `sectionIds` identity and re-fire the deep-link scroll on
+  // every render, yanking the viewport back to the hashed section. This sync
+  // effect is declared BEFORE the scroll effect so the ref is fresh by the time
+  // the scroll effect reads it on the same commit.
+  const sectionIdsRef = useRef(sectionIds)
+  useEffect(() => {
+    sectionIdsRef.current = sectionIds
+  }, [sectionIds])
   const handleSectionClick = useCallback((sectionId: string) => {
     scheduleSectionScroll(sectionId)
   }, [])
 
+  // Guard the hash-driven auto-scroll so it fires ONCE per actual hash arrival.
+  // An explicit nav-pill click still scrolls (it calls scheduleSectionScroll
+  // directly), but a re-render at the same hash must never re-scroll.
+  const autoScrolledHashRef = useRef<string | null>(null)
   useEffect(() => {
-    const sectionId = sectionIdFromLocationHash(location.hash, sectionIds)
+    if (autoScrolledHashRef.current === location.hash) {
+      return
+    }
+    autoScrolledHashRef.current = location.hash
+
+    const sectionId = sectionIdFromLocationHash(
+      location.hash,
+      sectionIdsRef.current,
+    )
     if (!sectionId) {
       return
     }
 
     return scheduleSectionScroll(sectionId)
-  }, [location.hash, sectionIds])
+  }, [location.hash])
 
   return (
     <nav className="settings-nav" aria-label={label}>

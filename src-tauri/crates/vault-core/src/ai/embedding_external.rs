@@ -34,8 +34,6 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(any(test, coverage)))]
-use secrecy::ExposeSecret;
-#[cfg(not(any(test, coverage)))]
 use std::time::Duration;
 
 /// Max inputs sent per `/v1/embeddings` HTTP request.
@@ -267,6 +265,50 @@ impl EmbeddingProvider for ExternalEmbeddingProvider {
     }
 }
 
+/// Builds ONE `/v1/embeddings` POST, attaching `Authorization: Bearer …` ONLY for a present key.
+///
+/// Always compiled (not behind the network cfg) so the OPTIONAL-key contract is a unit-tested,
+/// coverage-counted property of the BUILT request rather than a claim about the live socket: a
+/// `None` key (no key, or a whitespace-only one — see [`AiProviderRuntime::api_key_for_transport`])
+/// attaches NO auth header at all, so a keyless local server (LM Studio / Ollama) is reached
+/// untouched; we never send a hollow `Bearer ` a key-enforcing server would reject. `Some(key)`
+/// attaches the bearer token verbatim. PathKeep never pre-empts the call on a missing key — a
+/// cloud server that needs one answers with its OWN 401, surfaced from the `embed_impl` send path.
+pub(super) fn build_embeddings_request(
+    client: &reqwest::Client,
+    endpoint: &str,
+    body: Vec<u8>,
+    api_key: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let request = client.post(endpoint).header("content-type", "application/json").body(body);
+    match api_key {
+        Some(key) => request.bearer_auth(key),
+        None => request,
+    }
+}
+
+/// Turns one `/v1/embeddings` HTTP outcome into vectors, or surfaces the PROVIDER's OWN error.
+///
+/// Always compiled (not behind the network cfg) so the "only a provider-returned error fails the
+/// call" contract is a unit-tested, coverage-counted property. A NON-success status (the provider's
+/// real 401/403/429/5xx — e.g. a key-enforcing cloud server rejecting a missing/invalid key)
+/// surfaces verbatim, carrying the server's own response body, NOT a synthetic PathKeep
+/// precondition. A success status decodes + normalizes the vectors. `status_code` is the numeric
+/// HTTP status (e.g. `401`); `success` mirrors `StatusCode::is_success` so the pure helper does not
+/// need the reqwest status type.
+pub(super) fn embeddings_response_to_vectors(
+    status_code: u16,
+    success: bool,
+    body: &[u8],
+    expected_count: usize,
+) -> Result<Vec<Vec<f32>>> {
+    if !success {
+        let detail = String::from_utf8_lossy(body);
+        anyhow::bail!("embeddings request failed with status {status_code}: {detail}");
+    }
+    decode_response_body(body, expected_count)
+}
+
 /// Real `/v1/embeddings` embed: re-chunks, POSTs JSON, decodes + normalizes each batch.
 #[cfg(not(any(test, coverage)))]
 async fn embed_impl(
@@ -282,7 +324,9 @@ async fn embed_impl(
         .timeout(EMBEDDING_HTTP_TIMEOUT)
         .build()
         .context("building embeddings HTTP client")?;
-    let api_key = provider.runtime.api_key.expose_secret().to_string();
+    // OPTIONAL key resolved ONCE here; `build_embeddings_request` then omits the auth header when
+    // it is absent. A keyless local server works untouched; a key-enforcing cloud server 401s.
+    let api_key = provider.runtime.api_key_for_transport().map(str::to_owned);
 
     let mut out = Vec::with_capacity(texts.len());
     for chunk in texts.chunks(EMBEDDING_HTTP_BATCH) {
@@ -291,21 +335,18 @@ async fn embed_impl(
             chunk,
             provider.requested_dim,
         )?;
-        let response = client
-            .post(&endpoint)
-            .header("content-type", "application/json")
-            .bearer_auth(&api_key)
-            .body(body)
+        let response = build_embeddings_request(&client, &endpoint, body, api_key.as_deref())
             .send()
             .await
             .context("sending embeddings request")?;
         let status = response.status();
         let bytes = response.bytes().await.context("reading embeddings response body")?;
-        if !status.is_success() {
-            let detail = String::from_utf8_lossy(&bytes);
-            anyhow::bail!("embeddings request failed with status {status}: {detail}");
-        }
-        out.extend(decode_response_body(&bytes, chunk.len())?);
+        out.extend(embeddings_response_to_vectors(
+            status.as_u16(),
+            status.is_success(),
+            &bytes,
+            chunk.len(),
+        )?);
     }
     Ok(out)
 }
@@ -471,12 +512,100 @@ mod tests {
                 dimensions: dim,
                 ..AiProviderConfig::default()
             },
-            api_key: SecretString::from("test-key".to_string()),
+            api_key: Some(SecretString::from("test-key".to_string())),
         }
     }
 
     fn near_unit_norm(vector: &[f32]) -> f32 {
         vector.iter().map(|value| value * value).sum::<f32>().sqrt()
+    }
+
+    // ── OPTIONAL-key transport contract (assert on the BUILT request, not a mock) ─────────────────
+
+    #[test]
+    fn build_embeddings_request_attaches_bearer_header_only_when_key_present() {
+        let client = reqwest::Client::new();
+        let endpoint = "http://localhost:1234/v1/embeddings";
+
+        // PRESENT key → the built request carries `Authorization: Bearer <key>` verbatim.
+        let with_key =
+            build_embeddings_request(&client, endpoint, b"{}".to_vec(), Some("sk-secret"))
+                .build()
+                .expect("build request with key");
+        let auth = with_key
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .expect("present key must attach an Authorization header");
+        assert_eq!(auth, "Bearer sk-secret");
+
+        // ABSENT key → NO Authorization header at all (NOT a hollow `Bearer `). This is the live
+        // bug's core: a keyless local server (LM Studio) must be reached untouched.
+        let without_key = build_embeddings_request(&client, endpoint, b"{}".to_vec(), None)
+            .build()
+            .expect("build request without key");
+        assert!(
+            without_key.headers().get(reqwest::header::AUTHORIZATION).is_none(),
+            "absent key must send NO Authorization header"
+        );
+        // The non-auth headers (and method/url) are identical either way — only auth differs.
+        assert_eq!(without_key.method(), reqwest::Method::POST);
+        assert_eq!(
+            without_key.headers().get(reqwest::header::CONTENT_TYPE).map(|value| value.as_bytes()),
+            Some(b"application/json".as_slice())
+        );
+    }
+
+    #[test]
+    fn embeddings_response_surfaces_provider_401_verbatim_and_decodes_success() {
+        // A PROVIDER-returned 401 (e.g. a key-enforcing cloud server rejecting a missing/invalid
+        // key) surfaces as the provider's OWN error carrying its response body — NOT a synthetic
+        // PathKeep precondition. This is the "only the provider may say no" half of the principle.
+        let unauthorized = embeddings_response_to_vectors(
+            401,
+            false,
+            br#"{"error":{"message":"Incorrect API key provided"}}"#,
+            1,
+        )
+        .expect_err("a 401 must surface as an error");
+        let message = unauthorized.to_string();
+        assert!(message.contains("status 401"), "carries the provider status: {message}");
+        assert!(
+            message.contains("Incorrect API key provided"),
+            "carries the provider's own body verbatim: {message}"
+        );
+
+        // A 403 is likewise surfaced (any non-success provider verdict blocks, nothing else does).
+        let forbidden =
+            embeddings_response_to_vectors(403, false, b"forbidden", 1).expect_err("403 surfaces");
+        assert!(forbidden.to_string().contains("status 403"));
+
+        // A success status decodes + L2-normalizes the returned vectors.
+        let ok_body = serde_json::to_vec(&serde_json::json!({
+            "data": [ { "index": 0, "embedding": [3.0, 0.0, 4.0] } ]
+        }))
+        .expect("body");
+        let vectors =
+            embeddings_response_to_vectors(200, true, &ok_body, 1).expect("success decodes");
+        assert_eq!(vectors.len(), 1);
+        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn api_key_for_transport_treats_absent_and_blank_keys_as_no_header() {
+        // None → no header.
+        let mut absent = runtime(AiRequestFormat::LmStudio, "p", None);
+        absent.api_key = None;
+        assert_eq!(absent.api_key_for_transport(), None);
+
+        // A whitespace-only key is treated exactly like an absent one (no hollow `Bearer `).
+        let mut blank = runtime(AiRequestFormat::LmStudio, "p", None);
+        blank.api_key = Some(SecretString::from("   ".to_string()));
+        assert_eq!(blank.api_key_for_transport(), None);
+
+        // A real key flows through verbatim.
+        let mut present = runtime(AiRequestFormat::LmStudio, "p", None);
+        present.api_key = Some(SecretString::from("sk-real".to_string()));
+        assert_eq!(present.api_key_for_transport(), Some("sk-real"));
     }
 
     #[test]

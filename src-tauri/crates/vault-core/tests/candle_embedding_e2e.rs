@@ -129,7 +129,7 @@ fn lmstudio_runtime() -> AiProviderRuntime {
             dimensions: None,
             ..AiProviderConfig::default()
         },
-        api_key: SecretString::from("lm-studio".to_string()),
+        api_key: Some(SecretString::from("lm-studio".to_string())),
     }
 }
 

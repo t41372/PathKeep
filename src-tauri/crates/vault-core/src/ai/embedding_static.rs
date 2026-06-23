@@ -964,7 +964,7 @@ mod tests {
                 dimensions: None,
                 ..AiProviderConfig::default()
             },
-            api_key: SecretString::from(String::new()),
+            api_key: None,
         }
     }
 
@@ -981,7 +981,7 @@ mod tests {
                 dimensions: None,
                 ..AiProviderConfig::default()
             },
-            api_key: SecretString::from("key".to_string()),
+            api_key: Some(SecretString::from("key".to_string())),
         }
     }
 

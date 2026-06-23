@@ -49,7 +49,7 @@ fn lmstudio_llm_runtime() -> AiProviderRuntime {
             max_tokens: Some(2048),
             ..AiProviderConfig::default()
         },
-        api_key: SecretString::from("lm-studio".to_string()),
+        api_key: Some(SecretString::from("lm-studio".to_string())),
     }
 }
 
@@ -240,7 +240,7 @@ fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
         database_key: None,
         embedding_provider: Some(AiProviderRuntime {
             config: lmstudio_embedding_config(),
-            api_key: SecretString::from("lm-studio".to_string()),
+            api_key: Some(SecretString::from("lm-studio".to_string())),
         }),
         default_profile_id: None,
         default_domain: None,

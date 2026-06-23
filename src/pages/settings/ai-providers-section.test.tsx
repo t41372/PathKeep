@@ -430,34 +430,96 @@ describe('AiProvidersSection', () => {
     expect(within(embedCard as HTMLElement).queryByText('Connected')).toBeNull()
   })
 
-  test('disables the Test-connection probe for unsaved providers and while AI is off', () => {
-    // Provider not yet persisted: probe disabled even with AI on.
-    const { rerender } = renderSection({
+  test('disables the Test-connection probe for unsaved providers and surfaces a save-first hint', () => {
+    // Provider not yet persisted: probe disabled (the backend probes saved
+    // config by id, never the in-flight draft) AND a visible inline hint tells
+    // the user the next step instead of leaving a silent dead button.
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
       persistedProviderIds: new Set(),
       currentSettings: settingsFixture({ enabled: true }),
     })
-    expect(
-      screen.getAllByRole('button', { name: 'Test connection' })[0],
-    ).toBeDisabled()
+    const probe = screen.getAllByRole('button', { name: 'Test connection' })[0]
+    expect(probe).toBeDisabled()
+    // The hint renders as real visible copy (not just an aria attribute), once
+    // per editor list (LLM + embedding), and clicking the dead button is inert.
+    const hints = screen.getAllByText('Save this provider first to test it.')
+    expect(hints.length).toBe(2)
+    expect(hints[0]).toBeVisible()
+    fireEvent.click(probe)
+    expect(handlers.onProviderProbe).not.toHaveBeenCalled()
+  })
 
-    // AI off: probe disabled regardless of persistence.
-    rerender(
-      <MemoryRouter>
-        <I18nProvider>
-          <AiProvidersSection
-            navItem={navItem}
-            state={{
-              ...baseState(),
-              persistedProviderIds: new Set(['llm-1', 'embed-1']),
-              currentSettings: settingsFixture({ enabled: false }),
-            }}
-          />
-        </I18nProvider>
-      </MemoryRouter>,
-    )
+  test('disables Save key for an unsaved provider but surfaces a save-first hint once a key is typed', () => {
+    // The "I typed a key but it never saved" dead end: the backend stores the
+    // secret by provider id, which does not exist in saved config until Save
+    // settings runs. With a typed key but an UNSAVED provider, Save key is
+    // disabled AND the inline hint tells the user to save settings first
+    // (mentioning the key is optional for local servers).
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      aiApiKeys: { 'llm-1': 'sk-typed', 'embed-1': 'sk-typed' },
+      persistedProviderIds: new Set(),
+      currentSettings: settingsFixture({ enabled: true }),
+    })
+    const save = screen.getAllByRole('button', { name: 'Save key' })[0]
+    expect(save).toBeDisabled()
+    const hints = screen.getAllByTestId(/^save-key-hint-/)
+    expect(hints.length).toBe(2)
+    expect(hints[0]).toBeVisible()
+    fireEvent.click(save)
+    expect(handlers.onSaveAiApiKey).not.toHaveBeenCalled()
+  })
+
+  test('omits the Save-key save-first hint when no key has been typed yet (empty field is not a dead end)', () => {
+    // An empty field is a transient, self-resolving state — not a misconfigured
+    // dead end — so the hint must stay quiet until the user actually types a key.
+    renderSection({
+      aiApiKeys: {},
+      persistedProviderIds: new Set(),
+      currentSettings: settingsFixture({ enabled: true }),
+    })
+    expect(screen.queryByTestId(/^save-key-hint-/)).toBeNull()
+  })
+
+  test('probes a persisted provider even while the AI master toggle is OFF (you test before opting in)', () => {
+    // BUG B regression: testing a connection must not require AI to be enabled —
+    // the user validates an endpoint BEFORE committing to turning AI on. With a
+    // persisted provider and AI off, the probe is ENABLED, fires onProbe, and
+    // shows NO save-first hint.
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      persistedProviderIds: new Set(['llm-1', 'embed-1']),
+      currentSettings: settingsFixture({ enabled: false }),
+    })
+    const probe = screen.getAllByRole('button', { name: 'Test connection' })[0]
+    expect(probe).toBeEnabled()
     expect(
-      screen.getAllByRole('button', { name: 'Test connection' })[0],
-    ).toBeDisabled()
+      screen.queryByText('Save this provider first to test it.'),
+    ).toBeNull()
+    fireEvent.click(probe)
+    expect(handlers.onProviderProbe).toHaveBeenLastCalledWith('llm', 'llm-1')
+  })
+
+  test('keeps the probe disabled WITHOUT a save-first hint while another probe is in flight', () => {
+    // A transient gate (another probe running) disables every probe button, but
+    // it resolves on its own and the in-flight button already shows "Testing…",
+    // so we must NOT mislead the user with the save-first hint here even though
+    // the providers are persisted.
+    renderSection({
+      persistedProviderIds: new Set(['llm-1', 'embed-1']),
+      currentSettings: settingsFixture({ enabled: true }),
+      testingProviderId: 'llm-1',
+    })
+    screen
+      .getAllByRole('button', { name: /Test connection|Testing/ })
+      .forEach((button) => expect(button).toBeDisabled())
+    expect(
+      screen.queryByText('Save this provider first to test it.'),
+    ).toBeNull()
   })
 
   test('relabels the probe button while a probe is in flight', () => {

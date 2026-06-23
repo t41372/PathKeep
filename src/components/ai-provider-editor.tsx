@@ -62,9 +62,11 @@ export function AiProviderEditorList({
   onClearKeyDisabled,
   onProbe,
   onProbeDisabled,
+  onProbeDisabledHint,
   onRemove,
   onSaveKey,
   onSaveKeyDisabled,
+  onSaveKeyDisabledHint,
   onSelect,
   onUpdate,
   providerProbes,
@@ -87,9 +89,18 @@ export function AiProviderEditorList({
   onClearKeyDisabled?: (providerId: string) => boolean
   onProbe?: (providerId: string) => void
   onProbeDisabled?: (providerId: string) => boolean
+  // Returns a short inline reason when the probe is disabled for a recoverable
+  // reason (e.g. the provider is not saved yet) so the button is never a silent
+  // dead end. Returns null when there is nothing actionable to say.
+  onProbeDisabledHint?: (providerId: string) => string | null
   onRemove: (providerId: string) => void
   onSaveKey: (providerId: string) => void
   onSaveKeyDisabled?: (providerId: string) => boolean
+  // Returns a short inline reason when Save key is disabled for a recoverable
+  // reason (e.g. the provider is not persisted yet, so the backend can't store a
+  // key under an id it has never seen) so the button is never a silent dead end.
+  // Returns null when there is nothing actionable to say (e.g. the field is empty).
+  onSaveKeyDisabledHint?: (providerId: string) => string | null
   onSelect: (providerId: string) => void
   onUpdate: (providerId: string, patch: Partial<AiProviderConfig>) => void
   providerProbes?: Record<string, AiProviderConnectionTestReport>
@@ -415,6 +426,37 @@ export function AiProviderEditorList({
                     </button>
                   ) : null}
                 </div>
+                {/*
+                  A disabled Save-key button explains itself the same way the
+                  probe does: when the only blocker is that the provider isn't
+                  persisted yet (the backend stores the secret by provider id,
+                  which doesn't exist in saved config until you Save settings),
+                  this inline hint tells the user to save first instead of
+                  leaving a dead button. This closes the "I typed a key but it
+                  never saved" dead end.
+                */}
+                {onSaveKeyDisabledHint?.(provider.id) ? (
+                  <p
+                    className="mono-support providerProbeHint"
+                    data-testid={`save-key-hint-${provider.id}`}
+                  >
+                    {onSaveKeyDisabledHint(provider.id)}
+                  </p>
+                ) : null}
+                {/*
+                  A disabled Test-connection button explains itself: when the
+                  only blocker is that the provider isn't persisted yet, this
+                  inline hint tells the user to save first instead of leaving a
+                  dead button. Rendered as the probe's accessible description.
+                */}
+                {onProbe && onProbeDisabledHint?.(provider.id) ? (
+                  <p
+                    className="mono-support providerProbeHint"
+                    data-testid={`probe-hint-${provider.id}`}
+                  >
+                    {onProbeDisabledHint(provider.id)}
+                  </p>
+                ) : null}
               </div>
 
               {providerProbes?.[provider.id] ? (

@@ -33,7 +33,7 @@ use vault_core::{
     AiIndexReport, AiProviderConnectionTestRequest, AiQueueStatus, AiRunControl, AiSearchRequest,
     CoreIntelligenceRebuildRequest,
 };
-use vault_platform::keyring_set_provider_api_key;
+use vault_platform::{keyring_set_provider_api_key, provider_api_key_saved};
 
 pub(crate) const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
@@ -1355,6 +1355,30 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
     .expect_err("disabled provider should fail");
     assert!(disabled.to_string().contains("enable provider"));
 
+    // LIVE-BUG REGRESSION: a provider with NO stored key MUST resolve (the key is optional — a
+    // keyless local server like LM Studio needs none). Before the fix this bailed with
+    // "store an API key for provider …"; now it returns a runtime carrying an absent key for BOTH
+    // the embedding and LLM purposes, and the transport omits the `Authorization` header.
+    assert!(
+        !provider_api_key_saved("embed-primary"),
+        "precondition: no key stored for the embedding provider yet"
+    );
+    let keyless_embedding = resolve_provider_runtime(
+        &config.ai.embedding_providers,
+        "embed-primary",
+        AiProviderPurpose::Embedding,
+    )
+    .expect("a keyless embedding provider must resolve, not bail on a missing key");
+    assert!(keyless_embedding.api_key.is_none(), "no stored key => absent runtime key");
+    assert!(
+        keyless_embedding.api_key_for_transport().is_none(),
+        "absent key => transport sends NO Authorization header"
+    );
+    let keyless_llm =
+        resolve_provider_runtime(&config.ai.llm_providers, "llm-primary", AiProviderPurpose::Llm)
+            .expect("a keyless LLM provider must resolve, not bail on a missing key");
+    assert!(keyless_llm.api_key.is_none(), "no stored key => absent runtime key (LLM)");
+
     keyring_set_provider_api_key("embed-primary", "embed-secret").expect("set provider key");
     let resolved = resolve_provider_runtime(
         &config.ai.embedding_providers,
@@ -1362,7 +1386,12 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
         AiProviderPurpose::Embedding,
     )
     .expect("resolve provider");
-    assert_eq!(vault_core::ExposeSecret::expose_secret(&resolved.api_key), "embed-secret");
+    // REGRESSION: a present key still resolves and is exposed verbatim to the transport boundary.
+    assert_eq!(
+        resolved.api_key_for_transport(),
+        Some("embed-secret"),
+        "a present key is forwarded as the bearer token"
+    );
 
     config.ai.embedding_provider_id = None;
     assert!(selected_optional_embedding_runtime(&config).expect("optional embedding").is_none());
@@ -1715,7 +1744,16 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
     assert!(index_as_assistant.notes.iter().any(|note| note.contains("has not finished yet")));
 
     config.ai.job_queue_paused = false;
-    save_user_config(&config, None).expect("unpause config");
+    // OPTIONAL key: a missing key no longer degrades semantic — the keyless provider resolves and the
+    // stub embeds. To keep this test honest to its name (a genuinely degraded semantic path), turn the
+    // selected embedding provider OFF in Settings. A disabled provider is a real, still-valid trigger:
+    // `selected_optional_embedding_runtime` returns Err ("…turned off in Settings — enable provider…"),
+    // so `search_ai_history` resolves NO embedding runtime and degrades to lexical. That Err flows
+    // through `search_response_with_resolution_note` as `AiSearchNote::ProviderResolutionFailed`, whose
+    // model-facing text is the SAME "Semantic retrieval is unavailable right now: …" sentence asserted
+    // below — so this still covers the lexical-fallback + resolution-note lines via a legitimate cause.
+    config.ai.embedding_providers[0].enabled = false;
+    save_user_config(&config, None).expect("unpause config with embedding provider disabled");
     let fallback_search = search_ai_history(
         None,
         &AiSearchRequest {
@@ -1727,7 +1765,7 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
             starred_only: None,
         },
     )
-    .expect("semantic search degrades to lexical when embedding secret is unavailable");
+    .expect("semantic search degrades to lexical when the embedding provider is disabled");
     assert_eq!(fallback_search.provider_id, "lexical-fallback");
     assert!(
         fallback_search
@@ -2532,7 +2570,20 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
 
-    let config = configured_ai_config();
+    let mut config = configured_ai_config();
+    // A provider the user turned OFF in Settings is a legitimate (non-missing-key) reason a probe
+    // resolution fails — it lets us still cover `test_ai_provider_connection_report`'s failure-report
+    // arm without re-introducing the removed missing-key pre-emption.
+    config.ai.embedding_providers.push(AiProviderConfig {
+        id: "embed-disabled".to_string(),
+        name: "Disabled embedding".to_string(),
+        purpose: AiProviderPurpose::Embedding,
+        request_format: AiRequestFormat::OpenAi,
+        enabled: false,
+        default_model: "text-embedding-3-large".to_string(),
+        dimensions: Some(1536),
+        ..AiProviderConfig::default()
+    });
     initialize_archive_database(&config, Some("vault-passphrase")).expect("initialize archive");
     save_user_config(&config, Some("vault-passphrase")).expect("save config");
     let backup = run_backup_now(Some("vault-passphrase"), false).expect("backup");
@@ -2548,16 +2599,39 @@ fn coverage_dashboard_and_ai_follow_up_helpers_cover_success_and_error_paths() {
     let repair = repair_health(Some("vault-passphrase")).expect("repair health");
     assert!(repair.run_id.is_none() || repair.run_id >= Some(run_id));
 
-    let provider_error = test_ai_provider_connection_report(
+    // OPTIONAL key: probing a provider with NO stored key must RUN the probe, not pre-fail on
+    // PathKeep's own removed missing-key precondition. The invariant is that the report came back for
+    // the requested provider and never surfaced our old "store an API key" pre-emption; the verdict
+    // itself is mode-dependent (the coverage stub answers a keyless embedding probe as `ok`, a real
+    // key-enforcing endpoint would carry the PROVIDER's own 401). Either is acceptable.
+    let provider_probe = test_ai_provider_connection_report(
         Some("vault-passphrase"),
         &AiProviderConnectionTestRequest {
             provider_id: "embed-primary".to_string(),
             purpose: AiProviderPurpose::Embedding,
         },
     )
-    .expect("provider connection should surface missing secrets in the report");
-    assert!(!provider_error.ok);
-    assert_eq!(provider_error.error_code.as_deref(), Some("secret-missing"));
+    .expect("a keyless provider probe must run, not bail on a missing key");
+    assert_eq!(provider_probe.provider_id, "embed-primary");
+    assert!(
+        !provider_probe.message.contains("store an API key"),
+        "the probe must contact the provider, not pre-empt on a missing key: {provider_probe:?}"
+    );
+
+    // Probing a DISABLED provider still resolves to a failure report (not a pre-emption): resolution
+    // bails on the "turned off in Settings" precondition, so the report carries `provider-disabled`.
+    // This keeps `test_ai_provider_connection_report`'s failure-report arm covered via an honest,
+    // post-optional-key cause that has nothing to do with a missing API key.
+    let disabled_probe = test_ai_provider_connection_report(
+        Some("vault-passphrase"),
+        &AiProviderConnectionTestRequest {
+            provider_id: "embed-disabled".to_string(),
+            purpose: AiProviderPurpose::Embedding,
+        },
+    )
+    .expect("a disabled provider must report a failure, not error out");
+    assert!(!disabled_probe.ok);
+    assert_eq!(disabled_probe.error_code.as_deref(), Some("provider-disabled"));
 
     let queue = load_ai_queue(Some("vault-passphrase")).expect("load ai queue");
     assert_eq!(queue.queued, 0);

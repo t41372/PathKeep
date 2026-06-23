@@ -540,7 +540,7 @@ mod tests {
                 default_model: "stub-model".to_string(),
                 ..AiProviderConfig::default()
             },
-            api_key: vault_core::SecretString::from("k".to_string()),
+            api_key: Some(vault_core::SecretString::from("k".to_string())),
         }
     }
 

@@ -299,6 +299,9 @@
   - Anthropic 在 day one 只作 chat provider，不作 embedding provider
 - provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
+- **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
+  - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
+  - FE：新增 provider 需先 Save settings（key 依 provider id 存進 keyring，id 在存檔前不存在於 saved config）；Save key 在 provider 尚未持久化時會 disable 並顯示 inline hint 指引「先存設定」，不留死路。
 
 ---
 

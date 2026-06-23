@@ -577,7 +577,7 @@ mod tests {
                 dimensions: Some(8),
                 ..AiProviderConfig::default()
             },
-            api_key: SecretString::from("k".to_string()),
+            api_key: Some(SecretString::from("k".to_string())),
         }
     }
 

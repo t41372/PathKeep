@@ -174,15 +174,37 @@ use self::search::{
     cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
 };
 
-/// Resolved provider configuration plus the usable secret for one AI operation.
+/// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
 ///
-/// `api_key` is a [`SecretString`] so it is zeroized on drop, redacted in `Debug`/logs, and
-/// never serialized into a trace or sidecar. The plaintext is only exposed at the rig
-/// `.api_key(...)` boundary in `provider.rs` via [`ExposeSecret`].
+/// `api_key` is `Option<SecretString>` because a key is a per-provider OPTION, not a
+/// precondition: a local/LAN self-hosted server (LM Studio, Ollama, llama-server, …) needs no
+/// key, so PathKeep must never block a provider call on a missing key of its own accord. `None`
+/// means "the user stored no key" — the transport then sends NO `Authorization` header rather
+/// than a hollow `Bearer ` a key-enforcing cloud server would (rightly) reject. When present, the
+/// [`SecretString`] is zeroized on drop, redacted in `Debug`/logs, and never serialized into a
+/// trace or sidecar; the plaintext is only exposed at the transport `Authorization`/rig
+/// `.api_key(...)` boundary via [`ExposeSecret`]. Only an error the PROVIDER itself returns (a real
+/// 401/403, …) may surface as a failure — we never assume "can't be done" before trying.
 #[derive(Debug, Clone)]
 pub struct AiProviderRuntime {
     pub config: AiProviderConfig,
-    pub api_key: SecretString,
+    pub api_key: Option<SecretString>,
+}
+
+impl AiProviderRuntime {
+    /// Borrows the plaintext key for the transport boundary, treating a blank key as absent.
+    ///
+    /// Returns `Some(key)` only for a NON-EMPTY stored secret; `None` (no key OR a whitespace-only
+    /// key) tells the transport to omit the `Authorization` header entirely. Centralizing the
+    /// "blank == absent" rule here means every transport site agrees, and a user who clears a key
+    /// down to whitespace is treated exactly like one who never set it.
+    pub fn api_key_for_transport(&self) -> Option<&str> {
+        use secrecy::ExposeSecret;
+        self.api_key
+            .as_ref()
+            .map(|secret| secret.expose_secret())
+            .filter(|key| !key.trim().is_empty())
+    }
 }
 
 /// Cooperative cancellation/progress hook for long-running AI work.

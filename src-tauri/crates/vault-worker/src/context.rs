@@ -21,9 +21,9 @@ use anyhow::{Context, Result};
 use tokio::runtime::Runtime;
 use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchNote,
-    AiSearchResponse, AppConfig, AppLockStatus, IntelligenceStatus, ai_index_status, ai_queue,
-    app_lock_status_with_biometric, archive, ensure_app_lock_unlocked, hydrate_app_lock_config,
-    intelligence_status, load_config,
+    AiSearchResponse, AppConfig, AppLockStatus, IntelligenceStatus, SecretString, ai_index_status,
+    ai_queue, app_lock_status_with_biometric, archive, ensure_app_lock_unlocked,
+    hydrate_app_lock_config, intelligence_status, load_config,
 };
 use vault_platform::{
     app_lock_biometric_state, keyring_get_provider_api_key, provider_api_key_saved,
@@ -119,11 +119,15 @@ pub(crate) fn derive_intelligence_status(
     }
 }
 
-/// Resolves a provider config plus its native secret into a runtime payload.
+/// Resolves a provider config plus its OPTIONAL native secret into a runtime payload.
 ///
-/// This keeps the worker honest about capability mismatches: if a provider is
-/// disabled, assigned to the wrong purpose, or missing its API key, the worker
-/// refuses before any network call starts.
+/// This keeps the worker honest about capability mismatches: if a provider is disabled or assigned
+/// to the wrong purpose, the worker refuses before any network call starts. It deliberately does
+/// NOT refuse on a missing API key. A key is a per-provider OPTION, not a precondition — a
+/// local/LAN self-hosted server (LM Studio, Ollama, …) needs none — so we never pre-empt a provider
+/// call on our own assumption that a key is required. A `None` key flows through to the transport,
+/// which omits the `Authorization` header; only an error the PROVIDER itself returns (a real
+/// 401/403, …) then surfaces as a failure.
 pub(crate) fn resolve_provider_runtime(
     providers: &[AiProviderConfig],
     provider_id: &str,
@@ -153,9 +157,11 @@ pub(crate) fn resolve_provider_runtime(
             expected_purpose
         );
     }
-    let api_key = keyring_get_provider_api_key(provider_id)?
-        .with_context(|| format!("store an API key for provider {}", config.name))?;
-    Ok(AiProviderRuntime { config, api_key: api_key.into() })
+    // OPTIONAL key: a stored secret becomes the bearer token; its ABSENCE is not an error. We pass
+    // the `Option` straight through so the transport can send NO `Authorization` header for a
+    // keyless local endpoint, and a key-enforcing cloud server can answer with its own 401.
+    let api_key = keyring_get_provider_api_key(provider_id)?.map(SecretString::from);
+    Ok(AiProviderRuntime { config, api_key })
 }
 
 /// Resolves the embedding provider selected for a build/search request.

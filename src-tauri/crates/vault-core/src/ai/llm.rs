@@ -20,6 +20,17 @@
 //! real network paths are `#[cfg(not(any(test, coverage)))]`; a deterministic stub with
 //! the SAME call graph backs `#[cfg(any(test, coverage))]` so the 100% coverage gate is
 //! met without a live model.
+//!
+//! ## Optional API key (key is never a precondition)
+//! The API key is OPTIONAL: a local/LAN self-hosted model (LM Studio / Ollama) needs none, so the
+//! client builders forward a key ONLY when one is stored and non-blank
+//! (`AiProviderRuntime::api_key_for_transport`). PathKeep never pre-empts a chat on a missing key;
+//! a key-enforcing cloud server returns its OWN 401 instead. NOTE (upstream limitation): rig
+//! 0.34's `openai`/`anthropic`/`gemini` `ClientBuilder::build` always inserts an auth header
+//! (`Authorization: Bearer …` / `x-api-key` / `x-goog-api-key`) once `.api_key()` is called, with
+//! no affordance to omit it for these concrete clients. A keyless local model ignores the empty
+//! header, so chat still works; the embedding path (which we own end-to-end via reqwest in
+//! `embedding_external.rs`) genuinely omits the header when keyless.
 
 use super::traits::{
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
@@ -42,7 +53,6 @@ use {
     rig::client::CompletionClient,
     rig::completion::CompletionModel,
     rig::providers::{anthropic, gemini, openai},
-    secrecy::ExposeSecret,
     std::pin::Pin,
     std::task::{Context as TaskContext, Poll},
 };
@@ -570,7 +580,13 @@ async fn chat_stream_impl(
 /// existing `run_llm_agent` choice and 02 §B (OpenAI-compat Chat Completions as the floor).
 #[cfg(not(any(test, coverage)))]
 fn build_openai_client(runtime: &AiProviderRuntime) -> Result<openai::CompletionsClient> {
-    let mut builder = openai::CompletionsClient::builder().api_key(runtime.api_key.expose_secret());
+    // OPTIONAL key: only a present, non-blank secret is forwarded as the bearer token. A keyless
+    // local model (LM Studio / Ollama) carries an empty token — rig 0.34's openai client always
+    // emits an `Authorization` header (see the module note on the upstream limitation), but a
+    // keyless local endpoint ignores it, and we NEVER block the call on a missing key of our own
+    // accord. A key-enforcing cloud server answers with its own 401, which surfaces verbatim.
+    let mut builder = openai::CompletionsClient::builder()
+        .api_key(runtime.api_key_for_transport().unwrap_or_default());
     if let Some(base_url) = runtime.config.base_url.as_deref() {
         builder = builder.base_url(base_url);
     }
@@ -580,7 +596,10 @@ fn build_openai_client(runtime: &AiProviderRuntime) -> Result<openai::Completion
 /// Builds an Anthropic native rig client.
 #[cfg(not(any(test, coverage)))]
 fn build_anthropic_client(runtime: &AiProviderRuntime) -> Result<anthropic::Client> {
-    let mut builder = anthropic::Client::builder().api_key(runtime.api_key.expose_secret());
+    // Anthropic is cloud-only and key-required; an absent key falls through to an empty token so
+    // the provider returns its own 401 rather than PathKeep pre-empting the call (see module note).
+    let mut builder =
+        anthropic::Client::builder().api_key(runtime.api_key_for_transport().unwrap_or_default());
     if let Some(base_url) = runtime.config.base_url.as_deref() {
         builder = builder.base_url(base_url);
     }
@@ -590,7 +609,10 @@ fn build_anthropic_client(runtime: &AiProviderRuntime) -> Result<anthropic::Clie
 /// Builds a Gemini native rig client.
 #[cfg(not(any(test, coverage)))]
 fn build_gemini_client(runtime: &AiProviderRuntime) -> Result<gemini::Client> {
-    let mut builder = gemini::Client::builder().api_key(runtime.api_key.expose_secret());
+    // Gemini is cloud-only and key-required; an absent key falls through to an empty token so the
+    // provider returns its own 401 rather than PathKeep pre-empting the call (see module note).
+    let mut builder =
+        gemini::Client::builder().api_key(runtime.api_key_for_transport().unwrap_or_default());
     if let Some(base_url) = runtime.config.base_url.as_deref() {
         builder = builder.base_url(base_url);
     }
@@ -737,7 +759,7 @@ mod tests {
                 max_tokens: Some(256),
                 ..AiProviderConfig::default()
             },
-            api_key: SecretString::from("test-key".to_string()),
+            api_key: Some(SecretString::from("test-key".to_string())),
         }
     }
 

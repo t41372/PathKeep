@@ -99,9 +99,11 @@ function renderEditor({
   onClearKeyDisabled,
   onProbe,
   onProbeDisabled,
+  onProbeDisabledHint,
   onRemove = vi.fn(),
   onSaveKey = vi.fn(),
   onSaveKeyDisabled,
+  onSaveKeyDisabledHint,
   onSelect = vi.fn(),
   onUpdate = vi.fn(),
   providerProbes,
@@ -125,9 +127,11 @@ function renderEditor({
       onClearKeyDisabled={onClearKeyDisabled}
       onProbe={onProbe}
       onProbeDisabled={onProbeDisabled}
+      onProbeDisabledHint={onProbeDisabledHint}
       onRemove={onRemove}
       onSaveKey={onSaveKey}
       onSaveKeyDisabled={onSaveKeyDisabled}
+      onSaveKeyDisabledHint={onSaveKeyDisabledHint}
       onSelect={onSelect}
       onUpdate={onUpdate}
       providerProbes={providerProbes}
@@ -541,6 +545,63 @@ describe('AiProviderEditorList', () => {
     expect(probeButton).toBeEnabled()
     fireEvent.click(probeButton)
     expect(onProbe).toHaveBeenCalledWith('llm-primary')
+  })
+
+  test('renders the inline probe-disabled hint when a reason is provided', () => {
+    // A disabled probe explains itself: when onProbeDisabledHint returns copy,
+    // the editor surfaces it near the button so it is never a silent dead end.
+    renderEditorWith({
+      onProbe: vi.fn(),
+      onProbeDisabled: () => true,
+      onProbeDisabledHint: () => 'Save this provider first to test it.',
+    })
+    const hint = screen.getByTestId('probe-hint-llm-primary')
+    expect(hint).toBeVisible()
+    expect(hint).toHaveTextContent('Save this provider first to test it.')
+  })
+
+  test('omits the probe-disabled hint when the predicate returns null', () => {
+    // No actionable reason (e.g. transient gate): the hint must not render so we
+    // never mislead the user about an enabled-or-self-resolving button.
+    renderEditorWith({
+      onProbe: vi.fn(),
+      onProbeDisabledHint: () => null,
+    })
+    expect(screen.queryByTestId('probe-hint-llm-primary')).toBeNull()
+  })
+
+  test('renders the inline save-key-disabled hint when a reason is provided', () => {
+    // The "I typed a key but it never saved" dead end: when Save key is disabled
+    // because the provider isn't persisted yet, the editor surfaces the next step
+    // (save settings first) instead of leaving a silently dead button.
+    renderEditorWith({
+      onSaveKeyDisabled: () => true,
+      onSaveKeyDisabledHint: () =>
+        'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
+    })
+    const hint = screen.getByTestId('save-key-hint-llm-primary')
+    expect(hint).toBeVisible()
+    expect(hint).toHaveTextContent(
+      'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
+    )
+  })
+
+  test('omits the save-key-disabled hint when the predicate returns null', () => {
+    // No actionable reason (e.g. empty field, or the provider is already saved):
+    // the hint must not render so the surface stays quiet when nothing is wrong.
+    renderEditorWith({
+      onSaveKeyDisabledHint: () => null,
+    })
+    expect(screen.queryByTestId('save-key-hint-llm-primary')).toBeNull()
+  })
+
+  test('omits the probe-disabled hint entirely when no probe handler is wired', () => {
+    // Without onProbe there is no Test-connection button, so a hint would be
+    // orphaned copy — it must not render even if a hint predicate is passed.
+    renderEditorWith({
+      onProbeDisabledHint: () => 'Save this provider first to test it.',
+    })
+    expect(screen.queryByTestId('probe-hint-llm-primary')).toBeNull()
   })
 })
 

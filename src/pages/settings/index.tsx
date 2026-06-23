@@ -22,6 +22,7 @@
  * - route shell 只做 gating 和 composition，不再承擔重型 section-local JSX 或 duplicated background loads。
  */
 
+import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -83,15 +84,26 @@ export function SettingsPage() {
     setLanguagePreference,
     snapshot,
   })
-  const settingsSectionNavItems = createSettingsSectionNavItems(t, [
-    'general',
-    'profiles',
-    'applock',
-    'ai',
-    'contentFetch',
-    'migration',
-    'linkPreviews',
-  ])
+  // Keep a STABLE descriptor-list identity across renders. The list only
+  // depends on the current locale (`t` is recreated when the language changes)
+  // and the fixed key order below, so memoizing on `t` means an AI-draft edit —
+  // or any other re-render at the same language — does not mint a new `items`
+  // array. That stability is load-bearing: the sticky-nav / paper-header
+  // deep-link auto-scroll keyed on the derived section ids must not re-fire on
+  // every render and yank the viewport back to the hashed section.
+  const settingsSectionNavItems = useMemo(
+    () =>
+      createSettingsSectionNavItems(t, [
+        'general',
+        'profiles',
+        'applock',
+        'ai',
+        'contentFetch',
+        'migration',
+        'linkPreviews',
+      ]),
+    [t],
+  )
   const settingsSection = (key: SettingsSectionKey) =>
     getSettingsSectionNavItem(settingsSectionNavItems, key)
 

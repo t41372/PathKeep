@@ -26,8 +26,6 @@ use super::read_model::provider_capabilities;
 use super::traits::{EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingRole};
 use super::*;
 use crate::models::LlmProviderCapabilityReport;
-#[cfg(not(any(test, coverage)))]
-use secrecy::ExposeSecret;
 
 /// Test-only synthetic dimension used by the deterministic embedding stubs.
 ///
@@ -390,12 +388,12 @@ pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadin
             Some(provider.default_model.clone()),
         );
     }
-    if !provider.api_key_saved {
-        return unavailable(
-            AiIndexWarning::EmbeddingProviderNoApiKey { provider_name: provider.name.clone() },
-            Some(provider.default_model.clone()),
-        );
-    }
+    // OPTIONAL key: a missing API key does NOT make the embedding provider unavailable. A
+    // local/LAN endpoint (LM Studio / Ollama) needs none, so pre-empting the index build on a
+    // missing key here would re-introduce the very block this fix removes. If a cloud provider
+    // truly needs a key, the build/probe surfaces its OWN 401 instead. The
+    // `EmbeddingProviderNoApiKey` warning code is retained for the read-model/FE localization
+    // contract but is no longer emitted as a readiness blocker.
     if provider.default_model.trim().is_empty() {
         return unavailable(
             AiIndexWarning::EmbeddingProviderNoModel { provider_name: provider.name.clone() },
@@ -421,10 +419,14 @@ pub(super) async fn run_llm_agent(
     tools: Vec<Box<dyn ToolDyn>>,
     question: &str,
 ) -> Result<String> {
+    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): only a present, non-blank
+    // secret is forwarded as the token; an absent key sends an empty one. rig 0.34 always emits an
+    // auth header for these clients, but a keyless local endpoint (LM Studio / Ollama) ignores it
+    // and a key-enforcing cloud server returns its own 401 — we never pre-empt the call ourselves.
+    let api_key = provider.api_key_for_transport().unwrap_or_default();
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder =
-                openai::CompletionsClient::builder().api_key(provider.api_key.expose_secret());
+            let mut builder = openai::CompletionsClient::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -439,8 +441,7 @@ pub(super) async fn run_llm_agent(
             Ok(agent.prompt(question).await?)
         }
         AiRequestFormat::Anthropic => {
-            let mut builder =
-                anthropic::Client::builder().api_key(provider.api_key.expose_secret());
+            let mut builder = anthropic::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -455,7 +456,7 @@ pub(super) async fn run_llm_agent(
             Ok(agent.prompt(question).await?)
         }
         AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(provider.api_key.expose_secret());
+            let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -595,9 +596,17 @@ pub(super) async fn embed_query(
     _role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
     let requested_dim = resolve_embed_request_dim(provider)?;
+    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): forward a present, non-blank
+    // secret as the token; an absent key sends an empty one. rig 0.34's openai/gemini clients still
+    // emit an auth header (upstream limitation, see `llm.rs` module note), but a keyless local model
+    // ignores it. The DOMINANT embedding flow — the index backfill — runs through the reqwest
+    // `ExternalEmbeddingProvider`, which genuinely omits the header when keyless. We keep rig here
+    // (rather than rerouting) so an OpenAI provider WITHOUT an explicit base URL still resolves to
+    // rig's hosted default instead of erroring on the external adapter's required base URL.
+    let api_key = provider.api_key_for_transport().unwrap_or_default();
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(provider.api_key.expose_secret());
+            let mut builder = openai::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }
@@ -619,7 +628,7 @@ pub(super) async fn embed_query(
             Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(provider.api_key.expose_secret());
+            let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(base_url);
             }

@@ -50,6 +50,9 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: 'Connected',
     aiProbeUnreachable: 'Connection issue',
     aiProbeLatency: '{model} · {latency} ms',
+    aiProbeSaveFirstHint: 'Save this provider first to test it.',
+    aiSaveKeySaveFirstHint:
+      'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
     aiAddProviderPresetLabel: 'Start from a preset',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',
@@ -276,6 +279,9 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: '连接正常',
     aiProbeUnreachable: '连接异常',
     aiProbeLatency: '{model} · {latency} ms',
+    aiProbeSaveFirstHint: '请先保存此供应商，然后才能测试连接。',
+    aiSaveKeySaveFirstHint:
+      '请先保存设置，然后再存储密钥（API 密钥是可选的——本地服务器（如 LM Studio）无需密钥）。',
     aiAddProviderPresetLabel: '从预设开始',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',
@@ -496,6 +502,9 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: '連線正常',
     aiProbeUnreachable: '連線異常',
     aiProbeLatency: '{model} · {latency} ms',
+    aiProbeSaveFirstHint: '請先儲存此供應商，然後才能測試連線。',
+    aiSaveKeySaveFirstHint:
+      '請先儲存設定，然後再儲存金鑰（API 金鑰為選用——本機伺服器（如 LM Studio）不需要金鑰）。',
     aiAddProviderPresetLabel: '從預設開始',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',

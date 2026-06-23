@@ -188,13 +188,26 @@ export function AiProvidersSection({
   const aiOn = currentSettings.enabled
   const editorsDisabled = saving || !aiOn
 
-  // Probe a provider only once it is persisted (the backend reads saved config
-  // by id, not the in-flight draft) and AI is on, and never while another probe
-  // or save is in flight.
+  // Probe a provider only once it is PERSISTED (the backend reads saved config
+  // by id, not the in-flight draft), and never while another probe or save is
+  // in flight. Crucially this does NOT require the AI master toggle to be on —
+  // you test an endpoint BEFORE committing to enabling AI — so `aiOn` is
+  // deliberately absent from this gate.
   const onProbeDisabled = (providerId: string) =>
-    editorsDisabled ||
+    saving ||
     testingProviderId !== null ||
     !persistedProviderIds.has(providerId)
+  // When the ONLY reason the probe is disabled is that the provider has not
+  // been saved yet, surface an inline hint so the button is never a silent dead
+  // end — the user learns the next step (save first) instead of clicking into
+  // nothing. Transient gates (saving / another probe in flight) get no hint
+  // because they resolve on their own and the button label already reflects them.
+  const onProbeDisabledHint = (providerId: string) =>
+    !persistedProviderIds.has(providerId) &&
+    !saving &&
+    testingProviderId === null
+      ? t('settings.aiProbeSaveFirstHint')
+      : null
   const probeLatencyLabel = (latency: number, model: string) =>
     t('settings.aiProbeLatency', {
       latency: latency.toLocaleString(language),
@@ -212,6 +225,20 @@ export function AiProvidersSection({
     saving ||
     !persistedProviderIds.has(providerId) ||
     !aiApiKeys[providerId]?.trim()
+  // When the ONLY reason Save key is disabled is that the provider hasn't been
+  // saved to config yet, surface an inline hint (mirroring the probe hint) so the
+  // button is never a silent dead end. The backend stores the secret keyed by
+  // provider id, which doesn't exist in saved config until Save settings runs —
+  // so a freshly-added provider must be saved first. A typed-but-unsaved key gets
+  // the hint; an empty field (transient) and the saving gate get none, since
+  // those resolve on their own. This is the FE half of the "I entered a key and
+  // still got an error" fix (the backend half makes the key optional outright).
+  const onSaveKeyDisabledHint = (providerId: string) =>
+    !persistedProviderIds.has(providerId) &&
+    !saving &&
+    !!aiApiKeys[providerId]?.trim()
+      ? t('settings.aiSaveKeySaveFirstHint')
+      : null
   const onClearKeyDisabled = (providerId: string) =>
     saving || !persistedProviderIds.has(providerId)
 
@@ -447,11 +474,13 @@ export function AiProvidersSection({
             void onProviderProbe('llm', providerId)
           }}
           onProbeDisabled={onProbeDisabled}
+          onProbeDisabledHint={onProbeDisabledHint}
           onRemove={(providerId) => onRemoveProvider('llm', providerId)}
           onSaveKey={(providerId) => {
             void onSaveAiApiKey(providerId)
           }}
           onSaveKeyDisabled={onSaveKeyDisabled}
+          onSaveKeyDisabledHint={onSaveKeyDisabledHint}
           onSelect={(providerId) => onSelectProvider('llm', providerId)}
           onUpdate={(providerId, patch) =>
             onUpdateProvider('llm', providerId, patch)
@@ -482,11 +511,13 @@ export function AiProvidersSection({
             void onProviderProbe('embedding', providerId)
           }}
           onProbeDisabled={onProbeDisabled}
+          onProbeDisabledHint={onProbeDisabledHint}
           onRemove={(providerId) => onRemoveProvider('embedding', providerId)}
           onSaveKey={(providerId) => {
             void onSaveAiApiKey(providerId)
           }}
           onSaveKeyDisabled={onSaveKeyDisabled}
+          onSaveKeyDisabledHint={onSaveKeyDisabledHint}
           onSelect={(providerId) => onSelectProvider('embedding', providerId)}
           onUpdate={(providerId, patch) =>
             onUpdateProvider('embedding', providerId, patch)
