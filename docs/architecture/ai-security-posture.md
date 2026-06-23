@@ -54,20 +54,51 @@ is **hard-default-OFF** except the offline title-normalization plugin. From the 
 
 ### Master + sub-flag enforcement
 
-A sub-capability is inert unless **both** the master flag and its own sub-flag are on. The gates live at
-each firing site, not just in the UI:
+A sub-capability is inert unless **both** the master flag and its own sub-flag are on. The gate lives at
+each firing site, not just in the UI. One shared, pure, unit-tested guard —
+`ensure_ai_capability_enabled(config, AiCapability)` in `vault-core/src/models/intelligence.rs` — is the
+single enforcement point every consent-gated egress/compute firing site calls. It bails with an honest,
+user-actionable "Enable AI and the &lt;capability&gt; in Settings." unless `config.ai.enabled` **and** the
+matching sub-flag are on. Centralizing the predicate is deliberate: the five firing sites previously each
+re-derived `enabled && sub_flag` by hand and drifted apart (some enforced only "provider configured /
+unlocked"). The guard's `AiCapability` enum is the single vocabulary, and each firing site states which
+capability it needs:
 
-- **Assistant / agent**: `ai/search.rs` bails with "Enable AI analysis and the assistant in Settings…"
-  unless `config.ai.enabled && config.ai.assistant_enabled`.
-- **Semantic index auto-build after backup**: `vault-worker/src/archive_flows.rs` requires
-  `config.ai.enabled && config.ai.semantic_index_enabled && config.ai.auto_index_after_backup`.
-- **MCP server start**: `vault-worker/src/mcp.rs` bails unless `config.ai.enabled && config.ai.mcp_enabled`
-  (and additionally refuses if the app session is locked — see §3).
-- **Content fetch**: `enrichment/content_fetch.rs::content_fetch_allowed` returns `false` unless
-  `config.ai.content_fetch_enabled` (then per-extractor and per-domain gates).
+- **Assistant / agent** (`AiCapability::Assistant` ⇒ `enabled && assistant_enabled`): enforced at BOTH
+  firing sites. The first-party assistant bails in `ai/search.rs` (`answer_history_question_with_control`),
+  and the streaming-chat / tool-executing agent harness bails at the TOP of
+  `vault-worker/src/intelligence/chat.rs::ai_chat_send` — before any provider resolution, run
+  registration, or spawn — so a previously-configured provider+key cannot run a full agent (code-mode over
+  the decrypted archive + LLM egress) with the master switch off.
+- **Semantic index** (`AiCapability::SemanticIndex` ⇒ `enabled && semantic_index_enabled`): enforced at
+  BOTH the auto-build-after-backup path (`vault-worker/src/archive_flows.rs`, additionally gated on
+  `auto_index_after_backup`) and the explicit re-embed firing site
+  (`vault-worker/src/intelligence/ai_queue.rs::build_ai_index_now`), so a user with the master on but Smart
+  search deliberately off cannot trigger an embedding job (provider egress + the ~59 GB derived-vector
+  tail). A `clear_only` cleanup job is exempt (it embeds nothing). The GPU re-embed UI
+  (`src/pages/settings/ai-gpu-section.tsx`) mirrors the same gate: with Smart search off, both re-embed
+  actions are disabled with an honest reason rather than offering an action the backend would refuse.
+- **MCP** (`AiCapability::Mcp` ⇒ `enabled && mcp_enabled`): enforced at server start
+  (`vault-worker/src/mcp.rs::run_mcp_stdio_server`, which additionally refuses if the app session is locked
+  — see §3) AND re-checked on EVERY per-tool call (`mcp_search_result`, `mcp_archive_status_result`,
+  `mcp_usage_guide_result`), since config is read fresh per call. A user who turns the MCP server off
+  mid-session while an external tool still holds the stdio connection is refused on the next call rather
+  than served.
+- **Skill** (`AiCapability::Skill` ⇒ `enabled && skill_enabled`): the MCP usage-guide tool requires `Mcp`
+  to serve at all (above), and the `skill_enabled` sub-flag then governs whether the body is returned —
+  `build_mcp_usage_guide` returns an honest disabled notice (empty sections) when the skill toggle is off.
+- **Content fetch** (`content_fetch_enabled`): `enrichment/content_fetch.rs::content_fetch_allowed`
+  returns `false` unless `config.ai.content_fetch_enabled` (then per-extractor and per-domain gates). This
+  one keeps its own dedicated chokepoint because it layers two further gates on top; the `AiCapability::ContentFetch`
+  variant exists in the shared enum for parity and future callers.
 
 The read-model state machine in `ai/read_model.rs` surfaces `disabled` first whenever `!config.ai.enabled`,
 so the UI tells the honest story rather than implying a capability is live.
+
+Note that chat-history CRUD (`vault-worker/src/intelligence/agent_store.rs`) is gated by the **App Lock**
+boundary (`load_unlocked_config`), NOT by `ai.enabled`: the agent transcript plane is plaintext (no
+SQLCipher key barrier), so every read/list/delete/rename refuses while the session is locked — but a user
+may still read or delete existing transcripts with AI turned off, as long as they are unlocked (see §3 / §5).
 
 The frontend mirror of these flags is `src/lib/types/intelligence.ts` (`AiSettings` interface). The newer
 fields (`contentFetchEnabled`, `gpuEnabled`, the search-tuning knobs) are optional on the TS side so a

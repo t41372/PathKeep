@@ -29,13 +29,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use vault_core::{
     AgentCitationRecord, AgentJournal, AgentRunOutcome, AgentRunStatus, AgentToolContext,
-    AiChatCancelResult, AiChatMessage, AiChatRole, AiChatSendAck, AiChatSendRequest,
+    AiCapability, AiChatCancelResult, AiChatMessage, AiChatRole, AiChatSendAck, AiChatSendRequest,
     AiChatStreamChunk, AiChatStreamEvent, AiCitation, AiProviderRuntime, AiRunCancelled,
     AiRunControl, AppendAgentStep, BeginAgentRun, DEFAULT_MAX_ITERATIONS, DEFAULT_TOKEN_BUDGET,
     LlmChatRequest, LlmMessage, LlmRole, ProjectPaths, RigLlmProvider, ToolRegistry,
     append_agent_step, begin_agent_run, deregister_ai_chat_run, drive_agent_run,
-    drive_ai_chat_stream, finalize_agent_run, probe_tool_capability, record_agent_citations,
-    register_ai_chat_run, request_ai_chat_cancel,
+    drive_ai_chat_stream, ensure_ai_capability_enabled, finalize_agent_run, probe_tool_capability,
+    record_agent_citations, register_ai_chat_run, request_ai_chat_cancel,
 };
 
 /// Monotonic component of each run id, so ids stay unique within a process run.
@@ -113,6 +113,11 @@ where
     }
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    // Consent gate at the firing site: a previously-configured provider+key must NOT let the
+    // tool-executing agent run (or plain streaming chat) fire while the master AI switch or the
+    // assistant sub-flag is off. This bails BEFORE any provider resolution / run registration /
+    // spawn so no work, network egress, or run id is minted for a refused turn (H-1 / M-2).
+    ensure_ai_capability_enabled(&config, AiCapability::Assistant)?;
     let runtime = selected_llm_provider_runtime(&config, request.provider_id.as_deref())?;
 
     let run_id = next_run_id();
@@ -583,6 +588,58 @@ mod tests {
         let request = AiChatSendRequest::default();
         let error = ai_chat_send(None, &request, |_| {}).expect_err("empty request");
         assert!(error.to_string().contains("at least one message"));
+    }
+
+    #[test]
+    fn chat_send_refuses_when_master_ai_or_assistant_consent_is_off() {
+        // A non-empty request with a configured provider+key must STILL refuse while the master AI
+        // switch (or the assistant sub-flag) is off — a previously-configured provider must not let
+        // the agent/streaming run fire with consent withdrawn (H-1 / M-2). The gate bails before any
+        // provider resolution or run spawn, so no run id is minted and the sink is never touched.
+        let _guard = crate::tests::lock_env();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let keyring_root = dir.path().join("test-keyring");
+        unsafe {
+            std::env::set_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+            std::env::set_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+        }
+        // Configured providers + saved key, but the master AI switch is OFF.
+        let mut config = crate::tests::configured_ai_config();
+        config.ai.enabled = false;
+        let paths = vault_core::project_paths().expect("project paths");
+        vault_core::save_config(&paths, &config).expect("save config");
+        vault_platform::keyring_set_provider_api_key("llm-primary", "llm-secret")
+            .expect("store llm key");
+
+        let request = AiChatSendRequest {
+            provider_id: Some("llm-primary".to_string()),
+            messages: vec![AiChatMessage {
+                role: AiChatRole::User,
+                content: "what did i read about example?".to_string(),
+            }],
+            tools_enabled: true,
+            ..Default::default()
+        };
+        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+            .expect_err("master AI off must refuse");
+        let message = error.to_string();
+        assert!(
+            message.contains("Enable AI") && message.contains("assistant"),
+            "honest, actionable refusal: {message}"
+        );
+
+        // Master ON but the assistant sub-flag OFF also refuses (sub-flag is the second half).
+        config.ai.enabled = true;
+        config.ai.assistant_enabled = false;
+        vault_core::save_config(&paths, &config).expect("save config");
+        let error = ai_chat_send(None, &request, |_| panic!("sink must never be reached"))
+            .expect_err("assistant sub-flag off must refuse");
+        assert!(error.to_string().contains("assistant"), "names the assistant capability");
+
+        unsafe {
+            std::env::remove_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV);
+            std::env::remove_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV);
+        }
     }
 
     #[test]

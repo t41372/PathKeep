@@ -34,12 +34,13 @@ use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
 use anyhow::{Context, Result};
 use std::{sync::Arc, time::Duration};
 use vault_core::{
-    AiAssistantRequest, AiAssistantResponse, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
-    AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
-    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ReembedEstimate, ReembedScope,
-    WorkingSetConfig, ai_queue, answer_history_question_with_control, build_ai_index_with_control,
-    estimate_reembed, load_assistant_run_response, preview_ai_integrations,
-    semantic_search_history, test_provider_connection,
+    AiAssistantRequest, AiAssistantResponse, AiCapability, AiIndexReport, AiIndexRequest,
+    AiIntegrationPreview, AiProviderConnectionTestReport, AiProviderConnectionTestRequest,
+    AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig,
+    ReembedEstimate, ReembedScope, WorkingSetConfig, ai_queue,
+    answer_history_question_with_control, build_ai_index_with_control,
+    ensure_ai_capability_enabled, estimate_reembed, load_assistant_run_response,
+    preview_ai_integrations, semantic_search_history, test_provider_connection,
 };
 
 #[cfg(coverage)]
@@ -497,6 +498,15 @@ pub fn build_ai_index_now(
 ) -> Result<AiIndexReport> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    // Consent gate at the firing site (M-3): a BUILD/re-embed enqueues an embedding job (provider
+    // egress + ~59 GB of derived vectors), so it requires the master AI switch AND the semantic-index
+    // sub-flag — mirroring the auto-index gate in `archive_flows.rs`. A user with master ON but Smart
+    // search deliberately OFF must NOT be able to trigger a full 14.4M re-embed. A `clear_only` job is
+    // pure cleanup (no embedding, no egress), so it stays allowed even with the sub-flag off — turning
+    // semantic search off and reclaiming the derived vectors is a legitimate locked-consent action.
+    if !request.clear_only {
+        ensure_ai_capability_enabled(&config, AiCapability::SemanticIndex)?;
+    }
     let provider_config = provider_config_for_request(
         &config,
         request.provider_id.as_deref(),

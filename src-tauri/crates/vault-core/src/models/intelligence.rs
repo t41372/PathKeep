@@ -515,6 +515,70 @@ fn clamp_search_weight(value: f32, fallback: f32) -> f32 {
     if value.is_nan() { fallback } else { value.clamp(0.0, MAX_SEARCH_WEIGHT) }
 }
 
+/// One consent-gated AI capability, paired with the [`AiSettings`] sub-flag that governs it.
+///
+/// Each variant maps to exactly one sub-flag in [`AiSettings`]; the master [`AiSettings::enabled`]
+/// flag gates ALL of them (a sub-flag is inert unless the master is also on). This enum is the
+/// single vocabulary [`ensure_ai_capability_enabled`] checks, so every AI firing site states which
+/// capability it needs rather than re-deriving the `enabled && sub_flag` predicate by hand (which is
+/// how the gates drifted apart). See `docs/architecture/ai-security-posture.md §1`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiCapability {
+    /// Streaming chat + the tool-executing agent harness ([`AiSettings::assistant_enabled`]).
+    Assistant,
+    /// Embedding backfill / re-embed + semantic retrieval ([`AiSettings::semantic_index_enabled`]).
+    SemanticIndex,
+    /// The outward MCP server + its per-tool reads ([`AiSettings::mcp_enabled`]).
+    Mcp,
+    /// The MCP usage-guide (skill) payload ([`AiSettings::skill_enabled`]).
+    Skill,
+    /// Site content fetch / network egress ([`AiSettings::content_fetch_enabled`]).
+    ContentFetch,
+}
+
+impl AiCapability {
+    /// Whether THIS capability's own sub-flag is on (ignores the master flag).
+    fn sub_flag_enabled(self, ai: &AiSettings) -> bool {
+        match self {
+            AiCapability::Assistant => ai.assistant_enabled,
+            AiCapability::SemanticIndex => ai.semantic_index_enabled,
+            AiCapability::Mcp => ai.mcp_enabled,
+            AiCapability::Skill => ai.skill_enabled,
+            AiCapability::ContentFetch => ai.content_fetch_enabled,
+        }
+    }
+
+    /// The user-facing capability noun used in the honest refusal copy.
+    fn label(self) -> &'static str {
+        match self {
+            AiCapability::Assistant => "assistant",
+            AiCapability::SemanticIndex => "semantic index (Smart search)",
+            AiCapability::Mcp => "MCP server",
+            AiCapability::Skill => "MCP usage guide",
+            AiCapability::ContentFetch => "site content fetch",
+        }
+    }
+}
+
+/// Enforces the master-flag + sub-flag consent invariant at an AI firing site.
+///
+/// Returns `Ok(())` only when BOTH [`AiSettings::enabled`] (the master AI switch) AND the sub-flag
+/// for `capability` are on; otherwise it bails with one honest, user-actionable message naming the
+/// capability to enable in Settings. This is the single enforcement point every AI firing site calls
+/// (assistant/agent, semantic re-embed, MCP per-tool, skill, content-fetch), so the documented
+/// "off by default, master + sub-flag" posture (`ai-security-posture.md §1`) is enforced in code, not
+/// just implied by the UI. PURE over the config snapshot → exhaustively unit-tested (each capability
+/// refuses when the master is off OR its sub-flag is off, and passes only when both are on).
+pub fn ensure_ai_capability_enabled(
+    config: &AppConfig,
+    capability: AiCapability,
+) -> anyhow::Result<()> {
+    if config.ai.enabled && capability.sub_flag_enabled(&config.ai) {
+        return Ok(());
+    }
+    anyhow::bail!("Enable AI and the {} in Settings.", capability.label())
+}
+
 impl Default for AiSettings {
     /// Returns the accepted defaults for optional AI features.
     fn default() -> Self {
@@ -1837,5 +1901,82 @@ mod tests {
         assert_eq!(value["starredOnly"], json!(true));
         let older: AiSearchRequest = serde_json::from_value(json!({ "query": "rust" })).unwrap();
         assert_eq!(older.starred_only, None, "absent facet defaults to None (unfiltered)");
+    }
+
+    /// Every consent-gated capability and the sub-flag mutator that turns it on. Used to drive the
+    /// guard exhaustively so a newly added capability that forgets a sub-flag fails this test.
+    const ALL_CAPABILITIES: &[(AiCapability, fn(&mut AiSettings, bool))] = &[
+        (AiCapability::Assistant, |ai, on| ai.assistant_enabled = on),
+        (AiCapability::SemanticIndex, |ai, on| ai.semantic_index_enabled = on),
+        (AiCapability::Mcp, |ai, on| ai.mcp_enabled = on),
+        (AiCapability::Skill, |ai, on| ai.skill_enabled = on),
+        (AiCapability::ContentFetch, |ai, on| ai.content_fetch_enabled = on),
+    ];
+
+    #[test]
+    fn ensure_ai_capability_refuses_when_master_flag_is_off() {
+        // Master OFF but the sub-flag ON → still refused (a sub-flag is inert without the master).
+        for (capability, set_sub_flag) in ALL_CAPABILITIES {
+            let mut config = AppConfig::default();
+            config.ai.enabled = false;
+            set_sub_flag(&mut config.ai, true);
+            let error = ensure_ai_capability_enabled(&config, *capability)
+                .expect_err("master off must refuse");
+            let message = error.to_string();
+            assert!(
+                message.contains("Enable AI") && message.contains("in Settings"),
+                "refusal is honest + actionable for {capability:?}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_ai_capability_refuses_when_sub_flag_is_off() {
+        // Master ON but the capability's own sub-flag OFF → refused (every other sub-flag ON proves
+        // it is THIS capability's flag that gates, not a sibling).
+        for (capability, set_sub_flag) in ALL_CAPABILITIES {
+            let mut config = AppConfig::default();
+            config.ai.enabled = true;
+            // Turn every sibling sub-flag ON, then this capability's OFF.
+            for (_, set_other) in ALL_CAPABILITIES {
+                set_other(&mut config.ai, true);
+            }
+            set_sub_flag(&mut config.ai, false);
+            let error = ensure_ai_capability_enabled(&config, *capability)
+                .expect_err("sub-flag off must refuse");
+            assert!(
+                error.to_string().contains("in Settings"),
+                "refusal names Settings for {capability:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ensure_ai_capability_passes_only_when_master_and_sub_flag_are_on() {
+        // Both the master AND the capability's sub-flag ON (with every sibling OFF) → Ok. This proves
+        // the guard does not depend on any sibling sub-flag.
+        for (capability, set_sub_flag) in ALL_CAPABILITIES {
+            let mut config = AppConfig::default();
+            config.ai.enabled = true;
+            // Every sibling OFF so only this capability's flag is on alongside the master.
+            for (_, set_other) in ALL_CAPABILITIES {
+                set_other(&mut config.ai, false);
+            }
+            set_sub_flag(&mut config.ai, true);
+            ensure_ai_capability_enabled(&config, *capability)
+                .unwrap_or_else(|error| panic!("{capability:?} should pass: {error}"));
+        }
+    }
+
+    #[test]
+    fn ensure_ai_capability_refuses_when_both_flags_are_off() {
+        // The default config: master + every sub-flag off → every capability refused.
+        let config = AppConfig::default();
+        for (capability, _) in ALL_CAPABILITIES {
+            assert!(
+                ensure_ai_capability_enabled(&config, *capability).is_err(),
+                "default (all off) must refuse {capability:?}"
+            );
+        }
     }
 }

@@ -91,6 +91,12 @@ export function AiGpuSection({
   // UI never optimistically claims GPU before the backend confirms it.
   const gpuAvailable = estimates['working-set']?.gpuAvailable ?? false
   const gpuEnabled = settings?.gpuEnabled ?? false
+  // M-3 consent gate at the firing site: a re-embed enqueues an embedding job (provider egress + a
+  // large derived-vector tail), so it requires the semantic-index (Smart search) sub-flag, not just
+  // the master AI switch. When Smart search is off we disable BOTH re-embed actions and show an
+  // honest, actionable reason instead of a dead button — mirroring the backend gate in
+  // `build_ai_index_now`, so the UI never offers an action the backend will refuse.
+  const semanticIndexEnabled = settings?.semanticIndexEnabled ?? false
 
   const clearPoll = useCallback(() => {
     if (pollTimer.current !== null) {
@@ -271,8 +277,14 @@ export function AiGpuSection({
             label={t('settings.aiReembedWorkingSetLabel')}
             help={t('settings.aiReembedWorkingSetHelp')}
             estimate={estimates['working-set']}
-            actionDisabled={disabled || running || busyScope !== null}
-            blockedReason={null}
+            actionDisabled={
+              disabled || running || busyScope !== null || !semanticIndexEnabled
+            }
+            blockedReason={
+              semanticIndexEnabled
+                ? null
+                : t('settings.aiReembedRequiresSemanticIndex')
+            }
             language={language}
             t={t}
             onStart={() => startReembed('working-set')}
@@ -283,10 +295,18 @@ export function AiGpuSection({
             help={t('settings.aiReembedFullHelp')}
             estimate={estimates.full}
             actionDisabled={
-              disabled || running || busyScope !== null || !fullAvailable
+              disabled ||
+              running ||
+              busyScope !== null ||
+              !semanticIndexEnabled ||
+              !fullAvailable
             }
             blockedReason={
-              fullAvailable ? null : t('settings.aiReembedFullRequiresGpu')
+              !semanticIndexEnabled
+                ? t('settings.aiReembedRequiresSemanticIndex')
+                : fullAvailable
+                  ? null
+                  : t('settings.aiReembedFullRequiresGpu')
             }
             language={language}
             t={t}

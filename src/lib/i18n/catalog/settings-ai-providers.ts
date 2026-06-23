@@ -215,6 +215,8 @@ export const settingsAiProvidersNamespace = {
       'Re-embed every unique page in your archive from scratch. This is the expensive option — review the estimate before starting.',
     aiReembedFullRequiresGpu:
       'Re-embedding the full archive is available once GPU acceleration is on (and this is a Metal build). On the CPU it would take far too long.',
+    aiReembedRequiresSemanticIndex:
+      'Turn on Smart search (the semantic index) in AI settings to re-embed. Re-embedding builds the search vectors that Smart search uses.',
     aiReembedEstimateLoading: 'Estimating…',
     aiReembedEstimatePages: '{count} pages',
     aiReembedEstimateCpu: '≈ {minutes} min on CPU',
@@ -419,6 +421,8 @@ export const settingsAiProvidersNamespace = {
       '从头重嵌入存档中的每个唯一页面。这是开销较大的选项——开始前请查看预估。',
     aiReembedFullRequiresGpu:
       '启用 GPU 加速（且为 Metal 版本）后才能重嵌入整个存档。在 CPU 上耗时过长。',
+    aiReembedRequiresSemanticIndex:
+      '请在 AI 设置中开启智能搜索（语义索引）后再重嵌入。重嵌入会构建智能搜索所用的搜索向量。',
     aiReembedEstimateLoading: '预估中…',
     aiReembedEstimatePages: '{count} 个页面',
     aiReembedEstimateCpu: 'CPU 约 {minutes} 分钟',
@@ -621,6 +625,8 @@ export const settingsAiProvidersNamespace = {
       '從頭重新嵌入封存中的每個唯一頁面。這是開銷較大的選項——開始前請查看預估。',
     aiReembedFullRequiresGpu:
       '啟用 GPU 加速（且為 Metal 版本）後才能重新嵌入整個封存。在 CPU 上耗時過長。',
+    aiReembedRequiresSemanticIndex:
+      '請在 AI 設定中開啟智慧搜尋（語意索引）後再重新嵌入。重新嵌入會建立智慧搜尋所用的搜尋向量。',
     aiReembedEstimateLoading: '預估中…',
     aiReembedEstimatePages: '{count} 個頁面',
     aiReembedEstimateCpu: 'CPU 約 {minutes} 分鐘',

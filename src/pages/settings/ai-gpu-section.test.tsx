@@ -20,7 +20,9 @@ function aiSettings(overrides: Partial<AiSettings> = {}): AiSettings {
   return {
     enabled: true,
     assistantEnabled: false,
-    semanticIndexEnabled: false,
+    // Re-embedding requires Smart search (the semantic index) on — the section's whole purpose — so
+    // the default fixture has it ON. The blocked-state test overrides it to false to assert the gate.
+    semanticIndexEnabled: true,
     mcpEnabled: false,
     skillEnabled: false,
     autoIndexAfterBackup: false,
@@ -400,5 +402,36 @@ describe('AiGpuSection', () => {
     expect(screen.getByTestId<HTMLInputElement>('ai-gpu-toggle').disabled).toBe(
       true,
     )
+  })
+
+  it('blocks BOTH re-embed actions with an honest reason when Smart search is off (M-3)', async () => {
+    // A re-embed enqueues an embedding job (provider egress + a large derived-vector tail), so it
+    // requires the semantic index (Smart search) sub-flag — mirroring the backend gate. With Smart
+    // search OFF, neither action exposes a start button; both show the honest "turn on Smart search"
+    // reason instead, so the UI never offers an action the backend would refuse. A Metal build is
+    // mocked to prove the block is the SEMANTIC gate, not the GPU gate.
+    mockEstimates(true)
+    const build = vi
+      .spyOn(backend, 'buildAiIndex')
+      .mockResolvedValue({} as never)
+    renderSection({
+      settings: aiSettings({ gpuEnabled: true, semanticIndexEnabled: false }),
+    })
+    await openDisclosure()
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-reembed-working-set-blocked')).toBeTruthy()
+    })
+    // Both scopes are blocked (no start buttons), and the reason names Smart search.
+    expect(screen.queryByTestId('ai-reembed-working-set-start')).toBeNull()
+    expect(screen.queryByTestId('ai-reembed-full-start')).toBeNull()
+    const workingReason = screen.getByTestId(
+      'ai-reembed-working-set-blocked',
+    ).textContent
+    expect(workingReason).toContain('Smart search')
+    expect(screen.getByTestId('ai-reembed-full-blocked').textContent).toContain(
+      'Smart search',
+    )
+    // No re-embed can be fired while blocked (there is no control to click).
+    expect(build).not.toHaveBeenCalled()
   })
 })

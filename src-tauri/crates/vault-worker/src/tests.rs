@@ -140,7 +140,7 @@ fn queue_failure_classifier_preserves_retry_and_manual_review_semantics() {
     }
 }
 
-fn initialized_config() -> AppConfig {
+pub(crate) fn initialized_config() -> AppConfig {
     AppConfig {
         initialized: true,
         archive_mode: ArchiveMode::Plaintext,
@@ -762,6 +762,97 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
 }
 
 #[test]
+fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_session() {
+    // M-4: the MCP face re-reads config fresh per call, so a user who turns OFF the MCP server in
+    // Settings while an external tool still holds the stdio connection must stop being served. With a
+    // working archive + an active connection, flipping `mcp_enabled` false makes the SAME in-flight
+    // search/status entry points refuse with an honest message rather than continuing to return
+    // history.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = chrome_user_data_fixture(dir.path());
+    let keyring_root = dir.path().join("test-keyring");
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    // MCP on + archive initialized: search and status serve normally.
+    let mut config = configured_ai_config();
+    config.ai.job_queue_paused = true;
+    assert!(config.ai.mcp_enabled);
+    initialize_archive_database(&config, None).expect("initialize archive");
+    save_user_config(&config, None).expect("save mcp-on config");
+
+    let served = mcp_search_result(
+        None,
+        McpSearchRequest {
+            query: "example".to_string(),
+            profile_id: None,
+            domain: None,
+            limit: Some(5),
+        },
+    )
+    .expect("search served while mcp consent is on");
+    // It returned a result envelope (not an error), proving the served baseline.
+    assert!(served.total >= served.items.len());
+    mcp_archive_status_result(None).expect("status served while mcp consent is on");
+
+    // Revoke MCP consent mid-session (the same way Settings would persist the toggle).
+    config.ai.mcp_enabled = false;
+    save_user_config(&config, None).expect("save mcp-off config");
+
+    let search_error = mcp_search_result(
+        None,
+        McpSearchRequest {
+            query: "example".to_string(),
+            profile_id: None,
+            domain: None,
+            limit: Some(5),
+        },
+    )
+    .expect_err("search must refuse once MCP consent is revoked");
+    let message = search_error.to_string();
+    assert!(
+        message.contains("Enable AI") && message.contains("MCP"),
+        "honest, actionable refusal naming the MCP server: {message}"
+    );
+
+    let status_error = mcp_archive_status_result(None)
+        .expect_err("status must refuse once MCP consent is revoked");
+    assert!(status_error.to_string().contains("MCP"), "status refusal names MCP");
+
+    let guide_error = mcp_usage_guide_result(None)
+        .expect_err("usage guide must refuse once MCP consent is revoked");
+    assert!(guide_error.to_string().contains("MCP"), "usage-guide refusal names MCP");
+
+    // Turning the master AI switch off (even with the MCP sub-flag still on) also seals the face.
+    config.ai.mcp_enabled = true;
+    config.ai.enabled = false;
+    save_user_config(&config, None).expect("save ai-off config");
+    assert!(
+        mcp_search_result(
+            None,
+            McpSearchRequest {
+                query: "example".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+            },
+        )
+        .is_err(),
+        "master AI off must seal the MCP search face even with the sub-flag on"
+    );
+
+    unsafe {
+        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
+        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
+        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+    }
+}
+
+#[test]
 fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -1169,6 +1260,48 @@ fn security_status_reports_uninitialized_archive_mode() {
 }
 
 #[test]
+fn build_ai_index_refuses_a_reembed_without_semantic_consent_but_allows_clear() {
+    // M-3: a re-embed (build) must require the master AI switch AND the semantic-index sub-flag, so a
+    // user with master ON but Smart search OFF cannot trigger an embedding job (token cost/egress +
+    // ~59 GB derived vectors). A `clear_only` job is pure cleanup and stays allowed (reclaiming the
+    // vectors after turning Smart search off is a legitimate action).
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("test-keyring"));
+    }
+
+    let mut config = configured_ai_config();
+    // Master AI ON, but the semantic-index (Smart search) sub-flag deliberately OFF.
+    config.ai.semantic_index_enabled = false;
+    config.ai.job_queue_paused = true; // keep the enqueue side-effect bounded; no background drain.
+    initialize_archive_database(&config, None).expect("initialize archive");
+    save_user_config(&config, None).expect("save config");
+    keyring_set_provider_api_key("embed-primary", "embed-secret").expect("store embedding key");
+
+    // The build path refuses with the honest, actionable message.
+    let build_error = build_ai_index_now(None, &AiIndexRequest::default())
+        .expect_err("re-embed without semantic consent must refuse");
+    let message = build_error.to_string();
+    assert!(
+        message.contains("Enable AI") && message.contains("semantic"),
+        "honest, actionable refusal naming the semantic index: {message}"
+    );
+
+    // The clear-only path is pure cleanup and stays permitted (no embedding job is enqueued).
+    let cleared =
+        build_ai_index_now(None, &AiIndexRequest { clear_only: true, ..AiIndexRequest::default() })
+            .expect("clear-only must be allowed even without the semantic sub-flag");
+    assert!(cleared.job_id.is_some(), "a clear job was enqueued");
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+#[test]
 fn provider_resolution_helpers_cover_error_success_and_note_paths() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
@@ -1208,6 +1341,19 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
     )
     .expect_err("wrong purpose should fail");
     assert!(wrong_purpose.to_string().contains("configured for"));
+
+    // A provider the user turned OFF in Settings must not resolve, even though it is the configured
+    // default and (below) holds a stored key. The "enable provider" wording feeds the
+    // `provider-disabled` queue code (see `queue_failure_from_error`).
+    let mut disabled_providers = config.ai.embedding_providers.clone();
+    disabled_providers[0].enabled = false;
+    let disabled = resolve_provider_runtime(
+        &disabled_providers,
+        "embed-primary",
+        AiProviderPurpose::Embedding,
+    )
+    .expect_err("disabled provider should fail");
+    assert!(disabled.to_string().contains("enable provider"));
 
     keyring_set_provider_api_key("embed-primary", "embed-secret").expect("set provider key");
     let resolved = resolve_provider_runtime(

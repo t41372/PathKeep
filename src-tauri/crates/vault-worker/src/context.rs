@@ -134,6 +134,17 @@ pub(crate) fn resolve_provider_runtime(
         .find(|provider| provider.id == provider_id)
         .cloned()
         .with_context(|| format!("provider {provider_id} was not found in Settings"))?;
+    // Honor the per-provider on/off: a provider the user disabled in Settings must never be
+    // selected for a run, even when it is still the configured default and holds a stored key.
+    // The "enable provider" wording is load-bearing — `queue_failure_from_error` maps it to the
+    // `provider-disabled` queue code so a disabled provider surfaces as manual-review, not a retry.
+    if !config.enabled {
+        anyhow::bail!(
+            "Provider {} is turned off in Settings — enable provider {} before using it.",
+            config.name,
+            config.name
+        );
+    }
     if config.purpose != expected_purpose {
         anyhow::bail!(
             "Provider {} is configured for {:?}, not {:?}.",
