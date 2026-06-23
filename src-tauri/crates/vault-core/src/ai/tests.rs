@@ -248,6 +248,46 @@ fn seed_visit(
         .expect("insert visit");
 }
 
+/// Adds a SECOND visit row on an EXISTING `urls` row (`url_id`), so one page can have multiple visits
+/// with distinct visit ids — the multi-visit-page shape M-12's page-stable fusion must collapse. The
+/// new visit id is `visit_id`; `visit_time` controls recency (higher = more recent → the representative).
+fn seed_extra_visit(connection: &Connection, visit_id: i64, url_id: i64, visit_time: i64) {
+    let profile_row_id =
+        "chrome:Default".bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
+    connection
+        .execute(
+            "INSERT INTO archive.visits
+             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
+            params![
+                visit_id,
+                url_id,
+                visit_id.to_string(),
+                chrome_time_to_unix_ms(visit_time),
+                crate::utils::chrome_time_to_rfc3339(visit_time),
+                profile_row_id,
+                format!("fp-{visit_id}"),
+                format!("payload-{visit_id}"),
+                now_rfc3339(),
+            ],
+        )
+        .expect("insert extra visit");
+    // Keep the url's last_visit bookkeeping consistent with the newer visit so the hydration picks the
+    // most-recent visible visit as the representative.
+    connection
+        .execute(
+            "UPDATE archive.urls SET visit_count = visit_count + 1,
+               last_visit_ms = MAX(last_visit_ms, ?2), last_visit_iso = ?3
+             WHERE id = ?1",
+            params![
+                url_id,
+                chrome_time_to_unix_ms(visit_time),
+                crate::utils::chrome_time_to_rfc3339(visit_time)
+            ],
+        )
+        .expect("bump url last_visit");
+}
+
 fn seed_embedding(
     connection: &Connection,
     history_id: i64,
@@ -3285,6 +3325,111 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
         search.items[0].score > page_two.score,
         "page 1 (both lists) scores strictly above page 2 (one list)"
     );
+}
+
+#[test]
+fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
+    // M-12 regression: a frequently-visited page whose TWO newest matching visits BOTH land in the lexical
+    // window must fuse into ONE row with the dual-list boost — not duplicate into a fused row PLUS a
+    // separate lexical-only row, with only the newest visit earning the RRF dual-list credit. Page A has
+    // visits 1 (older) and 2 (newer) on ONE url; the semantic representative is the most-recent visible
+    // visit (id 2), while the lexical list ALSO surfaces visit 1 (a DIFFERENT visit id). Page-stable
+    // keying (canonical url) collapses both lexical visits onto page A and fuses them with the semantic
+    // hit, so page A is ONE "Lexical + semantic match" that out-ranks a single-list page.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+
+    // Page A: one url (url_id 1), TWO visits — visit 1 (older) + visit 2 (newer). Both match the lexical
+    // query "docs" (shared title/url); the semantic vector matches too. Real chrome-microsecond times
+    // (tiny values clamp to unix-ms 0 and would TIE) so visit 2 is strictly newer → the most-recent
+    // visible visit (id 2) is the semantic representative, distinct from the older lexical visit (id 1).
+    let older = 13_358_534_400_000_000_i64;
+    let newer = older + 86_400_000_000; // +1 day in chrome microseconds.
+    seed_visit(
+        &connection,
+        1,
+        "chrome:Default",
+        "https://example.com/docs",
+        Some("Docs Guide"),
+        older,
+    );
+    seed_extra_visit(&connection, 2, 1, newer);
+    // Page B: a DISTINCT semantic-only page (no lexical match for "docs") — the single-list comparison.
+    seed_visit(
+        &connection,
+        3,
+        "chrome:Default",
+        "https://example.com/api",
+        Some("Reference"),
+        older,
+    );
+
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    // A slightly-less-aligned vector for page B so page A also tops the semantic list.
+    let near: Vec<f32> = {
+        let mut v = docs_vector.clone();
+        if let Some(first) = v.first_mut() {
+            *first *= 0.9;
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter().map(|x| x / norm).collect()
+    };
+    // Map BOTH of page A's visits (1, 2) to its single content_key 0x1111, so the .pkmap fan-out resolves
+    // the page to its most-recent visible visit (id 2) as the semantic representative. Page B → 0x2222.
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x1111, docs_vector.clone()), (3, 0x2222, near)],
+    );
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+            },
+        ))
+        .expect("hybrid search");
+
+    // Page A appears EXACTLY once (no duplicate lexical-only row for the older visit 1).
+    let page_a_rows: Vec<&AiSearchEntry> =
+        search.items.iter().filter(|item| item.url == "https://example.com/docs").collect();
+    assert_eq!(
+        page_a_rows.len(),
+        1,
+        "the multi-visit page must fuse into ONE row, not duplicate per visit: {:?}",
+        search.items.iter().map(|i| (i.history_id, &i.match_reason)).collect::<Vec<_>>()
+    );
+    // Older visit 1 must NOT survive as a separate row — the page collapsed onto its representative.
+    assert!(
+        !search.items.iter().any(|item| item.history_id == 1),
+        "the older visit (id 1) must not appear as its own lexical-only row"
+    );
+    let page_a = page_a_rows[0];
+    assert_eq!(
+        page_a.history_id, 2,
+        "the surviving row is the most-recent visible visit (the rep)"
+    );
+    assert_eq!(
+        page_a.match_reason, "Lexical + semantic match",
+        "the fused multi-visit page earns the dual-list reason (and the RRF dual-list credit)"
+    );
+    // The dual-list page out-ranks the single-list page B.
+    assert_eq!(search.items[0].url, "https://example.com/docs", "the dual-list page ranks first");
+    let page_b = search.items.iter().find(|item| item.history_id == 3).expect("page B");
+    assert_eq!(page_b.match_reason, "Semantic match", "page B is single-list (semantic only)");
+    assert!(page_a.score > page_b.score, "the fused dual-list page out-ranks the single-list page");
 }
 
 #[test]

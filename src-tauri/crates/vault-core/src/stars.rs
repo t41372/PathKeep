@@ -42,17 +42,25 @@
 //!   `(entity_kind, starred_at DESC)` index and enriches the small result set.
 //!   URL enrichment first tries an exact `idx_urls_url` index seek on the
 //!   canonical key (the common case where the stored row already matches), then
-//!   falls back to a prefix-bounded range scan on the same index, canonicalizing
-//!   only the candidate rows that share the page's host+path — so nothing scans
-//!   the 14.4M-row archive even when the stored visits carry tracking params.
+//!   falls back to a prefix-bounded RANGE SEEK on the same index — an explicit
+//!   byte-range `url >= :prefix AND url < :prefix_upper` (NOT a `LIKE`, which the
+//!   default `case_sensitive_like = OFF` would force into a full `SCAN urls`) —
+//!   canonicalizing only the candidate rows that share the page's host+path, so
+//!   nothing scans the 14.4M-row archive even when the stored visits carry
+//!   tracking params. EXPLAIN QUERY PLAN confirms both passes `SEARCH urls`.
+//! - Domain enrichment/resolution seeks the persisted `urls.registrable_domain`
+//!   column (migration 015) — `WHERE registrable_domain = :domain` is a true
+//!   `SEARCH urls USING INDEX idx_urls_registrable_domain`, replacing the old
+//!   leading-wildcard host `LIKE` that full-`SCAN`ned `urls` once per star.
 //! - `is_starred_batch` binds one parameter per visible key (bounded by the
 //!   render window), so the IN-list never grows with the archive.
 //! - `starred_history_ids` (the AI `is:starred` facet) resolves the tiny starred
-//!   set FORWARD: starred URLs/domains → `urls.id` via the same `idx_urls_url`
-//!   seek + prefix/host `LIKE` the enrichment uses, then `urls.id` → `visits.id`
-//!   via a chunked `url_id IN (...)` predicate that rides
-//!   `idx_visits_visible_url_time`. Bounded by the star set, never the 14.4M
-//!   visit archive — it does NOT scan the `visits ⋈ urls` join.
+//!   set FORWARD: starred URLs → `urls.id` via the `idx_urls_url` exact seek +
+//!   prefix RANGE SEEK the enrichment uses; starred domains → `urls.id` via the
+//!   `idx_urls_registrable_domain` seek; then `urls.id` → `visits.id` via a
+//!   chunked `url_id IN (...)` predicate that rides `idx_visits_visible_url_time`.
+//!   Every pass is a `SEARCH` (not a `SCAN`), bounded by the star set, never the
+//!   14.4M visit archive — it does NOT scan the `visits ⋈ urls` join.
 
 use crate::{
     archive::open_archive_connection,
@@ -385,12 +393,15 @@ fn load_starred_matcher_from(connection: &Connection) -> Result<StarredMatcher> 
 /// interactive path). Concretely:
 ///
 /// 1. **URL stars → `urls.id`** via the same disciplined two-pass strategy [`enrich_url_star`] uses: an
-///    exact `idx_urls_url` seek on the canonical key, then a prefix-anchored range scan
-///    (`url LIKE 'scheme://host/path%'`) confirming each candidate raw url canonicalizes back to the key.
-///    Both passes ride `idx_urls_url` (SEARCH, not SCAN) and touch only one page's raw variants.
-/// 2. **Domain stars → `urls.id`** via a host-anchored, port-tolerant candidate `LIKE` (still a SEARCH
-///    on `idx_urls_url`) plus a `registrable_domain_for_url` re-check that makes the arm EXACTLY
-///    equivalent to [`StarredMatcher::is_starred`]'s domain test — bounded by the tiny starred-domain set.
+///    exact `idx_urls_url` seek on the canonical key, then a prefix-anchored RANGE SEEK
+///    (`url >= 'scheme://host/path' AND url < upper`) confirming each candidate raw url canonicalizes
+///    back to the key. Both passes ride `idx_urls_url` (SEARCH, not SCAN) and touch only one page's raw
+///    variants.
+/// 2. **Domain stars → `urls.id`** via an INDEX SEEK on the persisted `urls.registrable_domain` column
+///    (`WHERE registrable_domain = :domain`, riding `idx_urls_registrable_domain`). The column stores
+///    `registrable_domain_for_url(url)`, so the seek is EXACTLY equivalent to
+///    [`StarredMatcher::is_starred`]'s domain test with no Rust re-check — bounded by the tiny
+///    starred-domain set.
 /// 3. **`urls.id` → `visits.id`** with a BOUNDED `url_id IN (...)` predicate (rides
 ///    `idx_visits_visible_url_time`, `reverted_at IS NULL`). The IN-list is chunked so it respects
 ///    SQLite's variable limit. Reverted visits are excluded so a facet never resolves a row the user
@@ -421,10 +432,10 @@ pub fn starred_history_ids(
 /// seek behind [`starred_history_ids`]).
 ///
 /// Reuses the file's established index-bounded patterns so nothing scans the 14.4M-row archive: URL stars
-/// resolve through [`url_ids_for_canonical`] (the [`enrich_url_star`] seek + prefix-scan strategy) and
-/// domain stars through [`url_ids_for_domain`] (the host-anchored, port-tolerant candidate `LIKE` plus a
-/// `registrable_domain_for_url` confirm, exactly equivalent to [`StarredMatcher::is_starred`]). The result
-/// is bounded by the union of one page's raw variants per URL star plus the per-domain `urls` rows — both
+/// resolve through [`url_ids_for_canonical`] (the [`enrich_url_star`] exact seek + prefix RANGE SEEK
+/// strategy) and domain stars through [`url_ids_for_domain`] (an INDEX SEEK on the persisted
+/// `registrable_domain` column, exactly equivalent to [`StarredMatcher::is_starred`]). The result is
+/// bounded by the union of one page's raw variants per URL star plus the per-domain `urls` rows — both
 /// tiny because the star set is tiny.
 fn starred_url_ids(connection: &Connection, matcher: &StarredMatcher) -> Result<HashSet<i64>> {
     let mut url_ids = HashSet::new();
@@ -443,19 +454,28 @@ fn starred_url_ids(connection: &Connection, matcher: &StarredMatcher) -> Result<
 /// of the title/visit-count aggregate:
 /// 1. **Exact seek** on `idx_urls_url` for the common case where the stored row already equals the
 ///    canonical form.
-/// 2. **Prefix range scan** anchored on `scheme://host/path` (no leading wildcard, so the index range
-///    applies), confirming each candidate raw url canonicalizes back to the key — the prefix can
-///    over-match (`/foo` vs `/foobar`), so the Rust re-check keeps it honest. Both queries are added so a
-///    page stored ONLY under a tracking-param variant still resolves (the very variants the star key
+/// 2. **Prefix RANGE SEEK** anchored on `scheme://host/path` via an explicit byte-range
+///    (`url >= :prefix AND url < :prefix_upper`, so the BINARY `idx_urls_url` range applies — a `LIKE`
+///    would full-`SCAN`), confirming each candidate raw url canonicalizes back to the key — the prefix
+///    can over-match (`/foo` vs `/foobar`), so the Rust re-check keeps it honest. Both queries are added
+///    so a page stored ONLY under a tracking-param variant still resolves (the very variants the star key
 ///    collapses).
 ///
-/// RESIDUAL (A-3, dot-segment paths — documented, not fixed): a raw url whose stored PATH carries
-/// unresolved dot-segments (e.g. `https://example.com/a/../b`, canonicalizing to `/b`) shares no
-/// `scheme://host/path` prefix with the key, so the prefix pass would miss it; the per-visit
-/// [`StarredMatcher::is_starred`] (which canonicalizes the full url) would match it. Incidence on
-/// browser-imported data is effectively zero — browsers resolve `/../` before storing — and this
-/// inherits the accepted [`enrich_url_star`] precedent. The "fix" (a host-level prefix) would widen the
-/// per-host range, a perf downside the W-AI-6 bounded seek explicitly avoids, so the residual stands.
+/// RESIDUALS (documented, not fixed — both share the same root: a stored raw form that differs from the
+/// canonical key in a way browsers never produce, where the tight per-page byte-range cannot anchor):
+/// - **A-3, dot-segment paths**: a raw url whose stored PATH carries unresolved dot-segments
+///   (e.g. `https://example.com/a/../b`, canonicalizing to `/b`) shares no `scheme://host/path` prefix
+///   with the key. Browsers resolve `/../` before storing, so incidence is effectively zero.
+/// - **Host casing (H-2 byte-range)**: the canonical prefix lowercases the host (`normalize_visit_url`),
+///   but the byte-range is BINARY, so a stored MIXED-CASE host (`https://Example.com/post`) sorts before
+///   the lowercase prefix and falls outside `[prefix, prefix_upper)`. The old case-insensitive `LIKE`
+///   pre-filter caught it; the index-seekable range trades that for the bound. Browsers normalize hosts
+///   to lowercase before storing (hosts are case-insensitive), so a stored mixed-case host is
+///   effectively absent from real imports — same zero-incidence class as A-3.
+///
+/// In both cases the per-visit [`StarredMatcher::is_starred`] (which canonicalizes the full url) WOULD
+/// match. The "fix" (a host-level or scheme-level prefix) would widen the per-page range toward an O(host)
+/// or O(corpus) scan — the exact perf downside the bounded seek exists to avoid — so the residuals stand.
 fn url_ids_for_canonical(connection: &Connection, canonical_key: &str) -> Result<Vec<i64>> {
     let mut ids = Vec::new();
 
@@ -467,16 +487,17 @@ fn url_ids_for_canonical(connection: &Connection, canonical_key: &str) -> Result
         ids.push(row.get::<_, i64>(0)?);
     }
 
-    // Pass 2: prefix range scan, then canonicalize candidates in Rust. Anchoring on scheme://host/path
-    // (no leading wildcard) keeps the planner on the `idx_urls_url` range; without a parseable prefix
-    // (always parseable in production — the key came from `normalize_visit_url` — but be defensive) the
-    // exact pass alone stands.
+    // Pass 2: prefix RANGE SEEK on `idx_urls_url`, then canonicalize candidates in Rust. The explicit
+    // byte-range `url >= :prefix AND url < :upper` (no LIKE) lets the BINARY index answer the range as a
+    // true `SEARCH urls USING INDEX idx_urls_url`, where a case-insensitive `LIKE 'prefix%'` forces a
+    // full `SCAN urls` (H-2). Without a parseable prefix (always parseable in production — the key came
+    // from `normalize_visit_url` — but be defensive) the exact pass alone stands.
     let Some(prefix) = canonical_prefix(canonical_key) else {
         return Ok(ids);
     };
-    let like = format!("{}%", escape_like(&prefix));
-    let mut scan = connection.prepare("SELECT id, url FROM urls WHERE url LIKE ?1 ESCAPE '\\'")?;
-    let mut rows = scan.query(params![like])?;
+    let upper = prefix_upper_bound(&prefix);
+    let mut scan = connection.prepare("SELECT id, url FROM urls WHERE url >= ?1 AND url < ?2")?;
+    let mut rows = scan.query(params![prefix, TextBytes(&upper)])?;
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let raw_url: String = row.get(1)?;
@@ -494,47 +515,28 @@ fn url_ids_for_canonical(connection: &Connection, canonical_key: &str) -> Result
 
 /// Collects the `urls.id`s on a starred registrable `domain` (the domain-star forward seek).
 ///
-/// Host-bound, port-tolerant, and confirmed EXACTLY equivalent to [`StarredMatcher::is_starred`]'s
-/// domain arm: the host-anchored `LIKE` only NARROWS the candidate set (still a SEARCH on `idx_urls_url`,
-/// never a SCAN — the bounded-perf property the W-AI-6 forward seek depends on), then a Rust re-check
-/// `registrable_domain_for_url(raw) == domain` is the SOURCE OF TRUTH — exactly the function the per-visit
-/// matcher uses. This closes two divergences a bare `LIKE` had against the matcher:
-/// - **Over-recall (A-1):** a raw URL with the domain embedded in a path/query on an unrelated host
-///   (e.g. `https://news.other.com/x?img=//example.com/p.jpg`) substring-matches `%//example.com/%`
-///   but is NOT on `example.com`; the registrable-domain re-check rejects it.
-/// - **Ported under-recall (A-2):** a raw URL whose host carries a port (e.g.
-///   `https://example.com:8080/x`, `http://localhost:3000/x`) has no `/` immediately after the host, so a
-///   `%//domain/%` pattern would pre-filter it OUT; the `:`-tolerant candidate patterns admit it and the
-///   re-check confirms it.
+/// An INDEX SEEK on the persisted `urls.registrable_domain` column (migration 015): every `urls` row
+/// stores `registrable_domain_for_url(url)` — the SAME function [`StarredMatcher::is_starred`]'s domain
+/// arm tests — so `WHERE registrable_domain = :domain` is BOTH a true `SEARCH urls USING INDEX
+/// idx_urls_registrable_domain` AND exactly equivalent to the per-visit matcher, with NO Rust re-check
+/// needed (the column already IS the verdict). This replaces the old leading-wildcard host `LIKE`, which
+/// forced a full `SCAN urls` once per starred domain (H-2) and needed a `registrable_domain_for_url`
+/// re-check in Rust to undo its over-/under-recall. Because the column is the canonical verdict, the two
+/// historical divergences a bare `LIKE` had are gone by construction:
+/// - **Over-recall (A-1):** a domain embedded in a path/query on an unrelated host (e.g.
+///   `https://news.other.com/x?img=//example.com/p.jpg`) has `registrable_domain = other.com`, so it is
+///   simply not in the `example.com` index slot.
+/// - **Ported under-recall (A-2):** a ported host (e.g. `https://example.com:8080/x`,
+///   `http://localhost:3000/x`) classifies to its registrable domain like any other, so it is in the slot.
 ///
-/// The candidate `LIKE`s admit an immediate `/` OR a `:port/` after the host (the four patterns below)
-/// purely so a ported raw url survives the pre-filter; correctness is then bound to the URL's registrable
-/// HOST by the Rust confirm, not the `LIKE`. Bounded by the tiny starred-domain set.
+/// Bounded by the tiny starred-domain set. The empty-string sentinel rows (unclassifiable urls) sit in
+/// their own index slot and never equal a real domain key.
 fn url_ids_for_domain(connection: &Connection, domain: &str) -> Result<Vec<i64>> {
-    // Candidate patterns admit an immediate `/` OR a `:port/` after the host so a ported raw url
-    // (e.g. https://example.com:8080/x, http://localhost:3000/x) is not pre-filtered out (A-2). The
-    // Rust re-check binds the match to the URL's registrable HOST, exactly like
-    // StarredMatcher::is_starred — the bare LIKE would substring-match the domain inside a path/query
-    // (e.g. ?img=//example.com/p.jpg) on an unrelated host (A-1 over-recall).
-    let patterns = [
-        format!("%//{domain}/%"),
-        format!("%//{domain}:%"),
-        format!("%.{domain}/%"),
-        format!("%.{domain}:%"),
-    ];
-    let mut statement = connection.prepare(
-        "SELECT id, url FROM urls WHERE url LIKE ?1 OR url LIKE ?2 OR url LIKE ?3 OR url LIKE ?4",
-    )?;
-    let mut rows = statement.query(params![patterns[0], patterns[1], patterns[2], patterns[3]])?;
+    let mut statement = connection.prepare("SELECT id FROM urls WHERE registrable_domain = ?1")?;
+    let mut rows = statement.query(params![domain])?;
     let mut ids = Vec::new();
     while let Some(row) = rows.next()? {
-        let id: i64 = row.get(0)?;
-        let raw_url: String = row.get(1)?;
-        // The candidate LIKE can over-match (domain inside a path/query on an unrelated host); only the
-        // rows whose registrable domain IS the star key count, exactly like StarredMatcher::is_starred.
-        if registrable_domain_for_url(&raw_url).as_deref() == Some(domain) {
-            ids.push(id);
-        }
+        ids.push(row.get::<_, i64>(0)?);
     }
     Ok(ids)
 }
@@ -625,34 +627,20 @@ fn enrich_entity(
             Ok((domain, title, visit_count))
         }
         StarEntityKind::Domain => {
-            // The visit count for a source is the sum over its URLs. We cannot index by registrable
-            // domain on `urls` cheaply, so we NARROW with a host-anchored, port-tolerant candidate
-            // `LIKE` (still a SEARCH on `idx_urls_url`, bounded because the starred-domain set is tiny)
-            // and then sum only the rows whose registrable domain IS the star key. The
-            // `registrable_domain_for_url` confirm makes this arm agree EXACTLY with the `is:starred`
-            // facet's domain resolution (`url_ids_for_domain`) and `StarredMatcher::is_starred`, so the
-            // hub visit-count and the facet can never disagree — a bare `LIKE` would both over-recall
-            // (domain embedded in a path/query on an unrelated host) and under-recall a ported host.
-            let patterns = [
-                format!("%//{entity_key}/%"),
-                format!("%//{entity_key}:%"),
-                format!("%.{entity_key}/%"),
-                format!("%.{entity_key}:%"),
-            ];
-            let mut statement = connection.prepare(
-                "SELECT url, visit_count FROM urls
-                 WHERE url LIKE ?1 OR url LIKE ?2 OR url LIKE ?3 OR url LIKE ?4",
+            // The visit count for a source is the sum over its URLs. An INDEX SEEK on the persisted
+            // `urls.registrable_domain` column (migration 015): each row stores
+            // `registrable_domain_for_url(url)`, so `WHERE registrable_domain = :domain` is a true
+            // `SEARCH urls USING INDEX idx_urls_registrable_domain` (not the old leading-wildcard host
+            // `LIKE` full `SCAN urls` — H-2) and agrees EXACTLY with the `is:starred` facet's domain
+            // resolution (`url_ids_for_domain`) and `StarredMatcher::is_starred`, because all three test
+            // the same persisted verdict. No Rust re-check needed: rows whose registrable domain is NOT
+            // the star key (incl. a domain embedded in a path/query on an unrelated host) are simply in a
+            // different index slot, and ported hosts classify into this slot like any other.
+            let visit_count: i64 = connection.query_row(
+                "SELECT COALESCE(SUM(visit_count), 0) FROM urls WHERE registrable_domain = ?1",
+                params![entity_key],
+                |row| row.get(0),
             )?;
-            let mut rows =
-                statement.query(params![patterns[0], patterns[1], patterns[2], patterns[3]])?;
-            let mut visit_count: i64 = 0;
-            while let Some(row) = rows.next()? {
-                let raw_url: String = row.get(0)?;
-                let row_count: i64 = row.get(1)?;
-                if registrable_domain_for_url(&raw_url).as_deref() == Some(entity_key) {
-                    visit_count += row_count;
-                }
-            }
             Ok((entity_key.to_string(), String::new(), visit_count))
         }
     }
@@ -667,12 +655,13 @@ fn enrich_entity(
 ///
 /// 1. **Exact seek** on `idx_urls_url`. The common case — the stored url already
 ///    equals the canonical form — resolves in one index probe.
-/// 2. **Prefix range scan** on `idx_urls_url` keyed by the canonical page's
-///    `scheme://host/path` (no leading wildcard, so the index range applies),
-///    then canonicalize each candidate raw url in Rust and SUM only those whose
-///    canonical form equals the key. The candidate window is one page's worth of
-///    raw variants, never the whole archive. The title is taken from the
-///    most-recently-visited matching row.
+/// 2. **Prefix RANGE SEEK** on `idx_urls_url` keyed by the canonical page's
+///    `scheme://host/path` via an explicit byte-range (`url >= :prefix AND
+///    url < :prefix_upper`, so the BINARY index range applies — a `LIKE` would
+///    full-`SCAN urls`), then canonicalize each candidate raw url in Rust and SUM
+///    only those whose canonical form equals the key. The candidate window is one
+///    page's worth of raw variants, never the whole archive. The title is taken
+///    from the most-recently-visited matching row.
 ///
 /// Returns `("", 0)` when the archive has not (yet) seen the page — the star is
 /// still valid; the hub just shows no title/count yet.
@@ -693,20 +682,20 @@ fn enrich_url_star(connection: &Connection, canonical_key: &str) -> Result<(Stri
         return Ok((exact_title.unwrap_or_default(), exact_count));
     }
 
-    // Pass 2: prefix range scan, then canonicalize candidates in Rust. Without a
-    // prefix the LIKE would scan all of `urls`; anchoring on scheme://host/path
-    // keeps the planner on the `idx_urls_url` range. When the key cannot be
-    // parsed into a prefix (it always should — it came from `normalize_visit_url`
-    // — but be defensive) fall back to the exact result.
+    // Pass 2: prefix RANGE SEEK on `idx_urls_url`, then canonicalize candidates in Rust. The explicit
+    // byte-range `url >= :prefix AND url < :upper` (no LIKE) keeps the planner on the BINARY index range
+    // (`SEARCH urls USING INDEX idx_urls_url`); a case-insensitive `LIKE 'prefix%'` would full-`SCAN urls`
+    // (H-2). When the key cannot be parsed into a prefix (it always should — it came from
+    // `normalize_visit_url` — but be defensive) fall back to the exact result.
     let Some(prefix) = canonical_prefix(canonical_key) else {
         return Ok((exact_title.unwrap_or_default(), exact_count));
     };
-    let like = format!("{}%", escape_like(&prefix));
+    let upper = prefix_upper_bound(&prefix);
     let mut statement = connection.prepare(
         "SELECT url, COALESCE(title, ''), visit_count, last_visit_ms
-         FROM urls WHERE url LIKE ?1 ESCAPE '\\' ORDER BY last_visit_ms DESC",
+         FROM urls WHERE url >= ?1 AND url < ?2 ORDER BY last_visit_ms DESC",
     )?;
-    let mut rows = statement.query(params![like])?;
+    let mut rows = statement.query(params![prefix, TextBytes(&upper)])?;
     let mut total: i64 = 0;
     let mut best_title = String::new();
     let mut have_title = false;
@@ -734,7 +723,7 @@ fn enrich_url_star(connection: &Connection, canonical_key: &str) -> Result<(Stri
 }
 
 /// Builds the `scheme://host/path` prefix of a canonical url for an index-range
-/// `LIKE`. Drops the query string so every tracking-param variant of the same
+/// SEEK. Drops the query string so every tracking-param variant of the same
 /// page falls under the prefix. Returns `None` when the url cannot be parsed.
 fn canonical_prefix(canonical_url: &str) -> Option<String> {
     let parsed = Url::parse(canonical_url).ok()?;
@@ -743,17 +732,54 @@ fn canonical_prefix(canonical_url: &str) -> Option<String> {
     Some(format!("{}://{}{}{}", parsed.scheme(), host, port, parsed.path()))
 }
 
-/// Escapes SQLite `LIKE` wildcards (`%`, `_`) and the escape char in a literal
-/// prefix so a path containing them matches literally, not as a wildcard.
-fn escape_like(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if matches!(ch, '%' | '_' | '\\') {
-            escaped.push('\\');
-        }
-        escaped.push(ch);
+/// Returns the EXCLUSIVE upper bound for a BINARY-collation prefix range seek:
+/// the smallest byte string strictly greater than every string that starts with
+/// `prefix`. This is the standard LIKE-optimization upper bound — increment the
+/// last byte of the prefix — and it lets a BINARY index (`idx_urls_url`) answer
+/// `url >= prefix AND url < upper` as a true index RANGE SEARCH, where a
+/// case-insensitive `LIKE 'prefix%'` would force a full `SCAN urls` (the DB runs
+/// with the default `case_sensitive_like = OFF`, so the planner cannot use the
+/// BINARY index for the LIKE range — H-2).
+///
+/// INFALLIBLE by the caller's contract: `prefix` is always a non-empty
+/// `canonical_prefix(...)` — a `scheme://host[:port]/path` string whose first
+/// byte is the ASCII scheme. Because it is valid UTF-8 its last byte is an ASCII
+/// byte, a UTF-8 lead byte (`<= 0xF4`), or a continuation byte (`<= 0xBF`) —
+/// NEVER `0xFF` — so "increment the last byte" can never overflow and there is no
+/// finite-bound edge to fall through. Returning [`Vec<u8>`] (not `String`) is
+/// required: incrementing the final UTF-8 byte can yield a byte sequence that is
+/// no longer valid UTF-8 (e.g. `…0xBF` -> `…0xC0`), which is a perfectly good
+/// BINARY upper bound but not a representable `&str`. The caller binds the result
+/// as TEXT (see [`TextBytes`]) so SQLite compares it against the `url` TEXT column
+/// under BINARY collation; binding it as a BLOB would make `url < :upper` always
+/// true (BLOB sorts after every TEXT value) and silently widen the seek to the
+/// end of the index.
+fn prefix_upper_bound(prefix: &str) -> Vec<u8> {
+    debug_assert!(!prefix.is_empty(), "canonical_prefix never yields an empty prefix");
+    let mut bytes = prefix.as_bytes().to_vec();
+    // `prefix` is non-empty valid UTF-8, so there is a last byte and it is
+    // `< 0xF5` (0xFF/0xFE are never valid UTF-8 bytes) — the increment can never
+    // overflow, so this is total for every value the contract admits.
+    let last = bytes.last_mut().expect("canonical_prefix never yields an empty prefix");
+    *last += 1;
+    bytes
+}
+
+/// Binds raw bytes to SQLite as a **TEXT** value (not a BLOB).
+///
+/// Exists solely so the BINARY prefix upper bound from [`prefix_upper_bound`]
+/// (which may not be valid UTF-8) is compared against the `url` TEXT column as
+/// TEXT. A `Vec<u8>` binds as a BLOB, and BLOB sorts after every TEXT storage
+/// class, so `url < :blob_upper` would be true for every row — defeating the
+/// bounded range seek the upper bound exists to create. SQLite TEXT values are
+/// untyped byte strings (no UTF-8 validation on bind), so a non-UTF-8 upper bound
+/// is a legal TEXT comparand.
+struct TextBytes<'a>(&'a [u8]);
+
+impl rusqlite::ToSql for TextBytes<'_> {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(rusqlite::types::ToSqlOutput::Borrowed(rusqlite::types::ValueRef::Text(self.0)))
     }
-    escaped
 }
 
 /// Parses the stored `entity_kind` text back into the enum. Unknown values

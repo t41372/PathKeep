@@ -38,12 +38,19 @@ CREATE INDEX IF NOT EXISTS idx_star_kind_starred_at
 -- The Starred hub enriches each (tiny) starred URL set with its visit count
 -- and title by matching the canonical star key back to `urls`. Because
 -- `urls.url` is the RAW url, enrichment first tries an exact seek on the
--- canonical key, then a prefix range scan (scheme://host/path) that
+-- canonical key, then a prefix RANGE SEEK (scheme://host/path) that
 -- canonicalizes only the candidate raw variants in Rust. Both passes ride
--- `idx_urls_url`: the seek as an equality probe, the prefix `LIKE 'scheme://...%'`
--- as an index range (no leading wildcard). Without the index the planner does a
+-- `idx_urls_url`: the exact pass as an equality probe (`url = ?`), the prefix
+-- pass as an explicit byte-range (`url >= :prefix AND url < :prefix_upper`).
+-- NOTE — the prefix pass deliberately uses a byte-range, NOT `LIKE 'prefix%'`:
+-- this DB runs with the default `case_sensitive_like = OFF`, so a `LIKE` range
+-- cannot use the BINARY `idx_urls_url` and EXPLAIN QUERY PLAN shows a full
+-- `SCAN urls` (Cluster 2a / H-2). The byte-range plans as
+-- `SEARCH urls USING INDEX idx_urls_url`. Without the index the planner does a
 -- full `SCAN urls` per lookup — unusable on the 14.4M-row target. og:image
 -- prefetch already relies on the equivalent `idx_og_images_page_url`; this
 -- mirrors that pattern for the canonical `urls` table and is reused by the
--- deferred AI working-set selector.
+-- deferred AI working-set selector. Domain-star resolution does NOT use this
+-- index (a host match needs a leading wildcard); it seeks the persisted
+-- `urls.registrable_domain` column added by migration 015 instead.
 CREATE INDEX IF NOT EXISTS idx_urls_url ON urls(url);

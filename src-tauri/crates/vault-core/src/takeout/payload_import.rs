@@ -26,6 +26,7 @@
 //!   native-evidence batch before spill-to-disk can start.
 
 use super::*;
+use crate::visit_taxonomy::registrable_domain_for_url;
 use browser_history_parser::{
     HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError,
     takeout::{
@@ -116,6 +117,11 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                     .context("serializing Takeout URL for payload hash")?
                     .as_bytes(),
             );
+            // Persisted registrable domain for the index-seek domain-star
+            // resolution (Cluster 2a / H-2): same `url`, same function the
+            // per-visit `StarredMatcher::is_starred` uses. Empty string (not NULL)
+            // when undecidable so the row leaves the backfill's NULL set.
+            let registrable_domain = registrable_domain_for_url(&url.url).unwrap_or_default();
             let url_id = self.archive.query_row(
                 "INSERT INTO urls (
                    url,
@@ -131,9 +137,10 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                    source_url_id,
                    hidden,
                    payload_hash,
-                   recorded_at
+                   recorded_at,
+                   registrable_domain
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
                    url = CASE
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
@@ -164,6 +171,12 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                    recorded_at = CASE
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
                      ELSE urls.recorded_at
+                   END,
+                   -- Track the freshest `url`'s domain so the column never
+                   -- disagrees with the stored url after a newer variant wins.
+                   registrable_domain = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.registrable_domain
+                     ELSE urls.registrable_domain
                    END
                  RETURNING id",
                 params![
@@ -179,6 +192,7 @@ impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
                     i64::from(url.hidden),
                     payload_hash,
                     now_rfc3339(),
+                    registrable_domain,
                 ],
                 |row| row.get::<_, i64>(0),
             )?;

@@ -9,7 +9,9 @@ use crate::{
     config::{ProjectPaths, ensure_paths},
     models::{AppConfig, ArchiveMode},
     utils::{now_rfc3339, sha256_hex, url_domain},
-    visit_taxonomy::{normalize_visit_url, registrable_domain_for_host},
+    visit_taxonomy::{
+        normalize_visit_url, registrable_domain_for_host, registrable_domain_for_url,
+    },
 };
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -45,6 +47,8 @@ const MIGRATION_012_OG_IMAGES_SQL: &str = include_str!("../migrations/012_og_ima
 const MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL: &str =
     include_str!("../migrations/013_urls_last_visit_index.sql");
 const MIGRATION_014_STARS_SQL: &str = include_str!("../migrations/014_stars.sql");
+const MIGRATION_015_URLS_REGISTRABLE_DOMAIN_SQL: &str =
+    include_str!("../migrations/015_urls_registrable_domain.sql");
 const SQLITE_CACHE_SIZE_KIB: i64 = -65_536;
 const SQLITE_MMAP_SIZE_BYTES: i64 = 268_435_456;
 
@@ -87,6 +91,7 @@ const MIGRATIONS: &[MigrationSpec<'static>] = &[
     MigrationSpec { version: 12, sql: MIGRATION_012_OG_IMAGES_SQL },
     MigrationSpec { version: 13, sql: MIGRATION_013_URLS_LAST_VISIT_INDEX_SQL },
     MigrationSpec { version: 14, sql: MIGRATION_014_STARS_SQL },
+    MigrationSpec { version: 15, sql: MIGRATION_015_URLS_REGISTRABLE_DOMAIN_SQL },
 ];
 
 /// Opens the canonical archive connection in plaintext or encrypted mode.
@@ -152,6 +157,13 @@ fn remove_existing_export_target(target_path: &Path) -> Result<()> {
 /// Creates or upgrades the canonical archive schema in place.
 pub fn create_schema(connection: &Connection) -> Result<()> {
     run_migrations(connection)?;
+    // One-time, bounded backfill of `urls.registrable_domain` for rows the
+    // migration-015 ALTER left NULL (every existing row on upgrade, plus any
+    // row a writer left unclassified). It runs OUTSIDE the bootstrap lock below
+    // so the (potentially large) one-time UPDATE on first upgrade does not hold
+    // the IMMEDIATE write lock longer than the tiny import-batch bootstrap; it is
+    // idempotent and a no-op once every row is classified.
+    backfill_url_registrable_domains(connection)?;
     connection.execute_batch("BEGIN IMMEDIATE").context("acquiring archive bootstrap lock")?;
 
     let result = (|| -> Result<()> {
@@ -160,6 +172,116 @@ pub fn create_schema(connection: &Connection) -> Result<()> {
     })();
 
     finish_archive_bootstrap_transaction(connection, result)
+}
+
+/// Backfill batch size: rows read + updated per keyset-paged transaction.
+///
+/// Caps PEAK resident memory at O(batch), not O(corpus). On the 14.4M-row /
+/// 8 GB target the first upgrade has every row NULL; materializing them all at
+/// once would be ~14.4M `(i64, String)` pairs (~1.3 GB resident). A few-thousand
+/// stride keeps each pass tiny while staying large enough that the per-batch
+/// transaction + statement-prepare overhead stays negligible against the total.
+const REGISTRABLE_DOMAIN_BACKFILL_BATCH: usize = 4_096;
+
+/// Backfills `urls.registrable_domain` for every row where it is still NULL.
+///
+/// The domain-star resolution ([`crate::stars`]) seeks `WHERE registrable_domain
+/// = :domain` on the partial index added by migration 015 — a true index SEARCH
+/// instead of the old leading-wildcard `LIKE` full `SCAN urls`. For that seek to
+/// be EXACTLY equivalent to the per-visit `StarredMatcher::is_starred` domain
+/// arm, the column must hold `registrable_domain_for_url(url)` for the SAME `url`
+/// string the matcher canonicalizes. New rows get it on insert (the canonical
+/// ingest + Takeout import writers compute it); this fills the rows that predate
+/// the column.
+///
+/// BOUNDED MEMORY + idempotent: rows are processed in keyset-paged batches of
+/// [`REGISTRABLE_DOMAIN_BACKFILL_BATCH`] (each batch `id > :last` ordered by `id`,
+/// derived + UPDATEd inside its own transaction), so peak resident memory is
+/// O(batch) — never O(corpus). It only ever reads `registrable_domain IS NULL`
+/// rows, so after one full sweep it touches nothing; a partially-completed sweep
+/// (process killed mid-upgrade) simply resumes from the first still-NULL row on
+/// the next open. A URL that cannot be classified (no derivable registrable
+/// domain) is written as an empty string so it leaves the NULL set and is not
+/// re-scanned (it just never matches a real domain star, exactly as
+/// `registrable_domain_for_url` returning `None` means "not on any registrable
+/// domain").
+fn backfill_url_registrable_domains(connection: &Connection) -> Result<()> {
+    backfill_url_registrable_domains_paged(connection, REGISTRABLE_DOMAIN_BACKFILL_BATCH)
+}
+
+/// Keyset-paged core of [`backfill_url_registrable_domains`], parameterized by
+/// `batch_size` so tests can drive the multi-batch path with a small stride.
+fn backfill_url_registrable_domains_paged(
+    connection: &Connection,
+    batch_size: usize,
+) -> Result<()> {
+    if !table_exists(connection, "urls")? || !urls_has_registrable_domain_column(connection)? {
+        return Ok(());
+    }
+    debug_assert!(batch_size > 0, "backfill batch size must be positive");
+    let limit = batch_size as i64;
+    // Keyset cursor: the highest `urls.id` whose batch has been processed. Rows
+    // are filled in ascending-id order, so once a row's domain is set it leaves
+    // the NULL set and `id > :last` advances strictly forward over the remainder.
+    let mut last_id: i64 = 0;
+    loop {
+        let batch: Vec<(i64, String)> = {
+            let mut scan = connection
+                .prepare_cached(
+                    "SELECT id, url FROM urls
+                     WHERE registrable_domain IS NULL AND id > ?1
+                     ORDER BY id LIMIT ?2",
+                )
+                .context("preparing registrable-domain backfill scan")?;
+            let rows = scan
+                .query_map(params![last_id, limit], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .context("scanning unclassified urls for registrable-domain backfill")?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .context("collecting unclassified urls for registrable-domain backfill")?
+        };
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let transaction = connection.unchecked_transaction()?;
+        {
+            let mut update = transaction
+                .prepare_cached("UPDATE urls SET registrable_domain = ?1 WHERE id = ?2")
+                .context("preparing registrable-domain backfill update")?;
+            for (id, url) in &batch {
+                // Empty string (not NULL) for unclassifiable rows so they leave the
+                // NULL set and are never re-scanned; an empty domain never equals a
+                // real star key, matching `registrable_domain_for_url` => None.
+                let domain = registrable_domain_for_url(url).unwrap_or_default();
+                update
+                    .execute(params![domain, id])
+                    .with_context(|| format!("backfilling registrable_domain for urls.id {id}"))?;
+            }
+        }
+        transaction.commit().context("committing registrable-domain backfill")?;
+
+        // Advance the cursor past this batch. The scan filters `IS NULL` too, so
+        // even though every row in `batch` just left the NULL set, anchoring on
+        // the last id guarantees forward progress (no batch is ever re-read).
+        last_id = batch.last().map(|(id, _)| *id).unwrap_or(last_id);
+    }
+}
+
+/// Returns whether `urls` already carries the migration-015 `registrable_domain`
+/// column (so the backfill is a no-op on a schema that predates it — e.g. a
+/// partially-applied ledger in a test).
+fn urls_has_registrable_domain_column(connection: &Connection) -> Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(urls)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "registrable_domain" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn finish_archive_bootstrap_transaction(connection: &Connection, result: Result<()>) -> Result<()> {
@@ -377,7 +499,7 @@ mod tests {
 
         create_schema(&connection).expect("create schema");
 
-        assert_eq!(current_version(&connection).expect("schema version"), 14);
+        assert_eq!(current_version(&connection).expect("schema version"), 15);
         assert!(has_table(&connection, "runs"));
         assert!(has_table(&connection, "source_profiles"));
         assert!(has_table(&connection, "profile_watermarks"));
@@ -390,6 +512,7 @@ mod tests {
         assert!(has_table(&connection, "star"));
         assert!(has_index(&connection, "idx_star_kind_starred_at"));
         assert!(has_index(&connection, "idx_urls_url"));
+        assert!(has_index(&connection, "idx_urls_registrable_domain"));
         assert!(has_index(&connection, "idx_visits_visible_profile_time_id"));
         assert!(has_index(&connection, "idx_favicons_page_lookup"));
         assert!(has_index(&connection, "idx_favicons_blob_hash"));
@@ -424,7 +547,7 @@ mod tests {
         let count = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
             .expect("migration count");
-        assert_eq!(count, 14);
+        assert_eq!(count, 15);
     }
 
     #[test]
@@ -515,19 +638,19 @@ mod tests {
         assert_eq!(current_version(&connection).expect("pre-stars version"), 13);
         assert!(!has_table(&connection, "star"), "star table must not exist before v14");
 
-        // Forward-migrate to v14.
-        run_migrations(&connection).expect("apply v14 upgrade");
-        assert_eq!(current_version(&connection).expect("post-stars version"), 14);
+        // Forward-migrate through the full ledger (lands v14 + v15).
+        run_migrations(&connection).expect("apply v14+ upgrade");
+        assert!(current_version(&connection).expect("post-stars version") >= 14);
         assert!(has_table(&connection, "star"));
         assert!(has_index(&connection, "idx_star_kind_starred_at"));
         assert!(has_index(&connection, "idx_urls_url"));
 
-        // Re-running is a no-op: the checksum matches, so the count stays put.
+        // Re-running is a no-op: the checksums match, so the count stays put.
         run_migrations(&connection).expect("idempotent re-run");
         let count: i64 = connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .expect("migration count");
-        assert_eq!(count, 14);
+        assert_eq!(count, max_schema_version());
 
         // The recorded checksum matches the SQL on disk (tamper guard).
         let recorded: String = connection
@@ -539,12 +662,199 @@ mod tests {
     }
 
     #[test]
+    fn migration_015_backfills_registrable_domain_on_upgrade_and_is_idempotent() {
+        // The v15 upgrade path: an archive built before the column must backfill
+        // `urls.registrable_domain` for its existing rows (via `create_schema` ->
+        // `backfill_url_registrable_domains`) so the domain-star INDEX SEEK matches
+        // them. Apply v1..=v14, seed a raw url, then upgrade and assert the column
+        // is filled with `registrable_domain_for_url(url)` and the seek index exists.
+        let connection = Connection::open_in_memory().expect("memory db");
+        let through_14: Vec<MigrationSpec<'static>> =
+            MIGRATIONS.iter().filter(|spec| spec.version <= 14).copied().collect();
+        run_migrations_with_specs(&connection, &through_14).expect("apply v1..=v14");
+        assert_eq!(current_version(&connection).expect("pre-domain-column version"), 14);
+        assert!(
+            !urls_has_registrable_domain_column(&connection).expect("pragma"),
+            "the registrable_domain column must not exist before v15"
+        );
+
+        connection
+            .execute(
+                "INSERT INTO runs (id, run_type, trigger, started_at, status)
+                 VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'success')",
+                [],
+            )
+            .expect("seed run");
+        connection
+            .execute(
+                "INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at)
+                 VALUES (1, 'chrome', 'Default', '/tmp/Default', '2026-04-24T00:00:00Z')",
+                [],
+            )
+            .expect("seed profile");
+        // A real subdomain url + an unclassifiable one (no host) so the backfill
+        // covers both the domain row and the empty-string sentinel branch.
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
+                 VALUES
+                   (1, 'https://docs.news.bbc.co.uk/story', 'BBC', 1, 0, 1, '', 1, '', 1, 1),
+                   (2, 'about:blank', NULL, 1, 0, 1, '', 1, '', 1, 1)",
+                [],
+            )
+            .expect("seed urls");
+
+        // The full ledger lands v15 AND runs the backfill via create_schema.
+        create_schema(&connection).expect("upgrade to v15 + backfill");
+        assert_eq!(current_version(&connection).expect("post version"), 15);
+        assert!(has_index(&connection, "idx_urls_registrable_domain"));
+
+        let bbc: String = connection
+            .query_row("SELECT registrable_domain FROM urls WHERE id = 1", [], |row| row.get(0))
+            .expect("read bbc registrable_domain");
+        assert_eq!(
+            bbc, "bbc.co.uk",
+            "the existing subdomain row backfills to its registrable domain"
+        );
+        let blank: String = connection
+            .query_row("SELECT registrable_domain FROM urls WHERE id = 2", [], |row| row.get(0))
+            .expect("read blank registrable_domain");
+        assert_eq!(
+            blank, "",
+            "an unclassifiable url backfills to the empty-string sentinel, not NULL"
+        );
+
+        // Idempotent: a second backfill finds no NULL rows and changes nothing.
+        backfill_url_registrable_domains(&connection).expect("idempotent backfill");
+        let still_null: i64 = connection
+            .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+                row.get(0)
+            })
+            .expect("count null rows");
+        assert_eq!(still_null, 0, "no row is left unclassified after the backfill");
+    }
+
+    #[test]
+    fn backfill_is_a_noop_before_the_registrable_domain_column_exists() {
+        // The guard at the top of `backfill_url_registrable_domains_paged`: when
+        // invoked on a schema that predates migration 015 (the `urls` table exists
+        // but has no `registrable_domain` column — e.g. a partially-applied ledger
+        // in a test, or a future caller that runs it before migrating), it must be
+        // a clean no-op rather than failing on the missing column.
+        let connection = Connection::open_in_memory().expect("memory db");
+        let through_14: Vec<MigrationSpec<'static>> =
+            MIGRATIONS.iter().filter(|spec| spec.version <= 14).copied().collect();
+        run_migrations_with_specs(&connection, &through_14).expect("apply v1..=v14");
+        assert!(has_table(&connection, "urls"), "the urls table exists at v14");
+        assert!(
+            !urls_has_registrable_domain_column(&connection).expect("pragma"),
+            "the registrable_domain column must not exist before v15"
+        );
+
+        // The guard short-circuits with Ok and touches nothing.
+        backfill_url_registrable_domains(&connection).expect("backfill is a no-op pre-v15");
+        assert!(
+            !urls_has_registrable_domain_column(&connection).expect("pragma"),
+            "the no-op backfill must not add the column"
+        );
+    }
+
+    #[test]
+    fn paged_backfill_fills_every_row_across_more_than_one_batch() {
+        // F2 regression: the backfill processes rows in BOUNDED keyset-paged
+        // batches (peak memory O(batch), not O(corpus)), so it must still fill
+        // EVERY NULL row when the corpus spans more than one batch. Seed more rows
+        // than the (deliberately tiny) test batch size and assert all of them —
+        // including ones whose id is not contiguous and an unclassifiable row —
+        // resolve, proving the keyset cursor advances correctly across batches.
+        let connection = Connection::open_in_memory().expect("memory db");
+        let through_14: Vec<MigrationSpec<'static>> =
+            MIGRATIONS.iter().filter(|spec| spec.version <= 14).copied().collect();
+        run_migrations_with_specs(&connection, &through_14).expect("apply v1..=v14");
+        connection
+            .execute(
+                "INSERT INTO runs (id, run_type, trigger, started_at, status)
+                 VALUES (1, 'backup', 'manual', '2026-04-24T00:00:00Z', 'success')",
+                [],
+            )
+            .expect("seed run");
+        connection
+            .execute(
+                "INSERT INTO source_profiles (id, browser_kind, profile_name, profile_path, discovered_at)
+                 VALUES (1, 'chrome', 'Default', '/tmp/Default', '2026-04-24T00:00:00Z')",
+                [],
+            )
+            .expect("seed profile");
+
+        // 7 rows with NON-contiguous ids (gaps prove the cursor anchors on the
+        // real last id, not a row count) plus one unclassifiable row.
+        let ids = [3_i64, 5, 11, 12, 20, 21, 99];
+        for id in ids {
+            connection
+                .execute(
+                    "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
+                     VALUES (?1, ?2, 'T', 1, 0, 1, '', 1, '', 1, 1)",
+                    params![id, format!("https://site-{id}.example.com/p")],
+                )
+                .expect("seed url row");
+        }
+        connection
+            .execute(
+                "INSERT INTO urls (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id)
+                 VALUES (150, 'about:blank', NULL, 1, 0, 1, '', 1, '', 1, 1)",
+                [],
+            )
+            .expect("seed unclassifiable row");
+
+        // Land v15 (adds the column, all rows NULL) WITHOUT running the bundled
+        // backfill, so we can drive the paged core with a tiny batch directly.
+        let only_15: Vec<MigrationSpec<'static>> =
+            MIGRATIONS.iter().filter(|spec| spec.version == 15).copied().collect();
+        run_migrations_with_specs(&connection, &only_15).expect("apply v15");
+        let null_before: i64 = connection
+            .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+                row.get(0)
+            })
+            .expect("count null rows");
+        assert_eq!(null_before, 8, "every seeded row is NULL before the backfill");
+
+        // Batch size 3 < 8 rows => at least three batches (3 + 3 + 2).
+        backfill_url_registrable_domains_paged(&connection, 3).expect("paged backfill");
+
+        let still_null: i64 = connection
+            .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+                row.get(0)
+            })
+            .expect("count null rows");
+        assert_eq!(still_null, 0, "the paged backfill fills every row across batches");
+        // A classifiable row carries its registrable domain.
+        let domain: String = connection
+            .query_row("SELECT registrable_domain FROM urls WHERE id = 99", [], |row| row.get(0))
+            .expect("read domain");
+        assert_eq!(domain, "example.com");
+        // The unclassifiable row carries the empty-string sentinel, not NULL.
+        let blank: String = connection
+            .query_row("SELECT registrable_domain FROM urls WHERE id = 150", [], |row| row.get(0))
+            .expect("read sentinel");
+        assert_eq!(blank, "", "an unclassifiable row gets the empty-string sentinel");
+
+        // Idempotent across batches: a second paged pass finds no NULL rows.
+        backfill_url_registrable_domains_paged(&connection, 3).expect("idempotent paged backfill");
+        let after_rerun: i64 = connection
+            .query_row("SELECT COUNT(*) FROM urls WHERE registrable_domain IS NULL", [], |row| {
+                row.get(0)
+            })
+            .expect("count null rows after rerun");
+        assert_eq!(after_rerun, 0, "re-running the paged backfill changes nothing");
+    }
+
+    #[test]
     fn migration_version_reported_correctly() {
         let connection = Connection::open_in_memory().expect("memory db");
 
         assert_eq!(current_version(&connection).expect("initial version"), 0);
         create_schema(&connection).expect("create schema");
-        assert_eq!(current_version(&connection).expect("migrated version"), 14);
+        assert_eq!(current_version(&connection).expect("migrated version"), 15);
     }
 
     #[test]
@@ -595,7 +905,7 @@ mod tests {
             }
 
             for join in joins {
-                assert_eq!(join.join().expect("thread join"), 14);
+                assert_eq!(join.join().expect("thread join"), 15);
             }
         });
 

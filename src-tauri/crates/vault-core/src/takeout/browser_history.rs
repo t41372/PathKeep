@@ -26,6 +26,7 @@ use super::{
     import_flow::{create_import_run, finalize_failed_import_run, finalize_successful_import_run},
     *,
 };
+use crate::visit_taxonomy::registrable_domain_for_url;
 use browser_history_parser::{
     HistoryBatchConsumer, ParsedUrl, ParsedVisit, SourceEvidenceChunk, StreamedHistory,
 };
@@ -175,6 +176,11 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
         self.counts.urls += batch.len();
         for url in batch {
             let payload_hash = sha256_hex(serde_json::to_string(&url)?.as_bytes());
+            // Persisted registrable domain for the index-seek domain-star
+            // resolution (Cluster 2a / H-2): same `url`, same function the
+            // per-visit `StarredMatcher::is_starred` uses, so the column == the
+            // matcher's verdict. Empty string (not NULL) when undecidable.
+            let registrable_domain = registrable_domain_for_url(&url.url).unwrap_or_default();
             let url_id = self.archive.query_row(
                 "INSERT INTO urls (
                    url,
@@ -190,9 +196,10 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
                    source_url_id,
                    hidden,
                    payload_hash,
-                   recorded_at
+                   recorded_at,
+                   registrable_domain
                  )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
                    url = CASE
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
@@ -223,6 +230,12 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
                    recorded_at = CASE
                      WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
                      ELSE urls.recorded_at
+                   END,
+                   -- Track the freshest `url`'s domain so the column never
+                   -- disagrees with the stored url after a newer variant wins.
+                   registrable_domain = CASE
+                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.registrable_domain
+                     ELSE urls.registrable_domain
                    END
                  RETURNING id",
                 params![
@@ -238,6 +251,7 @@ impl HistoryBatchConsumer for BrowserHistoryArchiveConsumer<'_> {
                     i64::from(url.hidden),
                     payload_hash,
                     now_rfc3339(),
+                    registrable_domain,
                 ],
                 |row| row.get::<_, i64>(0),
             )?;

@@ -9,6 +9,7 @@ use super::*;
 use crate::{
     config::{ProjectPaths, project_paths_with_root},
     models::{AppConfig, ArchiveMode},
+    visit_taxonomy::registrable_domain_for_url,
 };
 use rusqlite::params;
 use std::{
@@ -67,14 +68,17 @@ fn seed_url_row(
             [],
         )
         .unwrap();
+    // Set `registrable_domain` the same way the production ingest writers do so
+    // domain-star resolution (which seeks the persisted column) sees the row.
+    let registrable_domain = registrable_domain_for_url(url).unwrap_or_default();
     connection
         .execute(
             "INSERT INTO urls (
                url, title, visit_count, typed_count,
                first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-               source_profile_id, created_by_run_id, source_url_id
-             ) VALUES (?1, ?2, ?3, 0, 1, '2026-04-24T00:00:00Z', ?4, '2026-04-24T00:00:00Z', 1, 1, ?5)",
-            params![url, title, visit_count, seq, seq],
+               source_profile_id, created_by_run_id, source_url_id, registrable_domain
+             ) VALUES (?1, ?2, ?3, 0, 1, '2026-04-24T00:00:00Z', ?4, '2026-04-24T00:00:00Z', 1, 1, ?5, ?6)",
+            params![url, title, visit_count, seq, seq, registrable_domain],
         )
         .unwrap();
 }
@@ -487,10 +491,16 @@ fn list_stars_enriches_canonical_url_from_tracking_param_raw_visit() {
     let config = plaintext_config();
     ensure_schema(&paths, &config);
 
-    // The stored visit row is the RAW url: mixed-case host + a utm_* tracking
-    // param. normalize_visit_url lowercases the host and strips utm_*, so it
-    // canonicalizes to https://example.com/post?id=7 — the star key below.
-    let raw = "https://Example.com/post?utm_source=newsletter&id=7";
+    // The stored visit row is the RAW url: a lowercase host (the form every
+    // browser stores — hosts are case-insensitive and normalized to lowercase
+    // before persisting) plus a utm_* tracking param. normalize_visit_url strips
+    // utm_*, so it canonicalizes to https://example.com/post?id=7 — the star key
+    // below — but the stored url differs (tracking param), so the exact seek
+    // misses and the prefix RANGE SEEK + Rust re-check must resolve the title.
+    // (Host casing is an accepted residual: a stored mixed-case host sorts
+    // outside the BINARY byte-range, but browsers never store one — see the
+    // RESIDUALS note on `url_ids_for_canonical`.)
+    let raw = "https://example.com/post?utm_source=newsletter&id=7";
     seed_url_row(&paths, &config, raw, "The Real Title", 11);
 
     // Star the page via its clean (canonical-ish) form; set_star canonicalizes.
@@ -713,16 +723,74 @@ fn enrich_url_star_falls_back_when_key_is_not_a_parseable_url() {
 }
 
 #[test]
-fn canonical_prefix_and_escape_like_helpers_are_well_formed() {
-    // The prefix drops the query string and keeps the port; escaping covers all
-    // three LIKE metacharacters.
+fn canonical_prefix_and_upper_bound_helpers_are_well_formed() {
+    // The prefix drops the query string and keeps the port.
     assert_eq!(
         canonical_prefix("https://example.com:8443/path/page?id=7"),
         Some("https://example.com:8443/path/page".to_string()),
     );
     assert_eq!(canonical_prefix("not a url"), None);
-    assert_eq!(escape_like("a_b%c\\d"), "a\\_b\\%c\\\\d");
-    assert_eq!(escape_like("plain/path"), "plain/path");
+
+    // The exclusive upper bound increments the last byte, so the half-open range
+    // `[prefix, upper)` covers exactly the strings that start with `prefix`. A
+    // path-character ('o' -> 'p') is the common case.
+    assert_eq!(prefix_upper_bound("https://example.com/foo"), b"https://example.com/fop".to_vec(),);
+    // A trailing multi-byte UTF-8 character still increments cleanly: the last
+    // byte of valid UTF-8 is always `< 0xF5`, so the increment never overflows.
+    // `é` = [0xC3, 0xA9] -> [0xC3, 0xAA] (= `ê`).
+    assert_eq!(prefix_upper_bound("é"), vec![0xC3, 0xAA]);
+    // Incrementing the last byte can leave a sequence that is no longer valid
+    // UTF-8 — a legal BINARY upper bound, hence the `Vec<u8>` return. `ÿ`
+    // = [0xC3, 0xBF] -> [0xC3, 0xC0], where 0xC0 is not a valid UTF-8 byte.
+    assert_eq!(prefix_upper_bound("ÿ"), vec![0xC3, 0xC0]);
+}
+
+#[test]
+fn prefix_upper_bound_binds_as_text_so_the_range_is_actually_bounded() {
+    // The exclusive upper bound MUST be bound to SQLite as TEXT (`TextBytes`), not
+    // as a BLOB. A `Vec<u8>` binds as a BLOB, and BLOB sorts after every TEXT
+    // storage class, so `url < :blob_upper` is true for EVERY row — the range
+    // would silently widen to the end of `idx_urls_url` (the seek lower bound
+    // still holds, but nothing stops it early). This test pins the half-open
+    // `[prefix, upper)` semantics at the SQL layer: a row at/after `upper` is
+    // excluded by the WHERE clause itself, which a BLOB upper bound could not do.
+    let paths = make_paths("upper-bound-text-binding");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    // `/foo` sorts inside the range; `/zzz` sorts ABOVE the `/fop` upper bound.
+    seed_url_row(&paths, &config, "https://example.com/foo", "Foo", 1);
+    seed_url_row(&paths, &config, "https://example.com/zzz", "Zzz", 2);
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+
+    let prefix = canonical_prefix("https://example.com/foo").unwrap();
+    let upper = prefix_upper_bound(&prefix); // b"https://example.com/fop"
+
+    // TEXT-bound (production binding): the range stops before `/zzz`.
+    let mut statement =
+        connection.prepare("SELECT url FROM urls WHERE url >= ?1 AND url < ?2").unwrap();
+    let in_range: Vec<String> = statement
+        .query_map(params![prefix, TextBytes(&upper)], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(
+        in_range,
+        vec!["https://example.com/foo".to_string()],
+        "the TEXT upper bound excludes rows that sort above it",
+    );
+
+    // Contrast: binding the SAME bytes as a BLOB widens the range to every row,
+    // proving the TEXT binding is load-bearing (not incidental).
+    let blob_in_range: Vec<String> = statement
+        .query_map(params![prefix, upper.clone()], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(
+        blob_in_range,
+        vec!["https://example.com/foo".to_string(), "https://example.com/zzz".to_string()],
+        "a BLOB upper bound (regression) would let every TEXT row through",
+    );
 }
 
 #[test]
@@ -757,14 +825,15 @@ fn seed_visit_row(
             [],
         )
         .unwrap();
+    let registrable_domain = registrable_domain_for_url(url).unwrap_or_default();
     connection
         .execute(
             "INSERT INTO urls (
                id, url, title, visit_count, typed_count,
                first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-               source_profile_id, created_by_run_id, source_url_id
-             ) VALUES (?1, ?2, 'Seed', 1, 0, 1, '2026-04-24T00:00:00Z', ?3, '2026-04-24T00:00:00Z', 1, 1, ?4)",
-            params![visit_id, url, seq, seq],
+               source_profile_id, created_by_run_id, source_url_id, registrable_domain
+             ) VALUES (?1, ?2, 'Seed', 1, 0, 1, '2026-04-24T00:00:00Z', ?3, '2026-04-24T00:00:00Z', 1, 1, ?4, ?5)",
+            params![visit_id, url, seq, seq, registrable_domain],
         )
         .unwrap();
     let reverted_at: Option<&str> = if reverted { Some("2026-04-25T00:00:00Z") } else { None };
@@ -939,6 +1008,91 @@ fn starred_history_ids_resolution_is_bounded_by_the_star_set_not_the_corpus() {
     assert!(
         visit_plan.iter().any(|step| step.contains("SEARCH") && step.contains("visits")),
         "the visits resolution must SEARCH visits by url_id, not SCAN: {visit_plan:?}"
+    );
+}
+
+#[test]
+fn star_url_prefix_range_and_domain_passes_search_not_scan() {
+    // HIGH regression (Cluster 2a / H-2): the URL-star prefix pass and the
+    // domain-star pass must be INDEX SEEKS, not full `SCAN urls`. The old
+    // implementations used `LIKE` — `url LIKE 'prefix%'` and host-anchored
+    // `url LIKE '%//domain/%'` — but this DB runs with the default
+    // `case_sensitive_like = OFF`, so the BINARY `idx_urls_url` cannot serve a
+    // LIKE range and EXPLAIN QUERY PLAN shows `SCAN urls` for BOTH. The fix uses
+    // an explicit byte-range for the prefix and the persisted `registrable_domain`
+    // column for the domain; this pins both to `SEARCH ... USING INDEX`.
+    let paths = make_paths("plan-search-not-scan");
+    let config = plaintext_config();
+    ensure_schema(&paths, &config);
+    let connection = open_archive_connection(&paths, &config, None).unwrap();
+
+    // BEFORE (documented baseline): the prefix LIKE the fix REPLACED full-scans.
+    let prefix_like_plan = explain_query_plan(
+        &connection,
+        "SELECT id, url FROM urls WHERE url LIKE ?1 ESCAPE '\\'",
+        &["https://example.com/p%"],
+    );
+    assert!(
+        prefix_like_plan.iter().any(|step| step.contains("SCAN urls")),
+        "baseline: a case-insensitive prefix LIKE full-scans urls (the H-2 defect): {prefix_like_plan:?}"
+    );
+
+    // AFTER: the explicit byte-range the prefix passes now use is an index SEARCH.
+    let prefix_range_plan = explain_query_plan(
+        &connection,
+        "SELECT id, url FROM urls WHERE url >= ?1 AND url < ?2",
+        &["https://example.com/p", "https://example.com/q"],
+    );
+    assert!(
+        prefix_range_plan
+            .iter()
+            .any(|step| step.contains("SEARCH") && step.contains("idx_urls_url")),
+        "the URL-star prefix RANGE SEEK must SEARCH idx_urls_url: {prefix_range_plan:?}"
+    );
+    assert!(
+        !prefix_range_plan.iter().any(|step| step.contains("SCAN urls") && !step.contains("INDEX")),
+        "the URL-star prefix RANGE SEEK must not full-scan urls: {prefix_range_plan:?}"
+    );
+
+    // BEFORE (documented baseline): the host-anchored domain LIKE full-scans.
+    let domain_like_plan = explain_query_plan(
+        &connection,
+        "SELECT id, url FROM urls WHERE url LIKE ?1 OR url LIKE ?2 OR url LIKE ?3 OR url LIKE ?4",
+        &["%//example.com/%", "%//example.com:%", "%.example.com/%", "%.example.com:%"],
+    );
+    assert!(
+        domain_like_plan.iter().any(|step| step.contains("SCAN urls")),
+        "baseline: a host-anchored domain LIKE full-scans urls (the H-2 defect): {domain_like_plan:?}"
+    );
+
+    // AFTER: the persisted-column domain seek rides the partial index (SEARCH).
+    let domain_seek_plan = explain_query_plan(
+        &connection,
+        "SELECT id FROM urls WHERE registrable_domain = ?1",
+        &["example.com"],
+    );
+    assert!(
+        domain_seek_plan
+            .iter()
+            .any(|step| step.contains("SEARCH") && step.contains("idx_urls_registrable_domain")),
+        "the domain-star seek must SEARCH idx_urls_registrable_domain: {domain_seek_plan:?}"
+    );
+    assert!(
+        !domain_seek_plan.iter().any(|step| step.contains("SCAN urls") && !step.contains("INDEX")),
+        "the domain-star seek must not full-scan urls: {domain_seek_plan:?}"
+    );
+
+    // AFTER: the domain visit-count SUM (Starred hub enrichment) also seeks.
+    let domain_sum_plan = explain_query_plan(
+        &connection,
+        "SELECT COALESCE(SUM(visit_count), 0) FROM urls WHERE registrable_domain = ?1",
+        &["example.com"],
+    );
+    assert!(
+        domain_sum_plan
+            .iter()
+            .any(|step| step.contains("SEARCH") && step.contains("idx_urls_registrable_domain")),
+        "the domain visit-count SUM must SEARCH idx_urls_registrable_domain: {domain_sum_plan:?}"
     );
 }
 

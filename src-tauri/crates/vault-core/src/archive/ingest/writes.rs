@@ -21,6 +21,7 @@
 
 use super::super::*;
 use crate::archive::schema::favicon_url_metadata;
+use crate::visit_taxonomy::registrable_domain_for_url;
 use browser_history_parser::{
     ParsedDownload, ParsedFavicon, ParsedSearchTerm, ParsedUrl, ParsedVisit,
 };
@@ -101,6 +102,12 @@ pub(super) fn upsert_url(
     payload_hash: &str,
 ) -> Result<i64> {
     let recorded_at = now_rfc3339();
+    // Persisted registrable domain for the index-seek domain-star resolution
+    // (Cluster 2a / H-2): computed from the SAME `url` string and the SAME
+    // function the per-visit `StarredMatcher::is_starred` uses, so the column ==
+    // the matcher's verdict. Empty string (not NULL) when undecidable, so the row
+    // leaves the backfill's NULL set; it just never equals a real star key.
+    let registrable_domain = registrable_domain_for_url(&url.url).unwrap_or_default();
     archive
         .query_row(
             "INSERT INTO urls (
@@ -117,9 +124,10 @@ pub(super) fn upsert_url(
            source_url_id,
            hidden,
            payload_hash,
-           recorded_at
+           recorded_at,
+           registrable_domain
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
            url = CASE
              WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
@@ -150,6 +158,12 @@ pub(super) fn upsert_url(
            last_visit_iso = CASE
              WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
              ELSE urls.last_visit_iso
+           END,
+           -- Track the freshest `url`'s domain so the column never disagrees with
+           -- the stored url after a newer raw variant replaces it.
+           registrable_domain = CASE
+             WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.registrable_domain
+             ELSE urls.registrable_domain
            END
          RETURNING id",
             params![
@@ -165,6 +179,7 @@ pub(super) fn upsert_url(
                 url.hidden as i64,
                 payload_hash,
                 recorded_at,
+                registrable_domain,
             ],
             |row| row.get(0),
         )

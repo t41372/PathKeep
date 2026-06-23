@@ -2,7 +2,8 @@
 //!
 //! ## Responsibilities
 //! - execute hybrid lexical + semantic history search with explicit fallback behavior
-//! - fuse the two ranked recall sets with Reciprocal Rank Fusion (RRF, W-AI-6) and apply a BOUNDED,
+//! - fuse the two ranked recall sets with Reciprocal Rank Fusion (RRF, W-AI-6) on a PAGE-STABLE key
+//!   (canonical url, M-12) so a multi-visit page fuses into one dual-list row, and apply a BOUNDED,
 //!   tunable starred boost so favorites rank higher without becoming a bookmark list (05 §10)
 //! - constrain BOTH recall planes to starred pages for the `is:starred` facet (lexical post-filter +
 //!   the semantic content_key allowlist seam)
@@ -37,6 +38,7 @@
 //! - lexical fallback remains explicit instead of scanning stale SQLite semantic metadata
 
 use super::*;
+use crate::visit_taxonomy::normalize_visit_url;
 
 /// Lexical recall-pool expansion factor for the `is:starred` facet (Bug 2 / W-AI-6).
 ///
@@ -438,10 +440,13 @@ pub(super) fn build_assistant_preamble(
 /// Runs the hybrid lexical + semantic search pipeline used by search and assistant retrieval (W-AI-6).
 ///
 /// Reciprocal Rank Fusion (RRF, 05 §9.4): the lexical and semantic recall sets are each a RANKED list;
-/// a result's fused score is `Σ_list weight_list / (rrf_k + rank_in_list)` (0-based rank). A page in
-/// BOTH lists sums both contributions and reads "Lexical + semantic match"; lexical-only reads "Lexical
-/// match"; semantic-only reads "Semantic match". RRF is deterministic, model-free, and operates on the
-/// BOUNDED recall pools (never the corpus), so it is fast at 14.4M. After fusion a BOUNDED, tunable
+/// a result's fused score is `Σ_list weight_list / (rrf_k + rank_in_list)` (0-based rank). Fusion dedups
+/// on a PAGE-STABLE key (the canonical url, M-12), not the per-visit id, so a frequently-visited page
+/// whose several matching visits land in the lexical window fuses into ONE row (its most-recent visit)
+/// rather than duplicating — the page in BOTH lists sums both contributions and reads "Lexical + semantic
+/// match"; lexical-only reads "Lexical match"; semantic-only reads "Semantic match". RRF is deterministic,
+/// model-free, and operates on the BOUNDED recall pools (never the corpus), so it is fast at 14.4M. After
+/// fusion a BOUNDED, tunable
 /// starred boost (05 §10) promotes favorites without letting them dominate. The `is:starred` facet
 /// (W-AI-6) restricts BOTH recall sets to starred pages via the lexical post-filter + the semantic
 /// allowlist seam. AI-off / no provider degrades to lexical-only (RRF over one list = the lexical order).
@@ -547,6 +552,22 @@ struct FusedResult {
     semantic_rank: Option<usize>,
 }
 
+/// Returns the PAGE-STABLE fusion key for a result URL (M-12).
+///
+/// Fusion must dedup on PAGE identity, not the per-visit id, or a frequently-visited page whose two
+/// newest matching visits both land in the lexical window produces TWO rows (one fused, one lexical-only)
+/// and only the newest-visit row earns the RRF dual-list boost — defeating the "page in BOTH lists beats
+/// single-list" guarantee. We key on the CANONICAL url (the same page-identity `crate::stars` keys by):
+/// `normalize_visit_url` collapses tracking-param + host-casing variants, so every visit of one page maps
+/// to one key, and a lexical visit fuses with the semantic representative of the same page even when their
+/// raw urls differ. Unparseable urls fall back to the raw string (still stable per row, just not collapsed
+/// — the honest "can't canonicalize" outcome).
+fn fusion_page_key(url: &str) -> String {
+    normalize_visit_url(url)
+        .map(|normalized| normalized.canonical_url)
+        .unwrap_or_else(|| url.to_string())
+}
+
 /// Fuses the lexical + semantic ranked lists into scored entries via Reciprocal Rank Fusion (W-AI-6).
 ///
 /// Each result's score is `Σ_list weight_list / (rrf_k + rank)` over the lists it appears in (0-based
@@ -555,39 +576,47 @@ struct FusedResult {
 /// most-recent visit) when a page is in both, falling back to the lexical row; the `match_reason`
 /// reflects which list(s) matched. Both lists are already bounded by `limit`, so this is O(pool), never
 /// the corpus. The weights + `rrf_k` come from [`AiSettings`] (already clamped on config load).
+///
+/// Dedup is PAGE-STABLE (M-12): both lists key on [`fusion_page_key`] (canonical url), NOT the per-visit
+/// id. So a page's multiple lexical visits collapse to ONE entry that takes the page's BEST lexical rank
+/// (the lexical list is `sort=newest`, so the first occurrence is both the best-ranked AND the most-recent
+/// visit — the surviving lexical-only shape), and that same entry fuses with the semantic representative
+/// of the page, earning the dual-list boost in ONE row instead of duplicating the page.
 fn fuse_ranked_lists(
     lexical_ranked: &[&HistoryEntry],
     semantic_hits: &[AiSearchEntry],
     settings: &crate::models::AiSettings,
 ) -> Vec<AiSearchEntry> {
     let rrf_k = settings.hybrid_rrf_k.max(1) as f32;
-    let mut fused: HashMap<i64, FusedResult> = HashMap::new();
+    let mut fused: HashMap<String, FusedResult> = HashMap::new();
 
-    // Lexical contributions: seed each entry from its lexical row.
+    // Lexical contributions: seed each PAGE from its most-recent matching visit (the lexical list is
+    // `sort=newest`, so the first row seen for a page is its newest visit AND its best rank).
     for (rank, item) in lexical_ranked.iter().enumerate() {
-        fused.entry(item.id).or_insert_with(|| FusedResult {
+        let key = fusion_page_key(&item.url);
+        let result = fused.entry(key).or_insert_with(|| FusedResult {
             entry: history_entry_to_search_entry(item, 0.0, "Lexical match"),
             lexical_rank: None,
             semantic_rank: None,
         });
-        // The first occurrence wins the rank (lexical ids are unique within the page, so this is set
-        // exactly once per id).
-        if let Some(result) = fused.get_mut(&item.id) {
-            result.lexical_rank.get_or_insert(rank);
-        }
+        // First occurrence wins the rank: a page's later (older) visits never overwrite the best rank or
+        // the most-recent-visit entry shape, so a frequently-visited page contributes ONE lexical row.
+        result.lexical_rank.get_or_insert(rank);
     }
 
     // Semantic contributions: a page already present (dual match) ADOPTS the semantic hydration (its
-    // representative visit + snippet-bearing entry); a semantic-only page joins fresh.
+    // representative visit + snippet-bearing entry); a semantic-only page joins fresh. Keying on the same
+    // page-stable url is what lets a lexical visit and the semantic representative of the same page fuse.
     for (rank, hit) in semantic_hits.iter().enumerate() {
-        match fused.get_mut(&hit.history_id) {
+        let key = fusion_page_key(&hit.url);
+        match fused.get_mut(&key) {
             Some(result) => {
                 result.entry = hit.clone();
                 result.semantic_rank.get_or_insert(rank);
             }
             None => {
                 fused.insert(
-                    hit.history_id,
+                    key,
                     FusedResult {
                         entry: hit.clone(),
                         lexical_rank: None,
