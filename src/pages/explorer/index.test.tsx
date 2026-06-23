@@ -1833,9 +1833,26 @@ describe('ExplorerPage route shell', () => {
     )
   })
 
-  test('shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
+  // A vector/embedding model is OPTIONAL — the unavailable-config callout is the
+  // Smart-tab's legitimate empty/config state, NOT a global nag. It must render
+  // only on the Search surface in Smart mode, and never leak onto the history
+  // Browse surface or the Keyword/Regex search modes (all of which work without a
+  // vector model). The next four tests pin both the positive (Smart shows it) and
+  // the negative (Browse / Keyword / Regex hide it) halves of that contract.
+  test('Smart search surface shows fixable optional-AI repair copy for missing, failed, and disabled providers', () => {
     optionalAiFeaturesAvailableState.value = true
     selectedAiProviderMock.mockReturnValue(null)
+    // Search surface (`surface=search`) + Smart mode (`hybrid`, not regex, not
+    // `is:starred`) is the one place this contextual config hint belongs.
+    const smartSurfaceUrlState = (overrides: Record<string, unknown> = {}) =>
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+        ...overrides,
+      })
+    useExplorerUrlStateMock.mockReturnValue(smartSurfaceUrlState())
 
     const { rerender } = renderExplorer()
 
@@ -1880,6 +1897,70 @@ describe('ExplorerPage route shell', () => {
     )
     rerender(<ExplorerWrapper />)
     expect(screen.getByText('explorer.optionalAiDisabledTitle')).toBeVisible()
+  })
+
+  test('history Browse surface never shows the optional vector-model config prompt', () => {
+    // AI features enabled but NO embedding provider configured — the worst case
+    // for leakage. The Browse surface (default `/` path, no `surface=search`,
+    // keyword mode) must stay 100% free of any vector-model prompt: browsing
+    // history is fully usable without AI and must not be nagged.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(screen.queryByText('explorer.optionalAiDisabledTitle')).toBeNull()
+    expect(
+      screen.queryByText('explorer.optionalAiProviderErrorTitle'),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
+  })
+
+  test('Keyword search mode never shows the optional vector-model config prompt', () => {
+    // On the Search surface but in Keyword mode — keyword search works without a
+    // vector model, so the config hint must not fire here.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'keyword',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
+  })
+
+  test('Regex search mode never shows the optional vector-model config prompt', () => {
+    // Regex takes precedence over Smart in the panel/mapper, so a
+    // `mode=hybrid&regex=1` deep link renders the day-grouped regex layout —
+    // which has nothing to do with vector search. The config hint must not fire.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue(null)
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        regexMode: true,
+        queryInput: 'as.*nc',
+        searchParams: new URLSearchParams('surface=search&q=as.*nc&regex=1'),
+      }),
+    )
+
+    renderExplorer()
+
+    expect(screen.queryByText('explorer.optionalAiNoProviderTitle')).toBeNull()
+    expect(
+      screen.queryByRole('link', { name: 'explorer.optionalAiOpenSettings' }),
+    ).toBeNull()
   })
 
   test('AI-off + ?mode=hybrid deep link surfaces the honest repair callout, not an unexplained empty list', () => {

@@ -1040,7 +1040,18 @@ export function ExplorerPage() {
         </div>
       ) : null}
 
-      {optionalAiFixableReason ? (
+      {/*
+        A vector/embedding model is OPTIONAL — never a forced global nag. This
+        config hint must render ONLY on the Search surface AND only while the
+        user has explicitly chosen Smart (relevance) mode, where it is the
+        legitimate empty/config state for the tab they picked. Gating on
+        `paperSearchSurface && smartSearchActive` keeps it off the history
+        Browse surface entirely and off Keyword/Regex/`is:starred` search,
+        which all work without a vector model. The honest body copy already
+        says keyword search works without it — so this stays a contextual hint,
+        not a block.
+      */}
+      {paperSearchSurface && smartSearchActive && optionalAiFixableReason ? (
         <StatusCallout
           tone={
             optionalAiReason === 'embedding-provider-error' ? 'blocked' : 'info'
