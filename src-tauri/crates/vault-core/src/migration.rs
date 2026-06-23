@@ -158,10 +158,12 @@ const DERIVED_VECTOR_PLANE_DIRNAME: &str = "vectors";
 /// File extensions of the AI vector sidecar plane excluded from the export bundle.
 ///
 /// `pkvec` is the raw f32 vector store; `pkmap` is the visit→content_key map beside it (W-AI-4c);
-/// `pkbin`/`pki8` are the W-AI-5 derived binary-recall + int8-rescore planes projected from `.pkvec`.
-/// All are rebuildable derived state that re-projects/re-embeds on the target, so none ride the
-/// portable export.
-const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] = &["pkvec", "pkmap", "pkbin", "pki8"];
+/// `pkbin`/`pki8` are the W-AI-5 derived binary-recall + int8-rescore planes projected from `.pkvec`;
+/// `pkrev`/`pkfwd` are the M-11 keyed reverse/forward sidecars projected from `.pkmap` (sorted by
+/// content_key / history_id for bounded hydration + `is:starred` lookups). All are rebuildable derived
+/// state that re-projects/re-embeds on the target, so none ride the portable export.
+const DERIVED_VECTOR_PLANE_EXTENSIONS: &[&str] =
+    &["pkvec", "pkmap", "pkbin", "pki8", "pkrev", "pkfwd"];
 
 /// Returns true when a `derived/`-relative path is part of the vector sidecar plane and so must be
 /// excluded from the export bundle (HIGH-4).
@@ -1197,10 +1199,17 @@ mod tests {
         fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkbin"), b"binary plane")
             .unwrap();
         fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pki8"), b"int8 plane").unwrap();
+        // M-11 keyed reverse/forward sidecars (also rebuildable; excluded like the other planes).
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkrev"), b"reverse sidecar")
+            .unwrap();
+        fs::write(src_paths.vectors_dir.join("pathkeep_embed_model.pkfwd"), b"forward sidecar")
+            .unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkvec"), b"stray vectors").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkmap"), b"stray map").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pkbin"), b"stray binary").unwrap();
         fs::write(src_paths.derived_dir.join("stray.pki8"), b"stray int8").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkrev"), b"stray reverse").unwrap();
+        fs::write(src_paths.derived_dir.join("stray.pkfwd"), b"stray forward").unwrap();
 
         let bundle_target = src_dir.path().join("bundle.pathkeep");
         let bundle = export_app_data(&src_paths, &config, None, &bundle_target).expect("export");
@@ -1223,6 +1232,16 @@ mod tests {
                 .iter()
                 .any(|f| f.path.ends_with(".pkbin") || f.path.ends_with(".pki8")),
             "no derived recall/rescore plane may be packed: {:?}",
+            bundle.manifest.files,
+        );
+        // M-11: the keyed reverse/forward sidecars are excluded too (under vectors/ or stray).
+        assert!(
+            !bundle
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.path.ends_with(".pkrev") || f.path.ends_with(".pkfwd")),
+            "no keyed reverse/forward sidecar may be packed: {:?}",
             bundle.manifest.files,
         );
         assert!(
@@ -1295,12 +1314,17 @@ mod tests {
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkmap")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkbin")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pki8")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkrev")));
+        assert!(is_derived_vector_plane_excluded(Path::new("vectors/store.pkfwd")));
         assert!(is_derived_vector_plane_excluded(Path::new("vectors/nested/store.pkvec")));
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkvec")));
         // Stray derived recall/rescore planes are excluded too (consistency with `.pkvec`/`.pkmap`).
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkmap")));
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pkbin")));
         assert!(is_derived_vector_plane_excluded(Path::new("stray.pki8")));
+        // M-11 keyed reverse/forward sidecars (stray) are excluded too.
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkrev")));
+        assert!(is_derived_vector_plane_excluded(Path::new("stray.pkfwd")));
         // A non-vector derived file is NOT excluded by this rule.
         assert!(!is_derived_vector_plane_excluded(Path::new("marker.txt")));
         assert!(!is_derived_vector_plane_excluded(Path::new("agent.sqlite")));

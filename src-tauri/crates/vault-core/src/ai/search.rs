@@ -31,10 +31,14 @@
 //!   `urls.id` seek + chunked `visits` IN-query in `crate::stars::starred_history_ids`), NOT a
 //!   visits⋈urls scan; the lexical plane over-fetches a bounded pool so the starred post-filter still
 //!   yields a full page (see [`lexical_history_results`])
-//! - the one remaining O(n) pass on the `is:starred`+provider path is the `.pkmap` forward lookup
-//!   (`VisitContentMap::content_keys_for_history_ids`): a single bounded-memory SEQUENTIAL stride (no
-//!   SQL, no URL parse), accepted for now and gated behind the facet + a provider — see the TODO in
-//!   [`resolve_starred_content_keys`] and doc 05 §10
+//! - BOTH visit↔content joins are now BOUNDED by keyed binary-search sidecars (M-11, `.pkrev`/`.pkfwd`
+//!   built alongside the planes): the ALWAYS-ON semantic hydration (result content_key → visits) is
+//!   O(k'·log n) seeks ([`resolve_history_ids_for_content_keys`]), and the `is:starred` forward
+//!   resolution (starred history_id → content_key) is O(starred·log n) seeks
+//!   ([`resolve_content_keys_for_history_ids`], closing the prior XA-PERF-4 O(n) `.pkmap` stride). Both
+//!   degrade to the authoritative `.pkmap` full scan only when the keyed sidecar is missing/stale (an
+//!   older index, or a torn pair); the next index build re-projects it. No O(n) `.pkmap` stride is paid
+//!   on the steady-state query path — see doc 05 §10
 //! - lexical fallback remains explicit instead of scanning stale SQLite semantic metadata
 
 use super::*;
@@ -699,6 +703,73 @@ fn apply_starred_boost(
         .collect()
 }
 
+/// Whether the keyed reverse/forward sidecars are trustworthy for this provider's CURRENT planes.
+///
+/// The read-path staleness guard (M-11): the sidecars are stamped with the `.pkvec` fingerprint hash,
+/// so they are usable iff both are present AND stamped for the live store's hash. A missing store
+/// (nothing embedded) or a missing/stale/torn sidecar (an older index built before the sidecar
+/// existed, or a half-written pair) makes the keyed path UNTRUSTED, and the caller falls back to the
+/// authoritative `.pkmap` scan so results stay correct. `Ok(false)` whenever anything is off — the
+/// keyed path is a pure optimization layered over the always-correct `.pkmap`.
+fn reverse_sidecars_usable(paths: &ProjectPaths, provider: &AiProviderRuntime) -> Result<bool> {
+    let store =
+        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let Some(header) = store.read_header()? else {
+        return Ok(false); // No `.pkvec` source ⇒ no trustworthy sidecar to key off.
+    };
+    let sidecars =
+        ReverseVisitMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    Ok(!sidecars.is_stale_against(&header.fingerprint_hash)?)
+}
+
+/// Resolves result content_keys → their visits via the keyed `.pkrev` sidecar, falling back to scan.
+///
+/// The bounded hydration join (M-11): when the keyed sidecars are usable this is O(k'·log n)
+/// binary-search seeks over the few result content_keys; otherwise it degrades to the authoritative
+/// `.pkmap` full scan (correct, just the old O(n) cost) so an older/torn index still serves the EXACT
+/// same history_ids. Both paths return identical results — the sidecar is the SAME
+/// `(content_key, history_id)` multiset as the `.pkmap`.
+fn resolve_history_ids_for_content_keys(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    wanted: &std::collections::HashSet<u64>,
+) -> Result<HashMap<u64, Vec<i64>>> {
+    if reverse_sidecars_usable(paths, provider)? {
+        let sidecars = ReverseVisitMap::for_provider(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+        );
+        return sidecars.history_ids_for_content_keys(wanted);
+    }
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    visit_map.history_ids_for_content_keys(wanted)
+}
+
+/// Resolves a bounded starred history_id set → content_keys via the keyed `.pkfwd` sidecar, else scan.
+///
+/// The bounded `is:starred` forward join (XA-PERF-4, M-11): when the keyed sidecars are usable this is
+/// O(starred·log n) binary-search seeks; otherwise it degrades to the authoritative `.pkmap` full scan
+/// so an older/torn index still serves the EXACT same content_key set.
+fn resolve_content_keys_for_history_ids(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    wanted: &std::collections::HashSet<i64>,
+) -> Result<std::collections::HashSet<u64>> {
+    if reverse_sidecars_usable(paths, provider)? {
+        let sidecars = ReverseVisitMap::for_provider(
+            paths,
+            &provider.config.id,
+            &provider.config.default_model,
+        );
+        return sidecars.content_keys_for_history_ids(wanted);
+    }
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    visit_map.content_keys_for_history_ids(wanted)
+}
+
 /// Resolves the starred content_key allowlist for the `is:starred` semantic facet (W-AI-6).
 ///
 /// Maps starred URLs/domains → starred archive `visits.id`s (the bounded join, [`starred_history_ids`])
@@ -719,16 +790,12 @@ fn resolve_starred_content_keys(
         return Ok(None);
     };
     let history_ids = crate::stars::starred_history_ids(paths, config, key, starred)?;
-    let visit_map =
-        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    // TODO(W-AI-7+): `content_keys_for_history_ids` makes ONE O(n) sequential pass over the entire
-    // `.pkmap` (up to 14.4M fixed-width records) per `is:starred` query. It is bounded-memory and
-    // sequential (no SQL, no URL parse) — much cheaper than the old full visits⋈urls scan, and this
-    // path is gated behind both `is:starred` AND an embedding provider — so it is accepted for now.
-    // When warranted, add a keyed/reverse `history_id → content_key` lookup (a sorted/indexed sidecar
-    // or an in-memory index) so this hop becomes O(starred) like the SQL resolution above. See doc 05
-    // §10 ("`.pkmap` forward lookup" carryover).
-    let keys = visit_map.content_keys_for_history_ids(&history_ids)?;
+    // XA-PERF-4 (closed, M-11): resolve the BOUNDED starred history_id set → content_keys through the
+    // keyed forward sidecar (`.pkfwd`, O(starred·log n) binary-search seeks) when present + fresh,
+    // falling back to the authoritative `.pkmap` full scan only when the sidecar is missing/stale (an
+    // older index, or a torn sidecar). The forward stride is no longer the always-paid O(n) pass; the
+    // next index build re-projects the sidecar.
+    let keys = resolve_content_keys_for_history_ids(paths, provider, &history_ids)?;
     Ok(Some(keys.into_iter().collect()))
 }
 
@@ -907,9 +974,13 @@ fn hydrate_semantic_hits(
         })
         .collect();
 
-    let visit_map =
-        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    let inverse = visit_map.history_ids_for_content_keys(&wanted)?;
+    // M-11: resolve each result content_key to its visits through the keyed reverse sidecar (`.pkrev`,
+    // O(k'·log n) binary-search seeks) when it is present + fresh; otherwise fall back to the
+    // authoritative `.pkmap` full scan so an older index (built before the sidecar existed) or a torn
+    // sidecar still serves CORRECT results — the next index build re-projects the sidecar. The query
+    // thread never triggers a heavy rebuild (Principle 3: no main-thread freeze); it just degrades to
+    // the correct-but-slower scan for that one query.
+    let inverse = resolve_history_ids_for_content_keys(paths, provider, &wanted)?;
     // Flatten to the candidate history_ids and remember which content_key each came from. `inverse`
     // only contains keys that have at least one mapped visit, so every history_id below has a key.
     let mut key_by_history: HashMap<i64, u64> = HashMap::new();

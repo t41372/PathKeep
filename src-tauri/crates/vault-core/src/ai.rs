@@ -24,6 +24,7 @@ mod llm;
 mod narrative;
 mod provider;
 mod read_model;
+mod reverse_visit_map;
 mod search;
 mod traits;
 mod vector_index;
@@ -127,6 +128,7 @@ pub use self::llm::{RigLlmProvider, probe_tool_capability};
 pub use self::narrative::{
     NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
 };
+pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap, reverse_map_plane_bytes};
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,

@@ -8,7 +8,11 @@
 //! It is the data that decides 05 §10's open items: binary-recall sufficiency, f32 retention, and
 //! whether an index library is later warranted. It measures, at synthetic 1M / 5M / 14.4M scales:
 //! - recall@10 (binary-recall + int8-rescore vs exact f32 brute force, over a query sample),
-//! - latency (recall stage + rescore stage, p50 / p95),
+//! - latency (recall stage + rescore stage, p50 / p95), AND the FULL interactive path latency that
+//!   adds the keyed `.pkmap` hydration seek (M-11): the prior bench timed ONLY `index.search(...)` and
+//!   never touched the `.pkmap`, so the published numbers EXCLUDED the second corpus-sized pass the old
+//!   O(n) hydration scan paid. The keyed `.pkrev` sidecar replaces that scan with O(k'·log n) binary
+//!   seeks; this bench now times `search + keyed hydration` so the reported latency reflects reality,
 //! - REAL resident RAM of the binary plane — the ONLY RAM-resident plane — including the Rust
 //!   `(u64, Vec<u8>)` per-vector overhead, not just the packed `n × ceil(dim/8)` bytes (E1),
 //! - int8 plane on-disk size (the int8 plane is now genuinely on-disk, seeked per candidate, C1),
@@ -27,12 +31,13 @@
 //! Determinism: a SELF-CONTAINED seeded SplitMix64 PRNG (no `rand` dependency — the no-new-deps
 //! constraint applies) generates the synthetic vectors + queries, so every run is reproducible.
 
+use std::collections::HashSet;
 use std::time::Instant;
 use vault_core::{
     BinaryPlane, EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, FlatVectorIndex,
-    Int8Plane, RECALL_EXPANSION, RECALL_FLOOR, VectorIndex, VectorStore, binarize,
-    binary_bytes_for_dim, build_planes_from_store, dot_product, hamming_distance,
-    project_paths_with_root,
+    Int8Plane, RECALL_EXPANSION, RECALL_FLOOR, ReverseVisitMap, VectorIndex, VectorStore,
+    VisitContentMap, binarize, binary_bytes_for_dim, build_planes_from_store, dot_product,
+    hamming_distance, project_paths_with_root,
 };
 
 /// Default scales swept when `PATHKEEP_S2_SCALES` is unset (1M / 5M / 14.4M, the 05 §3 envelope).
@@ -391,6 +396,58 @@ fn run_scale(
     let report = build_planes_from_store(&paths, "s2-bench", "synthetic").expect("build planes");
     let project_secs = project_start.elapsed().as_secs_f64();
     assert_eq!(report.vectors, sample_n);
+
+    // M-11: build the per-VISIT `.pkmap` + the keyed `.pkrev`/`.pkfwd` sidecars for the sample so the
+    // FULL interactive-path latency below includes the hydration seek the old bench omitted. Each
+    // content_key fans out to `MAP_FANOUT` visits (the per-visit map does NOT shrink with dedup, so the
+    // sidecar is the realistic shape: a deduped vector mapping back to several visits). The sidecar's
+    // O(k'·log n) seek depends on the RECORD COUNT, so we build it at the sample's fan-out size; the
+    // log factor at full n is a few extra probes, not a second O(n) pass.
+    const MAP_FANOUT: i64 = 3;
+    let visit_map = VisitContentMap::for_provider(&paths, "s2-bench", "synthetic");
+    visit_map.ensure_created(&paths).expect("ensure map");
+    let mut map_records: Vec<(i64, u64)> = Vec::with_capacity(sample_n * MAP_FANOUT as usize);
+    let mut synthetic_history_id: i64 = 1;
+    for (key, _) in &sample_vectors {
+        for _ in 0..MAP_FANOUT {
+            map_records.push((synthetic_history_id, *key));
+            synthetic_history_id += 1;
+        }
+    }
+    // Append in bounded chunks so the map write never holds an oversized buffer.
+    for chunk in map_records.chunks(100_000) {
+        visit_map.append(chunk).expect("append map chunk");
+    }
+    let sidecars = ReverseVisitMap::for_provider(&paths, "s2-bench", "synthetic");
+    let sidecar_build_start = Instant::now();
+    let sidecar_records = sidecars
+        .build_from_visit_map(&paths, &visit_map, &fingerprint.hash())
+        .expect("build sidecars");
+    let sidecar_build_secs = sidecar_build_start.elapsed().as_secs_f64();
+    assert_eq!(sidecar_records, (sample_n as u64) * MAP_FANOUT as u64);
+    let pkrev_sample_bytes = std::fs::metadata(sidecars.reverse_path()).expect("pkrev meta").len();
+    let pkfwd_sample_bytes = std::fs::metadata(sidecars.forward_path()).expect("pkfwd meta").len();
+    // Per-visit record is a fixed 16 B; full-n is the per-VISIT count (n × the real per-page fan-out).
+    // We report the sample's per-record size so the @n footprint can be read off the live visit count.
+    let sidecar_bytes_per_record = (pkrev_sample_bytes + pkfwd_sample_bytes) as f64
+        / (sample_n.max(1) * MAP_FANOUT as usize) as f64;
+
+    // FULL interactive-path latency: `index.search` + the keyed hydration seek that resolves the result
+    // content_keys → visits via the `.pkrev` binary search (the M-11 always-on path). This is the
+    // number that reflects what a user actually waits for; the search-only `p50/p95` above is the
+    // recall+rescore component, and the delta is the keyed hydration cost.
+    let mut full_path_us: Vec<f64> = Vec::with_capacity(query_count);
+    for query in &queries {
+        let start = Instant::now();
+        let results = index.search(query, TOP_K, None).expect("search");
+        let wanted: HashSet<u64> = results.iter().map(|(key, _)| *key).collect();
+        let inverse = sidecars.history_ids_for_content_keys(&wanted).expect("keyed hydrate");
+        full_path_us.push(start.elapsed().as_secs_f64() * 1e6);
+        // Each returned key fans out to its visits (sanity: the keyed seek actually resolved them).
+        assert!(inverse.values().all(|ids| !ids.is_empty()));
+    }
+    let (full_p50, full_p95) = percentiles(&mut full_path_us);
+
     let int8_plane = Int8Plane::for_provider(&paths, "s2-bench", "synthetic");
     let binary_plane = BinaryPlane::for_provider(&paths, "s2-bench", "synthetic");
     let int8_sample_bytes = int8_plane.path().metadata().expect("int8 meta").len();
@@ -428,6 +485,13 @@ fn run_scale(
         project_full_secs, project_secs, sample_n
     );
     println!("search latency (2-stage, k={TOP_K}) : p50 {p50:.0} us   p95 {p95:.0} us");
+    println!(
+        "FULL interactive latency (search + keyed `.pkrev` hydration seek, M-11) : p50 {full_p50:.0} us   p95 {full_p95:.0} us  [keyed hydration adds the O(k'·log n) seek; the OLD O(n) `.pkmap` scan would have ~DOUBLED this]"
+    );
+    println!(
+        "keyed sidecars (.pkrev+.pkfwd) : {:.0} B/visit-record  build {:.3} s / {} records (sample, fan-out {MAP_FANOUT})  [on-disk, binary-searched, NOT resident]",
+        sidecar_bytes_per_record, sidecar_build_secs, sidecar_records
+    );
     if sample_n < n {
         println!(
             "WARNING: recall@10 + coverage + pool-sweep below are measured on a {sample_n}-vec SUB-SAMPLE (sample_n < n={n}); the full-n probe row is the real-scale check."

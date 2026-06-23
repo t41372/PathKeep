@@ -180,6 +180,14 @@ pub async fn build_ai_index_with_control(
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
+            // The keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) are pure projections of the
+            // `.pkmap` the wipe just cleared, so they are deleted too (a later build re-projects them).
+            super::super::reverse_visit_map::ReverseVisitMap::for_provider(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )
+            .delete()?;
             return Ok(AiIndexReport {
                 job_id: None,
                 run_id: Some(run_id),
@@ -219,6 +227,15 @@ pub async fn build_ai_index_with_control(
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
+            // Drop the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) alongside the planes so
+            // the rebuild window never leaves them projected from the old (now-deleted) `.pkmap`; they
+            // re-project after the backfill rewrites the `.pkmap` (same posture as the planes).
+            super::super::reverse_visit_map::ReverseVisitMap::for_provider(
+                paths,
+                &provider.config.id,
+                &provider.config.default_model,
+            )
+            .delete()?;
         }
 
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting candidates.")?;
@@ -275,6 +292,21 @@ pub async fn build_ai_index_with_control(
             &provider.config.id,
             &provider.config.default_model,
         )?;
+
+        // Re-project the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the now-current
+        // `.pkmap`, stamped with the SAME `.pkvec` fingerprint hash so they share the planes' staleness
+        // identity. These turn the always-on hydration join (content_key → visits) and the `is:starred`
+        // forward join (history_id → content_key) into BOUNDED binary-search lookups (O(k'·log n) /
+        // O(starred·log n)) instead of the O(n) `.pkmap` strides. RESUMABLE/RESTART-SAFE: the `.pkmap`
+        // is the source of truth, so re-projecting at the end of any pass (fresh / resume / incremental)
+        // reads the current map and yields the same correct sidecars (no dup/no miss). A missing/absent
+        // `.pkvec` (nothing ever embedded) projects empty (header-only) sidecars so search degrades to
+        // "no semantic matches" rather than a stale/absent-sidecar error.
+        checkpoint_ai_run(
+            run_control,
+            "Index build was cancelled before projecting keyed reverse sidecars.",
+        )?;
+        rebuild_reverse_sidecars(paths, provider)?;
 
         let notes = if outcome.indexed_items == 0 {
             vec!["No new or changed history rows required indexing.".to_string()]
@@ -665,6 +697,32 @@ fn vector_store_for_chunk<'a>(
         *store = Some(created);
     }
     Ok(store.as_ref().expect("vector store is initialized above"))
+}
+
+/// (Re)projects the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the current `.pkmap`.
+///
+/// Reads the `.pkvec` store's fingerprint hash (the planes' staleness identity) and projects both
+/// sorted sidecars from the authoritative `.pkmap`, stamped with that hash so they share the planes'
+/// staleness identity and re-project on a model/dim/dtype change. When no `.pkvec` exists yet (nothing
+/// ever embedded), it projects empty (header-only) sidecars under an empty fingerprint — the same
+/// "present but empty" posture `build_planes_from_store` takes — so the read path loads cleanly to "no
+/// semantic matches" rather than treating an absent sidecar as an error. Idempotent: re-running over
+/// the same `.pkmap` yields byte-identical sidecars (no dup/no miss), which is what makes a resumed or
+/// stale-rebuild pass safe.
+fn rebuild_reverse_sidecars(paths: &ProjectPaths, provider: &AiProviderRuntime) -> Result<()> {
+    let store =
+        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let fingerprint_hash =
+        store.read_header()?.map(|header| header.fingerprint_hash).unwrap_or_default();
+    let visit_map =
+        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    let sidecars = super::super::reverse_visit_map::ReverseVisitMap::for_provider(
+        paths,
+        &provider.config.id,
+        &provider.config.default_model,
+    );
+    sidecars.build_from_visit_map(paths, &visit_map, &fingerprint_hash)?;
+    Ok(())
 }
 
 #[cfg(test)]

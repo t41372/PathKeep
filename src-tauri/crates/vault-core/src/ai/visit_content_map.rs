@@ -161,6 +161,13 @@ impl VisitContentMap {
     /// bounded by the result fan-out — never the whole map. A key with no mapped visit (an orphan
     /// vector) is simply absent from the returned map; the caller drops it. An absent map returns an
     /// empty map (a never-built index hydrates to nothing, not an error).
+    ///
+    /// NOTE (M-11): this is a single bounded-MEMORY pass but a full O(n) TIME stride over the per-visit
+    /// `.pkmap`. It is no longer the always-on hydration path — the keyed
+    /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkrev` sidecar resolves the same join in
+    /// O(k'·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK the read path uses only
+    /// when that sidecar is missing/stale (an older or torn index), and the SOURCE the sidecar projects
+    /// from — so it must keep returning EXACTLY the keyed lookup's result (it does: same multiset).
     pub fn history_ids_for_content_keys(
         &self,
         wanted: &HashSet<u64>,
@@ -186,6 +193,12 @@ impl VisitContentMap {
     /// starred set, not the 14.4M map), so memory is bounded by the starred set. An absent map returns
     /// an empty set (a never-built index has no starred content keys, not an error); a starred visit
     /// with no mapped vector (never embedded) simply contributes nothing.
+    ///
+    /// NOTE (M-11/XA-PERF-4): like its inverse, this is bounded-memory but a full O(n) TIME stride. It
+    /// is no longer the always-paid forward path — the keyed
+    /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkfwd` sidecar resolves the same join in
+    /// O(starred·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK used only when that
+    /// sidecar is missing/stale, returning EXACTLY the keyed lookup's content_key set.
     pub fn content_keys_for_history_ids(&self, wanted: &HashSet<i64>) -> Result<HashSet<u64>> {
         let mut keys = HashSet::new();
         if wanted.is_empty() {

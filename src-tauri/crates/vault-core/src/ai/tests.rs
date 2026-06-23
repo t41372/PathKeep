@@ -353,6 +353,37 @@ fn seed_vector_planes(
         &provider.config.default_model,
     )
     .expect("build planes");
+    // Project the M-11 keyed reverse/forward sidecars from the `.pkmap`, stamped with the same store
+    // fingerprint hash — the exact on-disk state `build_ai_index` now leaves, so the search hydration +
+    // `is:starred` paths exercise the KEYED binary-search lookups (the steady-state path), not just the
+    // `.pkmap`-scan fallback. (`seed_vector_planes_without_reverse_sidecars` omits this to cover the
+    // older-index fallback.)
+    super::reverse_visit_map::ReverseVisitMap::for_provider(
+        paths,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .build_from_visit_map(paths, &map, &fingerprint.hash())
+    .expect("build reverse sidecars");
+}
+
+/// Seeds the vector planes + `.pkmap` but NOT the M-11 keyed sidecars (the pre-M-11 / torn-sidecar
+/// on-disk state), so the search read path exercises the authoritative `.pkmap`-scan FALLBACK.
+fn seed_vector_planes_without_reverse_sidecars(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    rows: &[(i64, u64, Vec<f32>)],
+) {
+    seed_vector_planes(paths, provider, rows);
+    // Drop the just-built sidecars so the read path falls back to the `.pkmap` scan (an older index
+    // built before the sidecar existed has the planes + map but no `.pkrev`/`.pkfwd`).
+    super::reverse_visit_map::ReverseVisitMap::for_provider(
+        paths,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .delete()
+    .expect("drop reverse sidecars");
 }
 
 fn prepared_archive() -> (ProjectPaths, AppConfig, Connection) {
@@ -2766,6 +2797,51 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
 }
 
 #[test]
+fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
+    // M-11 read-path guard: an OLDER index (planes + `.pkmap` present, but no `.pkrev`/`.pkfwd`) must
+    // still resolve the SAME hits via the authoritative `.pkmap` scan fallback — no wrong/empty result.
+    // This exercises the `reverse_sidecars_usable == false` branch + `VisitContentMap` scan path.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+    let docs_vector = runtime
+        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .expect("docs vector");
+    let other_vector: Vec<f32> = docs_vector.iter().rev().map(|value| -value).collect();
+    // Seed the planes + `.pkmap` but DROP the keyed sidecars (the pre-M-11 on-disk shape).
+    seed_vector_planes_without_reverse_sidecars(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, docs_vector.clone()), (2, 0x2222, other_vector)],
+    );
+    seed_embedding(&connection, 1, &embedding, "hash-1");
+    seed_successful_index_ledger(&connection, &embedding, 1);
+
+    let report = runtime
+        .block_on(semantic_matches(
+            &paths,
+            &config,
+            None,
+            &embedding,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: None,
+            },
+            None,
+        ))
+        .expect("semantic matches via fallback");
+    assert!(!report.hits.is_empty(), "the `.pkmap`-scan fallback must still return the real hit");
+    assert_eq!(report.hits[0].history_id, 1, "fallback resolves the same most-recent visit");
+    assert!(report.hits[0].url.contains("/docs"));
+}
+
+#[test]
 fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
     // D1: the planes were built at dim 4, but the live embedding config produces a dim-3 query. A
     // search would binarize the query to a narrower byte width and prefix-compare garbage, so the
@@ -3743,6 +3819,80 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
         search.items.iter().all(|item| item.url.contains("/alpha")),
         "the unstarred page is excluded from semantic recall by the allowlist"
     );
+}
+
+#[test]
+fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
+    // M-11 read-path guard (forward / `is:starred` direction): an older index (no `.pkrev`/`.pkfwd`)
+    // must still resolve the starred content_key allowlist via the authoritative `.pkmap` scan fallback
+    // — same outcome as the keyed path. Exercises `resolve_content_keys_for_history_ids`'s fallback.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 2);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/beta", Some("Beta"), 1);
+    let needle = runtime
+        .block_on(embed_query(&embedding, "needle", EmbeddingRole::Query))
+        .expect("needle vector");
+    // Planes + `.pkmap` present, keyed sidecars DROPPED (the pre-M-11 shape) → forward scan fallback.
+    seed_vector_planes_without_reverse_sidecars(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, needle.clone()), (2, 0x2222, needle.clone())],
+    );
+    star_url(&paths, &config, "https://example.com/alpha");
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("starred-facet search via fallback");
+    assert_eq!(search.items.len(), 1, "the fallback resolves the same starred allowlist");
+    assert_eq!(search.items[0].history_id, 1);
+    assert!(search.items[0].url.contains("/alpha"));
+}
+
+#[test]
+fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
+    // M-11 guard, no-`.pkvec` branch: an `is:starred` query with a provider configured but NOTHING ever
+    // embedded (no `.pkvec` store) must not error — `reverse_sidecars_usable` returns false (no store to
+    // key off), the `.pkmap` fallback is empty, the allowlist is empty, and semantic recall honestly
+    // yields no hits. Exercises the `store.read_header()? is None` branch of `reverse_sidecars_usable`.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/alpha", Some("Alpha"), 1);
+    star_url(&paths, &config, "https://example.com/alpha");
+    // No `seed_vector_planes` → no `.pkvec`/`.pkmap`/sidecars at all.
+
+    let search = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "needle".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("starred-facet search with no store");
+    assert!(search.items.is_empty(), "no store ⇒ empty allowlist ⇒ no semantic hits (no error)");
 }
 
 #[test]
