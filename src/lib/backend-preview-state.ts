@@ -276,6 +276,12 @@ export function validateMockAppLockConfig(
  * Summarizes the preview AI queue into the same compact shape the UI consumes from desktop.
  */
 export function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
+  // Index-only narrowing (M-5): the Smart-search build callout reads these
+  // counts, so they must exclude assistant chat jobs. The desktop backend
+  // filters on the `IndexBuild`/`IndexClear` job types; the preview mirrors
+  // that via the kebab-case `jobType` the mock queue rows carry.
+  const isIndexJob = (jobType: string) =>
+    jobType === 'index-build' || jobType === 'index-clear'
   return {
     paused: state.snapshot.config.ai.jobQueuePaused,
     concurrency: state.snapshot.config.ai.jobQueueConcurrency,
@@ -284,6 +290,14 @@ export function buildMockQueueStatus(state: MockBackendState): AiQueueStatus {
     ).length,
     running: state.queueJobs.filter((job) => job.state === 'running').length,
     failed: state.queueJobs.filter((job) => job.state === 'failed').length,
+    indexQueued: state.queueJobs.filter(
+      (job) =>
+        isIndexJob(job.jobType) &&
+        (job.state === 'queued' || job.state === 'paused'),
+    ).length,
+    indexRunning: state.queueJobs.filter(
+      (job) => isIndexJob(job.jobType) && job.state === 'running',
+    ).length,
     recentJobs: state.queueJobs.slice(0, 8).map((job) => structuredClone(job)),
   }
 }

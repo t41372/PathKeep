@@ -221,6 +221,8 @@ function queueStatusFixture(): AiQueueStatus {
     queued: 2,
     running: 1,
     failed: 1,
+    indexQueued: 2,
+    indexRunning: 1,
     recentJobs: [
       queueJobFixture({ id: 10, state: 'failed', summary: null }),
       queueJobFixture({ id: 11, state: 'running' }),

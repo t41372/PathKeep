@@ -1042,6 +1042,8 @@ describe('ExplorerPage route shell', () => {
               queued: 4,
               running: 1,
               failed: 0,
+              indexQueued: 4,
+              indexRunning: 1,
               recentJobs: [],
             },
             error: null,
@@ -1145,6 +1147,8 @@ describe('ExplorerPage route shell', () => {
             queued: 2,
             running: 0,
             failed: 0,
+            indexQueued: 2,
+            indexRunning: 0,
             recentJobs: [],
           },
           error: null,
@@ -1174,6 +1178,131 @@ describe('ExplorerPage route shell', () => {
     expect(resume).toHaveAttribute('href', '/settings#settings-ai')
     // Honest: a paused-but-enqueued build never shows the "building" progress.
     expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+  })
+
+  test('H-3: a drained build fires one refreshAppData(false) and shows the honest ready state', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    aiStatusMetaMock.mockReturnValue({ label: 'Index ready', tone: 'success' })
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    // Building: a live index job is running and the index is still empty
+    // (indexed-at-enqueue ≈ 0). This is the state the bounded poll watches.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        refreshRuntimeStatus: vi.fn().mockResolvedValue(undefined),
+        runtimeStatus: {
+          aiQueue: {
+            paused: false,
+            concurrency: 1,
+            queued: 0,
+            running: 1,
+            failed: 0,
+            indexQueued: 0,
+            indexRunning: 1,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'rebuilding', indexedItems: 0 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    const { rerender } = renderExplorer()
+
+    // Building: the live progress callout is shown; no app-data refresh yet.
+    expect(screen.getByText('explorer.smartIndexBuildingTitle')).toBeVisible()
+    expect(refreshAppData).not.toHaveBeenCalled()
+
+    // The build DRAINS: the queue clears (no index jobs) and a real refresh
+    // would have repopulated the snapshot's indexed coverage. Model that here by
+    // swapping the shell value the route reads on the next render.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        refreshRuntimeStatus: vi.fn().mockResolvedValue(undefined),
+        runtimeStatus: {
+          aiQueue: {
+            paused: false,
+            concurrency: 1,
+            queued: 0,
+            running: 0,
+            failed: 0,
+            indexQueued: 0,
+            indexRunning: 0,
+            recentJobs: [],
+          },
+          error: null,
+          intelligence: null,
+          loading: false,
+        },
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 1280 },
+        },
+      }),
+    )
+    rerender(<ExplorerWrapper initialPath="/" />)
+
+    // H-3: the active→inactive transition fired exactly ONE non-spinner
+    // refresh, so the snapshot's index coverage is re-read without freezing the
+    // view.
+    expect(refreshAppData).toHaveBeenCalledTimes(1)
+    expect(refreshAppData).toHaveBeenCalledWith(false)
+
+    // The callout now reports the honest "N pages indexed" ready state — it must
+    // NOT have flipped back to the empty "nothing to rank yet" build title, as
+    // if the completed build had failed.
+    expect(screen.getByText('Index ready')).toBeVisible()
+    expect(screen.getByText('explorer.smartIndexReadyBody')).toBeVisible()
+    expect(screen.queryByText('explorer.smartIndexBuildTitle')).toBeNull()
+    expect(screen.queryByTestId('explorer-smart-build-progress')).toBeNull()
+  })
+
+  test('H-3: a refreshAppData fires only on the drain edge, never every poll tick', () => {
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1' })
+    const refreshAppData = vi.fn().mockResolvedValue(undefined)
+    // Idle from the start: no build has ever been active on this surface.
+    useShellDataMock.mockReturnValue(
+      defaultShellData({
+        refreshAppData,
+        snapshot: {
+          ...defaultShellData().snapshot,
+          aiStatus: { state: 'ready', indexedItems: 900 },
+        },
+      }),
+    )
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        mode: 'hybrid',
+        queryInput: 'async',
+        searchParams: new URLSearchParams('surface=search&q=async'),
+        semanticQuery: { query: 'async' },
+      }),
+    )
+    useExplorerDataMock.mockImplementation(defaultExplorerData)
+
+    const { rerender } = renderExplorer()
+    rerender(<ExplorerWrapper initialPath="/" />)
+
+    // Never active → never drained → the transition refresh must not fire. (A
+    // bare re-render of an already-idle surface is not a completed build.)
+    expect(refreshAppData).not.toHaveBeenCalled()
   })
 
   test('PaperExplorerView callbacks drive the route selection + url-state setters', async () => {

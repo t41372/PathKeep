@@ -330,6 +330,12 @@ export interface SmartIndexProgress {
  * Build" flag — it keeps the CTA in the active state across the gap between the
  * click and the first queue read that observes the new job, so the CTA never
  * flickers back to "nothing to rank yet" on a bare enqueue.
+ *
+ * M-5: the build phase keys off the INDEX-ONLY queue counts
+ * (`AiQueueStatus.indexQueued`/`indexRunning`, narrowed to index-build /
+ * index-clear by the backend) — never the aggregate `queued`/`running`, which
+ * also folds in assistant chat jobs. An in-flight assistant chat must NOT make
+ * the Smart-search callout claim "Building the smart-search index".
  */
 export function deriveSmartIndexProgress(args: {
   queueStatus: AiQueueStatus | null
@@ -337,14 +343,19 @@ export function deriveSmartIndexProgress(args: {
    * Last-known queue counts from the shell snapshot. `null` only during the
    * shell-loading window (the search surface never renders then), so the
    * helper falls back to zeros rather than forcing callers to synthesize a
-   * fake `AiIndexStatus`.
+   * fake `AiIndexStatus`. Used ONLY as a best-effort fallback for the narrow
+   * window before the first live `queueStatus` read lands; the live
+   * `indexQueued`/`indexRunning` counts (index-only) take precedence the moment
+   * they are available, which is what the M-5 assistant-in-flight case hits.
    */
   snapshotAiStatus: AiIndexStatus | null
   pendingAction: boolean
 }): SmartIndexProgress {
   const { queueStatus, snapshotAiStatus, pendingAction } = args
-  const queuedJobs = queueStatus?.queued ?? snapshotAiStatus?.queuedJobs ?? 0
-  const runningJobs = queueStatus?.running ?? snapshotAiStatus?.runningJobs ?? 0
+  const queuedJobs =
+    queueStatus?.indexQueued ?? snapshotAiStatus?.queuedJobs ?? 0
+  const runningJobs =
+    queueStatus?.indexRunning ?? snapshotAiStatus?.runningJobs ?? 0
   const paused = queueStatus?.paused ?? snapshotAiStatus?.queuePaused ?? false
   const indexedItems = snapshotAiStatus?.indexedItems ?? 0
   const hasPendingJobs = queuedJobs > 0 || runningJobs > 0

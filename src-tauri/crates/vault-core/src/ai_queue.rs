@@ -184,6 +184,13 @@ pub fn load_ai_queue_status(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear, AiQueueJobType::Assistant],
     )?;
+    // Index-only narrowing (M-5): the Smart-search build callout must reflect
+    // ONLY semantic-index work. Counting `Assistant` chat jobs here would make
+    // an in-flight chat read as "Building the index", which is dishonest.
+    let index_counts = load_queue_job_counts(
+        connection,
+        &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
+    )?;
     let mut statement = connection.prepare(
         "SELECT id, job_type, state, priority, attempt, max_attempts, run_id, summary,
                 created_at, available_at, started_at, finished_at, heartbeat_at,
@@ -201,6 +208,8 @@ pub fn load_ai_queue_status(
         queued: counts.queued,
         running: counts.running,
         failed: counts.failed,
+        index_queued: index_counts.queued,
+        index_running: index_counts.running,
         recent_jobs,
     })
 }

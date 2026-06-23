@@ -366,6 +366,8 @@ function aiQueueFixture(): AiQueueStatus {
     queued: 1,
     running: 0,
     failed: 1,
+    indexQueued: 1,
+    indexRunning: 0,
     recentJobs: [
       {
         id: 9001,

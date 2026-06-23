@@ -934,6 +934,8 @@ describe('ShellDataProvider', () => {
       queued: 0,
       running: 1,
       failed: 0,
+      indexQueued: 0,
+      indexRunning: 1,
       recentJobs: [],
     }
     const idleQueue: AiQueueStatus = {
@@ -1003,6 +1005,8 @@ describe('ShellDataProvider', () => {
       queued: 0,
       running: 1,
       failed: 0,
+      indexQueued: 0,
+      indexRunning: 1,
       recentJobs: [],
     }
     const idleQueue: AiQueueStatus = {

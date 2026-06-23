@@ -728,7 +728,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         notifications,
         unreadNotificationCount,
         refreshKey,
-        refreshAppData: () => refreshAppData(),
+        refreshAppData: (showSpinner) => refreshAppData(showSpinner),
         refreshRuntimeStatus: () => refreshRuntimeStatus(),
         saveConfig,
         initializeArchive,

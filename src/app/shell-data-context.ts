@@ -107,7 +107,15 @@ export interface ShellDataContextValue {
   notifications?: ShellNotification[]
   unreadNotificationCount?: number
   refreshKey: number
-  refreshAppData: () => Promise<void>
+  /**
+   * Re-reads lock status + the app snapshot. `showSpinner` defaults to `true`
+   * (the full-page loading flash for user-initiated refreshes); pass `false` for
+   * background refreshes that must not freeze the current view — e.g. the
+   * Explorer's one-shot snapshot refresh when a semantic-index build drains, so
+   * the Smart-index callout flips to its honest "N pages indexed" ready state
+   * without a jarring spinner (H-3).
+   */
+  refreshAppData: (showSpinner?: boolean) => Promise<void>
   refreshRuntimeStatus: () => Promise<ShellRuntimeStatus>
   saveConfig: (config: AppConfig) => Promise<AppSnapshot>
   initializeArchive: (

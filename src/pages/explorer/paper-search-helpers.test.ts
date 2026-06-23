@@ -433,12 +433,19 @@ describe('buildPaperSearchRelevanceList', () => {
 })
 
 function makeQueueStatus(over: Partial<AiQueueStatus> = {}): AiQueueStatus {
+  const queued = over.queued ?? 0
+  const running = over.running ?? 0
   return {
     paused: false,
     concurrency: 1,
-    queued: 0,
-    running: 0,
+    queued,
+    running,
     failed: 0,
+    // Default the index-only counts to mirror the aggregate so existing build
+    // cases stay meaningful; the M-5 assistant case overrides them to 0 while
+    // leaving the aggregate non-zero (an assistant chat in flight).
+    indexQueued: over.indexQueued ?? queued,
+    indexRunning: over.indexRunning ?? running,
     recentJobs: [],
     ...over,
   }
@@ -542,6 +549,47 @@ describe('deriveSmartIndexProgress', () => {
       pendingAction: false,
     })
     expect(progress.phase).toBe('running')
+  })
+
+  test('M-5: an in-flight assistant chat job does NOT read as build progress', () => {
+    // The aggregate queue is busy (an assistant chat is running) but NO index
+    // job is in flight, so the build phase must stay idle — the callout may not
+    // claim "Building the smart-search index" off an assistant job.
+    const progress = deriveSmartIndexProgress({
+      queueStatus: makeQueueStatus({
+        running: 1,
+        queued: 2,
+        indexRunning: 0,
+        indexQueued: 0,
+      }),
+      snapshotAiStatus: makeAiStatus({ indexedItems: 900 }),
+      pendingAction: false,
+    })
+    expect(progress.phase).toBe('idle')
+    expect(progress.active).toBe(false)
+    expect(progress.runningJobs).toBe(0)
+    expect(progress.queuedJobs).toBe(0)
+    // The honest "N pages indexed" ready coverage still flows through untouched.
+    expect(progress.indexedItems).toBe(900)
+  })
+
+  test('M-5: an index job running ALONGSIDE an assistant job still reads as building', () => {
+    // Mixed queue: 1 index-build running + an assistant chat also running. The
+    // index-only counts (not the aggregate) drive the phase, so this is an
+    // honest "running" build, not inflated by the assistant job.
+    const progress = deriveSmartIndexProgress({
+      queueStatus: makeQueueStatus({
+        running: 2,
+        queued: 3,
+        indexRunning: 1,
+        indexQueued: 1,
+      }),
+      snapshotAiStatus: makeAiStatus({ indexedItems: 50 }),
+      pendingAction: false,
+    })
+    expect(progress.phase).toBe('running')
+    expect(progress.runningJobs).toBe(1)
+    expect(progress.queuedJobs).toBe(1)
   })
 
   test('falls back to the snapshot queue counts when no live queue yet', () => {

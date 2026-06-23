@@ -63,6 +63,12 @@ fn enqueue_and_load_queue_status_tracks_counts_and_recent_jobs() {
     assert_eq!(status.queued, 2);
     assert_eq!(status.running, 0);
     assert_eq!(status.failed, 0);
+    // M-5: the index-only counts must EXCLUDE the assistant job, so the
+    // Smart-search build callout never reads an in-flight chat as build
+    // progress. The aggregate `queued` is 2 (index + assistant), but only the
+    // single index job counts toward `index_queued`.
+    assert_eq!(status.index_queued, 1);
+    assert_eq!(status.index_running, 0);
     assert_eq!(status.recent_jobs.len(), 2);
     assert_eq!(status.recent_jobs[0].state, "paused");
 }

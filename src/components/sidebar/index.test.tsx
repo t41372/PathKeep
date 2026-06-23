@@ -514,6 +514,8 @@ describe('Sidebar', () => {
           queued: 2,
           running: 1,
           failed: 0,
+          indexQueued: 2,
+          indexRunning: 1,
           recentJobs: [],
         },
         intelligence: {

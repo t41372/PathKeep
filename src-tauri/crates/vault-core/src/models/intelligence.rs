@@ -747,6 +747,14 @@ pub struct AiQueueStatus {
     pub queued: u32,
     pub running: u32,
     pub failed: u32,
+    /// Queued/paused/stale count NARROWED to semantic-index jobs
+    /// (`IndexBuild` + `IndexClear`). The Smart-search build callout keys its
+    /// phase off this so an in-flight `Assistant` chat job — counted in the
+    /// aggregate `queued`/`running` above — never reads as build progress (M-5).
+    pub index_queued: u32,
+    /// Running count NARROWED to semantic-index jobs (`IndexBuild` +
+    /// `IndexClear`); the index-only companion to [`Self::index_queued`].
+    pub index_running: u32,
     pub recent_jobs: Vec<AiQueueJob>,
 }
 

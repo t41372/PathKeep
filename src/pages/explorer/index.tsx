@@ -13,7 +13,7 @@
  * - Stay aligned with `docs/design/ux-principles.md` for PME, trust warning grammar, and the no-hidden-state loading contract.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useShellData } from '../../app/shell-data-context'
 import { EmptyState } from '../../components/primitives/empty-state'
@@ -901,6 +901,26 @@ export function ExplorerPage() {
       window.clearInterval(intervalId)
     }
   }, [shouldPollQueue, refreshRuntimeStatus])
+  // H-3: when the build/index job DRAINS (active true→false) the callout must
+  // flip to its honest "N pages indexed" ready state. But `indexedItems` /
+  // `lastIndexedAt` come from APP DATA, which the bounded poll above never
+  // re-reads (it ticks `refreshRuntimeStatus` only). Without this, a minutes-long
+  // build that completes would clear the poll with `indexedItems` still at its
+  // enqueue-time value (≈0) and the callout would lie — flipping straight back to
+  // "nothing to rank yet", as if the completed build had FAILED. So we watch the
+  // active→inactive edge and fire exactly ONE non-spinner `refreshAppData(false)`
+  // on the drain, refreshing the snapshot's index coverage. The ref tracks the
+  // prior `active` so this fires only on the transition, never every poll tick —
+  // it stays bounded and never blocks the main thread (the refresh is an async
+  // IPC read off the render path, and `false` skips the full-page spinner).
+  const indexBuildWasActiveRef = useRef(false)
+  useEffect(() => {
+    const wasActive = indexBuildWasActiveRef.current
+    indexBuildWasActiveRef.current = smartIndexProgress.active
+    if (wasActive && !smartIndexProgress.active) {
+      void refreshAppData(false)
+    }
+  }, [smartIndexProgress.active, refreshAppData])
   // Smart-mode error routes through the same `aboveResultsCallout` slot the
   // keyword path uses, so the composer never unmounts mid-error.
   const smartAboveResultsCallout =

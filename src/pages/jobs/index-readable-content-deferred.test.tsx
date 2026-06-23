@@ -67,6 +67,8 @@ describe('Jobs readable-content deferred overview branch', () => {
         queued: 0,
         running: 0,
         failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
         recentJobs: [],
       },
       intelligence: runtime,

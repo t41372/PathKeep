@@ -299,6 +299,18 @@ export interface AiQueueStatus {
   queued: number
   running: number
   failed: number
+  /**
+   * Queued/paused/stale count NARROWED to semantic-index jobs (index-build +
+   * index-clear). The Smart-search build callout keys its phase off this so an
+   * in-flight assistant chat job — counted in the aggregate `queued`/`running`
+   * above — never reads as build progress (M-5).
+   */
+  indexQueued: number
+  /**
+   * Running count NARROWED to semantic-index jobs; the index-only companion to
+   * `indexQueued`.
+   */
+  indexRunning: number
   recentJobs: AiQueueJob[]
 }
 

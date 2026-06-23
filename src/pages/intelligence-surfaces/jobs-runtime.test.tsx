@@ -193,6 +193,8 @@ describe('intelligence surfaces', () => {
       queued: 1,
       running: 1,
       failed: 1,
+      indexQueued: 1,
+      indexRunning: 1,
       recentJobs: [
         {
           id: 77,
@@ -493,6 +495,8 @@ describe('intelligence surfaces', () => {
         queued: 0,
         running: 0,
         failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
         recentJobs: [],
       },
       intelligence: {
@@ -579,6 +583,8 @@ describe('intelligence surfaces', () => {
         queued: 2,
         running: 1,
         failed: 0,
+        indexQueued: 2,
+        indexRunning: 1,
         recentJobs: [],
       },
       intelligence: {
@@ -756,6 +762,8 @@ describe('intelligence surfaces', () => {
         queued: 0,
         running: 0,
         failed: 0,
+        indexQueued: 0,
+        indexRunning: 0,
         recentJobs: [],
       },
       intelligence: {
@@ -1212,6 +1220,8 @@ function queueFixture(overrides: Partial<AiQueueStatus> = {}): AiQueueStatus {
     queued: 0,
     running: 0,
     failed: 0,
+    indexQueued: 0,
+    indexRunning: 0,
     recentJobs: [],
     ...overrides,
   }
