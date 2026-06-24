@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
+import { i18nStorageKey } from '../../lib/i18n/context'
 import type {
   AiIndexStatus,
   AiProviderConfig,
@@ -13,6 +14,34 @@ import {
   type AiProvidersSectionState,
 } from './ai-providers-section'
 import type { SettingsSectionNavItem } from './section-nav-items'
+
+// The Build-index CTA enqueues a real backfill via the backend client, so mock it
+// here — the test asserts the click fires `buildAiIndex` with the from-scratch full
+// build shape and that the button settles through its building/done/error states.
+// `vi.mock` is hoisted above the imports, so the spies it references must be
+// created in a hoisted block too (a plain top-level const is not yet initialized
+// when the factory runs).
+const { buildAiIndex } = vi.hoisted(() => ({
+  buildAiIndex: vi.fn(() => Promise.resolve(undefined)),
+}))
+vi.mock('../../lib/backend-client', () => ({
+  backend: {
+    buildAiIndex,
+    // The nested GPU section (collapsed by default in these tests) reads these
+    // lazily only when its disclosure is opened; stub them so the module mock is
+    // complete and any future test that opens it does not hit an undefined method.
+    estimateReembed: vi.fn(() =>
+      Promise.resolve({
+        scope: 'working-set',
+        pageCount: 0,
+        estMinutesCpu: 0,
+        estMinutesGpu: 0,
+        gpuAvailable: false,
+      }),
+    ),
+    loadAiQueueStatus: vi.fn(() => Promise.resolve({ queued: 0, running: 0 })),
+  },
+}))
 
 const navItem: SettingsSectionNavItem = {
   id: 'settings-ai',
@@ -58,6 +87,11 @@ const providerTranslations = {
 describe('AiProvidersSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    buildAiIndex.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    window.localStorage.removeItem(i18nStorageKey)
   })
 
   test('does not render until the route state has a current AI draft', () => {
@@ -704,6 +738,8 @@ describe('AiProvidersSection', () => {
 
     expect(screen.getByText('Current index warning')).toBeVisible()
     // The localized copy is composed from the structural `providerName` param, not pre-baked English.
+    // It renders EXACTLY ONCE — in the dedicated warning box; the callout body no longer repeats a
+    // coded warning (dedupe), so a regression that re-duplicated it would make getByText throw.
     expect(
       screen.getByText(
         'Enable provider My Embed before using semantic retrieval.',
@@ -760,6 +796,154 @@ describe('AiProvidersSection', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('Indexer paused by policy.')).toBeVisible()
+  })
+
+  test('offers a Build-index CTA when an embedding provider is configured and the index is empty, firing the from-scratch full build', async () => {
+    // Bug 1: the empty-index state with a configured embedding provider is exactly
+    // when a from-scratch build is actionable, so the CTA must appear right here in
+    // the index-health box (not only in the collapsed GPU section).
+    renderSection({
+      aiStatus: aiStatusFixture({
+        state: 'empty',
+        indexedItems: 0,
+        warningCode: { code: 'indexNotBuilt' },
+      }),
+      currentSettings: settingsFixture({ enabled: true }),
+      indexMeta: { label: 'No index yet', tone: 'info', description: 'empty' },
+    })
+
+    const build = screen.getByTestId('ai-index-build')
+    expect(build).toHaveTextContent('Build index')
+    expect(build).toBeEnabled()
+
+    fireEvent.click(build)
+    // The build enqueues the from-scratch full backfill — the same shape the GPU
+    // section uses for a full re-embed.
+    expect(buildAiIndex).toHaveBeenCalledTimes(1)
+    expect(buildAiIndex).toHaveBeenCalledWith({
+      fullRebuild: true,
+      clearOnly: false,
+      scope: 'full',
+    })
+    // While the enqueue is in flight the button is disabled + relabeled so a
+    // double-click cannot double-enqueue.
+    expect(build).toBeDisabled()
+    expect(build).toHaveTextContent('Building index…')
+
+    // Once the enqueue resolves it settles to an honest "queued in the background"
+    // confirmation (never claims the minutes-long index is already built).
+    expect(
+      await screen.findByTestId('ai-index-build-queued'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('ai-index-build')).toBeEnabled()
+  })
+
+  test('also offers the Build-index CTA when the index is stale', () => {
+    renderSection({
+      aiStatus: aiStatusFixture({ state: 'stale' }),
+      currentSettings: settingsFixture({ enabled: true }),
+      indexMeta: { label: 'Stale', tone: 'warning', description: 'stale' },
+    })
+
+    expect(screen.getByTestId('ai-index-build')).toBeVisible()
+  })
+
+  test('surfaces an honest error if the index-build enqueue fails', async () => {
+    buildAiIndex.mockRejectedValueOnce(new Error('queue offline'))
+    renderSection({
+      aiStatus: aiStatusFixture({
+        state: 'empty',
+        indexedItems: 0,
+        warningCode: { code: 'indexNotBuilt' },
+      }),
+      currentSettings: settingsFixture({ enabled: true }),
+      indexMeta: { label: 'No index yet', tone: 'info', description: 'empty' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-index-build'))
+    expect(
+      await screen.findByTestId('ai-index-build-error'),
+    ).toBeInTheDocument()
+    // The button is re-enabled so the user can retry.
+    expect(screen.getByTestId('ai-index-build')).toBeEnabled()
+  })
+
+  test('does NOT offer the Build-index CTA when no embedding provider is configured (no nag)', () => {
+    // optional-AI-no-nag: when nothing is configured there is nothing to build, so
+    // the CTA must stay hidden rather than nag the user toward an action that would
+    // immediately fail.
+    renderSection({
+      aiStatus: aiStatusFixture({
+        state: 'empty',
+        indexedItems: 0,
+        warningCode: { code: 'noEmbeddingProvider' },
+      }),
+      currentSettings: settingsFixture({
+        enabled: true,
+        embeddingProviders: [],
+        embeddingProviderId: null,
+      }),
+      indexMeta: { label: 'No index yet', tone: 'info', description: 'empty' },
+    })
+
+    expect(screen.queryByTestId('ai-index-build')).toBeNull()
+    expect(buildAiIndex).not.toHaveBeenCalled()
+  })
+
+  test('does NOT offer the Build-index CTA when the index is already ready', () => {
+    // A ready index has nothing to build from the health box.
+    renderSection({
+      aiStatus: aiStatusFixture({ state: 'ready' }),
+      currentSettings: settingsFixture({ enabled: true }),
+      indexMeta: { label: 'Ready', tone: 'success', description: 'ready' },
+    })
+
+    expect(screen.queryByTestId('ai-index-build')).toBeNull()
+  })
+
+  test('renders the index-health description in zh-CN (localized CODE, not raw English) for the empty state', () => {
+    // Bug 2: for any state carrying a warning CODE, the index-health description
+    // must resolve to localized copy — never the backend's raw English `warning`.
+    window.localStorage.setItem(i18nStorageKey, 'zh-CN')
+    renderSection({
+      aiStatus: aiStatusFixture({
+        state: 'empty',
+        indexedItems: 0,
+        // The legacy English sentence the backend still ships — must NOT leak.
+        warning:
+          'Run Build index after configuring an embedding provider to enable semantic search.',
+        warningCode: { code: 'indexNotBuilt' },
+      }),
+      currentSettings: settingsFixture({ enabled: true }),
+      indexMeta: {
+        label: 'No index yet',
+        tone: 'info',
+        // Even the intelligence-namespace fallback description is English; the fix
+        // must override it via the CODE so this never reaches the zh-CN screen.
+        description:
+          'Build the search index first to enable natural language search.',
+      },
+    })
+
+    // The localized zh-CN copy is shown EXACTLY ONCE — in the dedicated warning box;
+    // the callout body no longer repeats a coded warning (dedupe), and the English
+    // never leaks.
+    expect(
+      screen.getByText('配置好向量模型后，运行“构建索引”即可启用语义搜索。'),
+    ).toBeVisible()
+    // …and neither English sentence leaks into the zh UI.
+    expect(
+      screen.queryByText(
+        'Run Build index after configuring an embedding provider to enable semantic search.',
+      ),
+    ).toBeNull()
+    expect(
+      screen.queryByText(
+        'Build the search index first to enable natural language search.',
+      ),
+    ).toBeNull()
+    // The CTA copy is localized too.
+    expect(screen.getByTestId('ai-index-build')).toHaveTextContent('构建索引')
   })
 
   test('freezes the provider editors while an auto-save is in flight', () => {

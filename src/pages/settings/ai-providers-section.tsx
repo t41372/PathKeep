@@ -22,6 +22,7 @@
  * - provider editor 只編輯已載入的 draft；index health 來自既有 snapshot，不在 section 內額外 fan-out。
  */
 
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
@@ -37,6 +38,7 @@ import {
 import { StatusCallout } from '../../components/primitives/status-callout'
 import { ToggleRow } from '../../components/ui'
 import { localizeAiIndexWarning } from '../../lib/ai/note-codes'
+import { backend } from '../../lib/backend-client'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import { SettingsSavedChip } from './settings-saved-feedback'
@@ -242,6 +244,33 @@ export function AiProvidersSection({
   const onSaveKeyDisabled = (providerId: string) =>
     saving || !aiApiKeys[providerId]?.trim()
   const onClearKeyDisabled = () => saving
+
+  // Bug 1: a Build-index CTA is offered in the index-health box only when a
+  // from-scratch build would actually do something — i.e. an embedding provider
+  // is configured AND the index is empty (no index yet) or stale. We deliberately
+  // do NOT show it for any other state (ready/rebuilding/queued/paused/failed/
+  // blocked/disabled): never nag when there is nothing to build (optional-AI), and
+  // never duplicate the recovery path the warning box already drives. "Configured"
+  // means a selected embedding provider that still exists in the draft.
+  const embeddingProviderConfigured = currentSettings.embeddingProviders.some(
+    (provider) => provider.id === currentSettings.embeddingProviderId,
+  )
+  const indexBuildActionable =
+    embeddingProviderConfigured &&
+    !!aiStatus &&
+    (aiStatus.state === 'stale' ||
+      // The empty state is whatever `aiStatusMeta`'s default branch maps — anything
+      // that is not one of the known non-empty/non-stale lifecycle states.
+      ![
+        'ready',
+        'rebuilding',
+        'queued',
+        'paused',
+        'failed',
+        'degraded',
+        'blocked',
+        'disabled',
+      ].includes(aiStatus.state))
 
   return (
     <PaperCard testId={navItem.id}>
@@ -545,8 +574,35 @@ export function AiProvidersSection({
               title={t('settings.aiIndexHealthTitle', {
                 status: indexMeta.label,
               })}
-              body={indexMeta.description}
+              // `aiStatusMeta` builds the description in the intelligence namespace,
+              // but for any state that carries a stable warning CODE it falls back to
+              // the backend's raw ENGLISH `warning` sentence (e.g. the empty / not-built
+              // state), which would leak English into the zh UI. A coded warning already
+              // renders, localized, in the dedicated "Current index warning" box below —
+              // so DON'T repeat it in the callout body (that double-printed the same
+              // sentence). For a coded state the title + tone convey it and the box has
+              // the detail; only the code-free states (ready/disabled) show the
+              // already-localized `indexMeta.description`.
+              body={aiStatus.warningCode ? undefined : indexMeta.description}
             />
+            {/*
+              Build-index CTA right where the user just configured AI (Bug 1). The
+              actual build flow also lives in the collapsed GPU section, but a user
+              who just added an embedding provider never finds it there — so offer
+              it here whenever a from-scratch build is actionable. This is an
+              explicit, expensive action (a full backfill), so it stays a button,
+              NOT auto-save. It is hidden entirely when no embedding provider is
+              configured (optional-AI: never nag), so it only appears once building
+              the index would actually do something.
+            */}
+            {indexBuildActionable ? (
+              <IndexBuildButton
+                idleLabel={t('settings.aiIndexBuildCta')}
+                buildingLabel={t('settings.aiIndexBuildingCta')}
+                doneLabel={t('settings.aiIndexBuildQueued')}
+                errorLabel={t('settings.aiIndexBuildError')}
+              />
+            ) : null}
             <div className="settings-field-grid">
               <div className="config-row">
                 <span className="config-label">
@@ -603,5 +659,75 @@ export function AiProvidersSection({
         ) : null}
       </PaperCardBody>
     </PaperCard>
+  )
+}
+
+type BuildState = 'idle' | 'building' | 'done' | 'error'
+
+/**
+ * Explicit "Build index" action for the index-health box (Bug 1).
+ *
+ * `backend.buildAiIndex` only ENQUEUES a background full backfill (the real work
+ * runs on the worker), so this fires the from-scratch full build — the same
+ * request shape the GPU section uses for a full re-embed (`fullRebuild: true`,
+ * `clearOnly: false`, `scope: 'full'`) — then settles to a "queued" confirmation
+ * rather than claiming the (minutes-long) index is already built. The button is
+ * disabled while the enqueue is in flight so a double-click can't double-enqueue,
+ * and a failed enqueue shows an honest, retry-able error instead of a dead button.
+ */
+function IndexBuildButton({
+  idleLabel,
+  buildingLabel,
+  doneLabel,
+  errorLabel,
+}: {
+  idleLabel: string
+  buildingLabel: string
+  doneLabel: string
+  errorLabel: string
+}) {
+  const [state, setState] = useState<BuildState>('idle')
+
+  const onBuild = () => {
+    setState('building')
+    backend
+      .buildAiIndex({ fullRebuild: true, clearOnly: false, scope: 'full' })
+      .then(() => setState('done'))
+      .catch(() => setState('error'))
+  }
+
+  const building = state === 'building'
+  const label = building ? buildingLabel : idleLabel
+
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <button
+        type="button"
+        className="btn-secondary self-start"
+        disabled={building}
+        onClick={onBuild}
+        data-testid="ai-index-build"
+      >
+        {label}
+      </button>
+      {state === 'done' ? (
+        <p
+          aria-live="polite"
+          className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]"
+          data-testid="ai-index-build-queued"
+        >
+          {doneLabel}
+        </p>
+      ) : null}
+      {state === 'error' ? (
+        <p
+          aria-live="polite"
+          className="text-ink-faint m-0 font-sans text-[12px] leading-[1.5] italic"
+          data-testid="ai-index-build-error"
+        >
+          {errorLabel}
+        </p>
+      ) : null}
+    </div>
   )
 }
