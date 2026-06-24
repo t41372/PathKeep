@@ -602,6 +602,23 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - **Build/tooling（低）**：desktop-bridge truth gate 用 `Math.random` 端口偏移 + `retries:2`，跨 run / 殘留進程可能撞埠造成偽紅（建議 OS ephemeral port）；native-deps cache 的 broad `restore-keys` 可能在 baseline bump 後重用舊樹；rusqlite `bundled-sqlcipher-vendored-openssl` 的 vendored C compile 與 native-dependency ADR 措辭需補一句一致性說明。
   - 契約：每一項落地時都要先確認屬於哪個 owner / slice、>1000 行檔案先走兩階段、保持 100% JS/Rust coverage 與 mutation gate；Accepted-doc 項目（visit_duration 單位、KDF/snapshot 安全模型）必須先產出 trade-off 文檔並徵得使用者同意。
 
+- [ ] **WORK-AI-INDEX-OBS-A** — Semantic Index Build Observability & Controllability（需先做設計階段）
+  - 來源：2026-06-24 使用者驗收 v0.3.0。`93a80ff6` 已在 Settings → AI 服務 的 index-health box 加了「構建索引」按鈕，但使用者回報「這方面的 observability 和 controlability 似乎有些不足」。按鈕目前只 enqueue 一個背景 job、顯示一次性「已排入背景」確認，之後使用者**看不到**進度、**控制不了**正在跑的 build。本 block 要設計並實作這套觀測 + 控制面。
+  - 讀先：
+    `docs/features/intelligence-and-ai.md`（或對應的 AI/intelligence feature 規格）
+    `docs/design/{ux-principles,screens-and-nav,ui-review-guardrails,design-tokens}.md`
+    `docs/architecture/ai-security-posture.md`
+    `src/pages/settings/ai-providers-section.tsx`（index-health box + 新的 `IndexBuildButton`）
+    `src/pages/settings/ai-gpu-section.tsx`（既有 re-embed flow + 進度輪詢樣式）
+    `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`（`load_ai_queue` / `run_ai_queue_jobs` / `cancel_ai_job` / `replay_ai_job` / `build_ai_index_now` / `estimate_reembed_now`）
+    `src-tauri/crates/vault-worker/src/intelligence/runtime.rs`（`load_intelligence_runtime_snapshot` / `retry_intelligence_job_now` / `cancel_intelligence_job_now`）
+  - 目標（先設計，再實作）：
+    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前是 global-queue，見 ai-redesign review defer-set）。
+    - **Controllability**：pause / resume / cancel 正在跑的 build；重試失敗的 job（`replay_ai_job`）；選擇 rebuild 範圍（incremental vs full vs clear-only，沿用 `buildAiIndex({fullRebuild, clearOnly, scope})`）。
+    - **介面設計**：決定觀測面放哪——延伸 index-health box、強化 GPU section 的進度卡、或開一個專屬「索引狀態 / 構建」面板（傾向後者，因為這是長時間、可觀測、可控制的後台工作）。要有 skeleton / 漸進式載入、~100ms 內視覺回饋、動畫順、60fps；輪詢或事件流不得阻塞主線程。
+  - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。UI/UX 與文案交給 Opus 4.6 subagent。
+  - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
+
 ---
 
 ## 依賴關係圖
