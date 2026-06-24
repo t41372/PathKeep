@@ -103,4 +103,28 @@ describe('PKTopbar', () => {
     expect(back).toHaveAttribute('disabled')
     expect(forward).toHaveAttribute('disabled')
   })
+
+  test('is not a window-drag region by default (Windows/Linux/browser)', () => {
+    // titlebarDrag defaults to false, so native decorations are untouched.
+    renderTopbar()
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).not.toHaveAttribute('data-tauri-drag-region')
+    expect(
+      topbar.querySelector('[data-tauri-drag-region]'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('tags the header as a window-drag region when titlebarDrag is set', () => {
+    // macOS Overlay: the header and its non-interactive layout/text nodes drag
+    // the window; every interactive control stays free of the attribute.
+    renderTopbar({ titlebarDrag: true })
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).toHaveAttribute('data-tauri-drag-region')
+    // Interactive leaves remain clickable (no drag attribute).
+    screen.getAllByRole('button').forEach((button) => {
+      expect(button).not.toHaveAttribute('data-tauri-drag-region')
+    })
+    // The page title (non-interactive) participates in dragging.
+    expect(topbar.querySelector('h1')).toHaveAttribute('data-tauri-drag-region')
+  })
 })

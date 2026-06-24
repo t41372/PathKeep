@@ -137,6 +137,18 @@ describe('AppShell (paper redesign)', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('the topbar header is NOT a drag region off the overlay platform', () => {
+    // Windows/Linux/browser keep native decorations; the header must stay inert
+    // (no data-tauri-drag-region) so it cannot interfere with native dragging.
+    renderShell({}, '/')
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).not.toHaveAttribute('data-tauri-drag-region')
+    // None of its descendants carry the attribute either.
+    expect(
+      topbar.querySelector('[data-tauri-drag-region]'),
+    ).not.toBeInTheDocument()
+  })
+
   test('renders the drag region under the macOS overlay title bar', () => {
     vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
     renderShell({}, '/')
@@ -145,6 +157,50 @@ describe('AppShell (paper redesign)', () => {
     const dragStrip = shellRoot.querySelector('.pk-titlebar-dragstrip')
     expect(dragStrip).toBeInTheDocument()
     expect(dragStrip).toHaveAttribute('data-tauri-drag-region')
+  })
+
+  test('the topbar header becomes the window-drag region under the macOS overlay', () => {
+    // Primary affordance: grabbing the visible top bar drags the window. The
+    // header itself carries data-tauri-drag-region so its empty areas + the
+    // page title drag, restoring the natural macOS gesture.
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell({}, '/')
+    const topbar = screen.getByTestId('pk-topbar')
+    expect(topbar).toHaveAttribute('data-tauri-drag-region')
+  })
+
+  test('topbar interactive controls are NOT drag regions under the overlay', () => {
+    // Tauri v2 never starts a drag from a mousedown on a child that lacks the
+    // attribute, so the nav buttons, search trigger, and Backup CTA stay
+    // clickable. Assert structurally that none of them carries it.
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: { initialized: true, warning: null },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    const topbar = screen.getByTestId('pk-topbar')
+    // Every <button> in the topbar must be free of the drag attribute.
+    const buttons = topbar.querySelectorAll('button')
+    expect(buttons.length).toBeGreaterThan(0)
+    buttons.forEach((button) => {
+      expect(button).not.toHaveAttribute('data-tauri-drag-region')
+    })
+    // The search trigger specifically (a button) stays clickable.
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-palette"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
+    // The back/forward nav buttons stay clickable.
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-back"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
+    expect(
+      topbar.querySelector('[data-testid="pk-topbar-forward"]'),
+    ).not.toHaveAttribute('data-tauri-drag-region')
   })
 
   test('persists sidebar collapsed state to localStorage on toggle', async () => {
