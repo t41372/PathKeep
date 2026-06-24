@@ -35,91 +35,134 @@ use tauri::State;
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Stores one AI provider secret and returns the refreshed app snapshot.
-pub(crate) fn store_ai_provider_api_key(
+/// Stores one AI provider secret and returns the refreshed app snapshot, off the UI thread.
+///
+/// Writes the secret to the OS keyring and rebuilds the config snapshot — both synchronous I/O, so
+/// the work hops onto the blocking pool to keep the WebView thread free.
+pub(crate) async fn store_ai_provider_api_key(
     input: vault_core::AiProviderSecretInput,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
-    worker_bridge::store_ai_provider_api_key_impl(input, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("store_ai_provider_api_key", move || {
+        worker_bridge::store_ai_provider_api_key_impl(input, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Removes one stored AI provider secret and returns the refreshed app snapshot.
-pub(crate) fn clear_ai_provider_api_key(
+/// Removes one stored AI provider secret and returns the refreshed app snapshot, off the UI thread.
+pub(crate) async fn clear_ai_provider_api_key(
     provider_id: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, String> {
-    worker_bridge::clear_ai_provider_api_key_impl(provider_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("clear_ai_provider_api_key", move || {
+        worker_bridge::clear_ai_provider_api_key_impl(provider_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Probes an AI provider connection without launching archive-wide jobs.
-pub(crate) fn test_ai_provider_connection(
+/// Probes an AI provider connection without launching archive-wide jobs, off the UI thread.
+///
+/// The probe makes a real provider network round-trip (an embedding or a short chat completion). A
+/// slow or misconfigured endpoint can take seconds, so it MUST run on the blocking pool — never on
+/// the WebView thread, or the whole UI freezes until the network call returns.
+pub(crate) async fn test_ai_provider_connection(
     request: vault_core::AiProviderConnectionTestRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiProviderConnectionTestReport, String> {
-    worker_bridge::test_ai_provider_connection_impl(request, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("test_ai_provider_connection", move || {
+        worker_bridge::test_ai_provider_connection_impl(request, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the persisted AI queue status read model.
-pub(crate) fn load_ai_queue_status(
+/// Loads the persisted AI queue status read model, off the UI thread.
+pub(crate) async fn load_ai_queue_status(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueStatus, String> {
-    worker_bridge::load_ai_queue_status_impl(state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("load_ai_queue_status", move || {
+        worker_bridge::load_ai_queue_status_impl(key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Drains queued AI jobs up to the requested limit.
-pub(crate) fn run_ai_queue_jobs(
+/// Drains queued AI jobs up to the requested limit, off the UI thread.
+pub(crate) async fn run_ai_queue_jobs(
     max_jobs: Option<u32>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueStatus, String> {
-    worker_bridge::run_ai_queue_jobs_impl(max_jobs, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("run_ai_queue_jobs", move || {
+        worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Requeues one failed or skipped AI job.
-pub(crate) fn replay_ai_job(
+/// Requeues one failed or skipped AI job, off the UI thread.
+pub(crate) async fn replay_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueJob, String> {
-    worker_bridge::replay_ai_job_impl(job_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("replay_ai_job", move || {
+        worker_bridge::replay_ai_job_impl(job_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Cancels one queued or running AI job.
-pub(crate) fn cancel_ai_job(
+/// Cancels one queued or running AI job, off the UI thread.
+pub(crate) async fn cancel_ai_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiQueueJob, String> {
-    worker_bridge::cancel_ai_job_impl(job_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("cancel_ai_job", move || {
+        worker_bridge::cancel_ai_job_impl(job_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the persisted assistant result for one queue-backed job.
-pub(crate) fn load_ai_assistant_job(
+/// Loads the persisted assistant result for one queue-backed job, off the UI thread.
+pub(crate) async fn load_ai_assistant_job(
     job_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiAssistantResponse, String> {
-    worker_bridge::load_ai_assistant_job_impl(job_id, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("load_ai_assistant_job", move || {
+        worker_bridge::load_ai_assistant_job_impl(job_id, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Builds or refreshes the semantic index.
-pub(crate) fn build_ai_index(
+/// Builds or refreshes the semantic index, off the UI thread.
+pub(crate) async fn build_ai_index(
     request: vault_core::AiIndexRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiIndexReport, String> {
-    worker_bridge::build_ai_index_impl(request, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("build_ai_index", move || {
+        worker_bridge::build_ai_index_impl(request, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -127,39 +170,61 @@ pub(crate) fn build_ai_index(
 /// Returns a read-only cost/time estimate for a re-embed run of the given scope (W-AI-9 Sub-block D).
 ///
 /// No model load, no embedding, no network: it sizes the work (bounded working-set length or unique
-/// page count) so the FE can show the cost BEFORE the user fires a re-embed (PME).
-pub(crate) fn estimate_reembed(
+/// page count) so the FE can show the cost BEFORE the user fires a re-embed (PME). The sizing query
+/// still touches SQLite, so it runs on the blocking pool.
+pub(crate) async fn estimate_reembed(
     scope: vault_core::ReembedScope,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ReembedEstimate, String> {
-    worker_bridge::estimate_reembed_impl(scope, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("estimate_reembed", move || {
+        worker_bridge::estimate_reembed_impl(scope, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Runs semantic-plus-lexical search over visible archive history.
-pub(crate) fn search_ai_history(
+/// Runs semantic-plus-lexical search over visible archive history, off the UI thread.
+///
+/// Semantic search embeds the query (network round-trip to the embedding provider) and scans the
+/// vector index, so it must never run on the WebView thread.
+pub(crate) async fn search_ai_history(
     request: vault_core::AiSearchRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiSearchResponse, String> {
-    worker_bridge::search_ai_history_impl(request, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("search_ai_history", move || {
+        worker_bridge::search_ai_history_impl(request, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Asks the first-party assistant to answer a question with archive citations.
-pub(crate) fn ask_ai_assistant(
+/// Asks the first-party assistant to answer a question with archive citations, off the UI thread.
+///
+/// The assistant runs an LLM agent loop (multiple network round-trips), so it must stay on the
+/// blocking pool.
+pub(crate) async fn ask_ai_assistant(
     request: vault_core::AiAssistantRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiAssistantResponse, String> {
-    worker_bridge::ask_ai_assistant_impl(request, state.get_key().as_deref())
+    let key = state.get_key();
+    run_blocking_command("ask_ai_assistant", move || {
+        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Generates the local MCP and skill integration preview files.
-pub(crate) fn preview_ai_integrations() -> Result<vault_core::AiIntegrationPreview, String> {
-    worker_bridge::preview_ai_integrations_impl()
+/// Generates the local MCP and skill integration preview files, off the UI thread.
+///
+/// Writes preview artifacts to disk, so the filesystem work runs on the blocking pool.
+pub(crate) async fn preview_ai_integrations() -> Result<vault_core::AiIntegrationPreview, String> {
+    run_blocking_command("preview_ai_integrations", worker_bridge::preview_ai_integrations_impl)
+        .await
 }
 
 #[cfg(not(test))]

@@ -446,6 +446,12 @@ describe('AiProviderEditorList', () => {
       />,
     )
     expect(screen.getByText('Testing…')).toBeVisible()
+    // The probe shows an immediate loading affordance: the button reports
+    // aria-busy while the off-main-thread connection test runs.
+    expect(screen.getByRole('button', { name: 'Testing…' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
 
     // Reachable result shows the latency line built by formatLabel.
     rerender(

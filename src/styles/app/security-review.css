@@ -413,6 +413,42 @@
   color: var(--accent);
 }
 
+/*
+ * Inline spinner shown the instant a button (e.g. "Test connection") fires an
+ * async probe, so the click has an immediate loading affordance while the
+ * off-main-thread command runs. Reuses the loading-state pulse cadence so the
+ * motion language matches the shared LoadingState primitive.
+ */
+.inlineSpinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.inlineSpinner__dot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.inlineSpinner__dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.inlineSpinner__dot:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inlineSpinner__dot {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
 .toggleList {
   display: grid;
   gap: var(--space-3);

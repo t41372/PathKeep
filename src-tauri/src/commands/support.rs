@@ -1,28 +1,41 @@
 //! Tauri commands for diagnostics and shell integration helpers.
+//!
+//! Writing a crash report and spawning the native file manager / launcher are blocking I/O
+//! (filesystem + process spawn), so each command runs on the blocking thread pool to keep the
+//! WebView thread free.
 
+#[cfg(not(test))]
+use super::blocking::run_blocking_command;
 #[cfg(not(test))]
 use crate::file_manager;
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Persists a frontend error report into the local crash-report area.
-pub(crate) fn record_frontend_error(
+/// Persists a frontend error report into the local crash-report area, off the UI thread.
+pub(crate) async fn record_frontend_error(
     request: vault_core::FrontendErrorReportRequest,
 ) -> Result<vault_core::CrashReportSummary, String> {
-    let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
-    vault_core::record_frontend_error(&paths, &request).map_err(|error| error.to_string())
+    run_blocking_command("record_frontend_error", move || {
+        let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
+        vault_core::record_frontend_error(&paths, &request).map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Opens one filesystem path through the native file manager.
-pub(crate) fn open_path_in_file_manager(path: String) -> Result<String, String> {
-    file_manager::open_path_in_file_manager_impl(path)
+/// Opens one filesystem path through the native file manager, off the UI thread.
+pub(crate) async fn open_path_in_file_manager(path: String) -> Result<String, String> {
+    run_blocking_command("open_path_in_file_manager", move || {
+        file_manager::open_path_in_file_manager_impl(path)
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Opens one trusted launcher URL through the native launcher.
-pub(crate) fn open_external_url(url: String) -> Result<String, String> {
-    file_manager::open_external_url_impl(url)
+/// Opens one trusted launcher URL through the native launcher, off the UI thread.
+pub(crate) async fn open_external_url(url: String) -> Result<String, String> {
+    run_blocking_command("open_external_url", move || file_manager::open_external_url_impl(url))
+        .await
 }

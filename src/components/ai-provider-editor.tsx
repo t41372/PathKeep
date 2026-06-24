@@ -443,7 +443,15 @@ export function AiProviderEditorList({
                       type="button"
                       disabled={onProbeDisabled?.(provider.id) ?? false}
                       onClick={() => onProbe(provider.id)}
+                      aria-busy={testingProviderId === provider.id}
                     >
+                      {testingProviderId === provider.id ? (
+                        <span className="inlineSpinner" aria-hidden="true">
+                          <span className="inlineSpinner__dot" />
+                          <span className="inlineSpinner__dot" />
+                          <span className="inlineSpinner__dot" />
+                        </span>
+                      ) : null}
                       {testingProviderId === provider.id
                         ? translations.testingConnection
                         : translations.testConnection}
