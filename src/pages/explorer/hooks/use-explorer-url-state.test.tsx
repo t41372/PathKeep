@@ -158,24 +158,32 @@ describe('useExplorerUrlState', () => {
     await waitFor(() => expect(result.current.searchParams.toString()).toBe(''))
   })
 
-  test('debounces query commits, persists recent searches, and applies date shortcuts', async () => {
+  test('typing the draft never writes the URL query, persists recent searches, and applies date shortcuts', async () => {
     const { result } = renderExplorerUrlState(
       '/explorer?q=old&page=2&cursor=c1&semanticCursor=s1',
     )
 
+    // Explicit-submit gate: `setQueryInput` only mutates the local draft. It
+    // must NEVER write the URL `q` (or reset pagination) — the backend query
+    // keys off `rawQuery` (the URL), so typing must not reach the backend.
+    // Advancing well past the old 180ms debounce window proves the dead
+    // sync-effect is gone: the URL stays exactly as it was.
     vi.useFakeTimers()
     act(() => {
       result.current.setQueryInput('new recall')
     })
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(181)
+      await vi.advanceTimersByTimeAsync(500)
     })
     vi.useRealTimers()
 
-    expect(result.current.searchParams.get('q')).toBe('new recall')
-    expect(result.current.searchParams.get('page')).toBeNull()
-    expect(result.current.searchParams.get('cursor')).toBeNull()
-    expect(result.current.searchParams.get('semanticCursor')).toBeNull()
+    expect(result.current.queryInput).toBe('new recall')
+    // The submitted query (`rawQuery`) and the URL are untouched by typing.
+    expect(result.current.rawQuery).toBe('old')
+    expect(result.current.searchParams.get('q')).toBe('old')
+    expect(result.current.searchParams.get('page')).toBe('2')
+    expect(result.current.searchParams.get('cursor')).toBe('c1')
+    expect(result.current.searchParams.get('semanticCursor')).toBe('s1')
 
     act(() => {
       result.current.persistRecentSearch({
@@ -333,16 +341,13 @@ describe('useExplorerUrlState', () => {
       '/explorer?q=remove&page=2&cursor=c1&semanticCursor=s1&pageSize=100&view=domain',
     )
 
-    vi.useFakeTimers()
+    // Clearing the submitted query goes through `updateParam` (the route's
+    // submit path), which removes `q` and resets pagination. `setQueryInput`
+    // alone no longer touches the URL — that's the explicit-submit gate.
     act(() => {
-      result.current.setQueryInput('')
+      result.current.updateParam('q', null)
     })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(181)
-    })
-    vi.useRealTimers()
-
-    expect(result.current.searchParams.get('q')).toBeNull()
+    await waitFor(() => expect(result.current.searchParams.get('q')).toBeNull())
     expect(result.current.searchParams.get('page')).toBeNull()
     expect(result.current.searchParams.get('cursor')).toBeNull()
     expect(result.current.searchParams.get('semanticCursor')).toBeNull()

@@ -407,6 +407,9 @@ vi.mock('./paper-search-panel', () => ({
       page: number
     } | null
     smartAvailable?: boolean
+    isSearching?: boolean
+    searchSubmitDisabled?: boolean
+    staleResultsMode?: string | null
     onAskAssistant?: (entry: { id: number | string; title: string }) => void
     relevanceHeaderSlot?: ReactNode
     onQueryChange: (next: string) => void
@@ -434,6 +437,9 @@ vi.mock('./paper-search-panel', () => ({
       data-search-ai-error={props.aiError ?? ''}
       data-search-ai-notes={(props.aiNotes ?? []).join('|')}
       data-search-smart-available={String(props.smartAvailable ?? false)}
+      data-search-searching={String(props.isSearching ?? false)}
+      data-search-submit-disabled={String(props.searchSubmitDisabled ?? false)}
+      data-search-stale-mode={props.staleResultsMode ?? ''}
       data-search-star={String(
         props.entryStar?.isStarred('https://example.com/result') ?? 'no-star',
       )}
@@ -663,6 +669,97 @@ describe('ExplorerPage route shell', () => {
     expect(screen.getByTestId('paper-search-panel')).toBeVisible()
   })
 
+  test('Search button gate: disabled when the draft matches the submitted query + mode', () => {
+    // queryInput === rawQuery (the submitted query) and the mode is unchanged →
+    // re-running would be an identical query, so the Search button is disabled.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=sqlite'),
+        queryInput: 'sqlite',
+        rawQuery: 'sqlite',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'true',
+    )
+    // No mode drift → no stale banner.
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-stale-mode',
+      '',
+    )
+  })
+
+  test('Search button gate: enabled when the draft differs from the submitted query', () => {
+    // The user has typed past the submitted query → a real new query is
+    // available, so the button re-enables.
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search&q=sqlite'),
+        queryInput: 'sqlite wal',
+        rawQuery: 'sqlite',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'false',
+    )
+  })
+
+  test('Search button gate: disabled when the draft is empty', () => {
+    useExplorerUrlStateMock.mockReturnValue(
+      defaultUrlState({
+        searchParams: new URLSearchParams('surface=search'),
+        queryInput: '   ',
+        rawQuery: '',
+      }),
+    )
+
+    renderExplorer()
+    expect(screen.getByTestId('paper-search-panel')).toHaveAttribute(
+      'data-search-submit-disabled',
+      'true',
+    )
+  })
+
+  test('Search button re-enables + stale banner shows when the mode changes without re-submitting', () => {
+    // Initial render: keyword mode, submitted query present → not stale, and
+    // (draft === submitted, mode unchanged) → disabled. Then the mode flips to
+    // Smart while `rawQuery` is unchanged: the submitted-mode baseline stays
+    // keyword, so the button re-enables and the stale banner surfaces the
+    // last-submitted (keyword) mode.
+    optionalAiFeaturesAvailableState.value = true
+    selectedAiProviderMock.mockReturnValue({ id: 'embed-1', label: 'Local AI' })
+    const baseState = defaultUrlState({
+      searchParams: new URLSearchParams('surface=search&q=sqlite'),
+      queryInput: 'sqlite',
+      rawQuery: 'sqlite',
+      mode: 'keyword',
+    })
+    useExplorerUrlStateMock.mockReturnValue(baseState)
+
+    const { rerender } = renderExplorer()
+    const panelBefore = screen.getByTestId('paper-search-panel')
+    expect(panelBefore).toHaveAttribute('data-search-submit-disabled', 'true')
+    expect(panelBefore).toHaveAttribute('data-search-stale-mode', '')
+
+    // Live mode flips to Smart; the submitted query (rawQuery) is unchanged, so
+    // the route keeps the keyword baseline → stale + re-enabled.
+    useExplorerUrlStateMock.mockReturnValue({
+      ...baseState,
+      mode: 'hybrid',
+    })
+    rerender(<ExplorerWrapper />)
+
+    const panelAfter = screen.getByTestId('paper-search-panel')
+    expect(panelAfter).toHaveAttribute('data-search-submit-disabled', 'false')
+    expect(panelAfter).toHaveAttribute('data-search-stale-mode', 'keyword')
+  })
+
   test('mounts the paper Search panel at /search even without ?surface=search', () => {
     // `/search` should mount the same ExplorerPage component but treat
     // the route pathname as the search-surface signal — without this,
@@ -778,9 +875,12 @@ describe('ExplorerPage route shell', () => {
     renderExplorer()
     expect(screen.getByTestId('paper-search-panel')).toBeVisible()
 
+    // Explicit-submit gate: typing only updates the local draft. It MUST NOT
+    // write the URL `q` — that's the single signal the backend query keys off,
+    // so a keystroke must never reach the backend.
     await user.click(screen.getByTestId('paper-search-change'))
     expect(setQueryInput).toHaveBeenCalledWith('next-query')
-    expect(updateParam).toHaveBeenCalledWith('q', 'next-query')
+    expect(updateParam).not.toHaveBeenCalledWith('q', 'next-query')
 
     await user.click(screen.getByTestId('paper-search-mode'))
     expect(updateParam).toHaveBeenCalledWith('mode', 'hybrid')
@@ -791,6 +891,7 @@ describe('ExplorerPage route shell', () => {
     expect(updateParam).toHaveBeenCalledWith('mode', null)
     expect(updateParam).toHaveBeenCalledWith('regex', null)
 
+    // Submit is the ONLY thing that writes `q` (the URL = the backend query).
     await user.click(screen.getByTestId('paper-search-submit'))
     expect(setQueryInput).toHaveBeenCalledWith('committed')
     expect(updateParam).toHaveBeenCalledWith('q', 'committed')
@@ -2080,6 +2181,9 @@ function defaultUrlState(overrides: Record<string, unknown> = {}) {
     persistRecentSearch: vi.fn(),
     profileId: null,
     queryInput: 'sqlite',
+    // The submitted query (URL `q`). Defaults equal to `queryInput` so the
+    // submit gate treats the route as "already showing the submitted query".
+    rawQuery: 'sqlite',
     recentSearches: [],
     regexMode: false,
     regexValid: true,

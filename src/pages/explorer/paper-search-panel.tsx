@@ -20,6 +20,7 @@ import type { HistoryEntry } from '@/lib/types/archive'
 import {
   PaperSearchView,
   type PaperSearchHeroFilter,
+  type PaperSearchMode,
   type PaperSearchResultEntry,
   type PaperSearchViewPagination,
 } from '@/components/explorer-paper'
@@ -95,8 +96,21 @@ export interface PaperSearchPanelProps {
   onQueryChange: (next: string) => void
   /** Apply explorer mode + regex flag from the paper hero. */
   onModeChange: (next: { mode: ExplorerMode; regexMode: boolean }) => void
-  /** Submit handler (Enter in the hero). */
+  /** Submit handler (Enter in the hero, or the Search button). */
   onSubmit: (query: string) => void
+  /** True while the last-submitted query is in flight (button spinner). */
+  isSearching?: boolean
+  /**
+   * Disable the Search button — empty draft, or the draft + mode match the last
+   * submission (no redundant identical query). The route owns this gate.
+   */
+  searchSubmitDisabled?: boolean
+  /**
+   * The last-submitted paper mode when it differs from the live mode and there
+   * are visible results — drives the hero's stale-results banner. `null` hides
+   * it.
+   */
+  staleResultsMode?: PaperSearchMode | null
   /** Selected entry id update — number coerced from the paper id. */
   onSelectEntry: (id: number) => void
   /** Jump back to PaperExplorerView centred on the result's day. */
@@ -131,6 +145,9 @@ export function PaperSearchPanel({
   onQueryChange,
   onModeChange,
   onSubmit,
+  isSearching = false,
+  searchSubmitDisabled = false,
+  staleResultsMode = null,
   onSelectEntry,
   onSeeInContext,
   entryStar,
@@ -266,6 +283,9 @@ export function PaperSearchPanel({
       onAddTagFilter={handleAddTagFilter}
       onAddNoteFilter={handleAddNoteFilter}
       onSubmit={onSubmit}
+      isSearching={isSearching}
+      submitDisabled={searchSubmitDisabled}
+      staleMode={staleResultsMode}
       onSelectEntry={(entry) => onSelectEntry(Number(entry.id))}
       onSeeInContext={onSeeInContext}
       entryStar={entryStar}

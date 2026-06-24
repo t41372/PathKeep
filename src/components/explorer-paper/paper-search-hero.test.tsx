@@ -27,6 +27,17 @@ const COPY: PaperSearchHeroCopy = {
   addFilterTag: '+ Tag',
   addFilterNote: '+ Note',
   removeChipLabel: 'Remove {label}',
+  searchButton: 'Search',
+  searchingButton: 'Searching…',
+  searchButtonAria: 'Search history',
+  searchingButtonAria: 'Searching history…',
+  submitHint: 'Press Enter or Search to run',
+  staleBanner: 'Showing {mode} results — press Search to update',
+  staleModeNames: {
+    keyword: 'Keyword',
+    regex: 'Regex',
+    smart: 'Smart',
+  },
   advancedSyntaxHelp: {
     ariaLabel: 'Show advanced keyword syntax',
     title: 'Advanced keyword syntax',
@@ -107,6 +118,71 @@ describe('PaperSearchHero', () => {
       key: 'Enter',
     })
     expect(onSubmit).toHaveBeenCalledWith('rust async')
+  })
+
+  test('a non-Enter, non-Escape key is left to the input (no handler fires)', () => {
+    const onSubmit = vi.fn()
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        onSubmit={onSubmit}
+        copy={COPY}
+      />,
+    )
+
+    // ArrowRight is neither Enter nor Escape — the hero must not submit or
+    // clear; it falls through so the input handles caret movement normally.
+    fireEvent.keyDown(screen.getByTestId('paper-search-input'), {
+      key: 'ArrowRight',
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onQueryChange).not.toHaveBeenCalled()
+  })
+
+  test('Enter without an onSubmit handler is swallowed (no throw)', () => {
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    // The optional `onSubmit?.()` must short-circuit cleanly when no handler is
+    // wired (preview fixtures pass no onSubmit). Pressing Enter is a no-op.
+    expect(() =>
+      fireEvent.keyDown(screen.getByTestId('paper-search-input'), {
+        key: 'Enter',
+      }),
+    ).not.toThrow()
+  })
+
+  test('clicking Search without an onSubmit handler is swallowed (no throw)', () => {
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(() =>
+      fireEvent.click(screen.getByTestId('paper-search-submit')),
+    ).not.toThrow()
   })
 
   test('Escape with a non-empty query clears the input', () => {
@@ -451,6 +527,147 @@ describe('PaperSearchHero', () => {
       screen.queryByTestId('paper-advanced-search-help-panel'),
     ).not.toBeInTheDocument()
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('Search button submits the current query on click', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchHero
+        query="rust async"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        onSubmit={onSubmit}
+        copy={COPY}
+      />,
+    )
+
+    const button = screen.getByTestId('paper-search-submit')
+    expect(button).toHaveTextContent('Search')
+    expect(button).toHaveAttribute('aria-label', 'Search history')
+    fireEvent.click(button)
+    expect(onSubmit).toHaveBeenCalledWith('rust async')
+  })
+
+  test('Search button is disabled when submitDisabled is set', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        onSubmit={onSubmit}
+        submitDisabled
+        copy={COPY}
+      />,
+    )
+
+    const button = screen.getByTestId<HTMLButtonElement>('paper-search-submit')
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  test('Searching state swaps the label + spinner but never locks the button', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        onSubmit={onSubmit}
+        isSearching
+        copy={COPY}
+      />,
+    )
+
+    const button = screen.getByTestId<HTMLButtonElement>('paper-search-submit')
+    expect(button).toHaveTextContent('Searching…')
+    expect(button).toHaveAttribute('aria-label', 'Searching history…')
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(
+      screen.getByTestId('paper-search-submit-spinner'),
+    ).toBeInTheDocument()
+    // Not locked: a re-submit while searching is still allowed.
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(onSubmit).toHaveBeenCalledWith('rust')
+  })
+
+  test('Escape on an empty query blurs the input instead of being a no-op', () => {
+    const onQueryChange = vi.fn()
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={onQueryChange}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    const input = screen.getByTestId<HTMLInputElement>('paper-search-input')
+    input.focus()
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+    // Empty draft → Esc does not call onQueryChange, it releases focus.
+    expect(onQueryChange).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(input)
+  })
+
+  test('renders the stale-results banner with the last-submitted mode name', () => {
+    render(
+      <PaperSearchHero
+        query="rust"
+        mode="regex"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        staleMode="smart"
+        copy={COPY}
+      />,
+    )
+
+    const banner = screen.getByTestId('paper-search-stale-banner')
+    expect(banner).toHaveTextContent(
+      'Showing Smart results — press Search to update',
+    )
+    // The banner replaces the submit hint while it's showing.
+    expect(
+      screen.queryByTestId('paper-search-submit-hint'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('shows the submit hint (no stale banner) by default', () => {
+    render(
+      <PaperSearchHero
+        query=""
+        mode="keyword"
+        activeFilters={[]}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onRemoveFilter={() => {}}
+        copy={COPY}
+      />,
+    )
+
+    expect(screen.getByTestId('paper-search-submit-hint')).toHaveTextContent(
+      'Press Enter or Search to run',
+    )
+    expect(
+      screen.queryByTestId('paper-search-stale-banner'),
+    ).not.toBeInTheDocument()
   })
 
   test('forwards ref to the input for parent-managed focus', () => {

@@ -47,6 +47,78 @@ describe('PaperSearchPanel', () => {
     expect(screen.getByTestId('paper-search-results')).toBeInTheDocument()
   })
 
+  test('clicking the Search button submits the current query', () => {
+    const onSubmit = vi.fn()
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={onSubmit}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('paper-search-submit'))
+    expect(onSubmit).toHaveBeenCalledWith('rust')
+  })
+
+  test('forwards isSearching / searchSubmitDisabled to the Search button', () => {
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[]}
+        totalResults={0}
+        language="en"
+        explorerT={explorerT}
+        isSearching
+        searchSubmitDisabled
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    const button = screen.getByTestId<HTMLButtonElement>('paper-search-submit')
+    expect(button.disabled).toBe(true)
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    expect(
+      screen.getByTestId('paper-search-submit-spinner'),
+    ).toBeInTheDocument()
+  })
+
+  test('forwards staleResultsMode so the hero renders the stale banner', () => {
+    render(
+      <PaperSearchPanel
+        query="rust"
+        mode="keyword"
+        regexMode={false}
+        entries={[makeEntry({ id: 1, title: 'rust' })]}
+        totalResults={1}
+        language="en"
+        explorerT={explorerT}
+        staleResultsMode="smart"
+        onQueryChange={() => {}}
+        onModeChange={() => {}}
+        onSubmit={() => {}}
+        onSelectEntry={() => {}}
+        onSeeInContext={() => {}}
+      />,
+    )
+    // The banner copy comes from the explorerT stub key — its presence proves
+    // the panel threaded staleResultsMode → hero → banner.
+    expect(screen.getByTestId('paper-search-stale-banner')).toBeInTheDocument()
+  })
+
   test('switching to regex mode forwards { mode: keyword, regexMode: true }', () => {
     const onModeChange = vi.fn()
     render(

@@ -14,7 +14,6 @@
  */
 
 import {
-  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -256,40 +255,14 @@ export function useExplorerUrlState({
   )
   const semanticTrail = semanticCursorTrail[semanticQuerySignature] ?? []
 
+  // Sync the local draft to the URL whenever the submitted query (`rawQuery`)
+  // changes — on an explicit submit, a recent-search/deep-link navigation, or a
+  // `See in context` jump that clears `q`. This is the ONLY coupling between the
+  // URL query and the input; typing never writes `q` (the route's `onSubmit` is
+  // the single writer), so the backend is only ever hit on an explicit submit.
   useEffect(() => {
     setQueryInput(rawQuery)
   }, [rawQuery])
-
-  useEffect(() => {
-    if (queryInput === rawQuery) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSemanticCursorTrail((current) => ({
-        ...current,
-        [semanticQuerySignature]: [],
-      }))
-      startTransition(() => {
-        setSearchParams((current) => {
-          const next = new URLSearchParams(current)
-          if (queryInput) {
-            next.set('q', queryInput)
-          } else {
-            next.delete('q')
-          }
-          next.delete('page')
-          next.delete('cursor')
-          next.delete('semanticCursor')
-          return next
-        })
-      })
-    }, 180)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
-  }, [queryInput, rawQuery, semanticQuerySignature, setSearchParams])
 
   const browserKinds = buildExplorerBrowserKinds(selectedProfileIds)
   const activeFilters = buildExplorerActiveFilters({
@@ -598,6 +571,10 @@ export function useExplorerUrlState({
     persistRecentSearch,
     profileId,
     queryInput,
+    // The submitted query — equals the URL `q`. Since typing never writes `q`,
+    // this is the last-submitted value the route compares the draft against to
+    // gate the Search button + surface the stale-results banner.
+    rawQuery,
     recentSearches,
     regexMode,
     regexValid,

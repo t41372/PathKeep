@@ -32,6 +32,17 @@ const COPY: PaperSearchViewCopy = {
     addFilterTag: '+ Tag',
     addFilterNote: '+ Note',
     removeChipLabel: 'Remove {label}',
+    searchButton: 'Search',
+    searchingButton: 'Searching…',
+    searchButtonAria: 'Search history',
+    searchingButtonAria: 'Searching history…',
+    submitHint: 'Press Enter or Search to run',
+    staleBanner: 'Showing {mode} results — press Search to update',
+    staleModeNames: {
+      keyword: 'Keyword',
+      regex: 'Regex',
+      smart: 'Smart',
+    },
     advancedSyntaxHelp: {
       ariaLabel: 'Show advanced keyword syntax',
       title: 'Advanced keyword syntax',

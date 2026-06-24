@@ -288,6 +288,17 @@ export function buildPaperSearchViewCopy(
       addFilterTag: t('paperSearchView.heroAddFilterTag'),
       addFilterNote: t('paperSearchView.heroAddFilterNote'),
       removeChipLabel: t('paperSearchView.heroRemoveChipLabel'),
+      searchButton: t('paperSearchView.heroSearchButton'),
+      searchingButton: t('paperSearchView.heroSearchingButton'),
+      searchButtonAria: t('paperSearchView.heroSearchButtonAria'),
+      searchingButtonAria: t('paperSearchView.heroSearchingButtonAria'),
+      submitHint: t('paperSearchView.heroSubmitHint'),
+      staleBanner: t('paperSearchView.heroStaleBanner'),
+      staleModeNames: {
+        keyword: t('paperSearchView.heroStaleModeKeyword'),
+        regex: t('paperSearchView.heroStaleModeRegex'),
+        smart: t('paperSearchView.heroStaleModeSmart'),
+      },
       advancedSyntaxHelp: {
         ariaLabel: t('advancedSearchHelpAria'),
         title: t('advancedSearchHelpTitle'),

@@ -62,6 +62,7 @@ import {
   PaperFilterStrip,
   PaperStarredView,
   type PaperFilterStripFormState,
+  type PaperSearchMode,
 } from '../../components/explorer-paper'
 import { PaperExplorerView } from './paper-view'
 import { PaperSearchPanel } from './paper-search-panel'
@@ -69,6 +70,7 @@ import {
   buildPaperSearchRelevanceList,
   buildSmartScopeLine,
   deriveSmartIndexProgress,
+  paperSearchModeFromExplorerState,
 } from './paper-search-helpers'
 import { assistantHref } from '../../lib/intelligence-links'
 import { PaperDetailPanelMount } from './paper-detail-panel-mount'
@@ -185,6 +187,7 @@ export function ExplorerPage() {
     persistRecentSearch,
     profileId,
     queryInput,
+    rawQuery,
     regexMode,
     regexValid,
     searchParams,
@@ -832,6 +835,49 @@ export function ExplorerPage() {
   const paperSearchSurface =
     routeIsSearchPath || searchParams.get('surface') === 'search'
 
+  // Explicit-submit search gate. Typing only mutates the local `queryInput`
+  // draft; the backend query keys off `rawQuery` (the URL `q`), which the route
+  // writes ONLY on submit. The button + stale banner compare the live draft +
+  // mode against the last SUBMITTED query (`rawQuery`) + mode.
+  const currentSubmitMode = paperSearchModeFromExplorerState(mode, regexMode)
+  // The mode as of the last submit. Mode toggles write the URL immediately but
+  // do NOT run a query, so we can't read "last submitted mode" off the URL —
+  // we track it here and sync it whenever a real submit lands (the only thing
+  // that changes `rawQuery`: an explicit submit, a recent-search/deep-link nav,
+  // or a `See in context` clear).
+  const [submittedMode, setSubmittedMode] =
+    useState<PaperSearchMode>(currentSubmitMode)
+  useEffect(() => {
+    // `rawQuery` only changes on a submit-equivalent navigation, so the mode in
+    // the URL at that moment is the submitted mode. Keying the sync on
+    // `rawQuery` (not `currentSubmitMode`) is what keeps a bare mode toggle from
+    // updating the baseline — that's the whole point of the gate. Omitting
+    // `currentSubmitMode` from the deps is intentional and load-bearing.
+    setSubmittedMode(currentSubmitMode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawQuery])
+  // Disable Search when the draft is empty, or when it would re-run the exact
+  // last-submitted query in the same mode (no redundant identical query). A
+  // text change OR a mode change re-enables it.
+  const searchSubmitDisabled =
+    queryInput.trim().length === 0 ||
+    (queryInput === rawQuery && currentSubmitMode === submittedMode)
+  // Spinner state for the button — true while either the keyword or the smart
+  // request for the submitted query is in flight. Derived from the existing
+  // loading flags so we never lock the button (the user may re-submit).
+  const isSearching = paperSearchSurface && (loading || semanticLoading)
+  // Subtle stale banner: results on screen reflect the LAST SUBMITTED mode while
+  // the live mode differs (mode switch without a re-submit). The visible results
+  // belong to the SUBMITTED mode — which may be keyword/regex (`results`) or
+  // Smart (`semanticResults`) — so we check both, not the live mode. `null`
+  // hides the banner.
+  const hasVisibleSearchResults =
+    (Boolean(results) || Boolean(semanticResults)) && rawQuery.trim().length > 0
+  const staleResultsMode =
+    currentSubmitMode !== submittedMode && hasVisibleSearchResults
+      ? submittedMode
+      : null
+
   // REACH-B Smart-search surface plumbing. All gated behind `smartSearchActive`
   // so the keyword/regex/`is:starred` paths read `null`/defaults and stay
   // byte-for-byte unchanged.
@@ -1245,16 +1291,31 @@ export function ExplorerPage() {
                     }
                   : null
           }
+          isSearching={isSearching}
+          searchSubmitDisabled={searchSubmitDisabled}
+          staleResultsMode={staleResultsMode}
           onQueryChange={(next) => {
+            // DRAFT-only: typing updates the local input but NEVER writes the
+            // URL `q`. The backend query keys off `rawQuery` (the URL), so the
+            // backend is only hit on an explicit submit below — never on a
+            // keystroke. See use-explorer-url-state for the gating contract.
             setQueryInput(next)
-            updateParam('q', next)
           }}
           onModeChange={(next) => {
+            // Mode switching updates the mode UI immediately but does NOT run a
+            // backend query (user's explicit choice). The submit gate keys off
+            // `submittedMode`, so a mode change only re-enables the Search
+            // button and may surface the stale-results banner until the user
+            // presses Search / Enter.
             updateParam('mode', next.mode === 'keyword' ? null : next.mode)
             updateParam('regex', next.regexMode ? '1' : null)
           }}
           onSubmit={(query) => {
+            // The single URL write for the query — the submit gate. Records the
+            // submitted query + mode so the Search button can disable on an
+            // identical re-submit and the stale banner clears.
             setQueryInput(query)
+            setSubmittedMode(currentSubmitMode)
             updateParam('q', query)
           }}
           onSelectEntry={(id) => {

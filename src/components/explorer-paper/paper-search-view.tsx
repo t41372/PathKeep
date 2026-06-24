@@ -153,6 +153,12 @@ export interface PaperSearchViewProps {
   onModeChange: (next: PaperSearchMode) => void
   onRemoveFilter: (id: string) => void
   onSubmit?: (query: string) => void
+  /** Forwarded to the hero's Search button: in-flight spinner state. */
+  isSearching?: boolean
+  /** Forwarded to the hero's Search button: redundant-query / empty gate. */
+  submitDisabled?: boolean
+  /** Forwarded to the hero: last-submitted mode for the stale-results banner. */
+  staleMode?: PaperSearchMode | null
   onSelectEntry?: (entry: PaperSearchResultEntry) => void
   onSeeInContext?: (entry: PaperSearchResultEntry, dayDate: string) => void
   /**
@@ -216,6 +222,9 @@ export function PaperSearchView({
   onModeChange,
   onRemoveFilter,
   onSubmit,
+  isSearching = false,
+  submitDisabled = false,
+  staleMode = null,
   onSelectEntry,
   onSeeInContext,
   entryStar,
@@ -254,6 +263,9 @@ export function PaperSearchView({
         onModeChange={onModeChange}
         onRemoveFilter={onRemoveFilter}
         onSubmit={onSubmit}
+        isSearching={isSearching}
+        submitDisabled={submitDisabled}
+        staleMode={staleMode}
         onAddDateFilter={onAddDateFilter}
         onAddSourceFilter={onAddSourceFilter}
         onAddDomainFilter={onAddDomainFilter}
