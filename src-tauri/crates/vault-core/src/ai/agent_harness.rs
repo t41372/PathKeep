@@ -200,6 +200,18 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
         " list_stars / list_annotations — enumerate the user's favorites or notes/tags.",
     ));
 
+    // Coverage strategy: lead a period summary with the aggregate report; search is only a sample.
+    block.push_str(concat!(
+        " For a summary, overview, or pattern across a time period ('what did I do last Friday',",
+        " 'top sites this week'), call intelligence_report for that range FIRST — it covers ALL",
+        " visits in the period. search_history returns only the TOP matches and sets has_more=true",
+        " when more matches exist than it returned: when has_more is true you are seeing a sample,",
+        " NOT the full set, so do NOT summarize it as if it were complete — use intelligence_report",
+        " (or run_code over the range) to cover everything, and use search_history only to find or",
+        " drill into specific pages. If the intelligence index is not built yet, fall back to search",
+        " but say the summary is based on a partial sample.",
+    ));
+
     // Grounding gate: anti-hallucination rule.
     block.push_str(concat!(
         " IMPORTANT: Every page title, URL, time, or count in your answer MUST come from a row",
@@ -2360,6 +2372,11 @@ mod tests {
             "tool overview mentions intelligence_report: {block}"
         );
         assert!(block.contains("list_stars"), "tool overview mentions list_stars: {block}");
+        // Coverage strategy: lead period summaries with intelligence_report; search is a sample.
+        assert!(
+            block.contains("has_more=true") && block.contains("intelligence_report for that range"),
+            "coverage-strategy guidance (aggregate-first + sample awareness) is present: {block}"
+        );
     }
 
     #[test]
