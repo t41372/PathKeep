@@ -38,6 +38,7 @@ export const settingsCoreAndPlatformNamespace = {
     aiProviderBody:
       'Connect a local or self-hosted AI provider to chat with your history and turn on smart search. Optional and off by default — keyword search and Core Intelligence work without it.',
     optional: 'OPTIONAL',
+    savedConfirmation: 'Saved',
     groupCore: 'CORE',
     groupDataUpdates: 'DATA & UPDATES',
     groupSecurityAccess: 'SECURITY & ACCESS',
@@ -132,8 +133,6 @@ export const settingsCoreAndPlatformNamespace = {
       'One host per line — every page on these domains skips og:image fetching. Lines starting with # are treated as comments.',
     linkPreviewsBlocklistPlaceholder:
       'example.com\nbanking.example.org\n# private corporate intranet\nintranet.example.local',
-    linkPreviewsBlocklistSave: 'Save blocklist',
-    linkPreviewsBlocklistReset: 'Reset',
     linkPreviewsCleanupModeLabel: 'Eviction policy',
     linkPreviewsCleanupModeHint:
       'Off keeps every preview forever; pick another mode to let PathKeep prune the cache automatically on the daily maintenance tick.',
@@ -219,8 +218,6 @@ export const settingsCoreAndPlatformNamespace = {
       'Optional reminder shown on the lock screen',
     appLockPasscode: 'Passcode',
     appLockPasscodePlaceholder: 'Set or replace the current app lock passcode',
-    appLockSave: 'Save app lock settings',
-    appLockSaving: 'Saving app lock…',
     appLockSetPasscode: 'Save passcode',
     appLockUpdatePasscode: 'Update passcode',
     appLockSavingPasscode: 'Saving passcode…',
@@ -277,6 +274,7 @@ export const settingsCoreAndPlatformNamespace = {
     aiProviderBody:
       '连接一个本地或自托管的 AI 服务，即可与你的历史对话并开启智能搜索。可选功能，默认关闭——关键词搜索和确定性智能分析无需它也能使用。',
     optional: '可选',
+    savedConfirmation: '已保存',
     groupCore: '核心',
     groupDataUpdates: '数据与更新',
     groupSecurityAccess: '安全与访问',
@@ -369,8 +367,6 @@ export const settingsCoreAndPlatformNamespace = {
       '一行一个域名，列表内域名的页面将不抓取链接预览。以 # 开头的行视为注释。',
     linkPreviewsBlocklistPlaceholder:
       'example.com\nbanking.example.org\n# 公司内网\nintranet.example.local',
-    linkPreviewsBlocklistSave: '保存屏蔽列表',
-    linkPreviewsBlocklistReset: '重置',
     linkPreviewsCleanupModeLabel: '清理策略',
     linkPreviewsCleanupModeHint:
       '"关闭" 保留全部预览；选择其他模式时 PathKeep 会在每日维护时自动按规则清理。',
@@ -453,8 +449,6 @@ export const settingsCoreAndPlatformNamespace = {
     appLockRecoveryHintPlaceholder: '锁定页面上显示的可选提示',
     appLockPasscode: '密码',
     appLockPasscodePlaceholder: '设置或替换当前应用锁密码',
-    appLockSave: '保存应用锁设置',
-    appLockSaving: '正在保存应用锁…',
     appLockSetPasscode: '保存密码',
     appLockUpdatePasscode: '更新密码',
     appLockSavingPasscode: '正在保存密码…',
@@ -511,6 +505,7 @@ export const settingsCoreAndPlatformNamespace = {
     aiProviderBody:
       '連接一個本地或自架的 AI 服務，即可與你的歷史對話並開啟智慧搜尋。選用功能，預設關閉——關鍵字搜尋和確定性智慧分析不需要它也能使用。',
     optional: '可選',
+    savedConfirmation: '已儲存',
     groupCore: '核心',
     groupDataUpdates: '資料與更新',
     groupSecurityAccess: '安全與存取',
@@ -603,8 +598,6 @@ export const settingsCoreAndPlatformNamespace = {
       '一行一個網域，名單內網域的頁面不會抓取連結預覽。以 # 開頭的行視為註解。',
     linkPreviewsBlocklistPlaceholder:
       'example.com\nbanking.example.org\n# 公司內網\nintranet.example.local',
-    linkPreviewsBlocklistSave: '儲存封鎖列表',
-    linkPreviewsBlocklistReset: '重置',
     linkPreviewsCleanupModeLabel: '清理策略',
     linkPreviewsCleanupModeHint:
       '「關閉」保留全部預覽；選擇其他模式時 PathKeep 會在每日維護時依規則自動清理。',
@@ -687,8 +680,6 @@ export const settingsCoreAndPlatformNamespace = {
     appLockRecoveryHintPlaceholder: '鎖定畫面上顯示的可選提示',
     appLockPasscode: '密碼',
     appLockPasscodePlaceholder: '設定或替換目前的應用鎖密碼',
-    appLockSave: '儲存應用鎖設定',
-    appLockSaving: '正在儲存應用鎖…',
     appLockSetPasscode: '儲存密碼',
     appLockUpdatePasscode: '更新密碼',
     appLockSavingPasscode: '正在儲存密碼…',

@@ -117,7 +117,10 @@ export interface ShellDataContextValue {
    */
   refreshAppData: (showSpinner?: boolean) => Promise<void>
   refreshRuntimeStatus: () => Promise<ShellRuntimeStatus>
-  saveConfig: (config: AppConfig) => Promise<AppSnapshot>
+  saveConfig: (
+    config: AppConfig,
+    options?: { quiet?: boolean },
+  ) => Promise<AppSnapshot>
   initializeArchive: (
     config: AppConfig,
     databaseKey?: string | null,

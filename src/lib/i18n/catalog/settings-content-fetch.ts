@@ -74,8 +74,6 @@ export const settingsContentFetchNamespace = {
     contentFetchDomainsHelp:
       'Block specific sites even when fetching is on. One host per line, e.g. example.com.',
     contentFetchDomainsPlaceholder: 'blocked-site.com',
-    contentFetchDomainsSave: 'Save blocked sites',
-    contentFetchDomainsReset: 'Reset',
     contentFetchDomainsEmpty: 'No sites are blocked.',
 
     contentFetchStatusLabel: 'Activity',
@@ -140,8 +138,6 @@ export const settingsContentFetchNamespace = {
     contentFetchDomainsHelp:
       '即使抓取已打开，也可屏蔽特定站点。每行一个主机，例如 example.com。',
     contentFetchDomainsPlaceholder: 'blocked-site.com',
-    contentFetchDomainsSave: '保存屏蔽站点',
-    contentFetchDomainsReset: '重置',
     contentFetchDomainsEmpty: '没有屏蔽任何站点。',
 
     contentFetchStatusLabel: '活动',
@@ -204,8 +200,6 @@ export const settingsContentFetchNamespace = {
     contentFetchDomainsHelp:
       '即使擷取已打開，也可封鎖特定網站。每行一個主機，例如 example.com。',
     contentFetchDomainsPlaceholder: 'blocked-site.com',
-    contentFetchDomainsSave: '儲存封鎖網站',
-    contentFetchDomainsReset: '重設',
     contentFetchDomainsEmpty: '沒有封鎖任何網站。',
 
     contentFetchStatusLabel: '活動',

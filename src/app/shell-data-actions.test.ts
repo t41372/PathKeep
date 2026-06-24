@@ -97,6 +97,60 @@ describe('createShellDataActions', () => {
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(1)
   })
 
+  test('quiet config save skips the blocking busy overlay but still refreshes shell state', async () => {
+    // The all-auto-save Settings path fires a tiny config write on EVERY individual
+    // toggle / select / blur. Those must NOT throw the full-screen blocking
+    // `BusyOverlay` (which would freeze the main thread on each control), so the
+    // settings hooks pass `{ quiet: true }`. The snapshot / language / app-lock /
+    // dashboard refresh must still run exactly the same — only the overlay is gone.
+    const harness = createActionHarness()
+    const config = buildConfig({ preferredLanguage: 'zh-CN' })
+    const snapshot = buildSnapshot({
+      config,
+      appLockStatus: buildAppLockStatus({ locked: false }),
+    })
+    backendMock.saveConfig.mockResolvedValue(snapshot)
+
+    await expect(
+      harness.actions.saveConfig(config, { quiet: true }),
+    ).resolves.toBe(snapshot)
+
+    // No blocking overlay was ever shown or cleared, and we never blocked on a
+    // pre-paint frame — the write is silent except the section's inline chip.
+    expect(harness.showBusyOverlay).not.toHaveBeenCalled()
+    expect(harness.clearBusyOverlay).not.toHaveBeenCalled()
+    expect(waitForNextPaintMock).not.toHaveBeenCalled()
+
+    // The shell still reconciles every read model so the UI reflects the save and
+    // the hooks' post-save sync works.
+    expect(harness.setNotice).toHaveBeenCalledWith(null)
+    expect(harness.setError).toHaveBeenCalledWith(null)
+    expect(backendMock.saveConfig).toHaveBeenCalledWith(config)
+    expect(harness.setLanguagePreference).toHaveBeenCalledWith('zh-CN')
+    expect(harness.setAppLockStatus).toHaveBeenCalledWith(
+      snapshot.appLockStatus,
+    )
+    expect(harness.setSnapshot).toHaveBeenCalledWith(snapshot)
+    expect(harness.refreshKey).toBe(1)
+    expect(harness.refreshDashboardSnapshot).toHaveBeenCalledWith(snapshot)
+  })
+
+  test('quiet config save surfaces the error banner without an overlay on failure', async () => {
+    // A failing quiet save must still set the error banner (the section/shell
+    // surfaces it) and re-throw, but it must never touch the blocking overlay.
+    const harness = createActionHarness()
+    const config = buildConfig()
+    backendMock.saveConfig.mockRejectedValueOnce(new Error('quiet save failed'))
+
+    await expect(
+      harness.actions.saveConfig(config, { quiet: true }),
+    ).rejects.toThrow('quiet save failed')
+
+    expect(harness.setError).toHaveBeenLastCalledWith('quiet save failed')
+    expect(harness.showBusyOverlay).not.toHaveBeenCalled()
+    expect(harness.clearBusyOverlay).not.toHaveBeenCalled()
+  })
+
   test('initializes archives and reports non-Error failures with shipped fallback copy', async () => {
     const harness = createActionHarness()
     const config = buildConfig({ preferredLanguage: 'zh-CN' })

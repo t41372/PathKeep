@@ -149,7 +149,7 @@ describe('ContentFetchSection', () => {
     })
   })
 
-  test('saving the blocklist persists block rules for each host', async () => {
+  test('auto-saves the blocklist on blur (no Save/Reset buttons)', async () => {
     vi.spyOn(backend, 'getContentFetchSettings').mockResolvedValue(
       settings({ enabled: true }),
     )
@@ -159,12 +159,20 @@ describe('ContentFetchSection', () => {
     renderSection()
 
     const input = await screen.findByTestId('content-fetch-domains-input')
-    fireEvent.change(input, { target: { value: 'blocked.test\n' } })
-    await userEvent.click(screen.getByTestId('content-fetch-domains-save'))
+    // The per-section Save / Reset controls are gone in the all-auto-save model.
+    expect(screen.queryByTestId('content-fetch-domains-save')).toBeNull()
+    expect(screen.queryByTestId('content-fetch-domains-reset')).toBeNull()
 
+    fireEvent.change(input, { target: { value: 'blocked.test\n' } })
+    // Persists on blur, off the keystroke hot path.
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(setSpy).toHaveBeenCalledTimes(1))
     expect(setSpy.mock.calls[0][0].domains).toEqual([
       { domain: 'blocked.test', allowed: false },
     ])
+    // The quiet "Saved" chip flashes after a landed write.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
 
   test('a save failure rolls back the toggle and surfaces an honest error (no fake opt-in)', async () => {
@@ -270,22 +278,27 @@ describe('ContentFetchSection', () => {
     })
   })
 
-  test('the Reset button reverts the blocklist draft to the saved rules', async () => {
+  test('a blur with no blocklist change does not re-save (no-op auto-save)', async () => {
     vi.spyOn(backend, 'getContentFetchSettings').mockResolvedValue(
       settings({
         enabled: true,
         domains: [{ domain: 'saved.test', allowed: false }],
       }),
     )
+    const setSpy = vi
+      .spyOn(backend, 'setContentFetchSettings')
+      .mockResolvedValue({} as never)
     renderSection()
 
     const input = await screen.findByTestId('content-fetch-domains-input')
     await waitFor(() =>
       expect((input as HTMLTextAreaElement).value).toBe('saved.test'),
     )
-    fireEvent.change(input, { target: { value: 'edited.test' } })
-    await userEvent.click(screen.getByTestId('content-fetch-domains-reset'))
-    expect((input as HTMLTextAreaElement).value).toBe('saved.test')
+    // Focus and blur without editing — the canonicalized rules are unchanged, so
+    // there is no redundant write or misleading "Saved".
+    fireEvent.focus(input)
+    fireEvent.blur(input)
+    expect(setSpy).not.toHaveBeenCalled()
   })
 
   test('shows the live activity summary when records exist', async () => {

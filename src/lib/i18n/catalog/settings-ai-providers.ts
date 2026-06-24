@@ -50,9 +50,6 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: 'Connected',
     aiProbeUnreachable: 'Connection issue',
     aiProbeLatency: '{model} · {latency} ms',
-    aiProbeSaveFirstHint: 'Save this provider first to test it.',
-    aiSaveKeySaveFirstHint:
-      'Save settings first, then store the key (the API key is optional — local servers like LM Studio need none).',
     aiAddProviderPresetLabel: 'Start from a preset',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',
@@ -78,16 +75,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: 'Active chat provider',
     aiActiveEmbeddingProvider: 'Active embedding provider',
     aiNoneSelected: 'None',
-    aiSavingConfig: 'Saving…',
-    aiSaveConfig: 'Save',
-    aiResetDraft: 'Discard changes',
-    aiUnsavedChanges: 'You have unsaved changes',
-    aiDraftSaved: 'Settings are up to date',
     aiGettingStartedTitle: 'No AI providers configured yet',
     aiGettingStartedBody:
       'Add a chat provider to use the AI assistant and a embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
-    aiDraftBoundaryBody:
-      'Changes are saved only when you click Save. API keys are stored separately.',
     aiArtifactsMovedTitle: 'Generated artifacts live in Integrations',
     aiArtifactsMovedBody:
       'Provider settings stay here. MCP commands, skill files, and local-host payload review now live on the Integrations page.',
@@ -279,9 +269,6 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: '连接正常',
     aiProbeUnreachable: '连接异常',
     aiProbeLatency: '{model} · {latency} ms',
-    aiProbeSaveFirstHint: '请先保存此供应商，然后才能测试连接。',
-    aiSaveKeySaveFirstHint:
-      '请先保存设置，然后再存储密钥（API 密钥是可选的——本地服务器（如 LM Studio）无需密钥）。',
     aiAddProviderPresetLabel: '从预设开始',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',
@@ -307,15 +294,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: '当前对话模型',
     aiActiveEmbeddingProvider: '当前向量模型',
     aiNoneSelected: '未选择',
-    aiSavingConfig: '保存中…',
-    aiSaveConfig: '保存',
-    aiResetDraft: '放弃更改',
-    aiUnsavedChanges: '有未保存的更改',
-    aiDraftSaved: '设置已是最新',
     aiGettingStartedTitle: '还没有配置 AI 服务',
     aiGettingStartedBody:
       '添加对话模型可以使用 AI 助手，添加向量模型可以使用智能搜索。点击下方「添加对话模型」按钮，选择一个预设开始。',
-    aiDraftBoundaryBody: '更改只在点击保存后生效。API 密钥需要单独保存。',
     aiArtifactsMovedTitle: '生成产物已移到集成页',
     aiArtifactsMovedBody:
       '这里保留服务设置。MCP 命令、skill 文件和本地宿主载荷复核现在由集成页负责。',
@@ -502,9 +483,6 @@ export const settingsAiProvidersNamespace = {
     aiProbeReachable: '連線正常',
     aiProbeUnreachable: '連線異常',
     aiProbeLatency: '{model} · {latency} ms',
-    aiProbeSaveFirstHint: '請先儲存此供應商，然後才能測試連線。',
-    aiSaveKeySaveFirstHint:
-      '請先儲存設定，然後再儲存金鑰（API 金鑰為選用——本機伺服器（如 LM Studio）不需要金鑰）。',
     aiAddProviderPresetLabel: '從預設開始',
     aiPresetLmStudio: 'LM Studio',
     aiPresetOllama: 'Ollama',
@@ -530,15 +508,9 @@ export const settingsAiProvidersNamespace = {
     aiActiveLlmProvider: '目前對話模型',
     aiActiveEmbeddingProvider: '目前向量模型',
     aiNoneSelected: '未選擇',
-    aiSavingConfig: '儲存中…',
-    aiSaveConfig: '儲存',
-    aiResetDraft: '捨棄變更',
-    aiUnsavedChanges: '有未儲存的變更',
-    aiDraftSaved: '設定已是最新',
     aiGettingStartedTitle: '還沒有設定 AI 服務',
     aiGettingStartedBody:
       '新增對話模型可以使用 AI 助手，新增向量模型可以使用智慧搜尋。點選下方「新增對話模型」按鈕，選擇一個預設開始。',
-    aiDraftBoundaryBody: '變更只在點擊儲存後生效。API 金鑰需要另外儲存。',
     aiArtifactsMovedTitle: '生成產物已移到整合頁',
     aiArtifactsMovedBody:
       '這裡保留服務設定。MCP 命令、skill 檔案和本地宿主載荷複核現在由整合頁負責。',

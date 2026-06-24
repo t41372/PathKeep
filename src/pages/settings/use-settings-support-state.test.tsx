@@ -331,25 +331,110 @@ describe('useSettingsSupportState', () => {
     })
     expect(result.current.retention.preview).toBeNull()
 
+    // The recovery hint edits a local draft on change and commits on blur, while
+    // every other field auto-saves immediately. Each handler resolves true when a
+    // write lands so the section can flash the Saved chip.
+    //
+    // Crucially, editing the hint buffer and then toggling a NON-hint field must
+    // persist the COMMITTED (last-saved) hint — here still `null` — NOT the
+    // in-progress 'lab machine' editing buffer. The buffer only reaches disk on the
+    // hint's OWN blur, so an unrelated toggle never flushes a half-typed hint.
     act(() => {
-      result.current.appLock.onEnabledChange(true)
-      result.current.appLock.onIdleTimeoutChange(15)
-      result.current.appLock.onBiometricChange(true)
       result.current.appLock.onRecoveryHintChange('lab machine')
     })
     await act(async () => {
-      await result.current.appLock.onSaveConfig()
+      expect(await result.current.appLock.onEnabledChange(true)).toBe(true)
     })
-    expect(saveConfig).toHaveBeenCalledWith(
+    expect(saveConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({
         appLock: expect.objectContaining({
           enabled: true,
-          idleTimeoutMinutes: 15,
-          biometricEnabled: true,
-          recoveryHint: 'lab machine',
+          recoveryHint: null,
         }),
       }),
     )
+    // The in-progress hint buffer is left intact by the unrelated toggle.
+    expect(result.current.appLock.recoveryHint).toBe('lab machine')
+
+    await act(async () => {
+      expect(await result.current.appLock.onIdleTimeoutChange(15)).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appLock: expect.objectContaining({
+          idleTimeoutMinutes: 15,
+          // Still the committed hint, not the editing buffer.
+          recoveryHint: null,
+        }),
+      }),
+    )
+    // Re-selecting the SAME idle timeout is a no-op: no write, no Saved chip.
+    const callsBeforeNoop = saveConfig.mock.calls.length
+    await act(async () => {
+      expect(await result.current.appLock.onIdleTimeoutChange(15)).toBe(false)
+    })
+    expect(saveConfig.mock.calls.length).toBe(callsBeforeNoop)
+
+    await act(async () => {
+      expect(await result.current.appLock.onBiometricChange(true)).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appLock: expect.objectContaining({ biometricEnabled: true }),
+      }),
+    )
+
+    // Committing the hint on its OWN blur finally persists the buffered value — a
+    // genuine first write of 'lab machine', not a no-op, since it was never flushed
+    // by the earlier toggles.
+    await act(async () => {
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appLock: expect.objectContaining({ recoveryHint: 'lab machine' }),
+      }),
+    )
+    // Re-committing the same hint is now a no-op (no chip).
+    await act(async () => {
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(false)
+    })
+
+    // Editing the hint then blurring auto-saves the new value (commit-on-blur).
+    act(() => {
+      result.current.appLock.onRecoveryHintChange('updated phrase')
+    })
+    await act(async () => {
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appLock: expect.objectContaining({ recoveryHint: 'updated phrase' }),
+      }),
+    )
+
+    // Clearing the hint to whitespace and blurring persists null and settles the
+    // buffer to empty (the trimmed persisted value), proving a hint can be removed.
+    act(() => {
+      result.current.appLock.onRecoveryHintChange('   ')
+    })
+    await act(async () => {
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appLock: expect.objectContaining({ recoveryHint: null }),
+      }),
+    )
+    expect(result.current.appLock.recoveryHint).toBe('')
+
+    // Restore a hint so the passcode write below still carries it.
+    act(() => {
+      result.current.appLock.onRecoveryHintChange('updated phrase')
+    })
+    await act(async () => {
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(true)
+    })
 
     act(() => {
       result.current.appLock.onPasscodeChange('123456')
@@ -359,7 +444,7 @@ describe('useSettingsSupportState', () => {
     })
     expect(setPasscode).toHaveBeenCalledWith({
       passcode: '123456',
-      recoveryHint: 'lab machine',
+      recoveryHint: 'updated phrase',
     })
     expect(result.current.appLock.passcode).toBe('')
 
@@ -436,7 +521,9 @@ describe('useSettingsSupportState', () => {
       await result.current.general.onLanguageChange('en')
       await result.current.general.onExplorerBackgroundPrefetchPagesChange(4)
       await result.current.profiles.onToggleProfile('chrome:Default')
-      await result.current.appLock.onSaveConfig()
+      // The App Lock auto-save handlers no-op (return false) without a snapshot.
+      expect(await result.current.appLock.onEnabledChange(true)).toBe(false)
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(false)
     })
 
     expect(saveConfig).not.toHaveBeenCalled()
@@ -516,8 +603,47 @@ describe('useSettingsSupportState', () => {
     unmount()
 
     await act(async () => {
+      // A late SUCCESS after unmount exercises the success-path cancelled guard,
+      // while the rejected schedule covers the catch-path cancelled guard.
       schedule.reject(new Error('late schedule failure'))
       security.resolve(securityFixture())
+      retention.resolve(retentionPreviewFixture())
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  })
+
+  test('ignores a late retention failure after unmount (catch-path cancelled guard)', async () => {
+    const snapshot = await createSnapshot()
+    const retention = deferred<RetentionPreview>()
+    vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(scheduleFixture())
+    vi.spyOn(backend, 'securityStatus').mockResolvedValue(securityFixture())
+    vi.spyOn(backend, 'previewRetentionPrune').mockReturnValue(
+      retention.promise,
+    )
+
+    const { unmount } = renderHook(
+      () =>
+        useSettingsSupportState({
+          appLockStatus: null,
+          clearAppLockPasscode: vi
+            .fn()
+            .mockResolvedValue(appLockStatusFixture()),
+          lockAppSession: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          refreshKey: 1,
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snapshot, config }),
+          ),
+          setAppLockPasscode: vi.fn().mockResolvedValue(appLockStatusFixture()),
+          setLanguagePreference: vi.fn(),
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    unmount()
+    await act(async () => {
       retention.reject(new Error('late retention failure'))
       await Promise.resolve()
       await Promise.resolve()
@@ -566,38 +692,45 @@ describe('useSettingsSupportState', () => {
       },
     )
 
-    act(() => {
-      result.current.appLock.onEnabledChange(true)
-      result.current.appLock.onIdleTimeoutChange(30)
-      result.current.appLock.onBiometricChange(true)
+    // Before a draft hydrates the auto-save handlers no-op (return false).
+    await act(async () => {
+      expect(await result.current.appLock.onEnabledChange(true)).toBe(false)
+      expect(await result.current.appLock.onIdleTimeoutChange(30)).toBe(false)
+      expect(await result.current.appLock.onBiometricChange(true)).toBe(false)
       result.current.appLock.onRecoveryHintChange('ignored')
+      expect(await result.current.appLock.onRecoveryHintCommit()).toBe(false)
     })
     expect(result.current.appLock.currentSettings).toBeNull()
+    expect(saveConfig).not.toHaveBeenCalled()
 
     rerender({ nextSnapshot: snapshot })
     await waitFor(() =>
       expect(result.current.appLock.currentSettings).not.toBeNull(),
     )
 
+    // Toggling a non-hint field (enabled) persists the COMMITTED hint — here still
+    // null — while biometric is forced off without platform availability and the
+    // passcode flags fall back honestly. The in-progress whitespace hint buffer is
+    // left untouched by the toggle (it only reaches disk on the hint's own blur).
     act(() => {
-      result.current.appLock.onEnabledChange(true)
-      result.current.appLock.onBiometricChange(true)
       result.current.appLock.onRecoveryHintChange('   ')
       result.current.appLock.onPasscodeChange('246810')
     })
     await act(async () => {
-      await result.current.appLock.onSaveConfig()
+      expect(await result.current.appLock.onEnabledChange(true)).toBe(true)
     })
-    expect(saveConfig).toHaveBeenCalledWith(
+    expect(saveConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({
         appLock: expect.objectContaining({
+          enabled: true,
           biometricEnabled: false,
           passcodeConfigured: false,
           recoveryHint: null,
         }),
       }),
     )
-    expect(result.current.appLock.recoveryHint).toBe('')
+    // The non-hint toggle did not flush or reset the editing buffer.
+    expect(result.current.appLock.recoveryHint).toBe('   ')
 
     await act(async () => {
       await result.current.appLock.onSetPasscode()

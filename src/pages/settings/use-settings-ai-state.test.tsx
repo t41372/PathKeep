@@ -42,7 +42,7 @@ describe('useSettingsAiState', () => {
     vi.restoreAllMocks()
   })
 
-  test('loads integration preview and persists provider draft changes', async () => {
+  test('loads integration preview and auto-saves every structural change', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(12345)
     const snapshot = snapshotFixture()
     const saveConfig = vi.fn((config: AppConfig) =>
@@ -74,57 +74,74 @@ describe('useSettingsAiState', () => {
         1,
       ),
     )
-    expect(result.current.ai.persistedProviderIds.has('llm-1')).toBe(true)
     expect(result.current.ai.noProviders).toBe(false)
 
-    act(() => {
-      result.current.ai.onToggleAi()
-      result.current.ai.onAddProvider('llm')
-      result.current.ai.onUpdateProvider('llm', 'llm-1', {
-        defaultModel: 'patched-model',
-      })
-      result.current.ai.onSelectProvider('embedding', 'embed-1')
-      result.current.ai.onRemoveProvider('embedding', 'embed-1')
-    })
-
-    expect(result.current.ai.configDirty).toBe(true)
-    expect(result.current.ai.currentSettings?.enabled).toBe(true)
-    // A bare onAddProvider('llm') defaults to the LM Studio preset (the headline
-    // local path), so the seeded draft id carries the lm-studio format prefix.
-    expect(result.current.ai.currentSettings?.llmProviders).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'llm-1',
-          defaultModel: 'patched-model',
-        }),
-        expect.objectContaining({
-          id: 'lm-studio-llm-12345',
-          purpose: 'llm',
-          requestFormat: 'lm-studio',
-        }),
-      ]),
-    )
-    expect(result.current.ai.currentSettings?.embeddingProviderId).toBeNull()
-
+    // The master toggle auto-saves immediately and resolves true on a real write.
     await act(async () => {
-      await result.current.ai.onSaveAiConfig()
+      expect(await result.current.ai.onToggleAi()).toBe(true)
     })
-    expect(saveConfig).toHaveBeenCalledWith(
+    expect(result.current.ai.currentSettings?.enabled).toBe(true)
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({ enabled: true }),
+      }),
+    )
+
+    // Adding a provider auto-persists immediately (so test/save-key work at once).
+    // A bare onAddProvider('llm') defaults to the LM Studio preset (headline path).
+    await act(async () => {
+      expect(await result.current.ai.onAddProvider('llm')).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({
         ai: expect.objectContaining({
-          enabled: true,
           llmProviders: expect.arrayContaining([
-            expect.objectContaining({ id: 'lm-studio-llm-12345' }),
+            expect.objectContaining({
+              id: 'lm-studio-llm-12345',
+              purpose: 'llm',
+              requestFormat: 'lm-studio',
+            }),
           ]),
         }),
       }),
     )
-    expect(result.current.ai.saving).toBe(false)
 
+    // A provider FIELD edit stays in the local buffer while typing (no save)…
     act(() => {
-      result.current.ai.onResetAiConfig()
+      result.current.ai.onUpdateProvider('llm', 'llm-1', {
+        defaultModel: 'patched-model',
+      })
     })
-    expect(result.current.ai.currentSettings?.enabled).toBe(false)
+    const savesBeforeCommit = saveConfig.mock.calls.length
+    expect(
+      result.current.ai.currentSettings?.llmProviders.find(
+        (provider) => provider.id === 'llm-1',
+      )?.defaultModel,
+    ).toBe('patched-model')
+    expect(saveConfig).toHaveBeenCalledTimes(savesBeforeCommit)
+    // …and is persisted on commit (blur).
+    await act(async () => {
+      expect(await result.current.ai.onCommitProviders()).toBe(true)
+    })
+    expect(saveConfig.mock.calls.length).toBe(savesBeforeCommit + 1)
+    // Re-committing with no further edit is a no-op (no redundant write).
+    await act(async () => {
+      expect(await result.current.ai.onCommitProviders()).toBe(false)
+    })
+
+    // Removing the active embedding provider auto-saves and clears the selection.
+    await act(async () => {
+      expect(
+        await result.current.ai.onRemoveProvider('embedding', 'embed-1'),
+      ).toBe(true)
+    })
+    expect(result.current.ai.currentSettings?.embeddingProviderId).toBeNull()
+    expect(saveConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({ embeddingProviders: [] }),
+      }),
+    )
+    expect(result.current.ai.saving).toBe(false)
 
     act(() => {
       result.current.ai.onOpenPath('/tmp/pathkeep/integrations/mcp.json')
@@ -341,40 +358,40 @@ describe('useSettingsAiState', () => {
     )
   })
 
-  test('can create an AI draft from the saved snapshot before effect sync settles', () => {
+  test('auto-saves a toggle and an added provider from the saved snapshot', async () => {
     vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
       integrationPreviewFixture(),
     )
     const snapshot = snapshotFixture()
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({
+        ...snapshot,
+        config,
+      }),
+    )
 
     const { result } = renderHook(
       () =>
         useSettingsAiState({
           refreshAppData: vi.fn().mockResolvedValue(undefined),
-          saveConfig: vi.fn((config: AppConfig) =>
-            Promise.resolve({
-              ...snapshot,
-              config,
-            }),
-          ),
+          saveConfig,
           snapshot,
         }),
       { wrapper: Wrapper },
     )
 
-    act(() => {
-      result.current.ai.onToggleAi()
+    await act(async () => {
+      await result.current.ai.onToggleAi()
     })
-
     expect(result.current.ai.currentSettings?.enabled).toBe(true)
 
-    act(() => {
-      result.current.ai.onAddProvider('embedding')
+    await act(async () => {
+      await result.current.ai.onAddProvider('embedding')
     })
-
     expect(result.current.ai.currentSettings?.embeddingProviders).toHaveLength(
       2,
     )
+    expect(saveConfig).toHaveBeenCalledTimes(2)
   })
 
   test('keeps AI handlers no-op safe before a snapshot is available', async () => {
@@ -389,37 +406,48 @@ describe('useSettingsAiState', () => {
       .spyOn(backend, 'previewAiIntegrations')
       .mockResolvedValue(integrationPreviewFixture())
 
-    const { result } = renderHook(
-      () =>
+    const { result, rerender } = renderHook(
+      ({ snap }: { snap: AppSnapshot | null }) =>
         useSettingsAiState({
           refreshAppData,
           saveConfig,
-          snapshot: null,
+          snapshot: snap,
         }),
-      { wrapper: Wrapper },
+      { initialProps: { snap: null as AppSnapshot | null }, wrapper: Wrapper },
     )
 
     expect(result.current.ai.currentSettings).toBeNull()
     expect(result.current.ai.indexMeta).toBeNull()
     expect(result.current.ai.noProviders).toBe(true)
-    expect(result.current.ai.persistedProviderIds.size).toBe(0)
 
-    act(() => {
-      result.current.ai.onToggleAi()
-      result.current.ai.onResetAiConfig()
-      result.current.ai.onSearchTuningChange('lexicalWeight', 2)
-      result.current.ai.onResetSearchTuning()
-    })
+    // Every auto-save handler no-ops (returns false, never calls saveConfig)
+    // without a snapshot, including the blur-commit and the tuning knobs.
+    // onUpdateProvider also no-ops (no draft buffer to mutate yet).
     await act(async () => {
-      await result.current.ai.onSaveAiConfig()
+      result.current.ai.onUpdateProvider('llm', 'llm-1', { defaultModel: 'x' })
+      expect(await result.current.ai.onToggleAi()).toBe(false)
+      expect(await result.current.ai.onCommitProviders()).toBe(false)
+      expect(
+        await result.current.ai.onSearchTuningChange('lexicalWeight', 2),
+      ).toBe(false)
+      expect(await result.current.ai.onResetSearchTuning()).toBe(false)
+      expect(await result.current.ai.onAddProvider('llm')).toBe(false)
     })
 
     expect(saveConfig).not.toHaveBeenCalled()
     expect(refreshAppData).not.toHaveBeenCalled()
     expect(preview).not.toHaveBeenCalled()
+
+    // When a snapshot first arrives the hook seeds the draft from it (so the
+    // section can render and edits can begin auto-saving).
+    rerender({ snap: snapshotFixture() })
+    await waitFor(() =>
+      expect(result.current.ai.currentSettings).not.toBeNull(),
+    )
+    expect(result.current.ai.currentSettings?.enabled).toBe(false)
   })
 
-  test('toggles the assistant + semantic sub-flags on the draft without cascading from the master', () => {
+  test('auto-saves each sub-flag without cascading from the master', async () => {
     vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
       integrationPreviewFixture(),
     )
@@ -442,8 +470,8 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.mcpEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
 
-    act(() => {
-      result.current.ai.onToggleAi()
+    await act(async () => {
+      await result.current.ai.onToggleAi()
     })
     expect(result.current.ai.currentSettings?.enabled).toBe(true)
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
@@ -456,12 +484,12 @@ describe('useSettingsAiState', () => {
     // The GPU heavy-tier opt-in (W-AI-9-D) is its own consent and stays OFF too.
     expect(result.current.ai.currentSettings?.gpuEnabled ?? false).toBe(false)
 
-    act(() => {
-      result.current.ai.onToggleAssistant()
-      result.current.ai.onToggleSemanticIndex()
-      result.current.ai.onToggleMcp()
-      result.current.ai.onToggleSkill()
-      result.current.ai.onToggleGpu()
+    await act(async () => {
+      await result.current.ai.onToggleAssistant()
+      await result.current.ai.onToggleSemanticIndex()
+      await result.current.ai.onToggleMcp()
+      await result.current.ai.onToggleSkill()
+      await result.current.ai.onToggleGpu()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(true)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
@@ -470,17 +498,17 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.gpuEnabled).toBe(true)
 
     // Toggling the GPU opt-in back off is independent of the other consents.
-    act(() => {
-      result.current.ai.onToggleGpu()
+    await act(async () => {
+      await result.current.ai.onToggleGpu()
     })
     expect(result.current.ai.currentSettings?.gpuEnabled).toBe(false)
 
     // Toggling back off works independently too — each consent is its own; the
     // usage guide can be turned off without disturbing the MCP server toggle.
-    act(() => {
-      result.current.ai.onToggleAssistant()
-      result.current.ai.onToggleMcp()
-      result.current.ai.onToggleSkill()
+    await act(async () => {
+      await result.current.ai.onToggleAssistant()
+      await result.current.ai.onToggleMcp()
+      await result.current.ai.onToggleSkill()
     })
     expect(result.current.ai.currentSettings?.assistantEnabled).toBe(false)
     expect(result.current.ai.currentSettings?.semanticIndexEnabled).toBe(true)
@@ -488,7 +516,7 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.skillEnabled).toBe(false)
   })
 
-  test('mutates, clamps, resets, and persists the search-tuning knobs through Save', async () => {
+  test('clamps, resets, and auto-saves the search-tuning knobs on each change', async () => {
     vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
       integrationPreviewFixture(),
     )
@@ -506,47 +534,40 @@ describe('useSettingsAiState', () => {
       { wrapper: Wrapper },
     )
 
-    // A weight edit lands clamped on the draft (the handler sanitizes the raw
-    // slider/input value) without auto-saving.
-    act(() => {
-      result.current.ai.onSearchTuningChange('lexicalWeight', 2.5)
-      result.current.ai.onSearchTuningChange('starredBoost', 9)
-      result.current.ai.onSearchTuningChange('hybridRrfK', 80.7)
+    // Each knob edit lands clamped (the handler sanitizes the raw slider/input
+    // value) AND auto-saves immediately.
+    await act(async () => {
+      expect(
+        await result.current.ai.onSearchTuningChange('lexicalWeight', 2.5),
+      ).toBe(true)
     })
     expect(result.current.ai.currentSettings?.lexicalWeight).toBe(2.5)
+    await act(async () => {
+      await result.current.ai.onSearchTuningChange('starredBoost', 9)
+      await result.current.ai.onSearchTuningChange('hybridRrfK', 80.7)
+    })
     // Clamped to the [0, 0.5] cap and floored to an integer respectively.
     expect(result.current.ai.currentSettings?.starredBoost).toBe(0.5)
     expect(result.current.ai.currentSettings?.hybridRrfK).toBe(80)
-    expect(result.current.ai.configDirty).toBe(true)
-    expect(saveConfig).not.toHaveBeenCalled()
-
-    // An emptied number field arrives as NaN and resets that knob to its default.
-    act(() => {
-      result.current.ai.onSearchTuningChange('lexicalWeight', Number.NaN)
-    })
-    expect(result.current.ai.currentSettings?.lexicalWeight).toBe(1)
-
-    // Save round-trips the knobs through the shared AI config Save.
-    await act(async () => {
-      await result.current.ai.onSaveAiConfig()
-    })
-    expect(saveConfig).toHaveBeenCalledWith(
+    expect(saveConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        ai: expect.objectContaining({
-          starredBoost: 0.5,
-          hybridRrfK: 80,
-          lexicalWeight: 1,
-        }),
+        ai: expect.objectContaining({ starredBoost: 0.5, hybridRrfK: 80 }),
       }),
     )
 
-    // Reset returns all four knobs to their accepted defaults on the draft.
-    act(() => {
-      result.current.ai.onSearchTuningChange('semanticWeight', 0)
+    // An emptied number field arrives as NaN and resets that knob to its default.
+    await act(async () => {
+      await result.current.ai.onSearchTuningChange('lexicalWeight', Number.NaN)
+    })
+    expect(result.current.ai.currentSettings?.lexicalWeight).toBe(1)
+
+    // Reset auto-saves all four knobs back to their accepted defaults.
+    await act(async () => {
+      await result.current.ai.onSearchTuningChange('semanticWeight', 0)
     })
     expect(result.current.ai.currentSettings?.semanticWeight).toBe(0)
-    act(() => {
-      result.current.ai.onResetSearchTuning()
+    await act(async () => {
+      expect(await result.current.ai.onResetSearchTuning()).toBe(true)
     })
     expect(result.current.ai.currentSettings?.hybridRrfK).toBe(60)
     expect(result.current.ai.currentSettings?.lexicalWeight).toBe(1)
@@ -554,7 +575,7 @@ describe('useSettingsAiState', () => {
     expect(result.current.ai.currentSettings?.starredBoost).toBe(0.15)
   })
 
-  test('seeds an added provider from the chosen preset format', () => {
+  test('seeds an added provider from the chosen preset format', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(99)
     vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
       integrationPreviewFixture(),
@@ -572,8 +593,8 @@ describe('useSettingsAiState', () => {
       { wrapper: Wrapper },
     )
 
-    act(() => {
-      result.current.ai.onAddProvider('embedding', 'openai')
+    await act(async () => {
+      await result.current.ai.onAddProvider('embedding', 'openai')
     })
     expect(result.current.ai.currentSettings?.embeddingProviders).toEqual(
       expect.arrayContaining([
@@ -661,6 +682,143 @@ describe('useSettingsAiState', () => {
       'Connection refused',
     )
     expect(result.current.ai.testingProviderId).toBeNull()
+  })
+
+  test('selecting the already-active provider is a no-op auto-save (returns false)', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({ ...snapshot, config }),
+    )
+    const { result } = renderHook(
+      () =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig,
+          snapshot,
+        }),
+      { wrapper: Wrapper },
+    )
+
+    // 'llm-1' is already the active LLM provider in the fixture, so re-selecting
+    // it changes nothing — no write, no chip.
+    await act(async () => {
+      expect(await result.current.ai.onSelectProvider('llm', 'llm-1')).toBe(
+        false,
+      )
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
+
+    // Selecting a genuinely different provider does auto-save.
+    await act(async () => {
+      await result.current.ai.onAddProvider('llm', 'openai')
+    })
+    saveConfig.mockClear()
+    const added = result.current.ai.currentSettings?.llmProviders.find(
+      (provider) => provider.id !== 'llm-1',
+    )
+    await act(async () => {
+      expect(
+        await result.current.ai.onSelectProvider('llm', added?.id ?? ''),
+      ).toBe(true)
+    })
+    expect(saveConfig).toHaveBeenCalledTimes(1)
+  })
+
+  test('adopts a genuine external snapshot change but keeps local uncommitted edits', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const { result, rerender } = renderHook(
+      ({ snap }: { snap: AppSnapshot }) =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig: vi.fn((config: AppConfig) =>
+            Promise.resolve({ ...snap, config }),
+          ),
+          snapshot: snap,
+        }),
+      { initialProps: { snap: snapshot }, wrapper: Wrapper },
+    )
+
+    expect(result.current.ai.currentSettings?.enabled).toBe(false)
+
+    // An external snapshot update (e.g. another surface enabled AI) is adopted
+    // into the draft because there are no local uncommitted edits.
+    const externallyEnabled: AppSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config,
+        ai: { ...snapshot.config.ai, enabled: true },
+      },
+    }
+    rerender({ snap: externallyEnabled })
+    await waitFor(() =>
+      expect(result.current.ai.currentSettings?.enabled).toBe(true),
+    )
+
+    // With a LOCAL uncommitted provider edit pending, a further external change
+    // must not clobber the in-progress edit.
+    act(() => {
+      result.current.ai.onUpdateProvider('llm', 'llm-1', {
+        defaultModel: 'in-progress',
+      })
+    })
+    const reselected: AppSnapshot = {
+      ...externallyEnabled,
+      config: {
+        ...externallyEnabled.config,
+        ai: { ...externallyEnabled.config.ai, assistantEnabled: true },
+      },
+    }
+    rerender({ snap: reselected })
+    expect(
+      result.current.ai.currentSettings?.llmProviders.find(
+        (provider) => provider.id === 'llm-1',
+      )?.defaultModel,
+    ).toBe('in-progress')
+  })
+
+  test('keeps update + commit no-op-safe after the snapshot drops to null', async () => {
+    vi.spyOn(backend, 'previewAiIntegrations').mockResolvedValue(
+      integrationPreviewFixture(),
+    )
+    const snapshot = snapshotFixture()
+    const saveConfig = vi.fn((config: AppConfig) =>
+      Promise.resolve({ ...snapshot, config }),
+    )
+    const { result, rerender } = renderHook(
+      ({ snap }: { snap: AppSnapshot | null }) =>
+        useSettingsAiState({
+          refreshAppData: vi.fn().mockResolvedValue(undefined),
+          saveConfig,
+          snapshot: snap,
+        }),
+      {
+        initialProps: { snap: snapshot as AppSnapshot | null },
+        wrapper: Wrapper,
+      },
+    )
+
+    // Drop the snapshot while a draft already exists in the ref.
+    rerender({ snap: null })
+    saveConfig.mockClear()
+
+    // updateAiDraft still mutates the stale buffer, but persistAi refuses without
+    // a snapshot (it needs config to write), so commit/toggle no-op to false.
+    act(() => {
+      result.current.ai.onUpdateProvider('llm', 'llm-1', {
+        defaultModel: 'orphaned',
+      })
+    })
+    await act(async () => {
+      expect(await result.current.ai.onCommitProviders()).toBe(false)
+      expect(await result.current.ai.onToggleAi()).toBe(false)
+    })
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 })
 

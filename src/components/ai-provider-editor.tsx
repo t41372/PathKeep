@@ -60,6 +60,7 @@ export function AiProviderEditorList({
   onApiKeyChange,
   onClearKey,
   onClearKeyDisabled,
+  onCommit,
   onProbe,
   onProbeDisabled,
   onProbeDisabledHint,
@@ -87,6 +88,12 @@ export function AiProviderEditorList({
   onApiKeyChange: (providerId: string, value: string) => void
   onClearKey: (providerId: string) => void
   onClearKeyDisabled?: (providerId: string) => boolean
+  // Commit any in-progress field edits for a provider card when focus leaves it.
+  // The editor keeps text edits local (via onUpdate) while typing so saveConfig
+  // never runs on the keystroke hot path; this fires on blur so the all-auto-save
+  // page persists the finished value. React's onBlur bubbles, so one handler per
+  // card catches a blur from any field inside it.
+  onCommit?: (providerId: string) => void
   onProbe?: (providerId: string) => void
   onProbeDisabled?: (providerId: string) => boolean
   // Returns a short inline reason when the probe is disabled for a recoverable
@@ -179,6 +186,23 @@ export function AiProviderEditorList({
             <article
               className={`providerCard ${selectedProviderId === provider.id ? 'selected' : ''}`}
               key={provider.id}
+              onBlur={
+                onCommit
+                  ? (event) => {
+                      // Only commit when focus actually leaves this card (not when
+                      // it moves between two fields of the same provider), so the
+                      // all-auto-save persist runs once per editing session, not
+                      // on every field-to-field tab.
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        onCommit(provider.id)
+                      }
+                    }
+                  : undefined
+              }
             >
               <div className="providerHeader">
                 <label className="providerSelect">

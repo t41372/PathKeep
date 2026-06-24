@@ -97,6 +97,7 @@ function renderEditor({
   onApiKeyChange = vi.fn(),
   onClearKey = vi.fn(),
   onClearKeyDisabled,
+  onCommit,
   onProbe,
   onProbeDisabled,
   onProbeDisabledHint,
@@ -125,6 +126,7 @@ function renderEditor({
       onApiKeyChange={onApiKeyChange}
       onClearKey={onClearKey}
       onClearKeyDisabled={onClearKeyDisabled}
+      onCommit={onCommit}
       onProbe={onProbe}
       onProbeDisabled={onProbeDisabled}
       onProbeDisabledHint={onProbeDisabledHint}
@@ -161,6 +163,23 @@ function changeField(label: string, value: string) {
 }
 
 describe('AiProviderEditorList', () => {
+  test('commits on blur only when focus leaves the provider card', () => {
+    const onCommit = vi.fn()
+    renderEditor({ onCommit })
+
+    const name = screen.getByLabelText('Provider name')
+    const baseUrl = screen.getByLabelText('Base URL')
+
+    // Blur that moves focus to another field of the SAME card must NOT commit.
+    fireEvent.blur(name, { relatedTarget: baseUrl })
+    expect(onCommit).not.toHaveBeenCalled()
+
+    // Blur that leaves the card entirely commits once (auto-save on blur).
+    fireEvent.blur(name, { relatedTarget: document.body })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith('llm-primary')
+  })
+
   test('renders LLM provider controls and emits exact field patches', () => {
     const callbacks = renderEditor({
       apiKeys: { 'llm-primary': 'pending-secret' },

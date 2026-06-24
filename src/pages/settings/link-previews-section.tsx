@@ -38,6 +38,8 @@ import type {
 import { cn } from '@/lib/cn'
 import { Field, SegmentedControl, Toggle } from './paper-form-primitives'
 import { clampNumber, parseBlocklist } from './link-previews-helpers'
+import { SettingsSavedChip } from './settings-saved-feedback'
+import { useSavedFeedback } from './use-saved-feedback'
 
 export interface LinkPreviewsSectionProps {
   anchorId?: string
@@ -93,6 +95,7 @@ export function LinkPreviewsSection({
 }: LinkPreviewsSectionProps) {
   const { language, t } = useI18n()
   const { snapshot, saveConfig } = useShellData()
+  const { visible: savedVisible, flash } = useSavedFeedback()
   const [stats, setStats] = useState<OgImageStorageStats | null>(null)
   const [pendingAction, setPendingAction] = useState<
     'cleanup' | 'clear' | 'rebuild' | null
@@ -118,12 +121,20 @@ export function LinkPreviewsSection({
   const persistSettings = useCallback(
     async (next: OgImageSettings) => {
       if (!snapshot) return
-      await saveConfig({
-        ...snapshot.config,
-        ogImage: next,
-      })
+      // `quiet` so this all-auto-save write never throws the blocking full-screen
+      // overlay on every toggle/select/blur — the inline "Saved" chip is the only
+      // confirmation. The shell still refreshes the snapshot exactly the same.
+      await saveConfig(
+        {
+          ...snapshot.config,
+          ogImage: next,
+        },
+        { quiet: true },
+      )
+      // Quiet "Saved" confirmation on a landed write — the page is all-auto-save.
+      flash()
     },
-    [snapshot, saveConfig],
+    [snapshot, saveConfig, flash],
   )
 
   const refreshStats = useCallback(async () => {
@@ -200,8 +211,14 @@ export function LinkPreviewsSection({
     }
   }
 
-  const onBlocklistSave = async () => {
-    await persistSettings({
+  // The per-host blocklist auto-saves on blur (the page is all-auto-save). It is a
+  // free-text textarea so it edits a local draft while typing — keeping saveConfig
+  // off the keystroke hot path — and only persists when focus leaves and the
+  // canonicalized hosts differ from what's saved, so a blur with no edit never
+  // fires a redundant write or a misleading "Saved".
+  const onCommitBlocklist = () => {
+    if (!blocklistChanged) return
+    void persistSettings({
       ...settings,
       blockedHosts: parseBlocklist(blocklistDraft),
     })
@@ -320,7 +337,10 @@ export function LinkPreviewsSection({
 
   return (
     <PaperCard testId="settings-link-previews-section" id={anchorId}>
-      <PaperCardHeader title={t('settings.linkPreviewsTitle')} />
+      <PaperCardHeader
+        title={t('settings.linkPreviewsTitle')}
+        right={<SettingsSavedChip visible={savedVisible} />}
+      />
       <PaperCardBody>
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.linkPreviewsIntro')}
@@ -418,6 +438,7 @@ export function LinkPreviewsSection({
           <textarea
             value={blocklistDraft}
             onChange={(event) => setBlocklistDraft(event.target.value)}
+            onBlur={onCommitBlocklist}
             rows={4}
             placeholder={t('settings.linkPreviewsBlocklistPlaceholder')}
             data-testid="link-previews-blocklist-input"
@@ -426,28 +447,6 @@ export function LinkPreviewsSection({
               'focus:border-accent focus:outline-none',
             )}
           />
-          {blocklistChanged ? (
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void onBlocklistSave()}
-                data-testid="link-previews-blocklist-save"
-                className="border-accent text-accent-text hover:bg-accent-soft rounded-paper border px-3 py-1 font-sans text-[12px]"
-              >
-                {t('settings.linkPreviewsBlocklistSave')}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setBlocklistDraft(settings.blockedHosts.join('\n'))
-                }
-                data-testid="link-previews-blocklist-reset"
-                className="border-border-default text-ink-muted hover:bg-hover rounded-paper border px-3 py-1 font-sans text-[12px]"
-              >
-                {t('settings.linkPreviewsBlocklistReset')}
-              </button>
-            </div>
-          ) : null}
         </Field>
 
         <Field

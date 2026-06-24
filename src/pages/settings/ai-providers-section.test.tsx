@@ -130,11 +130,10 @@ describe('AiProvidersSection', () => {
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
-      // Both providers persisted + a typed key so save/clear key are enabled.
+      // A typed key so save/clear key are enabled (providers always persist now).
       // No provider is pre-selected so the radios are unchecked and clicking
       // them fires onSelect.
       aiApiKeys: { 'llm-1': '  secret  ', 'embed-1': '  embed-secret  ' },
-      persistedProviderIds: new Set(['llm-1', 'embed-1']),
       currentSettings: settingsFixture({
         enabled: true,
         llmProviderId: null,
@@ -359,17 +358,16 @@ describe('AiProvidersSection', () => {
     expect(document.getElementById('ai-consent-disclosure')).not.toBeNull()
   })
 
-  test('probes a persisted provider and shows reachable latency + error inline', () => {
+  test('probes a provider and shows reachable latency + error inline', () => {
     const handlers = handlerFixture()
     const { rerender } = renderSection({
       ...handlers,
-      persistedProviderIds: new Set(['llm-1', 'embed-1']),
       currentSettings: settingsFixture({ enabled: true }),
     })
 
-    // The Test-connection button is enabled for the persisted provider and
-    // routes to the per-purpose probe handler. The first button belongs to the
-    // LLM editor list, the second to the embedding editor list.
+    // The Test-connection button is enabled (every provider on screen is already
+    // saved config) and routes to the per-purpose probe handler. The first button
+    // belongs to the LLM editor list, the second to the embedding editor list.
     const testButtons = screen.getAllByRole('button', {
       name: 'Test connection',
     })
@@ -393,7 +391,6 @@ describe('AiProvidersSection', () => {
             state={{
               ...baseState(),
               ...handlers,
-              persistedProviderIds: new Set(['llm-1', 'embed-1']),
               currentSettings: settingsFixture({ enabled: true }),
               providerProbes: {
                 'llm-1': probeReportFixture({ ok: true }),
@@ -430,87 +427,65 @@ describe('AiProvidersSection', () => {
     expect(within(embedCard as HTMLElement).queryByText('Connected')).toBeNull()
   })
 
-  test('disables the Test-connection probe for unsaved providers and surfaces a save-first hint', () => {
-    // Provider not yet persisted: probe disabled (the backend probes saved
-    // config by id, never the in-flight draft) AND a visible inline hint tells
-    // the user the next step instead of leaving a silent dead button.
-    const handlers = handlerFixture()
-    renderSection({
-      ...handlers,
-      persistedProviderIds: new Set(),
-      currentSettings: settingsFixture({ enabled: true }),
-    })
-    const probe = screen.getAllByRole('button', { name: 'Test connection' })[0]
-    expect(probe).toBeDisabled()
-    // The hint renders as real visible copy (not just an aria attribute), once
-    // per editor list (LLM + embedding), and clicking the dead button is inert.
-    const hints = screen.getAllByText('Save this provider first to test it.')
-    expect(hints.length).toBe(2)
-    expect(hints[0]).toBeVisible()
-    fireEvent.click(probe)
-    expect(handlers.onProviderProbe).not.toHaveBeenCalled()
-  })
-
-  test('disables Save key for an unsaved provider but surfaces a save-first hint once a key is typed', () => {
-    // The "I typed a key but it never saved" dead end: the backend stores the
-    // secret by provider id, which does not exist in saved config until Save
-    // settings runs. With a typed key but an UNSAVED provider, Save key is
-    // disabled AND the inline hint tells the user to save settings first
-    // (mentioning the key is optional for local servers).
+  test('enables Test connection and Save key immediately after adding a provider, with no "save first" hint', () => {
+    // All-auto-save: adding a provider persists it instantly, so Test connection
+    // works right away and the old "save settings first" dead-end hints are gone.
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
       aiApiKeys: { 'llm-1': 'sk-typed', 'embed-1': 'sk-typed' },
-      persistedProviderIds: new Set(),
       currentSettings: settingsFixture({ enabled: true }),
     })
+
+    const probe = screen.getAllByRole('button', { name: 'Test connection' })[0]
+    expect(probe).toBeEnabled()
+    fireEvent.click(probe)
+    expect(handlers.onProviderProbe).toHaveBeenLastCalledWith('llm', 'llm-1')
+
     const save = screen.getAllByRole('button', { name: 'Save key' })[0]
-    expect(save).toBeDisabled()
-    const hints = screen.getAllByTestId(/^save-key-hint-/)
-    expect(hints.length).toBe(2)
-    expect(hints[0]).toBeVisible()
+    expect(save).toBeEnabled()
     fireEvent.click(save)
-    expect(handlers.onSaveAiApiKey).not.toHaveBeenCalled()
+    expect(handlers.onSaveAiApiKey).toHaveBeenCalledWith('llm-1')
+
+    // The removed "save first" hints must not render under any provider.
+    expect(
+      screen.queryByText('Save this provider first to test it.'),
+    ).toBeNull()
+    expect(screen.queryByTestId(/^save-key-hint-/)).toBeNull()
+    expect(screen.queryByTestId(/^probe-hint-/)).toBeNull()
   })
 
-  test('omits the Save-key save-first hint when no key has been typed yet (empty field is not a dead end)', () => {
-    // An empty field is a transient, self-resolving state — not a misconfigured
-    // dead end — so the hint must stay quiet until the user actually types a key.
+  test('keeps Save key disabled until a key is typed (its only legitimate transient gate)', () => {
+    // No "save first" hint anymore; the only remaining gate is "type a key first".
     renderSection({
       aiApiKeys: {},
-      persistedProviderIds: new Set(),
       currentSettings: settingsFixture({ enabled: true }),
     })
+    expect(
+      screen.getAllByRole('button', { name: 'Save key' })[0],
+    ).toBeDisabled()
     expect(screen.queryByTestId(/^save-key-hint-/)).toBeNull()
   })
 
-  test('probes a persisted provider even while the AI master toggle is OFF (you test before opting in)', () => {
-    // BUG B regression: testing a connection must not require AI to be enabled —
-    // the user validates an endpoint BEFORE committing to turning AI on. With a
-    // persisted provider and AI off, the probe is ENABLED, fires onProbe, and
-    // shows NO save-first hint.
+  test('probes a provider even while the AI master toggle is OFF (you test before opting in)', () => {
+    // Testing a connection must not require AI to be enabled — the user validates
+    // an endpoint BEFORE committing to turning AI on.
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
-      persistedProviderIds: new Set(['llm-1', 'embed-1']),
       currentSettings: settingsFixture({ enabled: false }),
     })
     const probe = screen.getAllByRole('button', { name: 'Test connection' })[0]
     expect(probe).toBeEnabled()
-    expect(
-      screen.queryByText('Save this provider first to test it.'),
-    ).toBeNull()
     fireEvent.click(probe)
     expect(handlers.onProviderProbe).toHaveBeenLastCalledWith('llm', 'llm-1')
   })
 
-  test('keeps the probe disabled WITHOUT a save-first hint while another probe is in flight', () => {
+  test('keeps every probe disabled while another probe is in flight (transient gate, no hint)', () => {
     // A transient gate (another probe running) disables every probe button, but
-    // it resolves on its own and the in-flight button already shows "Testing…",
-    // so we must NOT mislead the user with the save-first hint here even though
-    // the providers are persisted.
+    // it resolves on its own and the in-flight button already shows "Testing…".
+    // No "save first" hint exists anymore (providers always persist on add).
     renderSection({
-      persistedProviderIds: new Set(['llm-1', 'embed-1']),
       currentSettings: settingsFixture({ enabled: true }),
       testingProviderId: 'llm-1',
     })
@@ -524,7 +499,6 @@ describe('AiProvidersSection', () => {
 
   test('relabels the probe button while a probe is in flight', () => {
     renderSection({
-      persistedProviderIds: new Set(['llm-1', 'embed-1']),
       currentSettings: settingsFixture({ enabled: true }),
       testingProviderId: 'llm-1',
     })
@@ -537,44 +511,138 @@ describe('AiProvidersSection', () => {
       .forEach((button) => expect(button).toBeDisabled())
   })
 
-  test('drives save/reset from configDirty + saving', () => {
+  test('is all-auto-save: no Save AI config / Reset draft controls, toggles persist immediately', async () => {
     const handlers = handlerFixture()
-    const { rerender } = renderSection({
+    renderSection({
       ...handlers,
-      configDirty: false,
       currentSettings: settingsFixture({ enabled: true }),
-      saving: false,
     })
 
-    // Clean draft: save + reset are disabled.
-    expect(screen.getByTestId('ai-save-config')).toBeDisabled()
-    expect(screen.getByTestId('ai-reset-config')).toBeDisabled()
+    // The staged-draft Save / Reset controls are gone in the all-auto-save model.
+    expect(screen.queryByTestId('ai-save-config')).toBeNull()
+    expect(screen.queryByTestId('ai-reset-config')).toBeNull()
+    expect(screen.queryByText('You have unsaved changes')).toBeNull()
+    expect(screen.queryByText('Settings are up to date')).toBeNull()
 
-    // Dirty draft: both enable and route to their handlers.
-    rerender(
-      <MemoryRouter>
-        <I18nProvider>
-          <AiProvidersSection
-            navItem={navItem}
-            state={{
-              ...baseState(),
-              ...handlers,
-              configDirty: true,
-              currentSettings: settingsFixture({ enabled: true }),
-              saving: false,
-            }}
-          />
-        </I18nProvider>
-      </MemoryRouter>,
+    // Toggling the master / assistant / semantic switches persists immediately.
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Enable AI features' }),
     )
-    const save = screen.getByTestId('ai-save-config')
-    const reset = screen.getByTestId('ai-reset-config')
-    expect(save).toBeEnabled()
-    expect(reset).toBeEnabled()
-    fireEvent.click(save)
-    expect(handlers.onSaveAiConfig).toHaveBeenCalledTimes(1)
-    fireEvent.click(reset)
-    expect(handlers.onResetAiConfig).toHaveBeenCalledTimes(1)
+    expect(handlers.onToggleAi).toHaveBeenCalledTimes(1)
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'AI assistant (chat)' }),
+    )
+    expect(handlers.onToggleAssistant).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Smart search' }))
+    expect(handlers.onToggleSemanticIndex).toHaveBeenCalledTimes(1)
+
+    // The quiet "Saved" chip flashes after a successful auto-save.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  test('commits in-progress provider field edits on blur (auto-save), typing stays local', () => {
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      currentSettings: settingsFixture({ enabled: true }),
+    })
+
+    const llmName = screen.getByDisplayValue('Local LLM')
+    // Typing updates the local buffer only — no commit yet.
+    fireEvent.change(llmName, { target: { value: 'Edited LLM' } })
+    expect(handlers.onUpdateProvider).toHaveBeenLastCalledWith('llm', 'llm-1', {
+      name: 'Edited LLM',
+    })
+    expect(handlers.onCommitProviders).not.toHaveBeenCalled()
+    // Blurring out of the card commits (auto-save), for both editor lists.
+    fireEvent.blur(llmName)
+    expect(handlers.onCommitProviders).toHaveBeenCalledTimes(1)
+    fireEvent.blur(screen.getByDisplayValue('Local Embeddings'))
+    expect(handlers.onCommitProviders).toHaveBeenCalledTimes(2)
+  })
+
+  test('auto-saves the search-tuning knobs and the GPU toggle, flashing the Saved chip', async () => {
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      // A drifted knob (lexicalWeight != default) so the Reset control is enabled.
+      currentSettings: settingsFixture({
+        enabled: true,
+        semanticIndexEnabled: true,
+        lexicalWeight: 2,
+      }),
+    })
+
+    // Search tuning: a knob edit + reset both auto-save. The disclosure content is
+    // in the DOM even while collapsed, so the controls are directly queryable.
+    fireEvent.change(
+      screen.getByTestId('ai-search-tuning-lexicalWeight-input'),
+      { target: { value: '1.5' } },
+    )
+    expect(handlers.onSearchTuningChange).toHaveBeenCalledWith(
+      'lexicalWeight',
+      1.5,
+    )
+    fireEvent.click(screen.getByTestId('ai-search-tuning-reset'))
+    expect(handlers.onResetSearchTuning).toHaveBeenCalledTimes(1)
+
+    // GPU: flip the toggle (auto-save).
+    fireEvent.click(screen.getByTestId('ai-gpu-toggle'))
+    expect(handlers.onToggleGpu).toHaveBeenCalledTimes(1)
+
+    // A successful auto-save flashes the quiet "Saved" chip.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  test('does not flash the Saved chip when an auto-save is a no-op (resolves false)', async () => {
+    // A handler that resolves false (e.g. nothing changed) must stay silent — no
+    // misleading "Saved" confirmation.
+    const handlers = handlerFixture()
+    handlers.onToggleAi.mockResolvedValue(false)
+    renderSection({
+      ...handlers,
+      currentSettings: settingsFixture({ enabled: true }),
+    })
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Enable AI features' }),
+    )
+    expect(handlers.onToggleAi).toHaveBeenCalledTimes(1)
+    // Give any microtask a chance to resolve; the chip must remain hidden.
+    await Promise.resolve()
+    expect(
+      screen.getByTestId('settings-saved-chip').getAttribute('data-visible'),
+    ).toBe('false')
+  })
+
+  test('keeps the Saved chip hidden and swallows the rejection when an auto-save fails', async () => {
+    // persistAi re-throws on a failed saveConfig (the shell already set the error
+    // banner). flashOnSave must swallow that rejection so there is no unhandled
+    // rejection on every failing toggle, and the chip must stay hidden.
+    const handlers = handlerFixture()
+    handlers.onToggleAi.mockRejectedValue(new Error('save failed'))
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      renderSection({
+        ...handlers,
+        currentSettings: settingsFixture({ enabled: true }),
+      })
+
+      fireEvent.click(
+        screen.getByRole('checkbox', { name: 'Enable AI features' }),
+      )
+      expect(handlers.onToggleAi).toHaveBeenCalledTimes(1)
+      // Let the rejected promise settle through the .catch.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(
+        screen.getByTestId('settings-saved-chip').getAttribute('data-visible'),
+      ).toBe('false')
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
   })
 
   test('surfaces index health when status + meta are present', () => {
@@ -694,16 +762,17 @@ describe('AiProvidersSection', () => {
     expect(screen.getByText('Indexer paused by policy.')).toBeVisible()
   })
 
-  test('shows the saving label on the config save button while saving', () => {
+  test('freezes the provider editors while an auto-save is in flight', () => {
     renderSection({
-      configDirty: true,
       currentSettings: settingsFixture({ enabled: true }),
       saving: true,
     })
 
-    // The save button reflects the in-flight save and stays disabled.
-    expect(screen.getByTestId('ai-save-config')).toBeDisabled()
-    expect(screen.getByTestId('ai-save-config').textContent).toBe('Saving…')
+    // While a write is in flight the editors are inert so a save can't be raced.
+    expect(screen.getByDisplayValue('Local LLM')).toBeDisabled()
+    expect(
+      screen.getAllByRole('combobox', { name: 'Start from a preset' })[0],
+    ).toBeDisabled()
   })
 
   test('skips index health when status or meta are missing', () => {
@@ -738,7 +807,6 @@ function baseState(): AiProvidersSectionState {
   return {
     aiApiKeys: {},
     aiStatus: aiStatusFixture(),
-    configDirty: false,
     copyFeedback: null,
     currentSettings: settingsFixture(),
     indexMeta: {
@@ -749,7 +817,6 @@ function baseState(): AiProvidersSectionState {
     integrationError: null,
     integrationPreview: null,
     noProviders: false,
-    persistedProviderIds: new Set(['llm-1']),
     providerProbes: {},
     providerTranslations,
     saving: false,
@@ -775,25 +842,24 @@ function renderSection(overrides: Partial<AiProvidersSectionState> = {}) {
 
 function handlerFixture() {
   return {
-    onAddProvider: vi.fn(),
+    onAddProvider: vi.fn().mockResolvedValue(true),
     onApiKeyChange: vi.fn(),
     onClearAiApiKey: vi.fn().mockResolvedValue(undefined),
+    onCommitProviders: vi.fn().mockResolvedValue(true),
     onCopyIntegrationValue: vi.fn().mockResolvedValue(undefined),
     onOpenPath: vi.fn(),
     onProviderProbe: vi.fn().mockResolvedValue(undefined),
-    onRemoveProvider: vi.fn(),
-    onResetAiConfig: vi.fn(),
-    onResetSearchTuning: vi.fn(),
+    onRemoveProvider: vi.fn().mockResolvedValue(true),
+    onResetSearchTuning: vi.fn().mockResolvedValue(true),
     onSaveAiApiKey: vi.fn().mockResolvedValue(undefined),
-    onSaveAiConfig: vi.fn().mockResolvedValue(undefined),
-    onSearchTuningChange: vi.fn(),
-    onSelectProvider: vi.fn(),
-    onToggleAi: vi.fn(),
-    onToggleAssistant: vi.fn(),
-    onToggleGpu: vi.fn(),
-    onToggleMcp: vi.fn(),
-    onToggleSkill: vi.fn(),
-    onToggleSemanticIndex: vi.fn(),
+    onSearchTuningChange: vi.fn().mockResolvedValue(true),
+    onSelectProvider: vi.fn().mockResolvedValue(true),
+    onToggleAi: vi.fn().mockResolvedValue(true),
+    onToggleAssistant: vi.fn().mockResolvedValue(true),
+    onToggleGpu: vi.fn().mockResolvedValue(true),
+    onToggleMcp: vi.fn().mockResolvedValue(true),
+    onToggleSkill: vi.fn().mockResolvedValue(true),
+    onToggleSemanticIndex: vi.fn().mockResolvedValue(true),
     onUpdateProvider: vi.fn(),
   }
 }

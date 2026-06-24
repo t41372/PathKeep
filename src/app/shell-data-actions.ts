@@ -134,17 +134,31 @@ export function createShellDataActions({
     /**
      * Persists the latest app configuration, updates shell language immediately,
      * and refreshes dashboard data against the newly selected archive scope.
+     *
+     * Pass `{ quiet: true }` for the all-auto-save Settings path: a tiny config
+     * write fired on every individual toggle / select / blur must NOT throw the
+     * blocking full-screen `BusyOverlay` (that would freeze the main thread on
+     * each control and violates the fluidity constraint). In quiet mode the
+     * snapshot / language / app-lock / dashboard refresh still run exactly the
+     * same — only the overlay is suppressed, so the section's inline "Saved" chip
+     * is the sole confirmation. Explicit, user-initiated archive-choice saves
+     * (onboarding, schedule, jobs) leave `quiet` unset and keep the overlay.
      */
-    saveConfig: async (config: AppConfig) => {
-      showBusyOverlay({
-        label: t('shell.savingArchiveChoices'),
-        detail: t('shell.savingArchiveChoicesDetail'),
-      })
+    saveConfig: async (config: AppConfig, options?: { quiet?: boolean }) => {
+      const quiet = options?.quiet === true
+      if (!quiet) {
+        showBusyOverlay({
+          label: t('shell.savingArchiveChoices'),
+          detail: t('shell.savingArchiveChoicesDetail'),
+        })
+      }
       setNotice(null)
       setError(null)
 
       try {
-        await waitForNextPaint()
+        if (!quiet) {
+          await waitForNextPaint()
+        }
         const nextSnapshot = await backend.saveConfig(config)
         setLanguagePreference(nextSnapshot.config.preferredLanguage)
         setAppLockStatus(nextSnapshot.appLockStatus)
@@ -156,7 +170,9 @@ export function createShellDataActions({
         setError(describeError(nextError, 'save_config'))
         throw nextError
       } finally {
-        clearBusyOverlay()
+        if (!quiet) {
+          clearBusyOverlay()
+        }
       }
     },
 

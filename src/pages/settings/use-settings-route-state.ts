@@ -21,6 +21,7 @@
  * - aggregator 本身只做 hook composition，不做額外查詢或重計算。
  */
 
+import { useCallback } from 'react'
 import type {
   AppBuildInfo,
   AppConfig,
@@ -44,7 +45,10 @@ interface UseSettingsRouteStateArgs {
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   refreshAppData: () => Promise<void>
   refreshKey: number
-  saveConfig: (config: AppConfig) => Promise<AppSnapshot>
+  saveConfig: (
+    config: AppConfig,
+    options?: { quiet?: boolean },
+  ) => Promise<AppSnapshot>
   setAppLockPasscode: (request: {
     passcode: string
     recoveryHint?: string | null
@@ -60,6 +64,18 @@ interface UseSettingsRouteStateArgs {
  * each workflow keeps its own focused owner under the hood.
  */
 export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
+  // The Settings page is all-auto-save: every individual toggle / select / blur
+  // persists immediately. Route those writes through `quiet` so a tiny config
+  // write never throws the blocking full-screen `BusyOverlay` (which would freeze
+  // the main thread on every control). The shell still refreshes the snapshot,
+  // language, app-lock, and dashboard exactly the same — only the overlay is
+  // suppressed, leaving each section's inline "Saved" chip as the confirmation.
+  // Wrapping here (not per-hook) keeps every settings save path quiet by default.
+  const { saveConfig } = args
+  const quietSaveConfig = useCallback(
+    (config: AppConfig) => saveConfig(config, { quiet: true }),
+    [saveConfig],
+  )
   const supportState = useSettingsSupportState({
     appLockStatus: args.appLockStatus,
     clearAppLockPasscode: args.clearAppLockPasscode,
@@ -67,7 +83,7 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
     lockAppSession: args.lockAppSession,
     refreshAppData: args.refreshAppData,
     refreshKey: args.refreshKey,
-    saveConfig: args.saveConfig,
+    saveConfig: quietSaveConfig,
     setAppLockPasscode: args.setAppLockPasscode,
     setLanguagePreference: args.setLanguagePreference,
     snapshot: args.snapshot,
@@ -79,7 +95,7 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
   const aiState = useSettingsAiState({
     enableIntegrationPreview: args.enableAiIntegrationPreview,
     refreshAppData: args.refreshAppData,
-    saveConfig: args.saveConfig,
+    saveConfig: quietSaveConfig,
     snapshot: args.snapshot,
   })
   const derivedState = useSettingsDerivedState({
@@ -87,7 +103,7 @@ export function useSettingsRouteState(args: UseSettingsRouteStateArgs) {
     enabled: args.enableDerivedRuntime,
     refreshAppData: args.refreshAppData,
     refreshKey: args.refreshKey,
-    saveConfig: args.saveConfig,
+    saveConfig: quietSaveConfig,
     snapshot: args.snapshot,
   })
   return {

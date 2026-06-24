@@ -25,9 +25,9 @@
  *   `enrichmentEnabled` in the derived-state section).
  *
  * ## Performance notes
- * - One settings read on mount, writes only on explicit user action. No
- *   polling, no per-render fan-out. The blocklist textarea is a local draft
- *   committed on Save.
+ * - One settings read on mount, writes only on user edits (all-auto-save). No
+ *   polling, no per-render fan-out. The blocklist textarea keeps a local draft
+ *   while typing and auto-saves on blur, off the keystroke hot path.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -41,6 +41,8 @@ import { StatusCallout } from '@/components/primitives/status-callout'
 import type { ContentFetchSettings } from '@/lib/types'
 import { cn } from '@/lib/cn'
 import { Field, Toggle } from './paper-form-primitives'
+import { SettingsSavedChip } from './settings-saved-feedback'
+import { useSavedFeedback } from './use-saved-feedback'
 import {
   CONTENT_FETCH_EXTRACTOR_GENERIC_READABLE,
   CONTENT_FETCH_EXTRACTOR_GITHUB_REPO,
@@ -62,6 +64,7 @@ export function ContentFetchSection({
 }: ContentFetchSectionProps) {
   const { t } = useI18n()
   const { refreshAppData } = useShellData()
+  const { visible: savedVisible, flash } = useSavedFeedback()
   const desktop = hasDesktopCommandTransport()
 
   const [settings, setSettings] = useState<ContentFetchSettings | null>(null)
@@ -105,6 +108,8 @@ export function ContentFetchSection({
         await backend.setContentFetchSettings(next)
         await refreshAppData()
         setSettings(next)
+        // Quiet "Saved" confirmation on a landed write — the page is all-auto-save.
+        flash()
       } catch (error) {
         setSettings(previous)
         setSaveError(describeError(error, 'set_content_fetch_settings'))
@@ -112,7 +117,7 @@ export function ContentFetchSection({
         setSaving(false)
       }
     },
-    [refreshAppData, settings],
+    [flash, refreshAppData, settings],
   )
 
   const onToggleMaster = useCallback(
@@ -137,25 +142,24 @@ export function ContentFetchSection({
     [persist, settings],
   )
 
-  const onSaveDomains = useCallback(() => {
-    // Defensive null-safety guard: the Save button only renders inside the
-    // `domainsChanged` branch, which is false until settings load, so this is
-    // unreachable via the UI but required for type-safe access below.
+  // Per-domain blocklist auto-saves on blur (the page is all-auto-save). It is a
+  // free-text textarea so it edits a local draft while typing — keeping the
+  // backend write off the keystroke hot path — and only persists when focus
+  // leaves and the canonicalized rules differ from what's saved, so a blur with
+  // no edit never fires a redundant write or a misleading "Saved".
+  const onCommitDomains = useCallback(() => {
+    // The textarea only renders once settings load, so blur can't fire before
+    // then; this guard is for type-safe access and is unreachable via the UI.
     /* v8 ignore next */
     if (!settings) return
-    void persist({
-      ...settings,
-      domains: buildContentFetchDomainRules(domainsDraft),
-    })
+    const nextDomains = buildContentFetchDomainRules(domainsDraft)
+    if (
+      domainRulesToText(nextDomains) === domainRulesToText(settings.domains)
+    ) {
+      return
+    }
+    void persist({ ...settings, domains: nextDomains })
   }, [domainsDraft, persist, settings])
-
-  const onResetDomains = useCallback(() => {
-    // Unreachable while settings are null (the Reset button is gated the same
-    // way as Save); kept for type-safe access.
-    /* v8 ignore next */
-    if (!settings) return
-    setDomainsDraft(domainRulesToText(settings.domains))
-  }, [settings])
 
   const onPrime = useCallback(async () => {
     setPriming(true)
@@ -202,7 +206,10 @@ export function ContentFetchSection({
 
   return (
     <PaperCard testId="settings-content-fetch-section" id={anchorId}>
-      <PaperCardHeader title={t('settings.contentFetchTitle')} />
+      <PaperCardHeader
+        title={t('settings.contentFetchTitle')}
+        right={<SettingsSavedChip visible={savedVisible} />}
+      />
       <PaperCardBody>
         <p className="text-ink-muted m-0 mb-4 font-serif text-[13.5px] leading-[1.55] italic">
           {t('settings.contentFetchIntro')}
@@ -305,6 +312,7 @@ export function ContentFetchSection({
           <textarea
             value={domainsDraft}
             onChange={(event) => setDomainsDraft(event.target.value)}
+            onBlur={onCommitDomains}
             rows={3}
             placeholder={t('settings.contentFetchDomainsPlaceholder')}
             data-testid="content-fetch-domains-input"
@@ -313,32 +321,11 @@ export function ContentFetchSection({
               'focus:border-accent focus:outline-none',
             )}
           />
-          {domainsChanged ? (
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onSaveDomains}
-                disabled={saving}
-                data-testid="content-fetch-domains-save"
-                className="border-accent text-accent-text hover:bg-accent-soft rounded-paper border px-3 py-1 font-sans text-[12px] disabled:opacity-60"
-              >
-                {t('settings.contentFetchDomainsSave')}
-              </button>
-              <button
-                type="button"
-                onClick={onResetDomains}
-                disabled={saving}
-                data-testid="content-fetch-domains-reset"
-                className="border-border-default text-ink-muted hover:bg-hover rounded-paper border px-3 py-1 font-sans text-[12px] disabled:opacity-60"
-              >
-                {t('settings.contentFetchDomainsReset')}
-              </button>
-            </div>
-          ) : (
+          {!domainsChanged ? (
             <p className="text-ink-faint mt-2 font-mono text-[10.5px]">
               {t('settings.contentFetchDomainsEmpty')}
             </p>
-          )}
+          ) : null}
         </Field>
 
         <Field label={t('settings.contentFetchStatusLabel')}>

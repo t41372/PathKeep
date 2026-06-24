@@ -5,7 +5,8 @@
  *
  * ## 職責
  * - 顯示 AI master toggle、provider editor lists、index health 與 consent 披露。
- * - 把 provider draft、API key、save/reset 行為交回 route-owned handlers。
+ * - 全部 auto-save：toggle / selection / tuning / GPU / add / remove 立即存，provider 欄位在 blur 時 commit；成功後閃 "Saved" chip。
+ * - 把 API key save/clear、test connection 這類顯式動作交回 route-owned handlers。
  * - 保持 optional intelligence honesty：AI 預設關閉、需顯式 consent，editor 只在開啟後可編輯。
  *
  * ## 不負責
@@ -38,6 +39,8 @@ import { ToggleRow } from '../../components/ui'
 import { localizeAiIndexWarning } from '../../lib/ai/note-codes'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
+import { SettingsSavedChip } from './settings-saved-feedback'
+import { useSavedFeedback } from './use-saved-feedback'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
 import type {
   AiIndexStatus,
@@ -83,40 +86,54 @@ type AiProviderTranslations = {
 export interface AiProvidersSectionState {
   aiApiKeys: Record<string, string>
   aiStatus: AiIndexStatus | null
-  configDirty: boolean
   copyFeedback: ReviewCopyFeedback | null
   currentSettings: AiSettings | null
   indexMeta: ReturnType<typeof aiStatusMeta> | null
   integrationError: string | null
   integrationPreview: AiIntegrationPreview | null
   noProviders: boolean
-  persistedProviderIds: Set<string>
   providerProbes: Record<string, AiProviderConnectionTestReport>
   providerTranslations: AiProviderTranslations
   saving: boolean
   testingProviderId: string | null
-  onAddProvider: (purpose: 'llm' | 'embedding', format: AiRequestFormat) => void
+  // Structural controls auto-save and resolve to `true` only when a write landed,
+  // so the section can flash the quiet "Saved" chip on success and stay silent on
+  // a no-op (settings unchanged) or a failure.
+  onAddProvider: (
+    purpose: 'llm' | 'embedding',
+    format: AiRequestFormat,
+  ) => Promise<boolean>
   onApiKeyChange: (providerId: string, value: string) => void
   onClearAiApiKey: (providerId: string) => Promise<void>
+  // Commit in-progress provider field edits on blur (auto-save). No-ops to false
+  // when the editing buffer already matches saved config.
+  onCommitProviders: () => Promise<boolean>
   onCopyIntegrationValue: (key: string, value: string) => Promise<void>
   onOpenPath: (path: string) => void
   onProviderProbe: (
     purpose: 'llm' | 'embedding',
     providerId: string,
   ) => Promise<void>
-  onRemoveProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
-  onResetAiConfig: () => void
-  onResetSearchTuning: () => void
+  onRemoveProvider: (
+    purpose: 'llm' | 'embedding',
+    providerId: string,
+  ) => Promise<boolean>
+  onResetSearchTuning: () => Promise<boolean>
   onSaveAiApiKey: (providerId: string) => Promise<void>
-  onSaveAiConfig: () => Promise<void>
-  onSearchTuningChange: (knob: SearchTuningKnob, value: number) => void
-  onSelectProvider: (purpose: 'llm' | 'embedding', providerId: string) => void
-  onToggleAi: () => void
-  onToggleAssistant: () => void
-  onToggleGpu: () => void
-  onToggleMcp: () => void
-  onToggleSkill: () => void
-  onToggleSemanticIndex: () => void
+  onSearchTuningChange: (
+    knob: SearchTuningKnob,
+    value: number,
+  ) => Promise<boolean>
+  onSelectProvider: (
+    purpose: 'llm' | 'embedding',
+    providerId: string,
+  ) => Promise<boolean>
+  onToggleAi: () => Promise<boolean>
+  onToggleAssistant: () => Promise<boolean>
+  onToggleGpu: () => Promise<boolean>
+  onToggleMcp: () => Promise<boolean>
+  onToggleSkill: () => Promise<boolean>
+  onToggleSemanticIndex: () => Promise<boolean>
   onUpdateProvider: (
     purpose: 'llm' | 'embedding',
     providerId: string,
@@ -146,14 +163,13 @@ export function AiProvidersSection({
   state,
 }: AiProvidersSectionProps) {
   const { language, t } = useI18n()
+  const { visible: savedVisible, flash } = useSavedFeedback()
   const {
     aiApiKeys,
     aiStatus,
-    configDirty,
     currentSettings,
     indexMeta,
     noProviders,
-    persistedProviderIds,
     providerProbes,
     providerTranslations,
     saving,
@@ -161,12 +177,11 @@ export function AiProvidersSection({
     onAddProvider,
     onApiKeyChange,
     onClearAiApiKey,
+    onCommitProviders,
     onProviderProbe,
     onRemoveProvider,
-    onResetAiConfig,
     onResetSearchTuning,
     onSaveAiApiKey,
-    onSaveAiConfig,
     onSearchTuningChange,
     onSelectProvider,
     onToggleAi,
@@ -178,6 +193,21 @@ export function AiProvidersSection({
     onUpdateProvider,
   } = state
 
+  // Flash the quiet "Saved" chip only when an auto-save actually persisted. Every
+  // structural control returns true on a real write and false on a no-op/failure.
+  // `persistAi` re-throws when the underlying save fails (the shell already set the
+  // error banner), so swallow the rejection here: the chip correctly stays hidden
+  // and we avoid an unhandled-rejection on every failing toggle.
+  const flashOnSave = (saved: Promise<boolean>) => {
+    void saved
+      .then((didSave) => {
+        if (didSave) {
+          flash()
+        }
+      })
+      .catch(() => {})
+  }
+
   if (!currentSettings) {
     return null
   }
@@ -188,26 +218,12 @@ export function AiProvidersSection({
   const aiOn = currentSettings.enabled
   const editorsDisabled = saving || !aiOn
 
-  // Probe a provider only once it is PERSISTED (the backend reads saved config
-  // by id, not the in-flight draft), and never while another probe or save is
-  // in flight. Crucially this does NOT require the AI master toggle to be on —
-  // you test an endpoint BEFORE committing to enabling AI — so `aiOn` is
-  // deliberately absent from this gate.
-  const onProbeDisabled = (providerId: string) =>
-    saving ||
-    testingProviderId !== null ||
-    !persistedProviderIds.has(providerId)
-  // When the ONLY reason the probe is disabled is that the provider has not
-  // been saved yet, surface an inline hint so the button is never a silent dead
-  // end — the user learns the next step (save first) instead of clicking into
-  // nothing. Transient gates (saving / another probe in flight) get no hint
-  // because they resolve on their own and the button label already reflects them.
-  const onProbeDisabledHint = (providerId: string) =>
-    !persistedProviderIds.has(providerId) &&
-    !saving &&
-    testingProviderId === null
-      ? t('settings.aiProbeSaveFirstHint')
-      : null
+  // Probe a provider whenever no save and no other probe is in flight. Because a
+  // provider is auto-persisted the moment it's added, there is no "save the
+  // provider first" gate anymore — every provider on screen is already saved
+  // config the backend can probe by id. This deliberately does NOT require the AI
+  // master toggle to be on (you test an endpoint BEFORE opting into AI).
+  const onProbeDisabled = () => saving || testingProviderId !== null
   const probeLatencyLabel = (latency: number, model: string) =>
     t('settings.aiProbeLatency', {
       latency: latency.toLocaleString(language),
@@ -221,32 +237,22 @@ export function AiProvidersSection({
     google: t('settings.aiPresetGoogle'),
   }
 
+  // Save key is enabled as soon as a key is typed for a (now always-persisted)
+  // provider; Clear key is enabled whenever a save isn't already in flight.
   const onSaveKeyDisabled = (providerId: string) =>
-    saving ||
-    !persistedProviderIds.has(providerId) ||
-    !aiApiKeys[providerId]?.trim()
-  // When the ONLY reason Save key is disabled is that the provider hasn't been
-  // saved to config yet, surface an inline hint (mirroring the probe hint) so the
-  // button is never a silent dead end. The backend stores the secret keyed by
-  // provider id, which doesn't exist in saved config until Save settings runs —
-  // so a freshly-added provider must be saved first. A typed-but-unsaved key gets
-  // the hint; an empty field (transient) and the saving gate get none, since
-  // those resolve on their own. This is the FE half of the "I entered a key and
-  // still got an error" fix (the backend half makes the key optional outright).
-  const onSaveKeyDisabledHint = (providerId: string) =>
-    !persistedProviderIds.has(providerId) &&
-    !saving &&
-    !!aiApiKeys[providerId]?.trim()
-      ? t('settings.aiSaveKeySaveFirstHint')
-      : null
-  const onClearKeyDisabled = (providerId: string) =>
-    saving || !persistedProviderIds.has(providerId)
+    saving || !aiApiKeys[providerId]?.trim()
+  const onClearKeyDisabled = () => saving
 
   return (
     <PaperCard testId={navItem.id}>
       <PaperCardHeader
         title={navItem.label}
-        right={<PaperCardBadge>{t('settings.optional')}</PaperCardBadge>}
+        right={
+          <div className="flex items-center gap-2">
+            <SettingsSavedChip visible={savedVisible} />
+            <PaperCardBadge>{t('settings.optional')}</PaperCardBadge>
+          </div>
+        }
       />
       <PaperCardBody className="flex flex-col gap-4">
         <p className="text-ink-muted m-0 font-serif text-[13.5px] leading-[1.55] italic">
@@ -288,49 +294,13 @@ export function AiProvidersSection({
           />
         ) : null}
 
-        <StatusCallout
-          tone={configDirty ? 'warning' : 'info'}
-          title={
-            configDirty
-              ? t('settings.aiUnsavedChanges')
-              : t('settings.aiDraftSaved')
-          }
-          body={t('settings.aiDraftBoundaryBody')}
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                className="btn-primary"
-                type="button"
-                disabled={saving || !configDirty}
-                onClick={() => {
-                  void onSaveAiConfig()
-                }}
-                data-testid="ai-save-config"
-              >
-                {saving
-                  ? t('settings.aiSavingConfig')
-                  : t('settings.aiSaveConfig')}
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={saving || !configDirty}
-                onClick={onResetAiConfig}
-                data-testid="ai-reset-config"
-              >
-                {t('settings.aiResetDraft')}
-              </button>
-            </div>
-          }
-        />
-
         <div className="toggleList">
           <ToggleRow
             checked={aiOn}
             describedById="ai-consent-disclosure"
             disabled={saving}
             label={t('settings.aiMasterToggle')}
-            onChange={onToggleAi}
+            onChange={() => flashOnSave(onToggleAi())}
           />
           {/*
             Granular consent (B1): the assistant and semantic-search capabilities
@@ -344,7 +314,7 @@ export function AiProvidersSection({
             checked={currentSettings.assistantEnabled}
             disabled={editorsDisabled}
             label={t('settings.aiAssistantToggle')}
-            onChange={onToggleAssistant}
+            onChange={() => flashOnSave(onToggleAssistant())}
           />
           <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
             {t('settings.aiAssistantToggleHelp')}
@@ -353,7 +323,7 @@ export function AiProvidersSection({
             checked={currentSettings.semanticIndexEnabled}
             disabled={editorsDisabled}
             label={t('settings.aiSemanticToggle')}
-            onChange={onToggleSemanticIndex}
+            onChange={() => flashOnSave(onToggleSemanticIndex())}
           />
           <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
             {t('settings.aiSemanticToggleHelp')}
@@ -374,7 +344,7 @@ export function AiProvidersSection({
             describedById="ai-mcp-disclosure"
             disabled={editorsDisabled}
             label={t('settings.aiMcpToggle')}
-            onChange={onToggleMcp}
+            onChange={() => flashOnSave(onToggleMcp())}
           />
           <div
             className="text-ink-muted m-0 flex flex-col items-start gap-1.5 font-sans text-[12px] leading-[1.5]"
@@ -413,7 +383,7 @@ export function AiProvidersSection({
             describedById="ai-skill-disclosure"
             disabled={editorsDisabled}
             label={t('settings.aiSkillToggle')}
-            onChange={onToggleSkill}
+            onChange={() => flashOnSave(onToggleSkill())}
           />
           <div
             className="text-ink-muted m-0 flex flex-col items-start gap-1.5 font-sans text-[12px] leading-[1.5]"
@@ -435,26 +405,28 @@ export function AiProvidersSection({
           disclosure so it never clutters the normal AI config, and gated by the
           same `editorsDisabled` as the provider editors — visible-but-inert while
           AI is off so the user can see what tuning unlocks before opting in. The
-          knobs mutate the draft only and persist through the shared Save above.
+          knobs auto-save and flash the Saved chip on each landed write.
         */}
         <AiSearchTuningSection
           settings={currentSettings}
           disabled={editorsDisabled}
-          onChange={onSearchTuningChange}
-          onReset={onResetSearchTuning}
+          onChange={(knob, value) =>
+            flashOnSave(onSearchTuningChange(knob, value))
+          }
+          onReset={() => flashOnSave(onResetSearchTuning())}
         />
 
         {/*
           GPU heavy-tier + re-embed (W-AI-9 Sub-block D). Same collapsed-disclosure
           treatment + `editorsDisabled` gate as search tuning: visible-but-inert
           while AI is off so the user can see what GPU acceleration unlocks before
-          opting in. The toggle mutates the draft only (persisted by the shared
-          Save); the section is honest when this build cannot run Metal.
+          opting in. The toggle auto-saves (flashing the Saved chip); the section
+          is honest when this build cannot run Metal.
         */}
         <AiGpuSection
           settings={currentSettings}
           disabled={editorsDisabled}
-          onToggleGpu={onToggleGpu}
+          onToggleGpu={() => flashOnSave(onToggleGpu())}
         />
 
         <AiProviderEditorList
@@ -464,24 +436,27 @@ export function AiProvidersSection({
           formatLabel={probeLatencyLabel}
           presetLabel={t('settings.aiAddProviderPresetLabel')}
           presetLabels={presetLabels}
-          onAdd={(format) => onAddProvider('llm', format)}
+          onAdd={(format) => flashOnSave(onAddProvider('llm', format))}
           onApiKeyChange={onApiKeyChange}
           onClearKey={(providerId) => {
             void onClearAiApiKey(providerId)
           }}
           onClearKeyDisabled={onClearKeyDisabled}
+          onCommit={() => flashOnSave(onCommitProviders())}
           onProbe={(providerId) => {
             void onProviderProbe('llm', providerId)
           }}
           onProbeDisabled={onProbeDisabled}
-          onProbeDisabledHint={onProbeDisabledHint}
-          onRemove={(providerId) => onRemoveProvider('llm', providerId)}
+          onRemove={(providerId) =>
+            flashOnSave(onRemoveProvider('llm', providerId))
+          }
           onSaveKey={(providerId) => {
             void onSaveAiApiKey(providerId)
           }}
           onSaveKeyDisabled={onSaveKeyDisabled}
-          onSaveKeyDisabledHint={onSaveKeyDisabledHint}
-          onSelect={(providerId) => onSelectProvider('llm', providerId)}
+          onSelect={(providerId) =>
+            flashOnSave(onSelectProvider('llm', providerId))
+          }
           onUpdate={(providerId, patch) =>
             onUpdateProvider('llm', providerId, patch)
           }
@@ -501,24 +476,27 @@ export function AiProvidersSection({
           formatLabel={probeLatencyLabel}
           presetLabel={t('settings.aiAddProviderPresetLabel')}
           presetLabels={presetLabels}
-          onAdd={(format) => onAddProvider('embedding', format)}
+          onAdd={(format) => flashOnSave(onAddProvider('embedding', format))}
           onApiKeyChange={onApiKeyChange}
           onClearKey={(providerId) => {
             void onClearAiApiKey(providerId)
           }}
           onClearKeyDisabled={onClearKeyDisabled}
+          onCommit={() => flashOnSave(onCommitProviders())}
           onProbe={(providerId) => {
             void onProviderProbe('embedding', providerId)
           }}
           onProbeDisabled={onProbeDisabled}
-          onProbeDisabledHint={onProbeDisabledHint}
-          onRemove={(providerId) => onRemoveProvider('embedding', providerId)}
+          onRemove={(providerId) =>
+            flashOnSave(onRemoveProvider('embedding', providerId))
+          }
           onSaveKey={(providerId) => {
             void onSaveAiApiKey(providerId)
           }}
           onSaveKeyDisabled={onSaveKeyDisabled}
-          onSaveKeyDisabledHint={onSaveKeyDisabledHint}
-          onSelect={(providerId) => onSelectProvider('embedding', providerId)}
+          onSelect={(providerId) =>
+            flashOnSave(onSelectProvider('embedding', providerId))
+          }
           onUpdate={(providerId, patch) =>
             onUpdateProvider('embedding', providerId, patch)
           }

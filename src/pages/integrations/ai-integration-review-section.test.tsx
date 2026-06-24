@@ -19,51 +19,63 @@ import { I18nProvider } from '../../lib/i18n'
 import type { AiProvidersSectionState } from '../settings/ai-providers-section'
 import { AiIntegrationReviewSection } from './ai-integration-review-section'
 
+// Build a fixture that reflects the REAL `AiProvidersSectionState` interface (the
+// all-auto-save AI section: no staged-draft `configDirty` / `onSaveAiConfig` /
+// `onResetAiConfig`, no `persistedProviderIds`; every structural control is its own
+// auto-save handler). Only `providerTranslations` is cast — this review surface
+// never reads it — so the full handler/field shape stays type-checked and future
+// drift (a renamed or removed prop) fails the build instead of hiding behind a cast.
 const baseState = (
   patch: Partial<AiProvidersSectionState> = {},
-): AiProvidersSectionState =>
-  ({
-    aiApiKeys: {},
-    aiStatus: null,
-    configDirty: false,
-    copyFeedback: null,
-    currentSettings: {
-      enabled: true,
-      assistantEnabled: false,
-      semanticIndexEnabled: false,
-      mcpEnabled: true,
-      skillEnabled: true,
-      autoIndexAfterBackup: false,
-      jobQueuePaused: false,
-      jobQueueConcurrency: 1,
-      enrichmentEnabled: false,
-      enrichmentPlugins: [],
-      retrievalTopK: 6,
-      assistantSystemPrompt: '',
-      llmProviders: [],
-      embeddingProviders: [],
-    },
-    indexMeta: null,
-    integrationError: null,
-    integrationPreview: null,
-    noProviders: false,
-    persistedProviderIds: new Set(),
-    providerTranslations: {} as never,
-    saving: false,
-    onAddProvider: vi.fn(),
-    onApiKeyChange: vi.fn(),
-    onClearAiApiKey: vi.fn(),
-    onCopyIntegrationValue: vi.fn(),
-    onOpenPath: vi.fn(),
-    onRemoveProvider: vi.fn(),
-    onResetAiConfig: vi.fn(),
-    onSaveAiApiKey: vi.fn(),
-    onSaveAiConfig: vi.fn(),
-    onSelectProvider: vi.fn(),
-    onToggleAi: vi.fn(),
-    onUpdateProvider: vi.fn(),
-    ...patch,
-  }) as AiProvidersSectionState
+): AiProvidersSectionState => ({
+  aiApiKeys: {},
+  aiStatus: null,
+  copyFeedback: null,
+  currentSettings: {
+    enabled: true,
+    assistantEnabled: false,
+    semanticIndexEnabled: false,
+    mcpEnabled: true,
+    skillEnabled: true,
+    autoIndexAfterBackup: false,
+    jobQueuePaused: false,
+    jobQueueConcurrency: 1,
+    enrichmentEnabled: false,
+    enrichmentPlugins: [],
+    retrievalTopK: 6,
+    assistantSystemPrompt: '',
+    llmProviders: [],
+    embeddingProviders: [],
+  },
+  indexMeta: null,
+  integrationError: null,
+  integrationPreview: null,
+  noProviders: false,
+  providerProbes: {},
+  providerTranslations: {} as AiProvidersSectionState['providerTranslations'],
+  saving: false,
+  testingProviderId: null,
+  onAddProvider: vi.fn(),
+  onApiKeyChange: vi.fn(),
+  onClearAiApiKey: vi.fn(),
+  onCommitProviders: vi.fn(),
+  onCopyIntegrationValue: vi.fn(),
+  onOpenPath: vi.fn(),
+  onProviderProbe: vi.fn(),
+  onRemoveProvider: vi.fn(),
+  onResetSearchTuning: vi.fn(),
+  onSaveAiApiKey: vi.fn(),
+  onSearchTuningChange: vi.fn(),
+  onSelectProvider: vi.fn(),
+  onToggleAi: vi.fn(),
+  onToggleAssistant: vi.fn(),
+  onToggleGpu: vi.fn(),
+  onToggleMcp: vi.fn(),
+  onToggleSkill: vi.fn(),
+  onToggleSemanticIndex: vi.fn(),
+  onUpdateProvider: vi.fn(),
+  ...patch,
+})
 
 function renderSection(state: AiProvidersSectionState) {
   return render(

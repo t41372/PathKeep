@@ -104,7 +104,7 @@ describe('LinkPreviewsSection', () => {
     )
   })
 
-  test('blocklist input parses + saves blockedHosts (canonicalized + de-duped)', async () => {
+  test('blocklist input auto-saves blockedHosts on blur (canonicalized + de-duped, no Save/Reset)', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
@@ -114,38 +114,50 @@ describe('LinkPreviewsSection', () => {
     const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(withShell({ ogImageFetchEnabled: true, saveConfig }))
     const textarea = screen.getByTestId('link-previews-blocklist-input')
+    // The per-section Save / Reset controls are gone in the all-auto-save model.
+    expect(screen.queryByTestId('link-previews-blocklist-save')).toBeNull()
+    expect(screen.queryByTestId('link-previews-blocklist-reset')).toBeNull()
+
     await userEvent.type(
       textarea,
       'Example.com{Enter}# inline comment{Enter}example.com{Enter}other.example.org',
     )
-    await userEvent.click(screen.getByTestId('link-previews-blocklist-save'))
+    // Persists on blur, off the keystroke hot path.
+    fireEvent.blur(textarea)
     expect(saveConfig).toHaveBeenCalledTimes(1)
     expect(saveConfig.mock.calls[0][0].ogImage.blockedHosts).toEqual([
       'example.com',
       'other.example.org',
     ])
+    // The quiet "Saved" chip flashes after a landed write.
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
   })
 
-  test('blocklist reset reverts the draft to the persisted snapshot', async () => {
+  test('a blur with no blocklist change does not re-save (no-op auto-save)', async () => {
     vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
       rowCount: 0,
       blobCount: 0,
       totalBytes: 0,
       oldestFetchedAt: null,
     })
+    const saveConfig = vi.fn().mockResolvedValue(undefined)
     render(
       withShell({
         ogImageFetchEnabled: true,
         blockedHosts: ['initial.example.test'],
+        saveConfig,
       }),
     )
     const textarea = screen.getByTestId<HTMLTextAreaElement>(
       'link-previews-blocklist-input',
     )
-    await userEvent.type(textarea, '{Enter}draft.example.test')
-    expect(textarea.value).toContain('draft.example.test')
-    await userEvent.click(screen.getByTestId('link-previews-blocklist-reset'))
-    expect(textarea.value).toBe('initial.example.test')
+    // Let the on-mount stats load settle so the assertion isn't racing an update.
+    await waitFor(() => expect(textarea.value).toBe('initial.example.test'))
+    // Focus + blur without editing — the canonicalized hosts are unchanged, so
+    // there is no redundant write.
+    fireEvent.focus(textarea)
+    fireEvent.blur(textarea)
+    expect(saveConfig).not.toHaveBeenCalled()
   })
 
   test('switching cleanup mode persists the default per-mode arg', async () => {

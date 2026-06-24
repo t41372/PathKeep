@@ -250,11 +250,15 @@ describe('intelligence surfaces settings core sections', () => {
       }),
       '0',
     )
+    // The Settings auto-save path persists `quiet` so a tiny config write never
+    // throws the blocking full-screen overlay (fluidity constraint) — only the
+    // inline "Saved" chip confirms it.
     await waitFor(() =>
       expect(shellValue.saveConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           explorerBackgroundPrefetchPages: 0,
         }),
+        { quiet: true },
       ),
     )
   })

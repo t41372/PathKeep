@@ -4,8 +4,9 @@
  * @module pages/settings
  *
  * ## 職責
- * - 顯示 App Lock 的 enable/disable、idle timeout、biometric、passcode 與 recovery review surface。
- * - 把 save config、set/clear passcode、lock now 交回 route-owned handlers。
+ * - 顯示 App Lock 的 enable/disable、idle timeout、biometric、recovery review surface。
+ * - enable/timeout/biometric 立即 auto-save，recovery hint 在 blur 時 auto-save，成功後閃一下 "Saved" chip。
+ * - 把 set/clear passcode、lock now 這類顯式動作交回 route-owned handlers。
  * - 保持 config path / last unlocked / degradation notes 的誠實呈現。
  *
  * ## 不負責
@@ -37,13 +38,13 @@ import { useI18n } from '../../lib/i18n'
 import { cn } from '../../lib/cn'
 import { Field } from './paper-form-primitives'
 import type { SettingsSectionNavItem } from './section-nav-items'
+import { SettingsSavedChip } from './settings-saved-feedback'
+import { useSavedFeedback } from './use-saved-feedback'
 
 const SELECT_CLASS =
   'border-border-default rounded-paper bg-paper text-ink font-sans text-[12.5px] px-2 py-1 focus:border-accent focus:outline-none disabled:opacity-60'
 const INPUT_CLASS =
   'border-border-default rounded-paper bg-paper text-ink w-full font-sans text-[12.5px] px-2 py-1.5 focus:border-accent focus:outline-none disabled:opacity-60'
-const BUTTON_PRIMARY =
-  'border-accent text-accent-text hover:bg-accent-soft rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 const BUTTON_SECONDARY =
   'border-border-default text-ink-muted hover:border-ink-muted hover:bg-hover rounded-paper inline-flex items-center border px-3 py-1.5 font-sans text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
 
@@ -53,23 +54,25 @@ const BUTTON_SECONDARY =
 export interface AppLockSectionState {
   action: string | null
   canEnable: boolean
-  configDirty: boolean
   copyFeedback: ReviewCopyFeedback | null
   currentSettings: AppLockConfig | null
   passcode: string
   recoveryHint: string
   status: AppLockStatus | null
   usesTouchId: boolean
-  onBiometricChange: (enabled: boolean) => void
+  // The auto-save field handlers resolve to `true` only when a write actually
+  // landed, so the section can flash the quiet "Saved" chip on success and stay
+  // silent on a no-op (e.g. a blur with no edit) or a failure.
+  onBiometricChange: (enabled: boolean) => Promise<boolean>
   onClearPasscode: () => Promise<void>
   onCopyPath: (key: string, value: string) => Promise<void>
-  onEnabledChange: (enabled: boolean) => void
-  onIdleTimeoutChange: (minutes: number) => void
+  onEnabledChange: (enabled: boolean) => Promise<boolean>
+  onIdleTimeoutChange: (minutes: number) => Promise<boolean>
   onLockNow: () => Promise<void>
   onOpenPath: (path: string) => void
   onPasscodeChange: (value: string) => void
   onRecoveryHintChange: (value: string) => void
-  onSaveConfig: () => Promise<void>
+  onRecoveryHintCommit: () => Promise<boolean>
   onSetPasscode: () => Promise<void>
 }
 
@@ -90,10 +93,10 @@ export interface AppLockSectionProps {
  */
 export function AppLockSection({ navItem, state }: AppLockSectionProps) {
   const { t } = useI18n()
+  const { visible: savedVisible, flash } = useSavedFeedback()
   const {
     action,
     canEnable,
-    configDirty,
     copyFeedback,
     currentSettings,
     passcode,
@@ -109,9 +112,24 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
     onOpenPath,
     onPasscodeChange,
     onRecoveryHintChange,
-    onSaveConfig,
+    onRecoveryHintCommit,
     onSetPasscode,
   } = state
+
+  // Flash the quiet "Saved" chip only when an auto-save actually persisted. Each
+  // field handler runs its own saveConfig and resolves true on a real write.
+  // `persistAppLock` re-throws when the save fails (the shell already set the error
+  // banner), so swallow the rejection here: the chip correctly stays hidden and we
+  // avoid an unhandled-rejection on every failing toggle.
+  const flashOnSave = (saved: Promise<boolean>) => {
+    void saved
+      .then((didSave) => {
+        if (didSave) {
+          flash()
+        }
+      })
+      .catch(() => {})
+  }
 
   if (!currentSettings) {
     return null
@@ -121,7 +139,12 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
     <PaperCard testId={navItem.id}>
       <PaperCardHeader
         title={navItem.label}
-        right={<PaperCardBadge>{t('settings.optional')}</PaperCardBadge>}
+        right={
+          <div className="flex items-center gap-2">
+            <SettingsSavedChip visible={savedVisible} />
+            <PaperCardBadge>{t('settings.optional')}</PaperCardBadge>
+          </div>
+        }
       />
       <PaperCardBody>
         <div className="mb-4">
@@ -137,9 +160,10 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
             <input
               aria-label={t('settings.appLockEnabled')}
               checked={currentSettings.enabled}
+              disabled={Boolean(action)}
               type="checkbox"
               onChange={(event) => {
-                onEnabledChange(event.target.checked)
+                flashOnSave(onEnabledChange(event.target.checked))
               }}
             />
             <span>{t('settings.appLockEnabled')}</span>
@@ -158,9 +182,10 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
           <select
             aria-label={t('settings.appLockIdleTimeout')}
             className={SELECT_CLASS}
+            disabled={Boolean(action)}
             value={currentSettings.idleTimeoutMinutes}
             onChange={(event) => {
-              onIdleTimeoutChange(Number(event.target.value))
+              flashOnSave(onIdleTimeoutChange(Number(event.target.value)))
             }}
           >
             {[1, 5, 10, 15, 30, 60].map((minutes) => (
@@ -193,10 +218,10 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
                   : t('settings.appLockBiometric')
               }
               checked={currentSettings.biometricEnabled}
-              disabled={!status?.biometricAvailable}
+              disabled={!status?.biometricAvailable || Boolean(action)}
               type="checkbox"
               onChange={(event) => {
-                onBiometricChange(event.target.checked)
+                flashOnSave(onBiometricChange(event.target.checked))
               }}
             />
             <span>
@@ -211,9 +236,13 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
           <input
             aria-label={t('settings.appLockRecoveryHint')}
             className={INPUT_CLASS}
+            disabled={Boolean(action)}
             placeholder={t('settings.appLockRecoveryHintPlaceholder')}
             type="text"
             value={recoveryHint}
+            onBlur={() => {
+              flashOnSave(onRecoveryHintCommit())
+            }}
             onChange={(event) => {
               onRecoveryHintChange(event.target.value)
             }}
@@ -234,20 +263,6 @@ export function AppLockSection({ navItem, state }: AppLockSectionProps) {
         </Field>
 
         <div className="flex flex-wrap items-center gap-2 pt-3">
-          <button
-            className={BUTTON_PRIMARY}
-            type="button"
-            disabled={
-              Boolean(action) ||
-              !configDirty ||
-              (currentSettings.enabled && !canEnable)
-            }
-            onClick={() => {
-              void onSaveConfig()
-            }}
-          >
-            {action ?? t('settings.appLockSave')}
-          </button>
           <button
             className={BUTTON_SECONDARY}
             type="button"

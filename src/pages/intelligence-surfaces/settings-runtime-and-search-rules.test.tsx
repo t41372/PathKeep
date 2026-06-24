@@ -192,6 +192,9 @@ describe('intelligence surfaces settings runtime and search rules', () => {
     )
 
     await waitFor(() => expect(shellValue.saveConfig).toHaveBeenCalledTimes(1))
+    // The Settings auto-save path persists `quiet` so a tiny config write never
+    // throws the blocking full-screen overlay (fluidity constraint) — only the
+    // inline "Saved" chip confirms it.
     expect(shellValue.saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({
         enrichment: {
@@ -211,6 +214,7 @@ describe('intelligence surfaces settings runtime and search rules', () => {
           ]),
         }),
       }),
+      { quiet: true },
     )
   })
 
