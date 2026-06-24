@@ -124,9 +124,9 @@ where
     let cancel = register_ai_chat_run(&run_id);
 
     if request.tools_enabled {
-        // The embedding provider is OPTIONAL: with none configured, search_bm25 still works and the
-        // semantic planes degrade honestly. A resolution failure (e.g. missing key) is not fatal to
-        // the agent run, so treat it as "no embedding provider" rather than aborting.
+        // The embedding provider is OPTIONAL: with none configured, search_history still works
+        // (its hybrid plane degrades to lexical honestly). A resolution failure (e.g. missing key)
+        // is not fatal to the agent run, so treat it as "no embedding provider" rather than aborting.
         let embedding_runtime = selected_optional_embedding_runtime(&config).ok().flatten();
         let setup = AgentRunSetup {
             llm_runtime: runtime,

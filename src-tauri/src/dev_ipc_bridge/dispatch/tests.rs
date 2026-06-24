@@ -493,6 +493,8 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             limit: Some(5),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         }),
     );
     dispatch_for_coverage(

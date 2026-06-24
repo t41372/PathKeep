@@ -1226,6 +1226,8 @@ fn build_assistant_preamble_covers_empty_and_seeded_context() {
             notes: Vec::new(),
             note_codes: Vec::new(),
             next_cursor: None,
+            applied_limit: None,
+            has_more: false,
         },
     );
     assert!(with_context.contains("Semantic match"));
@@ -1422,6 +1424,8 @@ fn search_history_internal_empty_query_returns_recent_visits() {
                     limit: Some(5),
                     cursor: None,
                     starred_only: None,
+                    start_date: None,
+                    end_date: None,
                 },
             ))
             .expect("empty query returns recent visits");
@@ -1458,6 +1462,8 @@ fn search_history_internal_supports_lexical_fallback() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical search");
@@ -1497,6 +1503,8 @@ fn search_history_internal_empty_query_honors_starred_facet() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("starred-only recency");
@@ -1524,6 +1532,8 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("public search wrapper");
@@ -2384,6 +2394,8 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("semantic empty fallback");
@@ -2719,6 +2731,8 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -2835,6 +2849,8 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -2890,6 +2906,8 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -2925,6 +2943,8 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -2991,6 +3011,8 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3043,6 +3065,8 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3065,6 +3089,8 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3110,6 +3136,8 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3150,6 +3178,8 @@ fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3199,6 +3229,8 @@ fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3251,6 +3283,8 @@ fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_pag
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3293,6 +3327,8 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             None,
         ))
@@ -3328,6 +3364,8 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical fallback search");
@@ -3372,6 +3410,8 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("merged search");
@@ -3443,6 +3483,8 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("hybrid search");
@@ -3529,6 +3571,8 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("hybrid search");
@@ -3596,6 +3640,8 @@ fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical-weighted search");
@@ -3640,6 +3686,8 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 limit: Some(1),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("page 1");
@@ -3660,6 +3708,8 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 limit: Some(1),
                 cursor: Some(cursor),
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("page 2");
@@ -3691,6 +3741,8 @@ fn ai_off_search_is_lexical_only() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical-only");
@@ -3768,6 +3820,8 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("boosted hybrid search");
@@ -3821,6 +3875,8 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("boost-off search");
@@ -3865,6 +3921,8 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("starred-facet search");
@@ -3910,6 +3968,8 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("starred-facet search via fallback");
@@ -3944,6 +4004,8 @@ fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("starred-facet search with no store");
@@ -3978,6 +4040,8 @@ fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("empty-starred-facet search");
@@ -4008,6 +4072,8 @@ fn is_starred_facet_constrains_the_lexical_plane_too() {
                 limit: Some(10),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical starred-facet search");
@@ -4063,6 +4129,8 @@ fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: Some(true),
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical starred-facet search with an older starred match");
@@ -4540,12 +4608,220 @@ fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("lexical-fallback search");
     assert_eq!(response.note_codes, vec![AiSearchNote::LexicalFallbackNoProvider]);
     // The English note is DERIVED from the code, in code order — never raw prose pushed ad hoc.
     assert_eq!(response.notes, vec![AiSearchNote::LexicalFallbackNoProvider.model_facing_text()]);
+}
+
+/// Seeds one visit DATED on a real `"YYYY-MM-DD"` day (at 12:00:00 UTC of that day).
+///
+/// The existing `seed_visit` timestamps (1 / 2 / 99) all collapse to ~1601 (the Chrome epoch), so they
+/// cannot exercise a date filter. This converts the date's midday Unix-ms to a Chrome timestamp (the
+/// format `seed_visit` expects) so `visits.visit_time_ms` lands on that real day. Midday avoids any
+/// boundary ambiguity with the inclusive [00:00, 23:59.999] day range.
+fn seed_visit_on_date(
+    connection: &Connection,
+    history_id: i64,
+    url: &str,
+    title: Option<&str>,
+    date: &str,
+) {
+    let (start_ms, _end_ms) =
+        crate::utils::date_str_to_unix_ms_range(date).expect("valid YYYY-MM-DD date");
+    let midday_unix_ms = start_ms + 12 * 60 * 60 * 1000; // +12h, comfortably inside the day.
+    let chrome_time = crate::utils::unix_micros_to_chrome_time(midday_unix_ms * 1000);
+    seed_visit(connection, history_id, "chrome:Default", url, title, chrome_time);
+}
+
+#[test]
+fn search_history_internal_recency_path_excludes_out_of_range_visits() {
+    // Test 1 (recency path) — an empty query + start_date == end_date returns ONLY the in-range visit;
+    // the out-of-range visit (a different day) is excluded by the date filter threaded into the lexical
+    // recency reader. A regression dropping the date predicate would return BOTH.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(&connection, 1, "https://in.example/page", Some("In"), "2026-06-19");
+    seed_visit_on_date(&connection, 2, "https://out.example/page", Some("Out"), "2026-06-20");
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: String::new(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+                start_date: Some("2026-06-19".to_string()),
+                end_date: Some("2026-06-19".to_string()),
+            },
+        ))
+        .expect("recency date-filtered search");
+    let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
+    assert_eq!(ids, vec![1], "only the in-range visit returns on the recency path: {ids:?}");
+}
+
+#[test]
+fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
+    // Test 1 (lexical path) — a keyword query + a date range returns ONLY the in-range matching visit.
+    // Both pages match the keyword "docs"; only the in-range one is within [2026-06-19, 2026-06-19].
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(&connection, 1, "https://in.example/docs", Some("Docs in"), "2026-06-19");
+    seed_visit_on_date(&connection, 2, "https://out.example/docs", Some("Docs out"), "2026-06-25");
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "docs".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+                start_date: Some("2026-06-19".to_string()),
+                end_date: Some("2026-06-19".to_string()),
+            },
+        ))
+        .expect("lexical date-filtered search");
+    let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
+    assert_eq!(ids, vec![1], "only the in-range lexical match returns: {ids:?}");
+}
+
+#[test]
+fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
+    // Test 1 (semantic/hybrid path, H1) — WITH an embedding provider, an out-of-range page that the
+    // VECTOR index would otherwise surface must be excluded by the date filter. Both pages carry the
+    // SAME query vector (both are strong semantic hits), but only page 1 is inside the date range. Before
+    // H1's fix, `load_visit_rows` had no date predicate, so the out-of-range semantic hit (page 2)
+    // LEAKED through. This is the regression-proving assertion: revert the SQL date predicate and page 2
+    // reappears.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    // Page 1 is in-range; page 2 is out-of-range. Neither matches the keyword (titles/urls differ) so
+    // ONLY the semantic plane can surface them — isolating the semantic date filter.
+    seed_visit_on_date(&connection, 1, "https://in.example/alpha", Some("Alpha"), "2026-06-19");
+    seed_visit_on_date(&connection, 2, "https://out.example/beta", Some("Beta"), "2026-06-25");
+
+    let query_vector = runtime
+        .block_on(embed_query(&embedding, "semantic", EmbeddingRole::Query))
+        .expect("query vector");
+    // Both pages share the exact query vector → both are top semantic hits absent any date filter.
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, query_vector.clone()), (2, 0x2222, query_vector.clone())],
+    );
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "semantic".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(10),
+                cursor: None,
+                starred_only: None,
+                start_date: Some("2026-06-19".to_string()),
+                end_date: Some("2026-06-19".to_string()),
+            },
+        ))
+        .expect("semantic date-filtered search");
+    let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
+    assert!(ids.contains(&1), "the in-range semantic hit must be present: {ids:?}");
+    assert!(!ids.contains(&2), "the OUT-OF-RANGE semantic hit must be excluded (H1): {ids:?}");
+}
+
+#[test]
+fn search_history_internal_recency_has_more_and_applied_limit() {
+    // Test 2 (recency path) — seed 3 visits; `limit: 2` → exactly 2 items, has_more == true,
+    // applied_limit == Some(2). `limit: 5` → has_more == false. Before H3 the recency probe was a no-op
+    // so has_more was ALWAYS false; this fails if H3 is reverted.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(&connection, 1, "https://a.example/1", Some("One"), "2026-06-17");
+    seed_visit_on_date(&connection, 2, "https://a.example/2", Some("Two"), "2026-06-18");
+    seed_visit_on_date(&connection, 3, "https://a.example/3", Some("Three"), "2026-06-19");
+
+    let request = |limit: u32| AiSearchRequest {
+        query: String::new(),
+        profile_id: None,
+        domain: None,
+        limit: Some(limit),
+        cursor: None,
+        starred_only: None,
+        start_date: None,
+        end_date: None,
+    };
+
+    let limited = runtime
+        .block_on(search_history_internal(&paths, &config, None, None, &request(2)))
+        .expect("limit 2 recency");
+    assert_eq!(limited.items.len(), 2, "exactly `limit` items returned");
+    assert!(limited.has_more, "3 visits with limit 2 → has_more must be true (H3)");
+    assert_eq!(limited.applied_limit, Some(2));
+
+    let unlimited = runtime
+        .block_on(search_history_internal(&paths, &config, None, None, &request(5)))
+        .expect("limit 5 recency");
+    assert_eq!(unlimited.items.len(), 3);
+    assert!(!unlimited.has_more, "3 visits with limit 5 → no more rows");
+    assert_eq!(unlimited.applied_limit, Some(5));
+}
+
+#[test]
+fn search_history_internal_lexical_has_more_and_applied_limit() {
+    // Test 2 (keyword path) — seed 3 keyword-matching visits; `limit: 2` → 2 items, has_more == true.
+    // Before M1 the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed
+    // `limit` and has_more was always false. This fails if M1 is reverted.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(&connection, 1, "https://a.example/docs1", Some("Docs One"), "2026-06-17");
+    seed_visit_on_date(&connection, 2, "https://a.example/docs2", Some("Docs Two"), "2026-06-18");
+    seed_visit_on_date(&connection, 3, "https://a.example/docs3", Some("Docs Three"), "2026-06-19");
+
+    let request = |limit: u32| AiSearchRequest {
+        query: "docs".to_string(),
+        profile_id: None,
+        domain: None,
+        limit: Some(limit),
+        cursor: None,
+        starred_only: None,
+        start_date: None,
+        end_date: None,
+    };
+
+    let limited = runtime
+        .block_on(search_history_internal(&paths, &config, None, None, &request(2)))
+        .expect("limit 2 keyword");
+    assert_eq!(limited.items.len(), 2, "exactly `limit` items returned");
+    assert!(limited.has_more, "3 keyword matches with limit 2 → has_more must be true (M1)");
+    assert_eq!(limited.applied_limit, Some(2));
+
+    let unlimited = runtime
+        .block_on(search_history_internal(&paths, &config, None, None, &request(5)))
+        .expect("limit 5 keyword");
+    assert_eq!(unlimited.items.len(), 3);
+    assert!(!unlimited.has_more, "3 matches with limit 5 → no more rows");
+    assert_eq!(unlimited.applied_limit, Some(5));
 }
 
 #[test]

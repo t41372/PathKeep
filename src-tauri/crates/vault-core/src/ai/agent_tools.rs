@@ -4,9 +4,9 @@
 //! - declare the `AgentTool` boundary trait the W-AI-7 harness dispatches against, plus the
 //!   `ToolOutcome` it returns (model-facing text + structured citations) and the `ToolRegistry`
 //!   (name → tool) that builds the `LlmChatRequest.tools` definitions
-//! - own the retrieval tools that wrap the W-AI-5/6 hybrid pipeline (`search_history_internal`):
-//!   `search_history` plus the three escalation planes `search_bm25` / `search_vector` /
-//!   `search_hybrid`, each reusing the SAME internal with a different recall plane
+//! - own the single `search_history` retrieval tool that wraps the W-AI-5/6 hybrid pipeline
+//!   (`search_history_internal`) with date-range support; the three former escalation planes
+//!   (`search_bm25` / `search_vector` / `search_hybrid`) were collapsed into this one tool (W-PKG-A)
 //! - resolve each citation's `canonical_url` (the W-STAR star key) so a cited page can be starred
 //!
 //! ## Not responsible for
@@ -41,6 +41,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+// Intelligence / stars / annotations imports for the W-AI-9 tools.
+use crate::models::{
+    CategoryFilteredDateRangeRequest, DateRange, DayInsightsRequest, DomainTrendRequest,
+    PagedDateRangeRequest, ScopedDateRangeRequest, SearchTrailQueryRequest, StarSort,
+    TopSitesRequest,
+};
 
 /// The result of executing one agent tool: text the model sees, plus structured citations.
 ///
@@ -101,6 +108,12 @@ struct SearchToolArgs {
     /// The `is:starred` facet (W-AI-6); restricts recall to starred pages on both planes.
     #[serde(default)]
     starred_only: Option<bool>,
+    /// Inclusive start date in `"YYYY-MM-DD"` format (W-PKG-A). Only visits on/after this day.
+    #[serde(default)]
+    start_date: Option<String>,
+    /// Inclusive end date in `"YYYY-MM-DD"` format (W-PKG-A). Only visits on/before this day.
+    #[serde(default)]
+    end_date: Option<String>,
 }
 
 /// Which recall plane a retrieval tool drives, mapped onto `search_history_internal`.
@@ -113,6 +126,7 @@ struct SearchToolArgs {
 /// - `Vector` / `Hybrid` thread the provider so semantic recall participates; with no provider they
 ///   degrade to lexical-only with the internal's honest note (never an error).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Bm25/Vector retained for the internal code_mode plane; only Hybrid is exposed as a tool.
 enum SearchPlane {
     /// Lexical BM25/trigram recall only (no embedding provider used).
     Bm25,
@@ -166,43 +180,17 @@ pub struct HistorySearchTool {
 }
 
 impl HistorySearchTool {
-    /// The default full-hybrid `search_history` tool (lexical + semantic RRF + `is:starred`).
+    /// The single `search_history` tool: hybrid lexical + semantic RRF with date-range support
+    /// (W-PKG-A). Auto-degrades to lexical when no embedding provider is configured.
     pub fn search_history() -> Self {
         Self {
             name: "search_history",
-            description: "Search browser history by meaning, URL, title, profile, or domain (hybrid lexical + semantic) and return the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency) — use this to enumerate recent history or find the archive's date range when answering date/recency questions.",
+            description: "Search browser history by meaning, URL, title, profile, domain, or date range (hybrid lexical + semantic). Returns the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency). Use `start_date` and `end_date` (YYYY-MM-DD) to narrow results to a date range — for example \"last Friday\" or \"this week\". The response includes `applied_limit` (the actual limit used after clamping) and `has_more` (whether more rows exist beyond the limit). When no embedding provider is configured, results use lexical retrieval only (an honest degradation, not an error).",
             plane: SearchPlane::Hybrid,
         }
     }
 
-    /// The lexical-only `search_bm25` escalation start (works with NO embedding provider).
-    pub fn search_bm25() -> Self {
-        Self {
-            name: "search_bm25",
-            description: "Keyword/lexical (BM25) search over browser history. Works without any embedding provider; use it first or when meaning-based recall is unavailable.",
-            plane: SearchPlane::Bm25,
-        }
-    }
-
-    /// The semantic `search_vector` escalation (requires an embedding provider; else degrades).
-    pub fn search_vector() -> Self {
-        Self {
-            name: "search_vector",
-            description: "Meaning-based (vector) search over browser history. Requires an embedding provider; degrades to lexical results with a note when none is configured.",
-            plane: SearchPlane::Vector,
-        }
-    }
-
-    /// The combined `search_hybrid` escalation (lexical + semantic fused).
-    pub fn search_hybrid() -> Self {
-        Self {
-            name: "search_hybrid",
-            description: "Hybrid search combining keyword and meaning-based recall (RRF) over browser history. Best general-purpose retrieval when an embedding provider is configured.",
-            plane: SearchPlane::Hybrid,
-        }
-    }
-
-    /// Shared JSON-schema parameter object for the search tools.
+    /// Shared JSON-schema parameter object for the search tool.
     fn parameters() -> Value {
         json!({
             "type": "object",
@@ -210,8 +198,10 @@ impl HistorySearchTool {
                 "query": { "type": "string", "description": "What to search for. OPTIONAL: an empty or omitted query returns the most recent visits (browse by recency), so you can enumerate recent history or find the date range." },
                 "profile_id": { "type": "string", "description": "Optional browser profile identifier filter." },
                 "domain": { "type": "string", "description": "Optional domain filter." },
-                "limit": { "type": "integer", "description": "Maximum number of visits to return." },
-                "starred_only": { "type": "boolean", "description": "Restrict to starred (favorited) pages only." }
+                "limit": { "type": "integer", "description": "Maximum number of visits to return. The actual limit used (after clamping to [1, 50]) is reported as applied_limit in the response." },
+                "starred_only": { "type": "boolean", "description": "Restrict to starred (favorited) pages only." },
+                "start_date": { "type": "string", "description": "Inclusive start date filter in YYYY-MM-DD format. Only visits on or after this day are returned." },
+                "end_date": { "type": "string", "description": "Inclusive end date filter in YYYY-MM-DD format. Only visits on or before this day are returned." }
             }
         })
     }
@@ -242,6 +232,8 @@ impl AgentTool for HistorySearchTool {
             limit: parsed.limit.or(Some(context.default_limit)),
             cursor: None,
             starred_only: parsed.starred_only,
+            start_date: parsed.start_date,
+            end_date: parsed.end_date,
         };
         let provider = self.plane.provider_for(context);
         let response = search_history_internal(
@@ -286,15 +278,20 @@ fn summarize_search_for_model(
     response: &crate::models::AiSearchResponse,
 ) -> String {
     if response.items.is_empty() {
-        let mut text = format!("{tool_name}: no matching history rows.");
+        let limit_info =
+            response.applied_limit.map(|l| format!(" (applied_limit: {l})")).unwrap_or_default();
+        let mut text = format!("{tool_name}: no matching history rows{limit_info}.");
         for note in &response.notes {
             text.push_str("\nNote: ");
             text.push_str(note);
         }
         return text;
     }
+    let limit_info =
+        response.applied_limit.map(|l| format!(", applied_limit: {l}")).unwrap_or_default();
+    let more_info = if response.has_more { ", has_more: true" } else { "" };
     let mut text = format!(
-        "{tool_name}: {} match(es) (provider: {}).",
+        "{tool_name}: {} match(es) (provider: {}{limit_info}{more_info}).",
         response.items.len(),
         response.provider_id
     );
@@ -325,7 +322,7 @@ fn summarize_search_for_model(
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing.";
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) };";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -449,6 +446,25 @@ fn code_outcome_to_tool_outcome(outcome: super::code_mode::CodeOutcome) -> Resul
     Ok(ToolOutcome { model_text, citations, code_source: Some(source), host_calls, limits_hit })
 }
 
+/// Returns the byte length of the longest prefix of `value` that is at most `max_bytes` long AND ends
+/// on a UTF-8 char boundary (H2 — never split a multibyte CJK/emoji codepoint).
+///
+/// `&value[..n]` panics when byte `n` lands inside a multibyte char, which is a HARD crash on the
+/// project's mandatory i18n (CJK) content. This walks back from `max_bytes` to the nearest char
+/// boundary (`is_char_boundary` is O(1), and a UTF-8 char is at most 4 bytes, so this is at most a
+/// 3-step walk), then returns a slice that is always valid. A prefix that already ends on a boundary
+/// is returned unchanged; `max_bytes >= value.len()` returns the whole string.
+fn truncate_str_on_char_boundary(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !value.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &value[..cut]
+}
+
 /// A short, human-readable label for a hard sandbox limit (for the model-facing bounded-run note).
 fn limits_hit_label(limit: LimitsHit) -> &'static str {
     match limit {
@@ -457,6 +473,469 @@ fn limits_hit_label(limit: LimitsHit) -> &'static str {
         LimitsHit::HostCalls => "host-call budget",
         LimitsHit::Output => "output size cap",
         LimitsHit::Cancelled => "cancelled",
+    }
+}
+
+// ---------------------------------------------------------------------------
+// W-AI-9 Work Package B: intelligence_report, list_stars, list_annotations
+// ---------------------------------------------------------------------------
+
+/// JSON arguments for `intelligence_report`.
+#[derive(Debug, Default, Deserialize)]
+struct IntelligenceReportArgs {
+    report: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    domain: Option<String>,
+    limit: Option<u32>,
+}
+
+/// The report variants `intelligence_report` dispatches to.
+///
+/// Parsing the model-supplied `report` string into this enum ONCE ([`IntelReport::parse`]) gives a
+/// single place an unknown name is rejected, and lets the required-arg and dispatch matches below be
+/// exhaustive (compiler-checked) — no unreachable catch-all arm to drift out of sync or go untested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IntelReport {
+    TopSites,
+    Sessions,
+    SearchTrails,
+    ActivityMix,
+    BrowsingRhythm,
+    DomainTrend,
+    DayInsights,
+    Overview,
+}
+
+impl IntelReport {
+    /// Parses the model-supplied report name. An unknown name is an input error rejected here — the
+    /// SINGLE validation point, run before the readiness gate so the model gets a clear signal even
+    /// when the plane is also unbuilt.
+    fn parse(name: &str) -> Result<Self> {
+        Ok(match name {
+            "top_sites" => Self::TopSites,
+            "sessions" => Self::Sessions,
+            "search_trails" => Self::SearchTrails,
+            "activity_mix" => Self::ActivityMix,
+            "browsing_rhythm" => Self::BrowsingRhythm,
+            "domain_trend" => Self::DomainTrend,
+            "day_insights" => Self::DayInsights,
+            "overview" => Self::Overview,
+            other => anyhow::bail!(
+                "unknown report variant `{other}`; expected one of: top_sites, sessions, search_trails, activity_mix, browsing_rhythm, domain_trend, day_insights, overview"
+            ),
+        })
+    }
+}
+
+/// Pre-computed intelligence report tool (W-AI-9 WPB-1).
+///
+/// Dispatches to deterministic Core Intelligence read models via a `report` enum parameter. Each
+/// variant maps to one intelligence query (sessions, top sites, search trails, activity mix,
+/// browsing rhythm, domain trend, day insights, overview). Faster and more complete than running
+/// code over raw search results because it reads from the materialized intelligence plane.
+pub struct IntelligenceReportTool;
+
+impl IntelligenceReportTool {
+    fn parameters() -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "report": {
+                    "type": "string",
+                    "enum": ["top_sites", "sessions", "search_trails", "activity_mix",
+                             "browsing_rhythm", "domain_trend", "day_insights", "overview"],
+                    "description": "Which pre-computed report to retrieve."
+                },
+                "start_date": { "type": "string", "description": "Start of date range (YYYY-MM-DD). Omit for all-time." },
+                "end_date": { "type": "string", "description": "End of date range (YYYY-MM-DD). Omit for all-time." },
+                "domain": { "type": "string", "description": "Optional domain filter (e.g. 'youtube.com')." },
+                "limit": { "type": "integer", "description": "Maximum items to return." }
+            },
+            "required": ["report"]
+        })
+    }
+}
+
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. Reports are built from the full history archive and cover sessions, top sites, search trails, activity patterns, domain trends, and daily insights. Use this when the user asks about patterns, trends, summaries, or habits across time — it is faster and more complete than running code over raw search results.";
+
+impl AgentTool for IntelligenceReportTool {
+    fn name(&self) -> &str {
+        "intelligence_report"
+    }
+
+    fn definition(&self) -> LlmToolDef {
+        LlmToolDef {
+            name: "intelligence_report".to_string(),
+            description: INTELLIGENCE_REPORT_DESCRIPTION.to_string(),
+            parameters: Self::parameters(),
+        }
+    }
+
+    async fn call(&self, args: Value, context: &AgentToolContext) -> Result<ToolOutcome> {
+        let parsed: IntelligenceReportArgs = serde_json::from_value(args)
+            .map_err(|error| anyhow::anyhow!("invalid intelligence_report arguments: {error}"))?;
+        if parsed.report.is_empty() {
+            anyhow::bail!("the `report` argument must not be empty");
+        }
+
+        let paths = &context.paths;
+        let config = &context.config;
+        let key = context.database_key.as_deref();
+
+        // B1 — resolve the date window with an ALL-TIME sentinel for omitted/blank dates.
+        //
+        // An OMITTED date used to become `""`, which broke every report: `NaiveDate::parse_from_str`
+        // errors on `""` (sessions/search_trails/browsing_rhythm), `date_key <= ""` matches NO rows
+        // (top_sites/activity_mix/domain_trend), and the overview needs the literal all-time sentinel
+        // `"1900-01-01"` to load its all-time snapshot. So a blank/omitted `start_date` substitutes the
+        // all-time sentinel and a blank/omitted `end_date` substitutes today (local), giving a true
+        // "all of history up to now" window when the model omits the dates.
+        let start = parsed
+            .start_date
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| ALL_TIME_SCOPE_START.to_string());
+        let end = parsed
+            .end_date
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+        let date_range = DateRange { start, end };
+
+        // L2 — parse + validate the report variant and its REQUIRED arg BEFORE the readiness gate, so
+        // the model gets an actionable input error ("unknown report" / "domain required" /
+        // "start_date required") rather than the generic "intelligence not built" note when it both
+        // supplies bad input AND the plane is unbuilt. `parse` rejects an unknown variant up front
+        // (an input error regardless of plane state); the match below adds the per-report arg checks.
+        let report = IntelReport::parse(&parsed.report)?;
+        match report {
+            IntelReport::DomainTrend => {
+                if parsed.domain.as_deref().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!("the `domain` argument is required for the domain_trend report");
+                }
+            }
+            IntelReport::DayInsights => {
+                if parsed.start_date.as_deref().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!(
+                        "the `start_date` argument is required for the day_insights report (use it as the target date)"
+                    );
+                }
+            }
+            _ => {}
+        }
+
+        // M3 — readiness handling. The single `intelligence_status().ready` signal (sessions ||
+        // search_trails || refind_pages) does NOT match what top_sites/activity_mix/domain_trend read
+        // (the daily-rollup tables), so a partial build could misreport per report. The cleanest honest
+        // approach is to LET EACH REPORT RUN: the read models query their own tables (created by
+        // `ensure_core_intelligence_schema`), returning an empty-but-valid result when that report's
+        // specific data is absent — never a "no such table" error. We keep the `ready` signal only as a
+        // FAST PATH: when the whole plane is empty we short-circuit to one honest "not built" note
+        // instead of N empty results, but we never use it to falsely block a report whose data exists.
+        let ready = crate::intelligence::intelligence_status(paths, config, key)
+            .map(|status| status.ready)
+            .unwrap_or(false);
+        if !ready {
+            return Ok(intelligence_not_ready_outcome(&parsed.report));
+        }
+
+        // L1 — clamp a model-supplied limit to at least 1: `limit: 0` would become `page_size: 0` →
+        // `LIMIT 0` → zero rows for sessions/search_trails even on a built plane. Keep the per-report
+        // upper defaults (`get_top_sites`/`get_domain_trend` clamp their own caps internally).
+        let paged_limit = parsed.limit.map(|value| value.max(1)).unwrap_or(20);
+
+        // Exhaustive over `IntelReport` — the compiler guarantees every variant is handled, so there
+        // is no catch-all arm (the unknown case was already rejected by `IntelReport::parse` above).
+        let result_json: Value = match report {
+            IntelReport::TopSites => {
+                let request = TopSitesRequest {
+                    date_range,
+                    profile_id: None,
+                    sort_by: Some("visit_count".to_string()),
+                    limit: parsed.limit.map(|value| value.max(1)).or(Some(20)),
+                };
+                let result = crate::intelligence::get_top_sites(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::Sessions => {
+                let request = PagedDateRangeRequest {
+                    date_range,
+                    profile_id: None,
+                    page: 0,
+                    page_size: paged_limit,
+                };
+                let result = crate::intelligence::get_sessions(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::SearchTrails => {
+                let request = SearchTrailQueryRequest {
+                    date_range,
+                    profile_id: None,
+                    engine: None,
+                    page: 0,
+                    page_size: paged_limit,
+                };
+                let result = crate::intelligence::get_search_trails(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::ActivityMix => {
+                let request = ScopedDateRangeRequest { date_range, profile_id: None };
+                let result = crate::intelligence::get_activity_mix(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::BrowsingRhythm => {
+                let request = CategoryFilteredDateRangeRequest {
+                    date_range,
+                    profile_id: None,
+                    category: None,
+                };
+                let result =
+                    crate::intelligence::get_browsing_rhythm(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::DomainTrend => {
+                // The `domain` presence was validated above the readiness gate (L2).
+                let domain = parsed.domain.clone().unwrap_or_default();
+                let request = DomainTrendRequest { registrable_domain: domain, date_range };
+                let result = crate::intelligence::get_domain_trend(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::DayInsights => {
+                // `start_date` presence was validated above (L2); use the RAW supplied date as the
+                // target day (not the all-time sentinel substitution, which is only for ranges).
+                let date = parsed.start_date.clone().unwrap_or_default();
+                let request = DayInsightsRequest { date, profile_id: None };
+                let result = crate::intelligence::get_day_insights(paths, config, key, &request)?;
+                serde_json::to_value(result)?
+            }
+            IntelReport::Overview => {
+                let request = ScopedDateRangeRequest { date_range, profile_id: None };
+                let result = crate::intelligence::get_intelligence_primary_overview(
+                    paths, config, key, &request,
+                )?;
+                serde_json::to_value(result)?
+            }
+        };
+
+        // Build a compact model-facing summary. We serialize the JSON but truncate to avoid
+        // blowing up the model context with the full payload. H2 — truncate on a CHAR boundary so a
+        // multibyte (CJK / emoji) codepoint straddling the cut never panics on the project's mandatory
+        // i18n content.
+        let raw = serde_json::to_string_pretty(&result_json).unwrap_or_default();
+        let truncated = if raw.len() > INTELLIGENCE_REPORT_MAX_BYTES {
+            format!(
+                "{}...\n[truncated; {} bytes total]",
+                truncate_str_on_char_boundary(&raw, INTELLIGENCE_REPORT_MAX_BYTES),
+                raw.len()
+            )
+        } else {
+            raw
+        };
+        let model_text =
+            format!("intelligence_report({}): result follows.\n{}", parsed.report, truncated);
+        Ok(ToolOutcome { model_text, ..ToolOutcome::default() })
+    }
+}
+
+/// The all-time sentinel start date for an OMITTED intelligence `start_date` (B1).
+///
+/// Mirrors the authoritative `crate::intelligence::intelligence_overview_snapshot::ALL_TIME_SCOPE_START`
+/// (`"1900-01-01"`), which is `pub(crate)` inside a PRIVATE module so it cannot be named here. The
+/// overview snapshot loader recognizes EXACTLY this literal as "load the all-time snapshot", and the
+/// rollup reports compare `date_key >= start`, so any date at/before the earliest history works for them
+/// while the overview specifically needs this exact value. Kept in sync by the
+/// `all_time_sentinel_matches_intelligence_source_of_truth`-style coverage on the snapshot module.
+const ALL_TIME_SCOPE_START: &str = "1900-01-01";
+
+/// Byte budget for the model-facing intelligence_report JSON before truncation (02 §F bounded context).
+const INTELLIGENCE_REPORT_MAX_BYTES: usize = 8_000;
+
+/// Returns an honest "intelligence not ready" outcome for a given report variant.
+fn intelligence_not_ready_outcome(report: &str) -> ToolOutcome {
+    ToolOutcome {
+        model_text: format!(
+            "intelligence_report({report}): the intelligence index has not been built yet for this archive. \
+             The user needs to run a Core Intelligence rebuild before this report is available. \
+             You can still use search_history or run_code to answer questions from raw history data."
+        ),
+        ..ToolOutcome::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool 2: list_stars
+// ---------------------------------------------------------------------------
+
+/// JSON arguments for `list_stars`.
+#[derive(Debug, Default, Deserialize)]
+struct ListStarsArgs {
+    sort: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Lists the user's starred (favorited) pages (W-AI-9 WPB-2).
+pub struct ListStarsTool;
+
+const LIST_STARS_DESCRIPTION: &str = "List the user's starred (favorited) pages. Returns entity keys, domains, titles, visit counts, and when each was starred. Use this to answer questions about the user's favorites or bookmarks.";
+
+impl AgentTool for ListStarsTool {
+    fn name(&self) -> &str {
+        "list_stars"
+    }
+
+    fn definition(&self) -> LlmToolDef {
+        LlmToolDef {
+            name: "list_stars".to_string(),
+            description: LIST_STARS_DESCRIPTION.to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "sort": {
+                        "type": "string",
+                        "enum": ["recent", "most_revisited"],
+                        "description": "Sort order."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum items to return (default 50, max 500)."
+                    }
+                }
+            }),
+        }
+    }
+
+    async fn call(&self, args: Value, context: &AgentToolContext) -> Result<ToolOutcome> {
+        let parsed: ListStarsArgs = serde_json::from_value(args)
+            .map_err(|error| anyhow::anyhow!("invalid list_stars arguments: {error}"))?;
+        let sort = match parsed.sort.as_deref() {
+            Some("most_revisited") => StarSort::MostRevisited,
+            _ => StarSort::RecentlyStarred,
+        };
+        let limit = parsed.limit.unwrap_or(50).clamp(1, 500);
+        let items = crate::stars::list_stars(
+            &context.paths,
+            &context.config,
+            context.database_key.as_deref(),
+            None,
+            sort,
+            Some(limit),
+        )?;
+        if items.is_empty() {
+            return Ok(ToolOutcome {
+                model_text: "list_stars: no starred pages found.".to_string(),
+                ..ToolOutcome::default()
+            });
+        }
+        let mut text = format!("list_stars: {} starred item(s).", items.len());
+        for item in &items {
+            text.push_str(&format!(
+                "\n- {key} | {domain} — {title} ({visits}x, starred {at})",
+                key = item.entity_key,
+                domain = item.domain,
+                title = if item.title.is_empty() { "(untitled)" } else { &item.title },
+                visits = item.visit_count,
+                at = item.starred_at,
+            ));
+        }
+        Ok(ToolOutcome { model_text: text, ..ToolOutcome::default() })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tool 3: list_annotations
+// ---------------------------------------------------------------------------
+
+/// JSON arguments for `list_annotations`.
+#[derive(Debug, Default, Deserialize)]
+struct ListAnnotationsArgs {
+    query: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Byte budget for one annotation's note preview in the model-facing list before truncation.
+const ANNOTATION_NOTE_PREVIEW_MAX_BYTES: usize = 120;
+
+/// Lists or searches the user's per-URL annotations (W-AI-9 WPB-3).
+pub struct ListAnnotationsTool;
+
+const LIST_ANNOTATIONS_DESCRIPTION: &str = "List or search the user's annotations (notes and tags on URLs). Use this to find pages the user has tagged or noted.";
+
+impl AgentTool for ListAnnotationsTool {
+    fn name(&self) -> &str {
+        "list_annotations"
+    }
+
+    fn definition(&self) -> LlmToolDef {
+        LlmToolDef {
+            name: "list_annotations".to_string(),
+            description: LIST_ANNOTATIONS_DESCRIPTION.to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Optional text to search within notes."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum items to return (default 50, max 500)."
+                    }
+                }
+            }),
+        }
+    }
+
+    async fn call(&self, args: Value, context: &AgentToolContext) -> Result<ToolOutcome> {
+        let parsed: ListAnnotationsArgs = serde_json::from_value(args)
+            .map_err(|error| anyhow::anyhow!("invalid list_annotations arguments: {error}"))?;
+        let limit = Some(parsed.limit.unwrap_or(50).clamp(1, 500));
+        let paths = &context.paths;
+        let config = &context.config;
+        let key = context.database_key.as_deref();
+        let query_str = parsed.query.as_deref().unwrap_or("").trim();
+        let items = if query_str.is_empty() {
+            crate::annotations::list_annotations(paths, config, key, limit)?
+        } else {
+            crate::annotations::search_annotations(paths, config, key, query_str, limit)?
+        };
+        if items.is_empty() {
+            let qualifier = if query_str.is_empty() {
+                String::new()
+            } else {
+                format!(" matching \"{query_str}\"")
+            };
+            return Ok(ToolOutcome {
+                model_text: format!("list_annotations: no annotations found{qualifier}."),
+                ..ToolOutcome::default()
+            });
+        }
+        let mut text = format!("list_annotations: {} annotation(s).", items.len());
+        for item in &items {
+            let tags_str = if item.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", item.tags.join(", "))
+            };
+            // H2 — slice the note preview on a CHAR boundary, never a raw byte index: a CJK note whose
+            // 120th byte lands mid-codepoint would otherwise panic (a hard crash on i18n content).
+            let notes_preview = if item.notes.len() > ANNOTATION_NOTE_PREVIEW_MAX_BYTES {
+                format!(
+                    "{}...",
+                    truncate_str_on_char_boundary(&item.notes, ANNOTATION_NOTE_PREVIEW_MAX_BYTES)
+                )
+            } else {
+                item.notes.clone()
+            };
+            text.push_str(&format!(
+                "\n- {url}{tags} — {notes} (updated {at})",
+                url = item.url,
+                tags = tags_str,
+                notes = notes_preview,
+                at = item.updated_at,
+            ));
+        }
+        Ok(ToolOutcome { model_text: text, ..ToolOutcome::default() })
     }
 }
 
@@ -482,21 +961,22 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_string(), Box::new(DynTool(tool)));
     }
 
-    /// Builds the full retrieval registry: `search_history` + the three escalation planes.
+    /// Builds the full default registry: `search_history` (with date-range, W-PKG-A) + `run_code`
+    /// + the W-AI-9 WPB read tools (intelligence reports, stars, annotations).
     ///
-    /// `search_bm25` is always present (it needs no embedding provider), so a tool-capable model
-    /// with no embedding configured can still escalate lexically — honest degradation, never an
-    /// empty toolset.
+    /// The single `search_history` auto-degrades to lexical when no embedding provider is
+    /// configured — honest degradation, never an empty toolset.
     pub fn with_default_search_tools() -> Self {
         let mut registry = Self::new();
         registry.register(HistorySearchTool::search_history());
-        registry.register(HistorySearchTool::search_bm25());
-        registry.register(HistorySearchTool::search_vector());
-        registry.register(HistorySearchTool::search_hybrid());
         // `run_code` is DEFAULT-ENABLED on every agent run (2026-06 decision): the Wasmtime sandbox
         // is the safety boundary, so there is no model-capability gate. The model gets it alongside
         // the search tools and chooses code-mode only when computation/aggregation needs it.
         registry.register(RunCodeTool::new());
+        // W-AI-9 WPB tools: intelligence reports, stars, and annotations.
+        registry.register(IntelligenceReportTool);
+        registry.register(ListStarsTool);
+        registry.register(ListAnnotationsTool);
         registry
     }
 
@@ -563,6 +1043,7 @@ mod tests {
     use super::*;
     use crate::config::project_paths_with_root;
     use crate::models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat};
+    use rusqlite::params;
     use secrecy::SecretString;
 
     fn embedding_runtime() -> AiProviderRuntime {
@@ -607,11 +1088,18 @@ mod tests {
         let registry = ToolRegistry::with_default_search_tools();
         assert!(!registry.is_empty());
         let names: Vec<String> = registry.definitions().into_iter().map(|def| def.name).collect();
-        // BTreeMap keeps the order deterministic (alphabetical), so the prompt is stable. `run_code`
-        // is registered by default (W-AI-8 WU-2), so it appears between `search_vector` lexically.
+        // BTreeMap keeps the order deterministic (alphabetical), so the prompt is stable. W-PKG-A
+        // collapsed the three escalation planes into one `search_history`; W-AI-9 WPB adds the
+        // intelligence, stars, and annotations tools.
         assert_eq!(
             names,
-            vec!["run_code", "search_bm25", "search_history", "search_hybrid", "search_vector"]
+            vec![
+                "intelligence_report",
+                "list_annotations",
+                "list_stars",
+                "run_code",
+                "search_history",
+            ]
         );
     }
 
@@ -634,41 +1122,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_bm25_works_with_no_embedding_provider() {
-        // The lexical plane must run with NO embedding provider configured (honest degradation).
+    async fn search_history_works_with_no_embedding_provider() {
+        // Hybrid degrades to lexical-only when no embedding provider is configured (honest degradation).
         let (_dir, context) = context_with(None);
         let registry = ToolRegistry::with_default_search_tools();
         let outcome = registry
-            .dispatch("search_bm25", json!({ "query": "tauri" }), &context)
+            .dispatch("search_history", json!({ "query": "tauri" }), &context)
             .await
-            .expect("bm25 runs without an embedding provider");
+            .expect("search_history runs without an embedding provider (degrades to lexical)");
         // No rows in an empty fixture archive, but the call succeeds and summarizes honestly.
-        assert!(outcome.model_text.contains("search_bm25"));
+        assert!(outcome.model_text.contains("search_history"));
     }
 
     #[tokio::test]
-    async fn search_vector_degrades_when_no_embedding_provider() {
-        // The semantic plane must NOT error without a provider — it degrades to lexical with a note.
+    async fn search_history_date_filter_args_are_deserialized() {
+        // W-PKG-A: start_date and end_date must be accepted and threaded through to the request.
         let (_dir, context) = context_with(None);
         let registry = ToolRegistry::with_default_search_tools();
         let outcome = registry
-            .dispatch("search_vector", json!({ "query": "tauri" }), &context)
+            .dispatch(
+                "search_history",
+                json!({ "query": "test", "start_date": "2026-06-01", "end_date": "2026-06-30" }),
+                &context,
+            )
             .await
-            .expect("vector degrades, never errors, without a provider");
-        assert!(outcome.model_text.contains("search_vector"));
+            .expect("date-filtered search_history must succeed");
+        // Empty archive → no rows, but the call succeeds (no deserialization error, no panic).
+        assert!(outcome.model_text.contains("search_history"));
     }
 
     #[tokio::test]
-    async fn search_hybrid_threads_the_embedding_provider() {
-        // With a provider configured the hybrid plane runs the full pipeline; the empty fixture
+    async fn search_history_with_embedding_provider_runs_hybrid() {
+        // With a provider configured the search tool runs the full hybrid pipeline; the empty fixture
         // archive yields no rows, but the call succeeds (no panic, no error).
         let (_dir, context) = context_with(Some(embedding_runtime()));
         let registry = ToolRegistry::with_default_search_tools();
         let outcome = registry
-            .dispatch("search_hybrid", json!({ "query": "rust", "limit": 5 }), &context)
+            .dispatch("search_history", json!({ "query": "rust", "limit": 5 }), &context)
             .await
-            .expect("hybrid runs with a provider");
-        assert!(outcome.model_text.contains("search_hybrid"));
+            .expect("search_history runs hybrid with a provider");
+        assert!(outcome.model_text.contains("search_history"));
     }
 
     #[tokio::test]
@@ -680,11 +1173,10 @@ mod tests {
         let registry = ToolRegistry::with_default_search_tools();
         for args in [json!({ "query": "   " }), json!({})] {
             let outcome = registry
-                .dispatch("search_bm25", args.clone(), &context)
+                .dispatch("search_history", args.clone(), &context)
                 .await
                 .unwrap_or_else(|error| panic!("empty query {args} must succeed, got {error}"));
-            // search_bm25 over an empty archive yields no rows; the tool still produces its summary.
-            assert!(outcome.model_text.contains("search_bm25"));
+            assert!(outcome.model_text.contains("search_history"));
             assert!(outcome.citations.is_empty());
         }
     }
@@ -695,7 +1187,7 @@ mod tests {
         let registry = ToolRegistry::with_default_search_tools();
         // `query` is required and must be a string; a number is a parse error, not a panic.
         let error = registry
-            .dispatch("search_bm25", json!({ "query": 42 }), &context)
+            .dispatch("search_history", json!({ "query": 42 }), &context)
             .await
             .expect_err("invalid args");
         assert!(error.to_string().contains("invalid search arguments"));
@@ -731,6 +1223,8 @@ mod tests {
             notes: vec!["lexical only".to_string()],
             note_codes: Vec::new(),
             next_cursor: None,
+            applied_limit: Some(50),
+            has_more: false,
         };
         let text = summarize_search_for_model("search_hybrid", &response);
         assert!(text.contains("[7]"));
@@ -746,10 +1240,67 @@ mod tests {
             notes: vec!["nothing".to_string()],
             note_codes: Vec::new(),
             next_cursor: None,
+            applied_limit: None,
+            has_more: false,
         };
         let empty_text = summarize_search_for_model("search_bm25", &empty);
         assert!(empty_text.contains("no matching history rows"));
         assert!(empty_text.contains("Note: nothing"));
+    }
+
+    #[test]
+    fn search_summary_includes_applied_limit_and_has_more() {
+        use crate::models::{AiSearchEntry, AiSearchResponse};
+        let response = AiSearchResponse {
+            total: 2,
+            provider_id: "hybrid".to_string(),
+            model: "m1".to_string(),
+            items: vec![AiSearchEntry {
+                history_id: 1,
+                profile_id: "p".to_string(),
+                url: "https://a.example/".to_string(),
+                title: Some("A".to_string()),
+                domain: "a.example".to_string(),
+                visited_at: "2026-06-21T00:00:00Z".to_string(),
+                score: 0.9,
+                match_reason: "Lexical match".to_string(),
+                enrichment_excerpt: None,
+            }],
+            notes: Vec::new(),
+            note_codes: Vec::new(),
+            next_cursor: None,
+            applied_limit: Some(50),
+            has_more: true,
+        };
+        let text = summarize_search_for_model("search_history", &response);
+        assert!(text.contains("applied_limit: 50"), "applied_limit in summary: {text}");
+        assert!(text.contains("has_more: true"), "has_more in summary: {text}");
+
+        // When has_more is false it should not appear.
+        let response_no_more =
+            AiSearchResponse { applied_limit: Some(8), has_more: false, ..response.clone() };
+        let text2 = summarize_search_for_model("search_history", &response_no_more);
+        assert!(text2.contains("applied_limit: 8"), "applied_limit in summary: {text2}");
+        assert!(!text2.contains("has_more"), "has_more absent when false: {text2}");
+    }
+
+    #[test]
+    fn run_code_description_includes_start_end_date_and_examples() {
+        let def = RunCodeTool::new().definition();
+        assert!(def.description.contains("startDate"), "run_code description includes startDate");
+        assert!(def.description.contains("endDate"), "run_code description includes endDate");
+        assert!(
+            def.description.contains("2026-06-19"),
+            "run_code description includes date-range example"
+        );
+        assert!(
+            def.description.contains("machine learning"),
+            "run_code description includes no-answer example"
+        );
+        assert!(
+            def.description.contains("{ found: false }"),
+            "run_code description includes explicit no-answer shape"
+        );
     }
 
     // ---- W-AI-8 WU-2: the `run_code` tool ----------------------------------------------------
@@ -1005,5 +1556,729 @@ mod tests {
             .await
             .expect_err("missing source rejected");
         assert!(missing.to_string().contains("invalid run_code arguments"));
+    }
+
+    // ---- W-AI-9 WPB: intelligence_report, list_stars, list_annotations ---------------------
+
+    #[test]
+    fn intelligence_report_definition_names_report_enum_and_key_phrases() {
+        let tool = IntelligenceReportTool;
+        let def = tool.definition();
+        assert_eq!(def.name, "intelligence_report");
+        assert!(def.description.contains("pre-computed intelligence report"));
+        assert!(def.description.contains("patterns"));
+        assert!(def.description.contains("trends"));
+        // The schema requires `report` and lists the enum.
+        assert_eq!(def.parameters["required"], json!(["report"]));
+        let report_prop = &def.parameters["properties"]["report"];
+        assert_eq!(report_prop["type"], "string");
+        let enum_values = report_prop["enum"].as_array().expect("enum array");
+        assert!(enum_values.len() >= 8, "all 8 report variants: {enum_values:?}");
+        assert!(enum_values.contains(&json!("top_sites")));
+        assert!(enum_values.contains(&json!("overview")));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_top_sites_on_empty_archive_returns_not_ready() {
+        // Against a fresh tempdir with no intelligence data, the tool returns the honest
+        // "not ready" outcome rather than panicking.
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "top_sites" }), &context)
+            .await
+            .expect("should not panic on empty archive");
+        assert!(outcome.model_text.contains("intelligence index has not been built"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_overview_on_empty_archive_returns_not_ready() {
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "overview" }), &context)
+            .await
+            .expect("should not panic on empty archive");
+        assert!(outcome.model_text.contains("intelligence index has not been built"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_sessions_on_empty_archive_returns_not_ready() {
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "sessions" }), &context)
+            .await
+            .expect("should not panic on empty archive");
+        assert!(outcome.model_text.contains("intelligence index has not been built"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_unknown_variant_is_an_error() {
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let error = tool
+            .call(json!({ "report": "unicorn" }), &context)
+            .await
+            .expect_err("unknown variant should error");
+        assert!(error.to_string().contains("unknown report variant"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_empty_report_is_rejected() {
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let error = tool
+            .call(json!({ "report": "" }), &context)
+            .await
+            .expect_err("empty report should be rejected");
+        assert!(error.to_string().contains("must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_invalid_args_are_rejected() {
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let error = tool
+            .call(json!({ "report": 42 }), &context)
+            .await
+            .expect_err("numeric report should fail parse");
+        assert!(error.to_string().contains("invalid intelligence_report arguments"));
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_domain_trend_requires_domain() {
+        // L2 — the `domain` required-arg check must run BEFORE the readiness gate, so an omitted
+        // domain is an actionable arg ERROR (not the generic "not built" note) even on an empty plane.
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let error = tool
+            .call(json!({ "report": "domain_trend" }), &context)
+            .await
+            .expect_err("domain_trend without `domain` must bail with a required-arg error");
+        let message = error.to_string();
+        assert!(message.contains("domain"), "got: {message}");
+        assert!(
+            !message.contains("not been built"),
+            "the arg error must pre-empt the readiness note: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_day_insights_requires_start_date() {
+        // L2 — the `start_date` required-arg check must run BEFORE the readiness gate (same as above).
+        let (_dir, context) = context_with(None);
+        let tool = IntelligenceReportTool;
+        let error = tool
+            .call(json!({ "report": "day_insights" }), &context)
+            .await
+            .expect_err("day_insights without `start_date` must bail with a required-arg error");
+        let message = error.to_string();
+        assert!(message.contains("start_date"), "got: {message}");
+        assert!(
+            !message.contains("not been built"),
+            "the arg error must pre-empt the readiness note: {message}"
+        );
+    }
+
+    // ---- list_stars tool tests ----
+
+    #[test]
+    fn list_stars_definition_has_correct_name_and_key_phrases() {
+        let tool = ListStarsTool;
+        let def = tool.definition();
+        assert_eq!(def.name, "list_stars");
+        assert!(def.description.contains("starred"));
+        assert!(def.description.contains("favorited"));
+        assert!(def.description.contains("bookmarks"));
+        let sort_prop = &def.parameters["properties"]["sort"];
+        assert_eq!(sort_prop["type"], "string");
+        let enum_values = sort_prop["enum"].as_array().expect("enum array");
+        assert!(enum_values.contains(&json!("recent")));
+        assert!(enum_values.contains(&json!("most_revisited")));
+    }
+
+    #[tokio::test]
+    async fn list_stars_on_empty_archive_returns_no_stars() {
+        let (_dir, context) = context_with(None);
+        let tool = ListStarsTool;
+        let outcome =
+            tool.call(json!({}), &context).await.expect("should not panic on empty archive");
+        assert!(outcome.model_text.contains("no starred pages found"));
+    }
+
+    #[tokio::test]
+    async fn list_stars_with_recent_sort_on_empty_archive() {
+        let (_dir, context) = context_with(None);
+        let tool = ListStarsTool;
+        let outcome =
+            tool.call(json!({ "sort": "recent" }), &context).await.expect("should succeed");
+        assert!(outcome.model_text.contains("no starred pages found"));
+    }
+
+    #[tokio::test]
+    async fn list_stars_with_most_revisited_sort_on_empty_archive() {
+        let (_dir, context) = context_with(None);
+        let tool = ListStarsTool;
+        let outcome =
+            tool.call(json!({ "sort": "most_revisited" }), &context).await.expect("should succeed");
+        assert!(outcome.model_text.contains("no starred pages found"));
+    }
+
+    #[tokio::test]
+    async fn list_stars_invalid_args_are_rejected() {
+        let (_dir, context) = context_with(None);
+        let tool = ListStarsTool;
+        let error = tool
+            .call(json!({ "sort": 42 }), &context)
+            .await
+            .expect_err("numeric sort should fail parse");
+        assert!(error.to_string().contains("invalid list_stars arguments"));
+    }
+
+    // ---- list_annotations tool tests ----
+
+    #[test]
+    fn list_annotations_definition_has_correct_name_and_key_phrases() {
+        let tool = ListAnnotationsTool;
+        let def = tool.definition();
+        assert_eq!(def.name, "list_annotations");
+        assert!(def.description.contains("annotations"));
+        assert!(def.description.contains("notes"));
+        assert!(def.description.contains("tags"));
+        let query_prop = &def.parameters["properties"]["query"];
+        assert_eq!(query_prop["type"], "string");
+    }
+
+    #[tokio::test]
+    async fn list_annotations_on_empty_archive_returns_no_annotations() {
+        let (_dir, context) = context_with(None);
+        let tool = ListAnnotationsTool;
+        let outcome =
+            tool.call(json!({}), &context).await.expect("should not panic on empty archive");
+        assert!(outcome.model_text.contains("no annotations found"));
+    }
+
+    #[tokio::test]
+    async fn list_annotations_with_query_on_empty_archive() {
+        let (_dir, context) = context_with(None);
+        let tool = ListAnnotationsTool;
+        let outcome =
+            tool.call(json!({ "query": "rust" }), &context).await.expect("should succeed");
+        assert!(outcome.model_text.contains("no annotations found"));
+        assert!(outcome.model_text.contains("rust"));
+    }
+
+    #[tokio::test]
+    async fn list_annotations_without_query_on_empty_archive() {
+        let (_dir, context) = context_with(None);
+        let tool = ListAnnotationsTool;
+        let outcome = tool.call(json!({ "limit": 10 }), &context).await.expect("should succeed");
+        assert!(outcome.model_text.contains("no annotations found"));
+    }
+
+    #[tokio::test]
+    async fn list_annotations_invalid_args_are_rejected() {
+        let (_dir, context) = context_with(None);
+        let tool = ListAnnotationsTool;
+        let error = tool
+            .call(json!({ "query": 42 }), &context)
+            .await
+            .expect_err("numeric query should fail parse");
+        assert!(error.to_string().contains("invalid list_annotations arguments"));
+    }
+
+    // ---- W-AI-9 WPB registry integration ----
+
+    #[test]
+    fn new_tools_are_registered_by_default() {
+        let registry = ToolRegistry::with_default_search_tools();
+        let names: Vec<String> = registry.definitions().into_iter().map(|def| def.name).collect();
+        assert!(
+            names.contains(&"intelligence_report".to_string()),
+            "intelligence_report is a default tool: {names:?}"
+        );
+        assert!(
+            names.contains(&"list_stars".to_string()),
+            "list_stars is a default tool: {names:?}"
+        );
+        assert!(
+            names.contains(&"list_annotations".to_string()),
+            "list_annotations is a default tool: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_intelligence_report_via_registry() {
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch("intelligence_report", json!({ "report": "top_sites" }), &context)
+            .await
+            .expect("dispatch should succeed");
+        // On an empty archive, intelligence is not ready.
+        assert!(outcome.model_text.contains("intelligence"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_list_stars_via_registry() {
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch("list_stars", json!({}), &context)
+            .await
+            .expect("dispatch should succeed");
+        assert!(outcome.model_text.contains("list_stars"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_list_annotations_via_registry() {
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch("list_annotations", json!({}), &context)
+            .await
+            .expect("dispatch should succeed");
+        assert!(outcome.model_text.contains("list_annotations"));
+    }
+
+    // ============================================================================================
+    // LETHAL tests: char-boundary truncation (H2), intelligence_report success arms (B1/M3/L1/L2),
+    // and list_stars / list_annotations over SEEDED data (H2 note truncation). Each asserts a real
+    // result that a regression of the fix would break.
+    // ============================================================================================
+
+    #[test]
+    fn truncate_str_on_char_boundary_never_splits_a_multibyte_char() {
+        // Test 5 — the helper must NEVER return a slice that ends mid-codepoint. We feed a string whose
+        // Nth byte lands inside a 3-byte CJK char and assert the returned prefix is valid UTF-8 (it
+        // already is, by type), is <= the cap, and is a true prefix on a char boundary (so a raw
+        // `&s[..N]` would have panicked at this exact cut). A regression to a byte slice panics here.
+        let cjk = "你好世界"; // 4 CJK chars, 3 bytes each = 12 bytes; byte index 4 is mid-char-2.
+        assert_eq!(cjk.len(), 12);
+        assert!(
+            !cjk.is_char_boundary(4),
+            "byte 4 must be mid-codepoint for this test to be meaningful"
+        );
+        // Cut at byte 4 (mid-char): the helper walks back to byte 3 (after the first whole char).
+        let cut = truncate_str_on_char_boundary(cjk, 4);
+        assert_eq!(cut, "你", "walks back to the nearest boundary, never splitting");
+        assert!(cut.len() <= 4);
+
+        // A boundary-aligned cap is honored exactly.
+        assert_eq!(truncate_str_on_char_boundary(cjk, 6), "你好");
+        // A cap at/over the length returns the whole string.
+        assert_eq!(truncate_str_on_char_boundary(cjk, 12), cjk);
+        assert_eq!(truncate_str_on_char_boundary(cjk, 99), cjk);
+        // Emoji (4-byte) is also never split.
+        let emoji = "🦀rust"; // crab is 4 bytes; "rust" is 4 ascii bytes; total 8.
+        assert_eq!(
+            truncate_str_on_char_boundary(emoji, 2),
+            "",
+            "a cap inside the first glyph yields the empty prefix"
+        );
+        assert_eq!(truncate_str_on_char_boundary(emoji, 4), "🦀");
+    }
+
+    /// Initializes the archive + Core Intelligence schema and seeds enough rows to make
+    /// `intelligence_status().ready == true` and the read models return the seeded data.
+    ///
+    /// Replicates the relevant INSERTs from `intelligence::tests::fixtures::seed_core_intelligence_fixture`
+    /// (`pub(super)` there, so not nameable here): one `sessions` row (so `ready` is true and `sessions`
+    /// returns data) and one `domain_daily_rollups` row for `example.com` (so `top_sites` / `domain_trend`
+    /// return the seeded domain). Dates are in 2024 so they fall inside any all-time window.
+    fn seed_ready_intelligence(context: &AgentToolContext) {
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        let connection =
+            crate::archive::open_intelligence_connection(&context.paths, &context.config, None)
+                .expect("open intelligence");
+        crate::intelligence::ensure_core_intelligence_schema(&connection)
+            .expect("ensure core intelligence schema");
+        connection
+            .execute(
+                "INSERT INTO sessions
+                   (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
+                 VALUES ('s-1', 'chrome:Default', 1711929600000, 1711929660000, 3, 1, 2, 1, 'Researching SQLite', '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("seed session");
+        connection
+            .execute(
+                "INSERT INTO domain_daily_rollups
+                   (date_key, profile_id, registrable_domain, domain_category, visit_count, search_count, new_domain_visits, unique_urls)
+                 VALUES ('2024-04-01', 'chrome:Default', 'example.com', 'reference', 9, 0, 1, 4)",
+                [],
+            )
+            .expect("seed domain rollup");
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_top_sites_returns_seeded_domain_all_time() {
+        // Test 3 — top_sites over a READY plane returns the seeded domain. Omitted dates exercise the
+        // B1 all-time path (the rollup date_key 2024-04-01 must fall inside the substituted
+        // [1900-01-01, today] window; before B1 the `""` start made `date_key <= ""` match nothing).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "top_sites" }), &context)
+            .await
+            .expect("top_sites over a ready plane returns data");
+        assert!(
+            !outcome.model_text.contains("not been built"),
+            "a ready plane must NOT return the not-ready note: {}",
+            outcome.model_text
+        );
+        assert!(
+            outcome.model_text.contains("example.com"),
+            "the seeded domain must appear in the all-time top_sites: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_sessions_returns_seeded_session_all_time() {
+        // Test 3 — sessions over a READY plane returns the seeded session, all-time (omitted dates).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "sessions" }), &context)
+            .await
+            .expect("sessions over a ready plane returns data");
+        assert!(!outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+        assert!(
+            outcome.model_text.contains("Researching SQLite"),
+            "the seeded session auto_title must appear: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_overview_returns_data_all_time() {
+        // Test 3 — overview over a READY plane returns its all-time snapshot WITHOUT error (B1: the
+        // all-time path needs start == "1900-01-01"; the omitted dates substitute exactly that, and
+        // `is_all_time_range` recognizes it to load/build the snapshot rather than erroring).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "overview" }), &context)
+            .await
+            .expect("overview over a ready plane (all-time) returns data, not an error");
+        assert!(outcome.model_text.contains("intelligence_report(overview)"));
+        assert!(!outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_day_insights_returns_data_for_a_seeded_day() {
+        // Test 3 — day_insights for the seeded day returns data (the rollup is on 2024-04-01). The RAW
+        // start_date is the target day (not the all-time sentinel substitution).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "day_insights", "start_date": "2024-04-01" }), &context)
+            .await
+            .expect("day_insights for a seeded day returns data");
+        assert!(outcome.model_text.contains("intelligence_report(day_insights)"));
+        assert!(!outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+        // The day's top_sites (built from the rollup) name the seeded domain.
+        assert!(
+            outcome.model_text.contains("example.com"),
+            "the seeded day must surface the domain: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_domain_trend_returns_seeded_points() {
+        // Test 3 — domain_trend (which reads domain_daily_rollups) returns the seeded point, all-time.
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "domain_trend", "domain": "example.com" }), &context)
+            .await
+            .expect("domain_trend over a ready plane returns data");
+        assert!(!outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+        assert!(
+            outcome.model_text.contains("2024-04-01"),
+            "the seeded rollup date_key must appear in the trend: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_remaining_arms_run_on_a_ready_plane() {
+        // Test 3 — the arms NOT covered by the per-report success tests above (search_trails /
+        // activity_mix / browsing_rhythm) must each dispatch over a READY plane without error,
+        // returning their (possibly empty) result labeled by report — exercising every remaining
+        // dispatch arm. `ensure_core_intelligence_schema` (via the seed) creates their tables, so a
+        // sparse plane yields empty-but-valid results, never a "no such table" error.
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let tool = IntelligenceReportTool;
+        for report in ["search_trails", "activity_mix", "browsing_rhythm"] {
+            let outcome =
+                tool.call(json!({ "report": report }), &context).await.unwrap_or_else(|error| {
+                    panic!("{report} over a ready plane must succeed: {error}")
+                });
+            assert!(
+                outcome.model_text.contains(&format!("intelligence_report({report})")),
+                "the {report} arm ran and labeled its result: {}",
+                outcome.model_text
+            );
+            assert!(
+                !outcome.model_text.contains("not been built"),
+                "a ready plane must not return the not-ready note for {report}: {}",
+                outcome.model_text
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_not_ready_when_plane_is_empty() {
+        // Test 3 (keep a not-ready arm) — an initialized-but-empty plane returns the honest note.
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "top_sites" }), &context)
+            .await
+            .expect("empty plane returns the honest not-ready note, never an error");
+        assert!(outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_truncates_over_budget_json_on_a_char_boundary() {
+        // Test 3 (>8KB truncation wiring) — seed MANY domains with CJK text so the serialized
+        // top_sites JSON exceeds the 8000-byte budget. This proves the over-budget branch is WIRED
+        // at the intelligence_report site: it truncates and carries the marker, producing valid
+        // output. The char-boundary PANIC-safety of the cut itself is proven deterministically by
+        // `truncate_str_on_char_boundary_never_splits_a_multibyte_char` (the helper, cut forced
+        // mid-codepoint) and `list_annotations_truncates_long_cjk_note_on_a_char_boundary` (asserts
+        // `!is_char_boundary` before the cut); we do NOT rely on byte 8000 of this serialized blob
+        // happening to land mid-codepoint (it need not, and depending on that would be brittle).
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        let connection =
+            crate::archive::open_intelligence_connection(&context.paths, &context.config, None)
+                .expect("open intelligence");
+        crate::intelligence::ensure_core_intelligence_schema(&connection).expect("ensure schema");
+        // One session so the plane is ready; then 300 domains, each carrying a long CJK category so the
+        // pretty-printed JSON blows past 8000 bytes and a multibyte char is highly likely to straddle
+        // the cut.
+        connection
+            .execute(
+                "INSERT INTO sessions
+                   (session_id, profile_id, first_visit_ms, last_visit_ms, visit_count, search_count, domain_count, is_deep_dive, auto_title, computed_at)
+                 VALUES ('s-1', 'chrome:Default', 1, 2, 1, 0, 1, 0, NULL, '2026-04-14T00:00:00Z')",
+                [],
+            )
+            .expect("seed session");
+        let cjk_category = "参考资料分类".repeat(4); // multibyte, repeated so it shows up across many rows.
+        for index in 0..300 {
+            connection
+                .execute(
+                    "INSERT INTO domain_daily_rollups
+                       (date_key, profile_id, registrable_domain, domain_category, visit_count, search_count, new_domain_visits, unique_urls)
+                     VALUES ('2024-04-01', 'chrome:Default', ?1, ?2, ?3, 0, 0, 1)",
+                    params![format!("例子{index}.example.com"), cjk_category, index + 1],
+                )
+                .expect("seed many domains");
+        }
+        let tool = IntelligenceReportTool;
+        let outcome = tool
+            .call(json!({ "report": "top_sites", "limit": 300 }), &context)
+            .await
+            .expect("a huge CJK result truncates without panicking");
+        // Read the length unconditionally: it proves truncation actually BOUNDED the output (the raw
+        // 300-domain blob is far larger than the budget) and exercises the size path without relying on
+        // an assert-failure message to evaluate it. Headroom covers the label prefix + the marker.
+        let out_len = outcome.model_text.len();
+        assert!(
+            out_len <= INTELLIGENCE_REPORT_MAX_BYTES + 512,
+            "truncation bounds model_text near the budget (label + marker headroom): len={out_len}"
+        );
+        assert!(
+            outcome.model_text.contains("[truncated;"),
+            "an over-budget result carries the truncation marker"
+        );
+        // The whole model_text is valid UTF-8 by type; the load-bearing claim is "no panic at the cut".
+        assert!(outcome.model_text.contains("intelligence_report(top_sites)"));
+    }
+
+    #[tokio::test]
+    async fn list_stars_returns_seeded_star_details() {
+        // Test 4 — list_stars over a SEEDED archive returns the starred page's domain/title/visit-count.
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        // Star a URL through the public API (the same canonicalization the tool resolves).
+        crate::stars::set_star(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Url,
+                entity_key: "https://example.com/page".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("star a url");
+        let tool = ListStarsTool;
+        let outcome =
+            tool.call(json!({}), &context).await.expect("list_stars returns the seeded star");
+        assert!(outcome.model_text.contains("1 starred item"), "got: {}", outcome.model_text);
+        assert!(
+            outcome.model_text.contains("example.com"),
+            "the starred domain must appear: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn list_stars_renders_untitled_branch() {
+        // Test 4 — the "(untitled)" formatting branch: a starred URL with no title row renders the
+        // sentinel rather than an empty title. A regression dropping the branch fails this.
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        crate::stars::set_star(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::SetStarRequest {
+                entity_kind: crate::models::StarEntityKind::Url,
+                entity_key: "https://untitled.example/x".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("star a url");
+        let tool = ListStarsTool;
+        let outcome = tool.call(json!({}), &context).await.expect("list_stars succeeds");
+        assert!(
+            outcome.model_text.contains("(untitled)"),
+            "a star with no title row renders the untitled sentinel: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn list_annotations_returns_notes_and_tags_branch() {
+        // Test 4 — list_annotations over SEEDED annotations returns the note + the tags-present branch.
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        let url = "https://example.com/tagged";
+        crate::annotations::set_notes(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::SetNotesRequest {
+                url: url.to_string(),
+                notes: "Short note about Rust".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("set notes");
+        crate::annotations::replace_tags(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::ReplaceTagsRequest {
+                url: url.to_string(),
+                tags: vec!["rust".to_string(), "reference".to_string()],
+                source_profile: None,
+            },
+        )
+        .expect("set tags");
+        let tool = ListAnnotationsTool;
+        let outcome = tool.call(json!({}), &context).await.expect("list_annotations returns data");
+        assert!(outcome.model_text.contains("1 annotation"), "got: {}", outcome.model_text);
+        assert!(
+            outcome.model_text.contains("Short note about Rust"),
+            "note: {}",
+            outcome.model_text
+        );
+        // The tags-present branch renders the bracketed list (tags are normalized + sorted, so
+        // alphabetical order, not insertion order).
+        assert!(outcome.model_text.contains("[reference, rust]"), "tags: {}", outcome.model_text);
+    }
+
+    #[tokio::test]
+    async fn list_annotations_renders_no_tags_branch() {
+        // Test 4 — the no-tags branch: a note with no tags renders without a "[...]" segment.
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        crate::annotations::set_notes(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::SetNotesRequest {
+                url: "https://example.com/plain".to_string(),
+                notes: "A note with no tags".to_string(),
+                source_profile: None,
+            },
+        )
+        .expect("set notes");
+        let tool = ListAnnotationsTool;
+        let outcome = tool.call(json!({}), &context).await.expect("list_annotations returns data");
+        assert!(outcome.model_text.contains("A note with no tags"), "got: {}", outcome.model_text);
+        assert!(
+            !outcome.model_text.contains('['),
+            "no-tag note must not render a bracket: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn list_annotations_truncates_long_cjk_note_on_a_char_boundary() {
+        // Test 4 (H2) — a CJK note LONGER than 120 bytes must truncate WITHOUT panicking. CJK chars are
+        // 3 bytes each, so the 120-byte cut lands mid-codepoint; a regression to `&item.notes[..120]`
+        // panics here. We assert the preview is valid (it is, by type), is truncated (the "..." marker
+        // appears), and the full note is NOT present (it was cut).
+        let (_dir, context) = context_with(None);
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        // 60 CJK chars = 180 bytes; byte 120 sits inside char #41 (40*3=120 is a boundary, so use 41
+        // chars of a different glyph to force a mid-codepoint cut). Build a note whose 120th byte is
+        // mid-char: prefix 1 ASCII char then CJK so 120 is NOT a multiple of 3 from a char start.
+        let long_cjk_note = format!("x{}", "记录笔记内容".repeat(20)); // 1 + 6*3*20 = 361 bytes.
+        assert!(long_cjk_note.len() > ANNOTATION_NOTE_PREVIEW_MAX_BYTES);
+        assert!(
+            !long_cjk_note.is_char_boundary(ANNOTATION_NOTE_PREVIEW_MAX_BYTES),
+            "byte 120 must be mid-codepoint so a raw slice would panic"
+        );
+        crate::annotations::set_notes(
+            &context.paths,
+            &context.config,
+            None,
+            crate::models::SetNotesRequest {
+                url: "https://example.com/cjk".to_string(),
+                notes: long_cjk_note.clone(),
+                source_profile: None,
+            },
+        )
+        .expect("set notes");
+        let tool = ListAnnotationsTool;
+        let outcome = tool
+            .call(json!({}), &context)
+            .await
+            .expect("a long CJK note truncates without panicking");
+        assert!(
+            outcome.model_text.contains("..."),
+            "the preview is truncated: {}",
+            outcome.model_text
+        );
+        assert!(
+            !outcome.model_text.contains(&long_cjk_note),
+            "the FULL over-budget note must not appear; only the capped preview does"
+        );
     }
 }

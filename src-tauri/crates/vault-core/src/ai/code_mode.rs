@@ -265,6 +265,12 @@ struct QueryHistoryArgs {
     /// Restrict recall to starred pages only.
     #[serde(default)]
     starred_only: Option<bool>,
+    /// Inclusive start date in `"YYYY-MM-DD"` format (W-PKG-A).
+    #[serde(default, rename = "startDate")]
+    start_date: Option<String>,
+    /// Inclusive end date in `"YYYY-MM-DD"` format (W-PKG-A).
+    #[serde(default, rename = "endDate")]
+    end_date: Option<String>,
 }
 
 /// Arguments for a `fetch_visits` host call: specific visit ids to look up (capped at [`MAX_FETCH_IDS`]).
@@ -541,6 +547,8 @@ impl HostState {
             limit: Some(limit),
             cursor: None,
             starred_only: args.starred_only,
+            start_date: args.start_date,
+            end_date: args.end_date,
         };
         // Bm25 drops the embedding provider (lexical only → works with NO provider); the semantic
         // planes thread it (degrading to lexical with a note when none is configured).
@@ -649,6 +657,8 @@ impl HostState {
             notes: Vec::new(),
             note_codes: Vec::new(),
             next_cursor: None,
+            applied_limit: None,
+            has_more: false,
         })
     }
 }

@@ -406,6 +406,8 @@ mod tests {
                 limit: Some(5),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
             session_key(&session).as_deref(),
         )

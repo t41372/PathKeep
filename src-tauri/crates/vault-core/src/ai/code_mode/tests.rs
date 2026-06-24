@@ -156,6 +156,73 @@ fn seeded_context() -> (crate::config::ProjectPaths, AgentToolContext) {
     (paths, context)
 }
 
+/// Inserts one visit DATED on a real `"YYYY-MM-DD"` day (midday UTC), so a date filter can exclude it.
+///
+/// The default `seed_visit` uses a single fixed timestamp, so it cannot exercise date ranges. This sets
+/// `visits.visit_time_ms` to the day's Unix-ms (midday), which is exactly what the date filter compares.
+fn seed_visit_on_date(
+    connection: &Connection,
+    history_id: i64,
+    url: &str,
+    title: &str,
+    date: &str,
+) {
+    let (start_ms, _end_ms) =
+        crate::utils::date_str_to_unix_ms_range(date).expect("valid YYYY-MM-DD date");
+    let visit_ms = start_ms + 12 * 60 * 60 * 1000; // midday, inside the inclusive day range.
+    let profile_id = "chrome:Default";
+    let profile_row_id = 1_i64;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [now_rfc3339()],
+        )
+        .expect("seed run");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+             VALUES (?1, 'chrome', 'test', ?2, ?3, ?4, 1, ?2, ?4)",
+            params![profile_row_id, profile_id, "/tmp/p", now_rfc3339()],
+        )
+        .expect("seed profile");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.urls
+             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
+            params![history_id, url, title, visit_ms, now_rfc3339(), profile_row_id, format!("payload-{history_id}")],
+        )
+        .expect("seed url");
+    connection
+        .execute(
+            "INSERT INTO archive.visits
+             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, ?5, 1, NULL, 1, 0, NULL, NULL, ?6, ?7, ?4)",
+            params![history_id, history_id.to_string(), visit_ms, now_rfc3339(), profile_row_id, format!("fp-{history_id}"), format!("payload-{history_id}")],
+        )
+        .expect("seed visit");
+}
+
+/// Builds a context over an archive with two DATED visits (one per day) for the date-filter test.
+fn dated_context() -> (crate::config::ProjectPaths, AgentToolContext) {
+    let (paths, context) = empty_context();
+    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
+    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
+    create_schema(&archive).expect("create schema");
+    let intelligence =
+        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
+    seed_visit_on_date(&intelligence, 201, "https://in.example/page", "In range", "2026-06-19");
+    seed_visit_on_date(
+        &intelligence,
+        202,
+        "https://out.example/page",
+        "Out of range",
+        "2026-06-25",
+    );
+    (paths, context)
+}
+
 /// Cancel control whose `cancelled()` is driven by an `AtomicBool` the test flips.
 struct FlagControl(Arc<AtomicBool>);
 impl AiRunControl for FlagControl {
@@ -345,6 +412,30 @@ fn real_js_calls_query_history_and_returns_distilled_json_with_citations() {
     // The citation is carried out-of-band with its canonical_url (so the answer stays starrable).
     let cited = outcome.citations.iter().find(|c| c.history_id == 101).expect("rust page cited");
     assert_eq!(cited.canonical_url, expected_canonical);
+}
+
+#[test]
+fn query_history_in_the_sandbox_honors_the_date_range() {
+    // Test 1 (code_mode path, H1) — a sandbox `query_history({ startDate, endDate })` returns ONLY the
+    // in-range visit. Both visits exist; only the 2026-06-19 one falls inside the range. The sandbox
+    // threads startDate/endDate into the SAME `search_history_internal` the search tools use, so H1's
+    // SQL date predicate applies here too. A regression reintroducing the leak returns BOTH ids.
+    let (_paths, context) = dated_context();
+    let source = r#"
+        const r = query_history({ query: "", startDate: "2026-06-19", endDate: "2026-06-19" });
+        return { ids: r.rows.map(x => x.id).sort((a, b) => a - b) };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    let ids: Vec<i64> = distilled["ids"]
+        .as_array()
+        .expect("ids array")
+        .iter()
+        .map(|v| v.as_i64().unwrap())
+        .collect();
+    assert_eq!(ids, vec![201], "only the in-range visit is returned in the sandbox: {ids:?}");
 }
 
 #[test]
@@ -813,6 +904,8 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
                 limit: Some(8),
                 cursor: None,
                 starred_only: None,
+                start_date: None,
+                end_date: None,
             },
         ))
         .expect("direct search");

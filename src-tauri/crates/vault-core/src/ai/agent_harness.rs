@@ -179,9 +179,41 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
     block.push_str(concat!(
         " To enumerate recent visits or find the date range, call a search tool (or run_code's",
         " query_history) with an empty query. Semantic search may be keyword-only if no embedding",
-        " provider is configured. Once the tool results give you enough evidence, STOP calling",
-        " tools and write the final answer with citations — do not keep searching.",
+        " provider is configured.",
     ));
+
+    // Date resolution: teach the model to convert relative dates into concrete parameters.
+    block.push_str(concat!(
+        " Convert relative dates ('last Friday', 'this week', 'last month') to concrete",
+        " start_date/end_date values based on the current date above. Never search for a date",
+        " as text.",
+    ));
+
+    // Tool overview: concise guide for when to use each tool.
+    block.push_str(concat!(
+        " Tools: search_history — find visits by keyword, domain, date range, or starred status",
+        " (empty query lists recent visits).",
+        " run_code — compute/aggregate across visits (counts, grouping, joins) when a single",
+        " search can't answer the question.",
+        " intelligence_report — retrieve pre-computed analytics (top sites, sessions, search",
+        " trails, trends, patterns, daily insights).",
+        " list_stars / list_annotations — enumerate the user's favorites or notes/tags.",
+    ));
+
+    // Grounding gate: anti-hallucination rule.
+    block.push_str(concat!(
+        " IMPORTANT: Every page title, URL, time, or count in your answer MUST come from a row",
+        " returned by a tool in this conversation. If no tool returned matching data, say you",
+        " found no data — do NOT fabricate visits, titles, or URLs. Cite the visit ID, date,",
+        " and URL for each claim.",
+    ));
+
+    // Stop rule: efficiency.
+    block.push_str(concat!(
+        " Once the tool results give you enough evidence, STOP calling tools and write the final",
+        " answer with citations — do not keep searching.",
+    ));
+
     block
 }
 
@@ -2315,6 +2347,19 @@ mod tests {
         assert!(block.contains("keyword-only"), "the embedding-degradation hint is present");
         assert!(block.contains("STOP calling tools"), "the stop-and-answer directive is present");
         assert!(!block.contains("archive is currently empty"));
+        // Date resolution rule
+        assert!(block.contains("start_date"), "date resolution rule mentions start_date: {block}");
+        // Grounding gate
+        assert!(
+            block.contains("MUST come from"),
+            "grounding gate anti-hallucination rule is present: {block}"
+        );
+        // Tool overview
+        assert!(
+            block.contains("intelligence_report"),
+            "tool overview mentions intelligence_report: {block}"
+        );
+        assert!(block.contains("list_stars"), "tool overview mentions list_stars: {block}");
     }
 
     #[test]
@@ -2334,6 +2379,10 @@ mod tests {
         assert!(block.contains("archive is currently empty."));
         assert!(!block.contains("spans"), "no span line for an empty archive: {block}");
         assert!(block.contains("empty query"), "the retrieval hint is still present");
+        // New content is present even for empty archives
+        assert!(block.contains("start_date"), "date resolution rule present for empty archive");
+        assert!(block.contains("MUST come from"), "grounding gate present for empty archive");
+        assert!(block.contains("intelligence_report"), "tool overview present for empty archive");
     }
 
     #[test]

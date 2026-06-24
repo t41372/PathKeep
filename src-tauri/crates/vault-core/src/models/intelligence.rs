@@ -1279,6 +1279,19 @@ pub struct AiSearchRequest {
     /// `#[serde(default)]` so older shell payloads without the field still deserialize.
     #[serde(default)]
     pub starred_only: Option<bool>,
+    /// Optional inclusive start date filter in `"YYYY-MM-DD"` format (W-PKG-A).
+    ///
+    /// When set, only visits on or after the START of this day (UTC midnight) are returned. Converted
+    /// to Unix milliseconds internally and threaded into `list_history`'s `start_time_ms` filter.
+    /// Additive with `#[serde(default)]` so older payloads without the field still deserialize.
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// Optional inclusive end date filter in `"YYYY-MM-DD"` format (W-PKG-A).
+    ///
+    /// When set, only visits on or before the END of this day (23:59:59.999 UTC) are returned.
+    /// Converted to Unix milliseconds internally and threaded into `list_history`'s `end_time_ms`.
+    #[serde(default)]
+    pub end_date: Option<String>,
 }
 
 impl Default for AiSearchRequest {
@@ -1291,6 +1304,8 @@ impl Default for AiSearchRequest {
             limit: Some(8),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         }
     }
 }
@@ -1439,6 +1454,14 @@ pub struct AiSearchResponse {
     #[serde(default)]
     pub note_codes: Vec<AiSearchNote>,
     pub next_cursor: Option<String>,
+    /// The actual row limit used after clamping (W-PKG-A), so the model knows whether its requested
+    /// limit was honored or silently reduced. `None` on pre-W-PKG-A paths that do not populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_limit: Option<u32>,
+    /// Whether the query could return more rows beyond `applied_limit` (W-PKG-A). When true the
+    /// model knows it has not seen the full result set and can request more or narrow its query.
+    #[serde(default)]
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

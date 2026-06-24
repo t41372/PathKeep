@@ -155,6 +155,18 @@ pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
     value.saturating_add(CHROME_UNIX_EPOCH_OFFSET_MICROS)
 }
 
+/// Converts a `"YYYY-MM-DD"` date string to the inclusive Unix-millisecond range `[start_ms, end_ms]`
+/// for that day (UTC). `start_ms` is midnight UTC; `end_ms` is `23:59:59.999` UTC. Returns `None`
+/// for an unparseable date. Used by the agent search tools so a `start_date`/`end_date` filter maps
+/// cleanly onto `list_history`'s existing `start_time_ms` / `end_time_ms` filter (Unix ms).
+pub fn date_str_to_unix_ms_range(date: &str) -> Option<(i64, i64)> {
+    use chrono::NaiveDate;
+    let parsed = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
+    let start = parsed.and_hms_opt(0, 0, 0)?;
+    let end = parsed.and_hms_milli_opt(23, 59, 59, 999)?;
+    Some((start.and_utc().timestamp_millis(), end.and_utc().timestamp_millis()))
+}
+
 /// Extracts a normalized domain/host string from a URL-like input.
 pub fn url_domain(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split('/').next().unwrap_or(url).trim().to_string()
@@ -350,6 +362,25 @@ mod tests {
     fn invalid_iso_returns_none_and_invalid_chrome_time_falls_back() {
         assert!(iso_to_chrome_time_micros("not-a-date").is_none());
         assert_eq!(chrome_time_to_rfc3339(i64::MIN), "1970-01-01T00:00:00+00:00");
+    }
+
+    #[test]
+    fn date_str_to_unix_ms_range_covers_full_day_and_rejects_bad_input() {
+        // A valid date covers midnight to end-of-day.
+        let (start, end) = date_str_to_unix_ms_range("2026-06-19").expect("valid date");
+        // 2026-06-19T00:00:00Z in Unix ms = 1781827200000
+        assert_eq!(start, 1_781_827_200_000);
+        // 2026-06-19T23:59:59.999Z in Unix ms
+        assert_eq!(end, 1_781_913_599_999);
+        assert!(start < end);
+
+        // Leading/trailing whitespace is tolerated.
+        assert!(date_str_to_unix_ms_range("  2026-06-19 ").is_some());
+
+        // Bad input returns None.
+        assert!(date_str_to_unix_ms_range("not-a-date").is_none());
+        assert!(date_str_to_unix_ms_range("2026/06/19").is_none());
+        assert!(date_str_to_unix_ms_range("").is_none());
     }
 
     #[test]

@@ -897,6 +897,8 @@ fn ai_worker_helpers_cover_preview_secret_and_lexical_search_flows() {
             limit: Some(5),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         },
     )
     .expect("search history");
@@ -1480,6 +1482,8 @@ fn coverage_worker_flows_cover_successful_ai_remote_and_mcp_paths() {
             limit: Some(5),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         },
     )
     .expect("semantic search");
@@ -1763,6 +1767,8 @@ fn coverage_ai_queue_paused_and_semantic_fallback_paths_stay_truthful() {
             limit: Some(3),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         },
     )
     .expect("semantic search degrades to lexical when the embedding provider is disabled");

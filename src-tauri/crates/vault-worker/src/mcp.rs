@@ -295,6 +295,8 @@ pub(crate) fn mcp_search_result(
         cursor: None,
         // The MCP face does not expose the `is:starred` facet yet (W-AI-9 carryover); unfiltered.
         starred_only: None,
+        start_date: None,
+        end_date: None,
     };
     let response = search_ai_history(database_key, &search_request)?;
     let connection = ai_archive_connection(&paths, &config, database_key)?;

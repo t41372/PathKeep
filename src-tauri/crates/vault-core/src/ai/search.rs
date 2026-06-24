@@ -193,6 +193,8 @@ impl Tool for SearchHistoryTool {
             limit: args.limit.or(Some(self.context.default_limit)),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         };
         let response = search_history_internal(
             &self.context.paths,
@@ -296,6 +298,8 @@ pub async fn answer_history_question_with_control(
             limit: Some(config.ai.retrieval_top_k.max(1)),
             cursor: None,
             starred_only: None,
+            start_date: None,
+            end_date: None,
         };
         let run_control = run_control.as_ref();
         let search_response = await_with_ai_cancellation(
@@ -472,6 +476,7 @@ pub(super) async fn search_history_internal(
     }
 
     let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    let applied_limit = limit as u32;
     let facet_starred = request.starred_only.unwrap_or(false);
 
     // BROWSE-BY-RECENCY (date/recency questions): an empty/blank query means "the most recent
@@ -483,7 +488,15 @@ pub(super) async fn search_history_internal(
     // plane entirely (embedding an empty string is meaningless and wasteful). The pipeline stays
     // bounded: `lexical_history_results` clamps the fetch to `list_history`'s `[1, 1000]` cap.
     if query.is_empty() {
-        return recent_visits_response(paths, config, key, request, limit, facet_starred);
+        return recent_visits_response(
+            paths,
+            config,
+            key,
+            request,
+            limit,
+            facet_starred,
+            applied_limit,
+        );
     }
 
     // Load the starred set once (tiny by design). It powers BOTH the bounded boost (always, when any
@@ -503,12 +516,17 @@ pub(super) async fn search_history_internal(
     // The facet also EXPANDS the lexical recall pool (mirroring the semantic plane's `recall_k`) so the
     // post-filter still yields a full page of starred matches rather than only the newest `limit` text
     // matches — see `lexical_history_results` for the boundedness + residual.
-    let lexical = lexical_history_results(paths, config, key, request, query, facet_starred)?;
+    // Over-fetch ONE probe row beyond `limit` (M1) so a `has_more` can be reported truthfully: without
+    // it the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed `limit` and
+    // `has_more` was always false even when more matches existed. We fuse `limit + 1` lexical rows (a
+    // valid RRF over one extra rank) and paginate to `limit` AFTER fusion, so the probe both feeds an
+    // honest `has_more` and lets a strong older match legitimately enter the page.
+    let lexical = lexical_history_results(paths, config, key, request, query, facet_starred, true)?;
     let lexical_ranked: Vec<&HistoryEntry> = lexical
         .items
         .iter()
         .filter(|item| !facet_starred || starred.is_starred(&item.url))
-        .take(limit)
+        .take(limit + 1)
         .collect();
 
     // Degradation notes are carried as stable CODES (review-fix M-6) so the FE can localize them; the
@@ -551,6 +569,7 @@ pub(super) async fn search_history_internal(
             .then(left.visited_at.cmp(&right.visited_at))
     });
     let total = items.len();
+    let has_more = total > limit;
     let offset = parse_search_cursor(request.cursor.as_deref()).min(total);
     let next_offset = (offset + limit).min(total);
     let next_cursor = (next_offset < total).then(|| next_offset.to_string());
@@ -560,7 +579,17 @@ pub(super) async fn search_history_internal(
     // single owner of the English rendering is [`AiSearchNote::model_facing_text`] (review-fix M-6),
     // so the wire codes and the prose can never drift per call site.
     let notes = note_codes.iter().map(AiSearchNote::model_facing_text).collect();
-    Ok(AiSearchResponse { total, provider_id, model, items, notes, note_codes, next_cursor })
+    Ok(AiSearchResponse {
+        total,
+        provider_id,
+        model,
+        items,
+        notes,
+        note_codes,
+        next_cursor,
+        applied_limit: Some(applied_limit),
+        has_more,
+    })
 }
 
 /// The model-facing match reason carried on every browse-by-recency row (empty-query path).
@@ -588,10 +617,15 @@ fn recent_visits_response(
     request: &AiSearchRequest,
     limit: usize,
     facet_starred: bool,
+    applied_limit: u32,
 ) -> Result<AiSearchResponse> {
     let starred = crate::stars::load_starred_matcher(paths, config, key)?;
     // No keyword text: `list_history` filters the empty `q` to `None` and returns recent-by-newest.
-    let recent = lexical_history_results(paths, config, key, request, "", facet_starred)?;
+    // H3 — over-fetch ONE probe row beyond `limit` from the recency source: the previous call fetched
+    // only `base_limit == limit` rows, so the `.take(limit + 1)` below was a NO-OP and `has_more` was
+    // ALWAYS false on the common agent "list recent" path. The probe makes `has_more` honest.
+    let recent = lexical_history_results(paths, config, key, request, "", facet_starred, true)?;
+    // Collect one more than `limit` to detect `has_more`.
     let ranked: Vec<AiSearchEntry> = recent
         .items
         .iter()
@@ -603,8 +637,16 @@ fn recent_visits_response(
             let score = 1.0 - (rank as f32) / (limit.max(1) as f32);
             history_entry_to_search_entry(item, score.max(0.0), RECENT_VISITS_MATCH_REASON)
         })
-        .take(limit)
+        .take(limit + 1)
         .collect();
+
+    // M2 — `total` is the BEST-KNOWN total BEFORE pagination (the pre-truncation count, including the
+    // probe row), consistent with the keyword path's pre-pagination fused `total`. So a consumer reading
+    // `total` / `has_more` / `applied_limit` sees the same semantics on both paths (the probe makes
+    // `total == limit + 1` when more exist, matching `has_more == true`).
+    let total = ranked.len();
+    let has_more = total > limit;
+    let ranked: Vec<AiSearchEntry> = ranked.into_iter().take(limit).collect();
 
     let mut items = apply_starred_boost(ranked, &starred, config.ai.starred_boost);
     items.sort_by(|left, right| {
@@ -615,7 +657,6 @@ fn recent_visits_response(
             // Tie-break newest-first so equal-score rows stay in recency order (visited_at desc).
             .then(right.visited_at.cmp(&left.visited_at))
     });
-    let total = items.len();
 
     Ok(AiSearchResponse {
         total,
@@ -625,6 +666,8 @@ fn recent_visits_response(
         notes: Vec::new(),
         note_codes: Vec::new(),
         next_cursor: None,
+        applied_limit: Some(applied_limit),
+        has_more,
     })
 }
 
@@ -1072,7 +1115,14 @@ fn hydrate_semantic_hits(
     // Batch-load the candidate visit rows (skips reverted), then per content_key keep the most-recent
     // VISIBLE visit that passes the facet filter. Every returned row.id is in `key_by_history` (the
     // SQL only queried those ids), so the lookup is total.
-    let rows = load_visit_rows(connection, &candidate_ids)?;
+    //
+    // H1 — the DATE filter is enforced HERE, SQL-side on `visit_time_ms` (Unix-ms), the SAME predicate
+    // the lexical path threads into `list_history`. Without it the semantic/hybrid plane (and code_mode's
+    // hybrid/vector planes, which share this path) would LEAK out-of-range semantic hits when the caller
+    // supplied `start_date`/`end_date`. Resolving on `visit_time_ms` keeps it consistent with the lexical
+    // path and avoids the Chrome-micros conversion a `visit_passes_facets`-side filter would need.
+    let date_range_ms = resolve_date_filter_ms(request);
+    let rows = load_visit_rows(connection, &candidate_ids, date_range_ms)?;
     let mut best: HashMap<u64, HistoryEntry> = HashMap::new();
     for row in rows {
         if !visit_passes_facets(&row, request) {
@@ -1113,7 +1163,18 @@ fn hydrate_semantic_hits(
 /// One statement per `SQLITE_BATCH_SIZE` chunk so the predicate list stays bounded at 14.4M — the
 /// batched hydration that replaces a per-result N+1. Reverted visits are excluded so a result never
 /// resolves to a row the user reverted.
-fn load_visit_rows(connection: &Connection, history_ids: &[i64]) -> Result<Vec<HistoryEntry>> {
+///
+/// `date_range_ms` is the optional `(start_ms, end_ms)` Unix-millisecond window (H1): the SQL always
+/// compares `visits.visit_time_ms` against a lower + upper bound so the semantic/hybrid plane honors the
+/// caller's `start_date`/`end_date` exactly as the lexical path does. An unbounded side (`None`) binds an
+/// `i64` sentinel (`MIN`/`MAX`) so its comparison is always true. The bounds are passed as trailing
+/// positional params after the IN-list.
+fn load_visit_rows(
+    connection: &Connection,
+    history_ids: &[i64],
+    date_range_ms: (Option<i64>, Option<i64>),
+) -> Result<Vec<HistoryEntry>> {
+    let (start_ms, end_ms) = date_range_ms;
     let mut rows = Vec::new();
     for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
@@ -1137,10 +1198,21 @@ fn load_visit_rows(connection: &Connection, history_ids: &[i64]) -> Result<Vec<H
              JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
              LEFT JOIN search.search_documents AS search_documents ON search_documents.url_id = urls.id
              WHERE visits.reverted_at IS NULL
-               AND visits.id IN ({placeholders})"
+               AND visits.id IN ({placeholders})
+               AND visits.visit_time_ms >= ?{start_idx}
+               AND visits.visit_time_ms <= ?{end_idx}",
+            // The date bounds are bound positionally AFTER the IN-list placeholders. `params_from_iter`
+            // numbers them 1..=chunk.len(); the two trailing bounds take the next two indices. An
+            // unbounded side uses an i64 sentinel (`MIN`/`MAX`) so the comparison is always true, which
+            // is simpler than a NULL-guard and binds a single concrete type.
+            start_idx = chunk.len() + 1,
+            end_idx = chunk.len() + 2,
         );
         let mut statement = connection.prepare(&sql)?;
-        let params = rusqlite::params_from_iter(chunk.iter());
+        // Chain the chunk ids with the two trailing date bounds (an unbounded side → MIN/MAX sentinel).
+        let params = rusqlite::params_from_iter(
+            chunk.iter().copied().chain([start_ms.unwrap_or(i64::MIN), end_ms.unwrap_or(i64::MAX)]),
+        );
         let mapped = statement.query_map(params, |row: &Row<'_>| {
             let url: String = row.get(2)?;
             Ok(HistoryEntry {
@@ -1243,15 +1315,28 @@ pub(super) fn lexical_history_results(
     request: &AiSearchRequest,
     query: &str,
     starred_only: bool,
+    over_fetch_for_has_more: bool,
 ) -> Result<crate::models::HistoryQueryResponse> {
     let base_limit = request.limit.unwrap_or(12).max(1);
-    // Facet on → fetch an expanded pool so the caller's starred post-filter still yields a full page;
-    // facet off → the lexical plane is the merge baseline and `base_limit` is enough.
+    // The desired page size (`base_limit`) plus, when the caller will compute `has_more` from this pool,
+    // ONE probe row beyond it (M1/H3). The probe lets a `total > limit` (more matches exist) be detected
+    // truthfully instead of always reporting `has_more == false` because the pool was hard-capped at the
+    // page size.
+    // One line (not a multi-line `let =`): the coverage gate's brace-counting line-masking
+    // mis-attributes a `let x =\n  <expr>;` split, so keep the assignment + expression together.
+    let with_probe =
+        if over_fetch_for_has_more { base_limit.saturating_add(1) } else { base_limit };
+    // Facet on → fetch an expanded pool so the caller's starred post-filter still yields a full page (the
+    // expansion already over-fetches, so the probe is subsumed); facet off → the desired page size plus
+    // the optional `has_more` probe row.
     let fetch_limit = if starred_only {
         (base_limit.saturating_mul(LEXICAL_FACET_EXPANSION)).min(LEXICAL_FACET_POOL_CAP)
     } else {
-        base_limit
+        with_probe
     };
+    // W-PKG-A: thread the date filter into the lexical query. `list_history` already supports
+    // `start_time_ms` / `end_time_ms` as Unix ms; we convert the "YYYY-MM-DD" strings here.
+    let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
     list_history(
         paths,
         config,
@@ -1261,8 +1346,8 @@ pub(super) fn lexical_history_results(
             profile_id: request.profile_id.clone(),
             browser_kind: None,
             domain: request.domain.clone(),
-            start_time_ms: None,
-            end_time_ms: None,
+            start_time_ms,
+            end_time_ms,
             sort: Some("newest".to_string()),
             limit: Some(fetch_limit),
             page: None,
@@ -1270,6 +1355,22 @@ pub(super) fn lexical_history_results(
             regex_mode: Some(false),
         },
     )
+}
+
+/// Resolves optional `"YYYY-MM-DD"` date filters on the request to the Unix-millisecond range
+/// `list_history` expects. Unparseable dates are silently ignored (the user-typed a bad date).
+fn resolve_date_filter_ms(request: &AiSearchRequest) -> (Option<i64>, Option<i64>) {
+    let start_ms = request
+        .start_date
+        .as_deref()
+        .and_then(crate::utils::date_str_to_unix_ms_range)
+        .map(|(start, _)| start);
+    let end_ms = request
+        .end_date
+        .as_deref()
+        .and_then(crate::utils::date_str_to_unix_ms_range)
+        .map(|(_, end)| end);
+    (start_ms, end_ms)
 }
 
 /// Orders semantic matches from strongest to weakest score.
