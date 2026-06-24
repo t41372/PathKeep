@@ -50,6 +50,7 @@ import {
   type PaperPreferencesEventDetail,
 } from '@/lib/paper-preferences'
 import { useProfileScope } from '@/lib/profile-scope-context'
+import { hasMacOverlayTitlebar } from '@/lib/runtime'
 
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
@@ -113,6 +114,12 @@ export function AppShell() {
   const [epigraphIndex] = useState<number>(() =>
     readEpigraphIndex(EPIGRAPH_KEY, EPIGRAPH_POOL_SIZE, shellStorage()),
   )
+  // macOS-only: with titleBarStyle "Overlay" the native traffic lights float
+  // over the top-left of the webview and the content extends under the title
+  // strip, so the app background paints through instead of an opaque bar.
+  // Resolved once at mount — runtime + OS do not change within a session — so
+  // the shell can reserve clearance (CSS keys off data-titlebar-overlay).
+  const [titlebarOverlay] = useState<boolean>(() => hasMacOverlayTitlebar())
 
   // Mount-pass: push the read preferences into the document so
   // <html data-theme>, fonts, density, paper-texture line up with persisted
@@ -275,8 +282,16 @@ export function AppShell() {
     <div
       className="bg-page flex h-full min-h-0 w-full text-ink"
       data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
+      data-titlebar-overlay={titlebarOverlay ? 'true' : 'false'}
       data-testid="app-shell"
     >
+      {/* macOS Overlay title bar removes the native title-drag area; this band
+          spans the reserved top strip (inset from the traffic lights) so the
+          user can still drag the window by the header. Inert when the overlay
+          is off (height 0, pointer-events none). */}
+      {titlebarOverlay ? (
+        <div className="pk-titlebar-dragstrip" data-tauri-drag-region />
+      ) : null}
       <PKSidebar
         activeId={activeScreen.id}
         collapsed={sidebarCollapsed}

@@ -27,6 +27,7 @@ import { I18nProvider } from '@/lib/i18n'
 import { ProfileScopeProvider } from '@/lib/profile-scope'
 import type { DashboardSnapshot } from '@/lib/types'
 import { PAPER_PREFERENCES_EVENT } from '@/lib/paper-preferences'
+import * as runtime from '@/lib/runtime'
 
 vi.mock('@/components/primitives/busy-overlay', () => ({
   BusyOverlay: ({ label }: { label: string }) => (
@@ -101,6 +102,26 @@ describe('AppShell (paper redesign)', () => {
   test('uses the deepest matched route handle as the active screen', () => {
     renderShell({}, '/jobs')
     expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
+  })
+
+  test('omits the macOS titlebar drag region off the overlay platform', () => {
+    // jsdom is not a macOS Tauri window, so the overlay is inactive.
+    renderShell({}, '/')
+    const shellRoot = screen.getByTestId('app-shell')
+    expect(shellRoot).toHaveAttribute('data-titlebar-overlay', 'false')
+    expect(
+      shellRoot.querySelector('.pk-titlebar-dragstrip'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('renders the drag region under the macOS overlay title bar', () => {
+    vi.spyOn(runtime, 'hasMacOverlayTitlebar').mockReturnValue(true)
+    renderShell({}, '/')
+    const shellRoot = screen.getByTestId('app-shell')
+    expect(shellRoot).toHaveAttribute('data-titlebar-overlay', 'true')
+    const dragStrip = shellRoot.querySelector('.pk-titlebar-dragstrip')
+    expect(dragStrip).toBeInTheDocument()
+    expect(dragStrip).toHaveAttribute('data-tauri-drag-region')
   })
 
   test('persists sidebar collapsed state to localStorage on toggle', async () => {

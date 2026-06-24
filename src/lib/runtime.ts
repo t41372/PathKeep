@@ -12,6 +12,7 @@
  * - `resolveAppRuntime`
  * - `hasDesktopCommandTransport`
  * - `hasTauriGuestApi`
+ * - `hasMacOverlayTitlebar`
  *
  * Source-of-truth notes:
  * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
@@ -129,4 +130,41 @@ export function hasDesktopCommandTransport() {
  */
 export function hasTauriGuestApi() {
   return hasTauriIpcBridge()
+}
+
+/**
+ * Returns whether the current renderer is hosted on macOS.
+ *
+ * `navigator.platform` is the most reliable signal still exposed in the Tauri
+ * webview (the WKWebView user agent does report "Macintosh", but platform is
+ * cheaper and unambiguous). Kept defensive so the helper is safe to call before
+ * first paint and inside non-DOM test contexts.
+ */
+function isMacOsHost() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+  const platform = navigator.platform || ''
+  const userAgent = navigator.userAgent || ''
+  return /Mac|iPhone|iPod|iPad/.test(platform) || /Mac OS X/.test(userAgent)
+}
+
+/**
+ * Returns whether the macOS overlay title bar is in effect for this window.
+ *
+ * Why this helper exists:
+ * - `tauri.conf.json` sets `titleBarStyle: "Overlay"`, which is a macOS-only
+ *   flag: the native traffic lights float over the webview and the content
+ *   extends under the ~28px title strip so the app background shows through
+ *   instead of an opaque black bar. The shell must then reserve clearance for
+ *   the traffic lights and the title strip — but ONLY when that overlay is
+ *   actually present (real desktop window on macOS). In the browser preview,
+ *   on Windows, and on Linux there is no overlay, so no offset is applied.
+ *
+ * Windows/Linux note: `titleBarStyle` is ignored off macOS, so those platforms
+ * keep their native decorations and this returns false. A custom client-side
+ * titlebar for Windows/Linux is a deliberate follow-up, not handled here.
+ */
+export function hasMacOverlayTitlebar() {
+  return hasTauriIpcBridge() && isMacOsHost()
 }

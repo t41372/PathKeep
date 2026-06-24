@@ -88,3 +88,69 @@
 .app-frame[data-sidebar-collapsed='true'] .shell-grid {
   grid-template-columns: 72px minmax(0, 1fr);
 }
+
+/* ═══ macOS OVERLAY TITLE BAR ═══
+   With titleBarStyle: "Overlay" the webview extends under a ~28px transparent
+   strip and the native traffic lights float over the top-left of the content
+   (i.e. over the sidebar). The shell sets data-titlebar-overlay="true" on its
+   root (see src/app/shell.tsx) only on a real macOS desktop window. We turn on
+   the overlay height token here and reserve clearance so:
+   - the sidebar brand mark / collapsed rail sits BELOW the traffic lights, and
+   - the topbar controls sit BELOW the title strip,
+   while the cream (light) / darkroom (dark) app background still paints behind
+   the lights — replacing the old opaque black bar. */
+[data-titlebar-overlay='true'] {
+  --titlebar-overlay-h: 28px;
+}
+
+/* Sidebar brand header: push the logo + traffic-light row down by the strip
+   height, and reserve the left inset so the lights never cover the brand mark
+   (expanded) or the collapsed-rail controls. */
+[data-titlebar-overlay='true'] [data-testid='pk-sidebar'] {
+  padding-top: var(--titlebar-overlay-h);
+}
+[data-titlebar-overlay='true'][data-sidebar-collapsed='true']
+  [data-testid='pk-sidebar'] {
+  /* Collapsed rail is 56px wide — narrower than the ~72px light cluster — so
+     the cluster spills onto the topbar; the vertical push alone clears it. */
+  padding-top: var(--titlebar-overlay-h);
+}
+
+/* Topbar: reserve the title-strip height above its controls. The leftmost
+   ~72px of the window holds the traffic lights; when the sidebar is collapsed
+   that cluster reaches into the topbar, so also inset the topbar content from
+   the left in that state. */
+[data-titlebar-overlay='true'] [data-testid='pk-topbar'] {
+  /* Grow the topbar by the strip height (don't just pad into it): the topbar is
+     a fixed-height border-box header, so padding-top alone would shrink its
+     content box and clip the control row (review C2-1). Adding the strip to the
+     height reserves it ABOVE the controls, which keep their full size. Height is
+     calc(base + strip) so the controls stay vertically centred in the base row. */
+  height: calc(52px + var(--titlebar-overlay-h));
+  padding-top: var(--titlebar-overlay-h);
+}
+[data-titlebar-overlay='true'][data-sidebar-collapsed='true']
+  [data-testid='pk-topbar'] {
+  padding-left: calc(
+    var(--titlebar-overlay-inset) - var(--sidebar-w-collapsed)
+  );
+}
+
+/* Overlay removes the native title-drag area, so the shell renders a drag band
+   across the reserved top strip (see src/app/shell.tsx). It is inset from the
+   left by the traffic-light cluster width so it never sits over the native
+   controls, and it is height 0 (no-op) until the overlay is active. The band
+   carries data-tauri-drag-region; it holds no controls, so dragging the header
+   never fights a click target. */
+.pk-titlebar-dragstrip {
+  position: fixed;
+  top: 0;
+  left: var(--titlebar-overlay-inset);
+  right: 0;
+  height: var(--titlebar-overlay-h);
+  z-index: 3;
+  pointer-events: none;
+}
+[data-titlebar-overlay='true'] .pk-titlebar-dragstrip {
+  pointer-events: auto;
+}
