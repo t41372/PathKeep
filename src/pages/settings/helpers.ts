@@ -314,13 +314,17 @@ export function makeDefaultAiProviderDraft(
   > = {
     ollama: {
       name: 'Ollama',
-      baseUrl: 'http://localhost:11434',
+      // 127.0.0.1, not localhost: reqwest on macOS resolves `localhost` to a dual-stack set and
+      // returns a spurious 503 against an IPv4-only local server, while 127.0.0.1 connects cleanly
+      // (see vault-core `normalize_local_base_url`).
+      baseUrl: 'http://127.0.0.1:11434',
       model: 'llama3.2:8b',
       embModel: 'nomic-embed-text',
     },
     'lm-studio': {
       name: 'LM Studio',
-      baseUrl: 'http://localhost:1234/v1',
+      // 127.0.0.1, not localhost: see the Ollama note above — LM Studio binds IPv4-only by default.
+      baseUrl: 'http://127.0.0.1:1234/v1',
       model: 'local-model',
       embModel: 'local-embed',
     },

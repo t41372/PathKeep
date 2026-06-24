@@ -232,9 +232,14 @@ impl ExternalEmbeddingProvider {
             .config
             .base_url
             .as_deref()
-            .context("external embedding provider requires a base URL")?
-            .trim_end_matches('/');
-        Ok(format!("{base}/embeddings"))
+            .context("external embedding provider requires a base URL")?;
+        // Pin a `localhost` host to `127.0.0.1` (see `normalize_local_base_url`) so the dominant
+        // backfill embedding path reaches an IPv4-only local server (LM Studio / Ollama) instead
+        // of the macOS dual-stack 503. Every other host — including the candle sentinel — is
+        // returned unchanged before the trailing-slash trim joins `/embeddings`.
+        let normalized = super::provider::normalize_local_base_url(base);
+        let trimmed = normalized.trim_end_matches('/');
+        Ok(format!("{trimmed}/embeddings"))
     }
 }
 

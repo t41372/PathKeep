@@ -332,11 +332,17 @@ describe('settings helpers', () => {
   })
 
   it('seeds AI provider drafts from every supported request format', () => {
+    // Local presets pin 127.0.0.1 (not localhost): reqwest on macOS returns a spurious 503 against
+    // an IPv4-only local server when it resolves `localhost` to the dual-stack set.
     expect(makeDefaultAiProviderDraft('llm', 'ollama')).toMatchObject({
-      baseUrl: 'http://localhost:11434',
+      baseUrl: 'http://127.0.0.1:11434',
       defaultModel: 'llama3.2:8b',
       maxTokens: 1200,
       temperature: 0.7,
+    })
+    expect(makeDefaultAiProviderDraft('llm', 'lm-studio')).toMatchObject({
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      defaultModel: 'local-model',
     })
     expect(makeDefaultAiProviderDraft('llm', 'openai')).toMatchObject({
       baseUrl: 'https://api.openai.com/v1',

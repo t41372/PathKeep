@@ -54,6 +54,69 @@ pub(super) fn l2_normalize(vector: &mut [f32]) {
     }
 }
 
+/// Rewrites a `localhost` host label to `127.0.0.1` in a provider base URL, leaving everything
+/// else byte-for-byte.
+///
+/// ## Why this exists
+/// reqwest on macOS resolves `localhost` to the dual-stack `[::1]`/`127.0.0.1` set and, against a
+/// server that binds IPv4 ONLY (LM Studio's default `*:1234`, where `[::1]:1234` is
+/// connection-refused), returns a spurious 503 even though `127.0.0.1:1234` streams perfectly.
+/// `curl` masks the bug because it prefers the IPv4 address. Every LM Studio / Ollama preset ships
+/// a `localhost` base URL, so pinning the connection to `127.0.0.1` at the URL-construction layer
+/// fixes EXISTING saved configs without anyone re-typing the field, and without touching the
+/// transport (rig/reqwest stay as-is — this is purely an address-selection fix).
+///
+/// ## Exact-label contract
+/// Only the bare host token `localhost` is rewritten, matched case-insensitively (`LOCALHOST`),
+/// with or without a scheme (`http://localhost:1234/v1`, a bare `localhost:1234`). Scheme,
+/// userinfo, port, path, query, and fragment are preserved verbatim. A host that merely CONTAINS
+/// the substring (`localhost.example.com`, `mylocalhost`) is left untouched — it is a different,
+/// real host. IPv6 literals (`[::1]`), already-numeric hosts (`127.0.0.1`), cloud hosts, and the
+/// candle in-app sentinel (`candle:in-app`, which has no `://` and whose "host" token is `candle`)
+/// all fall through unchanged. Pure and total: any input that does not present a `localhost` host
+/// label is returned as an owned copy of the original.
+pub(super) fn normalize_local_base_url(base_url: &str) -> String {
+    // Locate the authority. With a scheme, the authority begins right after `://`; without one
+    // (a bare `localhost:1234`), the whole string is authority-then-path. We never invent a
+    // scheme — a scheme-less input is returned scheme-less.
+    let authority_start = match base_url.find("://") {
+        Some(scheme_end) => scheme_end + 3,
+        None => 0,
+    };
+    let rest = &base_url[authority_start..];
+
+    // The authority ends at the first path/query/fragment delimiter.
+    let authority_len = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_len];
+
+    // Drop any `userinfo@` prefix; the host begins after the LAST `@` in the authority.
+    let host_offset = authority.rfind('@').map_or(0, |at| at + 1);
+    let host_and_port = &authority[host_offset..];
+
+    // An IPv6 literal is bracketed (`[::1]`) and never equals the `localhost` label, so skip it
+    // wholesale — splitting on `:` would otherwise mangle the inner colons.
+    if host_and_port.starts_with('[') {
+        return base_url.to_string();
+    }
+
+    // The host is everything up to the `:port` separator (if any).
+    let host_len = host_and_port.find(':').unwrap_or(host_and_port.len());
+    let host = &host_and_port[..host_len];
+
+    if !host.eq_ignore_ascii_case("localhost") {
+        return base_url.to_string();
+    }
+
+    // Splice `127.0.0.1` in place of exactly the host span, preserving every surrounding byte.
+    let host_start = authority_start + host_offset;
+    let host_end = host_start + host_len;
+    let mut out = String::with_capacity(base_url.len() + 4);
+    out.push_str(&base_url[..host_start]);
+    out.push_str("127.0.0.1");
+    out.push_str(&base_url[host_end..]);
+    out
+}
+
 /// Whether the transport should request the model's native embedding dimension, or a
 /// specific MRL-truncated dimension the user explicitly configured.
 ///
@@ -428,7 +491,7 @@ pub(super) async fn run_llm_agent(
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             let mut builder = openai::CompletionsClient::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
+                builder = builder.base_url(normalize_local_base_url(base_url));
             }
             let client = builder.build()?;
             let agent = client
@@ -443,7 +506,7 @@ pub(super) async fn run_llm_agent(
         AiRequestFormat::Anthropic => {
             let mut builder = anthropic::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
+                builder = builder.base_url(normalize_local_base_url(base_url));
             }
             let client = builder.build()?;
             let agent = client
@@ -458,7 +521,7 @@ pub(super) async fn run_llm_agent(
         AiRequestFormat::Google => {
             let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
+                builder = builder.base_url(normalize_local_base_url(base_url));
             }
             let client = builder.build()?;
             let agent = client
@@ -608,7 +671,7 @@ pub(super) async fn embed_query(
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             let mut builder = openai::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
+                builder = builder.base_url(normalize_local_base_url(base_url));
             }
             let client = builder.build()?;
             let embedding = match requested_dim {
@@ -630,7 +693,7 @@ pub(super) async fn embed_query(
         AiRequestFormat::Google => {
             let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(base_url);
+                builder = builder.base_url(normalize_local_base_url(base_url));
             }
             let client = builder.build()?;
             // `resolve_embed_request_dim` guarantees an explicit dim for Gemini (it rejects the

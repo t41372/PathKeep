@@ -4,7 +4,7 @@ use super::indexing::{
     collect_visit_chunk, select_embed_targets, upsert_embedding, validate_embedding_batch_for_keys,
 };
 use super::provider::{
-    embedding_descriptor_for, l2_normalize, resolve_embed_request_dim,
+    embedding_descriptor_for, l2_normalize, normalize_local_base_url, resolve_embed_request_dim,
     should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
 };
 use super::*;
@@ -4230,6 +4230,63 @@ fn l2_normalize_unit_scales_non_zero_and_leaves_degenerate_vectors_untouched() {
     let mut empty: Vec<f32> = Vec::new();
     l2_normalize(&mut empty);
     assert!(empty.is_empty());
+}
+
+#[test]
+fn normalize_local_base_url_rewrites_only_the_localhost_host_label() {
+    // The live-bug case: a `localhost` host pins to 127.0.0.1 so reqwest reaches the IPv4-only
+    // local server, while scheme, port, and path are preserved byte-for-byte.
+    assert_eq!(normalize_local_base_url("http://localhost:1234/v1"), "http://127.0.0.1:1234/v1");
+    // The Ollama default (no path) rewrites the host and keeps the port.
+    assert_eq!(normalize_local_base_url("http://localhost:11434"), "http://127.0.0.1:11434");
+    // No port, no path — just the host.
+    assert_eq!(normalize_local_base_url("http://localhost"), "http://127.0.0.1");
+    // A query string is preserved.
+    assert_eq!(
+        normalize_local_base_url("http://localhost:1234/v1?k=v"),
+        "http://127.0.0.1:1234/v1?k=v"
+    );
+    // A fragment is preserved (the authority ends at `#`).
+    assert_eq!(
+        normalize_local_base_url("http://localhost:8080#frag"),
+        "http://127.0.0.1:8080#frag"
+    );
+    // https scheme is preserved.
+    assert_eq!(normalize_local_base_url("https://localhost/"), "https://127.0.0.1/");
+    // The host match is case-insensitive but the replacement is always lowercase numeric.
+    assert_eq!(normalize_local_base_url("http://LOCALHOST:1234/v1"), "http://127.0.0.1:1234/v1");
+    assert_eq!(normalize_local_base_url("http://LocalHost"), "http://127.0.0.1");
+    // A bare authority with NO scheme still rewrites (the whole string is authority-then-path).
+    assert_eq!(normalize_local_base_url("localhost:1234"), "127.0.0.1:1234");
+    assert_eq!(normalize_local_base_url("localhost"), "127.0.0.1");
+    // Userinfo before the host is preserved and the host after the LAST `@` is what matches.
+    assert_eq!(
+        normalize_local_base_url("http://user:pass@localhost:1234/v1"),
+        "http://user:pass@127.0.0.1:1234/v1"
+    );
+
+    // ── Must NOT rewrite ──────────────────────────────────────────────────────────────────────
+    // Already 127.0.0.1: unchanged (idempotent — re-normalizing a normalized URL is a no-op).
+    assert_eq!(normalize_local_base_url("http://127.0.0.1:1234/v1"), "http://127.0.0.1:1234/v1");
+    // A cloud host is never touched.
+    assert_eq!(normalize_local_base_url("https://api.openai.com/v1"), "https://api.openai.com/v1");
+    // A host that merely CONTAINS "localhost" is a different, real host — left alone.
+    assert_eq!(
+        normalize_local_base_url("http://localhost.example.com:1234/v1"),
+        "http://localhost.example.com:1234/v1"
+    );
+    // A "localhost" appearing only in the PATH (not the host) must not be rewritten.
+    assert_eq!(
+        normalize_local_base_url("https://api.example.com/localhost"),
+        "https://api.example.com/localhost"
+    );
+    // A leading-substring host (`localhosts`) is not the exact label.
+    assert_eq!(normalize_local_base_url("http://localhosts:1234"), "http://localhosts:1234");
+    // The candle in-app sentinel has no `://`; its host token is `candle`, never `localhost`.
+    assert_eq!(normalize_local_base_url(CANDLE_INAPP_BASE_URL), CANDLE_INAPP_BASE_URL);
+    // An IPv6 loopback literal is left exactly as-is (its inner colons are not a port separator,
+    // and it is never the `localhost` label).
+    assert_eq!(normalize_local_base_url("http://[::1]:1234/v1"), "http://[::1]:1234/v1");
 }
 
 #[test]
