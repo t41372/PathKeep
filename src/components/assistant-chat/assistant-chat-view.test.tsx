@@ -369,7 +369,41 @@ describe('AssistantChatView', () => {
     )
   })
 
-  test('scrolls to the bottom as the streaming answer grows', () => {
+  /**
+   * Pin a scroll element's layout metrics in jsdom (which reports 0 for all of them) so the
+   * stick-to-bottom distance calc (`scrollHeight - scrollTop - clientHeight`) is exercisable, then
+   * fire a real `scroll` event and flush the hook's rAF-deduped sample synchronously.
+   */
+  function scrollTo(
+    list: HTMLElement,
+    { scrollTop, scrollHeight, clientHeight }: Record<string, number>,
+  ) {
+    Object.defineProperty(list, 'scrollHeight', {
+      value: scrollHeight,
+      configurable: true,
+    })
+    Object.defineProperty(list, 'clientHeight', {
+      value: clientHeight,
+      configurable: true,
+    })
+    list.scrollTop = scrollTop
+    // Capture rAF rather than running it inline so the hook finishes assigning its dedup handle
+    // before the frame fires (mirrors a real browser, where rAF is always async).
+    const frames: FrameRequestCallback[] = []
+    const raf = vi
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        frames.push(cb)
+        return frames.length
+      })
+    act(() => {
+      list.dispatchEvent(new Event('scroll'))
+    })
+    act(() => frames.forEach((cb) => cb(0)))
+    raf.mockRestore()
+  }
+
+  test('follows the streaming answer to the bottom while the user is stuck to the bottom', () => {
     const props = baseProps()
     props.streaming = true
     props.messages = [
@@ -377,17 +411,8 @@ describe('AssistantChatView', () => {
     ]
     const { rerender } = render(<AssistantChatView {...props} />)
     const list = screen.getByTestId('assistant-chat-messages')
-    // jsdom reports 0 dimensions; assert the scroll write path runs without throwing and the
-    // follow heuristic (near-bottom) executes on content growth.
-    Object.defineProperty(list, 'scrollHeight', {
-      value: 500,
-      configurable: true,
-    })
-    Object.defineProperty(list, 'clientHeight', {
-      value: 400,
-      configurable: true,
-    })
-    list.scrollTop = 90 // within 120px of bottom
+    // The user is at the bottom (default sticky), reported via a scroll event.
+    scrollTo(list, { scrollTop: 100, scrollHeight: 500, clientHeight: 400 })
     rerender(
       <AssistantChatView
         {...props}
@@ -404,7 +429,7 @@ describe('AssistantChatView', () => {
     expect(list.scrollTop).toBe(list.scrollHeight)
   })
 
-  test('does not yank the view down when the user has scrolled up while streaming', () => {
+  test('does not move the view when the user has scrolled up while streaming', () => {
     const props = baseProps()
     props.streaming = true
     props.messages = [
@@ -412,15 +437,8 @@ describe('AssistantChatView', () => {
     ]
     const { rerender } = render(<AssistantChatView {...props} />)
     const list = screen.getByTestId('assistant-chat-messages')
-    Object.defineProperty(list, 'scrollHeight', {
-      value: 1000,
-      configurable: true,
-    })
-    Object.defineProperty(list, 'clientHeight', {
-      value: 400,
-      configurable: true,
-    })
-    list.scrollTop = 100 // far from bottom (distance 500 > 120)
+    // The user scrolls UP well past the threshold (distance 500 > 24) → stick-to-bottom turns off.
+    scrollTo(list, { scrollTop: 100, scrollHeight: 1000, clientHeight: 400 })
     rerender(
       <AssistantChatView
         {...props}
@@ -434,11 +452,11 @@ describe('AssistantChatView', () => {
         ]}
       />,
     )
-    // The follow heuristic must NOT jump to the bottom.
+    // Auto-follow is disabled; the scroll position is left exactly where the user parked it.
     expect(list.scrollTop).toBe(100)
   })
 
-  test('does not follow-scroll when exactly on the 120px boundary', () => {
+  test('does not follow once the user is just past the 24px stick threshold', () => {
     const props = baseProps()
     props.streaming = true
     props.messages = [
@@ -446,16 +464,8 @@ describe('AssistantChatView', () => {
     ]
     const { rerender } = render(<AssistantChatView {...props} />)
     const list = screen.getByTestId('assistant-chat-messages')
-    Object.defineProperty(list, 'scrollHeight', {
-      value: 1000,
-      configurable: true,
-    })
-    Object.defineProperty(list, 'clientHeight', {
-      value: 400,
-      configurable: true,
-    })
-    // distanceFromBottom = 1000 - 480 - 400 = 120 → the `< 120` guard is exclusive, no jump.
-    list.scrollTop = 480
+    // distanceFromBottom = 1000 - 575 - 400 = 25 → just past the `<= 24` threshold, so NOT sticky.
+    scrollTo(list, { scrollTop: 575, scrollHeight: 1000, clientHeight: 400 })
     rerender(
       <AssistantChatView
         {...props}
@@ -469,7 +479,73 @@ describe('AssistantChatView', () => {
         ]}
       />,
     )
-    expect(list.scrollTop).toBe(480)
+    expect(list.scrollTop).toBe(575)
+  })
+
+  test('resumes following once the user scrolls back to the bottom', () => {
+    const props = baseProps()
+    props.streaming = true
+    props.messages = [
+      { id: 'a1', role: 'assistant', content: 'a', status: 'streaming' },
+    ]
+    const { rerender } = render(<AssistantChatView {...props} />)
+    const list = screen.getByTestId('assistant-chat-messages')
+    // 1. Scroll up → following stops.
+    scrollTo(list, { scrollTop: 100, scrollHeight: 1000, clientHeight: 400 })
+    rerender(
+      <AssistantChatView
+        {...props}
+        messages={[
+          { id: 'a1', role: 'assistant', content: 'a b', status: 'streaming' },
+        ]}
+      />,
+    )
+    expect(list.scrollTop).toBe(100)
+    // 2. Scroll back to the bottom (distance 0 <= 24) → following re-arms.
+    scrollTo(list, { scrollTop: 600, scrollHeight: 1000, clientHeight: 400 })
+    rerender(
+      <AssistantChatView
+        {...props}
+        messages={[
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: 'a b c d e f',
+            status: 'streaming',
+          },
+        ]}
+      />,
+    )
+    // The next streaming flush pins to the bottom again.
+    expect(list.scrollTop).toBe(list.scrollHeight)
+  })
+
+  test('pins to the bottom on a new turn even if the user had scrolled up', () => {
+    const props = baseProps()
+    props.streaming = true
+    props.messages = [
+      { id: 'a1', role: 'assistant', content: 'answer one', status: 'done' },
+    ]
+    const { rerender } = render(<AssistantChatView {...props} />)
+    const list = screen.getByTestId('assistant-chat-messages')
+    // User scrolled up to re-read → following is off.
+    scrollTo(list, { scrollTop: 50, scrollHeight: 1000, clientHeight: 400 })
+    // A new turn arrives (messages.length grows) — a deliberate send always re-pins.
+    rerender(
+      <AssistantChatView
+        {...props}
+        messages={[
+          {
+            id: 'a1',
+            role: 'assistant',
+            content: 'answer one',
+            status: 'done',
+          },
+          { id: 'u2', role: 'user', content: 'a second question' },
+        ]}
+      />,
+    )
+    expect(list.scrollTop).toBe(list.scrollHeight)
   })
 
   test('follows the reasoning-only phase even before the first answer token', () => {

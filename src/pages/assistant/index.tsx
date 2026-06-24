@@ -507,7 +507,13 @@ export function AssistantPage() {
         onRetry={history.refresh}
         testId="assistant-chat-history"
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* `min-h-0` is load-bearing: this is a middle link in the flex-height chain (page `h-full` →
+          here → the chat-view wrapper's `min-h-0 flex-1`). Without it, this column refuses to shrink
+          below its content's intrinsic height, so the inner scroll container can't be bounded and
+          the whole conversation overflows into the shell's own `<main>` scroll — a double scrollbar
+          with the composer pushed below the fold (the "janky/broken" report). With it, the messages
+          region is the single scroll surface and the composer stays pinned. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* CH-1: a discoverable doorway to past conversations. A labeled header affordance (not just
             the bare drawer toggle) so a user knows past chats exist and can open them — and the
             ONLY open affordance, since the drawer suppresses its own collapsed button here

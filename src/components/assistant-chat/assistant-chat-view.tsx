@@ -8,8 +8,10 @@
  * - Empty state: serif greeting + clickable suggested-prompt cards (reuses PaperAssistantGreeting).
  * - Conversation: render each turn via AssistantTurn; virtualize off-screen finalized turns with
  *   `useViewportMount` (height-preserving placeholders) so long chats stay light on the DOM.
- * - Auto-scroll to the latest content while streaming, and after each new turn — following the
- *   reasoning-only and tool-only phases too, not just visible answer growth.
+ * - Auto-scroll (stick-to-bottom): follow the latest content while streaming ONLY while the user is
+ *   parked at the bottom — through the reasoning-only and tool-only phases too, not just visible
+ *   answer growth. The instant the user scrolls up they stay put; scrolling back down resumes
+ *   following. A new turn (a deliberate send) always pins to the bottom and re-arms following.
  * - Composer: Enter=send / Shift+Enter=newline, send↔stop button states, provider byline,
  *   disabled only when no provider is configured (stays ENABLED while streaming so focus is never
  *   ripped to the body — Enter is a no-op mid-stream and the Stop affordance is shown instead).
@@ -34,6 +36,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { cn } from '@/lib/cn'
+import { useStickToBottom } from './use-stick-to-bottom'
 import { PKGlyph } from '@/components/shell/pk-glyph'
 import {
   PaperAssistantGreeting,
@@ -185,17 +188,23 @@ export function AssistantChatView({
   const isEmpty = messages.length === 0
   const lastId = messages.length > 0 ? messages[messages.length - 1].id : null
 
-  // Pin to the bottom after each new turn (layout effect = no visible jump). The scroll
-  // container always renders, so its ref is set by the time these effects run post-commit.
-  useLayoutEffect(() => {
-    const node = scrollRef.current as HTMLDivElement
-    node.scrollTop = node.scrollHeight
-  }, [messages.length])
+  // Stick-to-bottom: the scroll listener flips `stickToBottom` false the moment the user scrolls up
+  // and back true once they return to the bottom. Auto-follow consults this flag so a user reading
+  // earlier output is never yanked down mid-stream.
+  const { stickToBottom, scrollToBottom } = useStickToBottom(scrollRef)
 
-  // While streaming, keep following the growing turn — but only if the user is already near the
-  // bottom, so a user who scrolled up to read isn't yanked down. The dependency tracks total
-  // content + reasoning + tool-call volume so the effect re-runs through the reasoning-only and
-  // tool-only phases, not just visible answer growth.
+  // Pin to the bottom after each NEW turn — a deliberate user send — and re-arm following. A layout
+  // effect (pre-paint) keeps the jump invisible; the scroll container always renders, so its ref is
+  // set by the time these effects run post-commit. (`messages.length` only grows on a real send /
+  // reset, never on a mid-turn streaming flush, so this never fights a scrolled-up reader.)
+  useLayoutEffect(() => {
+    scrollToBottom()
+  }, [messages.length, scrollToBottom])
+
+  // While streaming, keep following the growing turn — but ONLY while the user is parked at the
+  // bottom (`stickToBottom`); a user who scrolled up to read is left exactly where they are. The
+  // dependency tracks total content + reasoning + tool-call volume so the effect re-runs through the
+  // reasoning-only and tool-only phases, not just visible answer growth.
   const followKey = messages.reduce(
     (sum, message) =>
       sum +
@@ -205,12 +214,9 @@ export function AssistantChatView({
     0,
   )
   useEffect(() => {
-    if (!streaming) return
-    const node = scrollRef.current as HTMLDivElement
-    const distanceFromBottom =
-      node.scrollHeight - node.scrollTop - node.clientHeight
-    if (distanceFromBottom < 120) node.scrollTop = node.scrollHeight
-  }, [streaming, followKey])
+    if (!streaming || !stickToBottom) return
+    scrollToBottom()
+  }, [streaming, followKey, stickToBottom, scrollToBottom])
 
   // On the streaming → idle edge, return focus to the textarea (it was never disabled, but a
   // click on Stop / a button moves focus). rAF defers to after the send/stop button unmounts.

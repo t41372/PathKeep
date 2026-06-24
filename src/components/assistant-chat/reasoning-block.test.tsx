@@ -7,9 +7,28 @@
  * flag; the body shows the accumulated reasoning text verbatim.
  */
 
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
 import { ReasoningBlock, type ReasoningBlockCopy } from './reasoning-block'
+
+/**
+ * Fire a scroll event on the reasoning body and flush the stick-to-bottom rAF sample. rAF is
+ * captured (not run inline) so the hook finishes assigning its dedup handle before the frame fires.
+ */
+function fireScroll(node: HTMLElement) {
+  const frames: FrameRequestCallback[] = []
+  const raf = vi
+    .spyOn(globalThis, 'requestAnimationFrame')
+    .mockImplementation((cb: FrameRequestCallback) => {
+      frames.push(cb)
+      return frames.length
+    })
+  act(() => {
+    node.dispatchEvent(new Event('scroll'))
+  })
+  act(() => frames.forEach((cb) => cb(0)))
+  raf.mockRestore()
+}
 
 const copy: ReasoningBlockCopy = {
   thinkingLabel: 'Thinking…',
@@ -88,6 +107,83 @@ describe('ReasoningBlock', () => {
     rerender(
       <ReasoningBlock
         text="line one\nline two\nline three"
+        streaming
+        copy={copy}
+        testId="reasoning"
+      />,
+    )
+    expect(body.scrollTop).toBe(800)
+  })
+
+  test('lets the user scroll up within the panel while reasoning streams', () => {
+    const { rerender } = render(
+      <ReasoningBlock
+        text="line one"
+        streaming
+        copy={copy}
+        testId="reasoning"
+      />,
+    )
+    const body = screen.getByTestId('reasoning-body')
+    Object.defineProperty(body, 'scrollHeight', {
+      value: 800,
+      configurable: true,
+    })
+    Object.defineProperty(body, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    })
+    // The user scrolls UP within the panel (distance 540 > threshold) → auto-follow turns off.
+    body.scrollTop = 0
+    fireScroll(body)
+    rerender(
+      <ReasoningBlock
+        text="line one\nline two\nline three\nline four"
+        streaming
+        copy={copy}
+        testId="reasoning"
+      />,
+    )
+    // The newest reasoning chunk must NOT yank the panel back to its bottom.
+    expect(body.scrollTop).toBe(0)
+  })
+
+  test('resumes following reasoning once the user scrolls the panel back down', () => {
+    const { rerender } = render(
+      <ReasoningBlock
+        text="line one"
+        streaming
+        copy={copy}
+        testId="reasoning"
+      />,
+    )
+    const body = screen.getByTestId('reasoning-body')
+    Object.defineProperty(body, 'scrollHeight', {
+      value: 800,
+      configurable: true,
+    })
+    Object.defineProperty(body, 'clientHeight', {
+      value: 260,
+      configurable: true,
+    })
+    // Scroll up → following off.
+    body.scrollTop = 0
+    fireScroll(body)
+    rerender(
+      <ReasoningBlock
+        text="line one\nline two"
+        streaming
+        copy={copy}
+        testId="reasoning"
+      />,
+    )
+    expect(body.scrollTop).toBe(0)
+    // Scroll back to the bottom (distance 0) → following re-arms.
+    body.scrollTop = 540
+    fireScroll(body)
+    rerender(
+      <ReasoningBlock
+        text="line one\nline two\nline three\nline four\nline five"
         streaming
         copy={copy}
         testId="reasoning"

@@ -290,6 +290,11 @@
   font-size: 15px;
   line-height: 1.55;
   letter-spacing: -0.005em;
+  /* A long unbroken token (a raw URL, a hash, a CJK-free identifier) in answer prose would
+     otherwise force the bubble wider than its `max-w` column and push a horizontal scrollbar onto
+     the whole conversation. Break inside such tokens so the answer always reflows to the column. */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .assistant-prose > :first-child {
   margin-top: 0;

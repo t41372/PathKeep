@@ -18,6 +18,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
+import { useStickToBottom } from './use-stick-to-bottom'
 
 export interface ReasoningBlockCopy {
   /** Header label while streaming, e.g. "Thinking…". */
@@ -54,14 +55,18 @@ export const ReasoningBlock = memo(function ReasoningBlock({
     setOpen(streaming)
   }, [streaming])
 
-  // Pin the body to its bottom while live reasoning streams in so the newest thought stays in
-  // view. A layout effect (pre-paint) keeps the jump invisible; bounded by the panel's max-h.
+  // Stick-to-bottom for the reasoning body: follow the newest thought while live reasoning streams
+  // in, but ONLY while the user is parked at the panel's bottom — the instant they scroll up within
+  // the panel, following stops so they can read earlier reasoning. A layout effect (pre-paint) keeps
+  // the follow jump invisible; bounded by the panel's max-h.
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  // `open` is the attach key: the body only renders while expanded, so the scroll listener must
+  // re-bind whenever the panel (re)opens behind this stable ref.
+  const { stickToBottom, scrollToBottom } = useStickToBottom(bodyRef, open)
   useLayoutEffect(() => {
-    if (!streaming || !open) return
-    const node = bodyRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [streaming, open, text])
+    if (!streaming || !open || !stickToBottom) return
+    scrollToBottom()
+  }, [streaming, open, text, stickToBottom, scrollToBottom])
 
   if (!text) return null
 
