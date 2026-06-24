@@ -5,8 +5,8 @@
  *
  * ## Responsibilities
  * - Verify the snapshot-less loading / locked-archive / unavailable gates.
- * - Verify that `?layout=paper` swaps the legacy section nav + overview block
- *   for the paper-redesign header.
+ * - Verify that `?layout=paper` swaps the legacy section nav for the
+ *   paper-redesign header, and that the removed overview block stays gone.
  * - Keep the assertion small enough that the existing live-shell suites can
  *   continue to own the non-paper section composition baseline.
  *
@@ -235,31 +235,28 @@ describe('SettingsPage', () => {
   })
 
   describe('paperLayout branches', () => {
-    test('renders the paper header and omits the legacy overview when layout=paper', () => {
+    test('renders the paper header instead of the legacy section nav when layout=paper', () => {
       renderPage('/settings?layout=paper')
 
       expect(screen.getByTestId('settings-paper-header')).toBeInTheDocument()
       expect(screen.queryByTestId('mock-section-nav')).toBeNull()
-      // The legacy `.settings-overview` block (h2#settings-overview + workflow
-      // links) must NOT render in paper mode.
-      expect(document.getElementById('settings-overview')).toBeNull()
       // The settings groups themselves are still composed in paper mode.
       expect(screen.getByTestId('mock-appearance')).toBeInTheDocument()
       expect(screen.getByTestId('mock-ai')).toBeInTheDocument()
     })
 
-    test('renders the legacy section nav and overview block when layout query is absent', () => {
+    test('renders the legacy section nav when the layout query is absent', () => {
       renderPage('/settings')
 
       expect(screen.getByTestId('mock-section-nav')).toBeInTheDocument()
       expect(screen.queryByTestId('settings-paper-header')).toBeNull()
-      expect(document.getElementById('settings-overview')).not.toBeNull()
-      // The two workflow links — Maintenance and Integrations — are rendered.
-      const links = screen
-        .getAllByRole('link')
-        .map((link) => link.getAttribute('href'))
-      expect(links).toContain('/maintenance')
-      expect(links).toContain('/integrations')
+      // The removed intro/overview block must NOT render in either layout: it
+      // duplicated the sidebar and wasted the first screen.
+      expect(document.getElementById('settings-overview')).toBeNull()
+      // The two in-page workflow cards (Open Maintenance / Open Integrations)
+      // are gone — the section composition renders directly under the nav.
+      expect(screen.getByTestId('mock-appearance')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-migration')).toBeInTheDocument()
     })
   })
 })

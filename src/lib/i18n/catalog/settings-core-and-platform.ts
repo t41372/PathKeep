@@ -40,6 +40,10 @@ export const settingsCoreAndPlatformNamespace = {
     optional: 'OPTIONAL',
     savedConfirmation: 'Saved',
     groupCore: 'CORE',
+    groupLookFeel: 'LOOK & FEEL',
+    groupDataSources: 'DATA SOURCES',
+    groupData: 'DATA',
+    groupDisplay: 'DISPLAY',
     groupDataUpdates: 'DATA & UPDATES',
     groupSecurityAccess: 'SECURITY & ACCESS',
     groupIntelligence: 'INTELLIGENCE',
@@ -54,13 +58,10 @@ export const settingsCoreAndPlatformNamespace = {
     externalReviewBadge: 'REVIEW ONLY',
     general: 'GENERAL',
     generalDescription: 'Language and Explorer performance preferences.',
-    preferencesOverview: 'Preferences',
-    preferencesOverviewBody:
-      'Use this page for persistent choices. Workflows that inspect files, generate artifacts, install updates, or rebuild data now live on their own pages.',
     paperHeaderEyebrow: 'Preferences',
     paperHeaderTitle: 'Settle the page before you read.',
     paperHeaderSubtitle:
-      'Typography, language, locks, providers, and backup destinations. Persistent choices live here — workflows live on their own pages.',
+      'Your reading environment and archive connections. Every change saves automatically.',
     paperJumpLabel: 'Jump to',
     // ── Paper-redesign appearance ──
     appearanceTitle: 'Appearance',
@@ -150,12 +151,8 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsMaxAgeDaysUnit: 'days',
     linkPreviewsMaxBytesLabel: 'Maximum total',
     linkPreviewsMaxBytesUnit: 'MB',
-    openMaintenance: 'Open Maintenance',
     openMaintenanceBody:
       'Updates, cleanup, derived-data rebuilds, remote backup workflows, diagnostics, and platform troubleshooting.',
-    openIntegrations: 'Open Integrations',
-    openIntegrationsBody:
-      'Manual external outputs, trusted local-host snippets, MCP commands, and generated artifact review.',
     maintenanceTitle: 'Maintenance',
     maintenanceBody:
       'Run advanced upkeep here. Preview destructive cleanup, follow update state, rebuild derived data, and review support diagnostics without crowding daily preferences.',
@@ -276,6 +273,10 @@ export const settingsCoreAndPlatformNamespace = {
     optional: '可选',
     savedConfirmation: '已保存',
     groupCore: '核心',
+    groupLookFeel: '外观与感觉',
+    groupDataSources: '数据来源',
+    groupData: '数据',
+    groupDisplay: '显示',
     groupDataUpdates: '数据与更新',
     groupSecurityAccess: '安全与访问',
     groupIntelligence: '智能',
@@ -292,12 +293,8 @@ export const settingsCoreAndPlatformNamespace = {
     generalDescription: '语言和 Explorer 性能偏好。',
     paperHeaderEyebrow: '偏好设置',
     paperHeaderTitle: '在阅读之前,先安顿好这一页。',
-    paperHeaderSubtitle:
-      '排版、语言、锁、AI 提供方、备份目的地。这里只放持久选项 — 流程都在各自的页面。',
+    paperHeaderSubtitle: '您的阅读环境与档案连接设置。所有更改都会自动保存。',
     paperJumpLabel: '跳转到',
-    preferencesOverview: '偏好设置',
-    preferencesOverviewBody:
-      '这里只放长期保存的选择。检查文件、生成产物、安装更新或重建数据的流程已经移到独立页面。',
     appearanceTitle: '外观',
     appearanceIntro:
       '选择纸面（亮色）还是暗房（深色），调整书一般的字体，并决定要不要在墨水之下保留纸张的质感。',
@@ -384,12 +381,8 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsMaxAgeDaysUnit: '天',
     linkPreviewsMaxBytesLabel: '总量上限',
     linkPreviewsMaxBytesUnit: 'MB',
-    openMaintenance: '打开维护',
     openMaintenanceBody:
       '更新、清理、派生数据重建、远程备份流程、诊断和平台排障。',
-    openIntegrations: '打开集成',
-    openIntegrationsBody:
-      '手动外部输出、受信任本地宿主片段、MCP 命令和生成产物复核。',
     maintenanceTitle: '维护',
     maintenanceBody:
       '高级维护操作集中在这里。先预览破坏性清理，跟踪更新状态，重建派生数据，并查看支持诊断，而不挤占日常偏好设置。',
@@ -507,6 +500,10 @@ export const settingsCoreAndPlatformNamespace = {
     optional: '可選',
     savedConfirmation: '已儲存',
     groupCore: '核心',
+    groupLookFeel: '外觀與感受',
+    groupDataSources: '資料來源',
+    groupData: '資料',
+    groupDisplay: '顯示',
     groupDataUpdates: '資料與更新',
     groupSecurityAccess: '安全與存取',
     groupIntelligence: '智慧',
@@ -523,12 +520,8 @@ export const settingsCoreAndPlatformNamespace = {
     generalDescription: '語言和 Explorer 效能偏好。',
     paperHeaderEyebrow: '偏好設定',
     paperHeaderTitle: '在閱讀之前，先安頓好這一頁。',
-    paperHeaderSubtitle:
-      '排版、語言、鎖、AI 供應方、備份目的地。這裡只放持久選項 — 流程都在各自的頁面。',
+    paperHeaderSubtitle: '您的閱讀環境與檔案連接設定。所有變更都會自動儲存。',
     paperJumpLabel: '跳轉到',
-    preferencesOverview: '偏好設定',
-    preferencesOverviewBody:
-      '這裡只放長期保存的選擇。檢查檔案、生成產物、安裝更新或重建資料的流程已經移到獨立頁面。',
     appearanceTitle: '外觀',
     appearanceIntro:
       '選擇紙面（亮色）或暗房（深色），調整像書一般的字體，再決定要不要在墨水之下保留紙張的質感。',
@@ -615,12 +608,8 @@ export const settingsCoreAndPlatformNamespace = {
     linkPreviewsMaxAgeDaysUnit: '天',
     linkPreviewsMaxBytesLabel: '總量上限',
     linkPreviewsMaxBytesUnit: 'MB',
-    openMaintenance: '開啟維護',
     openMaintenanceBody:
       '更新、清理、派生資料重建、遠端備份流程、診斷和平台排障。',
-    openIntegrations: '開啟整合',
-    openIntegrationsBody:
-      '手動外部輸出、受信任本地宿主片段、MCP 命令和生成產物複核。',
     maintenanceTitle: '維護',
     maintenanceBody:
       '進階維護操作集中在這裡。先預覽破壞性清理，追蹤更新狀態，重建派生資料，並查看支援診斷，而不擠占日常偏好設定。',

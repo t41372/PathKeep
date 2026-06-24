@@ -78,9 +78,6 @@ export const settingsAiProvidersNamespace = {
     aiGettingStartedTitle: 'No AI providers configured yet',
     aiGettingStartedBody:
       'Add a chat provider to use the AI assistant and a embedding provider for smart search. Click "Add chat provider" below to get started with a preset.',
-    aiArtifactsMovedTitle: 'Generated artifacts live in Integrations',
-    aiArtifactsMovedBody:
-      'Provider settings stay here. MCP commands, skill files, and local-host payload review now live on the Integrations page.',
     aiProviderName: 'Name',
     aiProviderId: 'ID',
     aiRequestFormat: 'API format',
@@ -297,9 +294,6 @@ export const settingsAiProvidersNamespace = {
     aiGettingStartedTitle: '还没有配置 AI 服务',
     aiGettingStartedBody:
       '添加对话模型可以使用 AI 助手，添加向量模型可以使用智能搜索。点击下方「添加对话模型」按钮，选择一个预设开始。',
-    aiArtifactsMovedTitle: '生成产物已移到集成页',
-    aiArtifactsMovedBody:
-      '这里保留服务设置。MCP 命令、skill 文件和本地宿主载荷复核现在由集成页负责。',
     aiProviderName: '名称',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',
@@ -511,9 +505,6 @@ export const settingsAiProvidersNamespace = {
     aiGettingStartedTitle: '還沒有設定 AI 服務',
     aiGettingStartedBody:
       '新增對話模型可以使用 AI 助手，新增向量模型可以使用智慧搜尋。點選下方「新增對話模型」按鈕，選擇一個預設開始。',
-    aiArtifactsMovedTitle: '生成產物已移到整合頁',
-    aiArtifactsMovedBody:
-      '這裡保留服務設定。MCP 命令、skill 檔案和本地宿主載荷複核現在由整合頁負責。',
     aiProviderName: '名稱',
     aiProviderId: 'ID',
     aiRequestFormat: 'API 格式',

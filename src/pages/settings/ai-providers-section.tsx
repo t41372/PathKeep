@@ -601,17 +601,6 @@ export function AiProvidersSection({
             ) : null}
           </>
         ) : null}
-
-        <StatusCallout
-          tone="info"
-          title={t('settings.aiArtifactsMovedTitle')}
-          body={t('settings.aiArtifactsMovedBody')}
-          actions={
-            <Link className="btn-secondary" to="/integrations">
-              {t('navigation.integrationsLabel')}
-            </Link>
-          }
-        />
       </PaperCardBody>
     </PaperCard>
   )

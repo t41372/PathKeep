@@ -84,11 +84,20 @@ export function GeneralSection({
           </select>
         </Field>
 
-        <Field label={t('settings.currentLanguage')}>
-          <span className="text-ink-muted font-mono text-[11.5px]">
-            {languageLabel(language, language)}
-          </span>
-        </Field>
+        {/*
+          Only surface the read-only "current language" row when the preference
+          is "Follow system": the select already shows the resolved value for
+          every explicit choice, so repeating it there would be redundant. Under
+          "system" the select reads "Follow system", so this row is the only
+          place the actually-active language is named.
+        */}
+        {snapshot.config.preferredLanguage === 'system' ? (
+          <Field label={t('settings.currentLanguage')}>
+            <span className="text-ink-muted font-mono text-[11.5px]">
+              {languageLabel(language, language)}
+            </span>
+          </Field>
+        ) : null}
 
         <Field
           label={t('settings.explorerBackgroundPrefetchPages')}

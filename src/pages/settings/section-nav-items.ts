@@ -28,6 +28,7 @@ import type { GlyphIconName } from '../../components/ui'
  * rewiring anchors and labels through ad-hoc string literals.
  */
 export type SettingsSectionKey =
+  | 'appearance'
   | 'general'
   | 'updater'
   | 'retention'
@@ -47,6 +48,13 @@ interface SettingsSectionSpec {
 }
 
 const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
+  appearance: {
+    // Anchor id MUST match the AppearanceSection container's default `anchorId`
+    // ('appearance') so the sticky-nav / deep-link scroll lands on the card.
+    id: 'appearance',
+    icon: 'auto_stories',
+    labelKey: 'settings.appearanceTitle',
+  },
   general: {
     id: 'settings-general',
     icon: 'settings',
@@ -108,16 +116,17 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
 }
 
 const defaultSettingsSectionOrder: SettingsSectionKey[] = [
+  'appearance',
   'general',
-  'updater',
-  'retention',
-  'applock',
   'profiles',
+  'applock',
   'ai',
   'contentFetch',
-  'derived',
   'migration',
   'linkPreviews',
+  'updater',
+  'retention',
+  'derived',
   'platform',
 ]
 

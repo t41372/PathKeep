@@ -94,6 +94,7 @@ export function SettingsPage() {
   const settingsSectionNavItems = useMemo(
     () =>
       createSettingsSectionNavItems(t, [
+        'appearance',
         'general',
         'profiles',
         'applock',
@@ -165,32 +166,11 @@ export function SettingsPage() {
         />
       )}
 
-      {paperLayout ? null : (
-        <div className="settings-overview" aria-labelledby="settings-overview">
-          <div className="settings-overview__intro">
-            <h2 id="settings-overview">{t('settings.preferencesOverview')}</h2>
-            <p>{t('settings.preferencesOverviewBody')}</p>
-          </div>
-          <div className="settings-advanced-grid">
-            <Link className="settings-workflow-link-card" to="/maintenance">
-              <span className="settings-workflow-link-card__title">
-                {t('settings.openMaintenance')}
-              </span>
-              <span>{t('settings.openMaintenanceBody')}</span>
-            </Link>
-            <Link className="settings-workflow-link-card" to="/integrations">
-              <span className="settings-workflow-link-card__title">
-                {t('settings.openIntegrations')}
-              </span>
-              <span>{t('settings.openIntegrationsBody')}</span>
-            </Link>
-          </div>
-        </div>
-      )}
-
       <div className="settings-group">
-        <div className="settings-group__label">{t('settings.groupCore')}</div>
-        <AppearanceSection />
+        <div className="settings-group__label">
+          {t('settings.groupLookFeel')}
+        </div>
+        <AppearanceSection anchorId={settingsSection('appearance').id} />
         <GeneralSection
           explorerBackgroundPrefetchPages={
             routeState.general.explorerBackgroundPrefetchPages
@@ -203,6 +183,12 @@ export function SettingsPage() {
           saving={routeState.general.saving}
           snapshot={snapshot}
         />
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group__label">
+          {t('settings.groupDataSources')}
+        </div>
         <ProfileSelectionSection
           navItem={settingsSection('profiles')}
           state={routeState.profiles}
@@ -231,10 +217,14 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-group">
-        <div className="settings-group__label">
-          {t('settings.groupBackupSync')}
-        </div>
+        <div className="settings-group__label">{t('settings.groupData')}</div>
         <DataMigrationSection navItem={settingsSection('migration')} />
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-group__label">
+          {t('settings.groupDisplay')}
+        </div>
         <LinkPreviewsSection anchorId={settingsSection('linkPreviews').id} />
       </div>
     </section>
