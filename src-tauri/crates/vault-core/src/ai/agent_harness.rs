@@ -117,6 +117,120 @@ struct PendingToolCall {
     arguments: String,
 }
 
+/// Host-computed facts the model cannot derive inside the run, threaded into the first-turn system
+/// message so date/recency questions resolve correctly.
+///
+/// ## Why this exists
+/// The model has NO clock and NO date sense inside a PathKeep agent run: the `run_code` sandbox has
+/// no real clock (`Date.now()` is 0) and the model only knows its own training cutoff, so it would
+/// otherwise GUESS "today" — typically a year behind a 2026 archive — search the wrong dates, find
+/// nothing, and loop. It also cannot know the archive's date range without enumerating it. Both must
+/// be computed on the HOST (the worker, which has the OS clock + timezone + a bounded archive read)
+/// and handed to the model up front. This struct carries those host facts; [`build_agent_system_context`]
+/// renders the concise, factual block. Kept separate from the rendering so the builder is a pure,
+/// lethally-testable function (no clock / no I/O).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentSystemContext {
+    /// Current local date in `YYYY-MM-DD` form (host clock).
+    pub current_date: String,
+    /// Current local time + UTC offset, e.g. `14:32 +08:00` (host clock + OS timezone).
+    pub current_time: String,
+    /// Weekday name for `current_date`, e.g. `Tuesday`, so relative dates ("last Friday") resolve.
+    pub weekday: String,
+    /// IANA/OS timezone name, e.g. `Asia/Taipei` (or `UTC` when the host lookup is unavailable).
+    pub timezone: String,
+    /// Earliest visit date (`YYYY-MM-DD`) in the archive, or `None` when the archive is empty.
+    pub archive_earliest: Option<String>,
+    /// Latest visit date (`YYYY-MM-DD`) in the archive, or `None` when the archive is empty.
+    pub archive_latest: Option<String>,
+    /// Total visible (non-reverted) visit count, so the model knows the data volume.
+    pub archive_visit_count: usize,
+}
+
+/// Renders the concise, factual system-context block prepended to every agent run's first turn.
+///
+/// SHORT and factual by design (no fluff): the model needs (1) the real current date/time/timezone
+/// — which it cannot get from the clockless sandbox or its training cutoff — so relative dates like
+/// "last Friday" resolve against the right year; (2) the archive's date span + size so it searches
+/// the right range and knows the data volume; (3) a one-line retrieval hint that an empty query
+/// lists recent visits and that semantic search may be keyword-only without an embedding provider.
+/// Pure: it formats already-resolved host facts, so it is deterministic and unit-testable.
+pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
+    let mut block = String::new();
+    block.push_str(&format!(
+        "Current date: {date} ({weekday}), {time} {tz}.",
+        date = context.current_date,
+        weekday = context.weekday,
+        time = context.current_time,
+        tz = context.timezone,
+    ));
+
+    match (&context.archive_earliest, &context.archive_latest) {
+        (Some(earliest), Some(latest)) => block.push_str(&format!(
+            " The user's browser history spans {earliest} to {latest} (~{count} visits).",
+            count = context.archive_visit_count,
+        )),
+        _ => block.push_str(" The user's browser history archive is currently empty."),
+    }
+
+    // NOTE: built from separate string literals via `concat!` rather than a backslash-continued
+    // string. A `\`-at-end-of-line literal in production code (before the test module) desyncs the
+    // coverage gate's line-masking, which counts braces over the masked source.
+    block.push_str(concat!(
+        " To enumerate recent visits or find the date range, call a search tool (or run_code's",
+        " query_history) with an empty query. Semantic search may be keyword-only if no embedding",
+        " provider is configured. Once the tool results give you enough evidence, STOP calling",
+        " tools and write the final answer with citations — do not keep searching.",
+    ));
+    block
+}
+
+/// Resolves the host facts for [`AgentSystemContext`] from the OS clock/timezone + a bounded archive
+/// read, so the worker can prepend the first-turn system-context block (date/time/tz + archive span).
+///
+/// This is the HOST side that the clockless sandbox cannot do: the current local date, time, weekday,
+/// and UTC offset come from `chrono::Local::now()`; the IANA timezone name reuses the same lookup the
+/// backup scheduler uses (`current_timezone_name`); and the archive span (earliest/latest visit date
+/// plus visible count) reuses the Dashboard "Span" read model (`load_dashboard_snapshot`), which is
+/// cached and bounded so it never scans the corpus even at 14.4M visits. A read failure degrades to
+/// an empty-archive context (the run still gets the date/time, never blocked on the span).
+pub fn resolve_agent_system_context(
+    paths: &crate::config::ProjectPaths,
+    config: &crate::models::AppConfig,
+    key: Option<&str>,
+) -> AgentSystemContext {
+    let now = chrono::Local::now();
+    // Archive span via the cached Dashboard read model; degrade to empty on any read error so the
+    // run is never blocked from getting at least the date/time context.
+    let (archive_earliest, archive_latest, archive_visit_count) =
+        match crate::load_dashboard_snapshot(paths, config, key) {
+            Ok(snapshot) => (
+                snapshot.earliest_visit_at.as_deref().map(iso_date_only),
+                snapshot.latest_visit_at.as_deref().map(iso_date_only),
+                snapshot.total_visits,
+            ),
+            Err(_) => (None, None, 0),
+        };
+    AgentSystemContext {
+        current_date: now.format("%Y-%m-%d").to_string(),
+        current_time: now.format("%H:%M %:z").to_string(),
+        weekday: now.format("%A").to_string(),
+        timezone: crate::archive::current_timezone_name(),
+        archive_earliest,
+        archive_latest,
+        archive_visit_count,
+    }
+}
+
+/// Trims an RFC-3339 visit timestamp to its `YYYY-MM-DD` date prefix for the system-context span.
+///
+/// The archive stores `visit_time_iso` as RFC 3339 (e.g. `2026-05-02T00:00:00.000Z`); the model only
+/// needs the date for "spans X to Y", so we keep the leading date and drop the time/zone. Robust to a
+/// shorter-than-expected string (returns it unchanged) so a malformed bound never panics.
+fn iso_date_only(iso: &str) -> String {
+    iso.split('T').next().unwrap_or(iso).to_string()
+}
+
 /// Drives one agent run to completion, forwarding chunks to `sink` and journaling every step.
 ///
 /// The loop (02 §F):
@@ -253,8 +367,25 @@ where
             };
         }
 
-        // Record the assistant's own text turn into history so the next turn has full context.
-        if !accumulated.text.is_empty() {
+        // Record the assistant's own turn into history so the next turn has full context. When the
+        // turn requested tool calls, the threaded-back assistant message MUST carry those calls (an
+        // OpenAI-compatible transport correlates each following `tool` result to them by call id) —
+        // otherwise the model never registers that it already called the tool and re-issues the same
+        // call every turn (the loop bug this fixes). A text-only turn threads plain text.
+        if !accumulated.tool_calls.is_empty() {
+            let tool_calls = accumulated
+                .tool_calls
+                .iter()
+                .map(|call| crate::ai::traits::LlmToolCall {
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                })
+                .collect();
+            request
+                .messages
+                .push(LlmMessage::assistant_tool_calls(accumulated.text.clone(), tool_calls));
+        } else if !accumulated.text.is_empty() {
             request.messages.push(LlmMessage::new(LlmRole::Assistant, accumulated.text.clone()));
         }
 
@@ -754,6 +885,43 @@ mod tests {
         }
     }
 
+    /// A two-turn provider that RECORDS each request's messages, so a test can assert the harness
+    /// threaded back the assistant's tool-call turn (the W-AI-7 loop fix). Turn 1 (no Tool message)
+    /// emits a reasoning-only tool call; turn 2 (a Tool result is present) answers with a token.
+    struct RequestCapturingProvider {
+        seen: Arc<Mutex<Vec<LlmChatRequest>>>,
+    }
+    impl LlmProvider for RequestCapturingProvider {
+        async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+            Ok(LlmChatResponse::default())
+        }
+        async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+            self.seen.lock().unwrap().push(req.clone());
+            let has_tool_result = req.messages.iter().any(|m| m.role == LlmRole::Tool);
+            let chunks = if has_tool_result {
+                vec![
+                    Ok(LlmStreamChunk::Token("done".to_string())),
+                    Ok(LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 1, completion_tokens: 1 })),
+                ]
+            } else {
+                // Reasoning-only turn (no Token) → the gemma case: the assistant text is empty.
+                vec![
+                    Ok(LlmStreamChunk::Reasoning("thinking".to_string())),
+                    Ok(LlmStreamChunk::ToolCall {
+                        call_id: "call-42".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: r#"{"query":""}"#.to_string(),
+                    }),
+                    Ok(LlmStreamChunk::Usage(LlmUsage { prompt_tokens: 1, completion_tokens: 1 })),
+                ]
+            };
+            Ok(Box::pin(vec_stream(chunks)))
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+        }
+    }
+
     fn vec_stream(
         chunks: Vec<Result<LlmStreamChunk>>,
     ) -> impl futures_core::Stream<Item = Result<LlmStreamChunk>> + Send {
@@ -966,6 +1134,57 @@ mod tests {
         );
         // Citations were recorded at completion (empty here: the fixture archive has no rows).
         assert!(journal.citations.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_assistant_tool_call_turn_is_threaded_back_before_the_tool_result() {
+        // THE loop-bug regression test: a reasoning-only turn (no visible text) that requests a tool
+        // must be threaded back to the NEXT turn carrying the tool call, immediately before the tool
+        // result. Without this an OpenAI-compatible model never sees its own prior call and re-issues
+        // the same query every turn until the ceiling (gemma looped 8× with answerChars=0).
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let seen: Arc<Mutex<Vec<LlmChatRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let provider = RequestCapturingProvider { seen: seen.clone() };
+
+        let outcome = drive_agent_run(
+            &provider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            DEFAULT_MAX_ITERATIONS,
+            DEFAULT_TOKEN_BUDGET,
+            &journal,
+            |_chunk| {},
+        )
+        .await;
+        // The run converges in two turns (it does NOT loop): the threaded call lets turn 2 answer.
+        assert!(
+            matches!(outcome, AgentRunOutcome::Completed { iterations: 2, .. }),
+            "the run converges once the call is threaded, got {outcome:?}"
+        );
+
+        let requests = seen.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2, "exactly two model turns");
+        let turn_two = &requests[1].messages;
+        // The threaded assistant tool-call turn precedes its Tool result (the transport correlation).
+        let assistant_index = turn_two
+            .iter()
+            .position(|m| m.role == LlmRole::Assistant && !m.tool_calls.is_empty())
+            .expect("turn 2 carries the assistant tool-call turn");
+        let tool_index = turn_two
+            .iter()
+            .position(|m| m.role == LlmRole::Tool)
+            .expect("turn 2 carries the tool result");
+        assert!(assistant_index < tool_index, "the tool-call turn precedes its result");
+        // The threaded call correlates to the result by call id.
+        let threaded = &turn_two[assistant_index].tool_calls[0];
+        assert_eq!(threaded.call_id, "call-42");
+        assert_eq!(threaded.name, "search_history");
+        assert_eq!(turn_two[tool_index].tool_call_id.as_deref(), Some("call-42"));
     }
 
     #[tokio::test]
@@ -2074,5 +2293,131 @@ mod tests {
         fn cancelled(&self) -> bool {
             self.0.load(Ordering::SeqCst)
         }
+    }
+
+    #[test]
+    fn build_agent_system_context_renders_date_time_tz_and_span() {
+        // A populated archive: the block carries the current date/time/tz AND the span + count, plus
+        // the one-line retrieval hint the model needs to enumerate recent visits.
+        let context = AgentSystemContext {
+            current_date: "2026-06-24".to_string(),
+            current_time: "14:32 +08:00".to_string(),
+            weekday: "Tuesday".to_string(),
+            timezone: "Asia/Taipei".to_string(),
+            archive_earliest: Some("2026-01-03".to_string()),
+            archive_latest: Some("2026-06-24".to_string()),
+            archive_visit_count: 380_000,
+        };
+        let block = build_agent_system_context(&context);
+        assert!(block.contains("Current date: 2026-06-24 (Tuesday), 14:32 +08:00 Asia/Taipei."));
+        assert!(block.contains("spans 2026-01-03 to 2026-06-24 (~380000 visits)."));
+        assert!(block.contains("empty query"), "the retrieval hint is present: {block}");
+        assert!(block.contains("keyword-only"), "the embedding-degradation hint is present");
+        assert!(block.contains("STOP calling tools"), "the stop-and-answer directive is present");
+        assert!(!block.contains("archive is currently empty"));
+    }
+
+    #[test]
+    fn build_agent_system_context_handles_empty_archive() {
+        // An empty archive still gets the date/time/tz + the honest "empty archive" line (no span).
+        let context = AgentSystemContext {
+            current_date: "2026-06-24".to_string(),
+            current_time: "00:00 +00:00".to_string(),
+            weekday: "Tuesday".to_string(),
+            timezone: "UTC".to_string(),
+            archive_earliest: None,
+            archive_latest: None,
+            archive_visit_count: 0,
+        };
+        let block = build_agent_system_context(&context);
+        assert!(block.contains("Current date: 2026-06-24 (Tuesday), 00:00 +00:00 UTC."));
+        assert!(block.contains("archive is currently empty."));
+        assert!(!block.contains("spans"), "no span line for an empty archive: {block}");
+        assert!(block.contains("empty query"), "the retrieval hint is still present");
+    }
+
+    #[test]
+    fn build_agent_system_context_renders_span_only_when_both_bounds_present() {
+        // A torn/partial bound (only one of earliest/latest) degrades to the empty-archive line
+        // rather than printing a half-formed span — the match arm requires BOTH bounds.
+        let base = AgentSystemContext {
+            current_date: "2026-06-24".to_string(),
+            current_time: "00:00 +00:00".to_string(),
+            weekday: "Tuesday".to_string(),
+            timezone: "UTC".to_string(),
+            archive_visit_count: 5,
+            ..AgentSystemContext::default()
+        };
+        let earliest_only =
+            AgentSystemContext { archive_earliest: Some("2026-01-01".to_string()), ..base.clone() };
+        let latest_only =
+            AgentSystemContext { archive_latest: Some("2026-06-24".to_string()), ..base };
+        for context in [earliest_only, latest_only] {
+            let block = build_agent_system_context(&context);
+            assert!(block.contains("archive is currently empty."), "got: {block}");
+            assert!(!block.contains("spans"));
+        }
+    }
+
+    #[test]
+    fn resolve_agent_system_context_fills_date_and_empty_span_over_empty_archive() {
+        // The resolver reads the HOST clock (a real, non-empty date/time/weekday/tz) and a bounded
+        // archive read. Over an initialized-but-empty archive the span is None and the count 0, but
+        // the date/time facts are always populated (the clock the sandbox lacks).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let config = AppConfig { initialized: true, ..AppConfig::default() };
+        crate::archive::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+        let resolved = resolve_agent_system_context(&paths, &config, None);
+        // The host date is `YYYY-MM-DD` (10 chars) and a real weekday/timezone — never blank.
+        assert_eq!(resolved.current_date.len(), 10, "got {}", resolved.current_date);
+        assert!(resolved.current_date.starts_with("20"));
+        assert!(!resolved.weekday.is_empty());
+        assert!(!resolved.timezone.is_empty());
+        assert!(resolved.current_time.contains(':'));
+        // Empty archive → no span, zero count.
+        assert_eq!(resolved.archive_earliest, None);
+        assert_eq!(resolved.archive_latest, None);
+        assert_eq!(resolved.archive_visit_count, 0);
+
+        // The rendered block is still useful: date/time + the empty-archive line.
+        let block = build_agent_system_context(&resolved);
+        assert!(block.starts_with("Current date: "));
+        assert!(block.contains("archive is currently empty."));
+    }
+
+    #[test]
+    fn resolve_agent_system_context_degrades_to_empty_span_on_read_error() {
+        // A read error (here: an initialized config whose archive file is corrupt, not a real DB)
+        // makes `load_dashboard_snapshot` fail. The resolver swallows it to the empty-archive span
+        // rather than blocking the date/time facts — the run still gets its clock context.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        // The archive path must EXIST so `load_dashboard_snapshot` proceeds past its
+        // not-initialized early return into the live query, which then fails on the garbage file.
+        std::fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+            .expect("create archive dir");
+        std::fs::write(&paths.archive_database_path, b"not a sqlite database")
+            .expect("write corrupt archive");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: crate::models::ArchiveMode::Plaintext,
+            ..AppConfig::default()
+        };
+
+        let resolved = resolve_agent_system_context(&paths, &config, None);
+        // The span degrades to empty (the read failed) but the date/time facts are still populated.
+        assert_eq!(resolved.archive_visit_count, 0);
+        assert_eq!(resolved.archive_earliest, None);
+        assert_eq!(resolved.archive_latest, None);
+        assert!(!resolved.current_date.is_empty(), "date is always populated");
+    }
+
+    #[test]
+    fn iso_date_only_trims_the_time_component_and_tolerates_short_input() {
+        assert_eq!(iso_date_only("2026-05-02T00:00:00.000Z"), "2026-05-02");
+        assert_eq!(iso_date_only("2026-05-02"), "2026-05-02");
+        assert_eq!(iso_date_only(""), "");
     }
 }

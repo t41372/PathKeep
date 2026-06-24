@@ -313,6 +313,31 @@ fn to_rig_message(message: &LlmMessage) -> RigMessage {
     match message.role {
         LlmRole::System => RigMessage::system(message.content.clone()),
         LlmRole::User => RigMessage::user(message.content.clone()),
+        LlmRole::Assistant if !message.tool_calls.is_empty() => {
+            // An assistant turn that requested tool calls must be threaded back carrying those calls
+            // so an OpenAI-compatible transport can correlate the following `tool` result(s) to it
+            // (W-AI-7 tool-loop fix). Optional leading text is preserved; each call maps onto rig's
+            // `AssistantContent::ToolCall`. Malformed arguments degrade to `null` (the call shape is
+            // still threaded so the result correlates) rather than dropping the turn.
+            let mut contents: Vec<AssistantContent> = Vec::new();
+            if !message.content.is_empty() {
+                contents.push(AssistantContent::text(message.content.clone()));
+            }
+            for call in &message.tool_calls {
+                let arguments =
+                    serde_json::from_str(&call.arguments).unwrap_or(serde_json::Value::Null);
+                contents.push(AssistantContent::tool_call(
+                    call.call_id.clone(),
+                    call.name.clone(),
+                    arguments,
+                ));
+            }
+            // `contents` is non-empty (there is at least one tool call), so the OneOrMany builds.
+            RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::many(contents).expect("at least one tool call content"),
+            }
+        }
         LlmRole::Assistant => RigMessage::assistant(message.content.clone()),
         LlmRole::Tool => {
             let call_id = message.tool_call_id.clone().unwrap_or_default();
@@ -742,7 +767,7 @@ fn stub_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::traits::{LlmMessage, LlmRole, LlmToolDef};
+    use crate::ai::traits::{LlmMessage, LlmRole, LlmToolCall, LlmToolDef};
     use crate::models::{AiProviderConfig, AiProviderPurpose};
     use secrecy::SecretString;
 
@@ -1208,6 +1233,53 @@ mod tests {
     }
 
     #[test]
+    fn to_rig_message_threads_assistant_tool_calls_with_text_and_arguments() {
+        // An assistant turn carrying tool calls maps to a rig assistant message whose content holds
+        // BOTH the optional leading text and the tool call (id + name + parsed arguments), so an
+        // OpenAI-compatible transport can correlate the following tool result (W-AI-7 loop fix).
+        let message = LlmMessage::assistant_tool_calls(
+            "let me look".to_string(),
+            vec![LlmToolCall {
+                call_id: "call-9".to_string(),
+                name: "search_history".to_string(),
+                arguments: r#"{"query":""}"#.to_string(),
+            }],
+        );
+        let value = serde_json::to_value(to_rig_message(&message)).expect("serialize assistant");
+        assert_eq!(value["role"], "assistant");
+        let content = value["content"].as_array().expect("content array");
+        assert_eq!(content.len(), 2, "leading text + the tool call: {value}");
+        // The tool call carries the provider call id, the tool name, and the PARSED arguments object.
+        let call = content
+            .iter()
+            .find(|c| c.get("function").is_some())
+            .expect("a tool-call content entry");
+        assert_eq!(call["id"], "call-9");
+        assert_eq!(call["function"]["name"], "search_history");
+        assert_eq!(call["function"]["arguments"]["query"], "");
+    }
+
+    #[test]
+    fn to_rig_message_threads_a_tool_only_assistant_turn_without_text() {
+        // A reasoning-only turn (no visible text) still threads the tool call — the gemma case that
+        // looped before this fix. Malformed arguments degrade to null rather than dropping the call.
+        let message = LlmMessage::assistant_tool_calls(
+            String::new(),
+            vec![LlmToolCall {
+                call_id: "call-1".to_string(),
+                name: "search_history".to_string(),
+                arguments: "not json".to_string(),
+            }],
+        );
+        let value = serde_json::to_value(to_rig_message(&message)).expect("serialize assistant");
+        assert_eq!(value["role"], "assistant");
+        let content = value["content"].as_array().expect("content array");
+        assert_eq!(content.len(), 1, "no text → only the tool call: {value}");
+        assert_eq!(content[0]["id"], "call-1");
+        assert!(content[0]["function"]["arguments"].is_null(), "bad args degrade to null");
+    }
+
+    #[test]
     fn to_rig_message_defaults_missing_tool_call_id_to_empty_string() {
         // A `Tool`-role message with no correlating call id maps to an empty rig tool id rather
         // than panicking.
@@ -1216,6 +1288,7 @@ mod tests {
             content: "x".to_string(),
             tool_call_id: None,
             tool_name: None,
+            tool_calls: Vec::new(),
         };
         let value = serde_json::to_value(to_rig_message(&bare)).expect("serialize bare tool");
         assert_eq!(value["role"], "user");

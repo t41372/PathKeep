@@ -1400,28 +1400,50 @@ fn index_clear_only_and_sqlite_mirror_helpers_cover_stale_rows() {
 }
 
 #[test]
-fn search_history_internal_requires_query_and_supports_lexical_fallback() {
+fn search_history_internal_empty_query_returns_recent_visits() {
+    // BROWSE-BY-RECENCY: a blank query is no longer an error — it returns the most recent visits
+    // (newest first), the entry point the agent needs to enumerate history / find the date range.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/old", Some("Old"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/new", Some("New"), 99);
+
+    for blank in ["", "   "] {
+        let response = runtime
+            .block_on(search_history_internal(
+                &paths,
+                &config,
+                None,
+                None,
+                &AiSearchRequest {
+                    query: blank.to_string(),
+                    profile_id: None,
+                    domain: None,
+                    limit: Some(5),
+                    cursor: None,
+                    starred_only: None,
+                },
+            ))
+            .expect("empty query returns recent visits");
+        assert_eq!(response.total, 2, "both visits surface for `{blank:?}`");
+        assert_eq!(response.provider_id, "recent-visits");
+        // Newest visit (history_id 2, visit_time 99) sorts first; its recency score is the max (1.0).
+        assert_eq!(response.items[0].history_id, 2);
+        assert_eq!(response.items[0].score, 1.0);
+        assert_eq!(response.items[0].match_reason, "Most recent visit");
+        assert!(response.items[1].score < response.items[0].score, "older row ranks lower");
+        // The recency path is pure recall — no degradation notes, no semantic plane.
+        assert!(response.notes.is_empty());
+        assert!(response.note_codes.is_empty());
+        assert!(response.next_cursor.is_none());
+    }
+}
+
+#[test]
+fn search_history_internal_supports_lexical_fallback() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-
-    let empty_error = runtime
-        .block_on(search_history_internal(
-            &paths,
-            &config,
-            None,
-            None,
-            &AiSearchRequest {
-                query: "   ".to_string(),
-                profile_id: None,
-                domain: None,
-                limit: Some(5),
-                cursor: None,
-                starred_only: None,
-            },
-        ))
-        .expect_err("empty query should fail");
-    assert!(empty_error.to_string().contains("Enter a question"));
 
     let response = runtime
         .block_on(search_history_internal(
@@ -1445,6 +1467,42 @@ fn search_history_internal_requires_query_and_supports_lexical_fallback() {
     // normalizes to 1.0 (W-AI-6 replaced the old fixed lexical_score with rank-fusion + normalization).
     assert_eq!(response.items[0].score, 1.0);
     assert!(response.notes.iter().any(|note| note.contains("lexical retrieval")));
+}
+
+#[test]
+fn search_history_internal_empty_query_honors_starred_facet() {
+    // The starred facet still applies on the recency path: with `starred_only`, only starred pages
+    // surface, and the starred boost tags them — keeping behavior consistent with the keyword path.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/plain", Some("Plain"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://starred.com/page", Some("Star"), 2);
+    connection
+        .execute(
+            "INSERT INTO archive.star (entity_kind, entity_key, starred_at) VALUES ('url', 'https://starred.com/page', '2026-01-01')",
+            [],
+        )
+        .expect("star a page");
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: String::new(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                starred_only: Some(true),
+            },
+        ))
+        .expect("starred-only recency");
+    assert_eq!(response.total, 1, "only the starred page survives the facet");
+    assert_eq!(response.items[0].url, "https://starred.com/page");
+    assert!(response.items[0].match_reason.contains("Starred"));
 }
 
 #[test]

@@ -92,8 +92,9 @@ pub use self::search::{
 };
 
 pub use self::agent_harness::{
-    AgentJournal, AgentRunOutcome, AgentRunSink, DEFAULT_MAX_ITERATIONS, DEFAULT_TOKEN_BUDGET,
-    drive_agent_run,
+    AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
+    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run,
+    resolve_agent_system_context,
 };
 pub use self::agent_tools::{
     AgentTool, AgentToolContext, HistorySearchTool, ToolOutcome, ToolRegistry,
@@ -132,7 +133,7 @@ pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap, reverse_map
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
-    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolDef, LlmUsage, VectorIndex,
+    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
 };
 pub use self::vector_index::{
     ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,

@@ -457,6 +457,21 @@ where
         run_control: Some(control.clone()),
     };
 
+    // Inject the host-computed system context (current date/time/timezone + archive span) as the
+    // FIRST message of every agent run. The model has no clock inside the sandbox and only knows its
+    // training cutoff, so without this it guesses the wrong year for "last Friday", searches empty
+    // date ranges, and loops. The facts are resolved on the host (OS clock/timezone + a bounded,
+    // cached archive read) and prepended ahead of any existing leading system message so it is part
+    // of the first turn but never displaces the caller's own system guidance.
+    let mut request = setup.request;
+    let system_context =
+        vault_core::build_agent_system_context(&vault_core::resolve_agent_system_context(
+            &setup.paths,
+            &setup.config,
+            setup.session_database_key.as_deref(),
+        ));
+    request.messages.insert(0, LlmMessage::new(LlmRole::System, system_context));
+
     let outcome = stream_runtime.block_on(async {
         // Probe tool capability BEFORE attaching tools (02 §B). A transport/auth failure surfaces
         // as an error (honest), anything else degrades to tool-incapable (retrieve-then-answer).
@@ -473,7 +488,7 @@ where
                 &registry,
                 &tool_context,
                 can_use_tools,
-                setup.request,
+                request,
                 Some(control),
                 DEFAULT_MAX_ITERATIONS,
                 DEFAULT_TOKEN_BUDGET,

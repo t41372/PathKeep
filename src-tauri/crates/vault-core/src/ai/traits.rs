@@ -176,15 +176,41 @@ pub struct LlmMessage {
     pub tool_call_id: Option<String>,
     /// For the `Tool` role: the name of the tool that produced this result.
     pub tool_name: Option<String>,
+    /// For the `Assistant` role: the tool calls this turn requested.
+    ///
+    /// An OpenAI-compatible transport REQUIRES that every `tool` result follows an `assistant`
+    /// message carrying the matching `tool_calls` (correlated by call id). The agent harness must
+    /// therefore thread back the assistant's tool-call turn BEFORE the tool results, or the model
+    /// cannot see that it already called the tool and re-issues the same call every turn (the loop
+    /// bug). Defaults to empty for ordinary turns (additive, W-AI-7).
+    pub tool_calls: Vec<LlmToolCall>,
+}
+
+/// One tool/function call an assistant turn requested, threaded back so the transport can correlate
+/// the following `tool` result(s) to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmToolCall {
+    /// Provider call id (matches the `tool_call_id` on the answering `Tool` message).
+    pub call_id: String,
+    /// Tool name the assistant invoked.
+    pub name: String,
+    /// Raw JSON arguments string the assistant emitted.
+    pub arguments: String,
 }
 
 impl LlmMessage {
     /// Builds an ordinary (non-tool) message with no tool correlation metadata.
     ///
     /// Most call sites only ever send System/User/Assistant turns; this keeps them
-    /// from repeating the two `None` tool fields the additive shape introduced.
+    /// from repeating the additive tool fields the W-AI-7 shape introduced.
     pub fn new(role: LlmRole, content: impl Into<String>) -> Self {
-        Self { role, content: content.into(), tool_call_id: None, tool_name: None }
+        Self {
+            role,
+            content: content.into(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: Vec::new(),
+        }
     }
 
     /// Builds a `Tool`-role message carrying the originating call id and tool name.
@@ -198,6 +224,22 @@ impl LlmMessage {
             content: content.into(),
             tool_call_id: Some(tool_call_id.into()),
             tool_name: Some(tool_name.into()),
+            tool_calls: Vec::new(),
+        }
+    }
+
+    /// Builds an `Assistant`-role turn recording the tool calls it requested (plus any visible text).
+    ///
+    /// The agent harness pushes this AHEAD of the answering `Tool` results so the transport can
+    /// correlate them; without it an OpenAI-compatible model never registers its own prior calls and
+    /// loops on the same call (W-AI-7 tool-loop fix).
+    pub fn assistant_tool_calls(content: impl Into<String>, tool_calls: Vec<LlmToolCall>) -> Self {
+        Self {
+            role: LlmRole::Assistant,
+            content: content.into(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls,
         }
     }
 }

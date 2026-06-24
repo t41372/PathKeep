@@ -466,9 +466,6 @@ pub(super) async fn search_history_internal(
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
     let query = request.query.trim();
-    if query.is_empty() {
-        anyhow::bail!("Enter a question or search query first.")
-    }
 
     fn parse_search_cursor(cursor: Option<&str>) -> usize {
         cursor.and_then(|value| value.parse::<usize>().ok()).unwrap_or(0)
@@ -476,6 +473,18 @@ pub(super) async fn search_history_internal(
 
     let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
     let facet_starred = request.starred_only.unwrap_or(false);
+
+    // BROWSE-BY-RECENCY (date/recency questions): an empty/blank query means "the most recent
+    // visits", not an error. The model has no other way to ENUMERATE history (semantic recall is
+    // keyword-driven), so refusing the empty query left date-range questions ("last Friday") with no
+    // entry point — the agent could only keyword-search and would loop. We reuse PathKeep's own
+    // browse-by-recency read model (`list_history` with no `q`, sorted newest — the exact data the
+    // Browse page lists), respecting the limit/domain/profile/starred filters, and skip the semantic
+    // plane entirely (embedding an empty string is meaningless and wasteful). The pipeline stays
+    // bounded: `lexical_history_results` clamps the fetch to `list_history`'s `[1, 1000]` cap.
+    if query.is_empty() {
+        return recent_visits_response(paths, config, key, request, limit, facet_starred);
+    }
 
     // Load the starred set once (tiny by design). It powers BOTH the bounded boost (always, when any
     // page is starred) and the `is:starred` facet's lexical post-filter + semantic allowlist (when on).
@@ -552,6 +561,71 @@ pub(super) async fn search_history_internal(
     // so the wire codes and the prose can never drift per call site.
     let notes = note_codes.iter().map(AiSearchNote::model_facing_text).collect();
     Ok(AiSearchResponse { total, provider_id, model, items, notes, note_codes, next_cursor })
+}
+
+/// The model-facing match reason carried on every browse-by-recency row (empty-query path).
+///
+/// Free-form per-entry `match_reason` text (not a wire-localized [`AiSearchNote`] code): the
+/// empty-query response is reached only from the MODEL-facing agent/run_code path (the Explorer FE
+/// guards empty queries before calling), so this never needs FE i18n. It tells the model these rows
+/// are the newest visits — the entry point for date-range questions ("last Friday").
+const RECENT_VISITS_MATCH_REASON: &str = "Most recent visit";
+
+/// Returns the most recent visits as the [`AiSearchResponse`] for a blank query (browse-by-recency).
+///
+/// Reuses PathKeep's browse-by-recency read model verbatim: [`lexical_history_results`] with no
+/// keyword text routes through `list_history` → `list_history_with_sql` sorted `newest`, the exact
+/// rows the Browse page lists, already honoring the profile/domain filters threaded on the request.
+/// The semantic plane is intentionally skipped (an empty embedding query is meaningless). The
+/// starred facet is enforced the same way the keyword path does (post-filter on the over-fetched
+/// pool), and the starred boost still applies so favorites surface, keeping behavior consistent with
+/// the keyword path. Bounded: `lexical_history_results` clamps to `list_history`'s `[1, 1000]` cap,
+/// so this never scans the corpus even at 14.4M visits.
+fn recent_visits_response(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &AiSearchRequest,
+    limit: usize,
+    facet_starred: bool,
+) -> Result<AiSearchResponse> {
+    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+    // No keyword text: `list_history` filters the empty `q` to `None` and returns recent-by-newest.
+    let recent = lexical_history_results(paths, config, key, request, "", facet_starred)?;
+    let ranked: Vec<AiSearchEntry> = recent
+        .items
+        .iter()
+        .filter(|item| !facet_starred || starred.is_starred(&item.url))
+        // Descending rank score so the newest row sorts first after the (additive) starred boost,
+        // matching the keyword path's "higher score = better" ordering without inventing relevance.
+        .enumerate()
+        .map(|(rank, item)| {
+            let score = 1.0 - (rank as f32) / (limit.max(1) as f32);
+            history_entry_to_search_entry(item, score.max(0.0), RECENT_VISITS_MATCH_REASON)
+        })
+        .take(limit)
+        .collect();
+
+    let mut items = apply_starred_boost(ranked, &starred, config.ai.starred_boost);
+    items.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(Ordering::Equal)
+            // Tie-break newest-first so equal-score rows stay in recency order (visited_at desc).
+            .then(right.visited_at.cmp(&left.visited_at))
+    });
+    let total = items.len();
+
+    Ok(AiSearchResponse {
+        total,
+        provider_id: "recent-visits".to_string(),
+        model: "none".to_string(),
+        items,
+        notes: Vec::new(),
+        note_codes: Vec::new(),
+        next_cursor: None,
+    })
 }
 
 /// One fused result mid-pipeline: the chosen entry plus its rank in each recall list (W-AI-6 RRF).

@@ -247,7 +247,7 @@ pub struct CodeOutcome {
 /// Arguments for a `query_history` host call (a JSON subset of [`AiSearchRequest`] + the plane).
 #[derive(Debug, Clone, Default, Deserialize)]
 struct QueryHistoryArgs {
-    /// The search query (required, non-empty).
+    /// The search query. OPTIONAL: an empty/omitted query returns the most recent visits.
     #[serde(default)]
     query: String,
     /// Which recall plane to drive: `hybrid` (default), `vector`, or `bm25`.
@@ -517,10 +517,12 @@ impl HostState {
         &mut self,
         args: QueryHistoryArgs,
     ) -> Result<(&'static str, HostCallArgs, crate::models::AiSearchResponse)> {
+        // An empty/blank query is NOT refused: it flows through to `search_history_internal`, which
+        // returns the most recent visits (browse-by-recency). This is the agent's only way to
+        // ENUMERATE history — to find the date range or list "what did I do recently" — since
+        // semantic recall is keyword-driven. Refusing it left date-range questions with no entry
+        // point and made the model loop.
         let query = args.query.trim().to_string();
-        if query.is_empty() {
-            anyhow::bail!("query_history requires a non-empty `query`");
-        }
         let plane = CodeSearchPlane::parse(args.plane.as_deref());
         let limit = args.limit.unwrap_or(self.context.default_limit).clamp(1, MAX_ROWS_PER_CALL);
         // Structured args for the localizable FE timeline, plus a non-localized debug fallback. The

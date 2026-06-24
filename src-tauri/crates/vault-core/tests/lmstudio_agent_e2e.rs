@@ -30,8 +30,9 @@ use vault_core::{
     AiRunControl, AiSettings, AppConfig, ArchiveMode, BeginAgentRun, BrowserHistoryImportRequest,
     DEFAULT_MAX_ITERATIONS, DEFAULT_TOKEN_BUDGET, LlmChatRequest, LlmMessage, LlmRole,
     ProjectPaths, RigLlmProvider, SecretString, ToolRegistry, append_agent_step, begin_agent_run,
-    drive_agent_run, finalize_agent_run, load_agent_run, load_conversation, probe_tool_capability,
-    project_paths_with_root, record_agent_citations, save_conversation,
+    build_agent_system_context, drive_agent_run, finalize_agent_run, load_agent_run,
+    load_conversation, probe_tool_capability, project_paths_with_root, record_agent_citations,
+    resolve_agent_system_context, save_conversation,
 };
 
 /// LM Studio fixture (matches the chat-stream + embedding e2es): tool-capable gemma LLM.
@@ -280,7 +281,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
                 vault_core::AgentMessage {
                     id: "user-agent-e2e".to_string(),
                     role: "user".to_string(),
-                    content: "When did I read the Tauri guide?".to_string(),
+                    content: "Summarize my most recent browsing and cite the pages.".to_string(),
                     ..Default::default()
                 },
                 vault_core::AgentMessage {
@@ -313,17 +314,24 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let context = tool_context(&paths, &config);
     let journal = SqliteJournal { paths: paths.clone(), run_id: run_id.to_string() };
 
+    // Mirror the worker: prepend the host-computed system-context block (current date/time/timezone
+    // + archive span) ahead of the run's own system guidance. This is the date/recency fix under
+    // test — without it the model has no clock (the sandbox `Date.now()` is 0) and guesses the wrong
+    // year, searches empty date ranges, and loops. The retrieval guidance then tells it to enumerate
+    // recent visits via an EMPTY query (the other half of the fix), which the seeded rows satisfy.
+    let system_context =
+        build_agent_system_context(&resolve_agent_system_context(&paths, &config, None));
+    eprintln!("agent e2e: injected system context = {system_context:?}");
     let request = LlmChatRequest::new(
         vec![
+            LlmMessage::new(LlmRole::System, system_context),
             LlmMessage::new(
                 LlmRole::System,
-                "You answer questions about the user's OWN browser history. You MUST call the \
-                 search_history tool to find evidence before answering, and cite the rows you used.",
+                "You answer questions about the user's OWN browser history. Call the \
+                 search_history tool to find evidence before answering — you may call it with an \
+                 EMPTY query to list the most recent visits — and cite the rows you used.",
             ),
-            LlmMessage::new(
-                LlmRole::User,
-                "Search my history: when did I read the Tauri guide? Cite the page.",
-            ),
+            LlmMessage::new(LlmRole::User, "Summarize my most recent browsing and cite the pages."),
         ],
         Some(0.2),
         Some(2048),

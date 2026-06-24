@@ -92,6 +92,8 @@ pub struct AgentToolContext {
 /// JSON arguments accepted by every retrieval tool (one shared shape across the planes).
 #[derive(Debug, Default, Deserialize)]
 struct SearchToolArgs {
+    /// Optional: an empty/omitted query returns the most recent visits (browse-by-recency).
+    #[serde(default)]
     query: String,
     profile_id: Option<String>,
     domain: Option<String>,
@@ -168,7 +170,7 @@ impl HistorySearchTool {
     pub fn search_history() -> Self {
         Self {
             name: "search_history",
-            description: "Search browser history by meaning, URL, title, profile, or domain (hybrid lexical + semantic) and return the best matching visits with their ids.",
+            description: "Search browser history by meaning, URL, title, profile, or domain (hybrid lexical + semantic) and return the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency) — use this to enumerate recent history or find the archive's date range when answering date/recency questions.",
             plane: SearchPlane::Hybrid,
         }
     }
@@ -205,13 +207,12 @@ impl HistorySearchTool {
         json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "What to search for in the browser history archive." },
+                "query": { "type": "string", "description": "What to search for. OPTIONAL: an empty or omitted query returns the most recent visits (browse by recency), so you can enumerate recent history or find the date range." },
                 "profile_id": { "type": "string", "description": "Optional browser profile identifier filter." },
                 "domain": { "type": "string", "description": "Optional domain filter." },
                 "limit": { "type": "integer", "description": "Maximum number of visits to return." },
                 "starred_only": { "type": "boolean", "description": "Restrict to starred (favorited) pages only." }
-            },
-            "required": ["query"]
+            }
         })
     }
 }
@@ -232,9 +233,8 @@ impl AgentTool for HistorySearchTool {
     async fn call(&self, args: Value, context: &AgentToolContext) -> Result<ToolOutcome> {
         let parsed: SearchToolArgs = serde_json::from_value(args)
             .map_err(|error| anyhow::anyhow!("invalid search arguments: {error}"))?;
-        if parsed.query.trim().is_empty() {
-            anyhow::bail!("the `query` argument must not be empty");
-        }
+        // An empty/omitted `query` is allowed: it returns the most recent visits (browse-by-recency),
+        // so the model can ENUMERATE history / find the date range rather than only keyword-search.
         let request = AiSearchRequest {
             query: parsed.query,
             profile_id: parsed.profile_id.or_else(|| context.default_profile_id.clone()),
@@ -325,7 +325,7 @@ fn summarize_search_for_model(
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query: string (required), plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing.";
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing.";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -672,14 +672,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_query_argument_is_rejected() {
+    async fn empty_or_omitted_query_returns_recent_visits() {
+        // Browse-by-recency: a blank query (or an omitted one) is no longer rejected — it returns
+        // the most recent visits so the model can enumerate history. The empty fixture archive holds
+        // no visits, so the call succeeds with zero rows (no error, no panic).
         let (_dir, context) = context_with(None);
         let registry = ToolRegistry::with_default_search_tools();
-        let error = registry
-            .dispatch("search_bm25", json!({ "query": "   " }), &context)
-            .await
-            .expect_err("empty query");
-        assert!(error.to_string().contains("must not be empty"));
+        for args in [json!({ "query": "   " }), json!({})] {
+            let outcome = registry
+                .dispatch("search_bm25", args.clone(), &context)
+                .await
+                .unwrap_or_else(|error| panic!("empty query {args} must succeed, got {error}"));
+            // search_bm25 over an empty archive yields no rows; the tool still produces its summary.
+            assert!(outcome.model_text.contains("search_bm25"));
+            assert!(outcome.citations.is_empty());
+        }
     }
 
     #[tokio::test]

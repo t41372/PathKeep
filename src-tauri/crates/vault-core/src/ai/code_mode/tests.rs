@@ -890,16 +890,17 @@ fn a_syntax_error_is_an_honest_outcome_not_a_panic() {
 }
 
 #[test]
-fn an_empty_query_is_refused_and_the_script_winds_down() {
-    // A query_history with an empty query is refused host-side (the channel closes → the global
-    // throws). No record, no citation, no panic; the thrown error is reported honestly.
+fn an_empty_query_returns_the_most_recent_visits() {
+    // A query_history with an empty query is NOT refused — it returns the most recent visits
+    // (browse-by-recency), the agent's entry point for enumerating history / finding the date range.
+    // The seeded archive has two visits, so both surface and the call records a host call cleanly.
     let (_paths, context) = seeded_context();
-    let source = "return query_history({ query: '  ' });";
+    let source = "return query_history({ query: '  ' }).rows.length;";
     let rt = runtime();
     let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
-    assert!(outcome.host_calls.is_empty(), "the refused call left no record");
-    assert!(outcome.citations.is_empty());
-    assert!(outcome.error.is_some(), "the refused call threw, reported honestly");
+    assert!(outcome.error.is_none(), "the empty query is honored, got {:?}", outcome.error);
+    assert_eq!(outcome.host_calls.len(), 1, "the recency call is recorded");
+    assert_eq!(outcome.model_text, "2", "both seeded visits surface as recent rows");
 }
 
 #[test]
