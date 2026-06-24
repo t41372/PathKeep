@@ -39,3 +39,17 @@ pub(crate) async fn open_external_url(url: String) -> Result<String, String> {
     run_blocking_command("open_external_url", move || file_manager::open_external_url_impl(url))
         .await
 }
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Writes an exported AI-assistant conversation (Markdown / JSON) to a user-chosen path, off the
+/// UI thread, and returns the byte count written.
+pub(crate) async fn export_conversation_file(
+    target_path: String,
+    contents: String,
+) -> Result<u64, String> {
+    run_blocking_command("export_conversation_file", move || {
+        file_manager::export_conversation_file_impl(target_path, contents)
+    })
+    .await
+}

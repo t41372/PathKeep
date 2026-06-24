@@ -638,6 +638,12 @@ describe('backend client', () => {
         args: { url: 'https://example.test' },
       },
       {
+        run: () =>
+          backend.exportConversationFile('/tmp/chat.md', '# transcript\n'),
+        command: 'export_conversation_file',
+        args: { targetPath: '/tmp/chat.md', contents: '# transcript\n' },
+      },
+      {
         run: () => backend.checkForAppUpdate(),
         command: 'check_for_app_update',
       },

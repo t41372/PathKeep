@@ -153,6 +153,7 @@ export const backend = {
   resetLocalSecretVault: securityClient.resetLocalSecretVault,
   openPathInFileManager: supportClient.openPathInFileManager,
   openExternalUrl: supportClient.openExternalUrl,
+  exportConversationFile: supportClient.exportConversationFile,
   checkForAppUpdate: updateClient.checkForAppUpdate,
   downloadAndInstallAppUpdate: updateClient.downloadAndInstallAppUpdate,
   relaunchAfterUpdate: updateClient.relaunchAfterUpdate,

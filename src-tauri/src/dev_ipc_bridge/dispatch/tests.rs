@@ -827,6 +827,14 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "open_external_url",
         json!({ "url": "ftp://example.com/pathkeep" }),
     );
+    dispatch_for_coverage(
+        &state,
+        "export_conversation_file",
+        json!({
+            "targetPath": dir.path().join("conversation.md").display().to_string(),
+            "contents": "# PathKeep conversation\n",
+        }),
+    );
     dispatch_for_coverage(&state, "check_for_app_update", json!({}));
     dispatch_for_coverage(
         &state,

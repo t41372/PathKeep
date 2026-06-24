@@ -253,6 +253,15 @@ pub(super) struct UrlPayload {
     pub(super) url: String,
 }
 
+/// Bridge envelope for export_conversation_file — the user-chosen target path plus the serialized
+/// Markdown / JSON document body the frontend built off the main thread.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportConversationFilePayload {
+    pub(super) target_path: String,
+    pub(super) contents: String,
+}
+
 /// Bridge envelope for the annotation-search command — the desktop signature
 /// takes both a non-optional query string and an optional row cap.
 #[derive(Deserialize)]

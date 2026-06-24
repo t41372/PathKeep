@@ -36,13 +36,21 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import {
   AssistantChatView,
   ChatHistoryExplorer,
+  ExportConversationMenu,
   buildAssistantChatCopy,
   buildAssistantChatPrompts,
   buildChatHistoryCopy,
+  buildConversationJson,
+  buildConversationMarkdown,
+  defaultConversationExportName,
   useAiChatStream,
   useChatHistory,
   type ChatHistoryBackend,
   type ChatMessage,
+  type ConversationExportContext,
+  type ConversationExportFormat,
+  type ConversationExportLabels,
+  type ExportConversationMenuCopy,
 } from '../../components/assistant-chat'
 import type { PaperAssistantEvidence } from '../../components/explorer-paper'
 import { useDesktopStars } from '../explorer/use-desktop-stars'
@@ -125,6 +133,41 @@ export function AssistantPage() {
     // stays pure (the lint rule forbids calling Date.now() at the call site).
     () => buildChatHistoryCopy(assistantT, undefined, language),
     [assistantT, language],
+  )
+
+  // Localized copy for the Export menu trigger + items + announced result.
+  const exportMenuCopy = useMemo<ExportConversationMenuCopy>(
+    () => ({
+      triggerLabel: assistantT('exportLabel'),
+      menuLabel: assistantT('exportMenuLabel'),
+      markdownLabel: assistantT('exportMarkdown'),
+      jsonLabel: assistantT('exportJson'),
+      exportingLabel: assistantT('exportingLabel'),
+      successLabel: assistantT('exportSuccess'),
+      errorLabel: assistantT('exportError'),
+    }),
+    [assistantT],
+  )
+
+  // Localized section labels for the Markdown document body (the transcript itself is the user's
+  // own content and is never translated — only the structural headings are).
+  const exportLabels = useMemo<ConversationExportLabels>(
+    () => ({
+      title: assistantT('exportDocTitle'),
+      model: assistantT('exportDocModel'),
+      exported: assistantT('exportDocExported'),
+      modelUnknown: assistantT('exportDocModelUnknown'),
+      user: assistantT('exportDocUser'),
+      assistant: assistantT('exportDocAssistant'),
+      reasoning: assistantT('exportDocReasoning'),
+      tools: assistantT('exportDocTools'),
+      citations: assistantT('exportDocCitations'),
+      usage: assistantT('exportDocUsage'),
+      noAnswer: assistantT('exportDocNoAnswer'),
+      errorSuffix: assistantT('exportDocError'),
+      cancelledSuffix: assistantT('exportDocCancelled'),
+    }),
+    [assistantT],
   )
 
   // The chat surface is fully active only when AI + assistant are on and a provider is set. The
@@ -308,6 +351,34 @@ export function AssistantPage() {
     }
   }, [messages, send])
 
+  // Export the CURRENT transcript as Markdown or JSON. Mirrors the Settings → Data-migration export
+  // shape exactly (native save dialog → backend write); building the string is cheap and the disk
+  // write is async on the backend's blocking pool, so the main thread never freezes. Resolves false
+  // when the user cancels the save dialog so the menu can stay honest (no "exported" claim).
+  const handleExport = useCallback(
+    async (format: ConversationExportFormat): Promise<boolean> => {
+      const context: ConversationExportContext = {
+        modelLabel: providerLabel,
+        labels: exportLabels,
+      }
+      const contents =
+        format === 'json'
+          ? buildConversationJson(messages, context)
+          : buildConversationMarkdown(messages, context)
+      const { save } = await import('@tauri-apps/plugin-dialog')
+      const extension = format === 'json' ? 'json' : 'md'
+      const target = await save({
+        defaultPath: defaultConversationExportName(format),
+        title: assistantT('exportDialogTitle'),
+        filters: [{ name: 'PathKeep conversation', extensions: [extension] }],
+      })
+      if (typeof target !== 'string' || !target.trim()) return false
+      await backend.exportConversationFile(target, contents)
+      return true
+    },
+    [assistantT, exportLabels, messages, providerLabel],
+  )
+
   if (!snapshot?.config.initialized) {
     return (
       <div
@@ -457,16 +528,26 @@ export function AssistantPage() {
             <PKGlyph icon="history" size={15} strokeWidth={1.8} />
             <span>{assistantT('historyDoorway')}</span>
           </button>
-          {/* CH-2: transient, non-intrusive "saved" badge. Only visible after a real persist. */}
-          {savedVisible ? (
-            <span
-              data-testid="assistant-saved-signal"
-              className="text-ink-faint flex items-center gap-[5px] font-mono text-[11px]"
-            >
-              <PKGlyph icon="check" size={13} strokeWidth={1.8} />
-              <span>{assistantT('chatSavedAnnouncement')}</span>
-            </span>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {/* CH-2: transient, non-intrusive "saved" badge. Only visible after a real persist. */}
+            {savedVisible ? (
+              <span
+                data-testid="assistant-saved-signal"
+                className="text-ink-faint flex items-center gap-[5px] font-mono text-[11px]"
+              >
+                <PKGlyph icon="check" size={13} strokeWidth={1.8} />
+                <span>{assistantT('chatSavedAnnouncement')}</span>
+              </span>
+            ) : null}
+            {/* Export the current conversation as Markdown or JSON. Disabled when the transcript is
+                empty (honest), so it never offers to export nothing. */}
+            <ExportConversationMenu
+              copy={exportMenuCopy}
+              hasMessages={messages.length > 0}
+              onExport={handleExport}
+              testId="assistant-export"
+            />
+          </div>
         </div>
 
         {/* CH-2: a polite aria-live announcer that reads the saved confirmation. Because the signal

@@ -13,6 +13,25 @@ pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
 
+/// Writes a UTF-8 text document to a user-chosen path and returns the byte count written.
+///
+/// Backs the AI assistant's "Export conversation" affordance: the frontend builds the Markdown /
+/// JSON string off the main thread, the native save dialog returns the target path, and this
+/// helper performs the actual disk write off the WebView thread (the command runs it on the
+/// blocking pool). It refuses an empty path so a cancelled / malformed dialog never writes to the
+/// process working directory, and surfaces the OS error verbatim so the UI can show it.
+pub(crate) fn export_conversation_file_impl(
+    target_path: String,
+    contents: String,
+) -> Result<u64, String> {
+    if target_path.trim().is_empty() {
+        return Err("Export path is empty".to_string());
+    }
+    std::fs::write(&target_path, contents.as_bytes())
+        .map_err(|error| format!("Failed to write {target_path}: {error}"))?;
+    Ok(contents.len() as u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +145,38 @@ mod tests {
         assert_eq!(opened_url, "https://example.com/pathkeep");
         assert!(captured.contains(&target_dir.display().to_string()));
         assert!(captured.contains("https://example.com/pathkeep"));
+    }
+
+    #[test]
+    fn export_conversation_file_writes_contents_and_returns_byte_count() {
+        let dir = tempdir().expect("tempdir");
+        let target = dir.path().join("conversation.md");
+        let body = "# PathKeep conversation\n\nhello world\n";
+
+        let written = export_conversation_file_impl(target.display().to_string(), body.to_string())
+            .expect("write should succeed");
+
+        assert_eq!(written, body.len() as u64);
+        let read_back = fs::read_to_string(&target).expect("read back");
+        assert_eq!(read_back, body);
+    }
+
+    #[test]
+    fn export_conversation_file_rejects_empty_path() {
+        let error = export_conversation_file_impl("   ".to_string(), "x".to_string())
+            .expect_err("empty path should fail");
+        assert!(error.contains("Export path is empty"));
+    }
+
+    #[test]
+    fn export_conversation_file_surfaces_write_errors() {
+        let dir = tempdir().expect("tempdir");
+        // A path whose parent directory does not exist forces std::fs::write to fail, exercising
+        // the error-mapping branch.
+        let target = dir.path().join("missing-subdir").join("conversation.json");
+        let error = export_conversation_file_impl(target.display().to_string(), "{}".to_string())
+            .expect_err("write into a missing directory should fail");
+        assert!(error.contains("Failed to write"));
     }
 
     #[test]

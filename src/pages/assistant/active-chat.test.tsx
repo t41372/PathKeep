@@ -32,6 +32,13 @@ vi.mock('streamdown', () => ({
   ),
 }))
 
+// The "Export conversation" affordance lazily imports the native save dialog; mock it so the
+// export flow resolves to a spy the test owns (real dialogs only work under Tauri).
+const dialogSaveMock = vi.fn<(...args: unknown[]) => Promise<unknown>>()
+vi.mock('@tauri-apps/plugin-dialog', () => ({
+  save: (...args: unknown[]): Promise<unknown> => dialogSaveMock(...args),
+}))
+
 const subscribeMock =
   vi.fn<
     (runId: string, listener: (chunk: unknown) => void) => Promise<() => void>
@@ -88,6 +95,7 @@ beforeEach(() => {
   unsubscribe.mockClear()
   chatViewProps.mockClear()
   subscribeMock.mockReset()
+  dialogSaveMock.mockReset()
   subscribeMock.mockImplementation(
     (_runId: string, listener: (chunk: AiChatStreamChunk) => void) => {
       feed = listener
@@ -1308,5 +1316,113 @@ describe('AssistantPage — active streaming chat', () => {
     // Wait for the real save to arm the signal timer, then unmount with it still pending.
     await screen.findByTestId('assistant-saved-signal')
     expect(() => view.unmount()).not.toThrow()
+  })
+
+  test('hides the export affordance until there is a conversation, then exports as Markdown', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-export' })
+    const writeFile = vi
+      .spyOn(backend, 'exportConversationFile')
+      .mockResolvedValue(64)
+    dialogSaveMock.mockResolvedValue('/tmp/pathkeep-conversation-2026.md')
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // Empty transcript → the export trigger is disabled (honest: nothing to export).
+    expect(await screen.findByTestId('assistant-export-trigger')).toBeDisabled()
+
+    // Produce a one-turn conversation.
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'when did I read about tauri?')
+    await user.click(screen.getByTestId('assistant-chat-send'))
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'You read about Tauri in April.' })
+    emit({ kind: 'citations', citations: [] })
+    emit({ kind: 'done' })
+
+    // Now there are messages → the export trigger is enabled.
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-export-trigger')).toBeEnabled(),
+    )
+
+    await user.click(screen.getByTestId('assistant-export-trigger'))
+    await user.click(await screen.findByTestId('assistant-export-markdown'))
+
+    // The save dialog was offered the Markdown default name + extension filter.
+    await waitFor(() => expect(dialogSaveMock).toHaveBeenCalledTimes(1))
+    const saveArgs = dialogSaveMock.mock.calls[0][0] as {
+      defaultPath: string
+      filters: { extensions: string[] }[]
+    }
+    expect(saveArgs.defaultPath).toMatch(/^pathkeep-conversation-.*\.md$/)
+    expect(saveArgs.filters[0].extensions).toEqual(['md'])
+
+    // The serialized Markdown transcript was written to the chosen path.
+    await waitFor(() => expect(writeFile).toHaveBeenCalledTimes(1))
+    const [targetPath, contents] = writeFile.mock.calls[0]
+    expect(targetPath).toBe('/tmp/pathkeep-conversation-2026.md')
+    expect(contents).toContain('# PathKeep conversation')
+    expect(contents).toContain('## You')
+    expect(contents).toContain('when did I read about tauri?')
+    expect(contents).toContain('## Assistant')
+    expect(contents).toContain('You read about Tauri in April.')
+
+    // Success is announced.
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-export-status')).toHaveTextContent(
+        assistantT('exportSuccess'),
+      ),
+    )
+  })
+
+  test('exports as JSON and stays silent when the save dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+    vi.spyOn(backend, 'sendAiChat').mockResolvedValue({ runId: 'run-json' })
+    const writeFile = vi
+      .spyOn(backend, 'exportConversationFile')
+      .mockResolvedValue(32)
+    // First a JSON export with a real path, then a cancelled (null) dialog.
+    dialogSaveMock
+      .mockResolvedValueOnce('/tmp/pathkeep-conversation-2026.json')
+      .mockResolvedValueOnce(null)
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    const input = await screen.findByTestId('assistant-chat-input')
+    await user.type(input, 'summary please')
+    await user.click(screen.getByTestId('assistant-chat-send'))
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1))
+    emit({ kind: 'token', text: 'Here is a summary.' })
+    emit({ kind: 'done' })
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-export-trigger')).toBeEnabled(),
+    )
+
+    // JSON export: lossless document written to the chosen .json path.
+    await user.click(screen.getByTestId('assistant-export-trigger'))
+    await user.click(await screen.findByTestId('assistant-export-json'))
+    await waitFor(() => expect(writeFile).toHaveBeenCalledTimes(1))
+    const [, jsonContents] = writeFile.mock.calls[0]
+    const parsed = JSON.parse(jsonContents) as {
+      messages: { role: string; content: string }[]
+    }
+    expect(parsed.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'summary please',
+    })
+    expect(parsed.messages[1]).toMatchObject({
+      role: 'assistant',
+      content: 'Here is a summary.',
+    })
+
+    // Cancelled save dialog: no second write, no success claim.
+    await user.click(screen.getByTestId('assistant-export-trigger'))
+    await user.click(await screen.findByTestId('assistant-export-markdown'))
+    await waitFor(() => expect(dialogSaveMock).toHaveBeenCalledTimes(2))
+    expect(writeFile).toHaveBeenCalledTimes(1)
   })
 })

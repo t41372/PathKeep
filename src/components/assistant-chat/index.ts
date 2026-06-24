@@ -56,6 +56,25 @@ export type {
 
 export { buildChatHistoryCopy, formatRelativeTime } from './chat-history-copy'
 
+export { ExportConversationMenu } from './export-conversation-menu'
+export type {
+  ExportConversationMenuCopy,
+  ExportConversationMenuProps,
+} from './export-conversation-menu'
+
+export {
+  buildConversationMarkdown,
+  buildConversationJson,
+  defaultConversationExportName,
+  CONVERSATION_EXPORT_SCHEMA_VERSION,
+} from './conversation-export'
+export type {
+  ConversationExportFormat,
+  ConversationExportLabels,
+  ConversationExportContext,
+  ConversationExportDocument,
+} from './conversation-export'
+
 export { useChatHistory } from './use-chat-history'
 export type {
   ChatHistoryBackend,
