@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useMatches, useNavigate } from 'react-router-dom'
+import { cn } from '@/lib/cn'
 import { BackgroundProgress } from '@/components/primitives/background-progress'
 import { BusyOverlay } from '@/components/primitives/busy-overlay'
 import {
@@ -91,6 +92,16 @@ export function AppShell() {
   const activeScreen =
     [...matches].map((match) => readRouteHandle(match.handle)).find(Boolean)
       ?.screen ?? appScreens[0]
+
+  // The Assistant route is a FIXED-HEIGHT chat surface: it fills the content area
+  // exactly and owns its OWN inner scroll (the messages list), with the composer
+  // pinned at the bottom. The shared `<main>` must therefore NOT scroll on this
+  // route — otherwise the empty left/right gutters of the centered (max-width)
+  // page capture a page-scroll that drags the whole conversation, composer
+  // included, off-screen. Every OTHER route keeps `<main>` as the scroll owner
+  // (their content flows and `<main>` scrolls vertically as before). Scoping the
+  // override to this single route keeps the shared shell contract intact.
+  const isFixedHeightRoute = activeScreen.id === 'assistant'
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
     readBoolean(SIDEBAR_KEY, false, shellStorage()),
@@ -313,7 +324,17 @@ export function AppShell() {
           archiveInitialized={initialized}
         />
         <main
-          className="pk-scrollbar flex-1 min-h-0 overflow-y-auto px-7 pb-7"
+          className={cn(
+            'pk-scrollbar flex-1 min-h-0 px-7',
+            // Fixed-height routes (Assistant) own their own inner scroll, so
+            // `<main>` clips instead of scrolling and adds no bottom padding that
+            // would push the page past the viewport. All other routes keep the
+            // shared vertical scroll + bottom breathing room.
+            isFixedHeightRoute
+              ? 'overflow-hidden pb-0'
+              : 'overflow-y-auto pb-7',
+          )}
+          data-fixed-height={isFixedHeightRoute ? 'true' : 'false'}
           data-testid="app-scroll"
         >
           <Outlet />

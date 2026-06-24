@@ -268,12 +268,17 @@ export function AssistantChatView({
   return (
     <section
       data-testid={testId}
-      className="mx-auto flex h-full w-full max-w-[780px] flex-col"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[780px] flex-col"
     >
+      {/* `min-h-0` is load-bearing: a `flex-1` item defaults to `min-height:auto`,
+          which refuses to shrink below its content's intrinsic height — so a long
+          conversation would push the composer down and overflow the section instead
+          of scrolling here. With `min-h-0` this region shrinks to the fixed-height
+          box and becomes the SOLE scroll surface; the composer below stays pinned. */}
       <div
         ref={scrollRef}
         data-testid="assistant-chat-messages"
-        className="pk-scrollbar flex flex-1 flex-col gap-[22px] overflow-y-auto pt-2 pb-5"
+        className="pk-scrollbar flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto pt-2 pb-5"
       >
         {isEmpty ? (
           <PaperAssistantGreeting
@@ -301,13 +306,17 @@ export function AssistantChatView({
         )}
       </div>
 
+      {/* `shrink-0` PINS the composer: it is a flex sibling of the scrolling messages
+          region (which owns `flex-1 overflow-y-auto`), so it keeps its intrinsic
+          height and never compresses or scrolls away. The messages list is the SOLE
+          scroll surface; the composer stays anchored at the bottom in every state. */}
       <form
         data-testid="assistant-chat-composer"
         onSubmit={(event) => {
           event.preventDefault()
           submit()
         }}
-        className="border-border-light flex flex-col border-t pb-2 pt-4"
+        className="border-border-light flex shrink-0 flex-col border-t pb-2 pt-4"
       >
         {awaitingFirstChunk ? (
           <div

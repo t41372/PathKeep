@@ -215,6 +215,47 @@ describe('AssistantPage — active streaming chat', () => {
     )
   })
 
+  // LAYOUT (re-review): the assistant page is a FIXED-HEIGHT chat surface — it fills the shell
+  // content area and owns its OWN inner scroll (the messages list), with the composer PINNED. This
+  // locks the structural containment that guarantees that contract so it cannot regress:
+  //   1. the page itself never establishes a scroll (so the empty gutters of the centered column
+  //      can't drag the composer off-screen via the shared `<main>` scroll),
+  //   2. the messages region is the SOLE scroll surface (`flex-1 min-h-0 overflow-y-auto`),
+  //   3. the composer is a `shrink-0` SIBLING of — never inside — the scrolling region.
+  test('LAYOUT: messages region is the sole scroll surface and the composer is pinned outside it', async () => {
+    const { snapshot } = await seedArchiveState()
+    enableAi(snapshot)
+
+    renderSurface(<AssistantPage />, { route: '/assistant', snapshot })
+
+    // The page fills the content area exactly and never scrolls itself — `overflow-hidden` plus a
+    // bounded `h-full min-h-0` box. With this the centered (max-width) page's empty left/right
+    // gutters cannot capture a page-scroll that drags the conversation, composer included, away.
+    const page = await screen.findByTestId('assistant-page')
+    expect(page).toHaveClass('h-full', 'min-h-0', 'overflow-hidden')
+
+    // The messages list is the ONE scroll surface: it grows to fill (`flex-1`), is allowed to shrink
+    // below its content height (`min-h-0` — without it a long chat would push the composer down and
+    // overflow instead of scrolling here), and scrolls vertically (`overflow-y-auto`).
+    const messages = await screen.findByTestId('assistant-chat-messages')
+    expect(messages).toHaveClass('flex-1', 'min-h-0', 'overflow-y-auto')
+
+    // The composer is PINNED: a `shrink-0` flex sibling that keeps its intrinsic height and never
+    // compresses or scrolls away.
+    const composer = screen.getByTestId('assistant-chat-composer')
+    expect(composer).toHaveClass('shrink-0')
+
+    // Containment: the composer is NOT inside the scrolling messages region (it must stay pinned
+    // even as the messages scroll). It shares a parent with the messages list (siblings in the chat
+    // view's flex column), so scrolling the messages can never move the composer.
+    expect(messages.contains(composer)).toBe(false)
+    expect(composer.parentElement).toBe(messages.parentElement)
+
+    // The composer must NOT itself be a scroll surface — it has no `overflow-y-auto` of its own, so
+    // the messages list is unambiguously the only scrollable region.
+    expect(composer).not.toHaveClass('overflow-y-auto')
+  })
+
   test('streams a full turn: reasoning, tool call, tokens, then done', async () => {
     const user = userEvent.setup()
     const { snapshot } = await seedArchiveState()

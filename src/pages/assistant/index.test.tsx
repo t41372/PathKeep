@@ -47,6 +47,11 @@ describe('AssistantPage gated states', () => {
     // Paper outer wrapper, not the legacy `page-shell` section.
     expect(page.tagName).toBe('DIV')
     expect(page).toHaveClass('max-w-[1080px]')
+    // The shell scopes `<main>` to `overflow-hidden` on /assistant (so the
+    // active-chat gutters can't drag the composer). The gated branches must
+    // therefore own their OWN scroll, or tall gated content (StatusCallout +
+    // PaperCard) would clip with no way to reach it on a short window.
+    expect(page).toHaveClass('h-full', 'overflow-y-auto')
     expect(page.querySelector('.page-shell')).toBeNull()
 
     // Honest, actionable copy — no roadmap / "coming in v0.3" framing.
@@ -108,6 +113,9 @@ describe('AssistantPage gated states', () => {
     const page = await screen.findByTestId('assistant-page')
     expect(page.tagName).toBe('DIV')
     expect(page).toHaveClass('max-w-[1080px]')
+    // Self-scrolling gate (see disabled-state test) — clip-safe under the
+    // route's `overflow-hidden` <main>.
+    expect(page).toHaveClass('h-full', 'overflow-y-auto')
     expect(screen.getByText(assistantT('lockedTitle'))).toBeVisible()
     expect(
       screen.getByRole('link', { name: assistantT('reviewSecurity') }),

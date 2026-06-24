@@ -382,7 +382,7 @@ export function AssistantPage() {
   if (!snapshot?.config.initialized) {
     return (
       <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        className="pk-scrollbar mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col overflow-y-auto pt-7"
         data-testid="assistant-page"
       >
         <EmptyState
@@ -402,7 +402,7 @@ export function AssistantPage() {
   if (!snapshot.archiveStatus.unlocked) {
     return (
       <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col pt-7"
+        className="pk-scrollbar mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col overflow-y-auto pt-7"
         data-testid="assistant-page"
       >
         <PermissionGate
@@ -430,7 +430,7 @@ export function AssistantPage() {
   ) {
     return (
       <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+        className="pk-scrollbar mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col gap-4 overflow-y-auto pt-7"
         data-testid="assistant-page"
       >
         <StatusCallout
@@ -462,7 +462,7 @@ export function AssistantPage() {
   if (!llmProvider) {
     return (
       <div
-        className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 pt-7"
+        className="pk-scrollbar mx-auto flex h-full min-h-0 w-full max-w-[1080px] flex-col gap-4 overflow-y-auto pt-7"
         data-testid="assistant-page"
       >
         <StatusCallout
@@ -481,8 +481,15 @@ export function AssistantPage() {
   }
 
   return (
+    // FIXED-HEIGHT chat surface. `h-full` fills the shell content area exactly and
+    // `overflow-hidden` guarantees this page NEVER establishes its own scroll — so
+    // the empty left/right gutters of the centered (max-width) column cannot capture
+    // a page-scroll that would drag the composer off-screen. The shell scopes its
+    // `<main>` to `overflow-hidden` on this route (see app/shell.tsx), so the ONLY
+    // scroll surface is the inner messages list (`assistant-chat-messages`), with the
+    // composer pinned. `min-h-0` lets the flex children below shrink to this box.
     <div
-      className="mx-auto flex h-full w-full max-w-[1100px] flex-row gap-3 px-2 pt-4"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[1100px] flex-row gap-3 overflow-hidden px-2 pt-4"
       data-testid="assistant-page"
     >
       <ChatHistoryExplorer

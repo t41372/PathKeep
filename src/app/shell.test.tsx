@@ -104,6 +104,29 @@ describe('AppShell (paper redesign)', () => {
     expect(screen.getByTestId('pk-topbar')).toBeInTheDocument()
   })
 
+  // LAYOUT (re-review): `<main>` is the shared route scroll owner on EVERY route EXCEPT the
+  // fixed-height Assistant chat surface, which owns its own inner scroll (the messages list) and
+  // pins the composer. On `/assistant`, `<main>` must NOT scroll — otherwise the empty gutters of
+  // the centered chat column drag the conversation, composer included, off-screen. This pins the
+  // route-scoped overflow so the shared shell contract cannot regress in either direction.
+  test('scopes the main scroll: <main> clips on the Assistant route and scrolls elsewhere', () => {
+    renderShell({}, '/assistant')
+    const main = screen.getByTestId('app-scroll')
+    // The Assistant route is fixed-height: <main> clips (no scroll) and adds no bottom padding.
+    expect(main).toHaveAttribute('data-fixed-height', 'true')
+    expect(main).toHaveClass('overflow-hidden', 'pb-0')
+    expect(main).not.toHaveClass('overflow-y-auto')
+  })
+
+  test('keeps <main> as the vertical scroll owner on non-Assistant routes', () => {
+    renderShell({}, '/jobs')
+    const main = screen.getByTestId('app-scroll')
+    // Every other route flows its content and lets <main> scroll vertically as before.
+    expect(main).toHaveAttribute('data-fixed-height', 'false')
+    expect(main).toHaveClass('overflow-y-auto', 'pb-7')
+    expect(main).not.toHaveClass('overflow-hidden')
+  })
+
   test('omits the macOS titlebar drag region off the overlay platform', () => {
     // jsdom is not a macOS Tauri window, so the overlay is inactive.
     renderShell({}, '/')
@@ -673,6 +696,13 @@ function renderShell(
           {
             path: 'settings',
             element: <p>settings body</p>,
+          },
+          {
+            path: 'assistant',
+            element: <p>assistant body</p>,
+            handle: {
+              screen: appScreens.find((screen) => screen.id === 'assistant'),
+            },
           },
         ],
       },
