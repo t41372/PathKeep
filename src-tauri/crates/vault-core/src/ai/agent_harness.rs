@@ -215,18 +215,24 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
         " list_stars / list_annotations — enumerate the user's favorites or notes/tags.",
     ));
 
-    // Coverage strategy: lead a period summary with the aggregate report; search is only a sample.
+    // Coverage strategy: intelligence_report gives the STATISTICAL shape of a period; the CONTENT of
+    // what the user actually did must be read from the actual visits (it is not in the aggregates).
     block.push_str(concat!(
-        " For a summary, overview, or pattern across a time period ('what did I do last Friday',",
-        " 'top sites this week'), call intelligence_report for that range FIRST — it covers ALL",
-        " visits in the period. search_history returns only the TOP matches and sets has_more=true",
-        " when more matches exist than it returned: when has_more is true you are seeing a sample,",
-        " NOT the full set, so do NOT summarize it as if it were complete — use intelligence_report",
-        " to cover everything, OR write a run_code script that pages query_history and aggregates the",
-        " FULL set in code (rows stay in the sandbox, so only your small returned summary costs context",
-        " — you can process hundreds of visits this way), and use search_history only to find or drill",
-        " into specific pages. If the intelligence index is not built yet, fall back to search but say",
-        " the summary is based on a partial sample.",
+        " For the quantitative SHAPE of a time period ('top sites this week', 'how many visits Friday',",
+        " 'how are my sessions bounded'), call intelligence_report for that range FIRST — it covers ALL",
+        " visits in the period, but as STATISTICS ONLY: counts, top domains, and session structure. It",
+        " does NOT tell you WHAT the user actually did or read. For the CONTENT or topics of a period or",
+        " session ('what did I do last Friday', 'what was I researching'), read the ACTUAL visits instead",
+        " — call intelligence_report report=\"session_detail\" for one session's real URLs/titles/queries,",
+        " or write a run_code script that pages query_history over the range and reasons over the",
+        " titles/URLs; NEVER describe content from a session's autoTitle or its counts. search_history",
+        " returns only the TOP matches and sets has_more=true when more matches exist than it returned:",
+        " when has_more is true you are seeing a sample, NOT the full set, so do NOT summarize it as if it",
+        " were complete — use run_code to page query_history and aggregate the FULL set in code (rows stay",
+        " in the sandbox, so only your small returned summary costs context — you can process hundreds of",
+        " visits this way), and use search_history only to find or drill into specific pages. If the",
+        " intelligence index is not built yet, fall back to search but say the summary is based on a",
+        " partial sample.",
     ));
 
     // Time direction & completeness: search defaults to most-recent, relevance-ranked, so older
@@ -2904,10 +2910,14 @@ mod tests {
             "tool overview mentions intelligence_report: {block}"
         );
         assert!(block.contains("list_stars"), "tool overview mentions list_stars: {block}");
-        // Coverage strategy: lead period summaries with intelligence_report; search is a sample.
+        // Coverage strategy: intelligence_report is the STATISTICAL shape only; the CONTENT of what the
+        // user did is read from the actual visits (session_detail / run_code over titles) — search is a sample.
         assert!(
-            block.contains("has_more=true") && block.contains("intelligence_report for that range"),
-            "coverage-strategy guidance (aggregate-first + sample awareness) is present: {block}"
+            block.contains("has_more=true")
+                && block.contains("intelligence_report for that range")
+                && block.contains("STATISTICS ONLY")
+                && block.contains("read the ACTUAL visits"),
+            "coverage-strategy guidance (stats-for-shape, actual-visits-for-content, sample awareness) is present: {block}"
         );
         // Time-direction guidance: oldest-sort for first-occurrence + paginate for all-across-time.
         assert!(

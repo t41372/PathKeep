@@ -633,7 +633,7 @@ impl IntelligenceReportTool {
     }
 }
 
-const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. Reports are built from the full history archive and cover sessions, top sites, search trails, activity patterns, domain trends, and daily insights. Use this when the user asks about patterns, trends, summaries, or habits across time — it is faster and more complete than running code over raw search results. In the sessions report, autoTitle is a HEURISTIC label naming a session by its most salient domain/query — it is NOT the subject of every visit in the session; visitCount is the TOTAL number of visits in that session across all domains, NOT the number of visits to the autoTitle term. To see what a session actually contains, call the session_detail report with its sessionId.";
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. This tool returns ONLY high-level STATISTICAL and STRUCTURAL aggregates — visit/search/domain counts, top sites, session boundaries (each with a heuristic label), search-trail structure, activity mix, browsing rhythm, domain trends, and daily rollups. These are mechanical counts and structure; they carry NO semantic understanding of the content. This tool CANNOT tell you WHAT the user actually did, read, researched, or cared about inside a session or time window, and it cannot do any topic- or meaning-level analysis. Use it for the quantitative SHAPE of a period (how much, when, which domains, how sessions are bounded) — for those numbers it is faster and more complete than search. But to understand WHAT the user actually did or read (content, topics, intent), do NOT infer it from a session's autoTitle or its counts — read the ACTUAL visits: call this tool with report=\"session_detail\" and a sessionId to get the real URLs/titles/queries inside one session, or use search_history / run_code over the visit rows, and reason over those. In the sessions report, autoTitle is a HEURISTIC label naming a session by its most salient domain/query (NOT the subject of every visit); visitCount is the TOTAL visits in the session across all domains (NOT visits to the autoTitle term).";
 
 impl AgentTool for IntelligenceReportTool {
     fn name(&self) -> &str {
@@ -2794,6 +2794,15 @@ mod tests {
             def.description.contains("autoTitle is a HEURISTIC")
                 && def.description.contains("session_detail"),
             "the sessions-semantics note + drill-down hint is present: {}",
+            def.description
+        );
+        // The tool is honest about its epistemic limit: STATISTICS/STRUCTURE only, NOT semantic
+        // content — for what the user actually did, the model must read the actual visits.
+        assert!(
+            def.description.contains("STATISTICAL")
+                && def.description.contains("CANNOT tell you WHAT")
+                && def.description.contains("NO semantic understanding"),
+            "the statistics-only / no-semantics caveat is present: {}",
             def.description
         );
     }
