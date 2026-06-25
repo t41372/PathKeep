@@ -1423,6 +1423,7 @@ fn search_history_internal_empty_query_returns_recent_visits() {
                     domain: None,
                     limit: Some(5),
                     cursor: None,
+                    sort: None,
                     starred_only: None,
                     start_date: None,
                     end_date: None,
@@ -1461,6 +1462,7 @@ fn search_history_internal_supports_lexical_fallback() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -1502,6 +1504,7 @@ fn search_history_internal_empty_query_honors_starred_facet() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -1531,6 +1534,7 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -2393,6 +2397,7 @@ fn ai_status_and_search_cover_non_ready_and_semantic_empty_branches() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -2730,6 +2735,7 @@ fn semantic_matches_returns_no_hits_with_honest_note_when_index_is_empty() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -2848,6 +2854,7 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -2905,6 +2912,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -2942,6 +2950,7 @@ fn semantic_matches_rejects_a_dim_mismatch_with_an_honest_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3010,6 +3019,7 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3064,6 +3074,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3088,6 +3099,7 @@ fn semantic_matches_filters_by_profile_and_domain_facets() {
                 domain: Some("other.com".to_string()),
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3135,6 +3147,7 @@ fn semantic_matches_picks_most_recent_visit_among_a_pages_visits() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3177,6 +3190,7 @@ fn semantic_matches_attaches_capped_enrichment_excerpt_for_an_enriched_hit() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3228,6 +3242,7 @@ fn semantic_matches_leaves_excerpt_none_for_a_non_enriched_hit() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3282,6 +3297,7 @@ fn semantic_matches_enrichment_join_keeps_one_hit_for_a_multi_visit_enriched_pag
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3326,6 +3342,7 @@ fn semantic_matches_reports_no_visible_hits_when_all_are_facet_filtered_out() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3363,6 +3380,7 @@ fn search_history_internal_uses_lexical_results_when_index_is_empty() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3409,6 +3427,7 @@ fn search_history_internal_merges_real_semantic_hits_with_lexical() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3482,6 +3501,7 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3570,6 +3590,7 @@ fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3639,6 +3660,7 @@ fn rrf_semantic_weight_zero_degrades_to_lexical_order() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3685,6 +3707,7 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 domain: None,
                 limit: Some(1),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3707,6 +3730,7 @@ fn rrf_pagination_cursor_walks_the_fused_pool() {
                 domain: None,
                 limit: Some(1),
                 cursor: Some(cursor),
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3740,6 +3764,7 @@ fn ai_off_search_is_lexical_only() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3819,6 +3844,7 @@ fn starred_boost_promotes_a_relevant_favorite_without_dominating() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3874,6 +3900,7 @@ fn starred_boost_off_leaves_favorites_unpromoted() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -3920,6 +3947,7 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -3967,6 +3995,7 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -4003,6 +4032,7 @@ fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -4039,6 +4069,7 @@ fn is_starred_facet_with_nothing_starred_returns_no_semantic_hits() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -4071,6 +4102,7 @@ fn is_starred_facet_constrains_the_lexical_plane_too() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -4128,6 +4160,7 @@ fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: Some(true),
                 start_date: None,
                 end_date: None,
@@ -4607,6 +4640,7 @@ fn search_response_carries_a_note_code_per_english_note_for_lexical_fallback() {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,
@@ -4660,6 +4694,7 @@ fn search_history_internal_recency_path_excludes_out_of_range_visits() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
@@ -4691,6 +4726,7 @@ fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
@@ -4739,6 +4775,7 @@ fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
                 domain: None,
                 limit: Some(10),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: Some("2026-06-19".to_string()),
                 end_date: Some("2026-06-19".to_string()),
@@ -4767,6 +4804,7 @@ fn search_history_internal_recency_has_more_and_applied_limit() {
         domain: None,
         limit: Some(limit),
         cursor: None,
+        sort: None,
         starred_only: None,
         start_date: None,
         end_date: None,
@@ -4804,6 +4842,7 @@ fn search_history_internal_lexical_has_more_and_applied_limit() {
         domain: None,
         limit: Some(limit),
         cursor: None,
+        sort: None,
         starred_only: None,
         start_date: None,
         end_date: None,
@@ -4842,4 +4881,573 @@ fn ai_search_note_and_warning_codes_serialize_camelcase_for_the_fe() {
     let agent = serde_json::to_string(&crate::models::AiAgentNote::MaxStepsReached)
         .expect("agent note json");
     assert_eq!(agent, r#"{"code":"maxStepsReached"}"#);
+}
+
+// ============================================================================================
+// DATE-ORDERED SEARCH (`sort: "oldest" | "newest"`): the FIX for "when did I FIRST browse X?"
+// wrongly answering the most-recent month when older records exist. The relevance/hybrid path
+// returns a recency-ranked top-K and then re-sorts by SCORE, so an older match in the index is
+// never surfaced. These tests prove the date-ordered enumeration surfaces the EARLIEST/latest
+// occurrence and pages through every match in date order — reverting the sort threading fails them.
+// ============================================================================================
+
+#[test]
+fn sort_oldest_returns_the_first_occurrence_across_years_not_the_recent_month() {
+    // THE regression-proving test. The user has "mlx" visits spanning years; `sort:"oldest", limit:1`
+    // must return the EARLIEST (2025-03), never the most-recent (2026-06). Reverting the hardcoded
+    // `"newest"` in `lexical_history_results` (or re-sorting the date path by score) returns June and
+    // fails this — exactly the false "first record is June 18" the agent produced.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    // Seed across years; insert OUT of date order so a stable result cannot come from insertion order.
+    seed_visit_on_date(
+        &connection,
+        1,
+        "https://recent.example/mlx",
+        Some("mlx recent"),
+        "2026-06-18",
+    );
+    seed_visit_on_date(
+        &connection,
+        2,
+        "https://first.example/mlx",
+        Some("mlx first"),
+        "2025-03-04",
+    );
+    seed_visit_on_date(&connection, 3, "https://mid.example/mlx", Some("mlx mid"), "2025-11-20");
+
+    let oldest = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(1),
+                sort: Some("oldest".to_string()),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("oldest-sorted search");
+    assert_eq!(oldest.items.len(), 1);
+    assert_eq!(
+        oldest.items[0].history_id, 2,
+        "sort:oldest must return the EARLIEST (2025-03) match, not the recent month: got {:?}",
+        oldest.items[0]
+    );
+    assert_eq!(oldest.provider_id, "date-ordered");
+    assert!(oldest.has_more, "two more matches exist beyond the first page");
+    assert_eq!(oldest.next_cursor.as_deref(), Some("1"), "the cursor advances by the page size");
+}
+
+#[test]
+fn sort_newest_returns_the_latest_occurrence_across_years() {
+    // The mirror of the oldest test: `sort:"newest", limit:1` returns the LATEST (2026-06) match.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(
+        &connection,
+        1,
+        "https://recent.example/mlx",
+        Some("mlx recent"),
+        "2026-06-18",
+    );
+    seed_visit_on_date(
+        &connection,
+        2,
+        "https://first.example/mlx",
+        Some("mlx first"),
+        "2025-03-04",
+    );
+    seed_visit_on_date(&connection, 3, "https://mid.example/mlx", Some("mlx mid"), "2025-11-20");
+
+    let newest = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(1),
+                sort: Some("newest".to_string()),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("newest-sorted search");
+    assert_eq!(newest.items.len(), 1);
+    assert_eq!(
+        newest.items[0].history_id, 1,
+        "sort:newest must return the LATEST (2026-06) match: got {:?}",
+        newest.items[0]
+    );
+    assert_eq!(newest.provider_id, "date-ordered");
+}
+
+#[test]
+fn sort_oldest_pagination_covers_every_match_in_date_order_without_overlap() {
+    // Pagination over the date-ordered list: with >limit matches, walking the cursor returns each page
+    // in oldest-first order with NO overlap and FULL coverage. Five matches, page size 2 → pages of
+    // [oldest..], [..], [last]; the concatenation is the matches sorted ascending by visit date.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    // Insert deliberately scrambled; the chronological order is 2024-01 < 2024-06 < 2025-01 < 2025-09 < 2026-03.
+    seed_visit_on_date(&connection, 10, "https://e.example/mlx", Some("mlx e"), "2026-03-02");
+    seed_visit_on_date(&connection, 11, "https://a.example/mlx", Some("mlx a"), "2024-01-05");
+    seed_visit_on_date(&connection, 12, "https://d.example/mlx", Some("mlx d"), "2025-09-10");
+    seed_visit_on_date(&connection, 13, "https://b.example/mlx", Some("mlx b"), "2024-06-15");
+    seed_visit_on_date(&connection, 14, "https://c.example/mlx", Some("mlx c"), "2025-01-20");
+    let chronological = vec![11_i64, 13, 14, 12, 10]; // ids sorted ascending by visit date.
+
+    let mut collected: Vec<i64> = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut pages = 0;
+    loop {
+        let response = runtime
+            .block_on(search_history_internal(
+                &paths,
+                &config,
+                None,
+                None,
+                &AiSearchRequest {
+                    query: "mlx".to_string(),
+                    limit: Some(2),
+                    sort: Some("oldest".to_string()),
+                    cursor: cursor.clone(),
+                    ..AiSearchRequest::default()
+                },
+            ))
+            .expect("a date-ordered page");
+        for item in &response.items {
+            collected.push(item.history_id);
+        }
+        pages += 1;
+        assert!(pages <= 5, "pagination must terminate (no infinite loop)");
+        match response.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(
+        collected, chronological,
+        "paging the cursor yields every match exactly once, in oldest-first date order"
+    );
+    // No overlap is implied by the equality with the deduped chronological list, but assert it plainly.
+    let mut sorted_unique = collected.clone();
+    sorted_unique.sort_unstable();
+    sorted_unique.dedup();
+    assert_eq!(sorted_unique.len(), collected.len(), "no page overlap (every id appears once)");
+}
+
+#[test]
+fn sort_oldest_preserves_date_order_even_when_score_order_differs() {
+    // The date-ordered path must NOT be re-sorted by score (unlike the relevance path). We seed rows
+    // whose RELEVANCE order is the OPPOSITE of their DATE order: the newer page is the stronger lexical
+    // match (its title repeats the term), the older page is a weaker match. With `sort:"oldest"` the
+    // OLDER (weaker-scoring) page must still come first — proving date order wins. A regression that
+    // re-applied the score sort would put the newer, higher-scoring page first and fail here.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    // Older page: a single "mlx" mention (weaker lexical score).
+    seed_visit_on_date(&connection, 1, "https://old.example/page", Some("mlx"), "2025-02-01");
+    // Newer page: "mlx" repeated in url + title (stronger lexical score under the relevance path).
+    seed_visit_on_date(
+        &connection,
+        2,
+        "https://new.example/mlx/mlx",
+        Some("mlx mlx mlx tutorial"),
+        "2026-05-01",
+    );
+
+    let oldest = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(10),
+                sort: Some("oldest".to_string()),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("oldest-sorted search");
+    let ids: Vec<i64> = oldest.items.iter().map(|item| item.history_id).collect();
+    assert_eq!(
+        ids,
+        vec![1, 2],
+        "date order (oldest first) must hold even though page 2 is the stronger relevance match: {ids:?}"
+    );
+}
+
+#[test]
+fn sort_oldest_bypasses_the_semantic_rerank() {
+    // With an embedding provider configured AND vectors seeded so the semantic plane would, on the
+    // relevance path, re-rank the NEWER page to the top, `sort:"oldest"` must STILL return the older
+    // page first — proving the date path skips the semantic plane entirely (a meaning re-rank would
+    // scramble the chronological order the caller asked for).
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let embedding = embedding_provider();
+    seed_visit_on_date(&connection, 1, "https://old.example/mlx", Some("mlx old"), "2025-02-01");
+    seed_visit_on_date(&connection, 2, "https://new.example/mlx", Some("mlx new"), "2026-05-01");
+    // Seed the exact query vector on BOTH so the semantic plane treats them as equally strong hits;
+    // on the relevance path this participates in fusion. The date path must ignore it entirely.
+    let query_vector = runtime
+        .block_on(embed_query(&embedding, "mlx", EmbeddingRole::Query))
+        .expect("query vector");
+    seed_vector_planes(
+        &paths,
+        &embedding,
+        &[(1, 0x1111, query_vector.clone()), (2, 0x2222, query_vector.clone())],
+    );
+
+    let oldest = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            Some(&embedding),
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(10),
+                sort: Some("oldest".to_string()),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("oldest-sorted search with a provider");
+    assert_eq!(oldest.items[0].history_id, 1, "the older page leads even with a semantic provider");
+    assert_eq!(
+        oldest.provider_id, "date-ordered",
+        "the date path reports its own provider, not the hybrid one (semantic was skipped)"
+    );
+    // No semantic degradation/notes are produced on the date path (it never touched the plane).
+    assert!(oldest.notes.is_empty(), "the date path emits no semantic notes: {:?}", oldest.notes);
+}
+
+#[test]
+fn sort_relevance_and_none_keep_the_hybrid_path() {
+    // `sort:"relevance"` and an absent sort BOTH route to the hybrid pipeline (unchanged behavior):
+    // the provider id is the lexical-fallback hybrid id, NOT "date-ordered".
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/mlx", Some("mlx"), 1);
+    for sort in [None, Some("relevance".to_string()), Some("garbage".to_string())] {
+        let response = runtime
+            .block_on(search_history_internal(
+                &paths,
+                &config,
+                None,
+                None,
+                &AiSearchRequest {
+                    query: "mlx".to_string(),
+                    limit: Some(5),
+                    sort: sort.clone(),
+                    ..AiSearchRequest::default()
+                },
+            ))
+            .expect("relevance-path search");
+        assert_ne!(
+            response.provider_id, "date-ordered",
+            "sort={sort:?} must keep the hybrid/relevance path, not the date path"
+        );
+    }
+}
+
+/// Bulk-inserts `count` keyword-matching visits on DISTINCT, strictly-ascending timestamps in ONE
+/// transaction, mirroring `seed_visit`'s exact `runs`/`source_profiles`/`urls`/`visits` writes.
+///
+/// Takes the `prepared_archive` connection (the intelligence connection with the archive ATTACHed as
+/// `archive`, exactly the connection `seed_visit` writes through), so the `archive.` prefixes resolve.
+///
+/// Why a bespoke bulk insert: test #1 needs 1001 matchable rows to exceed the date-ordered window cap,
+/// and 1001 individual `seed_visit_on_date` calls (each its own auto-committed statement) is too slow.
+/// A single transaction with prepared statements keeps it well under a second while producing the EXACT
+/// same on-disk shape `seed_visit` does — so `open_archive_connection`'s `seed_search_projection_if_missing`
+/// rebuilds the FTS projection from these `urls` on the first `list_history` read and the keyword matches.
+/// `history_id` is the visit id AND the url id (as `seed_visit` does), and `visit_time` increases with
+/// `history_id` so the EARLIEST-dated visit is `first_id` and the latest is `first_id + count - 1`.
+fn seed_keyword_visits_bulk(connection: &Connection, keyword: &str, first_id: i64, count: i64) {
+    let profile_id = "chrome:Default";
+    let browser_kind = "chrome";
+    let profile_row_id = profile_id.bytes().fold(0_i64, |acc, value| acc + value as i64).max(1);
+    // Base timestamp far enough in the past that +count seconds stays comfortably valid; the unit is
+    // Unix microseconds fed to `unix_micros_to_chrome_time`, matching `seed_visit`'s expected format.
+    let base_unix_ms: i64 = 1_700_000_000_000; // 2023-11-14, well-formed and distinct per row.
+
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [now_rfc3339()],
+        )
+        .expect("insert canonical run");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+             VALUES (?1, ?2, 'test', ?3, ?4, ?5, 1, ?6, ?5)",
+            params![
+                profile_row_id,
+                browser_kind,
+                profile_id,
+                format!("/tmp/{profile_id}"),
+                now_rfc3339(),
+                profile_id,
+            ],
+        )
+        .expect("insert canonical profile");
+
+    connection.execute_batch("BEGIN").expect("begin bulk seed");
+    {
+        let mut url_stmt = connection
+            .prepare(
+                "INSERT OR IGNORE INTO archive.urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?8)",
+            )
+            .expect("prepare url insert");
+        let mut visit_stmt = connection
+            .prepare(
+                "INSERT INTO archive.visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
+            )
+            .expect("prepare visit insert");
+        let now = now_rfc3339();
+        for offset in 0..count {
+            let history_id = first_id + offset;
+            // Strictly ascending so the EARLIEST-dated row is `first_id` (1 second apart per row).
+            let visit_unix_ms = base_unix_ms + offset * 1000;
+            let chrome_time = crate::utils::unix_micros_to_chrome_time(visit_unix_ms * 1000);
+            let visit_time_ms = chrome_time_to_unix_ms(chrome_time);
+            let visit_time_iso = crate::utils::chrome_time_to_rfc3339(chrome_time);
+            // Put the keyword in BOTH url path and title so the FTS projection matches it.
+            let url = format!("https://bulk.example/{keyword}/{history_id}");
+            let title = format!("{keyword} entry {history_id}");
+            url_stmt
+                .execute(params![
+                    history_id,
+                    url,
+                    title,
+                    visit_time_ms,
+                    visit_time_iso,
+                    profile_row_id,
+                    format!("payload-{history_id}"),
+                    now,
+                ])
+                .expect("bulk insert url");
+            visit_stmt
+                .execute(params![
+                    history_id,
+                    history_id,
+                    history_id.to_string(),
+                    visit_time_ms,
+                    visit_time_iso,
+                    profile_row_id,
+                    format!("fp-{history_id}"),
+                    format!("payload-{history_id}"),
+                    now,
+                ])
+                .expect("bulk insert visit");
+        }
+    }
+    connection.execute_batch("COMMIT").expect("commit bulk seed");
+}
+
+#[test]
+fn date_ordered_pagination_caps_honestly_at_the_window_without_looping() {
+    // THE BLOCKER regression test. The fixed contract: the date-ordered path reports the TRUE uncapped
+    // match count as `total`, stops the cursor at the 1000-row retrievable window (so the agent never
+    // loops on empty pages past the cap), and keeps `has_more == true` with NO `next_cursor` plus a
+    // "retrieval cap" note when matches exist beyond the window. The pre-fix code set `total =
+    // ordered.len()` (capped at 1000) and could hand back a cursor past the window — reverting either
+    // makes the assertions below fail.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    // 1001 matching visits on distinct ascending timestamps — ONE more than the 1000-row window cap.
+    seed_keyword_visits_bulk(&connection, "mlx", 1, 1001);
+
+    let page = |cursor: Option<String>, limit: u32| {
+        runtime
+            .block_on(search_history_internal(
+                &paths,
+                &config,
+                None,
+                None,
+                &AiSearchRequest {
+                    query: "mlx".to_string(),
+                    limit: Some(limit),
+                    sort: Some("oldest".to_string()),
+                    cursor,
+                    ..AiSearchRequest::default()
+                },
+            ))
+            .expect("a date-ordered page")
+    };
+
+    // THE LETHAL ASSERTION: `total` is the TRUE uncapped match count (1001), NOT the 1000-row pool size.
+    let first = page(None, 10);
+    assert_eq!(
+        first.total, 1001,
+        "total must be the TRUE uncapped match count (1001), not the 1000-row window cap: got {}",
+        first.total
+    );
+    assert_eq!(first.provider_id, "date-ordered");
+    // sort=oldest correctness at scale: the first page's first row is the EARLIEST-dated seeded visit.
+    assert_eq!(
+        first.items[0].history_id, 1,
+        "sort:oldest must lead with the earliest-dated visit (history_id 1): got {}",
+        first.items[0].history_id
+    );
+
+    // Walk the cursor up to the window edge with a small page size and assert no overlap + termination.
+    let limit = 10_u32;
+    let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut cursor: Option<String> = first.next_cursor.clone();
+    for item in &first.items {
+        assert!(seen.insert(item.history_id), "first page must not repeat ids");
+    }
+    let mut reached_edge = false;
+    let mut iterations = 0;
+    loop {
+        iterations += 1;
+        assert!(iterations <= 200, "pagination must terminate (no infinite loop)");
+        let Some(next) = cursor.clone() else { break };
+        let response = page(Some(next), limit);
+        for item in &response.items {
+            assert!(
+                seen.insert(item.history_id),
+                "paging must never re-yield an already-seen id (no overlap): {}",
+                item.history_id
+            );
+        }
+        // At/near the window edge (offset 990 → 1000) the cursor must stop with `has_more` still true
+        // and a "retrieval cap" note, NEVER handing back a cursor that pages past the 1000-row clamp.
+        match response.next_cursor.clone() {
+            Some(next) => {
+                let offset: usize = next.parse().expect("numeric cursor offset");
+                assert!(
+                    offset <= 1000,
+                    "the cursor must never advance past the 1000-row window: {offset}"
+                );
+                cursor = Some(next);
+            }
+            None => {
+                // The window edge: more matches exist (1001 > 1000) but the cursor stops to avoid an
+                // infinite loop on empty pages beyond the cap.
+                reached_edge = true;
+                assert!(
+                    response.has_more,
+                    "at the window edge has_more must STAY true (matches exist beyond the cap)"
+                );
+                assert!(
+                    response.notes.iter().any(|note| note.contains("retrieval cap")),
+                    "the window-edge page must carry a 'retrieval cap' note: {:?}",
+                    response.notes
+                );
+                break;
+            }
+        }
+    }
+    assert!(
+        reached_edge,
+        "the walk must reach the window edge and stop (cursor None) without looping"
+    );
+    // The retrievable window is exactly the 1000-row cap; the 1001st match is unreachable by paging.
+    assert_eq!(
+        seen.len(),
+        1000,
+        "paging covers exactly the 1000-row retrievable window: {}",
+        seen.len()
+    );
+}
+
+#[test]
+fn sort_oldest_with_date_range_returns_first_in_that_range() {
+    // The date sort composes with the date filter: with the keyword present in 2024, 2025, and 2026 and
+    // a [2025-01-01, 2025-12-31] range, `sort:"oldest"` returns the 2025 row first — the 2024 match is
+    // excluded below the range and the 2026 match is excluded above it. Without the date predicate the
+    // 2024 row would lead; without the oldest sort the order would not be chronological.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit_on_date(&connection, 1, "https://a.example/mlx", Some("mlx 2024"), "2024-05-10");
+    seed_visit_on_date(&connection, 2, "https://b.example/mlx", Some("mlx 2025"), "2025-07-15");
+    seed_visit_on_date(&connection, 3, "https://c.example/mlx", Some("mlx 2026"), "2026-02-20");
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(10),
+                sort: Some("oldest".to_string()),
+                start_date: Some("2025-01-01".to_string()),
+                end_date: Some("2025-12-31".to_string()),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("oldest + date-range search");
+    let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
+    assert_eq!(
+        ids,
+        vec![2],
+        "only the in-range 2025 match returns (2024 below, 2026 above the range): {ids:?}"
+    );
+    assert_eq!(response.provider_id, "date-ordered");
+}
+
+#[test]
+fn sort_oldest_with_starred_only_returns_oldest_starred_match() {
+    // The `is:starred` facet composes with the date sort: with several keyword matches across dates and
+    // only a SUBSET starred, `sort:"oldest"` + `starred_only` returns ONLY the starred matches, oldest
+    // first, and `total` reflects the IN-POOL starred count (not the pre-filter count of all matches).
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    // Five matches; star pages 2 and 4 (so the starred set, oldest-first, is [2024-06 → id2, 2025-09 → id4]).
+    seed_visit_on_date(&connection, 1, "https://one.example/mlx", Some("mlx one"), "2024-01-05");
+    seed_visit_on_date(&connection, 2, "https://two.example/mlx", Some("mlx two"), "2024-06-15");
+    seed_visit_on_date(
+        &connection,
+        3,
+        "https://three.example/mlx",
+        Some("mlx three"),
+        "2025-03-20",
+    );
+    seed_visit_on_date(&connection, 4, "https://four.example/mlx", Some("mlx four"), "2025-09-10");
+    seed_visit_on_date(&connection, 5, "https://five.example/mlx", Some("mlx five"), "2026-04-01");
+    star_url(&paths, &config, "https://two.example/mlx");
+    star_url(&paths, &config, "https://four.example/mlx");
+
+    let response = runtime
+        .block_on(search_history_internal(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                limit: Some(10),
+                sort: Some("oldest".to_string()),
+                starred_only: Some(true),
+                ..AiSearchRequest::default()
+            },
+        ))
+        .expect("oldest + starred-only search");
+    let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
+    assert_eq!(
+        ids,
+        vec![2, 4],
+        "only the starred matches return, oldest first (id2 2024-06 then id4 2025-09): {ids:?}"
+    );
+    assert_eq!(
+        response.total, 2,
+        "total reflects the in-pool starred count (2), not the 5 pre-filter matches: got {}",
+        response.total
+    );
+    assert_eq!(response.provider_id, "date-ordered");
 }

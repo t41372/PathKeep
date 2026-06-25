@@ -192,6 +192,7 @@ impl Tool for SearchHistoryTool {
             domain: args.domain.or_else(|| self.context.default_domain.clone()),
             limit: args.limit.or(Some(self.context.default_limit)),
             cursor: None,
+            sort: None,
             starred_only: None,
             start_date: None,
             end_date: None,
@@ -297,6 +298,7 @@ pub async fn answer_history_question_with_control(
             domain: request.domain.clone(),
             limit: Some(config.ai.retrieval_top_k.max(1)),
             cursor: None,
+            sort: None,
             starred_only: None,
             start_date: None,
             end_date: None,
@@ -499,6 +501,28 @@ pub(super) async fn search_history_internal(
         );
     }
 
+    // DATE-ORDERED ENUMERATION (`sort: "oldest" | "newest"`): the agent asks for the FIRST/earliest or
+    // latest occurrence of a term across ALL history, not the most-relevant sample. The hybrid path
+    // below returns a recency-ranked top-K and then re-sorts by SCORE, so an older match that exists in
+    // the index is never returned — the exact bug behind "when did I first browse mlx?" wrongly
+    // answering "June" when 2025 records exist. We bypass the semantic plane entirely (a meaning re-rank
+    // would destroy the chronological order the caller asked for) and enumerate the lexical matches in
+    // pure date order via `list_history`, paginating with the request cursor so the agent can walk the
+    // whole timeline. Bounded exactly like every other path (`list_history`'s `[1, 1000]` fetch cap).
+    let sort = AiSearchSort::parse(request.sort.as_deref());
+    if sort.is_date_ordered() {
+        return date_ordered_response(
+            paths,
+            config,
+            key,
+            request,
+            query,
+            limit,
+            facet_starred,
+            sort,
+        );
+    }
+
     // Load the starred set once (tiny by design). It powers BOTH the bounded boost (always, when any
     // page is starred) and the `is:starred` facet's lexical post-filter + semantic allowlist (when on).
     let starred = crate::stars::load_starred_matcher(paths, config, key)?;
@@ -521,7 +545,10 @@ pub(super) async fn search_history_internal(
     // `has_more` was always false even when more matches existed. We fuse `limit + 1` lexical rows (a
     // valid RRF over one extra rank) and paginate to `limit` AFTER fusion, so the probe both feeds an
     // honest `has_more` and lets a strong older match legitimately enter the page.
-    let lexical = lexical_history_results(paths, config, key, request, query, facet_starred, true)?;
+    // The relevance/hybrid path always pulls the lexical recall pool newest-first (the historical
+    // order it then RRF-fuses + re-ranks by score); the date-ordered `sort` values never reach here.
+    let lexical =
+        lexical_history_results(paths, config, key, request, query, facet_starred, true, "newest")?;
     let lexical_ranked: Vec<&HistoryEntry> = lexical
         .items
         .iter()
@@ -624,7 +651,8 @@ fn recent_visits_response(
     // H3 — over-fetch ONE probe row beyond `limit` from the recency source: the previous call fetched
     // only `base_limit == limit` rows, so the `.take(limit + 1)` below was a NO-OP and `has_more` was
     // ALWAYS false on the common agent "list recent" path. The probe makes `has_more` honest.
-    let recent = lexical_history_results(paths, config, key, request, "", facet_starred, true)?;
+    let recent =
+        lexical_history_results(paths, config, key, request, "", facet_starred, true, "newest")?;
     // Collect one more than `limit` to detect `has_more`.
     let ranked: Vec<AiSearchEntry> = recent
         .items
@@ -666,6 +694,131 @@ fn recent_visits_response(
         notes: Vec::new(),
         note_codes: Vec::new(),
         next_cursor: None,
+        applied_limit: Some(applied_limit),
+        has_more,
+    })
+}
+
+/// The model-facing match reason carried on every date-ordered row (`sort:"oldest"|"newest"` path).
+///
+/// Like [`RECENT_VISITS_MATCH_REASON`], a free-form per-entry reason (not a localized
+/// [`AiSearchNote`]) because this path is reached only from the MODEL-facing agent/run_code surface.
+/// It tells the model these rows are an EARLIEST-/latest-first enumeration of the keyword's matches —
+/// the entry point for "when did I first browse X?" — so it doesn't mistake them for relevance ranking.
+const DATE_ORDERED_MATCH_REASON: &str = "Lexical match (date-ordered)";
+
+/// Returns the keyword's matches in pure VISIT-DATE order for a `sort: "oldest" | "newest"` request.
+///
+/// THE FIX for "when did I first browse mlx?" wrongly answering June when 2025 records exist: the
+/// hybrid path returns a recency-ranked top-K and then re-sorts by SCORE, so an older match that lives
+/// in the index is never surfaced. This path enumerates the lexical matches in pure chronological order
+/// instead. It bypasses the semantic plane entirely — a meaning re-rank would scramble the order the
+/// caller explicitly asked for — and threads the requested `sort` straight into `list_history`, so the
+/// EARLIEST (oldest) or latest (newest) occurrence survives verbatim to the response. The list-history
+/// date order is PRESERVED end-to-end: rows are NOT re-sorted by score (unlike the relevance path), so
+/// `items[0]` is genuinely the first/last occurrence.
+///
+/// Pagination composes with the date sort: the request `cursor` is an integer OFFSET into the
+/// date-ordered match list. We fetch a bounded pool covering `offset + limit + 1` (one probe row, all
+/// clamped to `list_history`'s `[1, 1000]` cap via [`lexical_history_results`]) and slice the page.
+/// `total` is the TRUE (uncapped) match count from `list_history`'s COUNT, so `has_more` is honest even
+/// past the fetched pool. CRITICAL: the cursor only advances WITHIN the 1000-row retrievable window — at
+/// the window edge `next_cursor` is `None` (re-fetching past it returns nothing, which would loop the
+/// agent forever on empty pages). When the timeline continues beyond the window, `has_more` stays true
+/// with NO `next_cursor` AND a model-facing note tells the agent to narrow (date range / filters) rather
+/// than believe it saw everything. Bounded exactly like every other path: no full scan even at 14.4M.
+#[allow(clippy::too_many_arguments)]
+fn date_ordered_response(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &AiSearchRequest,
+    query: &str,
+    limit: usize,
+    facet_starred: bool,
+    sort: AiSearchSort,
+) -> Result<AiSearchResponse> {
+    let applied_limit = limit as u32;
+    let offset =
+        request.cursor.as_deref().and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
+
+    // Starred matcher: needed both for the `is:starred` post-filter and so favorites still STAR on the
+    // FE evidence rows; the bounded starred boost is intentionally NOT applied here — re-scoring would
+    // be meaningless on a date-ordered list and could only tempt a future re-sort that breaks the order.
+    let starred = crate::stars::load_starred_matcher(paths, config, key)?;
+
+    // Over-fetch the pool to cover `offset + limit + 1` (the +1 probe feeds an honest `has_more`). We
+    // clone the request and widen its `limit` so `lexical_history_results` (which derives its fetch from
+    // `request.limit`) pulls a deep-enough pool; the actual fetch is still clamped to `[1, 1000]` inside
+    // `list_history`. The requested date `sort` is threaded straight through to `list_history`.
+    let fetch_target = offset.saturating_add(limit).saturating_add(1);
+    let mut pool_request = request.clone();
+    pool_request.limit = Some(u32::try_from(fetch_target).unwrap_or(u32::MAX));
+    let lexical = lexical_history_results(
+        paths,
+        config,
+        key,
+        &pool_request,
+        query,
+        facet_starred,
+        false,
+        sort.list_history_sort(),
+    )?;
+
+    // Apply the `is:starred` post-filter (the date order is preserved by the filter), then map to search
+    // entries WITHOUT re-sorting — `list_history` already returned them oldest-/newest-first.
+    let ordered: Vec<&HistoryEntry> = lexical
+        .items
+        .iter()
+        .filter(|item| !facet_starred || starred.is_starred(&item.url))
+        .collect();
+
+    // The retrievable window is `list_history`'s [1,1000] fetch clamp; `lexical.total` is the TRUE
+    // (uncapped) match count from its COUNT query. For the `is:starred` facet the in-Rust post-filter
+    // shrinks the pool and `lexical.total` counts pre-filter (overstating it), so fall back to the
+    // in-pool count there; the non-starred path uses the true count for an honest `has_more`/`total`.
+    const DATE_ORDERED_WINDOW_CAP: usize = 1000;
+    let pool_capped = lexical.items.len() >= DATE_ORDERED_WINDOW_CAP;
+    let total = if facet_starred { ordered.len() } else { lexical.total as usize };
+    let page: Vec<AiSearchEntry> = ordered
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|item| {
+            // Constant score as a stable, non-reordering tag (it never re-sorts the page); the
+            // chronological order from `list_history` is what carries the meaning here.
+            history_entry_to_search_entry(item, 0.0, DATE_ORDERED_MATCH_REASON)
+        })
+        .collect();
+    let next_offset = offset.saturating_add(page.len());
+    // Advance the cursor ONLY while the next page stays inside the fetched window AND the pool actually
+    // holds a row past this page (the +1 probe). At the window edge the cursor stops (None) so the agent
+    // never loops on empty pages beyond the 1000-row clamp.
+    let more_in_pool = next_offset < ordered.len();
+    let can_page = more_in_pool && next_offset < DATE_ORDERED_WINDOW_CAP;
+    let next_cursor = can_page.then(|| next_offset.to_string());
+    // More matches may exist than offset-paging can reach when the pool hit the cap: keep `has_more` true
+    // (with NO next_cursor) and leave a note so the agent narrows instead of trusting an incomplete walk.
+    let beyond_window = pool_capped && !can_page;
+    let has_more = can_page || beyond_window;
+    // Model-facing note (this path is model-only, like the match reason) when the timeline continues past
+    // the retrievable window — tells the agent to narrow rather than believe the page is the whole set.
+    let notes = if beyond_window {
+        vec![format!(
+            "Reached the {DATE_ORDERED_WINDOW_CAP}-row retrieval cap for this query; more matches exist beyond it — narrow the date range or add filters to see the rest."
+        )]
+    } else {
+        Vec::new()
+    };
+
+    Ok(AiSearchResponse {
+        total,
+        provider_id: "date-ordered".to_string(),
+        model: "none".to_string(),
+        items: page,
+        notes,
+        note_codes: Vec::new(),
+        next_cursor,
         applied_limit: Some(applied_limit),
         has_more,
     })
@@ -1316,6 +1469,7 @@ pub(super) fn lexical_history_results(
     query: &str,
     starred_only: bool,
     over_fetch_for_has_more: bool,
+    sort: &str,
 ) -> Result<crate::models::HistoryQueryResponse> {
     let base_limit = request.limit.unwrap_or(12).max(1);
     // The desired page size (`base_limit`) plus, when the caller will compute `has_more` from this pool,
@@ -1348,7 +1502,11 @@ pub(super) fn lexical_history_results(
             domain: request.domain.clone(),
             start_time_ms,
             end_time_ms,
-            sort: Some("newest".to_string()),
+            // The caller picks the date ordering: the hybrid/relevance path keeps `"newest"` (the
+            // historical lexical recall order it then re-ranks), while the date-ordered `sort:"oldest"`
+            // / `sort:"newest"` agent path threads its requested order straight through so the FIRST /
+            // latest occurrence survives to the response without a relevance re-sort.
+            sort: Some(sort.to_string()),
             limit: Some(fetch_limit),
             page: None,
             cursor: None,

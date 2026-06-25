@@ -405,6 +405,7 @@ mod tests {
                 domain: None,
                 limit: Some(5),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,

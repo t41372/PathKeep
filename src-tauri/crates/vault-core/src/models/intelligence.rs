@@ -1270,6 +1270,17 @@ pub struct AiSearchRequest {
     pub domain: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
+    /// Result ordering for history search: `"relevance"` (default/None) | `"newest"` | `"oldest"`.
+    ///
+    /// `"relevance"` keeps the hybrid lexical + semantic RRF ranking (score order). `"oldest"` and
+    /// `"newest"` switch to a DATE-ORDERED enumeration of the lexical matches (oldest- or newest-first
+    /// by visit time), bypassing the semantic re-rank so the chronological order is preserved verbatim.
+    /// This is what lets the agent answer "when did I FIRST browse X?" — a relevance top-K only ever
+    /// returns the most-relevant sample, never the EARLIEST occurrence. Additive with `#[serde(default)]`
+    /// so older payloads without the field still deserialize to the relevance default. Unknown values
+    /// fall back to relevance (see [`AiSearchSort::parse`]).
+    #[serde(default)]
+    pub sort: Option<String>,
     /// The `is:starred` facet (W-AI-6): restrict BOTH lexical AND semantic recall to starred pages.
     ///
     /// Mirrors the lexical Explorer `is:starred` facet but pushes the constraint into the semantic
@@ -1303,9 +1314,56 @@ impl Default for AiSearchRequest {
             domain: None,
             limit: Some(8),
             cursor: None,
+            sort: None,
             starred_only: None,
             start_date: None,
             end_date: None,
+        }
+    }
+}
+
+/// Parsed result ordering for [`AiSearchRequest::sort`] (the wire field is an optional free string).
+///
+/// Centralizes the `"relevance" | "newest" | "oldest"` vocabulary so the search router and every
+/// call site agree on one parse: any unrecognized / absent value degrades to [`Self::Relevance`]
+/// (the historical hybrid behavior), never an error — an honest, conservative fallback. The
+/// date-ordered variants ([`Self::Oldest`] / [`Self::Newest`]) thread straight into `list_history`'s
+/// `sort` so the chronological order survives to the response untouched by the relevance re-rank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiSearchSort {
+    /// Hybrid lexical + semantic RRF ranking (the default; "best match first").
+    #[default]
+    Relevance,
+    /// Oldest visit first — finds the EARLIEST occurrence of a term ("when did I first browse X?").
+    Oldest,
+    /// Newest visit first — the most recent occurrence of a term.
+    Newest,
+}
+
+impl AiSearchSort {
+    /// Parses the optional wire `sort` string, degrading anything unknown to [`Self::Relevance`].
+    pub fn parse(sort: Option<&str>) -> Self {
+        match sort.map(str::trim) {
+            Some("oldest") => Self::Oldest,
+            Some("newest") => Self::Newest,
+            _ => Self::Relevance,
+        }
+    }
+
+    /// Whether this ordering is a DATE-ordered enumeration (lexical-only, no semantic re-rank).
+    pub fn is_date_ordered(self) -> bool {
+        matches!(self, Self::Oldest | Self::Newest)
+    }
+
+    /// The `list_history` sort token this ordering maps to (`"oldest"` / `"newest"`).
+    ///
+    /// Only meaningful for the date-ordered variants; [`Self::Relevance`] never reaches `list_history`
+    /// via this path (it uses the hybrid pipeline), so it conservatively maps to `"newest"` (the
+    /// historical lexical recall order) should a caller ask.
+    pub fn list_history_sort(self) -> &'static str {
+        match self {
+            Self::Oldest => "oldest",
+            Self::Newest | Self::Relevance => "newest",
         }
     }
 }
@@ -2116,6 +2174,44 @@ mod tests {
         assert_eq!(value["starredOnly"], json!(true));
         let older: AiSearchRequest = serde_json::from_value(json!({ "query": "rust" })).unwrap();
         assert_eq!(older.starred_only, None, "absent facet defaults to None (unfiltered)");
+    }
+
+    #[test]
+    fn ai_search_request_sort_round_trips_and_defaults_absent() {
+        // The `sort` field serializes camelCase (a plain `sort`) and tolerates an older payload that
+        // omits it (the FIX field must be additive — a frozen request still deserializes).
+        let value = serde_json::to_value(AiSearchRequest {
+            sort: Some("oldest".to_string()),
+            ..AiSearchRequest::default()
+        })
+        .unwrap();
+        assert_eq!(value["sort"], json!("oldest"));
+        let older: AiSearchRequest = serde_json::from_value(json!({ "query": "mlx" })).unwrap();
+        assert_eq!(older.sort, None, "absent sort defaults to None (relevance)");
+    }
+
+    #[test]
+    fn ai_search_sort_parse_maps_tokens_and_degrades_unknown_to_relevance() {
+        // The vocabulary parse is the single source of truth the router relies on; an unknown/absent
+        // value must degrade to relevance (the historical hybrid behavior), NEVER an error.
+        assert_eq!(AiSearchSort::parse(Some("oldest")), AiSearchSort::Oldest);
+        assert_eq!(AiSearchSort::parse(Some(" newest ")), AiSearchSort::Newest);
+        assert_eq!(AiSearchSort::parse(Some("relevance")), AiSearchSort::Relevance);
+        assert_eq!(AiSearchSort::parse(Some("garbage")), AiSearchSort::Relevance);
+        assert_eq!(AiSearchSort::parse(None), AiSearchSort::Relevance);
+        assert_eq!(AiSearchSort::default(), AiSearchSort::Relevance);
+    }
+
+    #[test]
+    fn ai_search_sort_date_ordered_and_list_history_token() {
+        // The date-ordered variants drive the lexical-only list_history path; relevance does not.
+        assert!(AiSearchSort::Oldest.is_date_ordered());
+        assert!(AiSearchSort::Newest.is_date_ordered());
+        assert!(!AiSearchSort::Relevance.is_date_ordered());
+        assert_eq!(AiSearchSort::Oldest.list_history_sort(), "oldest");
+        assert_eq!(AiSearchSort::Newest.list_history_sort(), "newest");
+        // Relevance never reaches list_history via the date path; it maps conservatively to "newest".
+        assert_eq!(AiSearchSort::Relevance.list_history_sort(), "newest");
     }
 
     /// Every consent-gated capability and the sub-flag mutator that turns it on. Used to drive the

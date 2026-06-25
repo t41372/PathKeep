@@ -492,6 +492,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
             domain: None,
             limit: Some(5),
             cursor: None,
+            sort: None,
             starred_only: None,
             start_date: None,
             end_date: None,

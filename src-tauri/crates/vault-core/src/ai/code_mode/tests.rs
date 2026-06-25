@@ -439,6 +439,50 @@ fn query_history_in_the_sandbox_honors_the_date_range() {
 }
 
 #[test]
+fn query_history_in_the_sandbox_finds_the_first_occurrence_and_exposes_next_cursor() {
+    // The code-mode twin of the "when did I first browse X?" fix: a sandbox
+    // `query_history({ query, sort:"oldest", limit:1 })` returns the EARLIEST match (2024) across
+    // years, NOT the most-recent month, AND surfaces `nextCursor`/`hasMore` so a script can page the
+    // rest. Reverting the sort threading returns the recent month here and fails the id assertion.
+    let (paths, context) = empty_context();
+    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
+    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
+    create_schema(&archive).expect("create schema");
+    let intelligence =
+        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
+    // Insert out of date order; chronological is 2024-02 < 2025-07 < 2026-06.
+    seed_visit_on_date(
+        &intelligence,
+        301,
+        "https://recent.example/mlx",
+        "mlx recent",
+        "2026-06-18",
+    );
+    seed_visit_on_date(&intelligence, 302, "https://first.example/mlx", "mlx first", "2024-02-03");
+    seed_visit_on_date(&intelligence, 303, "https://mid.example/mlx", "mlx mid", "2025-07-09");
+
+    let source = r#"
+        const r = query_history({ query: "mlx", sort: "oldest", limit: 1 });
+        return { firstId: r.rows[0] ? r.rows[0].id : null, hasMore: r.hasMore, nextCursor: r.nextCursor };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    assert_eq!(
+        distilled["firstId"].as_i64(),
+        Some(302),
+        "sort:oldest returns the EARLIEST (2024) match in the sandbox: {distilled}"
+    );
+    assert_eq!(distilled["hasMore"], serde_json::json!(true), "more matches exist: {distilled}");
+    assert_eq!(
+        distilled["nextCursor"].as_str(),
+        Some("1"),
+        "the sandbox reply exposes the pagination cursor: {distilled}"
+    );
+}
+
+#[test]
 fn real_js_multi_query_fan_out_with_join_and_dedup() {
     // A multi-query fan-out: the JS issues two query_history calls and does a JS join/dedup, then
     // returns the distilled set. Proves the synchronous host-call channel works across many calls.
@@ -903,6 +947,7 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
                 domain: None,
                 limit: Some(8),
                 cursor: None,
+                sort: None,
                 starred_only: None,
                 start_date: None,
                 end_date: None,

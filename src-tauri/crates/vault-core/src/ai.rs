@@ -49,7 +49,7 @@ use crate::{
         AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
         AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
         AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
-        AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
+        AiSearchSort, AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
     },
     utils::{now_rfc3339, url_domain},
 };

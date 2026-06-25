@@ -262,6 +262,13 @@ struct QueryHistoryArgs {
     /// Max rows (clamped to [`MAX_ROWS_PER_CALL`]).
     #[serde(default)]
     limit: Option<u32>,
+    /// Result ordering: `"relevance"` (default) | `"newest"` | `"oldest"`. `"oldest"` enumerates the
+    /// matches earliest-first — the only way to find the FIRST occurrence of a term across ALL history.
+    #[serde(default)]
+    sort: Option<String>,
+    /// Pagination cursor from a prior reply's `nextCursor`; fetches the next page in the same sort order.
+    #[serde(default)]
+    cursor: Option<String>,
     /// Restrict recall to starred pages only.
     #[serde(default)]
     starred_only: Option<bool>,
@@ -514,7 +521,15 @@ impl HostState {
             args_summary: call_args.args_summary,
             row_count,
         });
-        let reply = json!({ "rows": rows, "notes": response.notes });
+        // Surface pagination on the reply so a sandbox script can page through ALL matches in the
+        // chosen sort order: `nextCursor` is the token to pass back as `cursor`, and `hasMore` says
+        // whether more rows exist beyond this page. `nextCursor` is `null` when this is the last page.
+        let reply = json!({
+            "rows": rows,
+            "notes": response.notes,
+            "hasMore": response.has_more,
+            "nextCursor": response.next_cursor,
+        });
         Ok(serde_json::to_vec(&reply)?)
     }
 
@@ -545,7 +560,8 @@ impl HostState {
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
             domain: args.domain.or_else(|| self.context.default_domain.clone()),
             limit: Some(limit),
-            cursor: None,
+            cursor: args.cursor,
+            sort: args.sort,
             starred_only: args.starred_only,
             start_date: args.start_date,
             end_date: args.end_date,

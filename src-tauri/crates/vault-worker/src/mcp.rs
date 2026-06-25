@@ -293,6 +293,7 @@ pub(crate) fn mcp_search_result(
         domain: request.domain.clone(),
         limit: request.limit,
         cursor: None,
+        sort: None,
         // The MCP face does not expose the `is:starred` facet yet (W-AI-9 carryover); unfiltered.
         starred_only: None,
         start_date: None,

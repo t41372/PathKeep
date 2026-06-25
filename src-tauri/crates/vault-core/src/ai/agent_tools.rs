@@ -105,6 +105,15 @@ struct SearchToolArgs {
     profile_id: Option<String>,
     domain: Option<String>,
     limit: Option<u32>,
+    /// Result ordering: `"relevance"` (default) | `"newest"` | `"oldest"`. `"oldest"` enumerates the
+    /// keyword's matches earliest-first so the model can find the FIRST occurrence of a term across ALL
+    /// history (the relevance default only ever returns the most-relevant sample, never the earliest).
+    #[serde(default)]
+    sort: Option<String>,
+    /// Opaque pagination cursor from a prior response's `next_cursor`; fetches the NEXT page in the
+    /// chosen sort order so the model can enumerate every match across time, not just the first page.
+    #[serde(default)]
+    cursor: Option<String>,
     /// The `is:starred` facet (W-AI-6); restricts recall to starred pages on both planes.
     #[serde(default)]
     starred_only: Option<bool>,
@@ -185,7 +194,7 @@ impl HistorySearchTool {
     pub fn search_history() -> Self {
         Self {
             name: "search_history",
-            description: "Search browser history by meaning, URL, title, profile, domain, or date range (hybrid lexical + semantic). Returns the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency). Use `start_date` and `end_date` (YYYY-MM-DD) to narrow results to a date range — for example \"last Friday\" or \"this week\". The response includes `applied_limit` (the actual limit used after clamping) and `has_more` (whether more rows exist beyond the limit). When no embedding provider is configured, results use lexical retrieval only (an honest degradation, not an error).",
+            description: "Search browser history by meaning, URL, title, profile, domain, or date range (hybrid lexical + semantic). Returns the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency). Use `start_date` and `end_date` (YYYY-MM-DD) to narrow results to a date range — for example \"last Friday\" or \"this week\". Use `sort` to control ordering: 'oldest' finds the FIRST/earliest occurrence of a term across ALL history (essential for \"when did I first browse X?\" — the default relevance ranking only returns the most-relevant sample, never the earliest); 'newest' the latest; the default ranks by relevance. The response includes `applied_limit` (the actual limit used after clamping), `has_more` (whether more rows exist beyond the limit), and `next_cursor` — pass `next_cursor` back as `cursor` to page through the matches in the chosen sort order. If `has_more` is true but NO `next_cursor` is returned, you have reached the retrieval cap (the deepest page is retrievable for this query) — narrow the date range or add filters to see more, do NOT keep paging. When no embedding provider is configured, results use lexical retrieval only (an honest degradation, not an error).",
             plane: SearchPlane::Hybrid,
         }
     }
@@ -199,6 +208,8 @@ impl HistorySearchTool {
                 "profile_id": { "type": "string", "description": "Optional browser profile identifier filter." },
                 "domain": { "type": "string", "description": "Optional domain filter." },
                 "limit": { "type": "integer", "description": "Maximum number of visits to return. The actual limit used (after clamping to [1, 50]) is reported as applied_limit in the response." },
+                "sort": { "type": "string", "enum": ["relevance", "newest", "oldest"], "description": "Result ordering. 'relevance' (default) ranks by best match. 'oldest' enumerates the matches earliest-first — use it to find the FIRST/earliest time a term appears across ALL history (the relevance default only returns the most-relevant sample, NOT the earliest, so it cannot answer 'when did I first browse X?'). 'newest' enumerates latest-first." },
+                "cursor": { "type": "string", "description": "Pagination cursor from a prior response's next_cursor. Pass it to fetch the NEXT page in the same sort order so you can enumerate every match across time, not just the first page." },
                 "starred_only": { "type": "boolean", "description": "Restrict to starred (favorited) pages only." },
                 "start_date": { "type": "string", "description": "Inclusive start date filter in YYYY-MM-DD format. Only visits on or after this day are returned." },
                 "end_date": { "type": "string", "description": "Inclusive end date filter in YYYY-MM-DD format. Only visits on or before this day are returned." }
@@ -230,7 +241,8 @@ impl AgentTool for HistorySearchTool {
             profile_id: parsed.profile_id.or_else(|| context.default_profile_id.clone()),
             domain: parsed.domain.or_else(|| context.default_domain.clone()),
             limit: parsed.limit.or(Some(context.default_limit)),
-            cursor: None,
+            cursor: parsed.cursor,
+            sort: parsed.sort,
             starred_only: parsed.starred_only,
             start_date: parsed.start_date,
             end_date: parsed.end_date,
@@ -290,8 +302,15 @@ fn summarize_search_for_model(
     let limit_info =
         response.applied_limit.map(|l| format!(", applied_limit: {l}")).unwrap_or_default();
     let more_info = if response.has_more { ", has_more: true" } else { "" };
+    // Surface the pagination cursor so the model knows the next page exists AND the exact token to pass
+    // back as `cursor` to fetch it — without this it can see `has_more` but has no handle to continue.
+    let cursor_info = response
+        .next_cursor
+        .as_deref()
+        .map(|cursor| format!(", next_cursor: {cursor}"))
+        .unwrap_or_default();
     let mut text = format!(
-        "{tool_name}: {} match(es) (provider: {}{limit_info}{more_info}).",
+        "{tool_name}: {} match(es) (provider: {}{limit_info}{more_info}{cursor_info}).",
         response.items.len(),
         response.provider_id
     );
@@ -322,7 +341,7 @@ fn summarize_search_for_model(
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...] }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", limit?: number, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) };";
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...], hasMore: boolean, nextCursor: string|null }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" only returns the most-relevant sample, NEVER the earliest, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; if `hasMore` is true but `nextCursor` is null you have reached the retrieval cap (the deepest retrievable page for this query) — narrow `startDate`/`endDate` or add filters to see more rather than paging further; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) };";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -1149,6 +1168,89 @@ mod tests {
             .expect("date-filtered search_history must succeed");
         // Empty archive → no rows, but the call succeeds (no deserialization error, no panic).
         assert!(outcome.model_text.contains("search_history"));
+    }
+
+    #[tokio::test]
+    async fn search_history_sort_and_cursor_args_are_deserialized_and_threaded() {
+        // The `sort` + `cursor` fields must parse and flow into the request without a deserialization
+        // error (the FIX for "when did I first browse X?" — the agent needs an oldest-first enumeration
+        // + a way to page it). An empty archive yields no rows, but the call succeeds (no parse error).
+        let (_dir, context) = context_with(None);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch(
+                "search_history",
+                json!({ "query": "mlx", "sort": "oldest", "cursor": "0", "limit": 5 }),
+                &context,
+            )
+            .await
+            .expect("sort + cursor args must deserialize and run");
+        assert!(outcome.model_text.contains("search_history"));
+    }
+
+    #[test]
+    fn search_history_schema_and_description_document_sort_and_pagination() {
+        // The model can only USE sort/pagination if the schema advertises them and the description
+        // teaches the "oldest = first occurrence" + cursor-paging contract (this is how the agent learns
+        // to answer "when did I first browse X?" instead of sampling the recent month).
+        let def = HistorySearchTool::search_history().definition();
+        let props = &def.parameters["properties"];
+        assert_eq!(props["sort"]["type"], "string");
+        let sort_enum = props["sort"]["enum"].as_array().expect("sort enum");
+        assert!(sort_enum.contains(&json!("oldest")));
+        assert!(sort_enum.contains(&json!("newest")));
+        assert!(sort_enum.contains(&json!("relevance")));
+        assert_eq!(props["cursor"]["type"], "string");
+        assert!(
+            def.description.contains("oldest") && def.description.contains("first"),
+            "the description teaches oldest=first occurrence: {}",
+            def.description
+        );
+        assert!(
+            def.description.contains("next_cursor") && def.description.contains("cursor"),
+            "the description teaches cursor pagination: {}",
+            def.description
+        );
+    }
+
+    #[test]
+    fn search_summary_surfaces_next_cursor_when_present() {
+        use crate::models::{AiSearchEntry, AiSearchResponse};
+        let response = AiSearchResponse {
+            total: 3,
+            provider_id: "date-ordered".to_string(),
+            model: "none".to_string(),
+            items: vec![AiSearchEntry {
+                history_id: 1,
+                profile_id: "p".to_string(),
+                url: "https://a.example/".to_string(),
+                title: Some("A".to_string()),
+                domain: "a.example".to_string(),
+                visited_at: "2025-03-04T12:00:00Z".to_string(),
+                score: 0.0,
+                match_reason: "Lexical match (date-ordered)".to_string(),
+                enrichment_excerpt: None,
+            }],
+            notes: Vec::new(),
+            note_codes: Vec::new(),
+            next_cursor: Some("1".to_string()),
+            applied_limit: Some(1),
+            has_more: true,
+        };
+        let text = summarize_search_for_model("search_history", &response);
+        assert!(text.contains("has_more: true"), "has_more surfaced: {text}");
+        assert!(
+            text.contains("next_cursor: 1"),
+            "next_cursor surfaced so the model can page: {text}"
+        );
+
+        // No cursor → no next_cursor segment.
+        let last = AiSearchResponse { next_cursor: None, has_more: false, ..response };
+        let last_text = summarize_search_for_model("search_history", &last);
+        assert!(
+            !last_text.contains("next_cursor"),
+            "no cursor segment on the last page: {last_text}"
+        );
     }
 
     #[tokio::test]

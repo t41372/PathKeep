@@ -212,6 +212,19 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
         " but say the summary is based on a partial sample.",
     ));
 
+    // Time direction & completeness: search defaults to most-recent, relevance-ranked, so older
+    // matches exist but are not returned by default — use sort + pagination for history-wide questions.
+    block.push_str(concat!(
+        " search_history defaults to the most-recent, relevance-ranked matches, so OLDER visits that",
+        " match still exist but are NOT in the default results. For 'when did I FIRST/earliest do X',",
+        " pass sort=\"oldest\" (the earliest matches return first). For 'ALL of X across all time',",
+        " page through results using the returned next_cursor until has_more is false; if has_more stays",
+        " true but NO next_cursor comes back, you have hit the retrieval cap — narrow the date range (or",
+        " add filters) to reach the rest. NEVER conclude the first, last, or only occurrence of something",
+        " from a single default-sorted page — if you have not paged to the end or sorted oldest, say your",
+        " finding may be incomplete.",
+    ));
+
     // Grounding gate: anti-hallucination rule.
     block.push_str(concat!(
         " IMPORTANT: Every page title, URL, time, or count in your answer MUST come from a row",
@@ -2376,6 +2389,11 @@ mod tests {
         assert!(
             block.contains("has_more=true") && block.contains("intelligence_report for that range"),
             "coverage-strategy guidance (aggregate-first + sample awareness) is present: {block}"
+        );
+        // Time-direction guidance: oldest-sort for first-occurrence + paginate for all-across-time.
+        assert!(
+            block.contains("sort=\"oldest\"") && block.contains("next_cursor"),
+            "time-direction guidance (sort/paginate for history-wide questions) is present: {block}"
         );
     }
 
