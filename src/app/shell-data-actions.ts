@@ -44,6 +44,14 @@ import type { ShellTask } from './shell-tasks'
 
 type StateSetter<T> = (value: T | ((current: T) => T)) => void
 
+/**
+ * Marker `Error.name` for the "a backup/import is already running" guard. A
+ * concurrency conflict is NOT a data-safety failure — the blocking task already
+ * published a warning notification — so the backup action re-throws it WITHOUT
+ * raising the red failure alert (severity-matched feedback, no crying wolf).
+ */
+const BACKUP_CONFLICT_ERROR_NAME = 'BackupConflictError'
+
 interface ShellDataActionDeps {
   t: ShellTranslator
   setLanguagePreference: I18nContextValue['setLanguagePreference']
@@ -68,7 +76,14 @@ interface ShellDataActionDeps {
    * decide whether to show remediation affordances (e.g. the Full Disk Access
    * deep-link). Only set to a non-null kind alongside a matching `setError`.
    */
-  setErrorKind: StateSetter<ShellErrorKind>
+  setErrorKind: (value: ShellErrorKind) => void
+  /**
+   * Preserves the RAW backend error text (untranslated) for the failure
+   * surface's copy-able diagnostic report. Set right after `setError` on a
+   * genuine failure; `setError` itself clears it first so it never drifts from
+   * the message being shown.
+   */
+  setRawError: StateSetter<string | null>
   setSnapshot: StateSetter<AppSnapshot | null>
   setAppLockStatus: StateSetter<AppLockStatus | null>
   setRefreshKey: StateSetter<number>
@@ -158,6 +173,7 @@ export function createShellDataActions({
   setNotice,
   setError,
   setErrorKind,
+  setRawError,
   setSnapshot,
   setAppLockStatus,
   setRefreshKey,
@@ -271,11 +287,13 @@ export function createShellDataActions({
       try {
         const taskStart = archiveTasks?.beginBackupTask()
         if (taskStart && 'blockedBy' in taskStart) {
-          throw new Error(
+          const conflict = new Error(
             t('jobs.archiveTaskAlreadyRunningBody', {
               task: taskStart.blockedBy.title,
             }),
           )
+          conflict.name = BACKUP_CONFLICT_ERROR_NAME
+          throw conflict
         }
         taskId = taskStart?.task.id ?? null
         unsubscribe = await subscribeToBackupProgress((progress) => {
@@ -311,11 +329,26 @@ export function createShellDataActions({
         setNotice(backupCompletionNotice(report, t))
         return report
       } catch (nextError) {
+        // A "backup already running" conflict is a benign concurrency guard, not a
+        // data-safety failure — beginBackupTask already published a warning
+        // notification. Raising the red failure alert for it would be crying wolf,
+        // so re-throw without touching the error surface (the busy overlay still
+        // clears in the `finally` below).
+        if (
+          nextError instanceof Error &&
+          nextError.name === BACKUP_CONFLICT_ERROR_NAME
+        ) {
+          throw nextError
+        }
         const { message, isFullDiskAccess } = formatShellActionError(
           nextError,
           'run_backup_now',
           t,
         )
+        // The raw, untranslated backend text — preserved for the failure
+        // surface's copy-able diagnostic report (the displayed `message` is the
+        // localized FDA copy for permission denials).
+        const rawMessage = describeError(nextError, 'run_backup_now')
         if (taskId) {
           archiveTasks?.failBackupTask(taskId, message)
         }
@@ -326,13 +359,12 @@ export function createShellDataActions({
         } finally {
           // ALWAYS surface the error afterward — even if the refresh itself throws — so a failed
           // backup is NEVER silent (not in the audit ledger, not in the banner). `refreshAppData`
-          // resets the error, so the message + FDA classification are re-asserted here, last.
-          // (FDA is classified from the RAW error, never by parsing the translated `message`, which
-          // would miss the non-ASCII locales.)
+          // resets the error, so the message + FDA classification + raw detail are re-asserted here,
+          // last. (FDA is classified from the RAW error, never by parsing the translated `message`,
+          // which would miss the non-ASCII locales.)
           setError(message)
-          if (isFullDiskAccess) {
-            setErrorKind('full-disk-access')
-          }
+          setRawError(rawMessage)
+          setErrorKind(isFullDiskAccess ? 'full-disk-access' : 'backup')
         }
         if (nextError instanceof Error && message !== nextError.message) {
           throw new Error(message)

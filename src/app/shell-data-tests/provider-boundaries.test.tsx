@@ -210,8 +210,9 @@ describe('ShellDataProvider', () => {
     await waitFor(() =>
       expect(screen.getByTestId('error')).toHaveTextContent('backup failed'),
     )
-    // An ordinary backup failure is NOT classified as a Full Disk Access issue.
-    expect(screen.getByTestId('error-kind')).toHaveTextContent('none')
+    // An ordinary backup failure is classified as 'backup' (not FDA) so the shell
+    // renders the backup-specific toast — never 'full-disk-access'.
+    expect(screen.getByTestId('error-kind')).toHaveTextContent('backup')
 
     await user.click(screen.getByRole('button', { name: 'backup' }))
     await waitFor(() =>

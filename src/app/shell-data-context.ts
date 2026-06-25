@@ -73,7 +73,7 @@ export interface ShellRuntimeStatus {
  * is classified from the RAW backend message, and cleared whenever the error is
  * cleared or replaced — keeping `error` and `errorKind` from drifting apart.
  */
-export type ShellErrorKind = 'full-disk-access' | null
+export type ShellErrorKind = 'full-disk-access' | 'backup' | null
 
 /**
  * Describes the shell-owned import request that routes can start without owning progress state.
@@ -118,6 +118,13 @@ export interface ShellDataContextValue {
    * shipped locale. `null` whenever there is no error or the error is unclassified.
    */
   errorKind: ShellErrorKind
+  /**
+   * The RAW, untranslated backend error behind `error`, preserved so the
+   * failure surface can offer a copy-able diagnostic report (the displayed
+   * `error` is sometimes a localized message, e.g. the Full Disk Access copy).
+   * `null` whenever there is no error or no raw detail was captured.
+   */
+  rawError?: string | null
   notice: string | null
   archiveTasks?: ShellTask[]
   activeArchiveTask?: ShellTask | null

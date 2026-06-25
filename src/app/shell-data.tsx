@@ -98,6 +98,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
   const [error, setErrorMessage] = useState<string | null>(null)
   const [errorKind, setErrorKind] = useState<ShellErrorKind>(null)
+  const errorKindRef = useRef<ShellErrorKind>(null)
+  const [rawError, setRawError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [archiveTasks, setArchiveTasks] = useState<ShellTask[]>([])
   const [notifications, setNotifications] = useState<ShellNotification[]>(() =>
@@ -141,6 +143,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     (value: string | null | ((current: string | null) => string | null)) => {
       setErrorMessage(value)
       setErrorKind(null)
+      errorKindRef.current = null
+      // Drop any stale raw-error detail attached to a previous failure. The
+      // backup action re-sets `rawError` immediately after this call (batched
+      // in the same tick), so the failure surface always shows the detail that
+      // matches the message it is displaying — and unrelated errors carry none.
+      setRawError(null)
     },
     [],
   )
@@ -388,7 +396,21 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        if (nextSnapshot.config.initialized && surfaceErrors) {
+        // Only surface a dashboard error when no backup failure is in flight.
+        // A fire-and-forget dashboard refresh can resolve after the backup
+        // action's finally block re-asserted setError/setRawError — clobbering
+        // the backup failure with an unrelated dashboard error. The ref
+        // captures the latest errorKind without adding a dependency that would
+        // change the callback identity (and thus re-create refreshAppData)
+        // on every error state change.
+        const backupErrorInFlight =
+          errorKindRef.current === 'backup' ||
+          errorKindRef.current === 'full-disk-access'
+        if (
+          nextSnapshot.config.initialized &&
+          surfaceErrors &&
+          !backupErrorInFlight
+        ) {
           setError(describeError(dashboardError, 'load_dashboard_snapshot'))
           return
         }
@@ -476,7 +498,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [clearLoadedState, refreshDashboardSnapshot, setLanguagePreference, setError],
+    [
+      clearLoadedState,
+      refreshDashboardSnapshot,
+      setLanguagePreference,
+      setError,
+    ],
   )
 
   const armIdleDeadline = useEffectEvent((idleTimeoutMinutes: number) => {
@@ -714,7 +741,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     clearBusyOverlay,
     setNotice,
     setError,
-    setErrorKind,
+    setErrorKind: (value: ShellErrorKind) => {
+      setErrorKind(value)
+      errorKindRef.current = value
+    },
+    setRawError,
     setSnapshot,
     setAppLockStatus,
     setRefreshKey,
@@ -745,6 +776,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         busyOverlay,
         error,
         errorKind,
+        rawError,
         notice,
         archiveTasks,
         activeArchiveTask,

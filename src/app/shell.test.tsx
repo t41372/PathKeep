@@ -686,40 +686,86 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
-  // --- Shell error banner ---
+  // --- Backup failure toast ---
 
-  test('renders the error banner when shell context advertises an error', () => {
-    renderShell({ error: 'Backup failed: permission denied' }, '/')
-    const banner = screen.getByTestId('shell-error-banner')
-    expect(banner).toBeInTheDocument()
-    expect(banner).toHaveTextContent('Backup failed: permission denied')
+  test('renders the backup-failure toast (role=alert) when the shell advertises a backup error', () => {
+    renderShell(
+      { error: 'Backup failed: permission denied', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    expect(toast).toBeInTheDocument()
+    expect(toast).toHaveAttribute('role', 'alert')
+    expect(toast).toHaveTextContent('Backup failed: permission denied')
   })
 
-  test('error banner lives OUTSIDE the scroll area so it is always in view', () => {
-    // A failed backup fires from the always-visible topbar; if the banner were inside the scrollable
-    // <main>, it would be off-screen whenever the page is scrolled — i.e. invisible exactly when it
-    // matters. It must be a persistent bar, never a child of the scroll container.
-    renderShell({ error: 'Backup failed: permission denied' }, '/')
-    const banner = screen.getByTestId('shell-error-banner')
+  test('non-backup errors (config save, lock, etc.) do NOT show the backup toast', () => {
+    // The toast is scoped to backup failures: "Backup didn't finish", a reassurance
+    // about archive safety, and a "Try again → runBackup" button are all wrong for
+    // a config-save or lock/unlock error. Those stay quiet in the shell (the failing
+    // action surfaces its own feedback).
+    renderShell({ error: 'Could not save config', errorKind: null }, '/')
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
+  })
+
+  test('the failure toast always reassures that the existing archive is safe', () => {
+    renderShell({ error: 'disk full', errorKind: 'backup' }, '/')
+    expect(screen.getByTestId('backup-failure-toast')).toHaveTextContent(
+      /nothing was lost/i,
+    )
+  })
+
+  test('the failure toast lives OUTSIDE the scroll area so it is always in view', () => {
+    renderShell(
+      { error: 'Backup failed: permission denied', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
     const scrollArea = screen.getByTestId('app-scroll')
-    expect(scrollArea.contains(banner)).toBe(false)
+    expect(scrollArea.contains(toast)).toBe(false)
   })
 
-  test('does not render the error banner when error is null', () => {
+  test('does not render the failure toast when error is null', () => {
     renderShell({ error: null }, '/')
-    expect(screen.queryByTestId('shell-error-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
   })
 
-  test('dismissing the error banner calls clearError', async () => {
+  test('a running backup owns the bottom slot — the failure toast never shows mid-run', () => {
+    renderShell(
+      {
+        error: 'stale error from a previous attempt',
+        errorKind: 'backup',
+        busyAction: 'Running backup',
+        busyOverlay: { background: true, label: 'Backing up' },
+      },
+      '/',
+    )
+    expect(screen.getByTestId('background-progress')).toBeInTheDocument()
+    expect(screen.queryByTestId('backup-failure-toast')).not.toBeInTheDocument()
+  })
+
+  test('dismissing the failure toast calls clearError', async () => {
     const user = userEvent.setup()
     const clearError = vi.fn()
-    renderShell({ error: 'Something went wrong', clearError }, '/')
+    renderShell(
+      { error: 'Something went wrong', errorKind: 'backup', clearError },
+      '/',
+    )
     const dismissButton = screen.getByRole('button', { name: /dismiss/i })
     await user.click(dismissButton)
     expect(clearError).toHaveBeenCalled()
   })
 
-  test('FDA error shows the "Open Full Disk Access settings" button — gated on errorKind, not the error text', () => {
+  test('Try again fires the shell runBackup action', async () => {
+    const user = userEvent.setup()
+    const runBackup = vi.fn().mockResolvedValue({})
+    renderShell({ error: 'Backup failed', errorKind: 'backup', runBackup }, '/')
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(within(toast).getByRole('button', { name: /try again/i }))
+    expect(runBackup).toHaveBeenCalled()
+  })
+
+  test('FDA failure shows the "Open Full Disk Access settings" button — gated on errorKind, not the error text', () => {
     // Drive the gate via the locale-independent classification, NOT an English
     // substring. The displayed error is deliberately non-English (a translated
     // FDA message) to prove the button appears for zh-CN / zh-TW users too.
@@ -730,31 +776,37 @@ describe('AppShell (paper redesign)', () => {
       },
       '/',
     )
-    const banner = screen.getByTestId('shell-error-banner')
+    const toast = screen.getByTestId('backup-failure-toast')
     expect(
-      within(banner).getByRole('button', { name: /full disk access/i }),
+      within(toast).getByRole('button', { name: /full disk access/i }),
     ).toBeInTheDocument()
   })
 
-  test('error whose English text mentions "Full Disk Access" but is NOT classified as FDA hides the button', () => {
+  test('error whose English text mentions "Full Disk Access" but is classified as generic backup hides the FDA button', () => {
     // The OLD bug was the inverse: gating on the string showed/hid the button by
-    // re-parsing translated copy. Now an unclassified error never shows the FDA
-    // button even if its text happens to contain the English marker.
+    // re-parsing translated copy. Now a backup error that happens to contain the
+    // English marker never shows the FDA button unless the kind is 'full-disk-access'.
     renderShell(
-      { error: 'Network error mentioning Full Disk Access', errorKind: null },
+      {
+        error: 'Network error mentioning Full Disk Access',
+        errorKind: 'backup',
+      },
       '/',
     )
-    const banner = screen.getByTestId('shell-error-banner')
+    const toast = screen.getByTestId('backup-failure-toast')
     expect(
-      within(banner).queryByRole('button', { name: /full disk access/i }),
+      within(toast).queryByRole('button', { name: /full disk access/i }),
     ).not.toBeInTheDocument()
   })
 
-  test('non-FDA error does not show the "Open Full Disk Access settings" button', () => {
-    renderShell({ error: 'Network timeout during backup' }, '/')
-    const banner = screen.getByTestId('shell-error-banner')
+  test('non-FDA backup failure does not show the "Open Full Disk Access settings" button', () => {
+    renderShell(
+      { error: 'Network timeout during backup', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
     expect(
-      within(banner).queryByRole('button', { name: /full disk access/i }),
+      within(toast).queryByRole('button', { name: /full disk access/i }),
     ).not.toBeInTheDocument()
   })
 
@@ -768,11 +820,10 @@ describe('AppShell (paper redesign)', () => {
       },
       '/',
     )
-    const banner = screen.getByTestId('shell-error-banner')
-    const fdaButton = within(banner).getByRole('button', {
-      name: /full disk access/i,
-    })
-    await user.click(fdaButton)
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(
+      within(toast).getByRole('button', { name: /full disk access/i }),
+    )
     await vi.waitFor(() => {
       expect(backend.openExternalUrl).toHaveBeenCalledWith(
         expect.stringContaining('Privacy_AllFiles'),
@@ -780,20 +831,45 @@ describe('AppShell (paper redesign)', () => {
     })
   })
 
-  test('Reveal logs button calls backend.revealLogs', async () => {
+  test('Reveal logs is demoted into the technical-details disclosure and calls backend.revealLogs', async () => {
     const user = userEvent.setup()
     const { backend } = await import('@/lib/backend-client')
-    renderShell({ error: 'Backup failed: something unexpected' }, '/')
-    const banner = screen.getByTestId('shell-error-banner')
-    // The button's accessible name comes from the aria-label key shell.revealLogsAriaLabel,
-    // which in en is "Reveal the PathKeep logs folder in Finder".
-    const revealButton = within(banner).getByRole('button', {
+    renderShell(
+      { error: 'Backup failed: something unexpected', errorKind: 'backup' },
+      '/',
+    )
+    const toast = screen.getByTestId('backup-failure-toast')
+    // No longer a first-line affordance: open "Technical details" first.
+    await user.click(within(toast).getByText(/technical details/i))
+    const revealButton = within(toast).getByRole('button', {
       name: /logs folder/i,
     })
     await user.click(revealButton)
     await vi.waitFor(() => {
       expect(backend.revealLogs).toHaveBeenCalled()
     })
+  })
+
+  test('Copy diagnostics writes a report containing the failure detail and confirms', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    renderShell({ error: 'sqlite error: disk I/O', errorKind: 'backup' }, '/')
+    const toast = screen.getByTestId('backup-failure-toast')
+    await user.click(
+      within(toast).getByRole('button', { name: /copy diagnostics/i }),
+    )
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('sqlite error: disk I/O'),
+      )
+    })
+    expect(
+      await within(toast).findByRole('button', { name: /^Copied$/ }),
+    ).toBeInTheDocument()
   })
 
   test('selecting "Manage sources" navigates to settings#sources', async () => {
@@ -895,6 +971,7 @@ function shellValue(
     busyAction: null,
     busyOverlay: null,
     error: null,
+    rawError: null,
     notice: null,
     refreshKey: 0,
     refreshAppData: vi.fn().mockResolvedValue(undefined),

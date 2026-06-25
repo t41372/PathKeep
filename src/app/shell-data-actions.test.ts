@@ -300,6 +300,11 @@ describe('createShellDataActions', () => {
     // the shell can show the FDA remediation affordance in every locale without
     // re-parsing the translated message.
     expect(harness.setErrorKind).toHaveBeenLastCalledWith('full-disk-access')
+    // The RAW, untranslated backend text is preserved for the copy-able diagnostic
+    // report — distinct from the localized FDA `message` shown in the body.
+    expect(harness.setRawError).toHaveBeenLastCalledWith(
+      'Safari History.db is not readable yet',
+    )
     // A FAILED backup must also refresh so the now-recorded failed run surfaces in the
     // dashboard/audit (they read the shell snapshot) — never silent there either. Once for the
     // due-skip success above, once for this failure.
@@ -386,12 +391,15 @@ describe('createShellDataActions', () => {
 
     await expect(harness.actions.runBackup()).rejects.toBe(ordinaryError)
     expect(harness.setError).toHaveBeenLastCalledWith('backup exploded')
+    expect(harness.setRawError).toHaveBeenLastCalledWith('backup exploded')
 
     await expect(harness.actions.runBackup()).rejects.toBe('worker payload')
     expect(harness.setError).toHaveBeenLastCalledWith('worker payload')
-    // An ordinary (non-FDA) failure must never assert the FDA classification.
-    // `setError` resets `errorKind` to null in the provider, so the action only
-    // skips the explicit `setErrorKind('full-disk-access')` call here.
+    // Non-Error rejections still capture a raw detail for the diagnostic report.
+    expect(harness.setRawError).toHaveBeenLastCalledWith('worker payload')
+    // An ordinary (non-FDA) failure still gets the 'backup' classification so the
+    // shell renders the backup-specific toast — but never 'full-disk-access'.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('backup')
     expect(harness.setErrorKind).not.toHaveBeenCalledWith('full-disk-access')
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
@@ -495,6 +503,15 @@ describe('createShellDataActions', () => {
 
     expect(subscribeToBackupProgressMock).not.toHaveBeenCalled()
     expect(backendMock.runBackupNow).not.toHaveBeenCalled()
+    // A concurrency conflict is a benign guard, NOT a data-safety failure: the
+    // blocking task already published a warning notification, so the backup action
+    // must re-throw WITHOUT raising the red failure alert (no crying wolf). The
+    // only `setError` is the preamble reset to null; the raw detail + FDA kind
+    // stay untouched.
+    expect(harness.setError).toHaveBeenCalledTimes(1)
+    expect(harness.setError).toHaveBeenCalledWith(null)
+    expect(harness.setRawError).not.toHaveBeenCalled()
+    expect(harness.setErrorKind).not.toHaveBeenCalled()
   })
 
   test('updates app-lock status actions and keeps refresh side effects scoped', async () => {
@@ -639,6 +656,7 @@ function createActionHarness(
     setNotice: vi.fn(),
     setError: vi.fn(),
     setErrorKind: vi.fn(),
+    setRawError: vi.fn(),
     setSnapshot: vi.fn(),
     setAppLockStatus: vi.fn(),
     setRefreshKey,
@@ -660,6 +678,7 @@ function createActionHarness(
       setNotice: harness.setNotice,
       setError: harness.setError,
       setErrorKind: harness.setErrorKind,
+      setRawError: harness.setRawError,
       setSnapshot: harness.setSnapshot,
       setAppLockStatus: harness.setAppLockStatus,
       setRefreshKey,

@@ -140,6 +140,29 @@
   }
 }
 
+/* Backup-failure alert entrance. The alert mounts in the exact bottom slot the
+ * BackgroundProgress strip just vacated, so the failure rises from below the
+ * bottom edge — a single abrupt onset where the user's attention already rests
+ * (attention transfer, not a competing motion elsewhere). transform+opacity
+ * only keeps it on the compositor; the small overshoot adds a second luminance
+ * onset at the top edge as it settles. Collapsed to ~0ms under
+ * prefers-reduced-motion, where the solid error rail + red heading carry the
+ * signal statically. */
+@keyframes pk-backup-failure-in {
+  0% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 @keyframes pk-fade-in {
   from {
     opacity: 0;
