@@ -316,15 +316,23 @@ export function createShellDataActions({
           'run_backup_now',
           t,
         )
-        // `setError` resets `errorKind` to null in the provider, so re-assert the
-        // FDA classification here from the RAW error — never by re-parsing the
-        // translated `message` (which would miss the non-ASCII locales).
-        setError(message)
-        if (isFullDiskAccess) {
-          setErrorKind('full-disk-access')
-        }
         if (taskId) {
           archiveTasks?.failBackupTask(taskId, message)
+        }
+        try {
+          // The backend has ALREADY recorded this attempt as a failed run; refresh so it surfaces in
+          // the dashboard/audit (they read the shell snapshot, which only reloads on refresh).
+          await refreshAppData(false)
+        } finally {
+          // ALWAYS surface the error afterward — even if the refresh itself throws — so a failed
+          // backup is NEVER silent (not in the audit ledger, not in the banner). `refreshAppData`
+          // resets the error, so the message + FDA classification are re-asserted here, last.
+          // (FDA is classified from the RAW error, never by parsing the translated `message`, which
+          // would miss the non-ASCII locales.)
+          setError(message)
+          if (isFullDiskAccess) {
+            setErrorKind('full-disk-access')
+          }
         }
         if (nextError instanceof Error && message !== nextError.message) {
           throw new Error(message)

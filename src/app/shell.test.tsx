@@ -695,6 +695,16 @@ describe('AppShell (paper redesign)', () => {
     expect(banner).toHaveTextContent('Backup failed: permission denied')
   })
 
+  test('error banner lives OUTSIDE the scroll area so it is always in view', () => {
+    // A failed backup fires from the always-visible topbar; if the banner were inside the scrollable
+    // <main>, it would be off-screen whenever the page is scrolled — i.e. invisible exactly when it
+    // matters. It must be a persistent bar, never a child of the scroll container.
+    renderShell({ error: 'Backup failed: permission denied' }, '/')
+    const banner = screen.getByTestId('shell-error-banner')
+    const scrollArea = screen.getByTestId('app-scroll')
+    expect(scrollArea.contains(banner)).toBe(false)
+  })
+
   test('does not render the error banner when error is null', () => {
     renderShell({ error: null }, '/')
     expect(screen.queryByTestId('shell-error-banner')).not.toBeInTheDocument()

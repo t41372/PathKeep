@@ -354,6 +354,49 @@ export function AppShell() {
           archiveInitialized={initialized}
           titlebarDrag={titlebarOverlay}
         />
+        {/* A failed backup MUST be impossible to miss: this alert sits OUTSIDE the scrollable
+            `<main>`, as a persistent bar directly under the topbar, so it is always in view no
+            matter where the page is scrolled (the topbar's "立刻备份" can fire from anywhere). */}
+        {shellError ? (
+          <div
+            className="bg-danger-soft border-danger text-ink mx-7 mt-4 flex shrink-0 flex-col gap-3 rounded-[3px] border px-4 py-3"
+            role="alert"
+            data-testid="shell-error-banner"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-sans text-[13px] leading-[1.5] m-0">
+                {shellError}
+              </p>
+              <button
+                type="button"
+                aria-label={t('common.dismiss')}
+                className="text-ink-muted hover:text-ink shrink-0 font-mono text-[12px] leading-none"
+                onClick={handleClearError}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isFullDiskAccessError ? (
+                <button
+                  type="button"
+                  className="btn-secondary text-[12px]"
+                  onClick={handleOpenFdaSettings}
+                >
+                  {t('shell.fullDiskAccessOpenSettings')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                aria-label={t('shell.revealLogsAriaLabel')}
+                className="btn-secondary text-[12px]"
+                onClick={handleRevealLogs}
+              >
+                {t('shell.revealLogs')}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <main
           className={cn(
             'pk-scrollbar flex-1 min-h-0 px-7',
@@ -368,46 +411,6 @@ export function AppShell() {
           data-fixed-height={isFixedHeightRoute ? 'true' : 'false'}
           data-testid="app-scroll"
         >
-          {shellError ? (
-            <div
-              className="bg-danger-soft border-danger text-ink mt-5 mb-4 flex flex-col gap-3 rounded-[3px] border px-4 py-3"
-              role="alert"
-              data-testid="shell-error-banner"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-sans text-[13px] leading-[1.5] m-0">
-                  {shellError}
-                </p>
-                <button
-                  type="button"
-                  aria-label={t('common.dismiss')}
-                  className="text-ink-muted hover:text-ink shrink-0 font-mono text-[12px] leading-none"
-                  onClick={handleClearError}
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {isFullDiskAccessError ? (
-                  <button
-                    type="button"
-                    className="btn-secondary text-[12px]"
-                    onClick={handleOpenFdaSettings}
-                  >
-                    {t('shell.fullDiskAccessOpenSettings')}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label={t('shell.revealLogsAriaLabel')}
-                  className="btn-secondary text-[12px]"
-                  onClick={handleRevealLogs}
-                >
-                  {t('shell.revealLogs')}
-                </button>
-              </div>
-            </div>
-          ) : null}
           <Outlet />
         </main>
         <PKStatusBar

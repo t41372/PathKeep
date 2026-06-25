@@ -300,6 +300,10 @@ describe('createShellDataActions', () => {
     // the shell can show the FDA remediation affordance in every locale without
     // re-parsing the translated message.
     expect(harness.setErrorKind).toHaveBeenLastCalledWith('full-disk-access')
+    // A FAILED backup must also refresh so the now-recorded failed run surfaces in the
+    // dashboard/audit (they read the shell snapshot) — never silent there either. Once for the
+    // due-skip success above, once for this failure.
+    expect(harness.refreshAppData).toHaveBeenCalledTimes(2)
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
