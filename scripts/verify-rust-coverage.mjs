@@ -484,7 +484,10 @@ function maskNonCode(source) {
       index += 1
       while (index < source.length) {
         if (source[index] === '\\') {
-          output += '  '
+          // Preserve a `\`-escaped newline (Rust string line-continuation) as a real newline so
+          // masked line numbers stay aligned with the source — otherwise every line after a
+          // multi-line string shifts and the `#[cfg(test)]` exclusion misfires (false uncovered).
+          output += source[index + 1] === '\n' ? ' \n' : '  '
           index += 2
         } else {
           const current = source[index]
@@ -503,7 +506,7 @@ function maskNonCode(source) {
       index += 1
       while (index < source.length) {
         if (source[index] === '\\') {
-          output += '  '
+          output += source[index + 1] === '\n' ? ' \n' : '  '
           index += 2
         } else {
           const current = source[index]
