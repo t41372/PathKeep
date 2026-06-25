@@ -49,6 +49,19 @@ use crate::models::{
     TopSitesRequest,
 };
 
+/// Max rows the MODEL-FACING `search_history` tool returns in one call — the CONTEXT cap.
+///
+/// This is intentionally far below the retrieval ceiling (`search::MAX_SEARCH_ROWS` /
+/// `code_mode::MAX_ROWS_PER_CALL`, both 1000). The two paths differ because of WHERE the rows go:
+/// every row this tool returns is rendered into the model's CONTEXT, so a large page would bloat the
+/// prompt and crowd out reasoning — 50 is the bounded evidence sample (02 §F). The `run_code` sandbox
+/// is the opposite case: its `query_history` rows stay INSIDE the wasm sandbox and never touch the
+/// model's context (only the script's small `return` value does), so it uses the full 1000-row page to
+/// paginate + aggregate the WHOLE result set. We clamp the tool's `limit` to this cap HERE, before
+/// calling the shared `search_history_internal` (whose own ceiling is the larger retrieval bound), so
+/// the context protection lives at the model-facing call site and the sandbox path is unthrottled.
+const MAX_TOOL_ROWS: u32 = 50;
+
 /// The result of executing one agent tool: text the model sees, plus structured citations.
 ///
 /// `model_text` is the compact, row-id-bearing evidence threaded back into the conversation (never
@@ -236,11 +249,16 @@ impl AgentTool for HistorySearchTool {
             .map_err(|error| anyhow::anyhow!("invalid search arguments: {error}"))?;
         // An empty/omitted `query` is allowed: it returns the most recent visits (browse-by-recency),
         // so the model can ENUMERATE history / find the date range rather than only keyword-search.
+        // CONTEXT CAP: clamp the model-facing page to [`MAX_TOOL_ROWS`] (50) BEFORE retrieval — every
+        // returned row enters the model's context, so the tool stays a bounded evidence sample even
+        // though `search_history_internal`'s own ceiling is the larger retrieval bound (which only the
+        // `run_code` sandbox uses, since its rows never reach the model). Clamping here (not in the
+        // internal) is what lets the two paths differ.
         let request = AiSearchRequest {
             query: parsed.query,
             profile_id: parsed.profile_id.or_else(|| context.default_profile_id.clone()),
             domain: parsed.domain.or_else(|| context.default_domain.clone()),
-            limit: parsed.limit.or(Some(context.default_limit)),
+            limit: Some(parsed.limit.unwrap_or(context.default_limit).min(MAX_TOOL_ROWS)),
             cursor: parsed.cursor,
             sort: parsed.sort,
             starred_only: parsed.starred_only,
@@ -341,7 +359,7 @@ fn summarize_search_for_model(
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...], hasMore: boolean, nextCursor: string|null }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" only returns the most-relevant sample, NEVER the earliest, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; if `hasMore` is true but `nextCursor` is null you have reached the retrieval cap (the deepest retrievable page for this query) — narrow `startDate`/`endDate` or add filters to see more rather than paging further; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) };";
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...], hasMore: boolean, nextCursor: string|null }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" only returns the most-relevant sample, NEVER the earliest, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; if `hasMore` is true but `nextCursor` is null you have reached the retrieval cap (the deepest retrievable page for this query) — narrow `startDate`/`endDate` or add filters to see more rather than paging further; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. PROCESS THE FULL SET, NOT A SAMPLE: the rows query_history returns stay INSIDE this sandbox — they never enter your context, so only the small value you `return` costs context. That means you can fetch hundreds or thousands of visits, loop over ALL of them, and hand back a tiny summary. So do not answer from a single 50-row sample: when a question is about ALL matching visits (\"how many\", \"group by domain\", \"every site I visited that week\"), PAGINATE and AGGREGATE. Use a LARGE page (limit up to 1000 per call) so you cover the set in few calls — you have a budget of 64 query_history/fetch_visits calls total, so big pages + stopping as soon as you are done is the efficient pattern. Loop: pass the reply's `nextCursor` back as `cursor` (keeping the SAME query/sort/filters) and keep going while `hasMore` is true AND `nextCursor` is not null; stop when `hasMore` is false (you have the whole set) or `nextCursor` is null (you hit the retrieval cap — if `hasMore` was still true, narrow startDate/endDate and reflect that the count is a floor). Accumulate into JS structures as you go, then `return` only the distilled summary. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) }; Example (paginate + aggregate the FULL set — count every visit by domain across a week, not just the first page): const byDomain = {}; const byDay = {}; let total = 0; let cursor = null; let truncated = false; for (let i = 0; i < 64; i++) { const page = query_history({ query: \"\", sort: \"oldest\", startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) { total++; byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; const day = r.visitedAt.slice(0, 10); byDay[day] = (byDay[day] || 0) + 1; } if (!page.hasMore) break; if (!page.nextCursor) { truncated = true; break; } cursor = page.nextCursor; } return { total, byDomain, byDay, truncated };";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -1100,6 +1118,103 @@ mod tests {
             run_control: None,
         };
         (dir, context)
+    }
+
+    /// Seeds `count` history visits all matching a shared lexical `token`, so a `search_history`
+    /// dispatch over them can prove the MODEL-FACING tool still caps its returned page at 50 rows even
+    /// when the caller asks for more (context protection), distinct from the sandbox's larger ceiling.
+    fn seed_matching_visits(context: &AgentToolContext, token: &str, count: i64) {
+        crate::archive::ensure_archive_initialized(&context.paths, &context.config, None)
+            .expect("init archive");
+        let archive =
+            crate::archive::open_archive_connection(&context.paths, &context.config, None)
+                .expect("open archive");
+        crate::archive::create_schema(&archive).expect("create schema");
+        let connection =
+            crate::archive::open_intelligence_connection(&context.paths, &context.config, None)
+                .expect("open intelligence");
+        let now = crate::utils::now_rfc3339();
+        let profile_id = "chrome:Default";
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [now.clone()],
+            )
+            .expect("seed run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'test', ?1, '/tmp/p', ?2, 1, ?1, ?2)",
+                params![profile_id, now.clone()],
+            )
+            .expect("seed profile");
+        let base_ms = 13_300_000_000_000_i64;
+        for index in 0..count {
+            let history_id = 50_000 + index;
+            let visit_ms = base_ms + index * 60_000;
+            connection
+                .execute(
+                    "INSERT OR IGNORE INTO archive.urls
+                     (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                     VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?1, 0, ?6, ?5)",
+                    params![
+                        history_id,
+                        format!("https://site.example/{token}/page-{index}"),
+                        format!("{token} entry {index}"),
+                        visit_ms,
+                        now.clone(),
+                        format!("payload-{history_id}"),
+                    ],
+                )
+                .expect("seed url");
+            connection
+                .execute(
+                    "INSERT INTO archive.visits
+                     (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                     VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, 1, 1, NULL, 1, 0, NULL, NULL, ?5, ?6, ?4)",
+                    params![
+                        history_id,
+                        history_id.to_string(),
+                        visit_ms,
+                        now.clone(),
+                        format!("fp-{history_id}"),
+                        format!("payload-{history_id}"),
+                    ],
+                )
+                .expect("seed visit");
+        }
+    }
+
+    #[tokio::test]
+    async fn search_history_tool_caps_returned_rows_at_fifty_even_when_more_requested() {
+        // CONTEXT PROTECTION: the MODEL-FACING `search_history` tool returns rows that enter the
+        // model's context, so it clamps its own `limit` to [`MAX_TOOL_ROWS`] (50) BEFORE retrieval —
+        // even when the model asks for 200 over a >50-row set. This is the COUNTERPART to the sandbox's
+        // raised ceiling: the two paths deliberately differ. One row → one citation in the outcome, so
+        // the citation count is the returned-row count. Removing the `.min(MAX_TOOL_ROWS)` cap (so the
+        // tool inherits the larger retrieval ceiling) returns >50 and fails this.
+        let (_dir, context) = context_with(None);
+        seed_matching_visits(&context, "needle", 120);
+        let registry = ToolRegistry::with_default_search_tools();
+        let outcome = registry
+            .dispatch("search_history", json!({ "query": "needle", "limit": 200 }), &context)
+            .await
+            .expect("search_history dispatch");
+        // The model-facing tool stays capped at exactly the cap (50), not the raised internal ceiling:
+        // 120 rows match + limit:200 requested, so the page fills to exactly the cap. Reverting the
+        // 50-cap lets the 1000 ceiling through and returns 120 here.
+        assert_eq!(
+            outcome.citations.len(),
+            MAX_TOOL_ROWS as usize,
+            "the 50-row cap is the binding limit over a 120-row match set even when 200 are requested"
+        );
+        // The summary reports the clamped applied_limit, so the model knows the page was bounded.
+        assert!(
+            outcome.model_text.contains("applied_limit: 50"),
+            "applied_limit reflects the 50-row cap: {}",
+            outcome.model_text
+        );
     }
 
     #[test]

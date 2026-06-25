@@ -56,6 +56,28 @@ const LEXICAL_FACET_EXPANSION: u32 = 8;
 /// the over-fetch never asks for more rows than `list_history` will return.
 const LEXICAL_FACET_POOL_CAP: u32 = 1_000;
 
+/// Ceiling for a single [`search_history_internal`] page, matching `list_history`'s own `[1, 1000]`
+/// fetch window (so a request never asks for more rows than the bounded read model returns — no
+/// corpus scan even at 14.4M).
+///
+/// This is the RETRIEVAL ceiling, deliberately ABOVE the model-facing tools' own 50-row cap. The
+/// distinction: rows a tool returns to the LLM cost the model's context, so the MODEL-FACING
+/// `search_history` tools clamp their own `limit` to 50 BEFORE calling here (context protection). The
+/// `run_code` sandbox is different — rows fetched by `query_history` INSIDE the wasm sandbox NEVER
+/// enter the model's context (only the script's small `return` value does), so the per-call context
+/// cap is pointless there. The sandbox therefore clamps to `code_mode::MAX_ROWS_PER_CALL` (the same
+/// 1000), letting a script paginate + aggregate the FULL result set efficiently. This ceiling is the
+/// shared upper bound both paths resolve against; the 50-row context cap lives at the model-facing
+/// call sites, not here.
+pub(super) const MAX_SEARCH_ROWS: u32 = 1_000;
+
+/// The 50-row CONTEXT cap the MODEL-FACING `search_history` tools apply to their own `limit` BEFORE
+/// calling [`search_history_internal`]. Every row a tool returns enters the model's context, so the
+/// page stays a bounded evidence sample (02 §F). Distinct from [`MAX_SEARCH_ROWS`] (the retrieval
+/// ceiling the sandbox uses); see that doc for why the two paths differ. Mirrors
+/// `agent_tools::MAX_TOOL_ROWS` for the legacy rig tool path here.
+const MODEL_FACING_ROW_CAP: u32 = 50;
+
 /// One semantic search hit ready to merge with lexical recall.
 ///
 /// The merge stage only needs a compact score-bearing shape, not the full sidecar row.
@@ -190,7 +212,11 @@ impl Tool for SearchHistoryTool {
             query: args.query,
             profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
             domain: args.domain.or_else(|| self.context.default_domain.clone()),
-            limit: args.limit.or(Some(self.context.default_limit)),
+            // CONTEXT CAP (legacy rig tool): clamp to the 50-row model-facing limit BEFORE retrieval —
+            // these rows enter the model's context, so the tool stays a bounded evidence sample even
+            // though `search_history_internal`'s ceiling ([`MAX_SEARCH_ROWS`]) is the larger retrieval
+            // bound (used only by the `run_code` sandbox, whose rows never reach the model).
+            limit: Some(args.limit.unwrap_or(self.context.default_limit).min(MODEL_FACING_ROW_CAP)),
             cursor: None,
             sort: None,
             starred_only: None,
@@ -230,6 +256,12 @@ impl Tool for SearchHistoryTool {
 }
 
 /// Runs the semantic/keyword history search pipeline with explicit fallback behavior.
+///
+/// This is the FE / worker entry (`search_ai_history`). It caps `limit` at [`MODEL_FACING_ROW_CAP`]:
+/// the shared `search_history_internal` ceiling was raised to [`MAX_SEARCH_ROWS`] so the `run_code`
+/// SANDBOX (which calls `search_history_internal` DIRECTLY, bypassing this wrapper) can fetch large
+/// pages and aggregate them in-sandbox — but a model/UI-facing caller must NOT inherit that. Pre-change
+/// this path was hard-capped at 50, and a search UI never needs a 1000-row page; it paginates instead.
 pub async fn semantic_search_history(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -237,7 +269,11 @@ pub async fn semantic_search_history(
     provider: Option<&AiProviderRuntime>,
     request: &AiSearchRequest,
 ) -> Result<AiSearchResponse> {
-    search_history_internal(paths, config, key, provider, request).await
+    let mut bounded = request.clone();
+    if let Some(limit) = bounded.limit {
+        bounded.limit = Some(limit.min(MODEL_FACING_ROW_CAP));
+    }
+    search_history_internal(paths, config, key, provider, &bounded).await
 }
 
 /// Answers one user question against archive history with evidence-backed citations.
@@ -296,7 +332,10 @@ pub async fn answer_history_question_with_control(
             query: request.question.clone(),
             profile_id: request.profile_id.clone(),
             domain: request.domain.clone(),
-            limit: Some(config.ai.retrieval_top_k.max(1)),
+            // CONTEXT CAP: the seeded evidence is rendered into the model's preamble, so cap the page
+            // at the model-facing row limit (the retrieval ceiling [`MAX_SEARCH_ROWS`] is for the
+            // sandbox, whose rows never reach the model). Preserves the prior `clamp(1, 50)` behavior.
+            limit: Some(config.ai.retrieval_top_k.clamp(1, MODEL_FACING_ROW_CAP)),
             cursor: None,
             sort: None,
             starred_only: None,
@@ -477,7 +516,12 @@ pub(super) async fn search_history_internal(
         cursor.and_then(|value| value.parse::<usize>().ok()).unwrap_or(0)
     }
 
-    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    // Clamp the page to the RETRIEVAL ceiling ([`MAX_SEARCH_ROWS`] = `list_history`'s [1, 1000]
+    // window), NOT to 50. The 50-row context cap belongs to the MODEL-FACING tools (which clamp their
+    // own `limit` before calling here) — see [`MAX_SEARCH_ROWS`]. The `run_code` sandbox needs the
+    // larger page so a script can paginate + aggregate the full set; its rows never reach the model's
+    // context, so capping here would only throttle the sandbox for no context benefit.
+    let limit = request.limit.unwrap_or(8).clamp(1, MAX_SEARCH_ROWS) as usize;
     let applied_limit = limit as u32;
     let facet_starred = request.starred_only.unwrap_or(false);
 
@@ -1142,7 +1186,10 @@ pub(super) async fn semantic_matches(
     // Profile/domain facets are post-hydration (per-visit, not per-content); the `is:starred` facet is
     // a CONTENT-key allowlist pushed INTO the index (W-AI-6 — the seam W-AI-5 left). Recall an expanded
     // top-k when EITHER kind of facet is present so the post-filter / allowlist still yields the limit.
-    let limit = request.limit.unwrap_or(8).clamp(1, 50) as usize;
+    // Clamp to the shared retrieval ceiling ([`MAX_SEARCH_ROWS`]); the semantic recall is a BOUNDED
+    // top-k over the flat vector index (never a corpus scan), so a larger page (sandbox path) stays
+    // bounded. The 50-row context cap is applied by the model-facing tools, not here.
+    let limit = request.limit.unwrap_or(8).clamp(1, MAX_SEARCH_ROWS) as usize;
     let has_visit_facet = request.profile_id.is_some() || request.domain.is_some();
     let recall_k = if has_visit_facet || starred_content_keys.is_some() {
         limit.saturating_mul(8).max(limit)

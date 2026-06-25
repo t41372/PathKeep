@@ -207,9 +207,11 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
         " visits in the period. search_history returns only the TOP matches and sets has_more=true",
         " when more matches exist than it returned: when has_more is true you are seeing a sample,",
         " NOT the full set, so do NOT summarize it as if it were complete — use intelligence_report",
-        " (or run_code over the range) to cover everything, and use search_history only to find or",
-        " drill into specific pages. If the intelligence index is not built yet, fall back to search",
-        " but say the summary is based on a partial sample.",
+        " to cover everything, OR write a run_code script that pages query_history and aggregates the",
+        " FULL set in code (rows stay in the sandbox, so only your small returned summary costs context",
+        " — you can process hundreds of visits this way), and use search_history only to find or drill",
+        " into specific pages. If the intelligence index is not built yet, fall back to search but say",
+        " the summary is based on a partial sample.",
     ));
 
     // Time direction & completeness: search defaults to most-recent, relevance-ranked, so older

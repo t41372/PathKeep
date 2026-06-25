@@ -149,8 +149,22 @@ pub const MAX_HOST_CALLS: u32 = 64;
 /// [`LimitsHit::Output`] marker is recorded (the model never receives an unbounded blob — 02 §F).
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
-/// Max rows any single host-API call returns (mirrors the `limit.clamp(1, 50)` retrieval discipline).
-pub const MAX_ROWS_PER_CALL: u32 = 50;
+/// Max rows any single host-API `query_history` call returns — the sandbox per-call ceiling, set to
+/// match `list_history`'s `[1, 1000]` fetch window (and `search::MAX_SEARCH_ROWS`).
+///
+/// DELIBERATELY 1000, not the 50-row cap the MODEL-FACING `search_history` tool enforces. The reason
+/// is the sandbox's defining property: rows fetched by `query_history` INSIDE the wasm sandbox NEVER
+/// enter the model's context — only the script's small `return` value does (bounded by
+/// [`MAX_OUTPUT_BYTES`]). So the per-call cap that protects the model's context on the direct tool
+/// path is pointless here; a low cap would only force a script to burn [`MAX_HOST_CALLS`] on tiny
+/// pages. With a 1000-row page a script can `query_history` + AGGREGATE the FULL result set
+/// efficiently (loop the cursor until `hasMore` is false) and return a small distilled summary. The
+/// reply (host→guest) carries the rows into the guest's [`MAX_GUEST_MEMORY_BYTES`] (64 MiB) linear
+/// memory, not over the guest→host request channel, so this does NOT touch [`MAX_REQUEST_FRAME_BYTES`]
+/// (the request frame is just the tiny query args); even a worst-case ~2 KiB/row × 1000 reply is ~2
+/// MiB, far under the 64 MiB cap. The underlying fetch stays bounded by `list_history`'s [1, 1000]
+/// window — no corpus scan even at 14.4M.
+pub const MAX_ROWS_PER_CALL: u32 = 1000;
 
 /// Max ids a single `fetch_visits` call may request (hard cap on `ids.len()`).
 pub const MAX_FETCH_IDS: usize = 50;

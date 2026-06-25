@@ -1547,6 +1547,42 @@ fn semantic_search_history_uses_public_wrapper_for_search_results() {
 }
 
 #[test]
+fn semantic_search_history_caps_the_fe_wrapper_at_the_model_facing_row_cap() {
+    // The shared internal ceiling was raised to MAX_SEARCH_ROWS (1000) so the run_code SANDBOX can
+    // fetch large pages, but the FE/worker `semantic_search_history` wrapper must stay capped at 50
+    // (its pre-change behavior) — a UI/model-facing page never needs 1000 rows. Lethal: reverting the
+    // wrapper cap lets the raised ceiling through and returns up to 120 here.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_keyword_visits_bulk(&connection, "mlx", 1, 120);
+
+    let response = runtime
+        .block_on(semantic_search_history(
+            &paths,
+            &config,
+            None,
+            None,
+            &AiSearchRequest {
+                query: "mlx".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(200),
+                cursor: None,
+                sort: None,
+                starred_only: None,
+                start_date: None,
+                end_date: None,
+            },
+        ))
+        .expect("public search wrapper");
+    assert!(
+        response.items.len() <= 50,
+        "the FE wrapper caps returned rows at the model-facing cap even when 200 are requested: got {}",
+        response.items.len()
+    );
+}
+
+#[test]
 fn build_ai_index_returns_without_network_when_no_candidates_exist() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();

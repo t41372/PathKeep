@@ -223,6 +223,86 @@ fn dated_context() -> (crate::config::ProjectPaths, AgentToolContext) {
     (paths, context)
 }
 
+/// Inserts one visit at an EXPLICIT `visit_time_ms`, with a shared keyword token in the title/url so
+/// a lexical `query_history({ query: token })` matches it. Distinct timestamps make a date-ordered
+/// (`sort:"oldest"`) enumeration deterministic across the seeded set.
+fn seed_visit_at_ms(
+    connection: &Connection,
+    history_id: i64,
+    url: &str,
+    title: &str,
+    visit_ms: i64,
+) {
+    let profile_id = "chrome:Default";
+    let profile_row_id = 1_i64;
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+             VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+            [now_rfc3339()],
+        )
+        .expect("seed run");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+             VALUES (?1, 'chrome', 'test', ?2, ?3, ?4, 1, ?2, ?4)",
+            params![profile_row_id, profile_id, "/tmp/p", now_rfc3339()],
+        )
+        .expect("seed profile");
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO archive.urls
+             (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+             VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, ?6, 1, ?1, 0, ?7, ?5)",
+            params![history_id, url, title, visit_ms, now_rfc3339(), profile_row_id, format!("payload-{history_id}")],
+        )
+        .expect("seed url");
+    connection
+        .execute(
+            "INSERT INTO archive.visits
+             (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+             VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, ?5, 1, NULL, 1, 0, NULL, NULL, ?6, ?7, ?4)",
+            params![history_id, history_id.to_string(), visit_ms, now_rfc3339(), profile_row_id, format!("fp-{history_id}"), format!("payload-{history_id}")],
+        )
+        .expect("seed visit");
+}
+
+/// Seeds `count` visits that all match a shared lexical `token`, each on a UNIQUE day across a known
+/// set of domains, and returns the context. Used to prove the sandbox can fetch + aggregate a set
+/// LARGER than the model-facing 50-row cap (the whole point of Option A). Distinct timestamps make a
+/// `sort:"oldest"` enumeration deterministic; the domains let a JS aggregate be checked exactly.
+fn many_matching_visits_context(
+    token: &str,
+    count: i64,
+) -> (crate::config::ProjectPaths, AgentToolContext) {
+    let (paths, context) = empty_context();
+    ensure_archive_initialized(&paths, &context.config, None).expect("init archive");
+    let archive = open_archive_connection(&paths, &context.config, None).expect("open archive");
+    create_schema(&archive).expect("create schema");
+    let intelligence =
+        open_intelligence_connection(&paths, &context.config, None).expect("open intelligence");
+    // A fixed chrome-epoch-ish base; each visit is one minute apart so they share NO timestamp (so the
+    // date-ordered walk is a total order) and stay far from any date-filter edges.
+    let base_ms = 13_300_000_000_000_i64;
+    for index in 0..count {
+        let history_id = 10_000 + index;
+        // Three rotating domains so a `byDomain` aggregate has a known, checkable distribution.
+        let domain = match index % 3 {
+            0 => "alpha.example",
+            1 => "beta.example",
+            _ => "gamma.example",
+        };
+        seed_visit_at_ms(
+            &intelligence,
+            history_id,
+            &format!("https://{domain}/{token}/page-{index}"),
+            &format!("{token} entry {index}"),
+            base_ms + index * 60_000,
+        );
+    }
+    (paths, context)
+}
+
 /// Cancel control whose `cancelled()` is driven by an `AtomicBool` the test flips.
 struct FlagControl(Arc<AtomicBool>);
 impl AiRunControl for FlagControl {
@@ -509,6 +589,139 @@ fn real_js_multi_query_fan_out_with_join_and_dedup() {
         distilled["ids"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
     assert!(ids.contains(&101), "rust id present: {ids:?}");
     assert!(ids.contains(&102), "tauri id present: {ids:?}");
+}
+
+#[test]
+fn sandbox_query_history_fetches_more_than_fifty_rows_in_one_call() {
+    // OPTION A, the LETHAL assertion: rows fetched INSIDE the sandbox never enter the model's context
+    // (only the small `return` value does), so the per-call row cap that protects the model on the
+    // direct tool path is pointless here. A single `query_history({ limit: 120 })` over 120 matching
+    // visits must therefore return ~120 rows, NOT the old 50. Reverting `MAX_ROWS_PER_CALL` to 50 (or
+    // re-clamping `search_history_internal` to 50) caps this at 50 and FAILS the assertion below.
+    let token = "needle";
+    let seeded = 120_i64;
+    let (_paths, context) = many_matching_visits_context(token, seeded);
+    // `plane: "bm25"` keeps this pure-lexical (no embedding provider configured), so the assertion is
+    // about the row ceiling alone, not semantic recall. The whole result is COUNTED in JS (the rows
+    // stay in the sandbox); only the count is returned.
+    let source = r#"
+        const r = query_history({ query: "needle", plane: "bm25", limit: 120 });
+        return { fetched: r.rows.length };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    assert_eq!(outcome.limits_hit, None, "no hard limit fired for a 120-row page");
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    let fetched = distilled["fetched"].as_i64().expect("fetched count");
+    // The lexical path returns up to `limit` matches; all 120 seeded rows match the token.
+    assert_eq!(
+        fetched, seeded,
+        "the sandbox fetched the FULL {seeded}-row set in one call, not the 50-row cap: got {fetched}"
+    );
+    // The effective (clamped) limit on the transparent record is the requested 120 — proof the raised
+    // sandbox ceiling (MAX_ROWS_PER_CALL) admitted it rather than clamping to 50.
+    assert_eq!(outcome.host_calls.len(), 1, "exactly one query_history call");
+    assert_eq!(
+        outcome.host_calls[0].limit,
+        Some(120),
+        "the sandbox ceiling admitted the full 120-row page"
+    );
+    assert!(fetched > 50, "the page is strictly larger than the old 50-row cap");
+}
+
+#[test]
+fn sandbox_paginates_and_aggregates_the_full_set() {
+    // End-to-end proof of full-set processing through the sandbox: a script PAGINATES `query_history`
+    // with the cursor (small pages, so the loop runs many times) and AGGREGATES a count-by-domain over
+    // EVERY seeded row, returning only the small distilled summary. The aggregate must cover all rows
+    // and match the known rotating-domain distribution — proving the agent can process the whole set,
+    // not a 50-row sample, with only the summary costing context.
+    // This test does several REAL retrievals (4 pages), so it must not race the production 5s
+    // wall-time clock under the instrumented parallel coverage sweep — widen the budget like the
+    // host-call budget test does. (The retrieval is still bounded; we are only relaxing the test's
+    // wall clock, not any row/host-call cap.)
+    let _budget = WallTimeBudgetGuard::set(Duration::from_secs(120));
+    let token = "compass";
+    let seeded = 130_i64; // > 2 small pages and > the 50-row sample, to force real pagination
+    let (_paths, context) = many_matching_visits_context(token, seeded);
+    // Small 40-row pages force the cursor loop to iterate (130 rows → 4 pages), exercising the
+    // hasMore/nextCursor walk the worked example teaches. `sort:"oldest"` gives a stable total order.
+    let source = r#"
+        const byDomain = {};
+        let total = 0;
+        let cursor = null;
+        let truncated = false;
+        for (let i = 0; i < 64; i++) {
+            const page = query_history({ query: "compass", plane: "bm25", sort: "oldest", limit: 40, cursor });
+            for (const r of page.rows) {
+                total++;
+                byDomain[r.domain] = (byDomain[r.domain] || 0) + 1;
+            }
+            if (!page.hasMore) break;
+            if (!page.nextCursor) { truncated = true; break; }
+            cursor = page.nextCursor;
+        }
+        return { total, byDomain, truncated };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    assert_eq!(outcome.limits_hit, None, "the paginating loop stayed within budget");
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    assert_eq!(
+        distilled["total"].as_i64(),
+        Some(seeded),
+        "the aggregate covered EVERY seeded row across pages: {distilled}"
+    );
+    assert_eq!(
+        distilled["truncated"],
+        json!(false),
+        "the full set was walked, not capped: {distilled}"
+    );
+    // The rotating 3-domain seed yields a known count distribution: index % 3 over 130 rows →
+    // alpha=44 (indices 0,3,..,129), beta=43, gamma=43.
+    assert_eq!(distilled["byDomain"]["alpha.example"], 44, "alpha count: {distilled}");
+    assert_eq!(distilled["byDomain"]["beta.example"], 43, "beta count: {distilled}");
+    assert_eq!(distilled["byDomain"]["gamma.example"], 43, "gamma count: {distilled}");
+    // The pagination really iterated (130 / 40 = 4 pages), so multiple host calls were made — but far
+    // under the 64-call budget because each page is large-ish.
+    assert!(
+        outcome.host_calls.len() >= 4 && (outcome.host_calls.len() as u32) < MAX_HOST_CALLS,
+        "paginated in a few calls, well under the budget: {} calls",
+        outcome.host_calls.len()
+    );
+}
+
+#[test]
+fn sandbox_large_page_stays_under_output_and_frame_limits() {
+    // Boundedness guard for the raised row cap: fetching a full 120-row page and returning a SMALL
+    // distilled summary stays clean (no Output/HostCalls/Time/Memory limit). The rows themselves ride
+    // the host→guest reply into the guest's 64 MiB memory (never the 1 MiB request frame), and the
+    // returned summary is tiny, so none of the hard caps fire. This proves the 1000-row ceiling does
+    // not break the frame-size / output-cap limits.
+    let token = "ledger";
+    let (_paths, context) = many_matching_visits_context(token, 120);
+    let source = r#"
+        const r = query_history({ query: "ledger", plane: "bm25", limit: 1000 });
+        // Aggregate the whole page but return only a tiny summary (the rows stay in the sandbox).
+        const domains = {};
+        for (const row of r.rows) domains[row.domain] = (domains[row.domain] || 0) + 1;
+        return { total: r.rows.length, distinctDomains: Object.keys(domains).length };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    assert_eq!(outcome.limits_hit, None, "no hard limit fired for a 120-row page + small return");
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    assert_eq!(distilled["total"].as_i64(), Some(120), "the full page was processed: {distilled}");
+    assert_eq!(distilled["distinctDomains"], 3, "all three seeded domains were seen: {distilled}");
+    // The distilled output is tiny — far under the output cap — even though 120 rows were processed.
+    assert!(
+        outcome.model_text.len() < 256,
+        "the distilled return is small: {}",
+        outcome.model_text
+    );
 }
 
 #[test]
