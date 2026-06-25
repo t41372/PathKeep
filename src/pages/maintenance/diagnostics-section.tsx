@@ -43,6 +43,8 @@ export interface DiagnosticsSectionProps {
   copyFeedback: ReviewCopyFeedback | null
   onCopyPath: (key: string, value: string) => Promise<void>
   onOpenPath: (path: string) => void
+  /** Optional callback to reveal the logs directory in the platform file manager. */
+  onRevealLogs?: () => void
   snapshot: AppSnapshot
 }
 
@@ -57,6 +59,7 @@ export function DiagnosticsSection({
   copyFeedback,
   onCopyPath,
   onOpenPath,
+  onRevealLogs,
   snapshot,
 }: DiagnosticsSectionProps) {
   const { language, t } = useI18n()
@@ -129,6 +132,18 @@ export function DiagnosticsSection({
           successMessage={t('common.copiedNotice')}
           value={snapshot.directories.logsDir}
         />
+        {onRevealLogs ? (
+          <div className="config-row">
+            <button
+              aria-label={t('settings.revealLogsAriaLabel')}
+              className="btn-secondary"
+              type="button"
+              onClick={onRevealLogs}
+            >
+              {t('settings.revealLogsButton')}
+            </button>
+          </div>
+        ) : null}
         <ReviewPathActionRow
           copyFeedback={copyFeedback}
           copyKey="maintenance:crash-reports"

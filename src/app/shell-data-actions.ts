@@ -34,7 +34,7 @@ import type {
   UnlockAppSessionRequest,
 } from '../lib/types'
 import type { I18nContextValue } from '../lib/i18n/context'
-import type { BusyOverlayState } from './shell-data-context'
+import type { BusyOverlayState, ShellErrorKind } from './shell-data-context'
 import {
   backupStepLabels,
   buildBackupOverlay,
@@ -56,7 +56,19 @@ interface ShellDataActionDeps {
   showBusyOverlay: (next: BusyOverlayState) => void
   clearBusyOverlay: () => void
   setNotice: StateSetter<string | null>
+  /**
+   * Sets the user-facing error message. The provider wires this to a setter that
+   * also resets `errorKind` to `null`, so a plain error never leaves a stale FDA
+   * classification behind. The FDA path re-asserts the kind via `setErrorKind`
+   * immediately after.
+   */
   setError: StateSetter<string | null>
+  /**
+   * Sets the locale-independent error classification consumed by the shell to
+   * decide whether to show remediation affordances (e.g. the Full Disk Access
+   * deep-link). Only set to a non-null kind alongside a matching `setError`.
+   */
+  setErrorKind: StateSetter<ShellErrorKind>
   setSnapshot: StateSetter<AppSnapshot | null>
   setAppLockStatus: StateSetter<AppLockStatus | null>
   setRefreshKey: StateSetter<number>
@@ -74,21 +86,41 @@ function incrementRefreshKey(setRefreshKey: StateSetter<number>) {
   setRefreshKey((value) => value + 1)
 }
 
+/**
+ * Classifies a raw shell-action failure into the user-facing message AND a
+ * stable, locale-independent kind. The Full Disk Access decision is made on the
+ * RAW backend error (which always carries the ASCII `"Full Disk Access"`
+ * marker), never on the translated UI copy — so a zh-CN / zh-TW user still gets
+ * the FDA remediation affordance even though the displayed string is Chinese.
+ */
 function formatShellActionError(
   nextError: unknown,
   command: string,
   t: ShellTranslator,
-) {
+): { message: string; isFullDiskAccess: boolean } {
   if (
     nextError instanceof Error &&
-    isSafariAccessIssueMessage(nextError.message)
+    isFullDiskAccessIssueMessage(nextError.message)
   ) {
-    return t('shell.safariFullDiskAccessBackupError')
+    return {
+      message: t('shell.fullDiskAccessBackupError'),
+      isFullDiskAccess: true,
+    }
   }
-  return describeError(nextError, command)
+  return {
+    message: describeError(nextError, command),
+    isFullDiskAccess: false,
+  }
 }
 
-function isSafariAccessIssueMessage(message: string) {
+/**
+ * Returns `true` when the error message indicates a Full Disk Access / macOS
+ * permission denial. Covers both the legacy Safari-specific text (still
+ * produced when only Safari is blocked) and the new generic backend contract
+ * that always contains `"Full Disk Access"` for any browser that can't be read
+ * due to a missing TCC entitlement.
+ */
+export function isFullDiskAccessIssueMessage(message: string) {
   return (
     message.includes('Safari History.db is not readable yet') ||
     message.includes('Full Disk Access')
@@ -101,7 +133,7 @@ function backupCompletionNotice(report: BackupReport, t: ShellTranslator) {
   }
 
   if (report.run) {
-    return report.warnings.some(isSafariAccessIssueMessage)
+    return report.warnings.some(isFullDiskAccessIssueMessage)
       ? t('shell.safariFullDiskAccessBackupWarning', { runId: report.run.id })
       : t('shell.manualBackupFinished', { runId: report.run.id })
   }
@@ -125,6 +157,7 @@ export function createShellDataActions({
   clearBusyOverlay,
   setNotice,
   setError,
+  setErrorKind,
   setSnapshot,
   setAppLockStatus,
   setRefreshKey,
@@ -278,8 +311,18 @@ export function createShellDataActions({
         setNotice(backupCompletionNotice(report, t))
         return report
       } catch (nextError) {
-        const message = formatShellActionError(nextError, 'run_backup_now', t)
+        const { message, isFullDiskAccess } = formatShellActionError(
+          nextError,
+          'run_backup_now',
+          t,
+        )
+        // `setError` resets `errorKind` to null in the provider, so re-assert the
+        // FDA classification here from the RAW error — never by re-parsing the
+        // translated `message` (which would miss the non-ASCII locales).
         setError(message)
+        if (isFullDiskAccess) {
+          setErrorKind('full-disk-access')
+        }
         if (taskId) {
           archiveTasks?.failBackupTask(taskId, message)
         }

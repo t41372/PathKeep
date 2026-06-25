@@ -32,4 +32,11 @@ export const supportClient = {
    */
   exportConversationFile: (targetPath: string, contents: string) =>
     call<number>('export_conversation_file', { targetPath, contents }),
+  /**
+   * Opens the app's local log directory in the OS file manager (Finder on
+   * macOS, Explorer on Windows). Resolves with the logs folder path that was
+   * revealed. Used by the "Reveal logs" diagnostics affordance so users can
+   * attach log files to bug reports without hunting for the path manually.
+   */
+  revealLogs: () => call<string>('reveal_logs'),
 }

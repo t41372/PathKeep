@@ -400,6 +400,40 @@ describe('AuditPage route owner', () => {
     ).not.toBeInTheDocument()
   })
 
+  test('shows failed status label and truncated error reason in the run chain block', () => {
+    const failedRun = runFixture(20, {
+      status: 'failed',
+      errorMessage:
+        'Full Disk Access required — Safari History.db is not readable yet, please grant access in System Settings.',
+    })
+    const detail = detailFixture(failedRun, {
+      errorMessage: failedRun.errorMessage,
+    })
+
+    shellDataMock.mockReturnValue(
+      shellFixture({
+        snapshot: snapshotFixture({ recentRuns: [failedRun] }),
+      }),
+    )
+    auditDataMock.mockReturnValue(
+      auditDataFixture({
+        detail,
+        detailCache: { 20: detail },
+        detailSeverity: 'blocked',
+      }),
+    )
+
+    renderPage('/audit?run=20')
+
+    // The chain block for the failed run should surface the i18n key for "Failed".
+    expect(screen.getByText('shell.backupRunFailed')).toBeVisible()
+    // The full error message text should be in the DOM (CSS truncation is
+    // presentation-only and does not affect the DOM value).
+    expect(
+      screen.getByText(failedRun.errorMessage!, { exact: false }),
+    ).toBeInTheDocument()
+  })
+
   test('covers mixed-source fallbacks, missing details, and detail gate states', async () => {
     const user = userEvent.setup()
     const runs = [
@@ -603,6 +637,8 @@ function shellFixture(
     setAppLockPasscode: vi.fn(),
     clearAppLockPasscode: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
     lockAppSession: vi.fn(),
     unlockAppSession: vi.fn(),
     ...overrides,

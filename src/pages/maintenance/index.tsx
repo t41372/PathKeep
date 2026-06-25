@@ -203,6 +203,7 @@ export function MaintenancePage() {
             copyFeedback={routeState.general.supportCopyFeedback}
             onCopyPath={routeState.general.onCopyPath}
             onOpenPath={routeState.general.onOpenPath}
+            onRevealLogs={routeState.general.onRevealLogs}
             snapshot={snapshot}
           />
           <PlatformSection

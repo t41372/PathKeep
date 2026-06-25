@@ -932,6 +932,8 @@ function withShell(overrides: {
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
   } as ShellDataContextValue
 
   return (
@@ -967,6 +969,8 @@ function withNullSnapshotShell(overrides: {
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
   } as ShellDataContextValue
 
   return (

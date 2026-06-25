@@ -65,6 +65,17 @@ export interface ShellRuntimeStatus {
 }
 
 /**
+ * Locale-independent classification of the current shell error.
+ *
+ * This exists so the shell can decide whether to render remediation
+ * affordances (e.g. the macOS Full Disk Access deep-link) WITHOUT re-parsing the
+ * already-translated `error` string. The kind is assigned at the point the error
+ * is classified from the RAW backend message, and cleared whenever the error is
+ * cleared or replaced — keeping `error` and `errorKind` from drifting apart.
+ */
+export type ShellErrorKind = 'full-disk-access' | null
+
+/**
  * Describes the shell-owned import request that routes can start without owning progress state.
  *
  * Import execution writes archive records, so it runs through the shell task store instead
@@ -100,6 +111,13 @@ export interface ShellDataContextValue {
   busyAction: string | null
   busyOverlay: BusyOverlayState | null
   error: string | null
+  /**
+   * Locale-independent classification of `error`. The shell gates remediation
+   * affordances (e.g. the Full Disk Access deep-link) on this flag rather than
+   * re-parsing the translated `error` text, so the affordance appears for every
+   * shipped locale. `null` whenever there is no error or the error is unclassified.
+   */
+  errorKind: ShellErrorKind
   notice: string | null
   archiveTasks?: ShellTask[]
   activeArchiveTask?: ShellTask | null
@@ -136,6 +154,7 @@ export interface ShellDataContextValue {
   lockAppSession: (reason?: string | null) => Promise<AppLockStatus>
   unlockAppSession: (request: UnlockAppSessionRequest) => Promise<AppLockStatus>
   clearNotice: () => void
+  clearError: () => void
   markNotificationsRead?: () => void
   dismissNotification?: (id: string) => void
 }

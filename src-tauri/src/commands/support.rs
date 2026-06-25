@@ -42,6 +42,17 @@ pub(crate) async fn open_external_url(url: String) -> Result<String, String> {
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Reveals the local log directory in the native file manager, off the UI thread.
+///
+/// The detailed reason for any failure (e.g. a backup that could not read a browser profile) is
+/// written to `logs/rust.log`; this gives the user a one-click way to open that folder so they can
+/// inspect it or attach it to a bug report — diagnostics must never be a hidden, hand-typed path.
+pub(crate) async fn reveal_logs() -> Result<String, String> {
+    run_blocking_command("reveal_logs", file_manager::reveal_logs_impl).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Writes an exported AI-assistant conversation (Markdown / JSON) to a user-chosen path, off the
 /// UI thread, and returns the byte count written.
 pub(crate) async fn export_conversation_file(

@@ -236,6 +236,8 @@ export function createShellValue(
     lockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     unlockAppSession: vi.fn().mockResolvedValue(snapshot.appLockStatus),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
   }
 }
 

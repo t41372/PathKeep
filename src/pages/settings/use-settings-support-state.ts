@@ -226,6 +226,10 @@ export function useSettingsSupportState({
     void backend.openPathInFileManager(path)
   }
 
+  function handleRevealLogs() {
+    void backend.revealLogs()
+  }
+
   async function handleLanguageChange(nextLanguage: string) {
     if (
       !snapshot ||
@@ -502,6 +506,7 @@ export function useSettingsSupportState({
         handleExplorerBackgroundPrefetchPagesChange,
       onLanguageChange: handleLanguageChange,
       onOpenPath: handleSupportPathOpen,
+      onRevealLogs: handleRevealLogs,
     },
     retention: {
       action: retentionAction,

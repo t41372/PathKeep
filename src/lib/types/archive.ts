@@ -96,6 +96,11 @@ export interface BackupRunOverview {
   newVisits: number
   newUrls: number
   newDownloads: number
+  /**
+   * Present on `failed` runs — the backend-reported reason the run did not
+   * complete. Null on successful or skipped runs.
+   */
+  errorMessage?: string | null
 }
 
 /**

@@ -629,5 +629,7 @@ function createShellDataValue(snapshot: AppSnapshot): ShellDataContextValue {
     lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
     unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
   }
 }

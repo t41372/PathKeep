@@ -672,15 +672,37 @@ export function AuditPage() {
                           {triggerLabel}
                         </div>
                         <div>
-                          {severityLabel} ·{' '}
+                          {run.status === 'failed' ? (
+                            <span className="warning-text">
+                              {t('shell.backupRunFailed')}
+                            </span>
+                          ) : (
+                            severityLabel
+                          )}{' '}
+                          ·{' '}
                           {t('dashboard.profilesLabel', {
                             count: run.profilesProcessed,
                           })}
                         </div>
-                        <div>
-                          {t('audit.deltaNewVisits')}: {run.newVisits} ·{' '}
-                          {t('audit.deltaNewUrls')}: {run.newUrls}
-                        </div>
+                        {run.status === 'failed' && run.errorMessage ? (
+                          <div
+                            className="mono"
+                            style={{
+                              maxWidth: 180,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={run.errorMessage}
+                          >
+                            {run.errorMessage}
+                          </div>
+                        ) : (
+                          <div>
+                            {t('audit.deltaNewVisits')}: {run.newVisits} ·{' '}
+                            {t('audit.deltaNewUrls')}: {run.newUrls}
+                          </div>
+                        )}
                         <div className="mono">
                           {formatDateTime(
                             run.finishedAt ?? run.startedAt,

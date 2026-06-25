@@ -208,6 +208,8 @@ export function handlePreviewShellCommand<T>(
       return (
         typeof args?.url === 'string' ? args.url : 'https://example.com'
       ) as T
+    case 'reveal_logs':
+      return `${state.snapshot.directories.appRoot}/logs` as T
     case 'check_for_app_update':
       return {
         availability: {

@@ -951,6 +951,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(file_manager::open_external_url_impl(payload.url)?)
         }
+        "reveal_logs" => {
+            json_value!(file_manager::reveal_logs_impl()?)
+        }
         "export_conversation_file" => {
             let payload = parse_payload::<ExportConversationFilePayload>(payload)?;
             json_value!(file_manager::export_conversation_file_impl(

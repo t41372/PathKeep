@@ -246,6 +246,8 @@ describe('Sidebar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     render(
@@ -309,6 +311,8 @@ describe('Sidebar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
     const router = createMemoryRouter(
       [
@@ -377,6 +381,8 @@ describe('Sidebar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
     const router = createMemoryRouter(
       [
@@ -455,6 +461,8 @@ describe('Sidebar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     const router = createMemoryRouter(
@@ -585,6 +593,8 @@ describe('Sidebar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     const router = createMemoryRouter(

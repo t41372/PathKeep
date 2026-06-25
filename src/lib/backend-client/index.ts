@@ -154,6 +154,7 @@ export const backend = {
   openPathInFileManager: supportClient.openPathInFileManager,
   openExternalUrl: supportClient.openExternalUrl,
   exportConversationFile: supportClient.exportConversationFile,
+  revealLogs: supportClient.revealLogs,
   checkForAppUpdate: updateClient.checkForAppUpdate,
   downloadAndInstallAppUpdate: updateClient.downloadAndInstallAppUpdate,
   relaunchAfterUpdate: updateClient.relaunchAfterUpdate,

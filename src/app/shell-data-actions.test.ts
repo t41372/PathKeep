@@ -291,11 +291,15 @@ describe('createShellDataActions', () => {
     )
 
     await expect(harness.actions.runBackup()).rejects.toThrow(
-      t('shell.safariFullDiskAccessBackupError'),
+      t('shell.fullDiskAccessBackupError'),
     )
     expect(harness.setError).toHaveBeenLastCalledWith(
-      t('shell.safariFullDiskAccessBackupError'),
+      t('shell.fullDiskAccessBackupError'),
     )
+    // The locale-independent classification is asserted from the RAW error, so
+    // the shell can show the FDA remediation affordance in every locale without
+    // re-parsing the translated message.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('full-disk-access')
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
@@ -381,6 +385,10 @@ describe('createShellDataActions', () => {
 
     await expect(harness.actions.runBackup()).rejects.toBe('worker payload')
     expect(harness.setError).toHaveBeenLastCalledWith('worker payload')
+    // An ordinary (non-FDA) failure must never assert the FDA classification.
+    // `setError` resets `errorKind` to null in the provider, so the action only
+    // skips the explicit `setErrorKind('full-disk-access')` call here.
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('full-disk-access')
     expect(unsubscribe).toHaveBeenCalledTimes(2)
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
@@ -626,6 +634,7 @@ function createActionHarness(
     clearBusyOverlay: vi.fn(),
     setNotice: vi.fn(),
     setError: vi.fn(),
+    setErrorKind: vi.fn(),
     setSnapshot: vi.fn(),
     setAppLockStatus: vi.fn(),
     setRefreshKey,
@@ -646,6 +655,7 @@ function createActionHarness(
       clearBusyOverlay: harness.clearBusyOverlay,
       setNotice: harness.setNotice,
       setError: harness.setError,
+      setErrorKind: harness.setErrorKind,
       setSnapshot: harness.setSnapshot,
       setAppLockStatus: harness.setAppLockStatus,
       setRefreshKey,

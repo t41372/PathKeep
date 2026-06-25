@@ -133,6 +133,14 @@ export function AuditRunDetailPanel({
 
         {detailTab === 'summary' ? (
           <>
+            {detail.run.status === 'failed' && detail.run.errorMessage ? (
+              <StatusCallout
+                tone="danger"
+                eyebrow={t('shell.backupRunFailed')}
+                title={t('shell.backupRunErrorReason')}
+                body={detail.run.errorMessage}
+              />
+            ) : null}
             <StatusCallout
               tone="info"
               title={t('audit.reviewGuideTitle')}

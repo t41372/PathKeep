@@ -68,10 +68,15 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: 'The archive is still inside the due window.',
     manualBackupFinished: 'Manual backup finished as run #{runId}.',
     manualBackupFailed: 'PathKeep could not complete the manual backup.',
-    safariFullDiskAccessBackupError:
-      'Safari History.db is not readable yet. Grant Full Disk Access to PathKeep or the running development process, then run the backup again.',
     safariFullDiskAccessBackupWarning:
       'Backup run #{runId} finished for readable profiles, but Safari was skipped because it still needs Full Disk Access.',
+    fullDiskAccessBackupError:
+      'PathKeep needs Full Disk Access to read your browser history. Open System Settings → Privacy & Security → Full Disk Access and enable PathKeep, then run the backup again.',
+    fullDiskAccessOpenSettings: 'Open Full Disk Access settings',
+    backupRunFailed: 'Failed',
+    backupRunErrorReason: 'Error',
+    revealLogs: 'Reveal logs',
+    revealLogsAriaLabel: 'Reveal the PathKeep logs folder in Finder',
     settingAppLockPasscode: 'Saving app lock passcode',
     settingAppLockPasscodeDetail:
       'Storing the session passcode and refreshing the app lock state.',
@@ -185,10 +190,15 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: '归档仍处于未到期窗口内。',
     manualBackupFinished: '手动备份已完成，运行编号 #{runId}。',
     manualBackupFailed: 'PathKeep 无法完成手动备份。',
-    safariFullDiskAccessBackupError:
-      'Safari History.db 目前还不能读取。请在系统设置里授予 PathKeep 或当前开发进程“完全磁盘访问权限”，然后再运行备份。',
     safariFullDiskAccessBackupWarning:
       '备份运行 #{runId} 已完成可读取的配置文件，但 Safari 仍缺少“完全磁盘访问权限”，本次已跳过。',
+    fullDiskAccessBackupError:
+      'PathKeep 需要“完全磁盘访问权限”才能读取浏览器历史。请到「系统设置 → 隐私与安全性 → 完全磁盘访问权限」，为 PathKeep 开启权限，然后再次运行备份。',
+    fullDiskAccessOpenSettings: '打开完全磁盘访问设置',
+    backupRunFailed: '失败',
+    backupRunErrorReason: '错误',
+    revealLogs: '显示日志',
+    revealLogsAriaLabel: '在访达中显示 PathKeep 日志文件夹',
     settingAppLockPasscode: '正在保存应用锁密码',
     settingAppLockPasscodeDetail: '写入会话密码并刷新应用锁状态。',
     setAppLockPasscodeFailed: 'PathKeep 无法保存应用锁密码。',
@@ -296,10 +306,15 @@ export const shellNamespaceCatalog = {
     manualBackupDueWindow: '歸檔仍處於未到期窗口內。',
     manualBackupFinished: '手動備份已完成，執行編號 #{runId}。',
     manualBackupFailed: 'PathKeep 無法完成手動備份。',
-    safariFullDiskAccessBackupError:
-      'Safari History.db 目前還不能讀取。請在系統設定裡授予 PathKeep 或目前開發行程「完整磁碟取用權」，然後再執行備份。',
     safariFullDiskAccessBackupWarning:
       '備份執行 #{runId} 已完成可讀取的設定檔，但 Safari 仍缺少「完整磁碟取用權」，本次已略過。',
+    fullDiskAccessBackupError:
+      'PathKeep 需要「完整磁碟取用權」才能讀取瀏覽器歷史。請到「系統設定 → 隱私權與安全性 → 完整磁碟取用權」，為 PathKeep 開啟權限，然後再次執行備份。',
+    fullDiskAccessOpenSettings: '開啟完整磁碟取用設定',
+    backupRunFailed: '失敗',
+    backupRunErrorReason: '錯誤',
+    revealLogs: '顯示日誌',
+    revealLogsAriaLabel: '在 Finder 中顯示 PathKeep 日誌資料夾',
     settingAppLockPasscode: '正在儲存應用鎖密碼',
     settingAppLockPasscodeDetail: '寫入會話密碼並刷新應用鎖狀態。',
     setAppLockPasscodeFailed: 'PathKeep 無法儲存應用鎖密碼。',

@@ -830,6 +830,9 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "open_external_url",
         json!({ "url": "ftp://example.com/pathkeep" }),
     );
+    // No-arg: targets the project logs dir. Under PROJECT_ROOT_OVERRIDE the logs dir does not exist,
+    // so the launcher rejects it gracefully (no real file-manager spawn) — the arm is still covered.
+    dispatch_for_coverage(&state, "reveal_logs", json!({}));
     dispatch_for_coverage(
         &state,
         "export_conversation_file",

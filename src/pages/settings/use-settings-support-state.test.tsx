@@ -58,6 +58,9 @@ describe('useSettingsSupportState', () => {
     const openPath = vi
       .spyOn(backend, 'openPathInFileManager')
       .mockResolvedValue('/tmp/pathkeep')
+    const revealLogs = vi
+      .spyOn(backend, 'revealLogs')
+      .mockResolvedValue('/tmp/pathkeep/logs')
     vi.spyOn(backend, 'scheduleStatus').mockResolvedValue(scheduleFixture())
     vi.spyOn(backend, 'securityStatus').mockResolvedValue(securityFixture())
     vi.spyOn(backend, 'previewRetentionPrune').mockResolvedValue(
@@ -120,6 +123,11 @@ describe('useSettingsSupportState', () => {
       result.current.general.onOpenPath('/tmp/pathkeep')
     })
     expect(openPath).toHaveBeenCalledWith('/tmp/pathkeep')
+
+    act(() => {
+      result.current.general.onRevealLogs()
+    })
+    expect(revealLogs).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       await result.current.general.onCopyPath(

@@ -327,6 +327,7 @@ export const backend = {
   openPathInFileManager: (path: string) =>
     call<string>('open_path_in_file_manager', { path }),
   openExternalUrl: (url: string) => call<string>('open_external_url', { url }),
+  revealLogs: () => call<string>('reveal_logs'),
   checkForAppUpdate: () => call<AppUpdateCheckResult>('check_for_app_update'),
   downloadAndInstallAppUpdate: (expectedVersion?: string | null) =>
     call<UpdateInstallState>('download_and_install_app_update', {

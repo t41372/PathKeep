@@ -644,6 +644,10 @@ describe('backend client', () => {
         args: { targetPath: '/tmp/chat.md', contents: '# transcript\n' },
       },
       {
+        run: () => backend.revealLogs(),
+        command: 'reveal_logs',
+      },
+      {
         run: () => backend.checkForAppUpdate(),
         command: 'check_for_app_update',
       },

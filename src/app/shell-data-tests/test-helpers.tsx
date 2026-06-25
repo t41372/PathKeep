@@ -196,6 +196,7 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       <div data-testid="refresh-key">{shell.refreshKey}</div>
       <div data-testid="notice">{shell.notice ?? 'none'}</div>
       <div data-testid="error">{shell.error ?? 'none'}</div>
+      <div data-testid="error-kind">{shell.errorKind ?? 'none'}</div>
       <div data-testid="snapshot-language">
         {shell.snapshot?.config.preferredLanguage ?? 'none'}
       </div>
@@ -438,6 +439,9 @@ export function ShellProbe({ onReady }: { onReady?: () => void }) {
       </button>
       <button type="button" onClick={() => shell.clearNotice()}>
         clear
+      </button>
+      <button type="button" onClick={() => shell.clearError()}>
+        clear-error
       </button>
       <button type="button" onClick={() => shell.markNotificationsRead?.()}>
         mark-notifications

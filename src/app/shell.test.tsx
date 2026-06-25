@@ -50,6 +50,8 @@ vi.mock('@/lib/backend-client', async (importOriginal) => {
         hasPrevious: false,
         hasNext: false,
       }),
+      openExternalUrl: vi.fn().mockResolvedValue(undefined),
+      revealLogs: vi.fn().mockResolvedValue('/path/to/logs'),
     },
   }
 })
@@ -684,6 +686,106 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
+  // --- Shell error banner ---
+
+  test('renders the error banner when shell context advertises an error', () => {
+    renderShell({ error: 'Backup failed: permission denied' }, '/')
+    const banner = screen.getByTestId('shell-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent('Backup failed: permission denied')
+  })
+
+  test('does not render the error banner when error is null', () => {
+    renderShell({ error: null }, '/')
+    expect(screen.queryByTestId('shell-error-banner')).not.toBeInTheDocument()
+  })
+
+  test('dismissing the error banner calls clearError', async () => {
+    const user = userEvent.setup()
+    const clearError = vi.fn()
+    renderShell({ error: 'Something went wrong', clearError }, '/')
+    const dismissButton = screen.getByRole('button', { name: /dismiss/i })
+    await user.click(dismissButton)
+    expect(clearError).toHaveBeenCalled()
+  })
+
+  test('FDA error shows the "Open Full Disk Access settings" button — gated on errorKind, not the error text', () => {
+    // Drive the gate via the locale-independent classification, NOT an English
+    // substring. The displayed error is deliberately non-English (a translated
+    // FDA message) to prove the button appears for zh-CN / zh-TW users too.
+    renderShell(
+      {
+        error: 'PathKeep 需要“完全磁盘访问权限”才能读取浏览器历史。',
+        errorKind: 'full-disk-access',
+      },
+      '/',
+    )
+    const banner = screen.getByTestId('shell-error-banner')
+    expect(
+      within(banner).getByRole('button', { name: /full disk access/i }),
+    ).toBeInTheDocument()
+  })
+
+  test('error whose English text mentions "Full Disk Access" but is NOT classified as FDA hides the button', () => {
+    // The OLD bug was the inverse: gating on the string showed/hid the button by
+    // re-parsing translated copy. Now an unclassified error never shows the FDA
+    // button even if its text happens to contain the English marker.
+    renderShell(
+      { error: 'Network error mentioning Full Disk Access', errorKind: null },
+      '/',
+    )
+    const banner = screen.getByTestId('shell-error-banner')
+    expect(
+      within(banner).queryByRole('button', { name: /full disk access/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('non-FDA error does not show the "Open Full Disk Access settings" button', () => {
+    renderShell({ error: 'Network timeout during backup' }, '/')
+    const banner = screen.getByTestId('shell-error-banner')
+    expect(
+      within(banner).queryByRole('button', { name: /full disk access/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  test('FDA settings button opens the macOS privacy deep-link', async () => {
+    const user = userEvent.setup()
+    const { backend } = await import('@/lib/backend-client')
+    renderShell(
+      {
+        error: 'PathKeep 需要“完全磁盘访问权限”才能读取浏览器历史。',
+        errorKind: 'full-disk-access',
+      },
+      '/',
+    )
+    const banner = screen.getByTestId('shell-error-banner')
+    const fdaButton = within(banner).getByRole('button', {
+      name: /full disk access/i,
+    })
+    await user.click(fdaButton)
+    await vi.waitFor(() => {
+      expect(backend.openExternalUrl).toHaveBeenCalledWith(
+        expect.stringContaining('Privacy_AllFiles'),
+      )
+    })
+  })
+
+  test('Reveal logs button calls backend.revealLogs', async () => {
+    const user = userEvent.setup()
+    const { backend } = await import('@/lib/backend-client')
+    renderShell({ error: 'Backup failed: something unexpected' }, '/')
+    const banner = screen.getByTestId('shell-error-banner')
+    // The button's accessible name comes from the aria-label key shell.revealLogsAriaLabel,
+    // which in en is "Reveal the PathKeep logs folder in Finder".
+    const revealButton = within(banner).getByRole('button', {
+      name: /logs folder/i,
+    })
+    await user.click(revealButton)
+    await vi.waitFor(() => {
+      expect(backend.revealLogs).toHaveBeenCalled()
+    })
+  })
+
   test('selecting "Manage sources" navigates to settings#sources', async () => {
     const user = userEvent.setup()
     renderShell(
@@ -795,6 +897,8 @@ function shellValue(
     lockAppSession: vi.fn().mockResolvedValue({}),
     unlockAppSession: vi.fn(),
     clearNotice: vi.fn(),
+    errorKind: null,
+    clearError: vi.fn(),
     ...overrides,
   } as ShellDataContextValue
 }

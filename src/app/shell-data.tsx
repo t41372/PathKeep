@@ -43,10 +43,14 @@ import type {
 } from '../lib/types'
 import {
   type BusyOverlayState,
+  type ShellErrorKind,
   type ShellImportTaskRequest,
   ShellDataContext,
 } from './shell-data-context'
-import { createShellDataActions } from './shell-data-actions'
+import {
+  createShellDataActions,
+  isFullDiskAccessIssueMessage,
+} from './shell-data-actions'
 import {
   buildUninitializedDashboardFallback,
   countActiveRuntimeJobs,
@@ -92,7 +96,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [busyOverlay, setBusyOverlay] = useState<BusyOverlayState | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorMessage] = useState<string | null>(null)
+  const [errorKind, setErrorKind] = useState<ShellErrorKind>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [archiveTasks, setArchiveTasks] = useState<ShellTask[]>([])
   const [notifications, setNotifications] = useState<ShellNotification[]>(() =>
@@ -122,6 +127,23 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       refreshKey,
       t,
     })
+
+  /**
+   * Sets the shell error message and ALWAYS resets the locale-independent
+   * `errorKind` classification back to `null`. Centralizing it here means every
+   * `setError` call site — including the action factory — can never leave a
+   * stale Full Disk Access classification attached to an unrelated error. The
+   * FDA path re-asserts the kind via `setErrorKind` immediately after calling
+   * this, so `error` and `errorKind` stay consistent. Stable identity (empty
+   * deps) keeps the action factory memo honest.
+   */
+  const setError = useCallback(
+    (value: string | null | ((current: string | null) => string | null)) => {
+      setErrorMessage(value)
+      setErrorKind(null)
+    },
+    [],
+  )
 
   /**
    * Shows the shell-wide busy overlay for a long-running action.
@@ -306,7 +328,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       return report.reason ?? t('shell.manualBackupDueWindow')
     }
     if (report.run) {
-      return report.warnings.some(isSafariAccessIssueMessage)
+      return report.warnings.some(isFullDiskAccessIssueMessage)
         ? t('shell.safariFullDiskAccessBackupWarning', {
             runId: report.run.id,
           })
@@ -378,7 +400,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [],
+    [setError],
   )
 
   const refreshAppData = useCallback(
@@ -454,7 +476,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [clearLoadedState, refreshDashboardSnapshot, setLanguagePreference],
+    [clearLoadedState, refreshDashboardSnapshot, setLanguagePreference, setError],
   )
 
   const armIdleDeadline = useEffectEvent((idleTimeoutMinutes: number) => {
@@ -692,6 +714,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     clearBusyOverlay,
     setNotice,
     setError,
+    setErrorKind,
     setSnapshot,
     setAppLockStatus,
     setRefreshKey,
@@ -721,6 +744,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         busyAction,
         busyOverlay,
         error,
+        errorKind,
         notice,
         archiveTasks,
         activeArchiveTask,
@@ -739,6 +763,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         lockAppSession,
         unlockAppSession,
         clearNotice: () => setNotice(null),
+        clearError: () => setError(null),
         markNotificationsRead: () =>
           setNotifications((current) => markShellNotificationsRead(current)),
         dismissNotification: (id: string) =>
@@ -799,13 +824,6 @@ function isShellNotification(value: unknown): value is ShellNotification {
     typeof candidate.body === 'string' &&
     typeof candidate.tone === 'string' &&
     typeof candidate.read === 'boolean'
-  )
-}
-
-function isSafariAccessIssueMessage(message: string) {
-  return (
-    message.includes('Safari History.db is not readable yet') ||
-    message.includes('Full Disk Access')
   )
 }
 

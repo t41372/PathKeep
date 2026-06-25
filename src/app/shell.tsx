@@ -53,6 +53,9 @@ import {
 import { useProfileScope } from '@/lib/profile-scope-context'
 import { hasMacOverlayTitlebar } from '@/lib/runtime'
 
+const FDA_DEEP_LINK =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
+
 const SIDEBAR_KEY = 'pathkeep.sidebar.collapsed'
 const EPIGRAPH_KEY = 'pathkeep.epigraph'
 
@@ -282,6 +285,28 @@ export function AppShell() {
     : null
   const archiving = Boolean(shell.busyAction)
   const initialized = shell.snapshot?.archiveStatus?.initialized ?? false
+  const shellError = shell.error
+  // Gate the FDA remediation button on the locale-independent classification the
+  // provider set from the RAW backend error — NOT by re-parsing the translated
+  // `shellError` text, which only contains the ASCII "Full Disk Access" marker
+  // in English and would hide the button for zh-CN / zh-TW users.
+  const isFullDiskAccessError = shell.errorKind === 'full-disk-access'
+
+  const handleClearError = useCallback(() => {
+    shell.clearError()
+  }, [shell])
+
+  // Fire-and-forget OS handoffs (open Settings deep-link / reveal the logs
+  // folder). These mirror the sibling `handleSupportPathOpen` pattern —
+  // `void` the promise without a `.catch`; a failed OS handoff is not worth
+  // surfacing and there is nothing to recover.
+  const handleOpenFdaSettings = useCallback(() => {
+    void backend.openExternalUrl(FDA_DEEP_LINK)
+  }, [])
+
+  const handleRevealLogs = useCallback(() => {
+    void backend.revealLogs()
+  }, [])
   const archiveHealthy = initialized && !shell.snapshot?.archiveStatus?.warning
   const buildVersion = shell.buildInfo?.version
     ? `v${shell.buildInfo.version}`
@@ -343,6 +368,46 @@ export function AppShell() {
           data-fixed-height={isFixedHeightRoute ? 'true' : 'false'}
           data-testid="app-scroll"
         >
+          {shellError ? (
+            <div
+              className="bg-danger-soft border-danger text-ink mt-5 mb-4 flex flex-col gap-3 rounded-[3px] border px-4 py-3"
+              role="alert"
+              data-testid="shell-error-banner"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="font-sans text-[13px] leading-[1.5] m-0">
+                  {shellError}
+                </p>
+                <button
+                  type="button"
+                  aria-label={t('common.dismiss')}
+                  className="text-ink-muted hover:text-ink shrink-0 font-mono text-[12px] leading-none"
+                  onClick={handleClearError}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {isFullDiskAccessError ? (
+                  <button
+                    type="button"
+                    className="btn-secondary text-[12px]"
+                    onClick={handleOpenFdaSettings}
+                  >
+                    {t('shell.fullDiskAccessOpenSettings')}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={t('shell.revealLogsAriaLabel')}
+                  className="btn-secondary text-[12px]"
+                  onClick={handleRevealLogs}
+                >
+                  {t('shell.revealLogs')}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <Outlet />
         </main>
         <PKStatusBar

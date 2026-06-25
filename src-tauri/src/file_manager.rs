@@ -13,6 +13,15 @@ pub(crate) fn open_external_url_impl(url: String) -> Result<String, String> {
     vault_platform::open_external_url(url)
 }
 
+/// Reveals the local log directory through the platform file manager, returning the revealed path.
+///
+/// Resolves the log directory from the project paths so the user (and any bug report) can reach
+/// `logs/rust.log` in one click — diagnostics must never be a hidden, hand-typed path.
+pub(crate) fn reveal_logs_impl() -> Result<String, String> {
+    let paths = vault_core::project_paths().map_err(|error| error.to_string())?;
+    open_path_in_file_manager_impl(paths.logs_dir.display().to_string())
+}
+
 /// Writes a UTF-8 text document to a user-chosen path and returns the byte count written.
 ///
 /// Backs the AI assistant's "Export conversation" affordance: the frontend builds the Markdown /
@@ -87,6 +96,22 @@ mod tests {
         let error = open_external_url_impl("ftp://example.com/pathkeep".to_string())
             .expect_err("ftp urls should fail");
         assert!(error.contains("macOS Full Disk Access settings URL"));
+    }
+
+    #[test]
+    fn reveal_logs_resolves_the_project_log_directory() {
+        let _env_lock = lock_env();
+        let dir = tempdir().expect("tempdir");
+        let original = std::env::var_os("CHB_PROJECT_ROOT");
+        unsafe {
+            std::env::set_var("CHB_PROJECT_ROOT", dir.path());
+        }
+        // `project_paths` only computes paths (it does not create `logs/`), so the launcher rejects
+        // the missing directory gracefully — no real file-manager spawn — which is enough to exercise
+        // reveal_logs_impl's path resolution.
+        let error = reveal_logs_impl().expect_err("a missing logs dir should fail, not spawn");
+        restore_env_var("CHB_PROJECT_ROOT", original.as_deref());
+        assert!(error.contains("Path does not exist"));
     }
 
     #[cfg(unix)]

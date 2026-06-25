@@ -112,6 +112,7 @@ export const commonNamespaceCatalog = {
     fileStepLabel: 'File',
     commandStepLabel: 'Command {index}',
     profileSwitchCurrent: 'Switch profile scope. Current: {profile}',
+    dismiss: 'Dismiss',
   },
   'zh-CN': {
     all: '全部',
@@ -199,6 +200,7 @@ export const commonNamespaceCatalog = {
     fileStepLabel: '文件',
     commandStepLabel: '命令 {index}',
     profileSwitchCurrent: '切换浏览器筛选，当前：{profile}',
+    dismiss: '关闭',
   },
   'zh-TW': {
     all: '全部',
@@ -286,5 +288,6 @@ export const commonNamespaceCatalog = {
     fileStepLabel: '檔案',
     commandStepLabel: '指令 {index}',
     profileSwitchCurrent: '切換瀏覽器篩選，目前：{profile}',
+    dismiss: '關閉',
   },
 } as const

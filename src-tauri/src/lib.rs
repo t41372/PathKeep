@@ -243,6 +243,7 @@ fn run_app() -> Result<()> {
             reset_local_secret_vault,
             open_path_in_file_manager,
             open_external_url,
+            reveal_logs,
             export_conversation_file,
             check_for_app_update,
             download_and_install_app_update,

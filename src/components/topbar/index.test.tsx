@@ -147,6 +147,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     render(
@@ -214,6 +216,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     render(
@@ -299,6 +303,8 @@ describe('Topbar', () => {
       lockAppSession,
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     render(
@@ -368,6 +374,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     window.addEventListener('unhandledrejection', unhandledRejection)
@@ -451,6 +459,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
       markNotificationsRead,
       dismissNotification,
     }
@@ -541,6 +551,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     render(
@@ -608,6 +620,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
       markNotificationsRead,
     }
 
@@ -670,6 +684,8 @@ describe('Topbar', () => {
       lockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       unlockAppSession: vi.fn().mockRejectedValue(new Error('not implemented')),
       clearNotice: vi.fn(),
+      errorKind: null,
+      clearError: vi.fn(),
     }
 
     window.location.hash = '#/'
