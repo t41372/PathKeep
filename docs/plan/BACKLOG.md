@@ -648,6 +648,17 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。UI/UX 與文案交給 Opus 4.6 subagent。
   - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
 
+- [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
+  - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。
+  - 目標（release 工程）：
+    - 取得 **Apple Developer ID Application** 憑證，存成 GitHub Actions 加密 secrets，在 CI 對每個 release 做 **codesign（hardened runtime）+ notarize + staple**。所有 release 共用同一個穩定身份 → app 的 TCC designated requirement（team + bundle id）跨版本不變 → 使用者授一次 FDA 後**跨更新持續有效**。
+    - 設計 CI 簽章流程（憑證/私鑰注入、`tauri build` 的 signing identity、notarytool、更新器 artifact 簽章與 `TAURI_SIGNING_PRIVATE_KEY`）。
+    - 文檔化 first-run FDA 授權引導（即使簽章穩定，第一次仍需使用者授權；配合 in-app FDA 引導，見備份透明度修復）。
+  - 開發期 interim（已/將做，非本 block）：本機用 **自簽憑證**（stable self-signed）簽 debug build，讓開發測試時 FDA 不會每次 rebuild 失效；自簽 ≠ release（自簽會被 Gatekeeper 擋、無法 notarize），只用於本機 dev。
+  - 讀先：`src-tauri/tauri.conf.json`（bundle / identifier / updater）；`.github/workflows/`（CI）；Tauri v2 macOS code-signing + updater 文檔。
+  - 契約：憑證/私鑰只進加密 secrets，永不入 repo；reproducible build 原則不破；release rehearsal（`bun run verify`）通過。
+  - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
+
 ---
 
 ## 依賴關係圖
