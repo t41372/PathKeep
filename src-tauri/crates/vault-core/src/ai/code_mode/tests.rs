@@ -82,6 +82,8 @@ fn empty_context() -> (crate::config::ProjectPaths, AgentToolContext) {
         // These code_mode tests pass `control` directly to `run_code_in_sandbox`/`execute_guest`,
         // not through the tool context, so the context's own hook stays `None`.
         run_control: None,
+        // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
+        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
     };
     (paths, context)
 }
@@ -492,6 +494,27 @@ fn real_js_calls_query_history_and_returns_distilled_json_with_citations() {
     // The citation is carried out-of-band with its canonical_url (so the answer stays starrable).
     let cited = outcome.citations.iter().find(|c| c.history_id == 101).expect("rust page cited");
     assert_eq!(cited.canonical_url, expected_canonical);
+}
+
+#[test]
+fn query_history_rows_carry_local_time_fields() {
+    // Defect A (code_mode path) — every sandbox row carries `visitedAtLocal` (LOCAL HH:MM) and
+    // `localDate` (LOCAL YYYY-MM-DD) so a script grouping by day never does epoch/timezone math against
+    // the sandbox's 0 clock. The test context pins UTC, and `seed_visit_on_date` puts the visit at
+    // MIDDAY on 2026-06-19, so the local date is that day and the local time is 12:00.
+    let (_paths, context) = dated_context();
+    let source = r#"
+        const r = query_history({ query: "", startDate: "2026-06-19", endDate: "2026-06-19" });
+        const row = r.rows[0];
+        return { localDate: row.localDate, visitedAtLocal: row.visitedAtLocal, hasUtc: !!row.visitedAt };
+    "#;
+    let rt = runtime();
+    let outcome = run_code_in_sandbox(source, &context, rt.handle().clone(), None);
+    assert!(outcome.error.is_none(), "clean run, got error: {:?}", outcome.error);
+    let distilled: Value = serde_json::from_str(&outcome.model_text).expect("valid JSON output");
+    assert_eq!(distilled["localDate"], "2026-06-19", "the LOCAL day bucket is present");
+    assert_eq!(distilled["visitedAtLocal"], "2026-06-19 12:00", "the LOCAL wall-clock time");
+    assert_eq!(distilled["hasUtc"], true, "the raw UTC visitedAt is still carried");
 }
 
 #[test]

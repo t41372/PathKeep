@@ -247,6 +247,8 @@ fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
         default_domain: None,
         default_limit: config.ai.retrieval_top_k.max(1),
         run_control: None,
+        // Pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
+        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
     }
 }
 

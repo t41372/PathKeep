@@ -107,6 +107,11 @@ pub struct AgentToolContext {
     /// promptly traps the guest (the sandbox bumps the engine epoch on cancel). `None` outside an
     /// agent run (the harness tests, and any retrieval-only caller) — the search tools never read it.
     pub run_control: Option<Arc<dyn AiRunControl>>,
+    /// The host's current UTC offset, used to render visit timestamps as LOCAL date/time in
+    /// model-facing tool output so the clockless model never hand-computes epoch/timezone math.
+    /// A fixed offset resolved once per run from the OS clock — exact for non-DST zones and recent
+    /// visits, with at most a 1-hour skew for historical visits across a DST boundary.
+    pub tz_offset: chrono::FixedOffset,
 }
 
 /// JSON arguments accepted by every retrieval tool (one shared shape across the planes).
@@ -292,10 +297,34 @@ impl AgentTool for HistorySearchTool {
                     .map(|normalized| normalized.canonical_url),
             })
             .collect::<Vec<_>>();
-        let model_text = summarize_search_for_model(self.name, &response);
+        let model_text = summarize_search_for_model(self.name, &response, context.tz_offset);
         // The search tools carry no code-mode fields (those default); only `run_code` populates them.
         Ok(ToolOutcome { model_text, citations, ..ToolOutcome::default() })
     }
+}
+
+/// Renders a UTC epoch-millis instant as a LOCAL `YYYY-MM-DD HH:MM` string in `offset`.
+/// Model-facing output uses this so the clockless model never converts epoch ms or applies a
+/// timezone by hand (a real trace showed it burning hundreds of reasoning lines doing exactly that).
+pub(super) fn format_local_ms(ms: i64, offset: chrono::FixedOffset) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+/// Renders an RFC-3339 timestamp as a LOCAL `YYYY-MM-DD HH:MM` string in `offset`; returns the input
+/// unchanged if it cannot be parsed (never panics on unexpected data).
+pub(super) fn format_local_rfc3339(value: &str, offset: chrono::FixedOffset) -> String {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|_| value.to_string())
+}
+
+/// The LOCAL `YYYY-MM-DD` calendar date for an RFC-3339 timestamp in `offset` (empty on parse failure).
+pub(super) fn local_date_rfc3339(value: &str, offset: chrono::FixedOffset) -> String {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&offset).format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 /// Builds the compact, bounded, model-facing summary of one search result.
@@ -303,9 +332,12 @@ impl AgentTool for HistorySearchTool {
 /// 02 §F bounded-context rule: thread evidence by row id + count + a short line per hit, NEVER the
 /// full result set. Each line is `[id] visited | url — title (reason, score)` so the model can cite
 /// a real history row id; any degradation notes are appended so the model knows recall was limited.
+/// `offset` renders each row's `visited_at` as LOCAL time so the clockless model never converts epoch
+/// ms or a timezone by hand.
 fn summarize_search_for_model(
     tool_name: &str,
     response: &crate::models::AiSearchResponse,
+    offset: chrono::FixedOffset,
 ) -> String {
     if response.items.is_empty() {
         let limit_info =
@@ -336,7 +368,7 @@ fn summarize_search_for_model(
         text.push_str(&format!(
             "\n[{id}] {visited} | {url} — {title} ({reason}, {score:.3})",
             id = item.history_id,
-            visited = item.visited_at,
+            visited = format_local_rfc3339(&item.visited_at, offset),
             url = item.url,
             title = item.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
             reason = item.match_reason,
@@ -359,7 +391,7 @@ fn summarize_search_for_model(
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...], hasMore: boolean, nextCursor: string|null }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAt, score, matchReason, canonicalUrl); `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" only returns the most-relevant sample, NEVER the earliest, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; if `hasMore` is true but `nextCursor` is null you have reached the retrieval cap (the deepest retrievable page for this query) — narrow `startDate`/`endDate` or add filters to see more rather than paging further; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. PROCESS THE FULL SET, NOT A SAMPLE: the rows query_history returns stay INSIDE this sandbox — they never enter your context, so only the small value you `return` costs context. That means you can fetch hundreds or thousands of visits, loop over ALL of them, and hand back a tiny summary. So do not answer from a single 50-row sample: when a question is about ALL matching visits (\"how many\", \"group by domain\", \"every site I visited that week\"), PAGINATE and AGGREGATE. Use a LARGE page (limit up to 1000 per call) so you cover the set in few calls — you have a budget of 64 query_history/fetch_visits calls total, so big pages + stopping as soon as you are done is the efficient pattern. Loop: pass the reply's `nextCursor` back as `cursor` (keeping the SAME query/sort/filters) and keep going while `hasMore` is true AND `nextCursor` is not null; stop when `hasMore` is false (you have the whole set) or `nextCursor` is null (you hit the retrieval cap — if `hasMore` was still true, narrow startDate/endDate and reflect that the count is a floor). Accumulate into JS structures as you go, then `return` only the distilled summary. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) }; Example (paginate + aggregate the FULL set — count every visit by domain across a week, not just the first page): const byDomain = {}; const byDay = {}; let total = 0; let cursor = null; let truncated = false; for (let i = 0; i < 64; i++) { const page = query_history({ query: \"\", sort: \"oldest\", startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) { total++; byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; const day = r.visitedAt.slice(0, 10); byDay[day] = (byDay[day] || 0) + 1; } if (!page.hasMore) break; if (!page.nextCursor) { truncated = true; break; } cursor = page.nextCursor; } return { total, byDomain, byDay, truncated };";
+const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous and returning { rows: [...], notes: [...], hasMore: boolean, nextCursor: string|null }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAtLocal (LOCAL wall-clock time, the user's timezone), localDate (YYYY-MM-DD in the user's timezone — GROUP BY THIS for per-day buckets), score, matchReason, canonicalUrl, plus visitedAt which is the raw UTC instant — use the LOCAL fields for any date/time/day grouping and avoid visitedAt for display). `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" only returns the most-relevant sample, NEVER the earliest, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; if `hasMore` is true but `nextCursor` is null you have reached the retrieval cap (the deepest retrievable page for this query) — narrow `startDate`/`endDate` or add filters to see more rather than paging further; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. PROCESS THE FULL SET, NOT A SAMPLE: the rows query_history returns stay INSIDE this sandbox — they never enter your context, so only the small value you `return` costs context. That means you can fetch hundreds or thousands of visits, loop over ALL of them, and hand back a tiny summary. So do not answer from a single 50-row sample: when a question is about ALL matching visits (\"how many\", \"group by domain\", \"every site I visited that week\"), PAGINATE and AGGREGATE. Use a LARGE page (limit up to 1000 per call) so you cover the set in few calls — you have a budget of 64 query_history/fetch_visits calls total, so big pages + stopping as soon as you are done is the efficient pattern. Loop: pass the reply's `nextCursor` back as `cursor` (keeping the SAME query/sort/filters) and keep going while `hasMore` is true AND `nextCursor` is not null; stop when `hasMore` is false (you have the whole set) or `nextCursor` is null (you hit the retrieval cap — if `hasMore` was still true, narrow startDate/endDate and reflect that the count is a floor). Accumulate into JS structures as you go, then `return` only the distilled summary. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, total: result.rows.length }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false }; return { count: result.rows.length, topDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) }; Example (paginate + aggregate the FULL set — count every visit by domain across a week, not just the first page): const byDomain = {}; const byDay = {}; let total = 0; let cursor = null; let truncated = false; for (let i = 0; i < 64; i++) { const page = query_history({ query: \"\", sort: \"oldest\", startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) { total++; byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; const day = r.localDate; byDay[day] = (byDay[day] || 0) + 1; } if (!page.hasMore) break; if (!page.nextCursor) { truncated = true; break; } cursor = page.nextCursor; } return { total, byDomain, byDay, truncated };";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -525,6 +557,9 @@ struct IntelligenceReportArgs {
     end_date: Option<String>,
     domain: Option<String>,
     limit: Option<u32>,
+    /// Required for the `session_detail` report: the `sessionId` from a `sessions` report row, so the
+    /// model can drill from a session into its actual visits (Defect C).
+    session_id: Option<String>,
 }
 
 /// The report variants `intelligence_report` dispatches to.
@@ -542,6 +577,7 @@ enum IntelReport {
     DomainTrend,
     DayInsights,
     Overview,
+    SessionDetail,
 }
 
 impl IntelReport {
@@ -558,8 +594,9 @@ impl IntelReport {
             "domain_trend" => Self::DomainTrend,
             "day_insights" => Self::DayInsights,
             "overview" => Self::Overview,
+            "session_detail" => Self::SessionDetail,
             other => anyhow::bail!(
-                "unknown report variant `{other}`; expected one of: top_sites, sessions, search_trails, activity_mix, browsing_rhythm, domain_trend, day_insights, overview"
+                "unknown report variant `{other}`; expected one of: top_sites, sessions, search_trails, activity_mix, browsing_rhythm, domain_trend, day_insights, overview, session_detail"
             ),
         })
     }
@@ -581,20 +618,22 @@ impl IntelligenceReportTool {
                 "report": {
                     "type": "string",
                     "enum": ["top_sites", "sessions", "search_trails", "activity_mix",
-                             "browsing_rhythm", "domain_trend", "day_insights", "overview"],
+                             "browsing_rhythm", "domain_trend", "day_insights", "overview",
+                             "session_detail"],
                     "description": "Which pre-computed report to retrieve."
                 },
                 "start_date": { "type": "string", "description": "Start of date range (YYYY-MM-DD). Omit for all-time." },
                 "end_date": { "type": "string", "description": "End of date range (YYYY-MM-DD). Omit for all-time." },
                 "domain": { "type": "string", "description": "Optional domain filter (e.g. 'youtube.com')." },
-                "limit": { "type": "integer", "description": "Maximum items to return." }
+                "limit": { "type": "integer", "description": "Maximum items to return." },
+                "session_id": { "type": "string", "description": "Required for the session_detail report: the sessionId from a sessions report row." }
             },
             "required": ["report"]
         })
     }
 }
 
-const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. Reports are built from the full history archive and cover sessions, top sites, search trails, activity patterns, domain trends, and daily insights. Use this when the user asks about patterns, trends, summaries, or habits across time — it is faster and more complete than running code over raw search results.";
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. Reports are built from the full history archive and cover sessions, top sites, search trails, activity patterns, domain trends, and daily insights. Use this when the user asks about patterns, trends, summaries, or habits across time — it is faster and more complete than running code over raw search results. In the sessions report, autoTitle is a HEURISTIC label naming a session by its most salient domain/query — it is NOT the subject of every visit in the session; visitCount is the TOTAL number of visits in that session across all domains, NOT the number of visits to the autoTitle term. To see what a session actually contains, call the session_detail report with its sessionId.";
 
 impl AgentTool for IntelligenceReportTool {
     fn name(&self) -> &str {
@@ -659,6 +698,13 @@ impl AgentTool for IntelligenceReportTool {
                     );
                 }
             }
+            IntelReport::SessionDetail => {
+                if parsed.session_id.as_deref().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!(
+                        "the `session_id` argument is required for the session_detail report (use the sessionId from a sessions report row)"
+                    );
+                }
+            }
             _ => {}
         }
 
@@ -684,7 +730,7 @@ impl AgentTool for IntelligenceReportTool {
 
         // Exhaustive over `IntelReport` — the compiler guarantees every variant is handled, so there
         // is no catch-all arm (the unknown case was already rejected by `IntelReport::parse` above).
-        let result_json: Value = match report {
+        let mut result_json: Value = match report {
             IntelReport::TopSites => {
                 let request = TopSitesRequest {
                     date_range,
@@ -753,7 +799,42 @@ impl AgentTool for IntelligenceReportTool {
                 )?;
                 serde_json::to_value(result)?
             }
+            IntelReport::SessionDetail => {
+                // `session_id` presence was validated above (L2). A bad id is `Err(not found)` from
+                // the read model, which propagates as a recoverable tool error (never a panic).
+                let session_id = parsed.session_id.clone().unwrap_or_default();
+                let result =
+                    crate::intelligence::get_session_detail(paths, config, key, &session_id)?;
+                serde_json::to_value(result)?
+            }
         };
+
+        // Localize the model-facing timestamps at the AGENT-TOOL boundary (NOT in the shared read-model
+        // structs, which are a FRONTEND contract). The model is clockless and the sandbox clock reads 0,
+        // so a session/trail's epoch-ms `firstVisitMs`/`lastVisitMs` (and a session_detail visit's
+        // `visitTimeMs`) get sibling LOCAL string fields it can use directly without epoch/timezone math.
+        match report {
+            IntelReport::Sessions => {
+                enrich_session_like_local(&mut result_json["sessions"], context.tz_offset);
+            }
+            IntelReport::SearchTrails => {
+                enrich_session_like_local(&mut result_json["trails"], context.tz_offset);
+            }
+            IntelReport::SessionDetail => {
+                enrich_first_last_visit_local(&mut result_json["session"], context.tz_offset);
+                if let Some(visits) = result_json["visits"].as_array_mut() {
+                    for visit in visits {
+                        if let Some(ms) = visit.get("visitTimeMs").and_then(Value::as_i64) {
+                            visit["visitTimeLocal"] = json!(format_local_ms(ms, context.tz_offset));
+                        }
+                    }
+                }
+                // The session's trails carry firstVisitMs/lastVisitMs too — localize them so the
+                // drill-down the fix added doesn't reintroduce raw epoch ms inside its own payload.
+                enrich_session_like_local(&mut result_json["trails"], context.tz_offset);
+            }
+            _ => {}
+        }
 
         // Build a compact model-facing summary. We serialize the JSON but truncate to avoid
         // blowing up the model context with the full payload. H2 — truncate on a CHAR boundary so a
@@ -769,8 +850,31 @@ impl AgentTool for IntelligenceReportTool {
         } else {
             raw
         };
-        let model_text =
-            format!("intelligence_report({}): result follows.\n{}", parsed.report, truncated);
+        // Co-locate the sessions caveats WITH the data the model reasons over at answer-composition
+        // time (the tool DESCRIPTION is only read at tool-selection time, so a buried caveat there is
+        // forgotten by the time the model is reading rows). The preamble kills the "autoTitle == the
+        // thing visited N times" misread (Defect B), and the footer makes the session_detail drill-down
+        // discoverable from the output itself (Defect C) rather than only the description.
+        //
+        // The preamble/footer are `concat!` of separate literals, NOT a `\`-continued string: a
+        // backslash-continued literal here desyncs the coverage gate's brace-counting line-mask and
+        // falsely reports this arm as uncovered.
+        let sessions_preamble = concat!(
+            "intelligence_report(sessions): result follows. NOTE: autoTitle is a heuristic label ",
+            "naming each session by its most salient domain/query — NOT the subject of every visit; ",
+            "visitCount is the TOTAL visits in the session across all domains, NOT visits to the ",
+            "autoTitle term.\n",
+        );
+        let sessions_footer = concat!(
+            "\nTo see the actual URLs inside a session, call intelligence_report with ",
+            "report=\"session_detail\" and session_id=<the sessionId of any row above>.",
+        );
+        let model_text = match report {
+            IntelReport::Sessions => {
+                format!("{sessions_preamble}{truncated}{sessions_footer}")
+            }
+            _ => format!("intelligence_report({}): result follows.\n{}", parsed.report, truncated),
+        };
         Ok(ToolOutcome { model_text, ..ToolOutcome::default() })
     }
 }
@@ -787,6 +891,34 @@ const ALL_TIME_SCOPE_START: &str = "1900-01-01";
 
 /// Byte budget for the model-facing intelligence_report JSON before truncation (02 §F bounded context).
 const INTELLIGENCE_REPORT_MAX_BYTES: usize = 8_000;
+
+/// Adds sibling LOCAL `firstVisitLocal`/`lastVisitLocal` strings to each element of a
+/// session-or-trail JSON array (sessions and search-trail rows both carry `firstVisitMs`/`lastVisitMs`).
+///
+/// A no-op when `items` is not an array (a torn/empty report serializes to something else) — so the
+/// enrichment is best-effort and never panics on an unexpected shape. The raw ms fields are KEPT.
+fn enrich_session_like_local(items: &mut Value, offset: chrono::FixedOffset) {
+    if let Some(array) = items.as_array_mut() {
+        for item in array {
+            enrich_first_last_visit_local(item, offset);
+        }
+    }
+}
+
+/// Adds sibling LOCAL `firstVisitLocal`/`lastVisitLocal` strings to ONE object carrying integer
+/// `firstVisitMs`/`lastVisitMs` epoch-ms fields (a session summary or a trail summary).
+///
+/// Each LOCAL field is inserted only when its ms sibling is present and integer, so a partial object
+/// is enriched as far as it can be without ever overwriting or fabricating a value. The raw ms fields
+/// stay so a caller that wants the exact instant still has it.
+fn enrich_first_last_visit_local(item: &mut Value, offset: chrono::FixedOffset) {
+    if let Some(ms) = item.get("firstVisitMs").and_then(Value::as_i64) {
+        item["firstVisitLocal"] = json!(format_local_ms(ms, offset));
+    }
+    if let Some(ms) = item.get("lastVisitMs").and_then(Value::as_i64) {
+        item["lastVisitLocal"] = json!(format_local_ms(ms, offset));
+    }
+}
 
 /// Returns an honest "intelligence not ready" outcome for a given report variant.
 fn intelligence_not_ready_outcome(report: &str) -> ToolOutcome {
@@ -1083,6 +1215,11 @@ mod tests {
     use rusqlite::params;
     use secrecy::SecretString;
 
+    /// The UTC offset the tests render LOCAL times with — deterministic, host-clock-independent.
+    fn utc() -> chrono::FixedOffset {
+        chrono::FixedOffset::east_opt(0).unwrap()
+    }
+
     fn embedding_runtime() -> AiProviderRuntime {
         AiProviderRuntime {
             config: AiProviderConfig {
@@ -1116,6 +1253,8 @@ mod tests {
             // The harness tests build a context with no run control; the search tools never read it
             // and `run_code` threads `None` into the sandbox (no cancel hook) as a safe default.
             run_control: None,
+            // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
+            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
         };
         (dir, context)
     }
@@ -1352,7 +1491,7 @@ mod tests {
             applied_limit: Some(1),
             has_more: true,
         };
-        let text = summarize_search_for_model("search_history", &response);
+        let text = summarize_search_for_model("search_history", &response, utc());
         assert!(text.contains("has_more: true"), "has_more surfaced: {text}");
         assert!(
             text.contains("next_cursor: 1"),
@@ -1361,7 +1500,7 @@ mod tests {
 
         // No cursor → no next_cursor segment.
         let last = AiSearchResponse { next_cursor: None, has_more: false, ..response };
-        let last_text = summarize_search_for_model("search_history", &last);
+        let last_text = summarize_search_for_model("search_history", &last, utc());
         assert!(
             !last_text.contains("next_cursor"),
             "no cursor segment on the last page: {last_text}"
@@ -1443,7 +1582,7 @@ mod tests {
             applied_limit: Some(50),
             has_more: false,
         };
-        let text = summarize_search_for_model("search_hybrid", &response);
+        let text = summarize_search_for_model("search_hybrid", &response, utc());
         assert!(text.contains("[7]"));
         assert!(text.contains("https://example.com/"));
         assert!(text.contains("Note: lexical only"));
@@ -1460,7 +1599,7 @@ mod tests {
             applied_limit: None,
             has_more: false,
         };
-        let empty_text = summarize_search_for_model("search_bm25", &empty);
+        let empty_text = summarize_search_for_model("search_bm25", &empty, utc());
         assert!(empty_text.contains("no matching history rows"));
         assert!(empty_text.contains("Note: nothing"));
     }
@@ -1489,14 +1628,14 @@ mod tests {
             applied_limit: Some(50),
             has_more: true,
         };
-        let text = summarize_search_for_model("search_history", &response);
+        let text = summarize_search_for_model("search_history", &response, utc());
         assert!(text.contains("applied_limit: 50"), "applied_limit in summary: {text}");
         assert!(text.contains("has_more: true"), "has_more in summary: {text}");
 
         // When has_more is false it should not appear.
         let response_no_more =
             AiSearchResponse { applied_limit: Some(8), has_more: false, ..response.clone() };
-        let text2 = summarize_search_for_model("search_history", &response_no_more);
+        let text2 = summarize_search_for_model("search_history", &response_no_more, utc());
         assert!(text2.contains("applied_limit: 8"), "applied_limit in summary: {text2}");
         assert!(!text2.contains("has_more"), "has_more absent when false: {text2}");
     }
@@ -1517,6 +1656,20 @@ mod tests {
         assert!(
             def.description.contains("{ found: false }"),
             "run_code description includes explicit no-answer shape"
+        );
+        // Defect A — the description teaches the LOCAL row fields and the byDay example groups by
+        // `r.localDate` (not the old UTC `r.visitedAt.slice(0, 10)`).
+        assert!(
+            def.description.contains("visitedAtLocal") && def.description.contains("localDate"),
+            "run_code description documents the LOCAL row fields"
+        );
+        assert!(
+            def.description.contains("r.localDate"),
+            "the byDay example groups by the LOCAL date"
+        );
+        assert!(
+            !def.description.contains("r.visitedAt.slice(0, 10)"),
+            "the old UTC-slice day bucket is gone"
         );
     }
 
@@ -2130,6 +2283,63 @@ mod tests {
             .expect("seed domain rollup");
     }
 
+    /// Seeds ONE visit linked to `session_id` so a `session_detail` read returns a non-empty `visits`
+    /// list (exercising the per-visit `visitTimeLocal` enrichment loop). Mirrors the intelligence test
+    /// fixture: an `archive.urls` + `archive.visits` row at `visit_ms`, plus the `visit_derived_facts`
+    /// row whose `session_id` the detail read joins on.
+    fn seed_session_visit(
+        context: &AgentToolContext,
+        session_id: &str,
+        visit_id: i64,
+        visit_ms: i64,
+    ) {
+        let connection =
+            crate::archive::open_intelligence_connection(&context.paths, &context.config, None)
+                .expect("open intelligence");
+        let now = crate::utils::now_rfc3339();
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', ?1, 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [now.clone()],
+            )
+            .expect("seed run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'test', 'chrome:Default', '/tmp/p', ?1, 1, 'chrome:Default', ?1)",
+                [now.clone()],
+            )
+            .expect("seed profile");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                 VALUES (?1, 'https://example.com/page', 'Example', 1, 0, ?2, ?3, ?2, ?3, 1, 1, ?1, 0, ?4, ?3)",
+                params![visit_id, visit_ms, now.clone(), format!("payload-{visit_id}")],
+            )
+            .expect("seed url");
+        connection
+            .execute(
+                "INSERT INTO archive.visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES (?1, ?1, ?2, ?3, ?4, 805306368, 0, 1, 1, NULL, 1, 0, NULL, NULL, ?5, ?6, ?4)",
+                params![visit_id, visit_id.to_string(), visit_ms, now.clone(), format!("fp-{visit_id}"), format!("payload-{visit_id}")],
+            )
+            .expect("seed visit");
+        connection
+            .execute(
+                "INSERT INTO visit_derived_facts
+                 (visit_id, profile_id, session_id, trail_id, registrable_domain, canonical_url,
+                  domain_category, page_category, search_engine, search_query, is_search_event,
+                  evidence_tier, taxonomy_source, computed_at)
+                 VALUES (?1, 'chrome:Default', ?2, NULL, 'example.com', 'https://example.com/page',
+                         'reference', 'docs_page', NULL, NULL, 0, 'tier-a', 'test', ?3)",
+                params![visit_id, session_id, now],
+            )
+            .expect("seed derived fact");
+    }
+
     #[tokio::test]
     async fn intelligence_report_top_sites_returns_seeded_domain_all_time() {
         // Test 3 — top_sites over a READY plane returns the seeded domain. Omitted dates exercise the
@@ -2497,5 +2707,227 @@ mod tests {
             !outcome.model_text.contains(&long_cjk_note),
             "the FULL over-budget note must not appear; only the capped preview does"
         );
+    }
+
+    // ============================================================================================
+    // LOCAL-time rendering (Defect A) + session_detail (Defect C) + the sessions-semantics note (B).
+    // ============================================================================================
+
+    #[test]
+    fn format_local_ms_renders_local_and_handles_an_invalid_instant() {
+        // Success: an epoch-ms instant renders as `YYYY-MM-DD HH:MM` in the offset. 1_700_000_000_000ms
+        // is 2023-11-14T22:13:20Z; in +08:00 that is the 15th, 06:13 — proving the offset is applied.
+        let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        assert_eq!(format_local_ms(1_700_000_000_000, plus8), "2023-11-15 06:13");
+        assert_eq!(format_local_ms(1_700_000_000_000, utc()), "2023-11-14 22:13");
+        // Parse-failure branch: `from_timestamp_millis` returns None for an out-of-range instant, so the
+        // helper yields the empty string (never panics). i64::MAX ms is far past the representable range.
+        assert_eq!(format_local_ms(i64::MAX, utc()), "");
+    }
+
+    #[test]
+    fn format_local_rfc3339_renders_local_and_passes_through_unparseable_input() {
+        // Success: an RFC-3339 UTC instant renders as LOCAL `YYYY-MM-DD HH:MM` in the offset.
+        let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        assert_eq!(format_local_rfc3339("2026-06-21T22:30:00Z", plus8), "2026-06-22 06:30");
+        assert_eq!(format_local_rfc3339("2026-06-21T22:30:00Z", utc()), "2026-06-21 22:30");
+        // Parse-failure branch: an unparseable value is returned UNCHANGED (never panics, never empty).
+        assert_eq!(format_local_rfc3339("not-a-date", utc()), "not-a-date");
+    }
+
+    #[test]
+    fn local_date_rfc3339_renders_the_local_day_and_is_empty_on_parse_failure() {
+        // Success: the LOCAL calendar date can roll over relative to UTC when the offset crosses midnight.
+        let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        assert_eq!(local_date_rfc3339("2026-06-21T22:30:00Z", plus8), "2026-06-22");
+        assert_eq!(local_date_rfc3339("2026-06-21T22:30:00Z", utc()), "2026-06-21");
+        // Parse-failure branch: an unparseable value yields the empty string (never panics).
+        assert_eq!(local_date_rfc3339("garbage", utc()), "");
+    }
+
+    #[test]
+    fn enrich_first_last_visit_local_adds_local_siblings_and_skips_missing_ms() {
+        // Both ms fields present → both LOCAL siblings inserted, raw ms kept.
+        let mut both =
+            json!({ "firstVisitMs": 1_700_000_000_000_i64, "lastVisitMs": 1_700_000_060_000_i64 });
+        enrich_first_last_visit_local(&mut both, utc());
+        assert_eq!(both["firstVisitLocal"], "2023-11-14 22:13");
+        assert_eq!(both["lastVisitLocal"], "2023-11-14 22:14");
+        assert_eq!(both["firstVisitMs"], 1_700_000_000_000_i64, "the raw ms field is kept");
+        // Only one ms field present → only that LOCAL sibling is added; the missing one stays absent.
+        let mut first_only = json!({ "firstVisitMs": 1_700_000_000_000_i64 });
+        enrich_first_last_visit_local(&mut first_only, utc());
+        assert_eq!(first_only["firstVisitLocal"], "2023-11-14 22:13");
+        assert!(first_only.get("lastVisitLocal").is_none(), "no sibling for an absent ms field");
+        // A non-integer ms (e.g. null) is skipped — no LOCAL sibling fabricated.
+        let mut not_int = json!({ "firstVisitMs": null });
+        enrich_first_last_visit_local(&mut not_int, utc());
+        assert!(not_int.get("firstVisitLocal").is_none());
+    }
+
+    #[test]
+    fn enrich_session_like_local_walks_an_array_and_no_ops_on_a_non_array() {
+        // Array branch: every element gets its LOCAL siblings.
+        let mut array = json!([
+            { "firstVisitMs": 1_700_000_000_000_i64, "lastVisitMs": 1_700_000_060_000_i64 },
+            { "firstVisitMs": 1_700_000_120_000_i64, "lastVisitMs": 1_700_000_180_000_i64 },
+        ]);
+        enrich_session_like_local(&mut array, utc());
+        assert_eq!(array[0]["firstVisitLocal"], "2023-11-14 22:13");
+        assert_eq!(array[1]["lastVisitLocal"], "2023-11-14 22:16");
+        // Non-array (a torn/empty report) is a no-op — never panics, never mutates.
+        let mut not_array = json!({ "unexpected": true });
+        enrich_session_like_local(&mut not_array, utc());
+        assert_eq!(not_array, json!({ "unexpected": true }), "a non-array input is left untouched");
+    }
+
+    #[test]
+    fn intelligence_report_definition_advertises_session_detail_and_session_id() {
+        // Defect C — the schema must list `session_detail` in the report enum and offer `session_id`,
+        // and the description must teach the sessions-semantics caveat + the drill-down path (Defect B).
+        let def = IntelligenceReportTool.definition();
+        let enum_values =
+            def.parameters["properties"]["report"]["enum"].as_array().expect("enum array");
+        assert!(enum_values.contains(&json!("session_detail")), "session_detail in enum");
+        assert_eq!(def.parameters["properties"]["session_id"]["type"], "string");
+        assert!(
+            def.description.contains("autoTitle is a HEURISTIC")
+                && def.description.contains("session_detail"),
+            "the sessions-semantics note + drill-down hint is present: {}",
+            def.description
+        );
+    }
+
+    #[test]
+    fn intel_report_parse_maps_session_detail_and_lists_it_on_an_unknown_variant() {
+        // The parse maps the new name, and the unknown-variant error lists `session_detail` so the
+        // model is told the full valid set.
+        assert_eq!(
+            IntelReport::parse("session_detail").expect("parses"),
+            IntelReport::SessionDetail
+        );
+        let err = IntelReport::parse("nope").expect_err("unknown variant errors");
+        assert!(
+            err.to_string().contains("session_detail"),
+            "the valid-variant list names session_detail: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_session_detail_requires_session_id() {
+        // Defect C — the `session_id` required-arg check runs BEFORE the readiness gate, so an omitted
+        // id is an actionable arg ERROR (not the generic "not built" note) even on an empty plane.
+        let (_dir, context) = context_with(None);
+        let error = IntelligenceReportTool
+            .call(json!({ "report": "session_detail" }), &context)
+            .await
+            .expect_err("session_detail without session_id must bail with a required-arg error");
+        let message = error.to_string();
+        assert!(message.contains("session_id"), "got: {message}");
+        assert!(
+            !message.contains("not been built"),
+            "the arg error must pre-empt the readiness note: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_session_detail_returns_the_seeded_session_with_local_times() {
+        // Defect C + A — session_detail over a READY plane returns the seeded session AND its one visit,
+        // rendering LOCAL times on BOTH the session (firstVisitLocal/lastVisitLocal) and each visit
+        // (visitTimeLocal). The tests pin UTC, so the local string equals the UTC wall clock — which
+        // makes the loop-body `visitTimeLocal` insertion (Defect C) exercised, not just the session row.
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        seed_session_visit(&context, "s-1", 70_001, 1_711_929_630_000);
+        let outcome = IntelligenceReportTool
+            .call(json!({ "report": "session_detail", "session_id": "s-1" }), &context)
+            .await
+            .expect("session_detail for a seeded session returns data");
+        assert!(!outcome.model_text.contains("not been built"), "got: {}", outcome.model_text);
+        assert!(
+            outcome.model_text.contains("intelligence_report(session_detail)"),
+            "the arm labels its result: {}",
+            outcome.model_text
+        );
+        // The seeded session's first_visit_ms 1711929600000 = 2024-04-01T00:00:00Z → LOCAL (UTC) string.
+        assert!(
+            outcome.model_text.contains("firstVisitLocal")
+                && outcome.model_text.contains("2024-04-01 00:00"),
+            "the session carries a LOCAL first-visit time: {}",
+            outcome.model_text
+        );
+        // The visits loop adds visitTimeLocal: visit_time_ms 1711929630000 = 2024-04-01T00:00:30Z.
+        assert!(
+            outcome.model_text.contains("visitTimeLocal")
+                && outcome.model_text.contains("2024-04-01 00:00"),
+            "the visit row carries a LOCAL visit time (the loop body ran): {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_session_detail_unknown_id_propagates_an_error() {
+        // A non-existent session id is `Err(not found)` from the read model, which propagates as a
+        // recoverable tool error (never a panic).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let error = IntelligenceReportTool
+            .call(json!({ "report": "session_detail", "session_id": "no-such-session" }), &context)
+            .await
+            .expect_err("an unknown session id errors");
+        assert!(error.to_string().contains("not found"), "got: {error}");
+    }
+
+    #[tokio::test]
+    async fn intelligence_report_sessions_enriches_rows_with_local_times() {
+        // Defect A — the sessions report's rows carry the LOCAL first/last visit siblings (UTC-pinned).
+        let (_dir, context) = context_with(None);
+        seed_ready_intelligence(&context);
+        let outcome = IntelligenceReportTool
+            .call(json!({ "report": "sessions" }), &context)
+            .await
+            .expect("sessions over a ready plane returns data");
+        assert!(
+            outcome.model_text.contains("firstVisitLocal")
+                && outcome.model_text.contains("2024-04-01 00:00"),
+            "session rows carry a LOCAL first-visit time: {}",
+            outcome.model_text
+        );
+    }
+
+    #[tokio::test]
+    async fn search_history_renders_local_visit_times_in_the_summary() {
+        // Defect A — the search tool's per-row `visited` is rendered as LOCAL time (UTC-pinned context),
+        // not the raw RFC-3339 instant. The seed uses RFC-3339 `now`, so prove the format is `HH:MM`,
+        // not the `T...Z` instant. We seed under a known token and assert the LOCAL shape appears.
+        use crate::models::{AiSearchEntry, AiSearchResponse};
+        let response = AiSearchResponse {
+            total: 1,
+            provider_id: "p".to_string(),
+            model: "m".to_string(),
+            items: vec![AiSearchEntry {
+                history_id: 9,
+                profile_id: "p".to_string(),
+                url: "https://x.example/".to_string(),
+                title: Some("X".to_string()),
+                domain: "x.example".to_string(),
+                visited_at: "2026-06-21T22:30:00Z".to_string(),
+                score: 0.1,
+                match_reason: "Lexical match".to_string(),
+                enrichment_excerpt: None,
+            }],
+            notes: Vec::new(),
+            note_codes: Vec::new(),
+            next_cursor: None,
+            applied_limit: Some(50),
+            has_more: false,
+        };
+        let plus8 = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+        let text = summarize_search_for_model("search_history", &response, plus8);
+        assert!(
+            text.contains("2026-06-22 06:30"),
+            "the row renders LOCAL time (offset applied, no T...Z): {text}"
+        );
+        assert!(!text.contains("22:30:00Z"), "the raw RFC-3339 instant is not used: {text}");
     }
 }

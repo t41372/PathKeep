@@ -250,6 +250,26 @@ pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
         " and URL for each claim.",
     ));
 
+    // Local-time rule: the ENRICHED tool surfaces carry the user's LOCAL time so the clockless model
+    // must NOT recompute dates from raw epoch ms (a real trace showed it burning hundreds of reasoning
+    // lines doing exactly that). The claim is SCOPED to the enriched reports — overview/day_insights are
+    // UTC, so promising "all rows are local" would make the model trust their UTC strings as local.
+    // `concat!`, not a `\`-continued literal, to keep the coverage masking sane.
+    block.push_str(concat!(
+        " The search_history results, the run_code query_history rows, and the sessions / search_trails /",
+        " session_detail reports already include the user's LOCAL time in the timezone above: search_history",
+        " result lines LEAD with the local date-time; query_history rows carry visitedAtLocal + localDate;",
+        " sessions and search trails carry firstVisitLocal/lastVisitLocal; session_detail visits carry",
+        " visitTimeLocal. Read those LOCAL fields directly. When a row ALSO carries a raw epoch-millisecond",
+        " field (e.g. firstVisitMs), IGNORE it — do not convert or cross-check it; never recompute a date",
+        " from epoch milliseconds, and the run_code sandbox clock reads 0 so Date.now() there is meaningless.",
+        " (Local times apply your CURRENT timezone offset to every visit, so a historical visit from a",
+        " different daylight-saving period may read up to an hour off.) The overview and day_insights reports",
+        " are NOT localized — their date buckets and *At timestamps are UTC; for a precise local-day question",
+        " prefer the sessions / search_trails / session_detail reports, or a run_code script that groups by",
+        " localDate.",
+    ));
+
     // Stop rule: efficiency.
     block.push_str(concat!(
         " Once the tool results give you enough evidence, STOP calling tools and write the final",
@@ -1524,6 +1544,8 @@ mod tests {
             // context needs no separate hook here (only `run_code` reads it, and these tests that
             // exercise run_code build their own context with a real control).
             run_control: None,
+            // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
+            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
         };
         (dir, context)
     }
@@ -2784,6 +2806,8 @@ mod tests {
             default_domain: None,
             default_limit: 8,
             run_control: None,
+            // Tests pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
+            tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
         };
 
         let registry = ToolRegistry::with_default_search_tools();
@@ -2889,6 +2913,17 @@ mod tests {
         assert!(
             block.contains("sort=\"oldest\"") && block.contains("next_cursor"),
             "time-direction guidance (sort/paginate for history-wide questions) is present: {block}"
+        );
+        // Local-time rule: the model is told the ENRICHED rows carry LOCAL fields (incl. visitTimeLocal),
+        // to ignore/not cross-check raw epoch ms, and that overview/day_insights are NOT localized (UTC).
+        assert!(
+            block.contains("visitedAtLocal")
+                && block.contains("firstVisitLocal")
+                && block.contains("visitTimeLocal")
+                && block.contains("never recompute a date from")
+                && block.contains("do not convert or cross-check")
+                && block.contains("NOT localized"),
+            "the scoped local-time rule (LOCAL fields incl. visitTimeLocal, no epoch math/cross-check, overview/day_insights UTC) is present: {block}"
         );
     }
 
