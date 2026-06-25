@@ -36,19 +36,34 @@ use anyhow::Result;
 use serde_json::json;
 use std::sync::Arc;
 
-/// Hard ceiling on model turns in one agent run.
+/// Runaway BACKSTOP on model turns in one agent run — NOT a functional step budget.
 ///
-/// Bounds total cost AND how many times the bounded retrieval pipeline (incl. the gated O(n)
-/// `is:starred` pass) can run, so a looping model can never spin the host. The model must converge
-/// on an answer within this many turns or the run finalizes with the best evidence so far.
-pub const DEFAULT_MAX_ITERATIONS: u32 = 8;
+/// On a healthy, large-context run the binding ceiling is the live-context budget
+/// ([`DEFAULT_TOKEN_BUDGET`]); a strong reasoning model converges on its own (a turn with no tool
+/// calls ends the run). This cap is the FALLBACK bound: it stops a pathological model that re-issues
+/// tool calls forever, and it becomes the *effective* ceiling whenever the live-context gate cannot
+/// bind — e.g. a provider that reports no streaming usage (so the budget falls back to a coarse
+/// estimate) or a context window much smaller than the budget. It is set FAR above realistic
+/// convergence (a heavy map-reduce over a full day's history pages through a few dozen `run_code`
+/// rounds at most). Reaching it does NOT end the run silently: it forces one final tool-free synthesis
+/// turn ([`run_final_synthesis_turn`]) so the work already done still produces an answer. `0` disables
+/// the backstop (tests that want pure token-budget control).
+pub const DEFAULT_MAX_ITERATIONS: u32 = 64;
 
-/// Default per-run token budget (summed prompt + completion across turns).
+/// Default ceiling on a SINGLE turn's prompt size — the model's live context-window occupancy.
 ///
-/// A coarse cost ceiling (02 §F). When the running total crosses this the loop stops after the
-/// current turn rather than starting another — the user gets the partial answer, never an unbounded
-/// bill. `0` means "no budget" (used by tests that want pure iteration control).
-pub const DEFAULT_TOKEN_BUDGET: u64 = 120_000;
+/// The primary ceiling for a large-context provider that reports usage. It is measured against the
+/// LAST turn's prompt tokens (the full resent history = exactly what occupies the model's context that
+/// turn), NOT the cumulative sum across turns: cumulative double-counts the history re-sent every
+/// round, so it would fire long before the window is actually full ("context isn't even full, why
+/// stop?"). Sized to leave headroom under a 128k-class window for the forced final answer. When a
+/// turn's prompt crosses this we run the final synthesis turn instead of starting another tool round.
+///
+/// Caveats (see [`DEFAULT_MAX_ITERATIONS`], which backstops these): this is a fixed value, not the
+/// provider's actual window, so a much smaller-context model can overflow (→ honest provider error)
+/// before it binds; and a provider that omits streaming usage falls back to a coarse size estimate
+/// ([`estimate_context_tokens`]). `0` means "no budget" (tests that want pure iteration control).
+pub const DEFAULT_TOKEN_BUDGET: u64 = 110_000;
 
 /// One journaled step kind, recorded BEFORE the corresponding chunk is observed/emitted.
 ///
@@ -301,7 +316,9 @@ fn iso_date_only(iso: &str) -> String {
 ///    run_id + tool_call_id) BEFORE emitting a `ToolResult`, then thread an `LlmMessage::tool_result`
 ///    back into history (a tool ERROR becomes an `is_error` ToolResult + an honest threaded message
 ///    so the model can recover — one failure never aborts the run)
-/// 6. enforce max-iterations + per-run token budget + stall detection, then loop
+/// 6. check the ceilings (runaway step backstop + live-context budget) AFTER threading results; when
+///    one is reached, run ONE final tool-free synthesis turn so the evidence already gathered still
+///    produces a real answer (never a silent bail), then finish — otherwise loop
 ///
 /// Capability degradation: when `provider_can_use_tools` is false the loop is skipped entirely and
 /// the run takes the deterministic retrieve-then-answer shape (one seeded turn, no tools) + an
@@ -389,15 +406,27 @@ where
             }
         };
 
-        // Account for usage + emit the Usage marker so the UI can show running cost.
-        if let Some(usage) = accumulated.usage {
-            prompt_tokens += usage.prompt_tokens;
-            completion_tokens += usage.completion_tokens;
-            sink(AiChatStreamChunk::Usage {
-                prompt_tokens: usage.prompt_tokens,
-                completion_tokens: usage.completion_tokens,
-            });
-        }
+        // Account for usage + emit the Usage marker so the UI can show running cost. The live-context
+        // gate reads `last_prompt_tokens` = THIS turn's prompt (the resent history), NOT the running
+        // sum. When the provider reports no usage (some OpenAI-compatible servers omit it on streamed
+        // completions), the gate would silently disable — so we fall back to a tokenizer-free size
+        // estimate of the history. The estimate is coarse, so it is a FALLBACK only: accurate provider
+        // usage is preferred whenever present.
+        // The MOST RECENT turn's prompt size = the model's live context occupancy. Gated against
+        // `token_budget` (NOT the cumulative `prompt_tokens`, which double-counts the resent history).
+        // Bound fresh each turn (never carried across), so it is a per-iteration `let`.
+        let last_prompt_tokens = match accumulated.usage {
+            Some(usage) => {
+                prompt_tokens += usage.prompt_tokens;
+                completion_tokens += usage.completion_tokens;
+                sink(AiChatStreamChunk::Usage {
+                    prompt_tokens: usage.prompt_tokens,
+                    completion_tokens: usage.completion_tokens,
+                });
+                usage.prompt_tokens
+            }
+            None => estimate_context_tokens(&request.messages),
+        };
 
         // JOURNAL the assistant turn BEFORE acting on its tool calls.
         let turn_payload = json!({
@@ -537,53 +566,155 @@ where
             citations.append(&mut new_citations);
         }
 
-        // Budget + max-iteration + stall gates AFTER threading results back.
-        if max_iterations != 0 && turn >= max_iterations {
-            return finalize_after_loop(
-                &mut sink,
+        // Ceiling gates AFTER threading results back. Hitting a ceiling does NOT end the run
+        // silently: it forces ONE final, tool-free synthesis turn so the evidence already gathered
+        // produces a real answer (see `run_final_synthesis_turn`). The step cap is a runaway
+        // backstop; the live-context budget — measured against THIS turn's prompt, not the
+        // cumulative sum — is the real ceiling.
+        let ceiling = if max_iterations != 0 && turn >= max_iterations {
+            Some(AiAgentNote::MaxStepsReached)
+        } else if token_budget != 0 && last_prompt_tokens >= token_budget {
+            Some(AiAgentNote::TokenBudgetReached)
+        } else {
+            None
+        };
+        if let Some(note) = ceiling {
+            return run_final_synthesis_turn(
+                provider,
+                request,
+                control,
                 journal,
-                &citations,
-                turn,
-                prompt_tokens,
-                completion_tokens,
-                AiAgentNote::MaxStepsReached,
-            );
-        }
-        if token_budget != 0 && prompt_tokens + completion_tokens >= token_budget {
-            return finalize_after_loop(
                 &mut sink,
-                journal,
                 &citations,
+                note,
                 turn,
-                prompt_tokens,
-                completion_tokens,
-                AiAgentNote::TokenBudgetReached,
-            );
+                &mut prompt_tokens,
+                &mut completion_tokens,
+            )
+            .await;
         }
     }
 }
 
-/// Emits a closing control NOTE + Done after the loop hit a budget/iteration ceiling, pinning
-/// citations (review-fix M-6).
+/// Coarse, tokenizer-free estimate of how many tokens a message history occupies.
 ///
-/// The closing note is streamed as a localized [`AiChatStreamChunk::Note`] CODE — NOT raw English —
-/// so the front end renders it in the user's locale. This note is purely USER-facing (the loop has
-/// ended, so there is no model-facing counterpart to thread back); the model-facing English that
-/// steers the LLM lives in the threaded `tool_result` messages + preamble, which are untouched.
-fn finalize_after_loop<J: AgentJournal, S: AgentRunSink>(
-    sink: &mut S,
+/// A FALLBACK for the live-context gate when the provider reports no streaming usage: without it the
+/// gate would silently disable and only the step backstop would bound the run (risking a real context
+/// overflow). Uses a ~4-bytes/token heuristic over message text + tool-call payloads — deliberately
+/// approximate (it under/over-counts depending on language and JSON density), so accurate provider
+/// usage is always preferred when present. It is NOT a substitute for the provider's true token count.
+fn estimate_context_tokens(messages: &[LlmMessage]) -> u64 {
+    let bytes: usize = messages
+        .iter()
+        .map(|message| {
+            message.content.len()
+                + message
+                    .tool_calls
+                    .iter()
+                    .map(|call| call.name.len() + call.arguments.len())
+                    .sum::<usize>()
+        })
+        .sum();
+    (bytes / 4) as u64
+}
+
+/// MODEL-facing directive threaded into history for the forced final turn.
+///
+/// English on purpose: like the threaded `tool_result` messages + preamble, this STEERS the LLM and
+/// is never shown to the user (its user-facing twin is the localized [`AiAgentNote`]). It forbids
+/// further tool calls and demands an answer NOW from the evidence already gathered — the difference
+/// between "the agent went silent after minutes of work" and "the agent wrapped up with what it
+/// found".
+const FINAL_SYNTHESIS_DIRECTIVE: &str = "You have reached this run's step/context budget, so tools \
+are no longer available. Do not attempt any further tool calls. Answer the user's most recent \
+question NOW, using only the evidence you have already gathered in this conversation. Be concrete \
+and cite the specific records you found. If that evidence is not enough for a complete answer, give \
+your best answer from what you have and state plainly what is still missing and how the user could \
+narrow the request to retrieve the rest.";
+
+/// Runs ONE final, tool-FREE synthesis turn after a ceiling was reached, so the run still produces a
+/// real answer from the evidence already gathered instead of going silent (the old behavior streamed
+/// only a control note + raw evidence and stopped, discarding the model's chance to actually answer).
+///
+/// Sequence: (1) stream the USER-facing localized [`AiAgentNote`] (why we are wrapping up); (2) thread
+/// the MODEL-facing [`FINAL_SYNTHESIS_DIRECTIVE`] and STRIP the tool definitions so the model cannot
+/// loop again; (3) stream the answer live; (4) journal the turn, then pin + emit the evidence.
+///
+/// Cancel emits `Done` (matching the rest of the harness); a stream error emits `Error`. The
+/// tool-free turn adds no new citations, so it pins the set accumulated during the tool loop. The
+/// journaled assistant-turn step carries `tool_call_id = None`, so `append_agent_step` appends it
+/// (its idempotency dedup keys only on a present `tool_call_id`) — no collision with the loop's own
+/// assistant-turn step at the same `turn`.
+#[allow(clippy::too_many_arguments)]
+async fn run_final_synthesis_turn<P, J, S>(
+    provider: &P,
+    mut request: LlmChatRequest,
+    control: Option<&Arc<dyn AiRunControl>>,
     journal: &J,
+    sink: &mut S,
     citations: &[AiCitation],
-    turn: u32,
-    prompt_tokens: u64,
-    completion_tokens: u64,
     note: AiAgentNote,
-) -> AgentRunOutcome {
+    turn: u32,
+    prompt_tokens: &mut u64,
+    completion_tokens: &mut u64,
+) -> AgentRunOutcome
+where
+    P: LlmProvider,
+    J: AgentJournal,
+    S: AgentRunSink,
+{
+    // USER-facing localized note (review-fix M-6): why we are finishing up with what we have.
     sink(AiChatStreamChunk::Note { code: note });
+    // MODEL-facing directive + strip tools so the final turn ANSWERS instead of calling more tools.
+    request.messages.push(LlmMessage::new(LlmRole::User, FINAL_SYNTHESIS_DIRECTIVE.to_string()));
+    request.tools = Vec::new();
+
+    let accumulated = match stream_one_turn(provider, &request, control, sink).await {
+        Ok(accumulated) => accumulated,
+        Err(TurnError::Cancelled) => {
+            sink(AiChatStreamChunk::Done);
+            return AgentRunOutcome::Cancelled {
+                iterations: turn,
+                prompt_tokens: *prompt_tokens,
+                completion_tokens: *completion_tokens,
+            };
+        }
+        Err(TurnError::Stream(message)) => {
+            sink(AiChatStreamChunk::Error { message: message.clone() });
+            return AgentRunOutcome::Failed {
+                iterations: turn,
+                prompt_tokens: *prompt_tokens,
+                completion_tokens: *completion_tokens,
+                message,
+            };
+        }
+    };
+    if let Some(usage) = accumulated.usage {
+        *prompt_tokens += usage.prompt_tokens;
+        *completion_tokens += usage.completion_tokens;
+        sink(AiChatStreamChunk::Usage {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+        });
+    }
+    // The synthesis turn IS a model turn: journal it at `turn + 1` (a distinct ordinal from the
+    // loop's own assistant-turn step for `turn`, so trace replay never sees two assistant turns at the
+    // same turn) and count it in `iterations`. `final=true` marks it the post-ceiling synthesis.
+    let synthesis_turn = turn + 1;
+    let payload =
+        json!({ "text": accumulated.text, "reasoning": accumulated.reasoning, "final": true })
+            .to_string();
+    let _ = journal.journal_step(synthesis_turn, STEP_KIND_ASSISTANT_TURN, None, None, &payload);
     let _ = journal.record_citations(citations);
     emit_citations(sink, citations);
     sink(AiChatStreamChunk::Done);
-    AgentRunOutcome::Completed { iterations: turn, prompt_tokens, completion_tokens }
+    // `iterations` counts model turns; the tokens above already include the synthesis turn, so it must
+    // be counted here too (otherwise the cost shows N+1 turns' tokens against N iterations).
+    AgentRunOutcome::Completed {
+        iterations: synthesis_turn,
+        prompt_tokens: *prompt_tokens,
+        completion_tokens: *completion_tokens,
+    }
 }
 
 /// Emits the run's accumulated evidence as ONE `Citations` chunk right before a terminal `Done`.
@@ -981,6 +1112,345 @@ mod tests {
         }
     }
 
+    /// The distinctive sentence [`CeilingProbeProvider`] emits ONLY on the forced final turn (when
+    /// its tool definitions have been stripped), so a test can prove the answer was actually streamed.
+    const FORCED_FINAL_ANSWER: &str = "forced final synthesis answer";
+
+    /// Records every request and KEEPS calling a tool for as long as it is given tool definitions —
+    /// then, on the tool-FREE forced final turn, answers with [`FORCED_FINAL_ANSWER`]. Lets a test
+    /// prove the ceiling path strips the tools, threads the synthesis directive, and still answers.
+    /// `loop_prompt` is the prompt-token count it reports each tool round (to drive the live-context
+    /// budget gate); completion is a fixed 100 so the cumulative sum is easy to reason about.
+    struct CeilingProbeProvider {
+        seen: Arc<Mutex<Vec<LlmChatRequest>>>,
+        loop_prompt: u64,
+    }
+    impl LlmProvider for CeilingProbeProvider {
+        async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+            Ok(LlmChatResponse::default())
+        }
+        async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+            self.seen.lock().unwrap().push(req.clone());
+            let chunks = if req.tools.is_empty() {
+                vec![
+                    Ok(LlmStreamChunk::Token(FORCED_FINAL_ANSWER.to_string())),
+                    Ok(LlmStreamChunk::Usage(LlmUsage {
+                        prompt_tokens: 10,
+                        completion_tokens: 10,
+                    })),
+                ]
+            } else {
+                vec![
+                    Ok(LlmStreamChunk::ToolCall {
+                        call_id: "probe".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(LlmStreamChunk::Usage(LlmUsage {
+                        prompt_tokens: self.loop_prompt,
+                        completion_tokens: 100,
+                    })),
+                ]
+            };
+            Ok(Box::pin(vec_stream(chunks)))
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reached_ceiling_forces_a_tool_free_final_answer_turn() {
+        // The CORE contract of the ceiling path: instead of bailing silently, the harness runs ONE
+        // tool-free turn that answers from the evidence already gathered. Proves the answer is
+        // streamed AFTER the note, the tools are stripped, and the synthesis directive is threaded.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let seen: Arc<Mutex<Vec<LlmChatRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &CeilingProbeProvider { seen: seen.clone(), loop_prompt: 1000 },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            2, // cap at two tool rounds so the step backstop fires
+            0, // no token budget: the iteration gate is the one under test
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        // Two tool rounds + the forced synthesis turn = 3 model turns counted in `iterations`.
+        assert!(
+            matches!(outcome, AgentRunOutcome::Completed { iterations: 3, .. }),
+            "the run completes (never silent) after the capped rounds, got {outcome:?}"
+        );
+
+        let events = emitted.lock().unwrap().clone();
+        let note_index = events
+            .iter()
+            .position(|chunk| {
+                matches!(chunk, AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached })
+            })
+            .expect("a max-steps note is emitted");
+        let answer_index = events
+            .iter()
+            .position(
+                |chunk| matches!(chunk, AiChatStreamChunk::Token { text } if text == FORCED_FINAL_ANSWER),
+            )
+            .expect("the forced final answer is streamed to the user");
+        assert!(note_index < answer_index, "the note precedes the synthesized answer");
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+
+        // The forced final turn ran tool-free with the synthesis directive threaded LAST — after the
+        // tool-result messages (the `user`-after-`tool` ordering the live provider must accept).
+        let requests = seen.lock().unwrap().clone();
+        let final_request = requests.last().expect("a final synthesis request was issued");
+        assert!(final_request.tools.is_empty(), "the final turn strips all tool definitions");
+        let last_message =
+            final_request.messages.last().expect("the final request carries messages");
+        assert_eq!(last_message.role, LlmRole::User);
+        assert_eq!(last_message.content, FINAL_SYNTHESIS_DIRECTIVE);
+        let last_tool_index = final_request
+            .messages
+            .iter()
+            .rposition(|message| message.role == LlmRole::Tool)
+            .expect("the final request still carries the threaded tool results");
+        assert_eq!(
+            last_tool_index,
+            final_request.messages.len() - 2,
+            "the synthesis directive is threaded immediately after the tool results, not before them"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_token_budget_gates_on_live_context_not_the_cumulative_sum() {
+        // Each turn reports a SMALL prompt (100) so the live-context gate (last turn's prompt) never
+        // reaches the 1000 budget — even though the CUMULATIVE prompt+completion crosses it within a
+        // few turns. The old cumulative gate would have stopped early; the live-context gate lets the
+        // run continue to the iteration backstop instead. This is the "context isn't even full" fix.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let seen: Arc<Mutex<Vec<LlmChatRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &CeilingProbeProvider { seen, loop_prompt: 100 },
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            8,    // iteration backstop
+            1000, // the cumulative prompt+completion crosses this by ~turn 5; live context never does
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        // 8 tool rounds (the backstop) + the forced synthesis turn = 9 model turns.
+        assert!(
+            matches!(outcome, AgentRunOutcome::Completed { iterations: 9, .. }),
+            "the run reaches the iteration backstop, not the cumulative-token gate, got {outcome:?}"
+        );
+        let events = emitted.lock().unwrap().clone();
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
+        )));
+        assert!(
+            !events.iter().any(|chunk| matches!(
+                chunk,
+                AiChatStreamChunk::Note { code: AiAgentNote::TokenBudgetReached }
+            )),
+            "the live-context budget must NOT trip on a small per-turn prompt"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_during_the_forced_final_turn_emits_done_not_error() {
+        // Checkpoints: #1 turn-start, #2 stream-open(turn 1), #3 before-tool, #4 stream-open(final
+        // turn). Cancelling at #4 exercises the Cancelled arm of the forced final turn: a graceful
+        // Done (matching the rest of the harness), never an Error.
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let control: Arc<dyn AiRunControl> =
+            Arc::new(CancelOnNthCheckpoint { calls: AtomicUsize::new(0), fire_on: 4 });
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &AlwaysToolProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            Some(control),
+            1, // a single tool round, then the forced final turn
+            0,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Cancelled { iterations: 1, .. }),
+            "got {outcome:?}"
+        );
+        let events = emitted.lock().unwrap().clone();
+        // The note was emitted (we entered the final turn) but cancellation ended it with Done.
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
+        )));
+        assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
+        assert!(!events.iter().any(|chunk| matches!(chunk, AiChatStreamChunk::Error { .. })));
+    }
+
+    #[tokio::test]
+    async fn a_stream_error_during_the_forced_final_turn_finalizes_failed() {
+        // The forced final turn is not exempt from honest failure: a stream error there must finalize
+        // the run as Failed with an Error chunk (the Stream arm of the forced final turn).
+        struct FinalTurnErrorProvider;
+        impl LlmProvider for FinalTurnErrorProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+                if req.tools.is_empty() {
+                    anyhow::bail!("final turn boom");
+                }
+                let chunks = vec![
+                    Ok(LlmStreamChunk::ToolCall {
+                        call_id: "c".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: "{}".to_string(),
+                    }),
+                    Ok(LlmStreamChunk::Usage(LlmUsage {
+                        prompt_tokens: 10,
+                        completion_tokens: 10,
+                    })),
+                ];
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &FinalTurnErrorProvider,
+            &registry,
+            &context,
+            true,
+            user_request(),
+            None,
+            1, // a single tool round, then the forced final turn errors
+            0,
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(
+            matches!(outcome, AgentRunOutcome::Failed { ref message, .. } if message.contains("final turn boom")),
+            "got {outcome:?}"
+        );
+        let events = emitted.lock().unwrap().clone();
+        // The note was emitted before the final turn errored.
+        assert!(events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
+        )));
+        assert!(
+            matches!(events.last(), Some(AiChatStreamChunk::Error { message }) if message.contains("final turn boom"))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_live_context_gate_falls_back_to_an_estimate_when_the_provider_omits_usage() {
+        // Some OpenAI-compatible servers don't emit usage on a streamed completion. The live-context
+        // gate must NOT silently disable: it falls back to a tokenizer-free size estimate of the
+        // history, so a large context still trips the budget instead of overrunning the window.
+        struct NoUsageProvider;
+        impl LlmProvider for NoUsageProvider {
+            async fn chat(&self, _req: LlmChatRequest) -> Result<LlmChatResponse> {
+                Ok(LlmChatResponse::default())
+            }
+            async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+                // NO Usage chunk in either branch — the provider never reports token counts.
+                let chunks = if req.tools.is_empty() {
+                    vec![Ok(LlmStreamChunk::Token("final".to_string()))]
+                } else {
+                    vec![Ok(LlmStreamChunk::ToolCall {
+                        call_id: "c".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: "{}".to_string(),
+                    })]
+                };
+                Ok(Box::pin(vec_stream(chunks)))
+            }
+            fn capabilities(&self) -> LlmCapabilities {
+                LlmCapabilities { tool_call: true, ..LlmCapabilities::default() }
+            }
+        }
+        let (_dir, context) = tool_context();
+        let registry = ToolRegistry::with_default_search_tools();
+        let journal = RecordingJournal::default();
+        // A seed history with a large user message + a prior assistant tool-call turn, so the FIRST
+        // estimate (~2000 tokens for ~8 KB) already crosses the tiny budget — and the tool-call turn
+        // exercises the estimate's tool-call accounting.
+        let request = LlmChatRequest::new(
+            vec![
+                LlmMessage::new(LlmRole::User, "x".repeat(8_000)),
+                LlmMessage::assistant_tool_calls(
+                    String::new(),
+                    vec![crate::ai::traits::LlmToolCall {
+                        call_id: "seed".to_string(),
+                        name: "search_history".to_string(),
+                        arguments: "{}".to_string(),
+                    }],
+                ),
+            ],
+            None,
+            None,
+        );
+        let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink_events = emitted.clone();
+        let outcome = drive_agent_run(
+            &NoUsageProvider,
+            &registry,
+            &context,
+            true,
+            request,
+            None,
+            50,  // the step backstop must NOT be what stops this run
+            500, // the size estimate crosses this on turn 1, even with no provider usage
+            &journal,
+            move |chunk| sink_events.lock().unwrap().push(chunk),
+        )
+        .await;
+        assert!(matches!(outcome, AgentRunOutcome::Completed { .. }), "got {outcome:?}");
+        let events = emitted.lock().unwrap().clone();
+        // The budget ceiling fired (via the fallback estimate), NOT the 50-step backstop.
+        assert!(
+            events.iter().any(|chunk| matches!(
+                chunk,
+                AiChatStreamChunk::Note { code: AiAgentNote::TokenBudgetReached }
+            )),
+            "the budget gate must fire from the size estimate when the provider omits usage"
+        );
+        assert!(!events.iter().any(|chunk| matches!(
+            chunk,
+            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
+        )));
+    }
+
     fn vec_stream(
         chunks: Vec<Result<LlmStreamChunk>>,
     ) -> impl futures_core::Stream<Item = Result<LlmStreamChunk>> + Send {
@@ -1267,16 +1737,26 @@ mod tests {
         )
         .await;
         match outcome {
-            AgentRunOutcome::Completed { iterations, .. } => assert_eq!(iterations, 2),
+            // 2 tool rounds + the forced synthesis turn = 3 model turns.
+            AgentRunOutcome::Completed { iterations, .. } => assert_eq!(iterations, 3),
             other => panic!("expected Completed at the iteration ceiling, got {other:?}"),
         }
         let events = emitted.lock().unwrap().clone();
         assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
         // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
-        assert!(events.iter().any(|chunk| matches!(
-            chunk,
-            AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached }
-        )));
+        let note_index = events
+            .iter()
+            .position(|chunk| {
+                matches!(chunk, AiChatStreamChunk::Note { code: AiAgentNote::MaxStepsReached })
+            })
+            .expect("a max-steps note is emitted");
+        // Reaching the ceiling does NOT go silent: a forced final turn streams an answer AFTER the
+        // note (AlwaysToolProvider keeps emitting its "loop" token even with tools stripped).
+        let answer_after_note = events
+            .iter()
+            .skip(note_index + 1)
+            .any(|chunk| matches!(chunk, AiChatStreamChunk::Token { .. }));
+        assert!(answer_after_note, "a synthesized answer is streamed after the note");
         // No raw English max-steps sentence leaks onto the user-facing token stream.
         assert!(!events.iter().any(|chunk| matches!(
             chunk,
@@ -1291,7 +1771,8 @@ mod tests {
         let journal = RecordingJournal::default();
         let emitted: Arc<Mutex<Vec<AiChatStreamChunk>>> = Arc::new(Mutex::new(Vec::new()));
         let sink_events = emitted.clone();
-        // AlwaysToolProvider reports 2000 tokens/turn; a 1500 budget trips after turn 1.
+        // AlwaysToolProvider reports a 1000-token prompt/turn; a 1000 LIVE-context budget trips after
+        // turn 1 (the gate measures the LAST turn's prompt, not the cumulative sum).
         let outcome = drive_agent_run(
             &AlwaysToolProvider,
             &registry,
@@ -1300,24 +1781,36 @@ mod tests {
             user_request(),
             None,
             50,
-            1500,
+            1000,
             &journal,
             move |chunk| sink_events.lock().unwrap().push(chunk),
         )
         .await;
         match outcome {
             AgentRunOutcome::Completed { iterations, prompt_tokens, completion_tokens } => {
-                assert_eq!(iterations, 1);
-                assert_eq!(prompt_tokens + completion_tokens, 2000);
+                // turn 1 + the forced final synthesis turn = 2 model turns, and the token total
+                // matches (2 × 2000) — iterations and tokens stay internally consistent.
+                assert_eq!(iterations, 2);
+                assert_eq!(prompt_tokens + completion_tokens, 4000);
             }
             other => panic!("expected Completed at the budget ceiling, got {other:?}"),
         }
         let events = emitted.lock().unwrap().clone();
         // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
-        assert!(events.iter().any(|chunk| matches!(
-            chunk,
-            AiChatStreamChunk::Note { code: AiAgentNote::TokenBudgetReached }
-        )));
+        let note_index = events
+            .iter()
+            .position(|chunk| {
+                matches!(chunk, AiChatStreamChunk::Note { code: AiAgentNote::TokenBudgetReached })
+            })
+            .expect("a token-budget note is emitted");
+        // The run still answers: a forced final turn streams a token after the note.
+        assert!(
+            events
+                .iter()
+                .skip(note_index + 1)
+                .any(|chunk| matches!(chunk, AiChatStreamChunk::Token { .. })),
+            "a synthesized answer is streamed after the note"
+        );
         assert!(!events.iter().any(|chunk| matches!(
             chunk,
             AiChatStreamChunk::Token { text } if text.contains("token budget")

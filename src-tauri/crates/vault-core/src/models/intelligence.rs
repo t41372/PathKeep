@@ -1064,9 +1064,11 @@ pub enum AiChatStreamChunk {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum AiAgentNote {
-    /// The run hit the max-iteration ceiling; the best evidence so far is returned.
+    /// The run hit the runaway step backstop; a final synthesis turn answered from the evidence
+    /// gathered so far (the run never bails silently).
     MaxStepsReached,
-    /// The run hit the per-run token budget; the best evidence so far is returned.
+    /// The run hit the live-context budget; a final synthesis turn answered from the evidence
+    /// gathered so far (the run never bails silently).
     TokenBudgetReached,
     /// The provider cannot do tool calls, so the run answered from seeded evidence directly.
     ToolCallingUnavailable,

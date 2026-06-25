@@ -173,9 +173,9 @@ export const assistantNamespaceCatalog = {
     chatOpeningConversation: 'Opening conversation…',
     chatScopeNote: 'Searches your whole archive',
     chatAgentNoteMaxStepsReached:
-      'Reached the maximum number of assistant steps; showing the best evidence so far.',
+      'Reached this run’s step limit — answering from the evidence gathered so far.',
     chatAgentNoteTokenBudgetReached:
-      'Reached this run’s token budget; showing the best evidence so far.',
+      'Reached this run’s context limit — answering from the evidence gathered so far.',
     chatAgentNoteToolCallingUnavailable:
       'This provider cannot run search tools, so the answer is based on the retrieved evidence directly.',
     exportLabel: 'Export',
@@ -370,9 +370,9 @@ export const assistantNamespaceCatalog = {
     chatOpeningConversation: '正在打开对话…',
     chatScopeNote: '搜索你的整个存档',
     chatAgentNoteMaxStepsReached:
-      '已达到助手的最大步数；先展示目前最相关的证据。',
+      '已达到本次运行的步数上限，正在根据已收集的证据作答。',
     chatAgentNoteTokenBudgetReached:
-      '已达到本次运行的 token 预算；先展示目前最相关的证据。',
+      '已达到本次运行的上下文上限，正在根据已收集的证据作答。',
     chatAgentNoteToolCallingUnavailable:
       '该模型无法运行搜索工具，因此直接根据检索到的证据作答。',
     exportLabel: '导出',
@@ -567,9 +567,9 @@ export const assistantNamespaceCatalog = {
     chatOpeningConversation: '正在開啟對話…',
     chatScopeNote: '搜尋你的整個歸檔',
     chatAgentNoteMaxStepsReached:
-      '已達到助手的最大步數；先顯示目前最相關的證據。',
+      '已達到本次執行的步數上限，正在根據已蒐集的證據作答。',
     chatAgentNoteTokenBudgetReached:
-      '已達到本次執行的 token 預算；先顯示目前最相關的證據。',
+      '已達到本次執行的上下文上限，正在根據已蒐集的證據作答。',
     chatAgentNoteToolCallingUnavailable:
       '此模型無法執行搜尋工具，因此直接依檢索到的證據作答。',
     exportLabel: '匯出',

@@ -305,7 +305,7 @@ describe('AssistantPage — active streaming chat', () => {
     // assistant translator and appended to the visible answer — never the raw English code/sentence.
     emit({ kind: 'note', code: { code: 'maxStepsReached' } })
     expect(
-      await screen.findByText(/maximum number of assistant steps/),
+      await screen.findByText(/answering from the evidence gathered so far/),
     ).toBeVisible()
     // Cancel button is shown while streaming.
     expect(screen.getByTestId('assistant-chat-cancel')).toBeVisible()
