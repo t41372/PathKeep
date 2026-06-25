@@ -72,6 +72,10 @@ pub struct BackupRunOverview {
     pub new_visits: usize,
     pub new_urls: usize,
     pub new_downloads: usize,
+    /// Why a `failed` run failed (the full error chain). `None` for success/running rows. Surfaced so
+    /// the Audit ledger never shows a failure without its reason — a silent failed backup is the one
+    /// thing a backup tool must never do.
+    pub error_message: Option<String>,
 }
 
 /// Per-profile backup summary returned by one run.

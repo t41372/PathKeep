@@ -244,6 +244,7 @@ pub fn load_audit_run_detail(
             new_visits: run_new_visits(&stats),
             new_urls: run_new_urls(&stats),
             new_downloads: run_new_downloads(&stats),
+            error_message: row.11.clone(),
         },
         trigger: row.2,
         timezone: row.3,
@@ -275,6 +276,7 @@ pub(super) fn backup_run_overview_from_row(row: &Row<'_>) -> rusqlite::Result<Ba
         new_visits: run_new_visits(&summary),
         new_urls: run_new_urls(&summary),
         new_downloads: run_new_downloads(&summary),
+        error_message: row.get(9)?,
     })
 }
 

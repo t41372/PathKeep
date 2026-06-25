@@ -2357,7 +2357,48 @@ fn backup_rejects_selected_profiles_that_are_not_readable() {
         .expect_err("unreadable selected profile should fail");
 
     assert!(error.to_string().contains("selected profiles are not readable"));
+
+    // A backup tool must never fail silently: the failure is RECORDED as a `failed` run AND carries
+    // its reason, so it shows in the run history (it used to bail before any run row was written).
+    let recent = load_recent_runs(&paths, &config, None).expect("recent runs");
+    let failed = recent
+        .iter()
+        .find(|run| run.status == "failed")
+        .expect("the failed backup attempt must be recorded as a run");
+    assert_eq!(failed.run_type, "backup");
+    assert!(
+        failed.error_message.as_deref().is_some_and(|reason| reason.contains("not readable")),
+        "the failed run must carry its reason, got {:?}",
+        failed.error_message
+    );
+
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+}
+
+#[test]
+fn classify_browser_access_error_tags_permission_denial_as_full_disk_access() {
+    use std::io::{Error, ErrorKind};
+
+    // A macOS TCC denial (io PermissionDenied) is rewritten into actionable Full Disk Access guidance.
+    let denied =
+        anyhow::Error::new(Error::new(ErrorKind::PermissionDenied, "Operation not permitted"))
+            .context("reading /Users/me/Library/Application Support/Google/Chrome");
+    let classified = super::backup::classify_browser_access_error(denied);
+    assert!(
+        format!("{classified:#}").contains("Full Disk Access"),
+        "permission-denied must be tagged with Full Disk Access guidance, got: {classified:#}"
+    );
+
+    // A stringified permission error (no downcastable io::Error) is caught by the message fallback.
+    let stringified = anyhow::anyhow!("reading the profile: Operation not permitted (os error 1)");
+    assert!(
+        format!("{:#}", super::backup::classify_browser_access_error(stringified))
+            .contains("Full Disk Access")
+    );
+
+    // An unrelated failure is left exactly as-is (no spurious Full Disk Access advice).
+    let unrelated = super::backup::classify_browser_access_error(anyhow::anyhow!("disk full"));
+    assert_eq!(format!("{unrelated:#}"), "disk full");
 }
 
 #[test]

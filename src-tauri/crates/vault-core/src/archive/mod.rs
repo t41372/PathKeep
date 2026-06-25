@@ -235,7 +235,8 @@ SELECT
     ORDER BY manifests.id DESC
     LIMIT 1
   ) AS manifest_hash,
-  runs.stats_json
+  runs.stats_json,
+  runs.error_message
 FROM runs
 -- The 002 migration seeds a synthetic id=0/run_type='system'/trigger='compat'
 -- run so legacy foreign keys can resolve. It has a 1970-01-01 timestamp and

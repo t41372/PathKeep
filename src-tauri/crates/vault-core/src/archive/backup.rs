@@ -49,6 +49,26 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use std::collections::BTreeMap;
 
+/// Tags a browser-profile access failure as a Full Disk Access problem when the root cause is an OS
+/// permission denial (macOS TCC / `EACCES`/`EPERM`), so the recorded reason and the UI can guide the
+/// user to grant access instead of surfacing a bare "Operation not permitted". Non-permission errors
+/// pass through unchanged. The "Full Disk Access" marker is the stable signal the front end keys on
+/// to render its localized, actionable guidance.
+pub(super) fn classify_browser_access_error(error: anyhow::Error) -> anyhow::Error {
+    let permission_denied = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
+    }) || format!("{error:#}").contains("Operation not permitted");
+    if permission_denied {
+        error.context(
+            "PathKeep needs Full Disk Access to read your browser history. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, then run the backup again.",
+        )
+    } else {
+        error
+    }
+}
+
 /// Runs one backup without exposing the internal progress stream.
 ///
 /// The app uses this wrapper when it only needs the final report and wants the
@@ -94,43 +114,16 @@ where
         });
     }
 
-    let discovered = discover_profiles()?;
-    if config.selected_profile_ids.is_empty() {
-        anyhow::bail!("select at least one readable browser profile before running a backup")
-    }
-    let selected_profiles = select_supported_profiles(&discovered, &config.selected_profile_ids);
-    if selected_profiles.is_empty() {
-        anyhow::bail!(
-            "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
-        )
-    }
-    let skipped_profiles = collect_skipped_profiles(&discovered, &config.selected_profile_ids);
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
     let trigger = if due_only { "schedule" } else { "manual" };
-    let total_profiles = selected_profiles.len();
 
-    report_progress(
-        BackupProgressEvent {
-            phase: "prepare".to_string(),
-            label: "Inspect selected browser profiles".to_string(),
-            detail: format!(
-                "Queued {total_profiles} readable profile(s) for the canonical backup run."
-            ),
-            step: 0,
-            total_steps: 3,
-            completed_profiles: 0,
-            total_profiles,
-            profile_id: None,
-            progress_current: Some(0),
-            progress_total: Some(total_profiles),
-            progress_percent: Some(0.0),
-            log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
-            ..BackupProgressEvent::default()
-        }
-        .with_log_event("info", "backup.prepare"),
-    );
-
+    // Open the run ledger BEFORE any work that can fail (profile discovery, selection, staging).
+    // A backup tool must never fail silently: if PathKeep can't even read the browser profiles
+    // (e.g. macOS denies Full Disk Access), there must still be a `failed` run on record with the
+    // reason — not a phantom no-op that the user only notices after they've cleared their history.
+    // The scope records the user's *intent* (the selected ids), which is the honest scope for a run
+    // that failed before it could resolve which of them are actually readable.
     connection.execute(
         "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
          VALUES ('backup', ?1, ?2, ?3, 'running', ?4, '[]', '{}', ?5)",
@@ -138,25 +131,59 @@ where
             trigger,
             started_at,
             timezone,
-            serde_json::to_string(
-                &selected_profiles
-                    .iter()
-                    .map(|profile| profile.profile_id.clone())
-                    .collect::<Vec<_>>()
-            )?,
+            serde_json::to_string(&config.selected_profile_ids)?,
             due_only as i64,
         ],
     )?;
     let run_id = connection.last_insert_rowid();
     let parent_manifest = latest_manifest_row(&connection)?;
 
+    // From here, EVERY failure must finalize this run as `failed` with its reason recorded — never
+    // an early return that leaves a phantom `running` row or an invisible no-op. Discovery, profile
+    // selection, AND staging all run inside ONE guard whose single error path finalizes the run, so
+    // "PathKeep couldn't read your browser history" is always a visible failed run, not silence.
     let mut profile_summaries = Vec::new();
     let mut source_hashes = BTreeMap::<String, BTreeMap<String, String>>::new();
     let mut snapshot_artifacts = Vec::<SnapshotArtifact>::new();
     let mut source_evidence_plans = Vec::new();
-    let mut warnings = skipped_profiles;
+    let mut warnings: Vec<String> = Vec::new();
 
-    let backup_result = (|| -> Result<()> {
+    let backup_result = (|| -> Result<Vec<String>> {
+        let discovered = discover_profiles().map_err(classify_browser_access_error)?;
+        if config.selected_profile_ids.is_empty() {
+            anyhow::bail!("select at least one readable browser profile before running a backup");
+        }
+        let selected_profiles =
+            select_supported_profiles(&discovered, &config.selected_profile_ids);
+        if selected_profiles.is_empty() {
+            anyhow::bail!(
+                "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
+            );
+        }
+        warnings.extend(collect_skipped_profiles(&discovered, &config.selected_profile_ids));
+        let total_profiles = selected_profiles.len();
+
+        report_progress(
+            BackupProgressEvent {
+                phase: "prepare".to_string(),
+                label: "Inspect selected browser profiles".to_string(),
+                detail: format!(
+                    "Queued {total_profiles} readable profile(s) for the canonical backup run."
+                ),
+                step: 0,
+                total_steps: 3,
+                completed_profiles: 0,
+                total_profiles,
+                profile_id: None,
+                progress_current: Some(0),
+                progress_total: Some(total_profiles),
+                progress_percent: Some(0.0),
+                log_lines: vec![format!("Queued {total_profiles} readable profile(s) for backup.")],
+                ..BackupProgressEvent::default()
+            }
+            .with_log_event("info", "backup.prepare"),
+        );
+
         let transaction = connection.transaction()?;
         for (index, profile) in selected_profiles.iter().enumerate() {
             report_progress(
@@ -296,13 +323,16 @@ where
             .with_log_event("info", "backup.finalize"),
         );
         transaction.commit()?;
-        Ok(())
+        Ok(selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect())
     })();
 
-    if let Err(error) = backup_result {
-        finalize_failed_run(&connection, run_id, &profile_summaries, &warnings, &error)?;
-        return Err(error);
-    }
+    let selected_profile_ids: Vec<String> = match backup_result {
+        Ok(selected_profile_ids) => selected_profile_ids,
+        Err(error) => {
+            finalize_failed_run(&connection, run_id, &profile_summaries, &warnings, &error)?;
+            return Err(error);
+        }
+    };
 
     warnings.extend(
         persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)
@@ -317,7 +347,7 @@ where
         &started_at,
         &finished_at,
         trigger,
-        &selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect::<Vec<_>>(),
+        &selected_profile_ids,
         &profile_summaries,
     );
     let row_counts = archive_row_counts(&connection)?;
