@@ -667,3 +667,205 @@ fn restore_env_var_sets_and_clears_values() {
 fn dir_path_os_string(path: &Path) -> std::ffi::OsString {
     path.as_os_str().to_os_string()
 }
+
+/// Reopens a cleanly written SQLite database, starts an uncommitted write, and
+/// flushes its dirty pages to disk so a populated rollback journal lands beside
+/// it, then copies that hot `(database, journal)` pair into `dest_dir` under
+/// `base_name`.
+///
+/// The result reproduces a browser caught mid-write whose writer then vanished —
+/// the exact state that fails a read-only open with `SQLITE_READONLY_ROLLBACK`,
+/// which is what broke backups when the staging fallback handed it to the parser.
+fn capture_hot_journal_pair(clean_db: &Path, dest_dir: &Path, base_name: &str, dirty_sql: &str) {
+    use rusqlite::Connection;
+
+    let source_journal = PathBuf::from(format!("{}-journal", clean_db.display()));
+    let writer = Connection::open(clean_db).expect("reopen clean database");
+    writer
+        .execute_batch(&format!("BEGIN IMMEDIATE;\n{dirty_sql}"))
+        .expect("start uncommitted write");
+    writer.cache_flush().expect("flush dirty pages into the rollback journal");
+    assert!(source_journal.exists(), "an uncommitted flush must leave a rollback journal");
+
+    fs::copy(clean_db, dest_dir.join(base_name)).expect("copy database into staging source");
+    fs::copy(&source_journal, dest_dir.join(format!("{base_name}-journal")))
+        .expect("copy hot journal into staging source");
+
+    writer.execute_batch("ROLLBACK").ok();
+}
+
+#[test]
+fn staging_recovers_a_hot_rollback_journal_that_blocks_the_read_only_parser() {
+    use rusqlite::{Connection, ErrorCode, OpenFlags};
+
+    // A cleanly written baseline with one committed row; the connection is
+    // dropped so no journal lingers next to it.
+    let clean = tempdir().expect("clean db dir");
+    let clean_db = clean.path().join("History");
+    {
+        let seed = Connection::open(&clean_db).expect("open seed db");
+        seed.execute_batch(
+            "PRAGMA journal_mode=DELETE;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT);\n\
+             INSERT INTO t (id, payload) VALUES (1, 'committed');",
+        )
+        .expect("seed committed row");
+    }
+
+    // Capture it mid-write: a hot journal whose writer has gone, exactly like a
+    // browser interrupted while saving history.
+    let source = tempdir().expect("staging source");
+    capture_hot_journal_pair(
+        &clean_db,
+        source.path(),
+        "History",
+        "UPDATE t SET payload = 'in-flight' WHERE id = 1;",
+    );
+
+    let read_payload = |database: &Path| -> rusqlite::Result<String> {
+        Connection::open_with_flags(
+            database,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .and_then(|connection| {
+            connection.query_row("SELECT payload FROM t WHERE id = 1", [], |row| row.get(0))
+        })
+    };
+
+    // The hazard is real: opening the un-recovered copy read-only — exactly what
+    // the parser does — fails with SQLITE_READONLY_ROLLBACK (extended code 776).
+    let hazard = read_payload(&source.path().join("History")).expect_err("hot journal must block");
+    match hazard {
+        rusqlite::Error::SqliteFailure(error, _) => {
+            assert_eq!(error.code, ErrorCode::ReadOnly);
+            assert_eq!(error.extended_code, 776, "want SQLITE_READONLY_ROLLBACK");
+        }
+        other => panic!("expected a readonly-rollback failure, got {other:?}"),
+    }
+
+    // Staging recovers the copy: the read-only parser now opens it and sees the
+    // last committed state, with the in-flight write rolled back.
+    let staged_dir = tempdir().expect("staged dir");
+    let staged = copy_database_with_sidecars(source.path(), "History", staged_dir.path())
+        .expect("stage hot-journal copy");
+    assert_eq!(read_payload(&staged).expect("recovered copy opens read-only"), "committed");
+}
+
+#[test]
+fn copy_database_with_sidecars_prefers_a_journal_free_online_snapshot() {
+    use rusqlite::{Connection, OpenFlags};
+
+    let source = tempdir().expect("source");
+    {
+        let db = Connection::open(source.path().join("History")).expect("open source db");
+        db.execute_batch(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY);\nINSERT INTO t (id) VALUES (1), (2), (3);",
+        )
+        .expect("seed rows");
+    }
+    // A harmless leftover sidecar the online snapshot should make irrelevant.
+    fs::write(source.path().join("History-journal"), b"").expect("write empty journal");
+
+    let dest = tempdir().expect("dest");
+    let staged =
+        copy_database_with_sidecars(source.path(), "History", dest.path()).expect("stage clean db");
+
+    // The online backup produced one self-contained file: no sidecar followed it
+    // into staging, and the read-only parser opens it directly.
+    assert!(!dest.path().join("History-journal").exists(), "online snapshot copies no journal");
+    assert!(!dest.path().join("History-wal").exists());
+    let reader = Connection::open_with_flags(
+        &staged,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
+    use browser_history_fixtures::chromium::{
+        ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow,
+    };
+    use browser_history_parser::{
+        chromium,
+        types::{ChromiumReadCursor, HistoryDatabaseSet},
+    };
+
+    let visit_time = 1_777_000_000_000_i64;
+
+    // A real-format Chrome History database, written cleanly...
+    let clean = tempdir().expect("clean db dir");
+    let clean_db = clean.path().join("History");
+    ChromiumHistoryFixture::new()
+        .add_url(ChromiumUrlRow {
+            id: 1,
+            url: "https://example.com/a".to_string(),
+            title: Some("Committed Title".to_string()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_unix_ms: visit_time,
+            hidden: false,
+        })
+        .add_visit(ChromiumVisitRow {
+            id: 10,
+            url_id: 1,
+            visit_time_unix_ms: visit_time,
+            from_visit: None,
+            transition: Some(0),
+            visit_duration_micros: None,
+            is_known_to_sync: false,
+            visited_link_id: None,
+            external_referrer_url: None,
+            app_id: None,
+        })
+        .write(&clean_db)
+        .expect("write chrome fixture");
+
+    // ...then captured mid-write with a hot rollback journal in the profile dir.
+    let profile_dir = tempdir().expect("profile dir");
+    capture_hot_journal_pair(
+        &clean_db,
+        profile_dir.path(),
+        "History",
+        "UPDATE urls SET title = 'in-flight' WHERE id = 1;",
+    );
+
+    let staging_root = tempdir().expect("staging root");
+    let paths = sample_paths(staging_root.path());
+    fs::create_dir_all(&paths.staging_dir).expect("create staging dir");
+
+    let profile = BrowserProfile {
+        profile_id: "chrome:Default".to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "chromium".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        user_name: None,
+        profile_path: profile_dir.path().display().to_string(),
+        history_path: Some(profile_dir.path().join("History").display().to_string()),
+        favicons_path: None,
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: None,
+        history_file_name: "History".to_string(),
+        history_bytes: 0,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: retention_boundary_for_browser("chromium"),
+    };
+
+    let snapshot = stage_profile_snapshot(&paths, &profile).expect("stage hot-journal profile");
+
+    // The production read path opens the recovered copy and parses the last
+    // committed state — no SQLITE_READONLY_ROLLBACK, in-flight write rolled back.
+    let parsed = chromium::parse_history(
+        &HistoryDatabaseSet { history_path: snapshot.history_path.clone(), favicons_path: None },
+        ChromiumReadCursor::default(),
+    )
+    .expect("parse recovered chrome copy");
+    assert_eq!(parsed.urls.len(), 1, "the committed url survives recovery");
+    assert_eq!(parsed.visits.len(), 1, "the committed visit survives recovery");
+}
