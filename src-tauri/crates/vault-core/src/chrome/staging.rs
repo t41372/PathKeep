@@ -45,7 +45,7 @@ pub(super) fn profile_storage_bytes(
 pub fn stage_profile_snapshot(
     paths: &ProjectPaths,
     profile: &BrowserProfile,
-) -> Result<ProfileSnapshot> {
+) -> Result<StagedProfile> {
     let temp_prefix = format!(
         "{}-{}",
         filesystem_safe_path_segment(&profile.profile_id),
@@ -56,13 +56,26 @@ pub fn stage_profile_snapshot(
         .tempdir_in(&paths.staging_dir)
         .with_context(|| format!("creating temp dir in {}", paths.staging_dir.display()))?;
     let source_dir = PathBuf::from(&profile.profile_path);
-    let history_path =
+
+    let mut warnings = Vec::new();
+    let staged_history =
         copy_database_with_sidecars(&source_dir, &profile.history_file_name, temp_dir.path())
             .with_context(|| staging_access_hint(profile))?;
-    let favicons_path = profile
+    if let Some(reason) = &staged_history.fallback_reason {
+        warnings.push(staging_fallback_warning(profile, &profile.history_file_name, reason));
+    }
+    let history_path = staged_history.path;
+
+    let staged_favicons = profile
         .favicons_path
         .as_ref()
         .and_then(|_| copy_database_with_sidecars(&source_dir, "Favicons", temp_dir.path()).ok());
+    if let Some(reason) =
+        staged_favicons.as_ref().and_then(|staged| staged.fallback_reason.as_ref())
+    {
+        warnings.push(staging_fallback_warning(profile, "Favicons", reason));
+    }
+    let favicons_path = staged_favicons.map(|staged| staged.path);
 
     let mut source_hashes = Vec::new();
     for path in [Some(history_path.clone()), favicons_path.clone()].into_iter().flatten() {
@@ -72,13 +85,35 @@ pub fn stage_profile_snapshot(
         });
     }
 
-    Ok(ProfileSnapshot {
-        profile: profile.clone(),
-        temp_dir,
-        history_path,
-        favicons_path,
-        source_hashes,
+    Ok(StagedProfile {
+        snapshot: ProfileSnapshot {
+            profile: profile.clone(),
+            temp_dir,
+            history_path,
+            favicons_path,
+            source_hashes,
+        },
+        warnings,
     })
+}
+
+/// Builds the non-fatal note recorded when a profile's database had to be staged
+/// through the raw-copy + recovery fallback instead of an online snapshot.
+fn staging_fallback_warning(profile: &BrowserProfile, source_label: &str, reason: &str) -> String {
+    format!(
+        "{} ({source_label}): the live database was busy, so the backup used a recovered file copy instead of an online snapshot — {reason}",
+        profile.profile_id
+    )
+}
+
+/// A staged database file plus how it got there.
+pub(super) struct StagedDatabase {
+    /// The staged copy the parser will read.
+    pub path: PathBuf,
+    /// Set when the preferred online snapshot failed and we used the slower
+    /// raw-copy + recovery fallback. Carries the snapshot failure reason so the
+    /// backup run can record why staging was degraded; `None` on the clean path.
+    pub fallback_reason: Option<String>,
 }
 
 /// Copies one SQLite database plus its known sidecars into the staging directory.
@@ -86,17 +121,18 @@ pub(super) fn copy_database_with_sidecars(
     source_dir: &Path,
     base_name: &str,
     destination_dir: &Path,
-) -> Result<PathBuf> {
+) -> Result<StagedDatabase> {
     let source = source_dir.join(base_name);
     let destination = destination_dir.join(base_name);
 
     // Preferred path: an online backup yields a single, transactionally
-    // consistent, journal-free file even while the browser keeps writing. We
-    // intentionally swallow its error — failure is not terminal here, it just
-    // means we fall back to the raw copy below, and that path now self-heals.
-    if snapshot_sqlite_database(&source, &destination).is_ok() {
-        return Ok(destination);
-    }
+    // consistent, journal-free file even while the browser keeps writing. Its
+    // failure is not terminal — we fall back to the raw copy below — but we keep
+    // the reason so the run can surface why staging was degraded.
+    let fallback_reason = match snapshot_sqlite_database(&source, &destination) {
+        Ok(()) => return Ok(StagedDatabase { path: destination, fallback_reason: None }),
+        Err(error) => format!("{error:#}"),
+    };
 
     // Fallback: a plain file copy. This can capture the live browser's hot
     // rollback journal or WAL, so we copy those sidecars too — they hold the
@@ -121,7 +157,7 @@ pub(super) fn copy_database_with_sidecars(
         recover_staged_database(&destination)?;
     }
 
-    Ok(destination)
+    Ok(StagedDatabase { path: destination, fallback_reason: Some(fallback_reason) })
 }
 
 fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
@@ -155,7 +191,7 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
 /// connection; switching to a DELETE journal additionally checkpoints any WAL
 /// into the main file, leaving one self-contained database with no sidecar the
 /// read-only parser would have to replay.
-fn recover_staged_database(path: &Path) -> Result<()> {
+pub(super) fn recover_staged_database(path: &Path) -> Result<()> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,

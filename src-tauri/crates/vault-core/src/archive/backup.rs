@@ -213,7 +213,39 @@ where
                 .with_log_event("info", "backup.stage-profile"),
             );
             let snapshot = match crate::chrome::stage_profile_snapshot(paths, profile) {
-                Ok(snapshot) => snapshot,
+                Ok(staged) => {
+                    // Record any degraded-staging notes (e.g. an online snapshot
+                    // that fell back to a recovered raw copy because the browser
+                    // was busy) on the run so the reason is visible, not silent.
+                    for warning in &staged.warnings {
+                        warnings.push(warning.clone());
+                        report_progress(
+                            BackupProgressEvent {
+                                phase: "stage-profile".to_string(),
+                                label: "Recovered a busy database".to_string(),
+                                detail: warning.clone(),
+                                step: 1,
+                                total_steps: 3,
+                                completed_profiles: index,
+                                total_profiles,
+                                profile_id: Some(profile.profile_id.clone()),
+                                progress_current: Some(index + 1),
+                                progress_total: Some(total_profiles),
+                                progress_percent: Some(
+                                    (((index + 1) as f32) / total_profiles as f32) * 100.0,
+                                ),
+                                log_lines: vec![warning.clone()],
+                                source_label: Some(format!(
+                                    "{} / {}",
+                                    profile.browser_name, profile.profile_name
+                                )),
+                                ..BackupProgressEvent::default()
+                            }
+                            .with_log_event("warning", "backup.stage-profile.fallback"),
+                        );
+                    }
+                    staged.snapshot
+                }
                 Err(error) if is_skippable_staging_access_error(profile, &error) => {
                     let warning = staging_access_skip_warning(profile);
                     warnings.push(warning.clone());

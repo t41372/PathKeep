@@ -249,7 +249,7 @@ fn stage_profile_snapshot_copies_database_and_sidecars() {
         retention_boundary: retention_boundary_for_browser("firefox"),
     };
 
-    let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot");
+    let snapshot = stage_profile_snapshot(&paths, &profile).expect("snapshot").snapshot;
     let temp_name =
         snapshot.temp_dir.path().file_name().and_then(|name| name.to_str()).expect("temp dir name");
     assert!(temp_name.starts_with("firefox%3AProfile%201-"));
@@ -272,7 +272,7 @@ fn copy_database_with_sidecars_copies_known_sidecars_only() {
     let copied =
         copy_database_with_sidecars(source.path(), "History", destination.path()).expect("copy");
 
-    assert_eq!(copied, destination.path().join("History"));
+    assert_eq!(copied.path, destination.path().join("History"));
     assert!(destination.path().join("History").exists());
     assert!(destination.path().join("History-wal").exists());
     assert!(destination.path().join("History-shm").exists());
@@ -748,7 +748,10 @@ fn staging_recovers_a_hot_rollback_journal_that_blocks_the_read_only_parser() {
     let staged_dir = tempdir().expect("staged dir");
     let staged = copy_database_with_sidecars(source.path(), "History", staged_dir.path())
         .expect("stage hot-journal copy");
-    assert_eq!(read_payload(&staged).expect("recovered copy opens read-only"), "committed");
+    assert_eq!(read_payload(&staged.path).expect("recovered copy opens read-only"), "committed");
+    // The fallback ran (the online snapshot could not read the hot-journal
+    // source), and it recorded a reason for the run to surface.
+    assert!(staged.fallback_reason.is_some(), "fallback must report why it was taken");
 }
 
 #[test]
@@ -770,12 +773,13 @@ fn copy_database_with_sidecars_prefers_a_journal_free_online_snapshot() {
     let staged =
         copy_database_with_sidecars(source.path(), "History", dest.path()).expect("stage clean db");
 
-    // The online backup produced one self-contained file: no sidecar followed it
-    // into staging, and the read-only parser opens it directly.
+    // The online backup produced one self-contained file: it is the clean path,
+    // no sidecar followed it into staging, and the read-only parser opens it.
+    assert!(staged.fallback_reason.is_none(), "a clean db must take the online snapshot path");
     assert!(!dest.path().join("History-journal").exists(), "online snapshot copies no journal");
     assert!(!dest.path().join("History-wal").exists());
     let reader = Connection::open_with_flags(
-        &staged,
+        &staged.path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .expect("read-only open");
@@ -857,15 +861,116 @@ fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
         retention_boundary: retention_boundary_for_browser("chromium"),
     };
 
-    let snapshot = stage_profile_snapshot(&paths, &profile).expect("stage hot-journal profile");
+    let staged = stage_profile_snapshot(&paths, &profile).expect("stage hot-journal profile");
+
+    // The degraded staging path was recorded as a run warning, not swallowed.
+    assert_eq!(staged.warnings.len(), 1, "the recovered-copy fallback must be reported");
+    assert!(staged.warnings[0].contains("chrome:Default"), "the warning names the profile");
 
     // The production read path opens the recovered copy and parses the last
     // committed state — no SQLITE_READONLY_ROLLBACK, in-flight write rolled back.
     let parsed = chromium::parse_history(
-        &HistoryDatabaseSet { history_path: snapshot.history_path.clone(), favicons_path: None },
+        &HistoryDatabaseSet {
+            history_path: staged.snapshot.history_path.clone(),
+            favicons_path: None,
+        },
         ChromiumReadCursor::default(),
     )
     .expect("parse recovered chrome copy");
     assert_eq!(parsed.urls.len(), 1, "the committed url survives recovery");
     assert_eq!(parsed.visits.len(), 1, "the committed visit survives recovery");
+}
+
+#[test]
+fn recover_staged_database_folds_a_captured_wal_into_the_main_file() {
+    use rusqlite::{Connection, OpenFlags};
+
+    // A WAL database whose committed rows live only in the -wal: autocheckpoint
+    // is off and the writer is kept open so nothing checkpoints them into the
+    // main file. Copy the whole WAL set out, the way the raw fallback would.
+    let live = tempdir().expect("live");
+    let live_db = live.path().join("History");
+    let writer = Connection::open(&live_db).expect("open wal db");
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;\n\
+             PRAGMA wal_autocheckpoint=0;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY);\n\
+             INSERT INTO t (id) VALUES (1), (2), (3), (4);",
+        )
+        .expect("seed wal rows");
+    assert!(live.path().join("History-wal").exists(), "writer must leave a WAL");
+
+    let staged = tempdir().expect("staged");
+    let staged_db = staged.path().join("History");
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", live_db.display()));
+        if from.exists() {
+            fs::copy(&from, staged.path().join(format!("History{suffix}")))
+                .expect("copy wal member");
+        }
+    }
+    drop(writer);
+
+    recover_staged_database(&staged_db).expect("recover captured wal");
+
+    // The WAL is checkpointed away: a read-only open with no sidecar present sees
+    // every committed row.
+    assert!(!staged.path().join("History-wal").exists(), "recovery clears the WAL");
+    let reader = Connection::open_with_flags(
+        &staged_db,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open of recovered wal copy");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 4, "all committed WAL rows survive recovery");
+}
+
+#[test]
+fn staging_backs_up_a_live_wal_source_to_a_complete_journal_free_copy() {
+    use rusqlite::{Connection, OpenFlags};
+
+    // A WAL database with committed rows still living in the -wal (autocheckpoint
+    // off, writer kept open), captured the way a live Firefox `places.sqlite`
+    // would be. Whichever path staging takes — the online snapshot reads WAL
+    // frames directly, the fallback recovers them — the result must be complete.
+    let live = tempdir().expect("live");
+    let live_db = live.path().join("History");
+    let writer = Connection::open(&live_db).expect("open wal db");
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;\n\
+             PRAGMA wal_autocheckpoint=0;\n\
+             CREATE TABLE t (id INTEGER PRIMARY KEY, payload TEXT);\n\
+             INSERT INTO t (id, payload) VALUES (1, 'a'), (2, 'b'), (3, 'c');",
+        )
+        .expect("seed wal rows");
+    assert!(live.path().join("History-wal").exists(), "writer must leave a WAL");
+
+    let source = tempdir().expect("source");
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", live_db.display()));
+        if from.exists() {
+            fs::copy(&from, source.path().join(format!("History{suffix}")))
+                .expect("copy wal member");
+        }
+    }
+    drop(writer);
+
+    let dest = tempdir().expect("dest");
+    let staged =
+        copy_database_with_sidecars(source.path(), "History", dest.path()).expect("stage wal copy");
+
+    // The copy the parser receives is self-contained: every committed row is
+    // present and a read-only open needs no WAL sidecar.
+    assert!(!dest.path().join("History-wal").exists(), "staged copy carries no live WAL");
+    let reader = Connection::open_with_flags(
+        &staged.path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("read-only open of staged wal copy");
+    let count: i64 =
+        reader.query_row("SELECT count(*) FROM t", [], |row| row.get(0)).expect("count rows");
+    assert_eq!(count, 3, "all committed WAL rows survive staging");
 }

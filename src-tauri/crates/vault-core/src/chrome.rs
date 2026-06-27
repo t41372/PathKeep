@@ -47,7 +47,7 @@ use self::{
         should_discover_chromium_definition, should_discover_firefox, should_discover_safari,
         windows_data_dirs,
     },
-    staging::copy_database_with_sidecars,
+    staging::{copy_database_with_sidecars, recover_staged_database},
 };
 
 // Detection coverage is informed by the browser location patterns used in 1History
@@ -71,6 +71,18 @@ pub struct ProfileSnapshot {
     pub history_path: PathBuf,
     pub favicons_path: Option<PathBuf>,
     pub source_hashes: Vec<FileFingerprint>,
+}
+
+#[derive(Debug)]
+/// A staged profile plus non-fatal diagnostics gathered while copying it.
+///
+/// `warnings` exists so a degraded staging path (an online snapshot that fell
+/// back to a recovered raw copy because the live browser was busy) is recorded
+/// on the backup run instead of vanishing — the caller folds it into the run's
+/// warning ledger.
+pub struct StagedProfile {
+    pub snapshot: ProfileSnapshot,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
