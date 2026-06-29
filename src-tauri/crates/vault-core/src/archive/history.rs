@@ -56,7 +56,7 @@ const LIST_HISTORY_LEXICAL_SQL: &str = r#"
 WITH search_matches AS (
   SELECT
     rowid AS url_id,
-    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0) AS score
+    bm25(history_search_terms, 6.0, 12.0, 4.0, 5.0, 10.0, 4.0, 2.0, 7.0, 9.0, 6.0) AS score
   FROM search.history_search_terms
   WHERE :termsFtsQuery IS NOT NULL
     AND history_search_terms MATCH :termsFtsQuery

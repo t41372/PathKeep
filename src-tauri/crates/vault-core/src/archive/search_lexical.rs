@@ -112,15 +112,33 @@ pub(super) struct FuzzyDocument<'a> {
 }
 
 /// Builds all normalized projection fields for one canonical URL document.
-pub(super) fn analyze_document(url: &str, title: &str, search_terms: &str) -> LexicalDocument {
+///
+/// `notes` + `tags` are the user-authored annotation text. They do NOT feed the field-specific
+/// `normalized_url`/`normalized_title`/`normalized_search_terms` columns (those stay url/title/search-term
+/// only, so `intitle:`/`inurl:` filters never leak into notes), but they DO fold into the field-agnostic
+/// `compact_text` (trigram plane) and `cjk_grams` (term-FTS gram plane). That is what makes a
+/// contiguous-CJK note like "meta 的设计系统" recallable by a plain "设计系统" search — PathKeep's CJK
+/// recall is entirely gram/trigram-based, so the unicode61 `notes_text`/`tags_text` columns alone could
+/// only ever serve Latin. Empty notes/tags contribute nothing.
+pub(super) fn analyze_document(
+    url: &str,
+    title: &str,
+    search_terms: &str,
+    notes: &str,
+    tags: &str,
+) -> LexicalDocument {
     let normalized_url = normalize_text(url);
     let normalized_title = normalize_text(title);
     let normalized_search_terms = normalize_text(search_terms);
+    let normalized_notes = normalize_text(notes);
+    let normalized_tags = normalize_text(tags);
     let compact_variants = normalized_url
         .variants
         .iter()
         .chain(normalized_title.variants.iter())
         .chain(normalized_search_terms.variants.iter())
+        .chain(normalized_notes.variants.iter())
+        .chain(normalized_tags.variants.iter())
         .map(|value| compact_text(value))
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
@@ -628,12 +646,31 @@ mod tests {
 
     #[test]
     fn document_analysis_indexes_cjk_substrings() {
-        let document = analyze_document("https://example.test", "我的瀏覽器設定頁", "");
+        let document = analyze_document("https://example.test", "我的瀏覽器設定頁", "", "", "");
 
         assert!(document.cjk_grams.contains("设定"));
         assert!(document.cjk_grams.contains("设置"));
         assert!(document.compact_text.contains("我的浏览器设定页"));
         assert!(document.compact_text.contains("我的浏览器设置页"));
+    }
+
+    #[test]
+    fn document_analysis_folds_cjk_notes_and_tags_into_grams_and_compact() {
+        // The user's failing case: a contiguous-CJK note/tag must produce the same grams a CJK title
+        // would, so it is recallable through the gram/trigram plane (not just the unicode61 columns).
+        let document =
+            analyze_document("https://example.test", "o/r", "", "meta 的设计系统", "参考资料");
+
+        // Notes fold into BOTH the term-FTS gram plane and the trigram compact plane.
+        assert!(document.cjk_grams.contains("设计"));
+        assert!(document.cjk_grams.contains("计系"));
+        assert!(document.cjk_grams.contains("系统"));
+        assert!(document.compact_text.contains("的设计系统"));
+        // Tags fold in too.
+        assert!(document.cjk_grams.contains("参考"));
+        assert!(document.compact_text.contains("参考资料"));
+        // Notes/tags do NOT leak into the field-specific title index (intitle:/inurl: stay clean).
+        assert!(!document.normalized_title.contains("设计"));
     }
 
     #[test]

@@ -15,12 +15,22 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;
 use std::time::Duration as StdDuration;
 
+// v4 (notes/tags recall): adds `notes_text` + `tags_text` columns to `search_documents` + the term FTS
+// mirror so per-URL NOTES (`url_annotations.notes`) and TAGS (`url_tags.tag`, space-joined) are
+// keyword-searchable through the SAME lexical path the UI uses — a note like "meta 的设计系统" now
+// surfaces on a plain "设计系统" search, not only via the `note:`/`tag:` post-filters. CRUCIALLY, notes/
+// tags also fold into the field-agnostic `compact_text` (trigram plane) + `cjk_grams` (term-FTS gram
+// plane) via `analyze_document`, because PathKeep's CJK recall is entirely gram/trigram-based — the
+// unicode61 `notes_text`/`tags_text` columns alone would only serve Latin. Notes/tags are canonical-
+// archive content (NOT intelligence-DB derived), so BOTH rebuild variants populate them and
+// `set_notes`/`replace_tags` re-derive ONE url's full document immediately (no full rebuild needed).
+//
 // v3 (W-ENRICH-1): adds the `enrichment_text` column to `search_documents` + the term FTS mirror so
 // a content-fetch enrichment's CAPPED summary + key metadata (GitHub topics/desc, video channel) are
 // keyword-searchable. A version mismatch drops + rebuilds the projection (the projection is fully
 // rebuildable derived state). NOTE: only the capped summary + metadata ride here — NOT the full
 // body/caption (06 §4: multi-KB blobs would explode the index size + wreck BM25 at the 14.4M tail).
-const SEARCH_PROJECTION_SCHEMA_VERSION: i64 = 3;
+const SEARCH_PROJECTION_SCHEMA_VERSION: i64 = 4;
 
 const SEARCH_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS search_projection_meta (
@@ -38,6 +48,8 @@ CREATE TABLE IF NOT EXISTS search_documents (
   compact_text TEXT NOT NULL,
   cjk_grams TEXT NOT NULL,
   enrichment_text TEXT NOT NULL DEFAULT '',
+  notes_text TEXT NOT NULL DEFAULT '',
+  tags_text TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS history_search_terms USING fts5(
@@ -49,6 +61,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS history_search_terms USING fts5(
   normalized_search_terms,
   cjk_grams,
   enrichment_text,
+  notes_text,
+  tags_text,
   content='search_documents',
   content_rowid='url_id',
   tokenize = 'unicode61 remove_diacritics 2',
@@ -193,7 +207,153 @@ fn update_enrichment_text_in_projection(
     let mut search = open_search_connection(paths)?;
     ensure_search_schema(&search)?;
     let transaction = search.transaction()?;
-    let stored = transaction
+    let Some(stored) = read_stored_search_document(&transaction, url_id)? else {
+        // No projection row for this URL yet → nothing to refresh (a later rebuild/seed mirrors it).
+        return Ok(());
+    };
+    if stored.enrichment_text == enrichment_text {
+        return Ok(()); // Already current — avoid a redundant FTS rewrite.
+    }
+
+    // Delete the old term-FTS row (contentless FTS5 needs the OLD column values to delete cleanly).
+    delete_term_fts_row(&transaction, url_id, &stored)?;
+    transaction.execute(
+        "UPDATE search_documents
+         SET enrichment_text = ?1, updated_at = datetime('now')
+         WHERE url_id = ?2",
+        params![enrichment_text, url_id],
+    )?;
+    // Re-mirror with the new enrichment_text; notes/tags are unchanged here so they ride through.
+    insert_term_fts_row(
+        &transaction,
+        url_id,
+        &stored.url,
+        &stored.title,
+        &stored.search_terms,
+        &stored.lexical,
+        enrichment_text,
+        &stored.notes_text,
+        &stored.tags_text,
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// Refreshes the term FTS `notes_text`+`tags_text` for ONE canonical URL right after a note/tag edit.
+///
+/// Mirror of `refresh_enrichment_text_for_history`, but for user-authored annotations: a `set_notes` /
+/// `replace_tags` write lands in the canonical archive (`url_annotations` / `url_tags`), yet the lexical
+/// recall plane only re-derived notes/tags during a FULL rebuild — so an edited note was un-findable by
+/// plain keyword until the next rebuild. This closes that gap without a rebuild: it recomputes the
+/// CURRENT notes/tags for `url` from the archive `connection` (PK / `(url,tag)`-indexed lookups, never a
+/// scan), then UPDATEs every `search_documents` row sharing that canonical URL + re-mirrors the term
+/// FTS (delete-then-insert). `url` is NOT unique in `urls` (the same address can ride under several
+/// profiles), so it fans out to every matching `url_id`. Best-effort + idempotent: a URL with no
+/// `search_documents` row yet is a no-op (the eventual seed/rebuild picks it up); identical text skips
+/// the rewrite. `connection` is the ARCHIVE connection (it owns `urls`/`url_annotations`/`url_tags`);
+/// `paths` opens the SEARCH database, exactly like the enrichment refresh.
+pub(crate) fn refresh_notes_tags_text_for_url(
+    paths: &ProjectPaths,
+    connection: &Connection,
+    url: &str,
+) -> Result<()> {
+    // Recompute the CURRENT notes + space-joined tags for this canonical URL (default '' when absent).
+    let notes_text: String = connection
+        .query_row("SELECT notes FROM url_annotations WHERE url = ?1", params![url], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+        .unwrap_or_default();
+    let tags_text: String = connection
+        .query_row(
+            "SELECT GROUP_CONCAT(tag, ' ') FROM url_tags WHERE url = ?1",
+            params![url],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten()
+        .unwrap_or_default();
+
+    // Fan out to every url_id carrying this address (notes/tags travel with the URL, across profiles).
+    let mut statement = connection.prepare("SELECT id FROM urls WHERE url = ?1")?;
+    let url_ids: Vec<i64> = statement
+        .query_map(params![url], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for url_id in url_ids {
+        update_notes_tags_text_in_projection(paths, url_id, &notes_text, &tags_text)?;
+    }
+    Ok(())
+}
+
+/// Applies a recomputed `notes_text`+`tags_text` to one `search_documents` row + its term FTS mirror.
+///
+/// Sibling of `update_enrichment_text_in_projection`: reads the stored doc, and if present re-mirrors
+/// the term FTS via the contentless delete-then-insert pair (so the FTS row's notes/tags match the doc)
+/// and UPDATEs the doc columns. A missing doc is a no-op (the projection has not been seeded for this
+/// URL yet); identical text is skipped to avoid a redundant FTS rewrite. The trigram FTS is untouched
+/// (it mirrors `compact_text`, which carries no notes/tags). Runs in one transaction.
+fn update_notes_tags_text_in_projection(
+    paths: &ProjectPaths,
+    url_id: i64,
+    notes_text: &str,
+    tags_text: &str,
+) -> Result<()> {
+    let mut search = open_search_connection(paths)?;
+    ensure_search_schema(&search)?;
+    let transaction = search.transaction()?;
+    let Some(stored) = read_stored_search_document(&transaction, url_id)? else {
+        // No projection row for this URL yet → nothing to refresh (a later rebuild/seed mirrors it).
+        return Ok(());
+    };
+    if stored.notes_text == notes_text && stored.tags_text == tags_text {
+        return Ok(()); // Already current — avoid a redundant FTS rewrite.
+    }
+
+    // Re-derive the FULL lexical document with the fresh notes/tags so compact_text + cjk_grams (the
+    // gram/trigram CJK recall plane) carry the note/tag text immediately — not only the unicode61
+    // notes_text/tags_text columns. Without this, an edited CJK note would stay un-findable until the
+    // next full rebuild. url/title/search_terms are unchanged, so their normalized fields are identical.
+    let lexical =
+        analyze_document(&stored.url, &stored.title, &stored.search_terms, notes_text, tags_text);
+
+    // Re-mirror BOTH FTS planes: delete by the OLD stored values, insert the freshly derived document.
+    delete_term_fts_row(&transaction, url_id, &stored)?;
+    delete_trigram_fts_row(&transaction, url_id, &stored.lexical.compact_text)?;
+    transaction.execute(
+        "UPDATE search_documents
+         SET compact_text = ?1,
+             cjk_grams = ?2,
+             notes_text = ?3,
+             tags_text = ?4,
+             updated_at = datetime('now')
+         WHERE url_id = ?5",
+        params![&lexical.compact_text, &lexical.cjk_grams, notes_text, tags_text, url_id],
+    )?;
+    insert_term_fts_row(
+        &transaction,
+        url_id,
+        &stored.url,
+        &stored.title,
+        &stored.search_terms,
+        &lexical,
+        &stored.enrichment_text,
+        notes_text,
+        tags_text,
+    )?;
+    insert_trigram_fts_row(&transaction, url_id, &lexical.compact_text)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// Reads the stored projection doc for one URL (every FTS-mirrored column), or None if absent.
+///
+/// Shared by all delete-then-insert paths: a contentless FTS5 'delete' needs the OLD column values to
+/// remove the stored tokens cleanly, so each refresh first reads the doc it is about to rewrite.
+fn read_stored_search_document(
+    connection: &Connection,
+    url_id: i64,
+) -> Result<Option<StoredSearchDocument>> {
+    Ok(connection
         .query_row(
             "SELECT
                url,
@@ -204,7 +364,9 @@ fn update_enrichment_text_in_projection(
                normalized_search_terms,
                compact_text,
                cjk_grams,
-               enrichment_text
+               enrichment_text,
+               notes_text,
+               tags_text
              FROM search_documents
              WHERE url_id = ?1",
             params![url_id],
@@ -221,19 +383,20 @@ fn update_enrichment_text_in_projection(
                         cjk_grams: row.get(7)?,
                     },
                     enrichment_text: row.get(8)?,
+                    notes_text: row.get(9)?,
+                    tags_text: row.get(10)?,
                 })
             },
         )
-        .optional()?;
-    let Some(stored) = stored else {
-        // No projection row for this URL yet → nothing to refresh (a later rebuild/seed mirrors it).
-        return Ok(());
-    };
-    if stored.enrichment_text == enrichment_text {
-        return Ok(()); // Already current — avoid a redundant FTS rewrite.
-    }
+        .optional()?)
+}
 
-    // Delete the old term-FTS row (contentless FTS5 needs the OLD column values to delete cleanly).
+/// Removes the OLD term-FTS row for `url_id` using the stored column values (contentless FTS5 delete).
+fn delete_term_fts_row(
+    transaction: &rusqlite::Transaction<'_>,
+    url_id: i64,
+    stored: &StoredSearchDocument,
+) -> Result<()> {
     transaction.execute(
         "INSERT INTO history_search_terms(
            history_search_terms,
@@ -245,9 +408,11 @@ fn update_enrichment_text_in_projection(
            normalized_title,
            normalized_search_terms,
            cjk_grams,
-           enrichment_text
+           enrichment_text,
+           notes_text,
+           tags_text
          )
-         VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             url_id,
             &stored.url,
@@ -258,14 +423,26 @@ fn update_enrichment_text_in_projection(
             &stored.lexical.normalized_search_terms,
             &stored.lexical.cjk_grams,
             &stored.enrichment_text,
+            &stored.notes_text,
+            &stored.tags_text,
         ],
     )?;
-    transaction.execute(
-        "UPDATE search_documents
-         SET enrichment_text = ?1, updated_at = datetime('now')
-         WHERE url_id = ?2",
-        params![enrichment_text, url_id],
-    )?;
+    Ok(())
+}
+
+/// Inserts a term-FTS row mirroring the given column values (the new state after an UPDATE).
+#[allow(clippy::too_many_arguments)]
+fn insert_term_fts_row(
+    transaction: &rusqlite::Transaction<'_>,
+    url_id: i64,
+    url: &str,
+    title: &str,
+    search_terms: &str,
+    lexical: &LexicalDocument,
+    enrichment_text: &str,
+    notes_text: &str,
+    tags_text: &str,
+) -> Result<()> {
     transaction.execute(
         "INSERT INTO history_search_terms(
            rowid,
@@ -276,22 +453,53 @@ fn update_enrichment_text_in_projection(
            normalized_title,
            normalized_search_terms,
            cjk_grams,
-           enrichment_text
+           enrichment_text,
+           notes_text,
+           tags_text
          )
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             url_id,
-            &stored.url,
-            &stored.title,
-            &stored.search_terms,
-            &stored.lexical.normalized_url,
-            &stored.lexical.normalized_title,
-            &stored.lexical.normalized_search_terms,
-            &stored.lexical.cjk_grams,
+            url,
+            title,
+            search_terms,
+            &lexical.normalized_url,
+            &lexical.normalized_title,
+            &lexical.normalized_search_terms,
+            &lexical.cjk_grams,
             enrichment_text,
+            notes_text,
+            tags_text,
         ],
     )?;
-    transaction.commit()?;
+    Ok(())
+}
+
+/// Removes the OLD trigram-FTS row for `url_id` using the stored `compact_text` (contentless delete).
+fn delete_trigram_fts_row(
+    transaction: &rusqlite::Transaction<'_>,
+    url_id: i64,
+    compact_text: &str,
+) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO history_search_trigram(history_search_trigram, rowid, compact_text)
+         VALUES('delete', ?1, ?2)",
+        params![url_id, compact_text],
+    )?;
+    Ok(())
+}
+
+/// Inserts a trigram-FTS row mirroring the given `compact_text` (the new state after an UPDATE).
+fn insert_trigram_fts_row(
+    transaction: &rusqlite::Transaction<'_>,
+    url_id: i64,
+    compact_text: &str,
+) -> Result<()> {
+    transaction.execute(
+        "INSERT INTO history_search_trigram(rowid, compact_text)
+         VALUES(?1, ?2)",
+        params![url_id, compact_text],
+    )?;
     Ok(())
 }
 
@@ -336,6 +544,46 @@ fn load_enrichment_text_by_url_id(
         let text = enrichment_text_for_index(summary.as_deref(), extraction_json.as_deref());
         if !text.trim().is_empty() {
             by_url.insert(url_id, text);
+        }
+    }
+    Ok(by_url)
+}
+
+/// Loads `url → notes` from the canonical archive for the rebuild's `notes_text` mirror.
+///
+/// `url_annotations` is keyed by the URL string (notes travel with the address, across profiles), so
+/// the map is keyed the same way and the rebuild looks each `urls.url` up directly. The table is tiny
+/// versus the URL count (only annotated pages have a row), so this is a bounded read, not a scan of the
+/// 14.4M tail. Empty notes are skipped so the map only carries searchable text.
+fn load_notes_text_by_url(archive: &Connection) -> Result<HashMap<String, String>> {
+    let mut statement = archive.prepare("SELECT url, notes FROM url_annotations")?;
+    let mut rows = statement.query([])?;
+    let mut by_url: HashMap<String, String> = HashMap::new();
+    while let Some(row) = rows.next()? {
+        let url: String = row.get(0)?;
+        let notes: String = row.get(1)?;
+        if !notes.trim().is_empty() {
+            by_url.insert(url, notes);
+        }
+    }
+    Ok(by_url)
+}
+
+/// Loads `url → space-joined tags` from the canonical archive for the rebuild's `tags_text` mirror.
+///
+/// `url_tags` stores one row per (url, tag); `GROUP_CONCAT(tag, ' ')` joins a URL's tags into one
+/// searchable string. Keyed by the URL string for the same reason as notes. `(url, tag)` is the table's
+/// primary key, so the GROUP BY rides an index — a bounded read over only the tagged pages.
+fn load_tags_text_by_url(archive: &Connection) -> Result<HashMap<String, String>> {
+    let mut statement =
+        archive.prepare("SELECT url, GROUP_CONCAT(tag, ' ') FROM url_tags GROUP BY url")?;
+    let mut rows = statement.query([])?;
+    let mut by_url: HashMap<String, String> = HashMap::new();
+    while let Some(row) = rows.next()? {
+        let url: String = row.get(0)?;
+        let tags: Option<String> = row.get(1)?;
+        if let Some(tags) = tags.filter(|value| !value.trim().is_empty()) {
+            by_url.insert(url, tags);
         }
     }
     Ok(by_url)
@@ -446,6 +694,13 @@ fn rebuild_search_projection_from_archive_with_enrichment(
         [],
     )?;
 
+    // Notes/tags are canonical-archive content (NOT intelligence-derived), so load them straight from
+    // the SAME archive connection the rebuild reads from — keyed by url STRING (their natural key; the
+    // same address can ride under several `url_id`s, and every one gets the note). Both rebuild variants
+    // run through here, so the seed/no-enrichment path mirrors notes/tags too.
+    let notes_by_url = load_notes_text_by_url(archive)?;
+    let tags_by_url = load_tags_text_by_url(archive)?;
+
     let mut statement = archive.prepare(
         "SELECT
        urls.id,
@@ -476,17 +731,23 @@ fn rebuild_search_projection_from_archive_with_enrichment(
            compact_text,
            cjk_grams,
            enrichment_text,
+           notes_text,
+           tags_text,
            updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))",
     )?;
     while let Some(row) = rows.next()? {
         let url_id = row.get::<_, i64>(0)?;
         let url = row.get::<_, String>(1)?;
         let title = row.get::<_, String>(2)?;
         let search_terms = row.get::<_, String>(3)?;
-        let lexical = analyze_document(&url, &title, &search_terms);
         let enrichment = enrichment_text.get(&url_id).map(String::as_str).unwrap_or("");
+        let notes = notes_by_url.get(&url).map(String::as_str).unwrap_or("");
+        let tags = tags_by_url.get(&url).map(String::as_str).unwrap_or("");
+        // Fold notes/tags into the lexical derivation so compact_text + cjk_grams carry their grams
+        // (CJK recall plane), not only the unicode61 notes_text/tags_text columns.
+        let lexical = analyze_document(&url, &title, &search_terms, notes, tags);
         insert.execute(params![
             url_id,
             url,
@@ -498,6 +759,8 @@ fn rebuild_search_projection_from_archive_with_enrichment(
             lexical.compact_text,
             lexical.cjk_grams,
             enrichment,
+            notes,
+            tags,
         ])?;
     }
     drop(insert);
@@ -518,79 +781,24 @@ fn refresh_search_document(
     title: &str,
     search_terms: &str,
 ) -> Result<()> {
-    let lexical = analyze_document(url, title, search_terms);
-
-    // Preserve any existing enrichment_text across an import-batch refresh: import refresh re-derives
-    // the lexical fields from the canonical archive but carries NO new enrichment (content fetch is a
-    // separate, later pass), so a previously-mirrored enrichment summary must survive the refresh
-    // rather than being wiped to ''.
+    // Preserve any existing enrichment_text / notes_text / tags_text across an import-batch refresh:
+    // import refresh re-derives the lexical fields from the canonical archive but carries NO new
+    // enrichment (a separate content-fetch pass) and does NOT touch annotations, so a previously
+    // mirrored summary / note / tag set must survive the refresh rather than being wiped to ''. The
+    // old doc is read FIRST so the preserved notes/tags can fold back into the re-derived lexical
+    // document (compact_text + cjk_grams), keeping CJK note/tag grams intact across the refresh.
     let mut enrichment_text = String::new();
-    if let Some(old_document) = transaction
-        .query_row(
-            "SELECT
-               url,
-               title,
-               search_terms,
-               normalized_url,
-               normalized_title,
-               normalized_search_terms,
-               compact_text,
-               cjk_grams,
-               enrichment_text
-             FROM search_documents
-             WHERE url_id = ?1",
-            params![url_id],
-            |row| {
-                Ok(StoredSearchDocument {
-                    url: row.get(0)?,
-                    title: row.get(1)?,
-                    search_terms: row.get(2)?,
-                    lexical: LexicalDocument {
-                        normalized_url: row.get(3)?,
-                        normalized_title: row.get(4)?,
-                        normalized_search_terms: row.get(5)?,
-                        compact_text: row.get(6)?,
-                        cjk_grams: row.get(7)?,
-                    },
-                    enrichment_text: row.get(8)?,
-                })
-            },
-        )
-        .optional()?
-    {
+    let mut notes_text = String::new();
+    let mut tags_text = String::new();
+    if let Some(old_document) = read_stored_search_document(transaction, url_id)? {
         enrichment_text = old_document.enrichment_text.clone();
-        transaction.execute(
-            "INSERT INTO history_search_terms(
-               history_search_terms,
-               rowid,
-               url,
-               title,
-               search_terms,
-               normalized_url,
-               normalized_title,
-               normalized_search_terms,
-               cjk_grams,
-               enrichment_text
-             )
-             VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                url_id,
-                &old_document.url,
-                &old_document.title,
-                &old_document.search_terms,
-                &old_document.lexical.normalized_url,
-                &old_document.lexical.normalized_title,
-                &old_document.lexical.normalized_search_terms,
-                &old_document.lexical.cjk_grams,
-                &old_document.enrichment_text,
-            ],
-        )?;
-        transaction.execute(
-            "INSERT INTO history_search_trigram(history_search_trigram, rowid, compact_text)
-             VALUES('delete', ?1, ?2)",
-            params![url_id, &old_document.lexical.compact_text],
-        )?;
+        notes_text = old_document.notes_text.clone();
+        tags_text = old_document.tags_text.clone();
+        delete_term_fts_row(transaction, url_id, &old_document)?;
+        delete_trigram_fts_row(transaction, url_id, &old_document.lexical.compact_text)?;
     }
+
+    let lexical = analyze_document(url, title, search_terms, &notes_text, &tags_text);
 
     transaction.execute(
         "INSERT INTO search_documents (
@@ -604,9 +812,11 @@ fn refresh_search_document(
            compact_text,
            cjk_grams,
            enrichment_text,
+           notes_text,
+           tags_text,
            updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, datetime('now'))
          ON CONFLICT(url_id) DO UPDATE SET
            url = excluded.url,
            title = excluded.title,
@@ -617,6 +827,8 @@ fn refresh_search_document(
            compact_text = excluded.compact_text,
            cjk_grams = excluded.cjk_grams,
            enrichment_text = excluded.enrichment_text,
+           notes_text = excluded.notes_text,
+           tags_text = excluded.tags_text,
            updated_at = excluded.updated_at",
         params![
             url_id,
@@ -629,38 +841,22 @@ fn refresh_search_document(
             &lexical.compact_text,
             &lexical.cjk_grams,
             &enrichment_text,
+            &notes_text,
+            &tags_text,
         ],
     )?;
-    transaction.execute(
-        "INSERT INTO history_search_terms(
-           rowid,
-           url,
-           title,
-           search_terms,
-           normalized_url,
-           normalized_title,
-           normalized_search_terms,
-           cjk_grams,
-           enrichment_text
-         )
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            url_id,
-            url,
-            title,
-            search_terms,
-            &lexical.normalized_url,
-            &lexical.normalized_title,
-            &lexical.normalized_search_terms,
-            &lexical.cjk_grams,
-            &enrichment_text,
-        ],
+    insert_term_fts_row(
+        transaction,
+        url_id,
+        url,
+        title,
+        search_terms,
+        &lexical,
+        &enrichment_text,
+        &notes_text,
+        &tags_text,
     )?;
-    transaction.execute(
-        "INSERT INTO history_search_trigram(rowid, compact_text)
-         VALUES(?1, ?2)",
-        params![url_id, &lexical.compact_text],
-    )?;
+    insert_trigram_fts_row(transaction, url_id, &lexical.compact_text)?;
     Ok(())
 }
 
@@ -670,6 +866,8 @@ struct StoredSearchDocument {
     search_terms: String,
     lexical: LexicalDocument,
     enrichment_text: String,
+    notes_text: String,
+    tags_text: String,
 }
 
 fn ensure_search_schema(connection: &Connection) -> Result<()> {
@@ -894,10 +1092,10 @@ mod tests {
     }
 
     #[test]
-    fn search_schema_version_is_v3_with_enrichment_text() {
+    fn search_schema_version_is_v4_with_notes_and_tags_text() {
         let connection = Connection::open_in_memory().expect("memory db");
         ensure_search_schema(&connection).expect("schema");
-        // The version is persisted as v3.
+        // The version is persisted as v4.
         let version: String = connection
             .query_row(
                 "SELECT value FROM search_projection_meta WHERE key = 'schema_version'",
@@ -905,45 +1103,53 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("version");
-        assert_eq!(version, "3");
-        // The `enrichment_text` column exists on both the doc table and the term FTS mirror.
-        let doc_has_enrichment: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('search_documents') WHERE name = 'enrichment_text'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("doc column");
-        assert_eq!(doc_has_enrichment, 1);
-        // Insert a doc with enrichment text and confirm it is FTS-searchable.
+        assert_eq!(version, "4");
+        // enrichment_text (v3) plus the new notes_text + tags_text (v4) columns all exist on the doc.
+        for column in ["enrichment_text", "notes_text", "tags_text"] {
+            let present: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('search_documents') WHERE name = ?1",
+                    params![column],
+                    |row| row.get(0),
+                )
+                .expect("doc column");
+            assert_eq!(present, 1, "search_documents must carry the {column} column");
+        }
+        // Insert a doc carrying enrichment / notes / tags text and confirm EACH is FTS-searchable
+        // through the term FTS mirror (the same MATCH path the lexical query uses).
         connection
             .execute(
                 "INSERT INTO search_documents (
                    url_id, url, title, search_terms, normalized_url, normalized_title,
-                   normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at
+                   normalized_search_terms, compact_text, cjk_grams, enrichment_text,
+                   notes_text, tags_text, updated_at
                  )
                  VALUES (1, 'https://github.com/o/r', 'o/r', '', 'https://github.com/o/r', 'o/r',
-                         '', 'github', '', 'wasmtime sandbox runtime', datetime('now'))",
+                         '', 'github', '', 'wasmtime sandbox runtime',
+                         'meta design system notes', 'reference design', datetime('now'))",
                 [],
             )
             .expect("insert doc");
         connection
             .execute("INSERT INTO history_search_terms(history_search_terms) VALUES('rebuild')", [])
             .expect("rebuild fts");
-        let hits: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH 'wasmtime'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("fts match");
-        assert_eq!(hits, 1, "enrichment_text must be keyword-searchable via the term FTS mirror");
+        for word in ["wasmtime", "notes", "reference"] {
+            let hits: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
+                    params![word],
+                    |row| row.get(0),
+                )
+                .expect("fts match");
+            assert_eq!(hits, 1, "`{word}` must be keyword-searchable via the term FTS mirror");
+        }
     }
 
     #[test]
-    fn search_schema_v2_to_v3_auto_rebuilds_and_drops_legacy_table() {
-        // Stand up a v2-shaped projection (no enrichment_text), then ensure_search_schema must drop +
-        // rebuild it to v3 (the projection is rebuildable derived state, so a version bump is safe).
+    fn search_schema_v3_to_v4_auto_rebuilds_and_adds_notes_tags() {
+        // Stand up a v3-shaped projection (enrichment_text but NO notes_text/tags_text), then
+        // ensure_search_schema must drop + rebuild it to v4 (the projection is rebuildable derived
+        // state, so a version bump is safe).
         let connection = Connection::open_in_memory().expect("memory db");
         connection
             .execute_batch(
@@ -952,16 +1158,20 @@ mod tests {
                    url_id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT NOT NULL,
                    search_terms TEXT NOT NULL, normalized_url TEXT NOT NULL,
                    normalized_title TEXT NOT NULL, normalized_search_terms TEXT NOT NULL,
-                   compact_text TEXT NOT NULL, cjk_grams TEXT NOT NULL, updated_at TEXT NOT NULL
+                   compact_text TEXT NOT NULL, cjk_grams TEXT NOT NULL,
+                   enrichment_text TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL
                  );
-                 INSERT INTO search_projection_meta (key, value) VALUES ('schema_version', '2');
-                 INSERT INTO search_documents VALUES (1, 'u', 't', '', 'u', 't', '', 'c', '', 'now');",
+                 INSERT INTO search_projection_meta (key, value) VALUES ('schema_version', '3');
+                 INSERT INTO search_documents
+                   (url_id, url, title, search_terms, normalized_url, normalized_title,
+                    normalized_search_terms, compact_text, cjk_grams, enrichment_text, updated_at)
+                 VALUES (1, 'u', 't', '', 'u', 't', '', 'c', '', '', 'now');",
             )
-            .expect("seed v2 projection");
+            .expect("seed v3 projection");
 
-        ensure_search_schema(&connection).expect("upgrade to v3");
+        ensure_search_schema(&connection).expect("upgrade to v4");
 
-        // The version is now v3 and the legacy v2 rows were dropped (a rebuild reseeds from archive).
+        // The version is now v4 and the legacy v3 rows were dropped (a rebuild reseeds from archive).
         let version: String = connection
             .query_row(
                 "SELECT value FROM search_projection_meta WHERE key = 'schema_version'",
@@ -969,20 +1179,22 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("version");
-        assert_eq!(version, "3");
+        assert_eq!(version, "4");
         let remaining: i64 = connection
             .query_row("SELECT COUNT(*) FROM search_documents", [], |row| row.get(0))
             .expect("count");
-        assert_eq!(remaining, 0, "v2 rows must be dropped by the v2→v3 reset");
-        // The v3 enrichment_text column is present after the upgrade.
-        let has_enrichment: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('search_documents') WHERE name = 'enrichment_text'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("column");
-        assert_eq!(has_enrichment, 1);
+        assert_eq!(remaining, 0, "v3 rows must be dropped by the v3→v4 reset");
+        // The v4 notes_text + tags_text columns are present after the upgrade.
+        for column in ["notes_text", "tags_text"] {
+            let present: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('search_documents') WHERE name = ?1",
+                    params![column],
+                    |row| row.get(0),
+                )
+                .expect("column");
+            assert_eq!(present, 1, "the {column} column must exist after the v3→v4 upgrade");
+        }
     }
 
     #[test]
@@ -1233,5 +1445,317 @@ mod tests {
 
         // A second refresh with the SAME enrichment is a no-op (covers the already-current early return).
         refresh_enrichment_text_for_history(&paths, &connection, 10).expect("idempotent refresh");
+    }
+
+    use crate::{
+        annotations::{replace_tags, set_notes},
+        archive::list_history,
+        models::{HistoryQuery, ReplaceTagsRequest, SetNotesRequest},
+    };
+
+    /// The canonical url the `seeded_plaintext_archive` helper installs (url_id 1).
+    const SEEDED_URL: &str = "https://github.com/o/r";
+
+    /// Runs the REAL lexical query path the UI uses and returns whether the seeded url is in the page.
+    fn plain_keyword_finds_seeded_url(
+        paths: &ProjectPaths,
+        config: &AppConfig,
+        query: &str,
+    ) -> bool {
+        let response = list_history(
+            paths,
+            config,
+            None,
+            HistoryQuery { q: Some(query.to_string()), limit: Some(50), ..HistoryQuery::default() },
+        )
+        .expect("list_history");
+        response.items.iter().any(|item| item.url == SEEDED_URL)
+    }
+
+    #[test]
+    fn note_is_findable_by_plain_keyword_search_end_to_end() {
+        // The headline fix: a saved NOTE must surface on a PLAIN keyword search (no `note:` operator),
+        // through the same `list_history` lexical path the Explorer UI uses. "wasmtime" appears ONLY in
+        // the note — not in the url/title/search_terms — so this query can only hit via the new
+        // notes_text FTS column. On the old v3 schema (no notes_text) the term FTS never indexed the
+        // note, so this assertion would FAIL there; that is exactly what proves the fix is exercised.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "wasmtime sandbox".into(),
+                source_profile: None,
+            },
+        )
+        .expect("set_notes");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "wasmtime"),
+            "a saved note must be findable by a plain keyword search"
+        );
+    }
+
+    #[test]
+    fn tag_is_findable_by_plain_keyword_search_end_to_end() {
+        // Same contract for a TAG: a plain keyword search for the tag word must surface the page. The
+        // tag word appears ONLY in url_tags, so it can only hit via the new tags_text FTS column.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        replace_tags(
+            &paths,
+            &config,
+            None,
+            ReplaceTagsRequest {
+                url: SEEDED_URL.into(),
+                tags: vec!["kubernetes".into()],
+                source_profile: None,
+            },
+        )
+        .expect("replace_tags");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "kubernetes"),
+            "a saved tag must be findable by a plain keyword search"
+        );
+    }
+
+    #[test]
+    fn edited_note_is_findable_and_old_word_drops_via_refresh_hook() {
+        // The immediate-refresh hook (no full rebuild) must keep the FTS in lock-step with edits: the
+        // new word becomes findable AND the replaced word stops matching.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "wasmtime sandbox".into(),
+                source_profile: None,
+            },
+        )
+        .expect("set first note");
+        assert!(plain_keyword_finds_seeded_url(&paths, &config, "wasmtime"));
+
+        // Edit the note: the new word lands, the old word is removed from the term FTS mirror.
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "freshword runtime".into(),
+                source_profile: None,
+            },
+        )
+        .expect("edit note");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "freshword"),
+            "the edited note's new word must be findable"
+        );
+        assert!(
+            !plain_keyword_finds_seeded_url(&paths, &config, "wasmtime"),
+            "the replaced note's old word must no longer match"
+        );
+    }
+
+    #[test]
+    fn rebuild_mirrors_notes_and_tags_into_the_term_fts() {
+        // Covers the rebuild loaders (`load_notes_text_by_url` + `load_tags_text_by_url`, incl. the
+        // GROUP_CONCAT tag join) and the rebuild INSERT populating notes_text/tags_text. Notes/tags are
+        // written DIRECTLY to the canonical tables (NOT via set_notes) so this exercises the REBUILD
+        // path specifically, then a full rebuild must mirror both into the term FTS.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        {
+            let archive = open_archive_connection(&paths, &config, None).expect("archive");
+            archive
+                .execute(
+                    "INSERT INTO url_annotations(url, notes, created_at, updated_at)
+                     VALUES (?1, 'rustlang compiler internals', '2026-01-01', '2026-01-01')",
+                    params![SEEDED_URL],
+                )
+                .expect("note");
+            for tag in ["wasm", "toolchain"] {
+                archive
+                    .execute(
+                        "INSERT INTO url_tags(url, tag, created_at) VALUES (?1, ?2, '2026-01-01')",
+                        params![SEEDED_URL, tag],
+                    )
+                    .expect("tag");
+            }
+        }
+
+        rebuild_search_projection(&paths, &config, None).expect("rebuild");
+
+        let search = open_search_connection(&paths).expect("search");
+        for word in ["rustlang", "wasm", "toolchain"] {
+            let hits: i64 = search
+                .query_row(
+                    "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH ?1",
+                    params![word],
+                    |row| row.get(0),
+                )
+                .expect("match");
+            assert_eq!(
+                hits, 1,
+                "`{word}` (note/tag) must be mirrored into the term FTS by a rebuild"
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_notes_tags_skips_when_current_and_no_ops_without_a_doc_or_url() {
+        // Covers the three guard branches of the notes/tags refresh: (1) already-current → skip,
+        // (2) a resolvable url_id with NO projection doc → no-op, (3) an unknown url → empty fan-out.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        let archive = open_archive_connection(&paths, &config, None).expect("archive");
+        // The seed rebuilt the projection with empty notes/tags. Refreshing with NO annotation yet
+        // recomputes empty notes/tags == the stored empty values → the already-current early return.
+        refresh_notes_tags_text_for_url(&paths, &archive, SEEDED_URL)
+            .expect("already-current skip");
+
+        // Drop the projection doc, then write a note: the refresh resolves url_id 1 but finds no doc →
+        // a clean no-op (a later seed/rebuild will pick the note up).
+        {
+            let mut search = open_search_connection(&paths).expect("search");
+            ensure_search_schema(&search).expect("schema");
+            let txn = search.transaction().expect("txn");
+            txn.execute("DELETE FROM search_documents", []).expect("clear doc");
+            txn.execute(
+                "INSERT INTO history_search_terms(history_search_terms) VALUES('delete-all')",
+                [],
+            )
+            .expect("clear fts");
+            txn.commit().expect("commit");
+        }
+        archive
+            .execute(
+                "INSERT INTO url_annotations(url, notes, created_at, updated_at)
+                 VALUES (?1, 'orphan note', '2026-01-01', '2026-01-01')",
+                params![SEEDED_URL],
+            )
+            .expect("note");
+        refresh_notes_tags_text_for_url(&paths, &archive, SEEDED_URL).expect("no-doc no-op");
+
+        // An unknown url resolves zero url_ids → the fan-out loop body never runs (and the notes/tags
+        // recompute hits the absent-row default '' branches).
+        refresh_notes_tags_text_for_url(&paths, &archive, "https://nonexistent.example/")
+            .expect("unknown-url no-op");
+    }
+
+    #[test]
+    fn note_is_mirrored_into_the_projection_term_fts_after_set_notes() {
+        // Projection-level mirror assertion (sibling of `rebuild_search_projection_mirrors_stored_
+        // enrichment_text`): after a set_notes write, a direct `history_search_terms MATCH '<note word>'`
+        // against the search database returns exactly one row. Like the enrichment_text precedent, the
+        // notes_text column rides the `unicode61` term FTS, so this asserts a word-token match.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "wasmtime sandbox".into(),
+                source_profile: None,
+            },
+        )
+        .expect("set_notes");
+        let search = open_search_connection(&paths).expect("search");
+        let hits: i64 = search
+            .query_row(
+                "SELECT COUNT(*) FROM history_search_terms WHERE history_search_terms MATCH 'wasmtime'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("match");
+        assert_eq!(hits, 1, "the saved note must be mirrored into the term FTS index");
+    }
+
+    #[test]
+    fn cjk_note_is_findable_by_plain_keyword_search_end_to_end() {
+        // The actual user's failing case: a CJK note searched by a CJK SUBSTRING. PathKeep's CJK recall
+        // is gram/trigram-based, so this only works because notes now fold into compact_text + cjk_grams
+        // (not just the unicode61 notes_text). "设计系统" appears ONLY in the note (url=…/o/r, title=o/r).
+        // On the pre-CJK-extension state (notes only in the unicode61 term FTS) this returns nothing —
+        // a contiguous-CJK note tokenizes as ONE unicode61 token, so a "设计系统" substring never hits.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "meta 的设计系统".into(),
+                source_profile: None,
+            },
+        )
+        .expect("set_notes");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "设计系统"),
+            "a CJK note must be findable by a plain CJK substring search"
+        );
+    }
+
+    #[test]
+    fn cjk_tag_is_findable_by_plain_keyword_search_end_to_end() {
+        // Same CJK contract for a TAG: a plain CJK keyword search must surface the page via the gram/
+        // trigram plane (the tag word appears ONLY in url_tags).
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        replace_tags(
+            &paths,
+            &config,
+            None,
+            ReplaceTagsRequest {
+                url: SEEDED_URL.into(),
+                tags: vec!["参考资料".into()],
+                source_profile: None,
+            },
+        )
+        .expect("replace_tags");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "参考资料"),
+            "a CJK tag must be findable by a plain CJK keyword search"
+        );
+    }
+
+    #[test]
+    fn edited_cjk_note_is_findable_and_old_term_drops_via_refresh_hook() {
+        // CJK edit through the refresh hook only (no full rebuild): the new CJK term becomes findable AND
+        // the replaced CJK term stops matching (its old grams + trigram compact row are removed). CJK has
+        // no Latin fuzzy fallback, so an absent term genuinely returns zero rows.
+        let (_dir, paths, config) = seeded_plaintext_archive();
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "图书馆".into(),
+                source_profile: None,
+            },
+        )
+        .expect("set first CJK note");
+        assert!(plain_keyword_finds_seeded_url(&paths, &config, "图书馆"));
+
+        set_notes(
+            &paths,
+            &config,
+            None,
+            SetNotesRequest {
+                url: SEEDED_URL.into(),
+                notes: "天气预报".into(),
+                source_profile: None,
+            },
+        )
+        .expect("edit CJK note");
+        assert!(
+            plain_keyword_finds_seeded_url(&paths, &config, "天气预报"),
+            "the edited CJK note's new term must be findable"
+        );
+        assert!(
+            !plain_keyword_finds_seeded_url(&paths, &config, "图书馆"),
+            "the replaced CJK note's old term must no longer match"
+        );
     }
 }
