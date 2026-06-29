@@ -14,7 +14,7 @@
  */
 
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ShellDataProvider } from '../../app/shell-data'
@@ -622,9 +622,11 @@ describe('Sidebar', () => {
     expect(await screen.findByText('Background work')).toBeVisible()
     expect(await screen.findByText('2 running · 3 queued')).toBeVisible()
     expect(screen.getByText('24,000 / 64,781 visits')).toBeVisible()
-    expect(screen.getAllByRole('link', { name: 'Jobs' })[1]).toHaveAttribute(
-      'href',
-      '/jobs',
-    )
+    const statusWidget = screen
+      .getByText('Background work')
+      .closest('.sidebar-background-status') as HTMLElement
+    expect(
+      within(statusWidget).getByRole('link', { name: 'Activity' }),
+    ).toHaveAttribute('href', '/jobs')
   })
 })

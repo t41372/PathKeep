@@ -142,7 +142,7 @@ describe('IntelligenceRuntimeDigest', () => {
 
     expect(screen.getByText('2 jobs queued')).toBeVisible()
     expect(screen.getByText('Rebuild local intelligence')).toBeVisible()
-    expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute(
       'href',
       '/jobs',
     )

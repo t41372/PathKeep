@@ -173,7 +173,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: null,
       indeterminate: false,
       summary: 'Background work appears after setup.',
@@ -198,7 +198,7 @@ describe('SidebarBackgroundStatus', () => {
     // the locked state — no Settings detour needed from the sidebar.
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Security before reviewing queued work.',
       indeterminate: false,
       summary: 'Unlock the archive first',
@@ -226,7 +226,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: '3 / 12 records',
       indeterminate: false,
       summary: 'Import Google Takeout',
@@ -254,7 +254,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: true,
       summary: 'Import Google Takeout',
@@ -271,7 +271,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'runtime snapshot failed',
       indeterminate: false,
       summary: 'Background work is unavailable',
@@ -295,7 +295,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Running',
       indeterminate: true,
       summary: 'Open Jobs',
@@ -326,7 +326,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '3 queued',
@@ -354,7 +354,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: true,
       summary: '1 running · 0 queued',
@@ -382,7 +382,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '1 need review',
@@ -410,7 +410,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '4 queued · paused',
@@ -437,7 +437,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: true,
       summary: '1 running · 0 queued',
@@ -471,7 +471,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '3 need review',
@@ -501,7 +501,7 @@ describe('SidebarBackgroundStatus', () => {
     )
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '3 queued',
@@ -524,7 +524,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '3 need review',
@@ -572,7 +572,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Indexing visits',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -618,7 +618,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Reading domains',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -664,7 +664,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -710,7 +710,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Starting',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -756,7 +756,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Finishing',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -787,7 +787,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: /Last activity/,
       indeterminate: false,
       summary: 'All caught up',
@@ -824,7 +824,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Active rebuild',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -869,7 +869,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Measured rebuild',
       indeterminate: false,
       summary: '1 running · 0 queued',
@@ -911,7 +911,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Last activity 1 hour ago',
       indeterminate: false,
       summary: 'All caught up',
@@ -943,7 +943,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'Open Jobs',
       indeterminate: false,
       summary: '2 queued',
@@ -971,7 +971,7 @@ describe('SidebarBackgroundStatus', () => {
 
     expectStatus({
       actionHref: '/jobs',
-      actionLabel: 'Jobs',
+      actionLabel: 'Activity',
       detail: 'No queued background work.',
       indeterminate: false,
       summary: 'All caught up',

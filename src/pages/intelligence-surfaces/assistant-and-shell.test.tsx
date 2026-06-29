@@ -183,10 +183,9 @@ describe('intelligence surfaces', () => {
       ),
     ).toBeVisible()
     expect(within(digest).getByText('24,000 / 64,781 visits')).toBeVisible()
-    expect(within(digest).getByRole('link', { name: 'Jobs' })).toHaveAttribute(
-      'href',
-      '/jobs',
-    )
+    expect(
+      within(digest).getByRole('link', { name: 'Activity' }),
+    ).toHaveAttribute('href', '/jobs')
     expect(
       screen.queryByText(intelligenceT('externalOutputsReviewTitle')),
     ).not.toBeInTheDocument()
