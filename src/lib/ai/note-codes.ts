@@ -127,6 +127,8 @@ export function localizeAiIndexWarning(
       return t(`aiIndexWarning${stalenessKey(warning.reason)}`)
     case 'buildFailed':
       return t('aiIndexWarningBuildFailed', { reason: warning.reason })
+    case 'indexVectorsMissing':
+      return t('aiIndexWarningIndexVectorsMissing')
   }
 }
 

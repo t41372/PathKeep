@@ -602,6 +602,19 @@ describe('backend client', () => {
         args: { ruleId: 'rule' },
       },
       {
+        run: () => backend.downloadStaticEmbeddingModel(),
+        command: 'download_static_embedding_model',
+      },
+      {
+        run: () => backend.cancelStaticEmbeddingModelDownload(),
+        command: 'cancel_ai_embedding_model_download',
+      },
+      {
+        run: () => backend.resetAiIndexBuild(),
+        command: 'reset_ai_index_build',
+        args: { request: { fullRebuild: true, clearOnly: false } },
+      },
+      {
         run: () => backend.clearDerivedIntelligence(),
         command: 'clear_derived_intelligence',
       },

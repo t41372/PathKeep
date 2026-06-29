@@ -22,7 +22,7 @@
  * - provider editor 只編輯已載入的 draft；index health 來自既有 snapshot，不在 section 內額外 fan-out。
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
@@ -39,6 +39,12 @@ import { StatusCallout } from '../../components/primitives/status-callout'
 import { ToggleRow } from '../../components/ui'
 import { localizeAiIndexWarning } from '../../lib/ai/note-codes'
 import { backend } from '../../lib/backend-client'
+import {
+  isModelDownloadInFlight,
+  markModelDownloadSettled,
+  markModelDownloadStarted,
+  subscribeToModelDownloadProgress,
+} from '../../lib/ipc/model-download'
 import { formatBytes } from '../../lib/format'
 import { useI18n } from '../../lib/i18n'
 import { SettingsSavedChip } from './settings-saved-feedback'
@@ -51,6 +57,7 @@ import type {
   AiProviderConnectionTestReport,
   AiRequestFormat,
   AiSettings,
+  StaticEmbeddingStatus,
 } from '../../lib/types'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -150,6 +157,12 @@ export interface AiProvidersSectionProps {
   navItem: SettingsSectionNavItem
   state: AiProvidersSectionState
 }
+
+/**
+ * Provider ids that are built-in and must never be user-deletable or require an API key.
+ * The static-in-app embedding tier is always in this list; external providers are never here.
+ */
+const STATIC_EMBEDDING_PROVIDER_IDS = ['static-in-app']
 
 /**
  * Renders the optional AI provider management surface from route-owned state.
@@ -271,6 +284,14 @@ export function AiProvidersSection({
         'blocked',
         'disabled',
       ].includes(aiStatus.state))
+
+  // Show the Reset control only when the build is stuck in a terminal state that won't resolve on
+  // its own. `failed` and `degraded` are the two states where a clear-and-rebuild is actionable.
+  // `blocked` means a precondition is unsatisfied (e.g. archive not initialized) — clearing the
+  // job won't help there, so we skip it. We always show it even without an embedding provider
+  // configured, since the reset may be needed to clear a job from a now-removed provider.
+  const indexResetActionable =
+    !!aiStatus && (aiStatus.state === 'failed' || aiStatus.state === 'degraded')
 
   return (
     <PaperCard testId={navItem.id}>
@@ -498,9 +519,29 @@ export function AiProvidersSection({
           translations={providerTranslations}
         />
 
+        {/*
+          Static embedding tier download panel. Shown when the backend reports
+          a `staticEmbedding` status — i.e. the static-in-app provider is registered.
+          The panel only shows the download affordance when the model is not yet
+          present; once downloaded it shows a quiet "Ready" confirmation. It is
+          consent-gated (the user must click "Download model") and never auto-downloads.
+        */}
+        {aiStatus?.staticEmbedding ? (
+          <StaticEmbeddingPanel
+            disabled={editorsDisabled}
+            staticEmbedding={aiStatus.staticEmbedding}
+            onSelect={(providerId) =>
+              flashOnSave(onSelectProvider('embedding', providerId))
+            }
+            t={t}
+          />
+        ) : null}
+
         <AiProviderEditorList
           addLabel={t('settings.aiAddEmbeddingProvider')}
           apiKeys={aiApiKeys}
+          builtInProviderIds={STATIC_EMBEDDING_PROVIDER_IDS}
+          builtInBadgeLabel={t('settings.aiStaticModelBuiltInBadge')}
           disabled={editorsDisabled}
           formatLabel={probeLatencyLabel}
           presetLabel={t('settings.aiAddProviderPresetLabel')}
@@ -603,6 +644,24 @@ export function AiProvidersSection({
                 errorLabel={t('settings.aiIndexBuildError')}
               />
             ) : null}
+            {/*
+              Reset control for stuck/failed/degraded build states (M-8 honest recovery). Only shown
+              when the build is in a terminal non-recoverable state on its own so the user has a
+              clear "clear and rebuild" path without hunting through the GPU section. Not shown for
+              states that will resolve on their own (queued, running, paused) or states that have no
+              build to clear (disabled, empty, stale → use Build index CTA instead).
+            */}
+            {indexResetActionable ? (
+              <IndexResetButton
+                idleLabel={t('settings.aiResetIndexBuildAction')}
+                confirmPrompt={t('settings.aiResetIndexBuildConfirmPrompt')}
+                confirmYesLabel={t('settings.aiResetIndexBuildConfirmYes')}
+                confirmNoLabel={t('settings.aiResetIndexBuildConfirmNo')}
+                resettingLabel={t('settings.aiResetIndexBuildResetting')}
+                doneLabel={t('settings.aiResetIndexBuildQueued')}
+                errorLabel={t('settings.aiResetIndexBuildError')}
+              />
+            ) : null}
             <div className="settings-field-grid">
               <div className="config-row">
                 <span className="config-label">
@@ -612,6 +671,26 @@ export function AiProvidersSection({
                   {aiStatus.indexedItems.toLocaleString(language)}
                 </span>
               </div>
+              {/*
+                Show the REAL vector count whenever the backend reports it (additive field). This
+                is the only truthful measure of whether smart search will actually work: metadata
+                rows count SQL insertions; `semanticVectorCount` counts the HNSW vectors actually
+                written to the sidecar. When they diverge (degraded state), the user sees that 0
+                vectors were written even though N pages appear "indexed" in metadata.
+              */}
+              {aiStatus.semanticVectorCount != null ? (
+                <div
+                  className="config-row"
+                  data-testid="ai-semantic-vector-count-row"
+                >
+                  <span className="config-label">
+                    {t('settings.aiSemanticVectors')}
+                  </span>
+                  <span className="config-value mono">
+                    {aiStatus.semanticVectorCount.toLocaleString(language)}
+                  </span>
+                </div>
+              ) : null}
               <div className="config-row">
                 <span className="config-label">
                   {t('settings.aiSemanticSidecar')}
@@ -661,6 +740,8 @@ export function AiProvidersSection({
     </PaperCard>
   )
 }
+
+// ─── IndexBuildButton ────────────────────────────────────────────────────────
 
 type BuildState = 'idle' | 'building' | 'done' | 'error'
 
@@ -727,6 +808,362 @@ function IndexBuildButton({
         >
           {errorLabel}
         </p>
+      ) : null}
+    </div>
+  )
+}
+
+// ─── IndexResetButton ─────────────────────────────────────────────────────────
+
+type ResetState = 'idle' | 'confirming' | 'resetting' | 'done' | 'error'
+
+/**
+ * "Clear stuck build & rebuild" recovery action for the index-health box.
+ *
+ * Calls `reset_ai_index_build` which clears the terminal failed/degraded job and re-enqueues
+ * a clean incremental build. A two-step confirm is required before the write fires because
+ * clearing discards partially-written index data. The button is only rendered when the index
+ * state is `failed` or `degraded` (the `indexResetActionable` gate in the section), so it
+ * is never a nag — it only surfaces when there is actually something stuck to clear.
+ */
+function IndexResetButton({
+  idleLabel,
+  confirmPrompt,
+  confirmYesLabel,
+  confirmNoLabel,
+  resettingLabel,
+  doneLabel,
+  errorLabel,
+}: {
+  idleLabel: string
+  confirmPrompt: string
+  confirmYesLabel: string
+  confirmNoLabel: string
+  resettingLabel: string
+  doneLabel: string
+  errorLabel: string
+}) {
+  const [state, setState] = useState<ResetState>('idle')
+
+  const onConfirm = () => {
+    setState('resetting')
+    backend
+      .resetAiIndexBuild()
+      .then(() => setState('done'))
+      .catch(() => setState('error'))
+  }
+
+  if (state === 'idle') {
+    return (
+      <div className="flex flex-col items-start gap-1.5">
+        <button
+          type="button"
+          className="btn-secondary self-start"
+          data-testid="ai-index-reset"
+          onClick={() => setState('confirming')}
+        >
+          {idleLabel}
+        </button>
+      </div>
+    )
+  }
+
+  if (state === 'confirming') {
+    return (
+      <div
+        className="flex flex-col items-start gap-2"
+        data-testid="ai-index-reset-confirm"
+      >
+        <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
+          {confirmPrompt}
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="btn-secondary self-start"
+            data-testid="ai-index-reset-confirm-yes"
+            onClick={onConfirm}
+          >
+            {confirmYesLabel}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost self-start"
+            data-testid="ai-index-reset-confirm-no"
+            onClick={() => setState('idle')}
+          >
+            {confirmNoLabel}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (state === 'resetting') {
+    return (
+      <div className="flex flex-col items-start gap-1.5">
+        <button
+          type="button"
+          className="btn-secondary self-start"
+          data-testid="ai-index-reset"
+          disabled
+        >
+          {resettingLabel}
+        </button>
+      </div>
+    )
+  }
+
+  if (state === 'done') {
+    return (
+      <p
+        aria-live="polite"
+        className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]"
+        data-testid="ai-index-reset-queued"
+      >
+        {doneLabel}
+      </p>
+    )
+  }
+
+  // error state
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <button
+        type="button"
+        className="btn-secondary self-start"
+        data-testid="ai-index-reset"
+        onClick={() => setState('confirming')}
+      >
+        {idleLabel}
+      </button>
+      <p
+        aria-live="polite"
+        className="text-ink-faint m-0 font-sans text-[12px] leading-[1.5] italic"
+        data-testid="ai-index-reset-error"
+      >
+        {errorLabel}
+      </p>
+    </div>
+  )
+}
+
+// ─── StaticEmbeddingPanel ─────────────────────────────────────────────────────
+
+type StaticDownloadDisplayState =
+  | 'not-downloaded'
+  | 'downloading'
+  | 'ready'
+  | 'failed'
+
+/**
+ * Download consent + status + selection panel for the built-in static embedding model.
+ *
+ * The static tier runs fully on-device and needs no external server or API key. The panel:
+ *   - shows whether the static tier is the ACTIVE vector model, and offers a one-click "Use this
+ *     model" when it is not, so a user stuck on a broken external provider can switch here without
+ *     hunting for the radio (the select is always offered, even if the provider row is missing —
+ *     never leave the unstuck path dead);
+ *   - when the weights are absent, shows a consent-gated "Download model" button that calls
+ *     `download_static_embedding_model`, then subscribes to `pathkeep://model-download-progress`
+ *     for live per-file progress and a Cancel control (`cancel_ai_embedding_model_download`).
+ *
+ * Honesty + robustness:
+ *   - `ready` is derived from the prop (`modelDownloaded`), the single source of truth.
+ *   - A process-global in-flight latch (`lib/ipc/model-download`) survives a remount or a snapshot
+ *     poll that momentarily drops `staticEmbedding`, so the Download button cannot silently
+ *     re-trigger an in-flight download.
+ *   - The backend stream is per-file with unknown sizes, so we show the current file + spinner,
+ *     never a fabricated percentage.
+ *
+ * State machine:
+ *   - `not-downloaded` → idle, shows download button
+ *   - `downloading`    → download in flight, shows spinner + current file + cancel
+ *   - `ready`          → model present (from prop), shows confirmation
+ *   - `failed`         → download errored, shows error + retry
+ */
+function StaticEmbeddingPanel({
+  disabled,
+  staticEmbedding,
+  onSelect,
+  t,
+}: {
+  disabled: boolean
+  staticEmbedding: StaticEmbeddingStatus
+  onSelect: (providerId: string) => void
+  t: (key: string, vars?: Record<string, string | number>) => string
+}) {
+  // Local download tracking. Initialized from the global latch so a remount mid-download shows
+  // "downloading" (and a disabled action) immediately, before the next progress event arrives.
+  const [localState, setLocalState] = useState<
+    'not-downloaded' | 'downloading' | 'failed'
+  >(isModelDownloadInFlight() ? 'downloading' : 'not-downloaded')
+  const [currentFile, setCurrentFile] = useState<string | null>(null)
+  // Set when the user cancels: the backend aborts the download with a terminal `error`, which we
+  // then treat as a clean stop (return to idle) rather than a scary failure.
+  const cancelledRef = useRef(false)
+
+  // Subscribe to live per-file progress while the model is not yet present. The event stream is the
+  // durable "downloading" signal: a remount mid-download recovers as soon as the next event lands,
+  // and the terminal done/error clears the global in-flight latch.
+  useEffect(() => {
+    if (staticEmbedding.modelDownloaded) return
+    let active = true
+    let unsub = () => {}
+    void subscribeToModelDownloadProgress((event) => {
+      switch (event.kind) {
+        case 'fileStarted':
+          markModelDownloadStarted()
+          setLocalState('downloading')
+          setCurrentFile(event.file)
+          break
+        case 'fileFinished':
+          setLocalState('downloading')
+          setCurrentFile(null)
+          break
+        case 'done':
+          // Keep the spinner until the next snapshot flips `modelDownloaded`, so we never flash
+          // "not downloaded" between the done event and the poll that confirms the weights.
+          markModelDownloadSettled()
+          setCurrentFile(null)
+          break
+        case 'error':
+          markModelDownloadSettled()
+          setCurrentFile(null)
+          setLocalState(cancelledRef.current ? 'not-downloaded' : 'failed')
+          cancelledRef.current = false
+          break
+      }
+    }).then((fn) => {
+      if (active) unsub = fn
+      else fn()
+    })
+    return () => {
+      active = false
+      unsub()
+    }
+  }, [staticEmbedding.modelDownloaded])
+
+  // The prop is the source of truth for "ready"; otherwise the local download state drives display.
+  const displayState: StaticDownloadDisplayState =
+    staticEmbedding.modelDownloaded ? 'ready' : localState
+
+  const onDownload = () => {
+    cancelledRef.current = false
+    markModelDownloadStarted()
+    setLocalState('downloading')
+    setCurrentFile(null)
+    // The command returns once the background thread is spawned; the actual outcome arrives on the
+    // progress channel. A rejection here means the command itself could not start.
+    backend.downloadStaticEmbeddingModel().catch(() => {
+      markModelDownloadSettled()
+      setLocalState('failed')
+    })
+  }
+
+  const onCancelDownload = () => {
+    cancelledRef.current = true
+    markModelDownloadSettled()
+    setLocalState('not-downloaded')
+    setCurrentFile(null)
+    void backend.cancelStaticEmbeddingModelDownload().catch(() => {})
+  }
+
+  return (
+    <div
+      className="surfaceInset flex flex-col gap-2 p-3"
+      data-testid="ai-static-embedding-panel"
+    >
+      <div className="flex items-start gap-2">
+        <strong className="font-sans text-[13px]">
+          {t('settings.aiStaticModelTitle')}
+        </strong>
+        <span
+          aria-live="polite"
+          className="text-ink-muted font-sans text-[11px]"
+          data-testid="ai-static-model-status"
+        >
+          {displayState === 'ready'
+            ? t('settings.aiStaticModelReady')
+            : displayState === 'downloading'
+              ? t('settings.aiStaticModelDownloading')
+              : displayState === 'failed'
+                ? t('settings.aiStaticModelDownloadFailed')
+                : t('settings.aiStaticModelNotDownloaded')}
+        </span>
+      </div>
+      <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
+        {t('settings.aiStaticModelDescription')}
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {staticEmbedding.selected ? (
+          <span
+            className="providerBuiltInBadge"
+            data-testid="ai-static-model-active"
+          >
+            {t('settings.aiStaticModelActive')}
+          </span>
+        ) : (
+          <>
+            <span className="text-ink-muted font-sans text-[12px]">
+              {t('settings.aiStaticModelRecommendedNotSelected')}
+            </span>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={disabled}
+              data-testid="ai-static-model-select"
+              onClick={() => onSelect(staticEmbedding.providerId)}
+            >
+              {t('settings.aiStaticModelSelectAction')}
+            </button>
+          </>
+        )}
+      </div>
+
+      {displayState === 'downloading' ? (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <span
+              className="inlineSpinner"
+              aria-hidden="true"
+              data-testid="ai-static-model-downloading"
+            >
+              <span className="inlineSpinner__dot" />
+              <span className="inlineSpinner__dot" />
+              <span className="inlineSpinner__dot" />
+            </span>
+            <button
+              type="button"
+              className="btn-ghost"
+              data-testid="ai-static-model-cancel"
+              onClick={onCancelDownload}
+            >
+              {t('settings.aiStaticModelCancelDownload')}
+            </button>
+          </div>
+          {currentFile ? (
+            <p
+              className="text-ink-faint m-0 font-sans text-[11px] leading-[1.4]"
+              data-testid="ai-static-model-current-file"
+            >
+              {t('settings.aiStaticModelDownloadingFile', {
+                file: currentFile,
+              })}
+            </p>
+          ) : null}
+        </div>
+      ) : displayState === 'not-downloaded' || displayState === 'failed' ? (
+        <button
+          type="button"
+          className="btn-secondary self-start"
+          disabled={disabled}
+          data-testid="ai-static-model-download"
+          onClick={onDownload}
+        >
+          {t('settings.aiStaticModelDownloadAction')}
+        </button>
       ) : null}
     </div>
   )

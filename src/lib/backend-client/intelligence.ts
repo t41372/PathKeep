@@ -146,4 +146,33 @@ export const intelligenceClient = {
     call<IntelligenceRuntimeSnapshot>('cancel_intelligence_job', { jobId }),
   previewIntegrations: () =>
     call<AiIntegrationPreview>('preview_ai_integrations'),
+  /**
+   * Consents to and initiates the download of the built-in static embedding model weights.
+   * The download runs in the background; live per-file progress and the terminal done/error
+   * arrive on the `pathkeep://model-download-progress` channel (see `lib/ipc/model-download`),
+   * and `aiStatus.staticEmbedding.modelDownloaded` flips true on the next poll once present.
+   */
+  downloadStaticEmbeddingModel: () =>
+    call<void>('download_static_embedding_model'),
+  /**
+   * Requests cancellation of an in-flight in-app embedding model download (static or heavy tier;
+   * they share one process-global cancel flag). The cancelled download emits a terminal `error`
+   * event on the progress channel. No-op when nothing is downloading.
+   */
+  cancelStaticEmbeddingModelDownload: () =>
+    call<void>('cancel_ai_embedding_model_download'),
+  /**
+   * Clears the stuck/failed index build job and re-runs the build as a FULL REBUILD: every page is
+   * re-embedded from scratch and the vector store + derived planes are wiped first. This is the only
+   * recovery that fixes the 0-vector "degraded" case — incremental dedup keys `needs_embedding` on
+   * the SQLite embedding rows, not the `.pkvec`, so an incremental pass would skip a torn/empty
+   * store and leave it broken. The backend coerces this to a full rebuild regardless of the request,
+   * so the explicit `fullRebuild` here just satisfies the wire contract (`AiIndexRequest` has no
+   * serde default for its bools). Your archive/history is NOT deleted — only the derived search
+   * index is rebuilt. Use when the index state is `failed` or `degraded`. Idempotent.
+   */
+  resetAiIndexBuild: () =>
+    call<void>('reset_ai_index_build', {
+      request: { fullRebuild: true, clearOnly: false },
+    }),
 }

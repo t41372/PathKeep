@@ -628,6 +628,59 @@ describe('AiProviderEditorList', () => {
     })
     expect(screen.queryByTestId('probe-hint-llm-primary')).toBeNull()
   })
+
+  test('built-in provider with badge label shows badge and hides Remove + API key row', () => {
+    // When builtInProviderIds is set and builtInBadgeLabel is provided, the provider
+    // shows the badge instead of a Remove button and never shows the API key section.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      builtInBadgeLabel: 'Built-in',
+    })
+    expect(
+      screen.getByTestId('provider-builtin-badge-llm-primary'),
+    ).toHaveTextContent('Built-in')
+    expect(
+      screen.queryByRole('button', { name: translations.remove }),
+    ).toBeNull()
+    expect(screen.queryByLabelText(translations.apiKey)).toBeNull()
+  })
+
+  test('built-in provider without builtInBadgeLabel shows neither badge nor Remove button', () => {
+    // Coverage for the `builtInBadgeLabel ? <badge> : null` branch.
+    // When the provider is listed as built-in but no badge label is supplied,
+    // the slot renders null — no badge, no remove button.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      // intentionally omitting builtInBadgeLabel
+    })
+    expect(
+      screen.queryByTestId('provider-builtin-badge-llm-primary'),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: translations.remove }),
+    ).toBeNull()
+  })
+
+  test('built-in provider locks its identity fields but keeps selection interactive', () => {
+    // The backend re-asserts a built-in provider's canonical identity on reload, so editing its
+    // config fields would silently revert. They render visible-but-disabled for transparency,
+    // while the selection radio stays interactive so the user can still pick the provider.
+    renderEditorWith({
+      builtInProviderIds: ['llm-primary'],
+      builtInBadgeLabel: 'Built-in',
+    })
+
+    expect(screen.getByDisplayValue('Primary LLM')).toBeDisabled() // name
+    expect(screen.getByDisplayValue('OpenAI-compatible')).toBeDisabled() // request format
+    expect(
+      screen.getByDisplayValue('https://api.example.com/v1'),
+    ).toBeDisabled() // base URL
+    expect(screen.getByDisplayValue('gpt-4.1-mini')).toBeDisabled() // default model
+    expect(screen.getByRole('checkbox', { name: 'Enabled' })).toBeDisabled() // enabled toggle
+
+    // Selection must remain available so a user can still switch to the built-in tier.
+    expect(screen.getByRole('radio')).toBeEnabled()
+  })
 })
 
 function renderEditorWith(

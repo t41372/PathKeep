@@ -50,6 +50,7 @@ const INDEX_WARNINGS: AiIndexWarning[] = [
   { code: 'indexStale', reason: 'watermark' },
   { code: 'indexStale', reason: 'enrichment' },
   { code: 'buildFailed', reason: 'boom from provider' },
+  { code: 'indexVectorsMissing' },
 ]
 
 const AGENT_NOTES: AiAgentNote[] = [

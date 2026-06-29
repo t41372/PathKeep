@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
@@ -8,6 +8,7 @@ import type {
   AiProviderConfig,
   AiProviderConnectionTestReport,
   AiSettings,
+  StaticEmbeddingStatus,
 } from '../../lib/types'
 import {
   AiProvidersSection,
@@ -15,18 +16,27 @@ import {
 } from './ai-providers-section'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
-// The Build-index CTA enqueues a real backfill via the backend client, so mock it
-// here — the test asserts the click fires `buildAiIndex` with the from-scratch full
-// build shape and that the button settles through its building/done/error states.
-// `vi.mock` is hoisted above the imports, so the spies it references must be
-// created in a hoisted block too (a plain top-level const is not yet initialized
-// when the factory runs).
-const { buildAiIndex } = vi.hoisted(() => ({
+// The Build-index CTA, reset, and static-model-download commands enqueue backend work via the
+// client, so mock them here. `vi.mock` is hoisted above the imports, so the spies it
+// references must be created in a hoisted block too (a plain top-level const is not yet
+// initialized when the factory runs).
+const {
+  buildAiIndex,
+  downloadStaticEmbeddingModel,
+  cancelStaticEmbeddingModelDownload,
+  resetAiIndexBuild,
+} = vi.hoisted(() => ({
   buildAiIndex: vi.fn(() => Promise.resolve(undefined)),
+  downloadStaticEmbeddingModel: vi.fn(() => Promise.resolve(undefined)),
+  cancelStaticEmbeddingModelDownload: vi.fn(() => Promise.resolve(undefined)),
+  resetAiIndexBuild: vi.fn(() => Promise.resolve(undefined)),
 }))
 vi.mock('../../lib/backend-client', () => ({
   backend: {
     buildAiIndex,
+    downloadStaticEmbeddingModel,
+    cancelStaticEmbeddingModelDownload,
+    resetAiIndexBuild,
     // The nested GPU section (collapsed by default in these tests) reads these
     // lazily only when its disclosure is opened; stub them so the module mock is
     // complete and any future test that opens it does not hit an undefined method.
@@ -41,6 +51,69 @@ vi.mock('../../lib/backend-client', () => ({
     ),
     loadAiQueueStatus: vi.fn(() => Promise.resolve({ queued: 0, running: 0 })),
   },
+}))
+
+// The static download panel subscribes to live progress and keeps a process-global in-flight
+// latch (in `lib/ipc/model-download`). Mock it so tests can (a) drive progress events into the
+// panel and (b) deterministically control + reset the latch between tests.
+const {
+  subscribeToModelDownloadProgress,
+  markModelDownloadStarted,
+  markModelDownloadSettled,
+  isModelDownloadInFlight,
+  emitDownloadProgress,
+  setDeferSubscribe,
+  resolveSubscribe,
+  resetDownloadHarness,
+} = vi.hoisted(() => {
+  let listener: ((event: unknown) => void) | null = null
+  let inFlight = false
+  // When deferred, the subscribe promise does not resolve until `resolveSubscribe` is called, so a
+  // test can unmount the panel BEFORE the subscription is established (the unmount-race path).
+  let deferMode = false
+  let pendingResolve: ((unsub: () => void) => void) | null = null
+  const defaultUnsub = () => {
+    listener = null
+  }
+  return {
+    subscribeToModelDownloadProgress: vi.fn((l: (event: unknown) => void) => {
+      listener = l
+      return new Promise<() => void>((resolve) => {
+        if (deferMode) pendingResolve = resolve
+        else resolve(defaultUnsub)
+      })
+    }),
+    markModelDownloadStarted: vi.fn(() => {
+      inFlight = true
+    }),
+    markModelDownloadSettled: vi.fn(() => {
+      inFlight = false
+    }),
+    isModelDownloadInFlight: vi.fn(() => inFlight),
+    emitDownloadProgress: (event: unknown) => {
+      listener?.(event)
+    },
+    setDeferSubscribe: (value: boolean) => {
+      deferMode = value
+    },
+    resolveSubscribe: (unsub: () => void) => {
+      pendingResolve?.(unsub)
+      pendingResolve = null
+    },
+    resetDownloadHarness: () => {
+      listener = null
+      inFlight = false
+      deferMode = false
+      pendingResolve = null
+    },
+  }
+})
+vi.mock('../../lib/ipc/model-download', () => ({
+  MODEL_DOWNLOAD_PROGRESS_EVENT: 'pathkeep://model-download-progress',
+  subscribeToModelDownloadProgress,
+  markModelDownloadStarted,
+  markModelDownloadSettled,
+  isModelDownloadInFlight,
 }))
 
 const navItem: SettingsSectionNavItem = {
@@ -88,6 +161,11 @@ describe('AiProvidersSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     buildAiIndex.mockResolvedValue(undefined)
+    downloadStaticEmbeddingModel.mockResolvedValue(undefined)
+    cancelStaticEmbeddingModelDownload.mockResolvedValue(undefined)
+    // The download latch + captured listener are module-scoped (they survive a remount by
+    // design), so reset them between tests to avoid cross-test leakage.
+    resetDownloadHarness()
   })
 
   afterEach(() => {
@@ -985,6 +1063,645 @@ describe('AiProvidersSection', () => {
 
     expect(screen.getByText('No AI providers configured yet')).toBeVisible()
   })
+
+  // ─── Static embedding tier ────────────────────────────────────────────────
+
+  test('static provider appears in the embedding list with a Built-in badge, no Remove button, and no API key section', () => {
+    renderSection({
+      currentSettings: settingsFixture({
+        enabled: true,
+        embeddingProviders: [staticProviderFixture()],
+        embeddingProviderId: 'static-in-app',
+      }),
+    })
+
+    // The "Built-in · Recommended" badge is shown on the static provider card.
+    expect(
+      screen.getByTestId('provider-builtin-badge-static-in-app'),
+    ).toBeVisible()
+    expect(
+      screen.getByTestId('provider-builtin-badge-static-in-app'),
+    ).toHaveTextContent('Built-in · Recommended')
+
+    // No "Remove" button — built-in providers are not user-deletable. Confirm by inspecting the
+    // static provider card directly.
+    const staticCard = screen
+      .getByTestId('provider-builtin-badge-static-in-app')
+      .closest('article')
+    expect(staticCard).not.toBeNull()
+    expect(
+      within(staticCard as HTMLElement).queryByRole('button', {
+        name: 'Remove',
+      }),
+    ).toBeNull()
+
+    // No API key input in the static provider card.
+    expect(
+      within(staticCard as HTMLElement).queryByPlaceholderText('Paste API key'),
+    ).toBeNull()
+    expect(
+      within(staticCard as HTMLElement).queryByRole('button', {
+        name: 'Save key',
+      }),
+    ).toBeNull()
+  })
+
+  test('static provider is selected when embeddingProviderId matches and the radio reflects it', () => {
+    renderSection({
+      currentSettings: settingsFixture({
+        enabled: true,
+        embeddingProviders: [staticProviderFixture()],
+        embeddingProviderId: 'static-in-app',
+      }),
+    })
+
+    // The radio for the static provider should be checked.
+    const radios = screen.getAllByRole('radio')
+    const staticRadio = radios.find(
+      (r) => r.getAttribute('name') === 'embedding-provider',
+    )
+    expect(staticRadio).not.toBeUndefined()
+    expect(staticRadio).toBeChecked()
+  })
+
+  // ─── Static model download panel ─────────────────────────────────────────
+
+  test('shows the static embedding panel when aiStatus.staticEmbedding is present', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByTestId('ai-static-embedding-panel')).toBeVisible()
+  })
+
+  test('shows "Not downloaded" status and download button when model is absent', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Not downloaded',
+    )
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+    expect(screen.getByTestId('ai-static-model-download')).toHaveTextContent(
+      'Download model',
+    )
+  })
+
+  test('clicking Download model calls downloadStaticEmbeddingModel and shows downloading state', () => {
+    // Keep the download pending so we can assert the in-flight state.
+    downloadStaticEmbeddingModel.mockReturnValue(new Promise(() => {}))
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-static-model-download'))
+
+    expect(downloadStaticEmbeddingModel).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Downloading model…',
+    )
+    expect(
+      screen.getByTestId('ai-static-model-downloading'),
+    ).toBeInTheDocument()
+    // The download button disappears while downloading.
+    expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
+  })
+
+  test('shows "Ready" status when modelDownloaded is true (no download button shown)', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: true }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Ready',
+    )
+    // No download button when the model is already present.
+    expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
+  })
+
+  test('shows download failed state and re-enables the download button on error', async () => {
+    downloadStaticEmbeddingModel.mockRejectedValueOnce(
+      new Error('network error'),
+    )
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-static-model-download'))
+
+    // After the download fails, show the failed status and re-enable the retry button.
+    expect(
+      await screen.findByText('Download failed. Please try again.'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+  })
+
+  test('a live fileStarted progress event drives the downloading state and shows the current file', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    // The panel subscribed to the progress channel on mount.
+    expect(subscribeToModelDownloadProgress).toHaveBeenCalledTimes(1)
+
+    // A per-file start event flips the panel to downloading and names the current file —
+    // honest progress sourced from the real event, not a fabricated bar.
+    act(() => {
+      emitDownloadProgress({
+        kind: 'fileStarted',
+        file: 'model.safetensors',
+        totalBytes: 0,
+      })
+    })
+
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Downloading model…',
+    )
+    expect(
+      screen.getByTestId('ai-static-model-current-file'),
+    ).toHaveTextContent('Downloading model.safetensors…')
+    expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
+    // The download button is gone while a download is in flight (no double-fire).
+    expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
+  })
+
+  test('a terminal error progress event surfaces the honest failed state', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    act(() => {
+      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
+    })
+    act(() => {
+      emitDownloadProgress({ kind: 'error', message: 'disk full' })
+    })
+
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Download failed. Please try again.',
+    )
+    // The retry button is back, the latch is cleared.
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+    expect(markModelDownloadSettled).toHaveBeenCalled()
+  })
+
+  test('Cancel stops the download and a cancel-triggered error does not look like a failure', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-static-model-download'))
+    expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
+
+    fireEvent.click(screen.getByTestId('ai-static-model-cancel'))
+    expect(cancelStaticEmbeddingModelDownload).toHaveBeenCalledTimes(1)
+    // Back to the idle download affordance, not a failure.
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Not downloaded',
+    )
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+
+    // The backend aborts a cancelled download with a terminal error; it must NOT be shown as a
+    // scary "Download failed" because the user asked for it.
+    act(() => {
+      emitDownloadProgress({ kind: 'error', message: 'cancelled' })
+    })
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Not downloaded',
+    )
+  })
+
+  test('Cancel stays robust even if the cancel command itself rejects', async () => {
+    cancelStaticEmbeddingModelDownload.mockRejectedValueOnce(
+      new Error('ipc offline'),
+    )
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-static-model-download'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('ai-static-model-cancel'))
+      await Promise.resolve()
+    })
+
+    // The UI returns to idle optimistically; a rejected cancel command is swallowed (the download
+    // will still terminate on its own) rather than surfacing an unhandled rejection.
+    expect(cancelStaticEmbeddingModelDownload).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Not downloaded',
+    )
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+  })
+
+  test('shows "Active vector model" when the static tier is the selected embedding model', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: true,
+          selected: true,
+        }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByTestId('ai-static-model-active')).toHaveTextContent(
+      'Active vector model',
+    )
+    // No "Use this model" button when it is already active.
+    expect(screen.queryByTestId('ai-static-model-select')).toBeNull()
+  })
+
+  test('offers a one-click Select when the static tier is not the active model', () => {
+    const handlers = handlerFixture()
+    renderSection({
+      ...handlers,
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: true,
+          selected: false,
+        }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByText('Recommended — not selected')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-static-model-active')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('ai-static-model-select'))
+    // Selects the static provider via the same handler the radio uses, so a stuck user can
+    // switch here without hunting for the radio.
+    expect(handlers.onSelectProvider).toHaveBeenCalledWith(
+      'embedding',
+      'static-in-app',
+    )
+  })
+
+  test('a remount while a download is in flight shows downloading and never re-enables Download', () => {
+    // Simulate the durable latch reporting an in-flight download (e.g. the panel just remounted
+    // after a snapshot poll briefly dropped staticEmbedding). The mocked latch reads back the
+    // value set here, and beforeEach's resetDownloadHarness() clears it for the next test.
+    markModelDownloadStarted()
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    // Initialized straight into the downloading state — the Download button is not re-offered,
+    // so the user cannot silently re-fire the command.
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Downloading model…',
+    )
+    expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
+    expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
+  })
+
+  test('a fileFinished event keeps the panel downloading and clears the current-file line', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    act(() => {
+      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
+    })
+    expect(screen.getByTestId('ai-static-model-current-file')).toBeVisible()
+
+    act(() => {
+      emitDownloadProgress({ kind: 'fileFinished', file: 'a' })
+    })
+    // Between files: still downloading (more may follow), no stale current-file line.
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Downloading model…',
+    )
+    expect(screen.queryByTestId('ai-static-model-current-file')).toBeNull()
+    expect(screen.getByTestId('ai-static-model-downloading')).toBeVisible()
+  })
+
+  test('a done event settles the latch and holds the spinner until the snapshot confirms readiness', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    act(() => {
+      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
+    })
+    act(() => {
+      emitDownloadProgress({ kind: 'done' })
+    })
+
+    // The latch is released, but we do NOT flash "not downloaded": the spinner holds until the
+    // next snapshot flips modelDownloaded → ready.
+    expect(markModelDownloadSettled).toHaveBeenCalled()
+    expect(screen.queryByTestId('ai-static-model-current-file')).toBeNull()
+    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
+      'Downloading model…',
+    )
+    expect(screen.getByTestId('ai-static-model-downloading')).toBeVisible()
+  })
+
+  test('unsubscribes immediately if the panel unmounts before the subscription resolves', async () => {
+    // Race path: the effect cleanup runs before subscribeToModelDownloadProgress resolves, so the
+    // helper must call the returned unsubscribe at once to avoid a leaked listener.
+    setDeferSubscribe(true)
+    const unsub = vi.fn()
+
+    const { unmount } = renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    unmount()
+
+    await act(async () => {
+      resolveSubscribe(unsub)
+      await Promise.resolve()
+    })
+
+    expect(unsub).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not show the static embedding panel when aiStatus.staticEmbedding is absent', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture(),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.queryByTestId('ai-static-embedding-panel')).toBeNull()
+  })
+
+  // ─── Honest index health: semanticVectorCount ─────────────────────────────
+
+  test('shows the real semanticVectorCount in the index health grid when present', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ semanticVectorCount: 5000 }),
+      indexMeta: { label: 'Ready', tone: 'success', description: 'ready' },
+    })
+
+    expect(screen.getByTestId('ai-semantic-vector-count-row')).toBeVisible()
+    expect(
+      screen.getByTestId('ai-semantic-vector-count-row'),
+    ).toHaveTextContent('5,000')
+  })
+
+  test('does not show a semanticVectorCount row when the field is absent', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ semanticVectorCount: null }),
+      indexMeta: { label: 'Ready', tone: 'success', description: 'ready' },
+    })
+
+    expect(screen.queryByTestId('ai-semantic-vector-count-row')).toBeNull()
+  })
+
+  // ─── Degraded / IndexVectorsMissing honest rendering ─────────────────────
+
+  test('shows the IndexVectorsMissing warning honestly when state is degraded', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        state: 'degraded',
+        indexedItems: 1200,
+        semanticVectorCount: 0,
+        warningCode: { code: 'indexVectorsMissing' },
+      }),
+      indexMeta: {
+        label: 'Degraded',
+        tone: 'blocked',
+        description: 'degraded',
+      },
+    })
+
+    // The honest warning message is shown (not a false "indexed N successfully").
+    expect(screen.getByText('Current index warning')).toBeVisible()
+    expect(
+      screen.getByText(/the embedding provider wrote no output/i),
+    ).toBeVisible()
+
+    // The semanticVectorCount of 0 is shown so the user sees "0 vectors" clearly.
+    expect(
+      screen.getByTestId('ai-semantic-vector-count-row'),
+    ).toHaveTextContent('0')
+  })
+
+  test('does not show a green "ready" callout when vectors=0 (degraded honest state)', () => {
+    const { container } = renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        state: 'degraded',
+        semanticVectorCount: 0,
+        warningCode: { code: 'indexVectorsMissing' },
+      }),
+      indexMeta: {
+        label: 'Degraded',
+        tone: 'blocked',
+        description: 'degraded',
+      },
+    })
+
+    // The callout must be blocked-tone (never success) for the degraded state.
+    expect(container.querySelector('.status-callout--success')).toBeNull()
+    expect(container.querySelector('.status-callout--blocked')).not.toBeNull()
+  })
+
+  // ─── IndexResetButton ─────────────────────────────────────────────────────
+
+  test('shows the Reset button when index state is failed', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ state: 'failed' }),
+      indexMeta: { label: 'Failed', tone: 'blocked', description: 'failed' },
+    })
+
+    expect(screen.getByTestId('ai-index-reset')).toBeVisible()
+    expect(screen.getByTestId('ai-index-reset')).toHaveTextContent(
+      'Clear stuck build & rebuild',
+    )
+  })
+
+  test('shows the Reset button when index state is degraded', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        state: 'degraded',
+        warningCode: { code: 'indexVectorsMissing' },
+      }),
+      indexMeta: {
+        label: 'Degraded',
+        tone: 'blocked',
+        description: 'degraded',
+      },
+    })
+
+    expect(screen.getByTestId('ai-index-reset')).toBeVisible()
+  })
+
+  test('does NOT show the Reset button for non-stuck states (ready, stale, queued)', () => {
+    for (const state of [
+      'ready',
+      'stale',
+      'queued',
+      'paused',
+      'disabled',
+      'blocked',
+    ] as const) {
+      const { unmount } = renderSection({
+        currentSettings: settingsFixture({ enabled: true }),
+        aiStatus: aiStatusFixture({ state }),
+        indexMeta: { label: state, tone: 'info', description: state },
+      })
+      expect(screen.queryByTestId('ai-index-reset')).toBeNull()
+      unmount()
+    }
+  })
+
+  test('reset button shows confirm prompt on first click, then calls resetAiIndexBuild on confirm', async () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ state: 'failed' }),
+      indexMeta: { label: 'Failed', tone: 'blocked', description: 'failed' },
+    })
+
+    // First click shows the confirm prompt.
+    fireEvent.click(screen.getByTestId('ai-index-reset'))
+    expect(screen.getByTestId('ai-index-reset-confirm')).toBeVisible()
+    expect(screen.getByTestId('ai-index-reset-confirm-yes')).toBeVisible()
+    expect(screen.getByTestId('ai-index-reset-confirm-no')).toBeVisible()
+
+    // Confirm yes: calls resetAiIndexBuild.
+    fireEvent.click(screen.getByTestId('ai-index-reset-confirm-yes'))
+    expect(resetAiIndexBuild).toHaveBeenCalledTimes(1)
+
+    // Settles to the "queued" confirmation.
+    expect(
+      await screen.findByTestId('ai-index-reset-queued'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('ai-index-reset-queued')).toHaveTextContent(
+      'Cleared — full rebuild queued in the background.',
+    )
+  })
+
+  test('reset confirm-no cancels back to idle state', () => {
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ state: 'failed' }),
+      indexMeta: { label: 'Failed', tone: 'blocked', description: 'failed' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-index-reset'))
+    expect(screen.getByTestId('ai-index-reset-confirm')).toBeVisible()
+
+    fireEvent.click(screen.getByTestId('ai-index-reset-confirm-no'))
+    // Back to idle: confirm dialog is gone, reset button is back.
+    expect(screen.queryByTestId('ai-index-reset-confirm')).toBeNull()
+    expect(screen.getByTestId('ai-index-reset')).toBeVisible()
+    expect(resetAiIndexBuild).not.toHaveBeenCalled()
+  })
+
+  test('reset button shows an honest error when resetAiIndexBuild fails', async () => {
+    resetAiIndexBuild.mockRejectedValueOnce(new Error('backend offline'))
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ state: 'failed' }),
+      indexMeta: { label: 'Failed', tone: 'blocked', description: 'failed' },
+    })
+
+    fireEvent.click(screen.getByTestId('ai-index-reset'))
+    fireEvent.click(screen.getByTestId('ai-index-reset-confirm-yes'))
+
+    expect(
+      await screen.findByTestId('ai-index-reset-error'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('ai-index-reset-error')).toHaveTextContent(
+      'Could not reset the build. Please try again.',
+    )
+    // The button is re-enabled so the user can retry.
+    expect(screen.getByTestId('ai-index-reset')).toBeVisible()
+  })
+
+  test('reset button re-enters confirming state when clicked from the error state', async () => {
+    // Exercises the `onClick` in the error-state render path (gap 3 coverage).
+    // After a failure, clicking the button again must return to "confirming" so the
+    // user can attempt a retry without a full page refresh.
+    resetAiIndexBuild.mockRejectedValueOnce(new Error('backend offline'))
+
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({ state: 'failed' }),
+      indexMeta: { label: 'Failed', tone: 'blocked', description: 'failed' },
+    })
+
+    // Drive to error state.
+    fireEvent.click(screen.getByTestId('ai-index-reset'))
+    fireEvent.click(screen.getByTestId('ai-index-reset-confirm-yes'))
+    expect(
+      await screen.findByTestId('ai-index-reset-error'),
+    ).toBeInTheDocument()
+
+    // Click the retry button — should move back to confirming.
+    fireEvent.click(screen.getByTestId('ai-index-reset'))
+    expect(screen.getByTestId('ai-index-reset-confirm')).toBeVisible()
+    expect(screen.queryByTestId('ai-index-reset-error')).toBeNull()
+  })
 })
 
 function baseState(): AiProvidersSectionState {
@@ -1141,6 +1858,37 @@ function aiStatusFixture(
     semanticMetadataBytes: 1024,
     estimatedEmbeddingTokens: 4096,
     warning: null,
+    ...overrides,
+  }
+}
+
+function staticProviderFixture(): AiProviderConfig {
+  return {
+    id: 'static-in-app',
+    name: 'Static (in-app)',
+    purpose: 'embedding',
+    requestFormat: 'openai',
+    enabled: true,
+    baseUrl: 'static:in-app',
+    apiKeySaved: false,
+    defaultModel: 'minishlab/potion-retrieval-32M',
+    modelCatalog: [],
+    temperature: null,
+    maxTokens: null,
+    dimensions: 256,
+    notes: null,
+  }
+}
+
+function staticEmbeddingFixture(
+  overrides: Partial<StaticEmbeddingStatus> = {},
+): StaticEmbeddingStatus {
+  return {
+    providerId: 'static-in-app',
+    modelRepo: 'minishlab/potion-retrieval-32M',
+    modelDownloaded: false,
+    selected: true,
+    isDefault: true,
     ...overrides,
   }
 }

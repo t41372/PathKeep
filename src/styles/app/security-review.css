@@ -498,6 +498,24 @@
   gap: var(--space-3);
 }
 
+/*
+  Built-in provider marker (e.g. the static in-app embedding tier). Drawn as a small
+  accent-tinted pill so "Built-in · Recommended" reads as a status badge, not inline body
+  text. Mirrors the .panel-badge accent treatment in the design tokens.
+*/
+.providerBuiltInBadge {
+  align-self: center;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .providerSelect {
   display: flex;
   align-items: center;

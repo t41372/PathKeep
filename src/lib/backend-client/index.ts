@@ -152,6 +152,10 @@ export const backend = {
   retryIntelligenceJob: intelligenceClient.retryRuntimeJob,
   cancelIntelligenceJob: intelligenceClient.cancelRuntimeJob,
   previewAiIntegrations: intelligenceClient.previewIntegrations,
+  downloadStaticEmbeddingModel: intelligenceClient.downloadStaticEmbeddingModel,
+  cancelStaticEmbeddingModelDownload:
+    intelligenceClient.cancelStaticEmbeddingModelDownload,
+  resetAiIndexBuild: intelligenceClient.resetAiIndexBuild,
   resetLocalSecretVault: securityClient.resetLocalSecretVault,
   openPathInFileManager: supportClient.openPathInFileManager,
   openExternalUrl: supportClient.openExternalUrl,

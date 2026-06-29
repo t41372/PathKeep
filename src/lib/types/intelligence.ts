@@ -201,6 +201,47 @@ export type AiIndexWarning =
   | { code: 'indexNotBuilt' }
   | { code: 'indexStale'; reason: AiSemanticStaleness }
   | { code: 'buildFailed'; reason: string }
+  /**
+   * The semantic vector store is empty even though the SQLite metadata records rows as indexed.
+   * This typically means the embedding provider produced no output (wrong model, bad config, or
+   * a provider that returned success without writing vectors). Mirrors the Rust
+   * `AiIndexWarning::IndexVectorsMissing`.
+   */
+  | { code: 'indexVectorsMissing' }
+
+/**
+ * Static in-app embedding tier status (additive on AiIndexStatus). Mirrors the Rust
+ * `StaticEmbeddingStatus` (camelCase serde, `#[serde(default, skip_serializing_if)]`).
+ * Always present when the static-in-app provider is registered; absent on older backends.
+ */
+export interface StaticEmbeddingStatus {
+  /** Always `"static-in-app"`. */
+  providerId: string
+  /** Hugging Face repo identifier for the bundled model. */
+  modelRepo: string
+  /** Whether the model weights have been downloaded to the local cache. */
+  modelDownloaded: boolean
+  /** Whether this provider is currently the active embedding selection. */
+  selected: boolean
+  /** Whether this provider is the system default when no explicit selection exists. */
+  isDefault: boolean
+}
+
+/**
+ * One in-app embedding model download progress event, delivered on the
+ * `pathkeep://model-download-progress` Tauri channel. Mirrors the Rust
+ * `ModelDownloadProgressEvent` (`#[serde(tag = "kind", rename_all = "camelCase")]`).
+ *
+ * Both the static tier and the heavy candle tier emit on this single channel; the
+ * stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
+ * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
+ * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
+ */
+export type ModelDownloadProgressEvent =
+  | { kind: 'fileStarted'; file: string; totalBytes: number }
+  | { kind: 'fileFinished'; file: string }
+  | { kind: 'done' }
+  | { kind: 'error'; message: string }
 
 export interface AiIndexStatus {
   enabled: boolean
@@ -232,6 +273,19 @@ export interface AiIndexStatus {
    * `#[serde(default, skip_serializing_if)]`). The FE maps ALL variants to localized copy.
    */
   warningCode?: AiIndexWarning | null
+  /**
+   * The REAL count of vectors written to the semantic sidecar (HNSW + SQLite metadata). Distinct
+   * from `indexedItems` (which counts SQLite metadata rows): when `semanticVectorCount === 0` but
+   * `indexedItems > 0` the embedding provider wrote metadata without producing any vectors, which
+   * the backend reports as `state: "degraded"` + `IndexVectorsMissing`. Additive, mirrors Rust
+   * `#[serde(default, skip_serializing_if)]`; absent on older backends, treat as unknown.
+   */
+  semanticVectorCount?: number | null
+  /**
+   * Status of the built-in static embedding tier. Additive, mirrors Rust
+   * `#[serde(default, skip_serializing_if)]`; absent when the static provider is not registered.
+   */
+  staticEmbedding?: StaticEmbeddingStatus | null
 }
 
 /**
