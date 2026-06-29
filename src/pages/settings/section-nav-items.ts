@@ -33,6 +33,7 @@ export type SettingsSectionKey =
   | 'updater'
   | 'retention'
   | 'applock'
+  | 'security'
   | 'profiles'
   | 'ai'
   | 'contentFetch'
@@ -74,6 +75,11 @@ const settingsSectionSpecs: Record<SettingsSectionKey, SettingsSectionSpec> = {
     id: 'settings-applock',
     icon: 'shield',
     labelKey: 'settings.appLock',
+  },
+  security: {
+    id: 'settings-security',
+    icon: 'database',
+    labelKey: 'settings.archiveSecurity',
   },
   profiles: {
     id: 'settings-profiles',
@@ -120,6 +126,7 @@ const defaultSettingsSectionOrder: SettingsSectionKey[] = [
   'general',
   'profiles',
   'applock',
+  'security',
   'ai',
   'contentFetch',
   'migration',

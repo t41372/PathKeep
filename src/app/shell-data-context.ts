@@ -73,7 +73,11 @@ export interface ShellRuntimeStatus {
  * is classified from the RAW backend message, and cleared whenever the error is
  * cleared or replaced — keeping `error` and `errorKind` from drifting apart.
  */
-export type ShellErrorKind = 'full-disk-access' | 'backup' | null
+export type ShellErrorKind =
+  | 'full-disk-access'
+  | 'backup'
+  | 'lock-required'
+  | null
 
 /**
  * Describes the shell-owned import request that routes can start without owning progress state.

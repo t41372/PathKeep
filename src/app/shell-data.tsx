@@ -317,11 +317,18 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  function failArchiveTask(taskId: string, message: string) {
+  function failArchiveTask(
+    taskId: string,
+    message: string,
+    options?: { silent?: boolean },
+  ) {
     const task = readArchiveTask(taskId)
     /* v8 ignore next -- failure is only called for task ids created by beginArchiveTask. */
     if (!task) return
     setArchiveTask(failShellTask(task, nextShellTimestamp(), message))
+    // `silent` records the failure in the ledger without a danger bell — the
+    // lock-required backup case relies on the unlock gate to remediate instead.
+    if (options?.silent) return
     publishNotification({
       title: t('jobs.archiveTaskFailedTitle'),
       body: message,
@@ -458,6 +465,10 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             const key = await backend.keyringGetDatabaseKey()
             if (key) {
               await backend.setSessionDatabaseKey(key)
+              // Best-effort reconcile: self-heals any drifted encryption state
+              // right after auto-unlock so the next backup doesn't fail on a
+              // stale mode mismatch. Fire-and-forget; swallow all errors.
+              void backend.reconcileArchiveEncryption().catch(() => undefined)
               nextSnapshot = await backend.getAppSnapshot()
             }
           } catch {

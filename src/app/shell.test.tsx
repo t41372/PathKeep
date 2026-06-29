@@ -686,6 +686,32 @@ describe('AppShell (paper redesign)', () => {
     )
   })
 
+  test('Cmd+K is inert while the unlock gate owns the screen', async () => {
+    const user = userEvent.setup()
+    renderShell(
+      {
+        snapshot: {
+          archiveStatus: {
+            initialized: true,
+            encrypted: true,
+            unlocked: false,
+            warning: null,
+          },
+          keyringStatus: { available: false, backend: '', storedSecret: false },
+          browserProfiles: [],
+        } as never,
+      },
+      '/',
+    )
+    // The blocking gate is mounted because the archive is encrypted + locked.
+    expect(screen.getByTestId('archive-unlock-gate')).toBeInTheDocument()
+    await user.keyboard('{Meta>}k{/Meta}')
+    // ⌘K must NOT open the search palette over a locked archive.
+    expect(
+      screen.queryByPlaceholderText(/Find a page/i),
+    ).not.toBeInTheDocument()
+  })
+
   // --- Backup failure toast ---
 
   test('renders the backup-failure toast (role=alert) when the shell advertises a backup error', () => {

@@ -303,6 +303,44 @@ describe('ShellDataProvider archive tasks and notifications', () => {
     )
   })
 
+  test('a lock-required backup failure marks the task failed WITHOUT a danger notification', async () => {
+    const user = userEvent.setup()
+    const { dashboard, snapshot } = await seedSnapshot()
+
+    vi.spyOn(backend, 'getAppSnapshot').mockResolvedValue(snapshot)
+    vi.spyOn(backend, 'getAppBuildInfo').mockResolvedValue(
+      getDefaultBuildInfo(),
+    )
+    vi.spyOn(backend, 'loadDashboardSnapshot').mockResolvedValue(dashboard)
+    // A locked encrypted archive surfaces a lock-required backend error.
+    vi.spyOn(backend, 'runBackupNow').mockRejectedValue(
+      new Error('a database key is required to open the encrypted archive'),
+    )
+
+    renderShellProbe()
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'backup' }))
+
+    await waitFor(() => expect(backend.runBackupNow).toHaveBeenCalled())
+    // The task is recorded as failed (no longer active)…
+    await waitFor(() =>
+      expect(screen.getByTestId('active-archive-task')).toHaveTextContent(
+        'none',
+      ),
+    )
+    // …but the only notification is the "Backup started" one — the silent path
+    // suppresses the red "Archive task failed" danger bell (the gate remediates).
+    expect(screen.getByTestId('notification-titles')).not.toHaveTextContent(
+      'Archive task failed',
+    )
+    expect(screen.getByTestId('notification-titles')).toHaveTextContent(
+      'Backup started',
+    )
+  })
+
   test('uses backend error messages when shell-owned imports fail with Error objects', async () => {
     const user = userEvent.setup()
     const { dashboard, snapshot } = await seedSnapshot()

@@ -394,6 +394,20 @@ export interface OgImageStorageStats {
   oldestFetchedAt?: string | null
 }
 
+/**
+ * Coverage reported by `get_og_image_coverage_stats`: how many web pages carry a
+ * preview image. Raw counts — the UI derives the percentages so it can show both
+ * coverage (of all eligible pages) and the success rate (of pages checked).
+ */
+export interface OgImageCoverageStats {
+  /** Distinct https pages in the archive (the eligible denominator; http is never fetched). */
+  eligiblePages: number
+  /** Pages an og:image fetch has been attempted for. */
+  attemptedPages: number
+  /** Pages with a successfully fetched og:image. */
+  pagesWithImage: number
+}
+
 /** Outcome of one cleanup pass. */
 export interface OgImageCleanupReport {
   deletedRows: number

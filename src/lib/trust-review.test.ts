@@ -77,6 +77,7 @@ describe('trust review helpers', () => {
     expect(runTypeKey('mcp_query')).toBe('audit.runTypeMcpQuery')
     expect(runTriggerKey('schedule')).toBe('audit.scheduledBackup')
     expect(runTriggerKey('manual')).toBe('audit.manualBackup')
+    expect(runTriggerKey('repair')).toBe('audit.automaticRepair')
     expect(
       sourceKindFromProfileScope(['chrome:Default', 'firefox:Default']),
     ).toEqual(['chrome', 'firefox'])

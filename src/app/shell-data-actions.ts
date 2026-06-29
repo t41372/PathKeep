@@ -94,7 +94,17 @@ interface ShellArchiveTaskActionHooks {
   beginBackupTask: () => { task: ShellTask } | { blockedBy: ShellTask }
   updateBackupTask: (taskId: string, progress: BackupProgressEvent) => void
   finishBackupTask: (taskId: string, report: BackupReport) => void
-  failBackupTask: (taskId: string, message: string) => void
+  /**
+   * Marks the backup task failed. `silent: true` records the failure in the
+   * task ledger WITHOUT publishing a red danger bell — used for the
+   * lock-required case, where the unlock gate is the remediation surface and a
+   * loud failure notification would be crying wolf.
+   */
+  failBackupTask: (
+    taskId: string,
+    message: string,
+    options?: { silent?: boolean },
+  ) => void
 }
 
 function incrementRefreshKey(setRefreshKey: StateSetter<number>) {
@@ -139,6 +149,21 @@ export function isFullDiskAccessIssueMessage(message: string) {
   return (
     message.includes('Safari History.db is not readable yet') ||
     message.includes('Full Disk Access')
+  )
+}
+
+/**
+ * Returns `true` when the backup failed because the archive is encrypted and
+ * no session key is available. The gate handles these failures — no toast.
+ */
+export function isLockRequiredError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg = error.message
+  return (
+    msg.includes('database key is required') ||
+    msg.includes('encrypted archive requires') ||
+    msg.includes('no session key') ||
+    /archive.*locked/i.test(msg)
   )
 }
 
@@ -340,6 +365,29 @@ export function createShellDataActions({
         ) {
           throw nextError
         }
+
+        // When the archive is locked the unlock gate will appear automatically
+        // (it shows whenever archiveStatus.encrypted && !unlocked). Set the
+        // lock-required kind so the gate knows to retry the backup on success.
+        // No toast — the gate IS the remediation surface.
+        if (isLockRequiredError(nextError)) {
+          const rawMessage = describeError(nextError, 'run_backup_now')
+          if (taskId) {
+            // Record the failed run, but suppress the danger bell: the unlock
+            // gate (auto-shown while locked) is the remediation surface.
+            archiveTasks?.failBackupTask(taskId, rawMessage, { silent: true })
+          }
+          try {
+            await refreshAppData(false)
+          } finally {
+            // Clear any stale error text; the gate is the surface.
+            setError(null)
+            setRawError(null)
+            setErrorKind('lock-required')
+          }
+          throw nextError
+        }
+
         const { message, isFullDiskAccess } = formatShellActionError(
           nextError,
           'run_backup_now',

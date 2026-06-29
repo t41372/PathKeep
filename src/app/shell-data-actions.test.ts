@@ -405,6 +405,63 @@ describe('createShellDataActions', () => {
     expect(harness.clearBusyOverlay).toHaveBeenCalledTimes(2)
   })
 
+  test('lock-required backup failure routes to the gate without a danger toast', async () => {
+    const task = createShellTask({
+      id: 'backup-task',
+      kind: 'backup',
+      title: 'Backup',
+      detail: 'Queued backup',
+      timestamp: '2026-04-27T10:00:00.000Z',
+    })
+    const archiveTasks = {
+      beginBackupTask: vi.fn(() => ({ task })),
+      updateBackupTask: vi.fn(),
+      finishBackupTask: vi.fn(),
+      failBackupTask: vi.fn(),
+    }
+    const harness = createActionHarness({ archiveTasks })
+    subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    // A locked encrypted archive surfaces this backend message.
+    backendMock.runBackupNow.mockRejectedValueOnce(
+      new Error('a database key is required to open the encrypted archive'),
+    )
+
+    await expect(harness.actions.runBackup()).rejects.toThrow(
+      'database key is required',
+    )
+
+    // The failed run is recorded in the task ledger, but SILENTLY — the unlock
+    // gate is the remediation surface, so no red danger bell.
+    expect(archiveTasks.failBackupTask).toHaveBeenCalledWith(
+      'backup-task',
+      expect.stringContaining('database key is required'),
+      { silent: true },
+    )
+    // The lock-required kind is set (so the shell shows the gate + retries),
+    // and the error/raw-error text is cleared so no failure toast renders.
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('lock-required')
+    expect(harness.setError).toHaveBeenLastCalledWith(null)
+    expect(harness.setRawError).toHaveBeenLastCalledWith(null)
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('backup')
+    expect(harness.setErrorKind).not.toHaveBeenCalledWith('full-disk-access')
+  })
+
+  test('lock-required backup failure works without archive-task hooks', async () => {
+    // No archiveTasks → taskId stays null, exercising the `if (taskId)` guard's
+    // false branch while still routing to the gate without a danger toast.
+    const harness = createActionHarness()
+    subscribeToBackupProgressMock.mockResolvedValueOnce(vi.fn())
+    backendMock.runBackupNow.mockRejectedValueOnce(
+      new Error('no session key for the encrypted archive'),
+    )
+
+    await expect(harness.actions.runBackup()).rejects.toThrow('no session key')
+
+    expect(harness.setErrorKind).toHaveBeenLastCalledWith('lock-required')
+    expect(harness.setError).toHaveBeenLastCalledWith(null)
+    expect(harness.setRawError).toHaveBeenLastCalledWith(null)
+  })
+
   test('surfaces backup progress subscription failures before starting the worker', async () => {
     const harness = createActionHarness()
     subscribeToBackupProgressMock.mockRejectedValueOnce(

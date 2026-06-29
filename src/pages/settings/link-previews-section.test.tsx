@@ -29,6 +29,13 @@ import { clampNumber, parseBlocklist } from './link-previews-helpers'
 describe('LinkPreviewsSection', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // Default: an empty archive so coverage renders its "nothing to measure"
+    // state and never throws an unmocked IPC call in the existing cases.
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 0,
+      attemptedPages: 0,
+      pagesWithImage: 0,
+    })
   })
 
   test('renders title + intro and reflects fetch_enabled from the snapshot', async () => {
@@ -48,6 +55,94 @@ describe('LinkPreviewsSection', () => {
     await waitFor(() =>
       expect(screen.getByTestId('link-previews-stats')).toHaveTextContent(
         'No previews cached yet.',
+      ),
+    )
+  })
+
+  test('shows preview coverage percentage, counts, and success rate', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 50,
+      blobCount: 34,
+      totalBytes: 2048,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 100,
+      attemptedPages: 50,
+      pagesWithImage: 34,
+    })
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-coverage')).toHaveTextContent(
+        '34.0% of pages have a preview image (34 of 100)',
+      ),
+    )
+    expect(screen.getByTestId('link-previews-coverage-rate')).toHaveTextContent(
+      'Of 50 pages checked, 68.0% had one.',
+    )
+  })
+
+  test('coverage shows a "not fetched yet" state instead of a misleading 0%', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockResolvedValue({
+      eligiblePages: 100,
+      attemptedPages: 0,
+      pagesWithImage: 0,
+    })
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('link-previews-coverage'),
+      ).not.toHaveTextContent('Measuring coverage…'),
+    )
+    // No misleading "0.0%" headline and no success-rate line when nothing was checked.
+    expect(screen.getByTestId('link-previews-coverage')).not.toHaveTextContent(
+      '%',
+    )
+    expect(
+      screen.queryByTestId('link-previews-coverage-rate'),
+    ).not.toBeInTheDocument()
+  })
+
+  test('coverage shows an error state instead of spinning forever on failure', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    vi.spyOn(backend, 'getOgImageCoverageStats').mockRejectedValue(
+      new Error('ipc unavailable'),
+    )
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('link-previews-coverage'),
+      ).not.toHaveTextContent('Measuring coverage…'),
+    )
+    // Failure must not render as a percentage or a perpetual spinner.
+    expect(screen.getByTestId('link-previews-coverage')).not.toHaveTextContent(
+      '%',
+    )
+  })
+
+  test('coverage shows the empty state when there are no eligible pages', async () => {
+    vi.spyOn(backend, 'getOgImageStorageStats').mockResolvedValue({
+      rowCount: 0,
+      blobCount: 0,
+      totalBytes: 0,
+      oldestFetchedAt: null,
+    })
+    // beforeEach already mocks coverage with all-zero counts.
+    render(withShell({ ogImageFetchEnabled: true }))
+    await waitFor(() =>
+      expect(screen.getByTestId('link-previews-coverage')).toHaveTextContent(
+        'No pages to measure yet.',
       ),
     )
   })

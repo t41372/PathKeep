@@ -21,6 +21,7 @@ import type {
   HistoryQuery,
   HistoryQueryResponse,
   OgImageCleanupReport,
+  OgImageCoverageStats,
   OgImageStorageStats,
 } from '../types'
 import { call } from './shared'
@@ -100,6 +101,8 @@ export const explorerClient = {
     call<[number, number]>('prefetch_og_images', { budget }),
   getOgImageStorageStats: () =>
     call<OgImageStorageStats>('get_og_image_storage_stats', {}),
+  getOgImageCoverageStats: () =>
+    call<OgImageCoverageStats>('get_og_image_coverage_stats', {}),
   clearOgImageCache: () =>
     call<OgImageCleanupReport>('clear_og_image_cache', {}),
   runOgImageCleanup: () =>

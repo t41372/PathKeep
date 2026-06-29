@@ -18,6 +18,7 @@ import type {
   AppConfig,
   AppLockStatus,
   AppSnapshot,
+  ReconcileReport,
   SetAppLockPasscodeRequest,
   UnlockAppSessionRequest,
 } from '../types'
@@ -44,4 +45,6 @@ export const appClient = {
     call<AppLockStatus>('lock_app_session', { reason }),
   unlockAppSession: (request: UnlockAppSessionRequest) =>
     call<AppLockStatus>('unlock_app_session', { request }),
+  reconcileArchiveEncryption: () =>
+    call<ReconcileReport>('reconcile_archive_encryption', {}),
 }

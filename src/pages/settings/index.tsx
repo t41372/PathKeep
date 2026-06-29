@@ -35,6 +35,7 @@ import { DataMigrationSection } from './data-migration-section'
 import { LinkPreviewsSection } from './link-previews-section'
 import { AppLockSection } from './app-lock-section'
 import { GeneralSection } from './general-section'
+import { SecuritySection } from './security-section'
 import { PaperSettingsHeader } from './paper-settings-header'
 import { ProfileSelectionSection } from './profile-selection-section'
 import {
@@ -98,6 +99,7 @@ export function SettingsPage() {
         'general',
         'profiles',
         'applock',
+        'security',
         'ai',
         'contentFetch',
         'migration',
@@ -203,6 +205,7 @@ export function SettingsPage() {
           navItem={settingsSection('applock')}
           state={routeState.appLock}
         />
+        <SecuritySection navItem={settingsSection('security')} />
       </div>
 
       <div className="settings-group">

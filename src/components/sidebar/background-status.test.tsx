@@ -193,9 +193,12 @@ describe('SidebarBackgroundStatus', () => {
       </I18nProvider>,
     )
 
+    // When locked, the footer action always goes to /jobs.
+    // The archive-unlock gate (rendered above all routes by the shell) handles
+    // the locked state — no Settings detour needed from the sidebar.
     expectStatus({
-      actionHref: '/security#unlock-archive',
-      actionLabel: 'Security',
+      actionHref: '/jobs',
+      actionLabel: 'Jobs',
       detail: 'Open Security before reviewing queued work.',
       indeterminate: false,
       summary: 'Unlock the archive first',

@@ -490,9 +490,11 @@ describe('Sidebar', () => {
     expect(
       screen.getByText('Open Security before reviewing queued work.'),
     ).toBeVisible()
+    // The footer action always links to /jobs; the archive-unlock gate handles
+    // the locked state above all routes without requiring a Settings detour.
     expect(
-      screen.getAllByRole('link', { name: 'Security' })[1],
-    ).toHaveAttribute('href', '/security#unlock-archive')
+      screen.queryByRole('link', { name: 'Security' }),
+    ).not.toHaveAttribute('href', '/security#unlock-archive')
     expect(loadAiQueueStatusSpy).not.toHaveBeenCalled()
     expect(loadIntelligenceRuntimeSpy).not.toHaveBeenCalled()
   })

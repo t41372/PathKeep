@@ -19,6 +19,7 @@ import { cn } from '@/lib/cn'
 import { BackgroundProgress } from '@/components/primitives/background-progress'
 import { BackupFailureToast } from '@/components/primitives/backup-failure-toast'
 import { BusyOverlay } from '@/components/primitives/busy-overlay'
+import { ArchiveUnlockGate } from '@/components/archive-unlock-gate'
 import {
   PKSearchPalette,
   PKSidebar,
@@ -170,8 +171,20 @@ export function AppShell() {
     }
   }, [sidebarCollapsed])
 
+  // Gate: show the blocking unlock overlay when the archive is encrypted and the
+  // current session has no key (auto-unlock either was not configured or failed).
+  // Computed here (not just before the JSX) so the global ⌘K listener below can
+  // stay inert while the gate owns the screen.
+  const showUnlockGate =
+    !shell.loading &&
+    Boolean(shell.snapshot?.archiveStatus?.encrypted) &&
+    !shell.snapshot?.archiveStatus?.unlocked
+
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
+      // While the unlock gate owns the screen, ⌘K must not open the search
+      // palette over a locked archive (its results would be unusable anyway).
+      if (showUnlockGate) return
       const meta = event.metaKey || event.ctrlKey
       if (meta && event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -182,7 +195,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [paletteOpen])
+  }, [paletteOpen, showUnlockGate])
 
   const handleToggleTheme = useCallback(() => {
     // Route the toggle through applyPaperPreferences so the document
@@ -304,6 +317,10 @@ export function AppShell() {
     void backend.revealLogs()
   }, [])
   const archiveHealthy = initialized && !shell.snapshot?.archiveStatus?.warning
+
+  // When the most recent backup failed due to a missing session key, the gate
+  // should retry the backup immediately after a successful unlock.
+  const backupLockedError = shell.errorKind === 'lock-required'
   const buildVersion = shell.buildInfo?.version
     ? `v${shell.buildInfo.version}`
     : null
@@ -387,6 +404,21 @@ export function AppShell() {
         onSearch={handleSearchQuery}
         onSelect={handlePaletteSelect}
       />
+
+      {/* Archive unlock gate — rendered above ALL other shell chrome when the
+          archive is encrypted and the session has no key. The gate is a fixed
+          full-screen overlay (z-index: 9999) so it floats above the sidebar,
+          topbar, and any in-progress background tasks. Escape does not dismiss
+          it: the app is unusable while locked. When the most recent backup
+          failed because the archive was locked, the gate retries the backup
+          automatically after a successful unlock. */}
+      {showUnlockGate && shell.snapshot ? (
+        <ArchiveUnlockGate
+          snapshot={shell.snapshot}
+          retryBackupOnUnlock={backupLockedError}
+          onRetryBackup={handleBackupNow}
+        />
+      ) : null}
 
       {/* Bottom-slot status, in priority order. A running backup shows the progress
           strip; the instant it settles into a FAILURE, the BackupFailureToast takes
