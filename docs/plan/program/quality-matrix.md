@@ -105,3 +105,19 @@ whole-workspace mutation 是 deep/release investigation gate；若成本或 surv
 - schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
 - `coverage:js` 現在覆蓋 active frontend runtime source；若某個 runtime owner 尚未被測試保護，這是 checker failure，不是文檔例外。
 - `coverage:rust` 已恢復 full `src-tauri/**/src/*.rs` 100% gate；如果實際命令失敗，失敗本身就是 release blocker，不能再降回 quality slice 後宣稱全後端達標。
+
+---
+
+## 覆蓋率 ≠ 行為：behavioral-assertion 鐵律（2026-06-28）
+
+> 教訓：兩個一碰就炸、明顯影響 UX 的功能在「100% coverage」下溜過——(1) 關鍵字搜尋找不到 note 內容（note 從未進 FTS；有測試覆蓋 note 的寫入/讀取，卻沒有任何測試斷言「存了 note → 關鍵字搜得到」），(2) 語義索引寫 0 向量且中斷一次就無法恢復（真正的 embedding I/O 引擎被 `#[cfg(not(any(test, coverage)))]` **編譯掉**、換成永遠成功的 stub，連 provider-error 分支都是 `cfg(coverage)` 假造的）。根因不是運氣，是方法論漏洞：**coverage 量的是「行有沒有跑」，不是「行為對不對」**。
+
+鐵律（文檔怎麼寫，review 就怎麼擋）：
+
+1. **覆蓋率必要但不充分。** 100% line/function coverage 是地板不是天花板。一個 call 了函數卻把結果丟掉（`let _ = …`）的測試，和一個斷言輸出的測試，在 gate 眼裡一樣綠——但只有後者算數。
+2. **每個使用者可見功能至少要一條 end-to-end 行為斷言**：「使用者在真實使用的介面/路徑做 X → 觀察到 Y」。不能用「在另一個 plane 寫得進/讀得出」代替「在使用者打字的搜尋框找得到」。要負→正斷言：斷言「東西被找到/被寫入」，不是只斷言「沒丟錯」。
+3. **任何 production I/O 路徑都不得被 `cfg` 編譯出 coverage binary。** 要 seam 就 seam 在 **transport endpoint**（可注入 client / 本地 fake server），把真正的 compute/decode/timeout/empty-response 留在被量測的 build 裡。整個引擎換 stub＝把真正的失敗模式藏起來（embedding 0-byte 與 note 搜尋兩個 bug 都是這樣溜的）。
+4. **避免 coverage-theater**：`let _ =` 吞結果、`dispatch_for_coverage` 式「跑過但不斷言」、render-the-string（只斷言錯誤字串非空）。這些讓 gate 變綠卻不證明任何契約。
+5. **新功能 review 必問**：「使用者實際操作有沒有一條測試從真實入口斷言預期結果？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
+
+待辦（見 BACKLOG，2026-06-28 立項）：external embedding transport 改可注入 seam + fake-HTTP `/v1/embeddings` 整合測試（mid-batch 500 / 空 `data[]` / timeout）；`dispatch_for_coverage` 的 fire-and-forget walk 改成 per-command 契約斷言。

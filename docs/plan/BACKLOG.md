@@ -662,6 +662,12 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：絕不破壞既有資料；i18n×3；100% coverage；走 review pipeline。
   - 驗收：對人工製造的 key-drift 安裝，app 給出清楚路徑回到可備份狀態，不再 OOM、不再讓 rekey 卡死。
 
+- [ ] **WORK-TEST-REAL-IO-A** — 真實 I/O 測試化：embedding transport seam + fake-HTTP 整合測試 + dispatch 契約斷言（承 2026-06-28 behavioral-assertion 鐵律）
+  - 來源：2026-06-28，note 搜尋與 embedding 一碰就炸但「100% coverage」沒擋。根因＝真實 I/O 引擎被 `#[cfg(not(any(test,coverage)))]` 整段換 stub、行為從不被斷言（見 `quality-matrix.md`「覆蓋率 ≠ 行為」鐵律）。本輪已把 static engine 的真實 compute 放回 coverage binary（F4）+ 補 note/embedding 行為斷言；剩兩塊較大的 reform 延後：
+  - **(1) external/candle embedding transport 可注入 seam**：把 `ai/embedding_external.rs`（與檢視 `embedding_candle.rs`）的真實 `reqwest` send/decode/timeout 從「整段 cfg-out 換 stub」改成把 HTTP **endpoint** 抽成可注入（本地 fake server / injected client），讓真實 decode / timeout / 空 `data[]` / mid-batch 500 的邏輯留在被量測 build。加 fake-HTTP `/v1/embeddings` 整合測試斷言「誠實失敗，絕不成功但 0 向量」。
+  - **(2) `dispatch_for_coverage` → 契約斷言**：`dev_ipc_bridge/dispatch/tests.rs` 的 fire-and-forget walk（吞 panic、丟結果）改成 per-command 斷言回傳 JSON shape，讓 IPC surface 證明契約而非只執行求覆蓋率。
+  - 驗收：external/candle 真實失敗模式有測試覆蓋；dispatch 測試斷言契約；`quality-matrix.md` 鐵律全達成；gate 全綠。
+
 - [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
   - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。
   - 目標（release 工程）：
