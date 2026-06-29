@@ -22,7 +22,7 @@
  * - provider editor 只編輯已載入的 draft；index health 來自既有 snapshot，不在 section 內額外 fan-out。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ReviewCopyFeedback } from '../../components/review'
 import { AiProviderEditorList } from '../../components/ai-provider-editor'
@@ -43,10 +43,11 @@ import {
   isModelDownloadInFlight,
   markModelDownloadSettled,
   markModelDownloadStarted,
-  subscribeToModelDownloadProgress,
+  useModelDownloadProgress,
+  type ModelDownloadProgress,
 } from '../../lib/ipc/model-download'
 import { formatBytes } from '../../lib/format'
-import { useI18n } from '../../lib/i18n'
+import { useI18n, type ResolvedLanguage } from '../../lib/i18n'
 import { SettingsSavedChip } from './settings-saved-feedback'
 import { useSavedFeedback } from './use-saved-feedback'
 import type { aiStatusMeta } from '../../lib/intelligence-ai-presentation'
@@ -520,64 +521,102 @@ export function AiProvidersSection({
         />
 
         {/*
-          Static embedding tier download panel. Shown when the backend reports
-          a `staticEmbedding` status — i.e. the static-in-app provider is registered.
-          The panel only shows the download affordance when the model is not yet
-          present; once downloaded it shows a quiet "Ready" confirmation. It is
-          consent-gated (the user must click "Download model") and never auto-downloads.
+          Two-tier vector model section.
+
+          BASE TIER: the always-on on-device static model — shown first because it is the
+          default starting point and requires no external server or API key. Only rendered
+          when the backend reports `staticEmbedding` (i.e. the static-in-app provider is
+          registered). The static provider is intentionally NOT rendered in the editable
+          external list below so the user never mistakes it for a peer alternative.
+
+          UPGRADE TIER: external embedding providers the user can add, configure, and select
+          when they need higher precision. The static provider is filtered out of this list.
         */}
-        {aiStatus?.staticEmbedding ? (
-          <StaticEmbeddingPanel
+        <div
+          className="flex flex-col gap-3"
+          data-testid="ai-vector-model-section"
+        >
+          {/* Section heading with bottom rule */}
+          <h4 className="m-0 border-b border-ink-faint pb-1.5 font-sans text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+            {t('settings.aiVectorModelSectionTitle')}
+          </h4>
+
+          {/* BASE TIER ─────────────────────────────────────────────────────── */}
+          {/* Label + panel + connector render together: when the static tier can't be resolved
+              (transient aiStatus load window, or static_embedding_status -> None) showing a "BASE
+              TIER" heading + a connector that references a panel that isn't there is the kind of
+              orphaned scaffolding this redesign is removing. */}
+          {aiStatus?.staticEmbedding ? (
+            <>
+              <h5 className="m-0 font-sans text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+                {t('settings.aiBaseTierLabel')}
+              </h5>
+              <BaseTierPanel
+                disabled={editorsDisabled}
+                language={language}
+                staticEmbedding={aiStatus.staticEmbedding}
+                onSelect={(providerId) =>
+                  flashOnSave(onSelectProvider('embedding', providerId))
+                }
+                t={t}
+              />
+              {/* Tier connector */}
+              <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5] italic">
+                {t('settings.aiTierConnectorText')}
+              </p>
+            </>
+          ) : null}
+
+          {/* UPGRADE TIER ───────────────────────────────────────────────────── */}
+          <h5 className="m-0 font-sans text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+            {t('settings.aiUpgradeTierLabel')}
+          </h5>
+          <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
+            {t('settings.aiUpgradeTierBody')}
+          </p>
+
+          <AiProviderEditorList
+            addLabel={t('settings.aiAddExternalEmbeddingProvider')}
+            apiKeys={aiApiKeys}
             disabled={editorsDisabled}
-            staticEmbedding={aiStatus.staticEmbedding}
+            formatLabel={probeLatencyLabel}
+            presetLabel={t('settings.aiAddProviderPresetLabel')}
+            presetLabels={presetLabels}
+            onAdd={(format) => flashOnSave(onAddProvider('embedding', format))}
+            onApiKeyChange={onApiKeyChange}
+            onClearKey={(providerId) => {
+              void onClearAiApiKey(providerId)
+            }}
+            onClearKeyDisabled={onClearKeyDisabled}
+            onCommit={() => flashOnSave(onCommitProviders())}
+            onProbe={(providerId) => {
+              void onProviderProbe('embedding', providerId)
+            }}
+            onProbeDisabled={onProbeDisabled}
+            onRemove={(providerId) =>
+              flashOnSave(onRemoveProvider('embedding', providerId))
+            }
+            onSaveKey={(providerId) => {
+              void onSaveAiApiKey(providerId)
+            }}
+            onSaveKeyDisabled={onSaveKeyDisabled}
             onSelect={(providerId) =>
               flashOnSave(onSelectProvider('embedding', providerId))
             }
-            t={t}
+            onUpdate={(providerId, patch) =>
+              onUpdateProvider('embedding', providerId, patch)
+            }
+            providerProbes={providerProbes}
+            providers={currentSettings.embeddingProviders.filter(
+              (p) => !STATIC_EMBEDDING_PROVIDER_IDS.includes(p.id),
+            )}
+            purpose="embedding"
+            selectedProviderId={currentSettings.embeddingProviderId ?? null}
+            testingProviderId={testingProviderId}
+            title=""
+            translations={providerTranslations}
           />
-        ) : null}
-
-        <AiProviderEditorList
-          addLabel={t('settings.aiAddEmbeddingProvider')}
-          apiKeys={aiApiKeys}
-          builtInProviderIds={STATIC_EMBEDDING_PROVIDER_IDS}
-          builtInBadgeLabel={t('settings.aiStaticModelBuiltInBadge')}
-          disabled={editorsDisabled}
-          formatLabel={probeLatencyLabel}
-          presetLabel={t('settings.aiAddProviderPresetLabel')}
-          presetLabels={presetLabels}
-          onAdd={(format) => flashOnSave(onAddProvider('embedding', format))}
-          onApiKeyChange={onApiKeyChange}
-          onClearKey={(providerId) => {
-            void onClearAiApiKey(providerId)
-          }}
-          onClearKeyDisabled={onClearKeyDisabled}
-          onCommit={() => flashOnSave(onCommitProviders())}
-          onProbe={(providerId) => {
-            void onProviderProbe('embedding', providerId)
-          }}
-          onProbeDisabled={onProbeDisabled}
-          onRemove={(providerId) =>
-            flashOnSave(onRemoveProvider('embedding', providerId))
-          }
-          onSaveKey={(providerId) => {
-            void onSaveAiApiKey(providerId)
-          }}
-          onSaveKeyDisabled={onSaveKeyDisabled}
-          onSelect={(providerId) =>
-            flashOnSave(onSelectProvider('embedding', providerId))
-          }
-          onUpdate={(providerId, patch) =>
-            onUpdateProvider('embedding', providerId, patch)
-          }
-          providerProbes={providerProbes}
-          providers={currentSettings.embeddingProviders}
-          purpose="embedding"
-          selectedProviderId={currentSettings.embeddingProviderId ?? null}
-          testingProviderId={testingProviderId}
-          title={t('settings.aiEmbeddingProviders')}
-          translations={providerTranslations}
-        />
+        </div>
 
         <div className="config-row">
           <span className="config-label">
@@ -948,167 +987,238 @@ function IndexResetButton({
   )
 }
 
-// ─── StaticEmbeddingPanel ─────────────────────────────────────────────────────
-
-type StaticDownloadDisplayState =
-  | 'not-downloaded'
-  | 'downloading'
-  | 'ready'
-  | 'failed'
+// ─── BaseTierPanel ────────────────────────────────────────────────────────────
 
 /**
- * Download consent + status + selection panel for the built-in static embedding model.
+ * Dedicated inset panel for the built-in on-device base-tier embedding model.
  *
- * The static tier runs fully on-device and needs no external server or API key. The panel:
- *   - shows whether the static tier is the ACTIVE vector model, and offers a one-click "Use this
- *     model" when it is not, so a user stuck on a broken external provider can switch here without
- *     hunting for the radio (the select is always offered, even if the provider row is missing —
- *     never leave the unstuck path dead);
- *   - when the weights are absent, shows a consent-gated "Download model" button that calls
- *     `download_static_embedding_model`, then subscribes to `pathkeep://model-download-progress`
- *     for live per-file progress and a Cancel control (`cancel_ai_embedding_model_download`).
+ * This is NOT an editable provider card — the static model has no user-configurable fields.
+ * Instead it shows:
+ *   - A header row with the model name and (when selected) an Active pill.
+ *   - A description emphasizing lower precision versus large external models.
+ *   - A specs line showing real dimensions (from the backend) and estimated size.
+ *   - Honest download state:
+ *     - idle     → "Download model" button + size hint.
+ *     - downloading → real byte progress bar (determinate or indeterminate shimmer),
+ *                  current file basename, restart-if-quit note, Cancel button.
+ *     - ready    → "✓ Ready" + "Use built-in model" button when not selected.
+ *     - failed   → error message + "Retry download" button.
  *
- * Honesty + robustness:
- *   - `ready` is derived from the prop (`modelDownloaded`), the single source of truth.
- *   - A process-global in-flight latch (`lib/ipc/model-download`) survives a remount or a snapshot
- *     poll that momentarily drops `staticEmbedding`, so the Download button cannot silently
- *     re-trigger an in-flight download.
- *   - The backend stream is per-file with unknown sizes, so we show the current file + spinner,
- *     never a fabricated percentage.
- *
- * State machine:
- *   - `not-downloaded` → idle, shows download button
- *   - `downloading`    → download in flight, shows spinner + current file + cancel
- *   - `ready`          → model present (from prop), shows confirmation
- *   - `failed`         → download errored, shows error + retry
+ * Phase is driven by `useModelDownloadProgress` (event-based bytes + latch) together with
+ * small local overrides for the "just clicked Download" gap and "command itself failed" cases.
  */
-function StaticEmbeddingPanel({
+function BaseTierPanel({
   disabled,
+  language,
   staticEmbedding,
   onSelect,
   t,
 }: {
   disabled: boolean
+  language: ResolvedLanguage
   staticEmbedding: StaticEmbeddingStatus
   onSelect: (providerId: string) => void
   t: (key: string, vars?: Record<string, string | number>) => string
 }) {
-  // Local download tracking. Initialized from the global latch so a remount mid-download shows
-  // "downloading" (and a disabled action) immediately, before the next progress event arrives.
-  const [localState, setLocalState] = useState<
-    'not-downloaded' | 'downloading' | 'failed'
-  >(isModelDownloadInFlight() ? 'downloading' : 'not-downloaded')
-  const [currentFile, setCurrentFile] = useState<string | null>(null)
-  // Set when the user cancels: the backend aborts the download with a terminal `error`, which we
-  // then treat as a clean stop (return to idle) rather than a scary failure.
-  const cancelledRef = useRef(false)
+  // cancelledRef: set to true before the cancel IPC fires so the hook maps the terminal
+  // error to 'idle' rather than 'failed'. Must be a plain object (not ReadOnly) so the hook
+  // and component share the same writable reference.
+  const cancelledRef = useRef<boolean>(false)
 
-  // Subscribe to live per-file progress while the model is not yet present. The event stream is the
-  // durable "downloading" signal: a remount mid-download recovers as soon as the next event lands,
-  // and the terminal done/error clears the global in-flight latch.
-  useEffect(() => {
-    if (staticEmbedding.modelDownloaded) return
-    let active = true
-    let unsub = () => {}
-    void subscribeToModelDownloadProgress((event) => {
-      switch (event.kind) {
-        case 'fileStarted':
-          markModelDownloadStarted()
-          setLocalState('downloading')
-          setCurrentFile(event.file)
-          break
-        case 'fileFinished':
-          setLocalState('downloading')
-          setCurrentFile(null)
-          break
-        case 'done':
-          // Keep the spinner until the next snapshot flips `modelDownloaded`, so we never flash
-          // "not downloaded" between the done event and the poll that confirms the weights.
-          markModelDownloadSettled()
-          setCurrentFile(null)
-          break
-        case 'error':
-          markModelDownloadSettled()
-          setCurrentFile(null)
-          setLocalState(cancelledRef.current ? 'not-downloaded' : 'failed')
-          cancelledRef.current = false
-          break
-      }
-    }).then((fn) => {
-      if (active) unsub = fn
-      else fn()
-    })
-    return () => {
-      active = false
-      unsub()
-    }
-  }, [staticEmbedding.modelDownloaded])
+  // Bumped on every Download/Retry click so the hook clears any prior terminal state at once —
+  // otherwise a retry after a mid-download failure shows a stale "Download failed" until the first
+  // progress event arrives (exactly the flaky-network window that caused the original failure).
+  const [restartNonce, setRestartNonce] = useState(0)
 
-  // The prop is the source of truth for "ready"; otherwise the local download state drives display.
-  const displayState: StaticDownloadDisplayState =
-    staticEmbedding.modelDownloaded ? 'ready' : localState
+  // Event-driven phase + byte progress from the shared hook.
+  const progress = useModelDownloadProgress(
+    staticEmbedding.modelDownloaded,
+    cancelledRef,
+    restartNonce,
+  )
+
+  // Local override for immediate UI transitions (before the first subscription event arrives):
+  // - 'downloading': set immediately on Download click (before fileStarted lands).
+  // - 'idle':        set immediately on Cancel click (before the terminal error lands).
+  // - 'failed':      set when the download *command* itself rejects (before any event fires).
+  // null = defer to the hook's phase.
+  const [localPhase, setLocalPhase] = useState<
+    'idle' | 'downloading' | 'failed' | null
+  >(() => (isModelDownloadInFlight() ? 'downloading' : null))
+
+  // Combined phase: 'idle'/'failed' local overrides take priority; hook phase wins when
+  // non-idle (i.e. events have arrived); 'downloading' local override covers the brief
+  // gap before the first fileStarted event.
+  const phase: ModelDownloadProgress['phase'] =
+    localPhase === 'idle'
+      ? 'idle'
+      : localPhase === 'failed'
+        ? 'failed'
+        : progress.phase !== 'idle'
+          ? progress.phase
+          : localPhase === 'downloading'
+            ? 'downloading'
+            : 'idle'
 
   const onDownload = () => {
     cancelledRef.current = false
+    setLocalPhase('downloading')
+    // Reset the hook's phase so a retry after a failure never flashes the stale "failed" state.
+    setRestartNonce((n) => n + 1)
     markModelDownloadStarted()
-    setLocalState('downloading')
-    setCurrentFile(null)
-    // The command returns once the background thread is spawned; the actual outcome arrives on the
-    // progress channel. A rejection here means the command itself could not start.
+    // The command spawns the background thread and returns immediately; actual progress
+    // arrives on the `pathkeep://model-download-progress` channel via the hook.
     backend.downloadStaticEmbeddingModel().catch(() => {
       markModelDownloadSettled()
-      setLocalState('failed')
+      setLocalPhase('failed')
     })
   }
 
   const onCancelDownload = () => {
     cancelledRef.current = true
+    // Immediately show idle — the terminal error event will confirm it via the hook.
+    setLocalPhase('idle')
     markModelDownloadSettled()
-    setLocalState('not-downloaded')
-    setCurrentFile(null)
     void backend.cancelStaticEmbeddingModelDownload().catch(() => {})
   }
+
+  // Size label: real on-disk bytes when available, else a constant pre-download hint.
+  const sizeLabel =
+    staticEmbedding.modelSizeBytes && staticEmbedding.modelSizeBytes > 0
+      ? formatBytes(staticEmbedding.modelSizeBytes, language)
+      : '96 MB'
+  const dimensions = staticEmbedding.dimensions ?? 256
+
+  const isDeterminate = progress.totalBytes > 0
+  const progressPct = isDeterminate
+    ? Math.min(100, (progress.downloadedBytes / progress.totalBytes) * 100)
+    : 0
 
   return (
     <div
       className="surfaceInset flex flex-col gap-2 p-3"
       data-testid="ai-static-embedding-panel"
     >
-      <div className="flex items-start gap-2">
-        <strong className="font-sans text-[13px]">
-          {t('settings.aiStaticModelTitle')}
-        </strong>
-        <span
-          aria-live="polite"
-          className="text-ink-muted font-sans text-[11px]"
-          data-testid="ai-static-model-status"
-        >
-          {displayState === 'ready'
-            ? t('settings.aiStaticModelReady')
-            : displayState === 'downloading'
-              ? t('settings.aiStaticModelDownloading')
-              : displayState === 'failed'
-                ? t('settings.aiStaticModelDownloadFailed')
-                : t('settings.aiStaticModelNotDownloaded')}
-        </span>
-      </div>
-      <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
-        {t('settings.aiStaticModelDescription')}
-      </p>
-
+      {/* Header: title + Active pill */}
       <div className="flex flex-wrap items-center gap-2">
+        <strong className="font-sans text-[13px]">
+          {t('settings.aiBaseTierPanelTitle')}
+        </strong>
         {staticEmbedding.selected ? (
           <span
-            className="providerBuiltInBadge"
+            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 font-sans text-[11px] font-medium text-green-700"
             data-testid="ai-static-model-active"
           >
-            {t('settings.aiStaticModelActive')}
+            <span aria-hidden="true">●</span>
+            {t('settings.aiBaseTierActivePill')}
           </span>
-        ) : (
-          <>
-            <span className="text-ink-muted font-sans text-[12px]">
-              {t('settings.aiStaticModelRecommendedNotSelected')}
-            </span>
+        ) : null}
+      </div>
+
+      {/* Description — "lower precision" is stated plainly, not softened */}
+      <p className="text-ink-muted m-0 font-sans text-[12px] leading-[1.5]">
+        {t('settings.aiBaseTierDescription')}
+      </p>
+
+      {/* Specs: real dimensions from the backend + size estimate */}
+      <p className="text-ink-muted m-0 font-mono text-[11px] leading-[1.4]">
+        {t('settings.aiBaseTierSpecs', { dimensions, size: sizeLabel })}
+      </p>
+
+      {/* Download state machine ─────────────────────────────────────────── */}
+      {phase === 'idle' ? (
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            className="btn-secondary self-start"
+            disabled={disabled}
+            data-testid="ai-static-model-download"
+            onClick={onDownload}
+          >
+            {t('settings.aiBaseTierDownloadButton')}
+          </button>
+          <p className="text-ink-muted m-0 font-sans text-[11px] leading-[1.4]">
+            {t('settings.aiBaseTierDownloadHint', { size: sizeLabel })}
+          </p>
+        </div>
+      ) : phase === 'downloading' ? (
+        <div className="flex flex-col gap-2">
+          {/* Real byte progress bar (determinate) or indeterminate shimmer */}
+          {isDeterminate ? (
+            <>
+              <div
+                role="progressbar"
+                aria-valuenow={Math.min(
+                  progress.downloadedBytes,
+                  progress.totalBytes,
+                )}
+                aria-valuemin={0}
+                aria-valuemax={progress.totalBytes}
+                aria-label={t('settings.aiBaseTierDownloadButton')}
+                className="h-[6px] w-full overflow-hidden rounded-full bg-ink-faint"
+                data-testid="ai-base-tier-progress-bar"
+              >
+                <div
+                  className="h-full bg-ink-accent transition-[width] motion-reduce:transition-none"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <p
+                className="text-ink-muted m-0 font-sans text-[11px] leading-[1.4]"
+                data-testid="ai-base-tier-progress-label"
+              >
+                {formatBytes(progress.downloadedBytes, language)} /{' '}
+                {formatBytes(progress.totalBytes, language)}
+              </p>
+            </>
+          ) : (
+            <div
+              role="progressbar"
+              aria-busy="true"
+              aria-label={t('settings.aiBaseTierDownloadButton')}
+              className="h-[6px] w-full overflow-hidden rounded-full bg-ink-faint"
+              data-testid="ai-base-tier-progress-bar"
+            >
+              {/* Indeterminate: pulses normally; under reduced motion it stays a static partial fill
+                  (not hidden) so a sighted reduced-motion user still sees an in-progress indicator. */}
+              <div className="h-full w-1/3 animate-pulse bg-ink-accent motion-reduce:animate-none" />
+            </div>
+          )}
+          {/* Current file (basename only, mono) */}
+          {progress.currentFile ? (
+            <p
+              className="text-ink-faint m-0 font-mono text-[11px] leading-[1.4]"
+              data-testid="ai-static-model-current-file"
+            >
+              {progress.currentFile}
+            </p>
+          ) : null}
+          {/* Restart-if-quit warning */}
+          <p
+            className="text-tone-warning m-0 font-sans text-[11px] leading-[1.4]"
+            data-testid="ai-base-tier-restart-note"
+          >
+            {'⚠ '}
+            {t('settings.aiBaseTierDownloadRestartNote')}
+          </p>
+          <button
+            type="button"
+            className="btn-ghost self-start"
+            data-testid="ai-static-model-cancel"
+            onClick={onCancelDownload}
+          >
+            {t('settings.aiBaseTierCancelButton')}
+          </button>
+        </div>
+      ) : phase === 'ready' ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="text-ink-muted font-sans text-[12px]"
+            data-testid="ai-base-tier-ready"
+          >
+            {t('settings.aiBaseTierReadyText')}
+          </span>
+          {!staticEmbedding.selected ? (
             <button
               type="button"
               className="btn-secondary"
@@ -1116,55 +1226,31 @@ function StaticEmbeddingPanel({
               data-testid="ai-static-model-select"
               onClick={() => onSelect(staticEmbedding.providerId)}
             >
-              {t('settings.aiStaticModelSelectAction')}
+              {t('settings.aiBaseTierUseButton')}
             </button>
-          </>
-        )}
-      </div>
-
-      {displayState === 'downloading' ? (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span
-              className="inlineSpinner"
-              aria-hidden="true"
-              data-testid="ai-static-model-downloading"
-            >
-              <span className="inlineSpinner__dot" />
-              <span className="inlineSpinner__dot" />
-              <span className="inlineSpinner__dot" />
-            </span>
-            <button
-              type="button"
-              className="btn-ghost"
-              data-testid="ai-static-model-cancel"
-              onClick={onCancelDownload}
-            >
-              {t('settings.aiStaticModelCancelDownload')}
-            </button>
-          </div>
-          {currentFile ? (
-            <p
-              className="text-ink-faint m-0 font-sans text-[11px] leading-[1.4]"
-              data-testid="ai-static-model-current-file"
-            >
-              {t('settings.aiStaticModelDownloadingFile', {
-                file: currentFile,
-              })}
-            </p>
           ) : null}
         </div>
-      ) : displayState === 'not-downloaded' || displayState === 'failed' ? (
-        <button
-          type="button"
-          className="btn-secondary self-start"
-          disabled={disabled}
-          data-testid="ai-static-model-download"
-          onClick={onDownload}
-        >
-          {t('settings.aiStaticModelDownloadAction')}
-        </button>
-      ) : null}
+      ) : (
+        /* failed */
+        <div className="flex flex-col gap-1.5">
+          <p
+            aria-live="polite"
+            className="text-ink-faint m-0 font-sans text-[12px] leading-[1.5]"
+            data-testid="ai-base-tier-download-failed"
+          >
+            {t('settings.aiBaseTierDownloadFailed')}
+          </p>
+          <button
+            type="button"
+            className="btn-secondary self-start"
+            disabled={disabled}
+            data-testid="ai-static-model-download"
+            onClick={onDownload}
+          >
+            {t('settings.aiBaseTierRetryButton')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -160,7 +160,10 @@ export function AiProviderEditorList({
   return (
     <div className="surfaceInset providerPanel">
       <div className="toolbarLine">
-        <h3>{title}</h3>
+        {/* Render the heading only when a title is supplied: the embedding/upgrade list is headed by
+            its own tier <h5> in the settings section, so it passes "" — and an empty <h3> is an axe
+            empty-heading violation. */}
+        {title ? <h3>{title}</h3> : null}
         {/*
           Add-provider is a preset chooser, not a single button: the user picks
           the API shape they want to seed (LM Studio first, since local LM Studio

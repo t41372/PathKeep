@@ -15,6 +15,9 @@ import {
   type AiProvidersSectionState,
 } from './ai-providers-section'
 import type { SettingsSectionNavItem } from './section-nav-items'
+// Type-only import (the runtime module is mocked below) so the hook mock's return value is typed to
+// the real progress contract and `mockReturnValue` accepts every phase, not just idle/ready.
+import type { ModelDownloadProgress } from '../../lib/ipc/model-download'
 
 // The Build-index CTA, reset, and static-model-download commands enqueue backend work via the
 // client, so mock them here. `vi.mock` is hoisted above the imports, so the spies it
@@ -53,36 +56,32 @@ vi.mock('../../lib/backend-client', () => ({
   },
 }))
 
-// The static download panel subscribes to live progress and keeps a process-global in-flight
-// latch (in `lib/ipc/model-download`). Mock it so tests can (a) drive progress events into the
-// panel and (b) deterministically control + reset the latch between tests.
+// The static download panel reads a process-global in-flight latch and a phase/byte progress object
+// from `lib/ipc/model-download`. Mock the module so tests can (a) deterministically control + reset
+// the latch and (b) drive the panel by setting the hook's RETURNED progress per scenario. The hook's
+// own event/state-machine (byte accumulation, done/error/cancel mapping, subscription lifecycle) is
+// covered directly in model-download.test.ts, where the REAL hook runs against a mocked Tauri event
+// channel; here we only assert the panel's phase → UI mapping for a given progress object.
 const {
-  subscribeToModelDownloadProgress,
   markModelDownloadStarted,
   markModelDownloadSettled,
   isModelDownloadInFlight,
-  emitDownloadProgress,
-  setDeferSubscribe,
-  resolveSubscribe,
+  useModelDownloadProgress,
   resetDownloadHarness,
 } = vi.hoisted(() => {
-  let listener: ((event: unknown) => void) | null = null
   let inFlight = false
-  // When deferred, the subscribe promise does not resolve until `resolveSubscribe` is called, so a
-  // test can unmount the panel BEFORE the subscription is established (the unmount-race path).
-  let deferMode = false
-  let pendingResolve: ((unsub: () => void) => void) | null = null
-  const defaultUnsub = () => {
-    listener = null
-  }
+  // Default return: mirror the real hook's authoritative `modelDownloaded → ready` contract, and
+  // idle otherwise. Tests that need a live downloading / failed / ready-via-event state override
+  // this with `useModelDownloadProgress.mockReturnValue(...)`.
+  const defaultImpl = (modelDownloaded: boolean): ModelDownloadProgress => ({
+    phase: modelDownloaded ? 'ready' : 'idle',
+    downloadedBytes: 0,
+    totalBytes: 0,
+    currentFile: null,
+    error: null,
+  })
+  const useModelDownloadProgress = vi.fn(defaultImpl)
   return {
-    subscribeToModelDownloadProgress: vi.fn((l: (event: unknown) => void) => {
-      listener = l
-      return new Promise<() => void>((resolve) => {
-        if (deferMode) pendingResolve = resolve
-        else resolve(defaultUnsub)
-      })
-    }),
     markModelDownloadStarted: vi.fn(() => {
       inFlight = true
     }),
@@ -90,30 +89,22 @@ const {
       inFlight = false
     }),
     isModelDownloadInFlight: vi.fn(() => inFlight),
-    emitDownloadProgress: (event: unknown) => {
-      listener?.(event)
-    },
-    setDeferSubscribe: (value: boolean) => {
-      deferMode = value
-    },
-    resolveSubscribe: (unsub: () => void) => {
-      pendingResolve?.(unsub)
-      pendingResolve = null
-    },
+    useModelDownloadProgress,
+    // `vi.clearAllMocks()` clears call history but NOT a mock's implementation/return value, so a
+    // per-test `mockReturnValue` would leak forward. Reset the hook to its default impl (and clear
+    // the latch) before every test.
     resetDownloadHarness: () => {
-      listener = null
       inFlight = false
-      deferMode = false
-      pendingResolve = null
+      useModelDownloadProgress.mockReset()
+      useModelDownloadProgress.mockImplementation(defaultImpl)
     },
   }
 })
 vi.mock('../../lib/ipc/model-download', () => ({
-  MODEL_DOWNLOAD_PROGRESS_EVENT: 'pathkeep://model-download-progress',
-  subscribeToModelDownloadProgress,
   markModelDownloadStarted,
   markModelDownloadSettled,
   isModelDownloadInFlight,
+  useModelDownloadProgress,
 }))
 
 const navItem: SettingsSectionNavItem = {
@@ -1066,65 +1057,60 @@ describe('AiProvidersSection', () => {
 
   // ─── Static embedding tier ────────────────────────────────────────────────
 
-  test('static provider appears in the embedding list with a Built-in badge, no Remove button, and no API key section', () => {
+  test('static provider does NOT appear in the editable external embedding list', () => {
+    // The static provider has a dedicated BaseTierPanel — it must never also appear as an
+    // editable card in the upgrade-tier list, which would falsely frame it as a peer alternative.
     renderSection({
       currentSettings: settingsFixture({
         enabled: true,
         embeddingProviders: [staticProviderFixture()],
         embeddingProviderId: 'static-in-app',
       }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: true,
+          selected: true,
+        }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    // The "Built-in · Recommended" badge is shown on the static provider card.
+    // The built-in badge that used to appear on the card in the list must be gone.
     expect(
-      screen.getByTestId('provider-builtin-badge-static-in-app'),
-    ).toBeVisible()
-    expect(
-      screen.getByTestId('provider-builtin-badge-static-in-app'),
-    ).toHaveTextContent('Built-in · Recommended')
-
-    // No "Remove" button — built-in providers are not user-deletable. Confirm by inspecting the
-    // static provider card directly.
-    const staticCard = screen
-      .getByTestId('provider-builtin-badge-static-in-app')
-      .closest('article')
-    expect(staticCard).not.toBeNull()
-    expect(
-      within(staticCard as HTMLElement).queryByRole('button', {
-        name: 'Remove',
-      }),
+      screen.queryByTestId('provider-builtin-badge-static-in-app'),
     ).toBeNull()
-
-    // No API key input in the static provider card.
-    expect(
-      within(staticCard as HTMLElement).queryByPlaceholderText('Paste API key'),
-    ).toBeNull()
-    expect(
-      within(staticCard as HTMLElement).queryByRole('button', {
-        name: 'Save key',
-      }),
-    ).toBeNull()
+    // No "Static (in-app)" name input appears as a writable field.
+    expect(screen.queryByDisplayValue('Static (in-app)')).toBeNull()
+    // The base-tier panel is the only place it appears.
+    expect(screen.getByTestId('ai-static-embedding-panel')).toBeVisible()
   })
 
-  test('static provider is selected when embeddingProviderId matches and the radio reflects it', () => {
+  test('renders the two-tier vector model layout with tier labels, connector, and upgrade body', () => {
     renderSection({
-      currentSettings: settingsFixture({
-        enabled: true,
-        embeddingProviders: [staticProviderFixture()],
-        embeddingProviderId: 'static-in-app',
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: true,
+          selected: true,
+        }),
       }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    // The radio for the static provider should be checked.
-    const radios = screen.getAllByRole('radio')
-    const staticRadio = radios.find(
-      (r) => r.getAttribute('name') === 'embedding-provider',
-    )
-    expect(staticRadio).not.toBeUndefined()
-    expect(staticRadio).toBeChecked()
+    expect(screen.getByTestId('ai-vector-model-section')).toBeVisible()
+    expect(screen.getByText('BASE TIER — ON-DEVICE')).toBeInTheDocument()
+    expect(
+      screen.getByText('UPGRADE TIER — OPTIONAL EXTERNAL MODELS'),
+    ).toBeInTheDocument()
+    // Tier connector sentence
+    expect(screen.getByText(/recommended starting point/i)).toBeInTheDocument()
+    // Upgrade tier body
+    expect(
+      screen.getByText(/higher precision for large archives/i),
+    ).toBeInTheDocument()
   })
 
-  // ─── Static model download panel ─────────────────────────────────────────
+  // ─── Static model download panel (BaseTierPanel) ─────────────────────────
 
   test('shows the static embedding panel when aiStatus.staticEmbedding is present', () => {
     renderSection({
@@ -1136,9 +1122,31 @@ describe('AiProvidersSection', () => {
     })
 
     expect(screen.getByTestId('ai-static-embedding-panel')).toBeVisible()
+    // Panel title and description are shown
+    expect(screen.getByText('Built-in · On-device model')).toBeVisible()
+    expect(screen.getByText(/lower precision/i)).toBeVisible()
   })
 
-  test('shows "Not downloaded" status and download button when model is absent', () => {
+  test('shows 256 dimensions from staticEmbedding.dimensions (not the 1536 fallback)', () => {
+    // Regression: the old code passed the static provider through the generic editor which
+    // fell back to 1536. The new BaseTierPanel reads dimensions directly from the backend status.
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: false,
+          dimensions: 256,
+        }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    // The specs line shows the real 256 from the backend, never 1536.
+    expect(screen.getByText(/256 dimensions/i)).toBeInTheDocument()
+    expect(screen.queryByText(/1536/)).toBeNull()
+  })
+
+  test('shows download button in idle state and size hint', () => {
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1147,16 +1155,17 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Not downloaded',
-    )
     expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
     expect(screen.getByTestId('ai-static-model-download')).toHaveTextContent(
       'Download model',
     )
+    // The pre-download size hint is shown. Anchor on its distinctive "≈ <size>, runs in the
+    // background." ending so it isn't confused with the collapsed GPU re-embed copy that also
+    // mentions running in the background.
+    expect(screen.getByText(/, runs in the background\.$/i)).toBeInTheDocument()
   })
 
-  test('clicking Download model calls downloadStaticEmbeddingModel and shows downloading state', () => {
+  test('clicking Download model calls downloadStaticEmbeddingModel and shows progress bar', () => {
     // Keep the download pending so we can assert the in-flight state.
     downloadStaticEmbeddingModel.mockReturnValue(new Promise(() => {}))
 
@@ -1171,33 +1180,36 @@ describe('AiProvidersSection', () => {
     fireEvent.click(screen.getByTestId('ai-static-model-download'))
 
     expect(downloadStaticEmbeddingModel).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Downloading model…',
-    )
-    expect(
-      screen.getByTestId('ai-static-model-downloading'),
-    ).toBeInTheDocument()
-    // The download button disappears while downloading.
+    // Progress bar appears (indeterminate until fileStarted carries totalBytes)
+    expect(screen.getByTestId('ai-base-tier-progress-bar')).toBeInTheDocument()
+    // Cancel button appears
+    expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
+    // Restart note appears during download
+    expect(screen.getByTestId('ai-base-tier-restart-note')).toBeInTheDocument()
+    // The download button disappears while downloading (no double-fire)
     expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
   })
 
-  test('shows "Ready" status when modelDownloaded is true (no download button shown)', () => {
+  test('shows ✓ Ready text when modelDownloaded is true (no download button shown)', () => {
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
-        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: true }),
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: true,
+          selected: true,
+        }),
       }),
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Ready',
+    expect(screen.getByTestId('ai-base-tier-ready')).toHaveTextContent(
+      '✓ Ready',
     )
-    // No download button when the model is already present.
+    // No download button when the model is already present
     expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
   })
 
-  test('shows download failed state and re-enables the download button on error', async () => {
+  test('shows download failed state and re-enables the retry button on command error', async () => {
     downloadStaticEmbeddingModel.mockRejectedValueOnce(
       new Error('network error'),
     )
@@ -1212,14 +1224,34 @@ describe('AiProvidersSection', () => {
 
     fireEvent.click(screen.getByTestId('ai-static-model-download'))
 
-    // After the download fails, show the failed status and re-enable the retry button.
+    // After the download command fails, show the failed message and re-enable retry
     expect(
-      await screen.findByText('Download failed. Please try again.'),
+      await screen.findByTestId('ai-base-tier-download-failed'),
     ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-base-tier-download-failed'),
+    ).toHaveTextContent(
+      'Download failed — check your connection and try again.',
+    )
+    // Retry button is the same testid as the download button
     expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+    expect(screen.getByTestId('ai-static-model-download')).toHaveTextContent(
+      'Retry download',
+    )
   })
 
-  test('a live fileStarted progress event drives the downloading state and shows the current file', () => {
+  test('shows the indeterminate bar and current file while downloading with an unknown total', () => {
+    // The hook owns event → state translation (covered in model-download.test.ts). Here we assert the
+    // panel's downloading render for a progress object whose total is unknown (totalBytes 0): an
+    // indeterminate (aria-busy, no valuenow) bar, the current-file basename, the Cancel button, and
+    // no Download button (no double-fire).
+    useModelDownloadProgress.mockReturnValue({
+      phase: 'downloading',
+      downloadedBytes: 0,
+      totalBytes: 0,
+      currentFile: 'model.safetensors',
+      error: null,
+    })
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1228,31 +1260,30 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    // The panel subscribed to the progress channel on mount.
-    expect(subscribeToModelDownloadProgress).toHaveBeenCalledTimes(1)
-
-    // A per-file start event flips the panel to downloading and names the current file —
-    // honest progress sourced from the real event, not a fabricated bar.
-    act(() => {
-      emitDownloadProgress({
-        kind: 'fileStarted',
-        file: 'model.safetensors',
-        totalBytes: 0,
-      })
-    })
-
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Downloading model…',
-    )
+    const bar = screen.getByTestId('ai-base-tier-progress-bar')
+    expect(bar).toBeInTheDocument()
+    // Indeterminate: aria-busy true, no valuenow
+    expect(bar).toHaveAttribute('aria-busy', 'true')
+    expect(bar).not.toHaveAttribute('aria-valuenow')
+    // Current file shown as basename (mono)
     expect(
       screen.getByTestId('ai-static-model-current-file'),
-    ).toHaveTextContent('Downloading model.safetensors…')
+    ).toHaveTextContent('model.safetensors')
     expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
-    // The download button is gone while a download is in flight (no double-fire).
+    // Download button is gone while in flight (no double-fire)
     expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
   })
 
-  test('a terminal error progress event surfaces the honest failed state', () => {
+  test('renders a real determinate progress bar that reflects the downloaded bytes', () => {
+    // Core bar-reflects-bytes assertion: a progress object with a known total makes the bar
+    // determinate and the value tracks downloadedBytes.
+    useModelDownloadProgress.mockReturnValue({
+      phase: 'downloading',
+      downloadedBytes: 50_000_000,
+      totalBytes: 100_000_000,
+      currentFile: 'model.safetensors',
+      error: null,
+    })
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1261,22 +1292,71 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    act(() => {
-      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
-    })
-    act(() => {
-      emitDownloadProgress({ kind: 'error', message: 'disk full' })
-    })
-
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Download failed. Please try again.',
-    )
-    // The retry button is back, the latch is cleared.
-    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
-    expect(markModelDownloadSettled).toHaveBeenCalled()
+    const bar = screen.getByTestId('ai-base-tier-progress-bar')
+    // Determinate: has aria-valuenow + aria-valuemax
+    expect(bar).toHaveAttribute('aria-valuenow', '50000000')
+    expect(bar).toHaveAttribute('aria-valuemax', '100000000')
+    expect(bar).not.toHaveAttribute('aria-busy')
+    // Bytes label shown
+    expect(
+      screen.getByTestId('ai-base-tier-progress-label'),
+    ).toBeInTheDocument()
   })
 
-  test('Cancel stops the download and a cancel-triggered error does not look like a failure', () => {
+  test('surfaces the honest failed state when the hook reports a non-cancel error', () => {
+    useModelDownloadProgress.mockReturnValue({
+      phase: 'failed',
+      downloadedBytes: 0,
+      totalBytes: 0,
+      currentFile: null,
+      error: 'disk full',
+    })
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(
+      screen.getByTestId('ai-base-tier-download-failed'),
+    ).toBeInTheDocument()
+    // The retry button (same testid as Download) is offered so the user can try again.
+    expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
+    expect(screen.getByTestId('ai-static-model-download')).toHaveTextContent(
+      'Retry download',
+    )
+  })
+
+  test('shows ready with no spinner and no download button when the hook reports ready', () => {
+    // The "done → ready immediately (no stuck spinner)" behavior lives in the hook; the panel's job
+    // is to render the ready state cleanly: ready text, and never a leftover spinner or Download CTA.
+    useModelDownloadProgress.mockReturnValue({
+      phase: 'ready',
+      downloadedBytes: 0,
+      totalBytes: 0,
+      currentFile: null,
+      error: null,
+    })
+    renderSection({
+      currentSettings: settingsFixture({ enabled: true }),
+      aiStatus: aiStatusFixture({
+        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+      }),
+      indexMeta: { label: 'Ready', tone: 'success', description: '' },
+    })
+
+    expect(screen.getByTestId('ai-base-tier-ready')).toBeVisible()
+    // No download button, no progress bar in the ready state.
+    expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
+    expect(screen.queryByTestId('ai-base-tier-progress-bar')).toBeNull()
+  })
+
+  test('Cancel stops the download and returns to idle without looking like a failure', () => {
+    // Clicking Cancel fires the cancel IPC and optimistically returns the panel to idle (the
+    // Download button is back and no failure is shown). The hook-level guarantee that a cancel's
+    // terminal error maps to idle rather than failed is covered in model-download.test.ts.
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1290,20 +1370,10 @@ describe('AiProvidersSection', () => {
 
     fireEvent.click(screen.getByTestId('ai-static-model-cancel'))
     expect(cancelStaticEmbeddingModelDownload).toHaveBeenCalledTimes(1)
-    // Back to the idle download affordance, not a failure.
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Not downloaded',
-    )
+    expect(markModelDownloadSettled).toHaveBeenCalled()
+    // Immediately back to idle (Download button visible, no error)
     expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
-
-    // The backend aborts a cancelled download with a terminal error; it must NOT be shown as a
-    // scary "Download failed" because the user asked for it.
-    act(() => {
-      emitDownloadProgress({ kind: 'error', message: 'cancelled' })
-    })
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Not downloaded',
-    )
+    expect(screen.queryByTestId('ai-base-tier-download-failed')).toBeNull()
   })
 
   test('Cancel stays robust even if the cancel command itself rejects', async () => {
@@ -1328,13 +1398,11 @@ describe('AiProvidersSection', () => {
     // The UI returns to idle optimistically; a rejected cancel command is swallowed (the download
     // will still terminate on its own) rather than surfacing an unhandled rejection.
     expect(cancelStaticEmbeddingModelDownload).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Not downloaded',
-    )
+    expect(screen.queryByTestId('ai-base-tier-download-failed')).toBeNull()
     expect(screen.getByTestId('ai-static-model-download')).toBeVisible()
   })
 
-  test('shows "Active vector model" when the static tier is the selected embedding model', () => {
+  test('shows Active pill when the static tier is the selected embedding model', () => {
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1346,14 +1414,15 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
+    // The Active pill is in the panel header (not a status text element)
     expect(screen.getByTestId('ai-static-model-active')).toHaveTextContent(
-      'Active vector model',
+      'Active',
     )
-    // No "Use this model" button when it is already active.
+    // No "Use built-in model" button when it is already active
     expect(screen.queryByTestId('ai-static-model-select')).toBeNull()
   })
 
-  test('offers a one-click Select when the static tier is not the active model', () => {
+  test('offers a "Use built-in model" button when ready and not the active model', () => {
     const handlers = handlerFixture()
     renderSection({
       ...handlers,
@@ -1367,22 +1436,23 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    expect(screen.getByText('Recommended — not selected')).toBeInTheDocument()
+    // Active pill is absent
     expect(screen.queryByTestId('ai-static-model-active')).toBeNull()
+    // "Use built-in model" button is shown (renamed from "Use this model")
+    expect(screen.getByTestId('ai-static-model-select')).toHaveTextContent(
+      'Use built-in model',
+    )
 
     fireEvent.click(screen.getByTestId('ai-static-model-select'))
-    // Selects the static provider via the same handler the radio uses, so a stuck user can
-    // switch here without hunting for the radio.
     expect(handlers.onSelectProvider).toHaveBeenCalledWith(
       'embedding',
       'static-in-app',
     )
   })
 
-  test('a remount while a download is in flight shows downloading and never re-enables Download', () => {
+  test('a remount while a download is in flight shows the progress bar and never re-enables Download', () => {
     // Simulate the durable latch reporting an in-flight download (e.g. the panel just remounted
-    // after a snapshot poll briefly dropped staticEmbedding). The mocked latch reads back the
-    // value set here, and beforeEach's resetDownloadHarness() clears it for the next test.
+    // after a snapshot poll briefly dropped staticEmbedding).
     markModelDownloadStarted()
 
     renderSection({
@@ -1393,16 +1463,23 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    // Initialized straight into the downloading state — the Download button is not re-offered,
-    // so the user cannot silently re-fire the command.
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Downloading model…',
-    )
+    // Initialized straight into the downloading state — progress bar visible, no Download button
+    expect(screen.getByTestId('ai-base-tier-progress-bar')).toBeInTheDocument()
     expect(screen.queryByTestId('ai-static-model-download')).toBeNull()
     expect(screen.getByTestId('ai-static-model-cancel')).toBeVisible()
   })
 
-  test('a fileFinished event keeps the panel downloading and clears the current-file line', () => {
+  test('stays downloading with no current-file line between files (current file cleared)', () => {
+    // Between files the hook reports a downloading phase with currentFile null; the panel must keep
+    // showing the progress bar and drop the current-file line. (The current-file-present case is
+    // covered by the indeterminate-bar test above.)
+    useModelDownloadProgress.mockReturnValue({
+      phase: 'downloading',
+      downloadedBytes: 1_000,
+      totalBytes: 0,
+      currentFile: null,
+      error: null,
+    })
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
@@ -1411,70 +1488,27 @@ describe('AiProvidersSection', () => {
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    act(() => {
-      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
-    })
-    expect(screen.getByTestId('ai-static-model-current-file')).toBeVisible()
-
-    act(() => {
-      emitDownloadProgress({ kind: 'fileFinished', file: 'a' })
-    })
-    // Between files: still downloading (more may follow), no stale current-file line.
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Downloading model…',
-    )
+    expect(screen.getByTestId('ai-base-tier-progress-bar')).toBeInTheDocument()
     expect(screen.queryByTestId('ai-static-model-current-file')).toBeNull()
-    expect(screen.getByTestId('ai-static-model-downloading')).toBeVisible()
   })
 
-  test('a done event settles the latch and holds the spinner until the snapshot confirms readiness', () => {
+  test('falls back to default specs (256 dimensions, ≈ 96 MB) when the backend omits them', () => {
+    // Older backends omit `dimensions` / `modelSizeBytes`; the panel must fall back to the static
+    // model's known 256 dims and the constant ≈ 96 MB size estimate rather than render blanks.
     renderSection({
       currentSettings: settingsFixture({ enabled: true }),
       aiStatus: aiStatusFixture({
-        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
+        staticEmbedding: staticEmbeddingFixture({
+          modelDownloaded: false,
+          dimensions: undefined,
+          modelSizeBytes: undefined,
+        }),
       }),
       indexMeta: { label: 'Ready', tone: 'success', description: '' },
     })
 
-    act(() => {
-      emitDownloadProgress({ kind: 'fileStarted', file: 'a', totalBytes: 0 })
-    })
-    act(() => {
-      emitDownloadProgress({ kind: 'done' })
-    })
-
-    // The latch is released, but we do NOT flash "not downloaded": the spinner holds until the
-    // next snapshot flips modelDownloaded → ready.
-    expect(markModelDownloadSettled).toHaveBeenCalled()
-    expect(screen.queryByTestId('ai-static-model-current-file')).toBeNull()
-    expect(screen.getByTestId('ai-static-model-status')).toHaveTextContent(
-      'Downloading model…',
-    )
-    expect(screen.getByTestId('ai-static-model-downloading')).toBeVisible()
-  })
-
-  test('unsubscribes immediately if the panel unmounts before the subscription resolves', async () => {
-    // Race path: the effect cleanup runs before subscribeToModelDownloadProgress resolves, so the
-    // helper must call the returned unsubscribe at once to avoid a leaked listener.
-    setDeferSubscribe(true)
-    const unsub = vi.fn()
-
-    const { unmount } = renderSection({
-      currentSettings: settingsFixture({ enabled: true }),
-      aiStatus: aiStatusFixture({
-        staticEmbedding: staticEmbeddingFixture({ modelDownloaded: false }),
-      }),
-      indexMeta: { label: 'Ready', tone: 'success', description: '' },
-    })
-
-    unmount()
-
-    await act(async () => {
-      resolveSubscribe(unsub)
-      await Promise.resolve()
-    })
-
-    expect(unsub).toHaveBeenCalledTimes(1)
+    // The specs line carries both fallbacks: 256 dimensions and the ≈ 96 MB estimate.
+    expect(screen.getByText(/256 dimensions/i)).toHaveTextContent(/96 MB/)
   })
 
   test('does not show the static embedding panel when aiStatus.staticEmbedding is absent', () => {
@@ -1889,6 +1923,8 @@ function staticEmbeddingFixture(
     modelDownloaded: false,
     selected: true,
     isDefault: true,
+    dimensions: 256,
+    modelSizeBytes: 100_663_296, // ≈ 96 MB
     ...overrides,
   }
 }
