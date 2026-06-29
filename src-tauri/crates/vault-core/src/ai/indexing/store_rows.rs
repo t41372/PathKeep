@@ -16,9 +16,13 @@ use super::IndexedVisit;
 /// Validates one embedded batch against its CONTENT KEYS and pairs each vector with its key (W-AI-4c).
 ///
 /// Pure (no I/O) so the defensive guards are unit-tested directly:
-/// - rejects a count mismatch (a short/over-long batch would desync the key↔vector join), and
-/// - rejects a ragged/empty batch (a vector of a different dim than the first), since the vector
-///   store is fixed-stride and a ragged record would corrupt every later read.
+/// - rejects a count mismatch (a short/over-long batch would desync the key↔vector join),
+/// - rejects a ragged/empty (zero-dim) batch (a vector of a different dim than the first), since the
+///   vector store is fixed-stride and a ragged record would corrupt every later read, and
+/// - rejects an ALL-ZERO batch (F3 0-byte honesty): a provider that "succeeds" but returns only zero
+///   vectors has produced NO usable embedding — counting it would land dead bytes in `.pkvec` while
+///   the run reports rows indexed. This is exactly the dishonest "indexed N with an empty/zero store"
+///   case, so it is surfaced as a real error instead of being silently appended + counted.
 ///
 /// Returns the effective dim (the actual returned length of the first vector, D4) and the
 /// `(content_key, vector)` records ready to append. With dedup the keys are the per-page content
@@ -48,6 +52,13 @@ pub(in crate::ai) fn validate_embedding_batch_for_keys(
             );
         }
         records.push((*content_key, vector.clone()));
+    }
+    // F3 (0-byte honesty): a batch where EVERY vector is all-zero carries no signal — appending it
+    // would write dead bytes the index can never match while the run dishonestly reports rows indexed.
+    if records.iter().all(|(_, vector)| vector.iter().all(|component| *component == 0.0)) {
+        anyhow::bail!(
+            "embedding provider returned only zero vectors for the batch (no usable embedding); refusing to count an empty index build"
+        );
     }
     Ok((effective_dim, records))
 }

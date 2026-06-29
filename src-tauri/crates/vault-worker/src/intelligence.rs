@@ -62,7 +62,7 @@ pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
     ask_ai_assistant, build_ai_index_now, cancel_ai_job, estimate_reembed_now,
     load_ai_assistant_job, load_ai_queue, preview_ai_integration_files, replay_ai_job,
-    run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
+    reset_ai_index_build, run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
 #[cfg(all(test, coverage))]
 pub(crate) use self::ai_queue::{
@@ -74,7 +74,9 @@ pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
 };
-pub use self::model_download::{cancel_model_download, download_ai_embedding_model};
+pub use self::model_download::{
+    cancel_model_download, download_ai_embedding_model, download_static_embedding_model,
+};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend, get_hub_pages,
     get_intelligence_primary_overview, get_navigation_path, get_query_families,

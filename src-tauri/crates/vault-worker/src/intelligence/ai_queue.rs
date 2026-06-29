@@ -491,6 +491,54 @@ pub fn cancel_ai_job(session_database_key: Option<&str>, job_id: i64) -> Result<
     ai_queue::cancel_ai_job(&connection, job_id)
 }
 
+/// Recovers a WEDGED or DEGRADED semantic-index build: clears the stuck index job(s) and re-enqueues
+/// a clean FULL REBUILD.
+///
+/// The user-facing reset/retry path (F2). It first moves EVERY non-terminal `index-build` /
+/// `index-clear` job to a terminal cancelled state ([`ai_queue::clear_index_jobs`]) so a stuck job can
+/// never collide with the fresh one, then enqueues a build through [`build_ai_index_now`] (which
+/// applies the SemanticIndex consent gate, persists the job, and kicks the drain).
+///
+/// Recovery COERCES the request to a full rebuild (`full_rebuild = true`, `clear_only = false`,
+/// `scope = Full`) regardless of what the caller passed — only the provider selection is carried
+/// over. This is deliberate and load-bearing: incremental dedup decides `needs_embedding` from the
+/// SQLite `ai_embeddings` rows (`candidates.rs`), NOT from the `.pkvec`. So the DEGRADED case — SQLite
+/// recorded "embedded" but the vector store is empty/torn (`IndexVectorsMissing`) — would be skipped
+/// wholesale by an incremental pass and stay broken forever. A full rebuild wipes the provider's
+/// `ai_embeddings` rows AND the `.pkvec`/derived planes (`backfill.rs`), so every page is re-embedded
+/// and a 0-vector index genuinely self-heals. The returned [`AiIndexReport`] is the new job's
+/// acknowledgement, exactly like a manual build.
+pub fn reset_ai_index_build(
+    session_database_key: Option<&str>,
+    request: &AiIndexRequest,
+) -> Result<AiIndexReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    let connection = ai_archive_connection(&paths, &config, session_database_key)?;
+    let cleared = ai_queue::clear_index_jobs(&connection)?;
+    // Drop the connection before `build_ai_index_now` opens its own (it re-resolves paths/config).
+    drop(connection);
+    // Coerce to a full rebuild so the degraded 0-vector index actually re-embeds (see fn docs). Only
+    // the provider selection survives from the caller; the rebuild owns the rest. This cannot be
+    // subverted by a caller that forgot to ask for a full rebuild (the FE, the dev bridge, or a
+    // future caller) — reset is ALWAYS a clean rebuild.
+    let rebuild = AiIndexRequest {
+        provider_id: request.provider_id.clone(),
+        full_rebuild: true,
+        clear_only: false,
+        limit: None,
+        scope: ReembedScope::Full,
+    };
+    let mut report = build_ai_index_now(session_database_key, &rebuild)?;
+    report.notes.insert(
+        0,
+        format!(
+            "Reset the semantic index: cleared {cleared} stuck job(s) and re-enqueued a clean full rebuild."
+        ),
+    );
+    Ok(report)
+}
+
 /// Enqueues an AI index build and starts background work when the queue is active.
 pub fn build_ai_index_now(
     session_database_key: Option<&str>,
@@ -745,6 +793,271 @@ mod tests {
         connection
             .query_row("SELECT state FROM ai_jobs WHERE id = ?1", [job_id], |row| row.get(0))
             .expect("job state")
+    }
+
+    /// A plaintext archive + config whose embedding provider is the built-in in-app static tier (F1),
+    /// so `complete_claimed_index_job` resolves the REAL in-memory static engine with no network.
+    ///
+    /// `cfg(coverage)`: the in-app static engine only has its TINY in-memory stub under the coverage
+    /// cfg (vault-core as a plain dependency builds the disk-loading engine, which would need the model
+    /// downloaded). The established pattern for real-build worker tests is the coverage gate.
+    #[cfg(coverage)]
+    fn static_indexed_env() -> (vault_core::ProjectPaths, AppConfig, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = vault_core::config::project_paths_with_root(dir.path());
+        let provider = vault_core::built_in_static_embedding_provider();
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: vault_core::ArchiveMode::Plaintext,
+            git_enabled: false,
+            ai: vault_core::AiSettings {
+                enabled: true,
+                semantic_index_enabled: true,
+                embedding_provider_id: Some(provider.id.clone()),
+                embedding_providers: vec![provider],
+                ..vault_core::AiSettings::default()
+            },
+            ..AppConfig::default()
+        };
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        (paths, config, dir)
+    }
+
+    /// Seeds one canonical visible page (run + profile + url + visit) on the attached archive.
+    #[cfg(coverage)]
+    fn seed_canonical_page(connection: &Connection, id: i64, url: &str, title: &str) {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.runs (id, run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (1, 'backup', 'test', '2026-06-21T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0)",
+                [],
+            )
+            .expect("seed run");
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO archive.source_profiles (id, browser_kind, browser_version, profile_name, profile_path, discovered_at, enabled, profile_key, updated_at)
+                 VALUES (1, 'chrome', 'test', 'Default', '/tmp/Default', '2026-06-21T00:00:00Z', 1, 'chrome:Default', '2026-06-21T00:00:00Z')",
+                [],
+            )
+            .expect("seed profile");
+        let visit_ms = 1_700_000_000_000_i64 + id;
+        connection
+            .execute(
+                "INSERT INTO archive.urls
+                 (id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso, source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4, '2026-06-21T00:00:00Z', ?4, '2026-06-21T00:00:00Z', 1, 1, ?1, 0, ?5, '2026-06-21T00:00:00Z')",
+                rusqlite::params![id, url, title, visit_ms, format!("payload-{id}")],
+            )
+            .expect("seed url");
+        connection
+            .execute(
+                "INSERT INTO archive.visits
+                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
+                 VALUES (?1, ?1, ?2, ?3, '2026-06-21T00:00:00Z', 805306368, 0, 1, 1, NULL, 1, 0, NULL, NULL, ?4, ?5, '2026-06-21T00:00:00Z')",
+                rusqlite::params![id, id.to_string(), visit_ms, format!("fp-{id}"), format!("payload-{id}")],
+            )
+            .expect("seed visit");
+    }
+
+    #[cfg(coverage)]
+    fn index_request_from(payload: &ai_queue::AiJobPayload) -> AiIndexRequest {
+        match payload {
+            ai_queue::AiJobPayload::Index { request, .. } => request.clone(),
+            other => panic!("expected an index payload, got {other:?}"),
+        }
+    }
+
+    /// Sets the keyring (and optionally project-root) test overrides for the duration of a guard.
+    ///
+    /// Resolving a provider runtime hits the native keyring through `vault-platform`; pointing it at a
+    /// temp dir keeps these tests offline + deterministic. Returns the originals so the caller restores
+    /// them. The `lock_env` MutexGuard the caller holds serializes env-mutating tests.
+    fn set_keyring_override(dir: &std::path::Path) -> Option<std::ffi::OsString> {
+        let original = std::env::var_os(crate::tests::TEST_KEYRING_OVERRIDE_ENV);
+        let keyring_dir = dir.join("test-keyring");
+        unsafe {
+            std::env::set_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV, &keyring_dir);
+        }
+        original
+    }
+
+    fn restore_keyring_override(original: Option<std::ffi::OsString>) {
+        unsafe {
+            match original {
+                Some(value) => std::env::set_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV, value),
+                None => std::env::remove_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV),
+            }
+        }
+    }
+
+    #[cfg(coverage)]
+    #[test]
+    fn real_worker_resume_finishes_the_exact_id_set_from_the_persisted_cursor() {
+        // HEADLINE (F2 + F4): a limit-bounded index job stops mid-corpus and persists its cursor into
+        // the payload; after the job is left STALE (an interrupted worker), it is RE-CLAIMED and the
+        // REAL worker `complete_claimed_index_job` path resumes FROM THE PAYLOAD CURSOR (never a
+        // hand-passed integer) and runs to completion. The final `.pkvec` holds the EXACT id-set with
+        // no dup / no miss and non-zero bytes — exercised through the real in-memory static engine.
+        let _guard = crate::tests::lock_env();
+        let (paths, config, dir) = static_indexed_env();
+        let original_keyring = set_keyring_override(dir.path());
+        let connection = ai_archive_connection(&paths, &config, None).expect("connection");
+        // Four distinct pages; a per-run limit of 2 forces a mid-corpus stop after the first run.
+        for id in 1..=4 {
+            seed_canonical_page(&connection, id, &format!("https://example.com/{id}"), "kestrel");
+        }
+        let provider = &config.ai.embedding_providers[0];
+
+        // RUN 1: claim + complete with limit 2 → embeds 2 pages, persists the cursor, marks succeeded.
+        let request = AiIndexRequest { limit: Some(2), ..AiIndexRequest::default() };
+        let queued = ai_queue::enqueue_index_job(&connection, &request, false).expect("enqueue");
+        let claimed = ai_queue::claim_ai_job_by_id(&connection, queued.id, 300)
+            .expect("claim")
+            .expect("claimable");
+        let first = complete_claimed_index_job(
+            &connection,
+            &paths,
+            &config,
+            None,
+            claimed.clone(),
+            &index_request_from(&claimed.payload),
+        )
+        .expect("first partial build");
+        assert_eq!(first.indexed_items, 2, "the limit stops the build at 2 rows");
+        let store =
+            vault_core::VectorStore::for_provider(&paths, &provider.id, &provider.default_model);
+        assert_eq!(store.count().expect("count"), 2, "two vectors after the partial run");
+
+        // The cursor advanced PAST the origin and is durable in the payload (real progress, not 0).
+        match ai_queue::load_ai_job_payload(&connection, queued.id).expect("payload") {
+            ai_queue::AiJobPayload::Index { cursor, .. } => {
+                assert!(
+                    cursor.next_history_id > 0,
+                    "the resume cursor is persisted past the origin"
+                );
+            }
+            other => panic!("expected index payload, got {other:?}"),
+        }
+
+        // Simulate an interrupted worker: the job is left STALE (lease lost) with its payload cursor
+        // intact, exactly the state the stale-sweep produces for a crashed run.
+        connection
+            .execute(
+                "UPDATE ai_jobs SET state = 'stale', heartbeat_at = NULL, lease_owner = NULL, lease_expires_at = NULL, finished_at = NULL WHERE id = ?1",
+                [queued.id],
+            )
+            .expect("leave stale");
+
+        // RUN 2 (RESUME): the real claim → complete path reads the cursor from the PAYLOAD and finishes.
+        let reclaimed = ai_queue::claim_next_ai_job(&connection, 300)
+            .expect("re-claim")
+            .expect("stale job is re-claimable within budget");
+        assert_eq!(reclaimed.id, queued.id);
+        // The resume watermark comes from the payload, NOT a hand-passed integer.
+        assert!(index_start_history_id(&reclaimed.payload) > 0);
+        let second = complete_claimed_index_job(
+            &connection,
+            &paths,
+            &config,
+            None,
+            reclaimed.clone(),
+            &index_request_from(&reclaimed.payload),
+        )
+        .expect("resumed build");
+        assert_eq!(second.indexed_items, 2, "the resume embeds the remaining 2 rows");
+
+        // The final `.pkvec` holds the EXACT id-set (4 distinct pages), no dup / no miss, non-zero.
+        let records = store.read_all().expect("read all");
+        assert_eq!(records.len(), 4, "exactly four deduped page vectors after resume");
+        let unique: std::collections::HashSet<u64> = records.iter().map(|(key, _)| *key).collect();
+        assert_eq!(unique.len(), 4, "no duplicate content keys (no dup)");
+        assert!(
+            records.iter().all(|(_, vector)| vector.iter().any(|c| *c != 0.0)),
+            "non-zero vectors"
+        );
+        assert!(store.path().metadata().expect("meta").len() > 0, "non-zero .pkvec bytes");
+
+        restore_keyring_override(original_keyring);
+    }
+
+    #[test]
+    fn reset_ai_index_build_clears_stuck_jobs_and_reenqueues() {
+        // HEADLINE (F2): a wedged build is recovered — `reset_ai_index_build` clears the stuck index
+        // job(s) and re-enqueues a clean one, so the queue is no longer jammed by the old job. Runs
+        // against the GLOBAL project root (the reset path resolves `project_paths()` itself), with the
+        // queue PAUSED so the re-enqueue stages a job without spawning a background drain.
+        let _guard = crate::tests::lock_env();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let original_root = std::env::var_os(crate::tests::PROJECT_ROOT_OVERRIDE_ENV);
+        let original_keyring = set_keyring_override(dir.path());
+        unsafe {
+            std::env::set_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        }
+
+        let paths = vault_core::project_paths().expect("project paths");
+        let config = AppConfig {
+            initialized: true,
+            archive_mode: vault_core::ArchiveMode::Plaintext,
+            git_enabled: false,
+            ai: vault_core::AiSettings {
+                enabled: true,
+                semantic_index_enabled: true,
+                // Paused so `build_ai_index_now` STAGES the fresh job without spawning a drain thread.
+                job_queue_paused: true,
+                ..vault_core::AiSettings::default()
+            },
+            ..AppConfig::default()
+        };
+        vault_core::ensure_archive_initialized(&paths, &config, None).expect("init archive");
+        vault_core::save_config(&paths, &config).expect("persist config");
+        let connection = ai_archive_connection(&paths, &config, None).expect("connection");
+        // A stuck index job left in `stale` (the interrupted state the reset must clear).
+        let stuck = ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+            .expect("enqueue stuck");
+        connection
+            .execute("UPDATE ai_jobs SET state = 'stale' WHERE id = ?1", [stuck.id])
+            .expect("wedge it");
+
+        let report = reset_ai_index_build(None, &AiIndexRequest::default()).expect("reset");
+        assert!(
+            report.notes.iter().any(|note| note.contains("Reset the semantic index")),
+            "the reset reports what it cleared: {:?}",
+            report.notes
+        );
+        // The stuck job is now terminal (cancelled), and a fresh job was staged (paused) in its place.
+        assert_eq!(job_state(&connection, stuck.id), "cancelled");
+        let fresh: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM ai_jobs WHERE job_type = 'index-build' AND state = 'paused'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fresh count");
+        assert_eq!(fresh, 1, "a clean build was re-enqueued (staged paused)");
+        // The re-enqueued job is a FULL REBUILD even though the caller passed the default request
+        // (full_rebuild=false). Reset COERCES recovery to a full rebuild so the degraded 0-vector case
+        // re-embeds every page instead of being skipped by incremental dedup (see fn docs). The
+        // persisted payload is the source of truth the drain will replay.
+        let payload_json: String = connection
+            .query_row(
+                "SELECT payload_json FROM ai_jobs \
+                 WHERE job_type = 'index-build' AND state = 'paused'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fresh payload");
+        assert!(
+            payload_json.contains("\"fullRebuild\":true"),
+            "reset stages a FULL rebuild so a 0-vector index self-heals: {payload_json}"
+        );
+
+        restore_keyring_override(original_keyring);
+        unsafe {
+            match original_root {
+                Some(value) => std::env::set_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV, value),
+                None => std::env::remove_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV),
+            }
+        }
     }
 
     #[test]

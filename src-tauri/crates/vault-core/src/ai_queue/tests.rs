@@ -178,18 +178,11 @@ fn retryable_failures_requeue_until_attempt_budget_is_exhausted() {
 #[test]
 fn stale_jobs_are_reclaimed_and_replay_cancel_respect_boundaries() {
     let connection = connection();
-    let queued = enqueue_assistant_job(
-        &connection,
-        &AiAssistantRequest {
-            question: "Summarize MCP research".to_string(),
-            profile_id: None,
-            domain: None,
-        },
-        "llm-primary",
-        Some("embed-primary"),
-        false,
-    )
-    .expect("enqueue assistant");
+    // An INDEX job (max_attempts 3) so a single stale reclaim is still within budget — an assistant
+    // job has max_attempts 1, which the retry bound terminalizes on the second claim (covered
+    // separately by `stale_job_past_attempt_budget_terminates_instead_of_recycling`).
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue index");
     let claimed = claim_next_ai_job(&connection, 60).expect("claim").expect("job");
     assert_eq!(claimed.id, queued.id);
     connection
@@ -545,4 +538,118 @@ fn legacy_index_payload_without_cursor_defaults_to_start() {
         }
         other => panic!("expected index payload, got {other:?}"),
     }
+}
+
+#[test]
+fn stale_job_past_attempt_budget_terminates_instead_of_recycling() {
+    // F2.2 (the stuck-build fix): a job that keeps going stale before it can fail gracefully must NOT
+    // be re-claimed forever (the stale → running → stale cycle). Once `attempt` reaches `max_attempts`,
+    // the next claim moves it to a TERMINAL failed state with an honest reason instead of claiming it.
+    let connection = connection();
+    // A full-rebuild index job has max_attempts = 2.
+    let queued = enqueue_index_job(
+        &connection,
+        &AiIndexRequest { full_rebuild: true, ..AiIndexRequest::default() },
+        false,
+    )
+    .expect("enqueue");
+    assert_eq!(queued.max_attempts, 2);
+
+    // Drive it stale exactly `max_attempts` times (each claim increments `attempt`, then we age the
+    // heartbeat so `mark_stale_jobs` flips it back to stale on the next claim).
+    for _ in 0..2 {
+        let claimed = claim_next_ai_job(&connection, 1).expect("claim").expect("claimable");
+        assert_eq!(claimed.id, queued.id);
+        connection
+            .execute(
+                "UPDATE ai_jobs SET heartbeat_at = ?1 WHERE id = ?2",
+                params!["2000-01-01T00:00:00+00:00", queued.id],
+            )
+            .expect("age heartbeat");
+    }
+
+    // The budget is now spent (attempt == max_attempts): the next claim TERMINATES it rather than
+    // recycling — the loop is broken, and `claim_next_ai_job` finds no other runnable work.
+    let reclaim = claim_next_ai_job(&connection, 1).expect("claim past budget");
+    assert!(reclaim.is_none(), "an attempt-exhausted job is not re-claimed (no infinite cycle)");
+    let job = load_ai_job(&connection, queued.id).expect("load job");
+    assert_eq!(job.state, "failed", "the wedged job reaches a TERMINAL failed state");
+    assert_eq!(job.error_code.as_deref(), Some("max-attempts-exhausted"));
+    assert!(job.finished_at.is_some());
+}
+
+#[test]
+fn clear_index_jobs_cancels_every_nonterminal_index_job_and_leaves_others() {
+    // F2.2 reset primitive: clearing index jobs moves EVERY non-terminal index-build/index-clear job
+    // to a terminal cancelled state (recovering a wedged build) while leaving terminal jobs and
+    // non-index (assistant) jobs untouched.
+    let connection = connection();
+    let queued_build = enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+        .expect("enqueue queued build");
+    // A second build, claimed into `running`, then a stale one.
+    let running_build = enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+        .expect("enqueue running build");
+    claim_ai_job_by_id(&connection, running_build.id, 300).expect("claim").expect("running");
+    // An assistant job that must SURVIVE the index reset.
+    let assistant = enqueue_assistant_job(
+        &connection,
+        &AiAssistantRequest { question: "keep me".to_string(), profile_id: None, domain: None },
+        "llm-primary",
+        None,
+        false,
+    )
+    .expect("enqueue assistant");
+
+    let cleared = clear_index_jobs(&connection).expect("clear");
+    assert_eq!(cleared, 2, "both the queued and running index jobs were cleared");
+    assert_eq!(load_ai_job(&connection, queued_build.id).expect("queued").state, "cancelled");
+    assert_eq!(load_ai_job(&connection, running_build.id).expect("running").state, "cancelled");
+    // The assistant job is untouched (still queued and claimable).
+    assert_eq!(load_ai_job(&connection, assistant.id).expect("assistant").state, "queued");
+    // Re-running over an already-cleared queue is a no-op (idempotent recovery).
+    assert_eq!(clear_index_jobs(&connection).expect("clear again"), 0);
+}
+
+#[test]
+fn durable_progress_resets_the_attempt_budget_so_interrupted_builds_keep_resuming() {
+    // Review fix: the attempt counter bounds INTERRUPTIONS, not just failures. A build that makes
+    // durable progress each run but is interrupted (app quit → stale → reclaim) MORE than max_attempts
+    // times must NOT go terminal — resetting `attempt` at the durable-cursor checkpoint earns the
+    // budget back, so only a build that makes NO progress across the budget is judged wedged.
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    assert_eq!(queued.max_attempts, 3);
+
+    // Six interrupt+reclaim cycles (well past max_attempts), each advancing the durable cursor.
+    for round in 1..=6_i64 {
+        let claimed = claim_next_ai_job(&connection, 1)
+            .expect("claim")
+            .expect("a progressing job stays claimable past the raw budget");
+        assert_eq!(claimed.id, queued.id);
+        let cursor =
+            IndexBackfillCursor { next_history_id: round * 10, embedded_so_far: round as u64 };
+        assert_eq!(
+            persist_index_cursor(&connection, queued.id, &cursor, Some("progress"))
+                .expect("persist"),
+            CursorPersistOutcome::Persisted,
+        );
+        // Durable progress reset the attempt counter back to 0.
+        assert_eq!(load_ai_job(&connection, queued.id).expect("load").attempt, 0);
+        // Interrupt: the job is left stale (lease lost) with its progress intact.
+        connection
+            .execute(
+                "UPDATE ai_jobs SET state = 'stale', heartbeat_at = NULL WHERE id = ?1",
+                [queued.id],
+            )
+            .expect("interrupt");
+    }
+
+    // Still claimable + not terminal after far more than max_attempts interruptions, because it kept
+    // making progress.
+    let still = claim_next_ai_job(&connection, 1)
+        .expect("claim")
+        .expect("a build that keeps progressing never exhausts the budget");
+    assert_eq!(still.id, queued.id);
+    assert_ne!(load_ai_job(&connection, queued.id).expect("load").state, "failed");
 }

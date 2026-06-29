@@ -102,6 +102,14 @@ pub(super) struct BackfillOutcome {
     pub skipped_items: usize,
     /// The actual returned vector length once observed (D4); `None` if nothing was embedded.
     pub effective_dim: Option<usize>,
+    /// Count of vectors actually appended to the `.pkvec` store this pass (F3 0-byte honesty).
+    ///
+    /// DISTINCT from `indexed_items`, which counts changed VISITS (each gets a SQLite row + map
+    /// entry). A re-visit of an already-embedded page bumps `indexed_items` but appends NO vector, so
+    /// `embedded_vectors == 0` with `indexed_items > 0` is legitimate ONLY when the store already
+    /// holds the page's vector. The build's honesty note reports this real count rather than implying
+    /// every counted row produced a vector.
+    pub embedded_vectors: u64,
 }
 
 /// Collects the canonical visits that need fresh embeddings for the selected provider.

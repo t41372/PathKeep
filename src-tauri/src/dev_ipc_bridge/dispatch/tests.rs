@@ -485,6 +485,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "cancel_ai_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "load_ai_assistant_job", json!({ "jobId": 999 }));
     dispatch_for_coverage(&state, "build_ai_index", wrapped(AiIndexRequest::default()));
+    dispatch_for_coverage(&state, "reset_ai_index_build", wrapped(AiIndexRequest::default()));
     dispatch_for_coverage(
         &state,
         "search_ai_history",
@@ -525,6 +526,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(&state, "ai_chat_cancel", json!({ "runId": "chat-missing" }));
     dispatch_for_coverage(&state, "download_ai_embedding_model", json!({}));
+    dispatch_for_coverage(&state, "download_static_embedding_model", json!({}));
     dispatch_for_coverage(&state, "cancel_ai_embedding_model_download", json!({}));
     dispatch_for_coverage(
         &state,

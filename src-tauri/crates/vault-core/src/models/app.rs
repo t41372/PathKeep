@@ -8,7 +8,8 @@ use super::{
 };
 use super::{AiSettings, DeterministicSettings, EnrichmentSettings};
 use super::{
-    merge_content_fetch_extractor_preferences, merge_deterministic_module_states,
+    ensure_embedding_provider_default, merge_content_fetch_extractor_preferences,
+    merge_deterministic_module_states, merge_embedding_providers,
     merge_enrichment_plugin_preferences, merge_enrichment_plugin_states,
 };
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,12 @@ pub fn normalize_app_config(config: &mut AppConfig) {
     config.ai.content_fetch_extractors =
         merge_content_fetch_extractor_preferences(&config.ai.content_fetch_extractors);
     config.deterministic.modules = merge_deterministic_module_states(&config.deterministic.modules);
+    // Re-materialize the always-present built-in static embedding provider (F1) and default the
+    // selection to it when none is validly selected, so the fast local Tier-0 engine is the honest
+    // out-of-the-box default and can never be deleted out of the list. An explicit valid selection
+    // (e.g. an external provider) is preserved.
+    config.ai.embedding_providers = merge_embedding_providers(&config.ai.embedding_providers);
+    ensure_embedding_provider_default(&mut config.ai);
     config.explorer_background_prefetch_pages =
         config.explorer_background_prefetch_pages.min(MAX_EXPLORER_BACKGROUND_PREFETCH_PAGES);
     // Clamp the hybrid-search tuning knobs (W-AI-6) so a hand-edited/older config can never feed an

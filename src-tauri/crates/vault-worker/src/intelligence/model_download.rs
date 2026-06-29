@@ -28,8 +28,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use vault_core::{
-    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, ModelDownloadProgress,
-    ModelDownloadProgressEvent, ensure_model_downloaded,
+    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_STATIC_MODEL_FILES,
+    DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress, ModelDownloadProgressEvent,
+    ensure_model_downloaded,
 };
 
 /// A single live download's cancellation flag, so a second "Download" press or a navigate-away can
@@ -110,6 +111,54 @@ where
     let cancel = cancel_flag().clone();
     cancel.store(false, Ordering::SeqCst);
     run_download(emit, cancel);
+    Ok(())
+}
+
+/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download on a background thread (F1).
+///
+/// Mirrors [`download_ai_embedding_model`] but targets the always-on static model
+/// ([`DEFAULT_STATIC_MODEL_REPO`]) the built-in static provider loads — reusing the SAME
+/// SHA-256-verified [`ensure_model_downloaded`] path. This is the FE's "Download local model" action
+/// for the static tier; reaching it IS the explicit consent. Returns immediately after spawning;
+/// progress + the terminal `Done`/`Error` reach the UI on [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`].
+#[cfg(not(coverage))]
+pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
+where
+    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
+{
+    let cancel = cancel_flag().clone();
+    cancel.store(false, Ordering::SeqCst);
+    std::thread::Builder::new()
+        .name("pathkeep-static-model-download".to_string())
+        .spawn(move || {
+            run_download_for(
+                vault_core::project_paths(),
+                DEFAULT_STATIC_MODEL_REPO,
+                DEFAULT_STATIC_MODEL_FILES,
+                emit,
+                cancel,
+            )
+        })
+        .map_err(|error| anyhow::anyhow!("spawning static model download thread: {error}"))?;
+    Ok(())
+}
+
+/// Coverage stub for the static download: runs synchronously so the bridge + emit + terminal event are
+/// exercised at 100% coverage without a background thread the harness cannot join.
+#[cfg(coverage)]
+pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
+where
+    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
+{
+    let cancel = cancel_flag().clone();
+    cancel.store(false, Ordering::SeqCst);
+    run_download_for(
+        vault_core::project_paths(),
+        DEFAULT_STATIC_MODEL_REPO,
+        DEFAULT_STATIC_MODEL_FILES,
+        emit,
+        cancel,
+    );
     Ok(())
 }
 

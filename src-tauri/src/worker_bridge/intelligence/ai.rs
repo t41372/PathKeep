@@ -110,6 +110,15 @@ pub(crate) fn build_ai_index_impl(
     worker_result(vault_worker::build_ai_index_now(session_database_key, &request))
 }
 
+/// Recovers a wedged semantic-index build: clears the stuck job(s) and re-enqueues a clean one (F2).
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn reset_ai_index_build_impl(
+    request: AiIndexRequest,
+    session_database_key: Option<&str>,
+) -> Result<vault_core::AiIndexReport, String> {
+    worker_result(vault_worker::reset_ai_index_build(session_database_key, &request))
+}
+
 #[cfg_attr(test, allow(dead_code))]
 /// Estimates the cost/time of a re-embed run for one scope (W-AI-9 Sub-block D) — read-only.
 pub(crate) fn estimate_reembed_impl(
@@ -175,6 +184,15 @@ where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
     worker_result(vault_worker::download_ai_embedding_model(emit))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress via `emit`.
+pub(crate) fn download_static_embedding_model_impl<E>(emit: E) -> Result<(), String>
+where
+    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
+{
+    worker_result(vault_worker::download_static_embedding_model(emit))
 }
 
 #[cfg_attr(test, allow(dead_code))]

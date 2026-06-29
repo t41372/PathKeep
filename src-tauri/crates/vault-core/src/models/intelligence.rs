@@ -285,6 +285,79 @@ impl Default for AiProviderConfig {
     }
 }
 
+/// Stable id of the always-present built-in in-app static embedding provider (05 §2 Tier 0).
+///
+/// This provider is NOT user-deletable: [`merge_embedding_providers`] re-materializes it on every
+/// config load so the fast local static tier is ALWAYS available and selectable, and is the fallback
+/// default embedding provider when none is validly selected. Its `base_url` is the
+/// [`crate::ai::STATIC_INAPP_BASE_URL`] sentinel, which routes the embed loop to the in-app static
+/// engine (`AnyEmbeddingProvider::Static`) with no schema change.
+pub const BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID: &str = "static-in-app";
+
+/// Builds the canonical config row for the built-in in-app static embedding provider.
+///
+/// The identity fields are fixed (id / static sentinel `base_url` / Embedding purpose / enabled) so the
+/// embed loop always routes to the static engine; `default_model` carries the static model repo so a
+/// future static model is a config change, not a code change (D4). Always enabled because it is the
+/// local, always-available fallback tier — there is no scenario where disabling the only zero-config
+/// engine is the honest default.
+pub fn built_in_static_embedding_provider() -> AiProviderConfig {
+    AiProviderConfig {
+        id: BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string(),
+        name: "In-app static (local)".to_string(),
+        purpose: AiProviderPurpose::Embedding,
+        request_format: AiRequestFormat::OpenAi,
+        enabled: true,
+        base_url: Some(crate::ai::STATIC_INAPP_BASE_URL.to_string()),
+        default_model: crate::ai::DEFAULT_STATIC_MODEL_REPO.to_string(),
+        ..AiProviderConfig::default()
+    }
+}
+
+/// Merges persisted embedding providers with the always-present built-in static provider.
+///
+/// Mirrors the built-in-merge pattern used for enrichment plugins / deterministic modules: the static
+/// provider is re-materialized FIRST on every load so it can never be deleted or corrupted out of the
+/// list, while every user-defined provider (external / candle) is preserved verbatim after it. A
+/// user-customized static `default_model` (a future swapped static model) is the ONE field carried
+/// over from the stored row; the identity fields are always forced back to canonical so a hand-edited
+/// config cannot disable the sentinel or flip its purpose. Idempotent: re-merging an already-merged
+/// list is a no-op.
+pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProviderConfig> {
+    let mut built_in = built_in_static_embedding_provider();
+    if let Some(stored) = current.iter().find(|p| p.id == BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
+        let model = stored.default_model.trim();
+        if !model.is_empty() {
+            built_in.default_model = model.to_string();
+        }
+    }
+    let mut merged = Vec::with_capacity(current.len() + 1);
+    merged.push(built_in);
+    for provider in current {
+        if provider.id != BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID {
+            merged.push(provider.clone());
+        }
+    }
+    merged
+}
+
+/// Defaults the selected embedding provider to the built-in static one when none is validly selected.
+///
+/// Respects an explicit, still-VALID user selection (an external/candle provider that exists in the
+/// list) — it is never silently overridden. Only `None` or a DANGLING id (pointing at a provider that
+/// no longer exists) falls back to the built-in static provider, so the always-on local tier is the
+/// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
+/// the static built-in is present to fall back to.
+pub fn ensure_embedding_provider_default(ai: &mut AiSettings) {
+    let selection_is_valid = ai
+        .embedding_provider_id
+        .as_deref()
+        .is_some_and(|id| ai.embedding_providers.iter().any(|provider| provider.id == id));
+    if !selection_is_valid {
+        ai.embedding_provider_id = Some(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string());
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 /// User-facing on/off preference for one enrichment plugin.
@@ -645,12 +718,40 @@ pub enum AiIndexWarning {
     EmbeddingProviderNoModel { provider_name: String },
     /// A provider is configured but no index has been built yet.
     IndexNotBuilt,
+    /// The index reports metadata rows but the vector store is empty/absent (F3 0-byte honesty).
+    ///
+    /// The dishonest "indexed N with an empty sidecar" case: SQLite `ai_embeddings` rows exist (so a
+    /// build ran and counted rows) yet the `.pkvec` plane holds ZERO vectors, so semantic retrieval
+    /// cannot work. The honest surface is "rebuild the index", NOT a green "ready, N indexed".
+    IndexVectorsMissing,
     /// The built index is stale for the carried reason (shared with the search degradation notes).
     #[serde(rename_all = "camelCase")]
     IndexStale { reason: AiSemanticStaleness },
     /// The last index build failed; `reason` is the opaque transport/provider failure text.
     #[serde(rename_all = "camelCase")]
     BuildFailed { reason: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Readiness + download snapshot for the built-in in-app static embedding provider (F1 surfacing).
+///
+/// Lets the Settings UI render the static tier selector + a consent/download action + an honest
+/// "model not downloaded yet" state WITHOUT the front end re-deriving provider identity or probing the
+/// filesystem. `model_downloaded` reflects whether the static model files are present + SHA-verified on
+/// disk (the consent-gated download target); `selected` is whether this provider is the active
+/// embedding selection; `is_default` marks it as the always-present fallback default.
+pub struct StaticEmbeddingStatus {
+    /// The built-in static provider id ([`BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID`]).
+    pub provider_id: String,
+    /// The static model repository the engine loads (the provider's `default_model`).
+    pub model_repo: String,
+    /// Whether the static model files are present + SHA-256 verified on disk (ready to embed locally).
+    pub model_downloaded: bool,
+    /// Whether the built-in static provider is the currently selected embedding provider.
+    pub selected: bool,
+    /// Always `true`: the built-in static provider is the always-present fallback default.
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -664,6 +765,19 @@ pub struct AiIndexStatus {
     pub state: String,
     pub ready: bool,
     pub indexed_items: usize,
+    /// The REAL number of vectors on the `.pkvec` plane for the selected provider (F3 0-byte honesty).
+    ///
+    /// DISTINCT from `indexed_items` (the SQLite `ai_embeddings` metadata-row count): a build that
+    /// wrote metadata rows but zero vectors reports `indexed_items > 0` while this stays `0`, which is
+    /// exactly the dishonest "indexed N with an empty sidecar" case the index health must surface
+    /// (see [`AiIndexWarning::IndexVectorsMissing`]). `ready` keys off THIS count, not `indexed_items`.
+    #[serde(default)]
+    pub semantic_vector_count: u64,
+    /// Built-in static embedding provider readiness + download state (F1 surfacing), `None` only when
+    /// it cannot be resolved (it is otherwise always present). Additive (`skip_serializing_if`) so a
+    /// frozen payload still deserializes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_embedding: Option<StaticEmbeddingStatus>,
     pub last_indexed_at: Option<String>,
     pub llm_provider_id: Option<String>,
     pub embedding_provider_id: Option<String>,

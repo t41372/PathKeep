@@ -1668,7 +1668,11 @@ fn coverage_run_backup_now_reports_missing_follow_up_requirements() {
 
     let mut config = configured_ai_config();
     config.ai.auto_index_after_backup = true;
-    config.ai.embedding_provider_id = None;
+    // F1: an embedding provider is now ALWAYS available (the built-in static default), so "no provider
+    // selected" can no longer fire the follow-up warning — `normalize_app_config` would just default to
+    // the static tier. The warning path now triggers when the SELECTED provider is UNUSABLE; here the
+    // user's selected provider is disabled, which `selected_embedding_provider_runtime` rejects.
+    config.ai.embedding_providers[0].enabled = false;
     initialize_archive_database(&config, None).expect("initialize archive");
     save_user_config(&config, None).expect("save config");
 

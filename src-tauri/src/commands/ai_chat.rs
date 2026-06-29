@@ -70,6 +70,25 @@ pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), St
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress arrives on
+/// `pathkeep://model-download-progress`.
+///
+/// Reaching this command IS the explicit consent action (the "Download local model" button for the
+/// built-in static provider). It reuses the same SHA-256-verified download path as the heavy tier and
+/// shares the cancel flag, so an in-flight download is cancelable via
+/// `cancel_ai_embedding_model_download`. Always emits a terminal `Done`/`Error` so the renderer never
+/// hangs.
+pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<(), String> {
+    run_blocking_command("download_static_embedding_model", move || {
+        worker_bridge::download_static_embedding_model_impl(move |event| {
+            let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
+        })
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Requests cancellation of any in-flight in-app embedding model download.
 pub(crate) async fn cancel_ai_embedding_model_download() -> Result<(), String> {
     run_blocking_command("cancel_ai_embedding_model_download", || {

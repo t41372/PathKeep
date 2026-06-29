@@ -476,6 +476,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session).as_deref()
             )?)
         }
+        "reset_ai_index_build" => {
+            // Clears stuck index jobs then enqueues a clean build via `build_ai_index_now` (which only
+            // SPAWNS the drain — no `block_on` on this thread — so it is safe inline like `build_ai_index`).
+            let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
+            json_value!(worker_bridge::reset_ai_index_build_impl(
+                payload.request,
+                session_key(&state.session).as_deref()
+            )?)
+        }
         "search_ai_history" => {
             // `run_semantic_search` calls `block_on` against the embedding
             // provider; same panic mechanism as the AI arms above.
@@ -517,6 +526,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
             // only flows under real Tauri). The `Ok(())` ack is still verifiable.
             json_value!(download_ai_embedding_model_off_thread().await?)
+        }
+        "download_static_embedding_model" => {
+            // Same posture as `download_ai_embedding_model`: spawns a background download thread off the
+            // worker; the dev HTTP bridge does NOT deliver Tauri events so the progress sink is a no-op.
+            json_value!(download_static_embedding_model_off_thread().await?)
         }
         "cancel_ai_embedding_model_download" => {
             json_value!(worker_bridge::cancel_model_download_impl()?)
@@ -1125,6 +1139,19 @@ async fn download_ai_embedding_model_off_thread() -> Result<(), String> {
     })
     .await
     .unwrap_or_else(|error| Err(format!("download_ai_embedding_model join failed: {error}")))
+}
+
+/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
+/// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
+/// dropped (the dev HTTP bridge does not deliver Tauri events).
+async fn download_static_embedding_model_off_thread() -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        worker_bridge::download_static_embedding_model_impl(
+            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(format!("download_static_embedding_model join failed: {error}")))
 }
 
 #[cfg(test)]

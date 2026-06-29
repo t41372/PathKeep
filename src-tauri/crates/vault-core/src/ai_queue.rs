@@ -268,6 +268,39 @@ pub fn claim_next_ai_job(
             return Ok(None);
         };
 
+        // RETRY BOUND (the stuck-build fix): a job that has already burned its whole attempt budget
+        // must NOT be re-claimed again. Without this, a job that keeps crashing / going stale before it
+        // can fail gracefully (so `mark_ai_job_failed`'s attempt check never runs) cycles
+        // stale → running → stale forever. Each `claim` increments `attempt`; once `attempt` has reached
+        // `max_attempts` WITHOUT any durable progress in between, the budget is spent: move the job to a
+        // TERMINAL failed state with an honest reason instead of claiming it, then keep scanning for
+        // other runnable work. NOTE: durable progress RESETS `attempt` to 0 (see `persist_index_cursor`),
+        // so only a build that makes NO progress across the whole budget terminates here — an
+        // interrupted-but-progressing build keeps resuming. A reset / replay also grants a fresh budget.
+        if attempt >= max_attempts {
+            connection.execute(
+                "UPDATE ai_jobs
+                 SET state = 'failed',
+                     updated_at = ?1,
+                     heartbeat_at = ?1,
+                     finished_at = ?1,
+                     lease_owner = NULL,
+                     lease_expires_at = NULL,
+                     error_code = 'max-attempts-exhausted',
+                     error_message = ?2
+                 WHERE id = ?3
+                   AND state IN ('queued', 'stale')",
+                params![
+                    now,
+                    format!(
+                        "AI job exhausted its retry budget ({max_attempts} attempt(s)) without completing; reset or replay it to try again."
+                    ),
+                    id,
+                ],
+            )?;
+            continue;
+        }
+
         let payload = match serde_json::from_str::<AiJobPayload>(&payload_json) {
             Ok(payload) => payload,
             Err(error) => {
@@ -448,13 +481,20 @@ pub fn persist_index_cursor(
     }
     let payload_json = serde_json::to_string(&payload)?;
     let now = now_rfc3339();
+    // DURABLE PROGRESS EARNS BACK THE RETRY BUDGET (review fix): the attempt counter increments on every
+    // CLAIM, so a long build that makes real progress but is INTERRUPTED (app quit → stale → reclaim)
+    // `max_attempts` times would otherwise hit the retry bound and go terminal despite advancing — the
+    // common case for a user who keeps interrupting a slow first fill. Resetting `attempt` to 0 here, at
+    // the durable-progress checkpoint, means only a build that makes NO progress across the whole budget
+    // is judged genuinely wedged; a slow-but-progressing, frequently-interrupted build keeps resuming.
     let updated = connection.execute(
         "UPDATE ai_jobs
          SET payload_json = ?1,
              summary = COALESCE(?2, summary),
              updated_at = ?3,
              heartbeat_at = ?3,
-             lease_expires_at = ?4
+             lease_expires_at = ?4,
+             attempt = 0
          WHERE id = ?5 AND state = 'running'",
         params![payload_json, summary, now, lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
     )?;
@@ -651,6 +691,34 @@ pub fn replay_ai_job(connection: &Connection, job_id: i64, paused: bool) -> Resu
         ],
     )?;
     load_ai_job(connection, job_id)
+}
+
+/// Clears every non-terminal semantic-index job, returning how many were cleared (the reset path).
+///
+/// Recovery primitive for a WEDGED index build (F2): it moves ALL `index-build` / `index-clear` jobs
+/// that are still queued / running / stale / paused / failed into a TERMINAL `cancelled` state,
+/// dropping any lease and requesting cooperative stop, so a fresh build can be enqueued cleanly
+/// without colliding with a stuck job. Terminal states (`succeeded`, `cancelled`) are left untouched.
+/// A running job is asked to stop via `stop_requested = 1` AND flipped to `cancelled` here: the reset
+/// is an explicit user action to abandon the current build, and the next `claim_next_ai_job` for that
+/// row would no longer match (it is no longer `running`). Returns the number of rows cleared so the
+/// caller can report it.
+pub fn clear_index_jobs(connection: &Connection) -> Result<usize> {
+    ensure_ai_queue_schema(connection)?;
+    let now = now_rfc3339();
+    Ok(connection.execute(
+        "UPDATE ai_jobs
+         SET state = 'cancelled',
+             updated_at = ?1,
+             finished_at = ?1,
+             heartbeat_at = NULL,
+             lease_owner = NULL,
+             lease_expires_at = NULL,
+             stop_requested = 1
+         WHERE job_type IN ('index-build', 'index-clear')
+           AND state IN ('queued', 'running', 'stale', 'paused', 'failed')",
+        params![now],
+    )?)
 }
 
 /// Cancels one queued/paused AI job immediately or requests cooperative stop for running jobs.

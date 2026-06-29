@@ -181,6 +181,73 @@ mod tests {
         // The search-knob clamp runs as part of normalize_app_config (k>=1, boost<=cap).
         assert_eq!(config.ai.hybrid_rrf_k, 1);
         assert_eq!(config.ai.starred_boost, crate::models::MAX_STARRED_BOOST);
+        // F1: normalize injects the always-present built-in static embedding provider and defaults the
+        // selection to it (a fresh config had none), so the local Tier-0 engine is the honest default.
+        assert_eq!(config.ai.embedding_providers.len(), 1);
+        assert_eq!(
+            config.ai.embedding_providers[0].id,
+            crate::models::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+        );
+        assert_eq!(
+            config.ai.embedding_provider_id.as_deref(),
+            Some(crate::models::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+        );
+    }
+
+    #[test]
+    fn embedding_provider_merge_and_default_honor_user_choice_and_the_builtin() {
+        use super::{
+            AiProviderConfig, AiProviderPurpose, AiSettings, BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+            ensure_embedding_provider_default, merge_embedding_providers,
+        };
+
+        // (a) The built-in static provider is injected FIRST when absent, user providers preserved.
+        let external = AiProviderConfig {
+            id: "lmstudio".to_string(),
+            purpose: AiProviderPurpose::Embedding,
+            ..AiProviderConfig::default()
+        };
+        let merged = merge_embedding_providers(std::slice::from_ref(&external));
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID);
+        assert!(merged[0].enabled, "the built-in static provider is always enabled");
+        assert_eq!(merged[1].id, "lmstudio");
+
+        // (b) A user-customized static `default_model` is preserved; identity fields are forced back.
+        let tampered = AiProviderConfig {
+            id: BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string(),
+            enabled: false,
+            base_url: Some("http://evil".to_string()),
+            default_model: "custom/static-v2".to_string(),
+            ..AiProviderConfig::default()
+        };
+        let remerged = merge_embedding_providers(&[tampered]);
+        assert_eq!(remerged.len(), 1, "the static provider is de-duplicated, never doubled");
+        assert_eq!(remerged[0].default_model, "custom/static-v2", "custom model preserved");
+        assert!(remerged[0].enabled, "enabled is forced back on");
+        assert_eq!(remerged[0].base_url.as_deref(), Some(crate::ai::STATIC_INAPP_BASE_URL));
+
+        // (c) ensure_embedding_provider_default: respects a VALID external selection, falls back on a
+        // dangling/None selection.
+        let mut keeps_external = AiSettings {
+            embedding_providers: merged.clone(),
+            embedding_provider_id: Some("lmstudio".to_string()),
+            ..AiSettings::default()
+        };
+        ensure_embedding_provider_default(&mut keeps_external);
+        assert_eq!(keeps_external.embedding_provider_id.as_deref(), Some("lmstudio"));
+
+        let mut dangling = AiSettings {
+            embedding_providers: merged,
+            embedding_provider_id: Some("deleted-provider".to_string()),
+            ..AiSettings::default()
+        };
+        ensure_embedding_provider_default(&mut dangling);
+        assert_eq!(
+            dangling.embedding_provider_id.as_deref(),
+            Some(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID),
+            "a dangling selection falls back to the built-in static provider"
+        );
     }
 
     // ─── OgImage settings / fetch-mode coverage ──────────────────────

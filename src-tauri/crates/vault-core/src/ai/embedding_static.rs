@@ -39,8 +39,6 @@ use super::traits::{
 use crate::AiProviderRuntime;
 use crate::config::ProjectPaths;
 use anyhow::{Context, Result};
-
-#[cfg(not(any(test, coverage)))]
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -543,17 +541,21 @@ pub struct StaticEmbeddingProvider {
     dim: usize,
     /// Whether the engine L2-normalizes (from `config.normalize`), recorded in the descriptor.
     normalize: bool,
-    /// The real engine state (matrix + tokenizer), only present in non-test builds.
-    #[cfg(not(any(test, coverage)))]
+    /// The real engine state (matrix + tokenizer).
+    ///
+    /// F4: ALWAYS compiled (no longer `cfg`-gated). The test/coverage build no longer swaps the real
+    /// tokenize→pool→normalize compute for a digest stub — it constructs a TINY in-memory engine via
+    /// [`StaticEmbeddingProvider::new_stub`] so the REAL algorithm runs under the coverage gate. Only
+    /// the disk model LOAD (safetensors/tokenizer file reads) stays behind a `cfg` seam.
     engine: Arc<StaticEngine>,
 }
 
-/// The loaded static engine: the immutable embedding matrix + tokenizer (real build).
+/// The loaded static engine: the immutable embedding matrix + tokenizer.
 ///
 /// Both are immutable after load and shared behind an `Arc`, so embedding is lock-free and
 /// concurrent across the worker pool (the static tier's throughput advantage over the candle path,
-/// whose mutable KV cache forces a mutex).
-#[cfg(not(any(test, coverage)))]
+/// whose mutable KV cache forces a mutex). F4: always compiled — the REAL `embed` compute
+/// (tokenize → matrix lookup → mean-pool → optional L2-norm) runs in every build, including coverage.
 struct StaticEngine {
     matrix: StaticEmbeddingMatrix,
     tokenizer: tokenizers::Tokenizer,
@@ -605,29 +607,44 @@ impl StaticEmbeddingProvider {
                 matrix.dim()
             );
         }
-        let dim = matrix.dim();
-        Ok(Self {
-            provider_id: format!("static:{repo}"),
-            model_id: repo.to_string(),
-            dim,
-            normalize: config.normalize,
-            engine: Arc::new(StaticEngine { matrix, tokenizer, normalize: config.normalize }),
-        })
+        Ok(Self::from_engine(
+            &format!("static:{repo}"),
+            repo,
+            StaticEngine { matrix, tokenizer, normalize: config.normalize },
+        ))
     }
 
-    /// Builds a deterministic stub provider for tests/coverage (no matrix, no network).
+    /// Assembles a provider from an already-built engine (matrix + tokenizer + normalize flag).
     ///
-    /// Mirrors the real provider's public shape so the `Static` enum dispatch + embed loop run at
-    /// 100% coverage. `dim` is a small synthetic number with NO relationship to any real model
-    /// (picking 256 here would be the D4 truth-assumption this design removes).
-    #[cfg(any(test, coverage))]
-    pub fn new_stub(provider_id: &str, repo: &str) -> Self {
+    /// F4 seam: the ONE always-compiled constructor both the disk [`load`](Self::load) path and the
+    /// in-memory [`new_stub`](Self::new_stub) / gate-test paths funnel through, so the descriptor
+    /// (dim/normalize) is derived from the SAME engine the real [`embed`] runs against. The dim is the
+    /// matrix's ACTUAL column count (D4: read, never assumed); `normalize` mirrors the engine's flag.
+    fn from_engine(provider_id: &str, model_id: &str, engine: StaticEngine) -> Self {
         Self {
             provider_id: provider_id.to_string(),
-            model_id: repo.to_string(),
-            dim: STUB_STATIC_DIM,
-            normalize: true,
+            model_id: model_id.to_string(),
+            dim: engine.matrix.dim(),
+            normalize: engine.normalize,
+            engine: Arc::new(engine),
         }
+    }
+
+    /// Builds a deterministic stub provider backed by a TINY REAL in-memory engine (tests/coverage).
+    ///
+    /// F4 (test-methodology fix): this NO LONGER swaps the real compute for a digest stub. It builds a
+    /// small programmatic [`tokenizers::Tokenizer`] (byte-level so any input tokenizes, no `[UNK]`
+    /// surprises) plus an orthonormal [`StaticEmbeddingMatrix`], then funnels through
+    /// [`from_engine`](Self::from_engine) so the embed loop, the `Static` enum dispatch, AND the REAL
+    /// tokenize → matrix-lookup → mean-pool → L2-normalize algorithm all run at 100% coverage. The
+    /// orthonormal "bag-of-bytes" matrix makes the embeddings content-reflecting (texts sharing a
+    /// distinctive substring score higher), so a backfill+search behavioral test resolves a real hit
+    /// through the real engine — not a hand-waved stub. `dim` is a small synthetic number
+    /// ([`STUB_STATIC_DIM`]) with NO relationship to any real model (picking 256 would be the D4
+    /// truth-assumption this design removes).
+    #[cfg(any(test, coverage))]
+    pub fn new_stub(provider_id: &str, repo: &str) -> Self {
+        Self::from_engine(provider_id, repo, build_stub_engine(STUB_STATIC_DIM))
     }
 
     /// Builds this engine's runtime descriptor once the dim is known.
@@ -679,10 +696,11 @@ impl EmbeddingProvider for StaticEmbeddingProvider {
 
 /// Real static embed: per-text tokenize → mean-pool → optional L2-normalize, one vector per input.
 ///
-/// Lock-free over the immutable matrix + tokenizer behind the `Arc`, so the worker pool can embed
-/// concurrently (the static tier's throughput win). Reuses the PURE [`static_embed_ids`] so the real
-/// and test paths share the exact pooling/normalize math.
-#[cfg(not(any(test, coverage)))]
+/// F4: ALWAYS compiled (no longer `cfg`-gated). Lock-free over the immutable matrix + tokenizer behind
+/// the `Arc`, so the worker pool can embed concurrently (the static tier's throughput win). Reuses the
+/// PURE [`static_embed_ids`] so every build shares the exact pooling/normalize math. In test/coverage
+/// builds the engine is the tiny in-memory one [`build_stub_engine`] assembles; the algorithm is
+/// identical — only the matrix/tokenizer are synthetic, so the REAL compute path is exercised + covered.
 async fn embed_impl(
     provider: &StaticEmbeddingProvider,
     texts: &[String],
@@ -705,44 +723,101 @@ async fn embed_impl(
     Ok(out)
 }
 
-/// Synthetic dimension the stub emits — an arbitrary small number unrelated to any real model.
+/// Synthetic dimension the stub engine emits — an arbitrary small number unrelated to any real model.
 #[cfg(any(test, coverage))]
-const STUB_STATIC_DIM: usize = 5;
+const STUB_STATIC_DIM: usize = 64;
 
-/// Deterministic, normalized stub embed for tests and coverage builds.
+/// The curated vocabulary the in-memory stub engine recognizes (lower-cased, Whitespace-split).
 ///
-/// Same call graph as the real path (per-text → pool → normalize) but builds a tiny synthetic matrix
-/// plus synthetic ids from a per-`(provider, text)` digest, then routes through the SAME pure helpers
-/// [`StaticEmbeddingMatrix::mean_pool`] / [`static_embed_ids`] so the pooling/normalize math is the
-/// path exercised. Two different texts differ; the role is intentionally NOT in the digest — static
-/// is symmetric, so query and document of the same text MUST match (asserted by a test).
+/// F4: a small fixed word list so the stub tokenizer maps the words PathKeep's test corpora use onto
+/// DISTINCT ids (and everything else onto a shared `[UNK]` row). Index 0 is reserved for `[UNK]`; the
+/// rest are content words. Keep this comfortably under [`STUB_STATIC_DIM`] so the one-hot matrix rows
+/// stay orthonormal (each id maps to its own basis dimension), which is what lets a query word resolve
+/// its document by cosine in the behavioral search test.
 #[cfg(any(test, coverage))]
-async fn embed_impl(
-    provider: &StaticEmbeddingProvider,
-    texts: &[String],
-    _role: EmbeddingRole,
-) -> Result<Vec<Vec<f32>>> {
-    if texts.is_empty() {
-        return Ok(Vec::new());
+const STUB_VOCAB_WORDS: &[&str] = &[
+    "[UNK]",
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+    "epsilon",
+    "zeta",
+    "rust",
+    "history",
+    "search",
+    "gmail",
+    "github",
+    "news",
+    "blog",
+    "docs",
+    "example",
+    "page",
+    "embedding",
+    "vector",
+    "quantum",
+    "banana",
+    "zebra",
+    "kestrel",
+    "falcon",
+    "otter",
+    "profile",
+    "default",
+    "domain",
+    "title",
+    "visited",
+    "url",
+    "http",
+    "https",
+    "com",
+    "the",
+    "and",
+];
+
+/// Builds a TINY REAL in-memory [`StaticEngine`] for tests/coverage (no disk, no network).
+///
+/// F4: this is the heart of the test-methodology fix — instead of a digest stub that bypasses the
+/// algorithm, it constructs an ACTUAL [`tokenizers::Tokenizer`] (a Whitespace-split, lower-casing
+/// WordLevel model over [`STUB_VOCAB_WORDS`], with every other word folding onto `[UNK]`) plus an
+/// orthonormal [`StaticEmbeddingMatrix`] (row `id` is the unit basis vector `e_{id % dim}`). Mean-pool
+/// over those rows yields a normalized bag-of-words vector — deterministic, never zero for non-empty
+/// input, and CONTENT-REFLECTING: two texts sharing a distinctive vocab word land closer in cosine
+/// than two that do not, so a real backfill→search behavioral test resolves the right page through the
+/// REAL [`embed_impl`]. `dim` is [`STUB_STATIC_DIM`].
+#[cfg(any(test, coverage))]
+fn build_stub_engine(dim: usize) -> StaticEngine {
+    use tokenizers::Tokenizer;
+    use tokenizers::models::wordlevel::WordLevel;
+    use tokenizers::normalizers::Lowercase;
+    use tokenizers::pre_tokenizers::whitespace::Whitespace;
+
+    // `vocab` collects into the ahash map `WordLevel::vocab` expects (inferred — no ahash import).
+    let model = WordLevel::builder()
+        .vocab(
+            STUB_VOCAB_WORDS
+                .iter()
+                .enumerate()
+                .map(|(index, word)| ((*word).to_string(), index as u32))
+                .collect(),
+        )
+        .unk_token("[UNK]".to_string())
+        .build()
+        .expect("stub word-level model is well-formed");
+    let mut tokenizer = Tokenizer::new(model);
+    tokenizer.with_normalizer(Some(Lowercase));
+    tokenizer.with_pre_tokenizer(Some(Whitespace {}));
+
+    // Orthonormal rows: row `id` is the unit basis vector `e_{id % dim}`. With dim >= the vocab size the
+    // mean-pool is a normalized word histogram, so distinct texts differ and a query word resolves its
+    // document by cosine. The `[UNK]` row (id 0) is e0, so an all-unknown text still embeds non-zero.
+    let vocab_size = STUB_VOCAB_WORDS.len();
+    let mut rows = vec![0.0_f32; vocab_size * dim];
+    for id in 0..vocab_size {
+        rows[id * dim + (id % dim)] = 1.0;
     }
-    let mut out = Vec::with_capacity(texts.len());
-    for text in texts {
-        let digest =
-            crate::utils::sha256_hex(format!("{}::{text}", provider.provider_id).as_bytes());
-        let bytes = digest.as_bytes();
-        // A tiny synthetic vocab of 4 rows × `dim`, then pool a few synthetic ids derived from the
-        // digest — so the real pooling helper runs on the same path the production engine uses.
-        let vocab = 4;
-        let rows: Vec<f32> = (0..vocab * provider.dim)
-            .map(|index| (bytes[index % bytes.len()] % 13) as f32 + 1.0)
-            .collect();
-        let matrix = StaticEmbeddingMatrix::new(rows, provider.dim, None)
-            .expect("synthetic stub matrix is well-formed");
-        let ids: Vec<u32> =
-            (0..3).map(|step| (bytes[step % bytes.len()] as u32) % vocab as u32).collect();
-        out.push(static_embed_ids(&matrix, &ids, provider.normalize));
-    }
-    Ok(out)
+    let matrix =
+        StaticEmbeddingMatrix::new(rows, dim, None).expect("stub static matrix is well-formed");
+    StaticEngine { matrix, tokenizer, normalize: true }
 }
 
 #[cfg(test)]
@@ -1040,6 +1115,126 @@ mod tests {
             assert_eq!(file.repo, DEFAULT_STATIC_MODEL_REPO);
             // Every digest is the pinned 64-hex shape (sentinel zeros are still 64 hex).
             assert_eq!(file.sha256.len(), 64);
+        }
+    }
+
+    /// Builds a TINY real [`StaticEngine`] from a handful of WordLevel tokens (the F4 gate fixture).
+    ///
+    /// A 3-token Whitespace WordLevel model + a 3-dim orthonormal matrix, so `embed` runs the REAL
+    /// tokenize → matrix-lookup → mean-pool → (optional) L2-norm with hand-checkable arithmetic.
+    fn tiny_word_engine(normalize: bool) -> StaticEngine {
+        use tokenizers::Tokenizer;
+        use tokenizers::models::wordlevel::WordLevel;
+        use tokenizers::pre_tokenizers::whitespace::Whitespace;
+
+        // `vocab` collects into the ahash map `WordLevel::vocab` expects (inferred — no ahash import).
+        let model = WordLevel::builder()
+            .vocab(
+                [
+                    ("alpha".to_string(), 0_u32),
+                    ("beta".to_string(), 1),
+                    ("gamma".to_string(), 2),
+                    ("[UNK]".to_string(), 3),
+                ]
+                .into_iter()
+                .collect(),
+            )
+            .unk_token("[UNK]".to_string())
+            .build()
+            .expect("tiny word-level model");
+        let mut tokenizer = Tokenizer::new(model);
+        tokenizer.with_pre_tokenizer(Some(Whitespace {}));
+        // 4 rows × 3 dims: row 0/1/2 are the unit basis vectors e0/e1/e2; the unk row reuses e0.
+        let rows = vec![
+            1.0, 0.0, 0.0, // alpha
+            0.0, 1.0, 0.0, // beta
+            0.0, 0.0, 1.0, // gamma
+            1.0, 0.0, 0.0, // [UNK]
+        ];
+        let matrix = StaticEmbeddingMatrix::new(rows, 3, None).expect("tiny matrix");
+        StaticEngine { matrix, tokenizer, normalize }
+    }
+
+    #[tokio::test]
+    async fn real_in_memory_engine_embeds_deterministic_nonzero_correct_dim_vectors() {
+        // F4 GATE: construct a TINY in-memory `StaticEngine` and run the REAL `embed` (the same
+        // tokenize → lookup → mean-pool → L2-norm path the production engine uses), proving the
+        // algorithm is COMPILED + COVERED rather than replaced by a digest stub.
+        let provider = StaticEmbeddingProvider::from_engine(
+            "static:tiny",
+            "tiny/model",
+            tiny_word_engine(true),
+        );
+
+        // The descriptor reflects the engine truth: dim = the matrix's real column count, Mean pooling.
+        assert_eq!(provider.descriptor().effective_dim, Some(3));
+        assert_eq!(provider.descriptor().pooling, EmbeddingPooling::Mean);
+
+        let docs = provider
+            .embed(&["alpha beta".to_string(), "gamma".to_string()], EmbeddingRole::Document)
+            .await
+            .expect("embed");
+        assert_eq!(docs.len(), 2);
+        // CORRECT DIM: every vector is the matrix dim (3).
+        assert!(docs.iter().all(|vector| vector.len() == 3));
+        // NON-ZERO + L2-NORM: "alpha beta" mean-pools e0 and e1 → [0.5, 0.5, 0] → unit-norm
+        // [0.707…, 0.707…, 0].
+        assert!((near_unit_norm(&docs[0]) - 1.0).abs() < 1e-6, "pooled vector is L2-normalized");
+        let inv_sqrt2 = 1.0 / 2.0_f32.sqrt();
+        assert!((docs[0][0] - inv_sqrt2).abs() < 1e-6);
+        assert!((docs[0][1] - inv_sqrt2).abs() < 1e-6);
+        assert!(docs[0][2].abs() < 1e-6);
+        // "gamma" → e2 (already unit), so it is the third basis vector.
+        assert_eq!(docs[1], vec![0.0, 0.0, 1.0]);
+
+        // DETERMINISTIC: the same text embeds to the exact same vector across calls.
+        let again =
+            provider.embed(&["alpha beta".to_string()], EmbeddingRole::Document).await.unwrap();
+        assert_eq!(again[0], docs[0]);
+        // SYMMETRIC: query and document encodings match (static has no instruction asymmetry).
+        let as_query =
+            provider.embed(&["alpha beta".to_string()], EmbeddingRole::Query).await.unwrap();
+        assert_eq!(as_query[0], docs[0]);
+    }
+
+    #[tokio::test]
+    async fn real_in_memory_engine_pooling_and_norm_off_behave() {
+        // F4 GATE (pooling + normalize=false): with L2-norm OFF the bare mean-pool is returned, and an
+        // asymmetric token mix proves the mean weights each token equally.
+        let provider = StaticEmbeddingProvider::from_engine(
+            "static:tiny",
+            "tiny/model",
+            tiny_word_engine(false),
+        );
+        let out = provider
+            .embed(&["alpha alpha beta".to_string()], EmbeddingRole::Document)
+            .await
+            .expect("embed");
+        // mean(e0, e0, e1) = [2/3, 1/3, 0] — NOT unit norm (normalize is off), proving the raw pool.
+        assert!((out[0][0] - 2.0 / 3.0).abs() < 1e-6);
+        assert!((out[0][1] - 1.0 / 3.0).abs() < 1e-6);
+        assert!(out[0][2].abs() < 1e-6);
+        assert!(near_unit_norm(&out[0]) < 0.9, "normalize=false leaves the bare mean-pool");
+    }
+
+    #[tokio::test]
+    async fn new_stub_uses_the_real_engine_for_distinct_nonzero_vectors() {
+        // F4: `new_stub` is now a REAL tiny engine (WordLevel), so the coverage backfill exercises the
+        // real compute. Distinct texts → distinct vectors; every vector is non-zero, unit-norm, and the
+        // synthetic dim — proving the real tokenize→pool→norm path, not a bypass.
+        let provider = StaticEmbeddingProvider::new_stub("static:stub", "stub/model");
+        let vectors = provider
+            .embed(
+                &["banana kestrel".to_string(), "quantum zebra".to_string()],
+                EmbeddingRole::Document,
+            )
+            .await
+            .expect("embed");
+        assert_eq!(vectors[0].len(), STUB_STATIC_DIM);
+        assert_ne!(vectors[0], vectors[1], "distinct texts embed to distinct vectors");
+        for vector in &vectors {
+            assert!((near_unit_norm(vector) - 1.0).abs() < 1e-6);
+            assert!(vector.iter().any(|component| *component != 0.0), "no all-zero vector");
         }
     }
 }

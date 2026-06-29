@@ -9,6 +9,7 @@
 
 use super::provider::ProviderReadiness;
 use super::*;
+use crate::models::{BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
 
 /// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
 pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
@@ -36,6 +37,9 @@ pub fn ai_index_status(
             state: if config.ai.enabled { "blocked".to_string() } else { "disabled".to_string() },
             llm_provider_id: config.ai.llm_provider_id.clone(),
             embedding_provider_id: config.ai.embedding_provider_id.clone(),
+            // The static tier surface does not need the archive — surface it even before init so the
+            // Settings selector can render the download/ready state (F1).
+            static_embedding: static_embedding_status(paths, config),
             queue_paused: default_queue_status.paused,
             queue_concurrency: default_queue_status.concurrency,
             warning: if config.ai.enabled {
@@ -80,6 +84,22 @@ pub fn ai_index_status(
     } else {
         0
     };
+    // F3 (0-byte honesty): the REAL vector count on the `.pkvec` plane, read O(1) from the store
+    // header + file length — NOT the SQLite metadata-row count above. A build that wrote metadata rows
+    // but zero vectors leaves `indexed_items > 0` while this stays `0`, the exact dishonest case the
+    // index health must surface. `count()` errors on a torn store; degrade to 0 (treated as "no
+    // vectors") rather than failing the whole status read.
+    let semantic_vector_count = provider_id
+        .as_deref()
+        .zip(provider_readiness.selected_model.as_deref())
+        .map(|(provider_id, model)| {
+            VectorStore::for_provider(paths, provider_id, model).count().unwrap_or(0)
+        })
+        .unwrap_or(0);
+    // The dishonest "indexed N with an empty sidecar" case: metadata rows exist but the vector plane is
+    // empty/absent, AND the provider is otherwise usable (an unusable provider is reported as degraded).
+    let vectors_missing =
+        provider_readiness.available && indexed_items > 0 && semantic_vector_count == 0;
     let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
     let semantic_metadata_bytes = ai_embeddings_storage_bytes(&connection)?;
     let estimated_embedding_tokens = ai_embedding_token_estimate(&connection)?;
@@ -117,7 +137,9 @@ pub fn ai_index_status(
             },
         )
     });
-    let ready = indexed_items > 0 && provider_readiness.available;
+    // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
+    // mean "there are vectors semantic search can actually match", never "we recorded N rows".
+    let ready = semantic_vector_count > 0 && provider_readiness.available;
     let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
@@ -126,6 +148,7 @@ pub fn ai_index_status(
         &ledger,
         staleness_reason,
         ready,
+        vectors_missing,
     );
     Ok(AiIndexStatus {
         enabled: config.ai.enabled,
@@ -135,6 +158,8 @@ pub fn ai_index_status(
         state,
         ready,
         indexed_items: indexed_items as usize,
+        semantic_vector_count,
+        static_embedding: static_embedding_status(paths, config),
         last_indexed_at,
         llm_provider_id: config.ai.llm_provider_id.clone(),
         embedding_provider_id: config.ai.embedding_provider_id.clone(),
@@ -187,11 +212,16 @@ pub(super) fn ai_index_warning_text(code: &AiIndexWarning) -> String {
             "Run Build index after configuring an embedding provider to enable semantic search."
                 .to_string()
         }
+        AiIndexWarning::IndexVectorsMissing => {
+            "The semantic index has metadata rows but no vectors were written. Rebuild the index."
+                .to_string()
+        }
         AiIndexWarning::IndexStale { reason } => reason.model_facing_text().to_string(),
         AiIndexWarning::BuildFailed { reason } => reason.clone(),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ai_index_state_and_warning(
     config: &AppConfig,
     provider_readiness: &ProviderReadiness,
@@ -200,6 +230,7 @@ fn ai_index_state_and_warning(
     ledger: &AiIndexLedgerRow,
     staleness_reason: Option<AiSemanticStaleness>,
     ready: bool,
+    vectors_missing: bool,
 ) -> (String, Option<String>, Option<AiIndexWarning>) {
     let state = if !config.ai.enabled {
         "disabled".to_string()
@@ -211,6 +242,9 @@ fn ai_index_state_and_warning(
         "paused".to_string()
     } else if ledger.state == "failed" {
         "failed".to_string()
+    } else if vectors_missing {
+        // Metadata rows but no vectors (F3): the index is present-but-unusable → degraded, not ready.
+        "degraded".to_string()
     } else if staleness_reason.is_some() {
         "stale".to_string()
     } else if ready {
@@ -233,6 +267,9 @@ fn ai_index_state_and_warning(
         }
     } else if !provider_readiness.available {
         (provider_readiness.warning.clone(), provider_readiness.warning_code.clone())
+    } else if vectors_missing {
+        let code = AiIndexWarning::IndexVectorsMissing;
+        (Some(ai_index_warning_text(&code)), Some(code))
     } else if let Some(reason) = staleness_reason {
         let code = AiIndexWarning::IndexStale { reason };
         (Some(ai_index_warning_text(&code)), Some(code))
@@ -243,6 +280,38 @@ fn ai_index_state_and_warning(
         (None, None)
     };
     (state, warning, warning_code)
+}
+
+/// Resolves the built-in static embedding provider's readiness + download state for the UI (F1).
+///
+/// Returns `None` only when the merged config somehow lacks the built-in static provider (it is
+/// normally always present via [`crate::models::merge_embedding_providers`]). `model_downloaded`
+/// checks the consent-gated download target on disk (files present + SHA-verified); `selected` mirrors
+/// the active embedding selection. Pure over the config + filesystem — no network, no archive — so it
+/// can be surfaced even before the archive is initialized.
+fn static_embedding_status(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+) -> Option<StaticEmbeddingStatus> {
+    let provider = config
+        .ai
+        .embedding_providers
+        .iter()
+        .find(|provider| provider.id == BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)?;
+    let repo = if provider.default_model.trim().is_empty() {
+        DEFAULT_STATIC_MODEL_REPO
+    } else {
+        provider.default_model.as_str()
+    };
+    let model_downloaded =
+        model_is_present_and_verified(&model_dir_for_repo(paths, repo), DEFAULT_STATIC_MODEL_FILES);
+    Some(StaticEmbeddingStatus {
+        provider_id: provider.id.clone(),
+        model_repo: repo.to_string(),
+        model_downloaded,
+        selected: config.ai.embedding_provider_id.as_deref() == Some(provider.id.as_str()),
+        is_default: true,
+    })
 }
 
 /// Loads the persisted AI queue read model.
@@ -552,6 +621,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "disabled"
@@ -565,6 +635,7 @@ mod tests {
             &empty_counts,
             &AiIndexLedgerRow::default(),
             None,
+            false,
             false,
         );
         assert_eq!(
@@ -584,6 +655,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "rebuilding"
@@ -597,6 +669,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "paused"
@@ -609,6 +682,7 @@ mod tests {
                 &empty_counts,
                 &failed_ledger,
                 None,
+                false,
                 false,
             ),
             (
@@ -633,9 +707,26 @@ mod tests {
                 &failed_no_reason,
                 None,
                 false,
+                false,
             ),
             ("failed".to_string(), Some("2026-06-23T00:00:00Z".to_string()), None)
         );
+        // F3: an available provider with metadata rows but ZERO vectors → degraded + IndexVectorsMissing
+        // (the honest "indexed N with an empty sidecar" surface), and it OUTRANKS the stale/not-built
+        // warnings below it.
+        let vectors_missing = ai_index_state_and_warning(
+            &config,
+            &ready_provider,
+            &queue,
+            &empty_counts,
+            &AiIndexLedgerRow::default(),
+            Some(AiSemanticStaleness::Watermark),
+            false,
+            true,
+        );
+        assert_eq!(vectors_missing.0, "degraded");
+        assert_eq!(vectors_missing.2, Some(AiIndexWarning::IndexVectorsMissing));
+        assert!(vectors_missing.1.expect("missing warning").contains("no vectors"));
         let stale = ai_index_state_and_warning(
             &config,
             &ready_provider,
@@ -644,6 +735,7 @@ mod tests {
             &AiIndexLedgerRow::default(),
             Some(AiSemanticStaleness::Watermark),
             true,
+            false,
         );
         assert_eq!(stale.0, "stale");
         assert_eq!(
@@ -661,6 +753,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 true,
+                false,
             )
             .0,
             "ready"
@@ -674,6 +767,7 @@ mod tests {
                 &AiIndexLedgerRow::default(),
                 None,
                 false,
+                false,
             )
             .0,
             "queued"
@@ -685,6 +779,7 @@ mod tests {
             &empty_counts,
             &AiIndexLedgerRow::default(),
             None,
+            false,
             false,
         );
         assert_eq!(empty.0, "empty");

@@ -310,9 +310,18 @@ pub async fn build_ai_index_with_control(
 
         let notes = if outcome.indexed_items == 0 {
             vec!["No new or changed history rows required indexing.".to_string()]
+        } else if outcome.embedded_vectors == 0 {
+            // Changed visits were processed but every page was already embedded (a re-visit / pure
+            // incremental map), so NO new vector landed. Say so honestly rather than implying an embed
+            // (F3): the vectors these visits map to already live on the plane.
+            vec![format!(
+                "Mapped {} history row(s) to existing vectors; no new embeddings were needed.",
+                outcome.indexed_items
+            )]
         } else {
             vec![format!(
-                "Embedded {} history row(s) into the vector plane (dim {}).",
+                "Embedded {} page vector(s) for {} history row(s) into the vector plane (dim {}).",
+                outcome.embedded_vectors,
                 outcome.indexed_items,
                 outcome.effective_dim.unwrap_or_default()
             )]
@@ -540,6 +549,12 @@ async fn run_embedding_backfill(
     visit_map.ensure_created(paths)?;
     let mut cursor = start_history_id;
     let mut embedded_total: u64 = 0;
+    // The cursor reflecting the last chunk whose vectors+map+SQLite are ALL durably persisted (F2.1).
+    // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
+    // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
+    // (which advancing the scan `cursor` before the embed would do). Starts at the resume watermark.
+    let mut last_durable =
+        crate::ai::IndexBackfillProgress { next_history_id: start_history_id, embedded_so_far: 0 };
 
     // The crash-window dedup state (CRITICAL-2 / MEDIUM-4 / MEDIUM-5) is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists
@@ -551,102 +566,127 @@ async fn run_embedding_backfill(
         VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
     tracker.load_existing(&existing_store, &visit_map, perform_wipe)?;
 
-    loop {
-        checkpoint_ai_run(run_control, "Index build was cancelled before the next chunk.")?;
-        let remaining = limit.map(|cap| cap.saturating_sub(outcome.indexed_items));
-        if remaining == Some(0) {
-            break;
-        }
-        let chunk =
-            collect_visit_chunk(paths, connection, provider, cursor, chunk_size(remaining))?;
-        let Some(last_history_id) = chunk.last().map(|visit| visit.history_id) else {
-            break; // No more candidate rows.
-        };
-        // Advance the scan cursor past this chunk regardless of how many rows were changed, so the
-        // next pass never re-scans this id range.
-        cursor = last_history_id + 1;
+    // Run the chunked embed loop inside a Result-returning scope so an error anywhere inside it first
+    // gets a chance to checkpoint the LAST-DURABLE cursor (F2.1) before propagating — a reclaim then
+    // resumes from real progress, never the origin, and never past an un-persisted chunk.
+    let backfill_result: Result<()> = async {
+        loop {
+            checkpoint_ai_run(run_control, "Index build was cancelled before the next chunk.")?;
+            let remaining = limit.map(|cap| cap.saturating_sub(outcome.indexed_items));
+            if remaining == Some(0) {
+                break;
+            }
+            let chunk =
+                collect_visit_chunk(paths, connection, provider, cursor, chunk_size(remaining))?;
+            let Some(last_history_id) = chunk.last().map(|visit| visit.history_id) else {
+                break; // No more candidate rows.
+            };
+            // Advance the scan cursor past this chunk regardless of how many rows were changed, so the
+            // next pass never re-scans this id range.
+            cursor = last_history_id + 1;
 
-        let changed: Vec<&IndexedVisit> = chunk
-            .iter()
-            .filter(|visit| visit.needs_embedding)
-            // WorkingSet scope: keep only candidates whose page is in the bounded working set. A
-            // `None` filter (Incremental/Full) keeps everything. Pages outside the set are counted as
-            // skipped below, exactly like an unchanged page — the loop body is otherwise unchanged.
-            .filter(|visit| visit_in_working_set(&working_set_filter, &visit.url))
-            .collect();
-        outcome.skipped_items += chunk.len() - changed.len();
+            let changed: Vec<&IndexedVisit> = chunk
+                .iter()
+                .filter(|visit| visit.needs_embedding)
+                // WorkingSet scope: keep only candidates whose page is in the bounded working set. A
+                // `None` filter (Incremental/Full) keeps everything. Pages outside the set are counted as
+                // skipped below, exactly like an unchanged page — the loop body is otherwise unchanged.
+                .filter(|visit| visit_in_working_set(&working_set_filter, &visit.url))
+                .collect();
+            outcome.skipped_items += chunk.len() - changed.len();
 
-        if !changed.is_empty() {
-            // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
-            // and embed each ONCE (the page identity is the FULL `content_hash`, MEDIUM-4).
-            let embed_targets = tracker.select_targets(&changed);
+            if !changed.is_empty() {
+                // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
+                // and embed each ONCE (the page identity is the FULL `content_hash`, MEDIUM-4).
+                let embed_targets = tracker.select_targets(&changed);
 
-            if !embed_targets.is_empty() {
-                let texts: Vec<String> =
-                    embed_targets.iter().map(|visit| visit.content.clone()).collect();
-                let vectors = await_with_ai_cancellation(
-                    run_control,
-                    "Index build was cancelled while embedding a chunk.",
-                    embedder.embed(&texts, EmbeddingRole::Document),
-                )
-                .await?;
-                let content_keys: Vec<u64> =
-                    embed_targets.iter().map(|visit| visit.content_key).collect();
-                let (effective_dim, records) =
-                    validate_embedding_batch_for_keys(&content_keys, &vectors)?;
-                outcome.effective_dim = Some(effective_dim);
-                // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
-                // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
-                // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
-                // candle = LastToken, external = Unknown), so two engines never share a fingerprint.
-                let store = vector_store_for_chunk(
-                    &mut store,
-                    paths,
-                    provider,
-                    &embedder.descriptor(),
-                    effective_dim,
-                    perform_wipe,
-                )?;
-                // Every record here is a page we have NOT embedded this run (the full-hash dedup above
-                // guaranteed it), so all are appended. Record each page's FULL hash + u64 key so a
-                // later chunk / resume skips it (MEDIUM-4: the full hash is the work identity; the u64
-                // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
-                // collision; `read_all` last-writer-wins resolves that storage-boundary case.
-                for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
-                    tracker.record_embedded(*key, &visit.content_hash);
+                if !embed_targets.is_empty() {
+                    let texts: Vec<String> =
+                        embed_targets.iter().map(|visit| visit.content.clone()).collect();
+                    let vectors = await_with_ai_cancellation(
+                        run_control,
+                        "Index build was cancelled while embedding a chunk.",
+                        embedder.embed(&texts, EmbeddingRole::Document),
+                    )
+                    .await?;
+                    let content_keys: Vec<u64> =
+                        embed_targets.iter().map(|visit| visit.content_key).collect();
+                    let (effective_dim, records) =
+                        validate_embedding_batch_for_keys(&content_keys, &vectors)?;
+                    outcome.effective_dim = Some(effective_dim);
+                    // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
+                    // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
+                    // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
+                    // candle = LastToken, external = Unknown), so two engines never share a fingerprint.
+                    let store = vector_store_for_chunk(
+                        &mut store,
+                        paths,
+                        provider,
+                        &embedder.descriptor(),
+                        effective_dim,
+                        perform_wipe,
+                    )?;
+                    // Every record here is a page we have NOT embedded this run (the full-hash dedup above
+                    // guaranteed it), so all are appended. Record each page's FULL hash + u64 key so a
+                    // later chunk / resume skips it (MEDIUM-4: the full hash is the work identity; the u64
+                    // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
+                    // collision; `read_all` last-writer-wins resolves that storage-boundary case.
+                    for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
+                        tracker.record_embedded(*key, &visit.content_hash);
+                    }
+                    // Persist vectors FIRST so the watermark we report is always backed by on-disk data.
+                    store.append_vectors(&records)?;
+                    // Count the vectors that actually landed on `.pkvec` (F3 0-byte honesty): the build's
+                    // honesty note + the empty-store guard read this, not the per-visit `indexed_items`.
+                    outcome.embedded_vectors += records.len() as u64;
                 }
-                // Persist vectors FIRST so the watermark we report is always backed by on-disk data.
-                store.append_vectors(&records)?;
+
+                // Map EVERY changed visit to its content_key (skip ones a prior crash already mapped), so
+                // search/heavy-tier can fan a deduped vector out to all its visits. SQLite metadata is
+                // (re-)written for every changed visit so its dedup hash catches up and it is not
+                // re-scanned. Both are per-visit; only the VECTOR is deduped.
+                let map_records = tracker.take_unmapped(&changed);
+                visit_map.append(&map_records)?;
+
+                let indexed_at = now_rfc3339();
+                for visit in &changed {
+                    let was_present = upsert_embedding(connection, provider, visit, &indexed_at)?;
+                    outcome.indexed_items += 1;
+                    if was_present {
+                        outcome.updated_items += 1;
+                    }
+                }
+                embedded_total += changed.len() as u64;
             }
 
-            // Map EVERY changed visit to its content_key (skip ones a prior crash already mapped), so
-            // search/heavy-tier can fan a deduped vector out to all its visits. SQLite metadata is
-            // (re-)written for every changed visit so its dedup hash catches up and it is not
-            // re-scanned. Both are per-visit; only the VECTOR is deduped.
-            let map_records = tracker.take_unmapped(&changed);
-            visit_map.append(&map_records)?;
-
-            let indexed_at = now_rfc3339();
-            for visit in &changed {
-                let was_present = upsert_embedding(connection, provider, visit, &indexed_at)?;
-                outcome.indexed_items += 1;
-                if was_present {
-                    outcome.updated_items += 1;
-                }
-            }
-            embedded_total += changed.len() as u64;
-        }
-
-        if let Some(ledger) = ledger {
-            ledger.record(crate::ai::IndexBackfillProgress {
+            // This chunk's vectors + map + SQLite are now ALL on disk, so the cursor past it is durable.
+            // Record it as the resume watermark AND as the last-durable checkpoint so a later failure
+            // re-persists this position (never the origin, never the un-persisted next chunk).
+            last_durable = crate::ai::IndexBackfillProgress {
                 next_history_id: cursor,
                 embedded_so_far: embedded_total,
-            })?;
-        }
+            };
+            if let Some(ledger) = ledger {
+                ledger.record(last_durable)?;
+            }
 
-        if chunk.len() < chunk_size(remaining) {
-            break; // Final (short) chunk: no more rows beyond this id range.
+            if chunk.len() < chunk_size(remaining) {
+                break; // Final (short) chunk: no more rows beyond this id range.
+            }
         }
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = backfill_result {
+        // F2.1: persist the LAST-DURABLE cursor before surfacing the failure, so a worker that
+        // reclaims this job resumes from the rows already on disk instead of restarting at the origin
+        // (the stuck "resume writes 0 / never recovers" bug). Best-effort: a secondary persist error
+        // must not mask the original failure, and a lease-loss persist is itself the abort signal.
+        if let Some(ledger) = ledger {
+            let _ = ledger.record(last_durable);
+        }
+        return Err(error);
     }
     Ok(outcome)
 }

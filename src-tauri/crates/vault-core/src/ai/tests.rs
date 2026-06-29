@@ -79,6 +79,34 @@ fn embedding_provider() -> AiProviderRuntime {
     }
 }
 
+/// The built-in in-app STATIC embedding provider runtime (F1) — routes the embed loop to the real
+/// in-memory static engine (`AnyEmbeddingProvider::Static`) via the `static:in-app` sentinel.
+fn static_embedding_provider() -> AiProviderRuntime {
+    AiProviderRuntime {
+        config: AiProviderConfig {
+            id: crate::models::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string(),
+            name: "In-app static (local)".to_string(),
+            purpose: AiProviderPurpose::Embedding,
+            request_format: AiRequestFormat::OpenAi,
+            enabled: true,
+            base_url: Some(STATIC_INAPP_BASE_URL.to_string()),
+            default_model: DEFAULT_STATIC_MODEL_REPO.to_string(),
+            dimensions: None,
+            ..AiProviderConfig::default()
+        },
+        api_key: None,
+    }
+}
+
+/// An embedding provider whose configured `dimensions = 0` makes the (stub) transport return empty
+/// vectors — used to exercise the F3 0-byte honesty path (the build must FAIL, never count rows).
+fn zero_dim_embedding_provider() -> AiProviderRuntime {
+    AiProviderRuntime {
+        config: AiProviderConfig { dimensions: Some(0), ..embedding_provider().config },
+        api_key: Some("secret".into()),
+    }
+}
+
 fn llm_provider() -> AiProviderRuntime {
     AiProviderRuntime {
         config: AiProviderConfig {
@@ -662,12 +690,34 @@ fn ai_index_status_reports_ready_with_existing_embeddings() {
     let provider = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/ready", Some("Ready"), 1);
     seed_embedding(&connection, 1, &provider, "hash-ready");
+    // F3: readiness now requires REAL vectors on the `.pkvec` plane, not just SQLite metadata rows.
+    seed_vector_planes(&paths, &provider, &[(1, 0xA1, vec![1.0, 0.0, 0.0])]);
 
     let status = ai_index_status(&paths, &config, None).expect("status");
     assert!(status.ready);
     assert_eq!(status.state, "ready");
     assert_eq!(status.indexed_items, 1);
+    assert_eq!(status.semantic_vector_count, 1, "the real .pkvec vector count is surfaced");
     assert!(status.last_indexed_at.is_some());
+}
+
+#[test]
+fn ai_index_status_flags_metadata_rows_with_an_empty_vector_store() {
+    // F3 (0-byte honesty): SQLite `ai_embeddings` rows exist (a build counted rows) but NO vectors
+    // landed on the `.pkvec` plane. The status must NOT report "ready, N indexed" — it surfaces the
+    // honest `IndexVectorsMissing` warning, a degraded state, and the real (zero) vector count.
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/ghost", Some("Ghost"), 1);
+    seed_embedding(&connection, 1, &provider, "hash-ghost");
+    // Deliberately do NOT seed vector planes — the dishonest "indexed N with an empty sidecar" case.
+
+    let status = ai_index_status(&paths, &config, None).expect("status");
+    assert!(!status.ready, "metadata rows without vectors are NOT ready");
+    assert_eq!(status.state, "degraded");
+    assert_eq!(status.indexed_items, 1, "the SQLite metadata count is still reported honestly");
+    assert_eq!(status.semantic_vector_count, 0, "the REAL vector count is zero");
+    assert_eq!(status.warning_code, Some(AiIndexWarning::IndexVectorsMissing));
 }
 
 #[test]
@@ -1682,6 +1732,202 @@ fn build_ai_index_embeds_rows_into_vector_plane() {
 }
 
 #[test]
+fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_page() {
+    // HEADLINE (F1 + F4 + F3): build the index with the BUILT-IN STATIC tier over a few seeded rows
+    // through the REAL in-memory static engine → assert `.pkvec` is NON-ZERO and the vector count
+    // matches `indexed_items` → semantic search resolves the seeded page. This exercises the real
+    // static embed (tokenize → matrix lookup → mean-pool → L2-norm), not a digest stub.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = static_embedding_provider();
+    // Each page carries a DISTINCTIVE vocab word in its title so the bag-of-words static vectors are
+    // separable: only the "kestrel" page contains "kestrel".
+    seed_visit(
+        &connection,
+        1,
+        "chrome:Default",
+        "https://example.com/a",
+        Some("kestrel falcon"),
+        1,
+    );
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/b", Some("banana zebra"), 2);
+    seed_visit(&connection, 3, "chrome:Default", "https://example.com/c", Some("quantum otter"), 3);
+    drop(connection);
+
+    let report = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("static build");
+    assert_eq!(report.indexed_items, 3);
+    assert!(
+        report.notes[0].contains("page vector"),
+        "honest note reports vectors: {:?}",
+        report.notes
+    );
+
+    // The `.pkvec` plane is NON-ZERO and its vector count matches the indexed rows (F3 honesty).
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert!(store.exists());
+    let vector_count = store.count().expect("count");
+    assert_eq!(vector_count, 3, "one vector per distinct page");
+    assert_eq!(vector_count, report.indexed_items as u64, "vector count == indexed_items");
+    assert!(
+        store.path().metadata().expect("meta").len() > 0,
+        "the .pkvec store holds non-zero bytes"
+    );
+    // The stored vectors are the static engine's real dim (not the candle/external stub dim).
+    let header = store.read_header().expect("header").expect("present");
+    assert!(header.dim > 1, "static engine produced a real multi-dim vector (dim {})", header.dim);
+
+    // Semantic search through the SAME static engine resolves the page carrying the query word.
+    let response = runtime
+        .block_on(semantic_search_history(
+            &paths,
+            &config,
+            None,
+            Some(&provider),
+            &AiSearchRequest {
+                query: "kestrel".to_string(),
+                profile_id: None,
+                domain: None,
+                limit: Some(5),
+                cursor: None,
+                sort: None,
+                starred_only: None,
+                start_date: None,
+                end_date: None,
+            },
+        ))
+        .expect("semantic search");
+    assert!(
+        response.items.iter().any(|item| item.url == "https://example.com/a"),
+        "semantic search over the real static index returns the seeded 'kestrel' page; got {:?}",
+        response.items.iter().map(|item| &item.url).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn empty_vector_provider_fails_the_build_without_counting_or_writing_a_store() {
+    // HEADLINE (F3): a provider/path that yields empty (zero-dim) vectors must surface a real failure
+    // and NEVER report success with an empty store — `indexed_items` stays 0 and no `.pkvec` is left.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = zero_dim_embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/x", Some("Page"), 1);
+    drop(connection);
+
+    let error = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect_err("a zero-dim provider must fail the build, not report success");
+    assert!(
+        error.to_string().contains("empty vector"),
+        "the failure names the empty-vector cause: {error}"
+    );
+
+    // No vector store was created (nothing was honestly indexed).
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert!(!store.exists(), "no .pkvec store is left behind by a failed empty-vector build");
+
+    // The status read model reports zero vectors (and is NOT ready) for this provider.
+    let mut status_config = config.clone();
+    status_config.ai.embedding_provider_id = Some(provider.config.id.clone());
+    status_config.ai.embedding_providers = vec![provider.config.clone()];
+    let status = ai_index_status(&paths, &status_config, None).expect("status");
+    assert_eq!(status.semantic_vector_count, 0);
+    assert!(!status.ready);
+}
+
+#[test]
+fn incremental_revisit_build_maps_without_embedding_and_reports_it_honestly() {
+    // F3 honesty note: a NEW visit of an ALREADY-embedded page is MAPPED but produces NO new vector,
+    // so the build reports "Mapped N row(s) to existing vectors" rather than implying a fresh embed.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/p", Some("Page"), 1);
+    let first = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("first build");
+    assert_eq!(first.indexed_items, 1);
+    let store =
+        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+    assert_eq!(store.count().expect("count"), 1);
+
+    // A NEW visit (history_id 2) of the SAME page (same url_id → same content_key).
+    seed_extra_visit(&connection, 2, 1, 2);
+    drop(connection);
+    let second = runtime
+        .block_on(build_ai_index(&paths, &config, None, &provider, &AiIndexRequest::default()))
+        .expect("second build");
+    assert_eq!(second.indexed_items, 1, "the new visit is processed (mapped)");
+    assert_eq!(
+        store.count().expect("count after revisit"),
+        1,
+        "no new vector — page already embedded"
+    );
+    assert!(second.notes[0].contains("Mapped"), "honest mapped note: {:?}", second.notes);
+}
+
+#[test]
+fn build_with_ledger_persists_last_durable_checkpoint_on_failure() {
+    // F2.1: when a chunk fails, the LAST-DURABLE cursor is persisted via the ledger BEFORE the error
+    // propagates, so a reclaim resumes from real progress (here the origin, since the first chunk
+    // itself fails). Without the failure-path checkpoint the ledger would never see this position.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/x", Some("Page"), 1);
+    drop(connection);
+    let ledger = Arc::new(RecordingLedger::default());
+    let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
+    let error = runtime
+        .block_on(build_ai_index_with_control(
+            &paths,
+            &config,
+            None,
+            &zero_dim_embedding_provider(),
+            &AiIndexRequest::default(),
+            None,
+            0,
+            Some(dyn_ledger),
+        ))
+        .expect_err("zero-dim build fails");
+    assert!(error.to_string().contains("empty vector"));
+    let progresses = ledger.snapshot();
+    assert_eq!(
+        progresses.last().copied(),
+        Some(IndexBackfillProgress { next_history_id: 0, embedded_so_far: 0 }),
+        "the failure path persisted the last-durable checkpoint (origin) through the ledger"
+    );
+}
+
+#[test]
+fn ai_index_status_surfaces_the_builtin_static_provider_for_the_ui() {
+    // F1 surfacing: the status read model carries the built-in static provider's id, model repo,
+    // download state, selection, and default flag so the Settings selector can render them.
+    let (paths, mut config, _connection) = prepared_archive();
+    let static_provider = crate::models::built_in_static_embedding_provider();
+    config.ai.embedding_providers = vec![static_provider.clone()];
+    config.ai.embedding_provider_id = Some(static_provider.id.clone());
+
+    let status = ai_index_status(&paths, &config, None).expect("status");
+    let surfaced = status.static_embedding.expect("static embedding surfaced");
+    assert_eq!(surfaced.provider_id, crate::models::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID);
+    assert_eq!(surfaced.model_repo, DEFAULT_STATIC_MODEL_REPO);
+    assert!(!surfaced.model_downloaded, "no static model files on disk in tests");
+    assert!(surfaced.selected, "the built-in static provider is the active selection");
+    assert!(surfaced.is_default);
+
+    // The empty-default-model branch resolves the repo to the canonical default.
+    config.ai.embedding_providers[0].default_model = String::new();
+    let status_empty = ai_index_status(&paths, &config, None).expect("status empty model");
+    assert_eq!(
+        status_empty.static_embedding.expect("static").model_repo,
+        DEFAULT_STATIC_MODEL_REPO
+    );
+}
+
+#[test]
 fn select_working_set_ranks_starred_first_then_other_signals() {
     // W-AI-4c heavy-working-set selector (05 §4/§8): the shared hook ranks unique-content candidates
     // by starred (top) ∪ recent ∪ annotated ∪ frequency, bounded + indexed off the archive.
@@ -2671,6 +2917,15 @@ fn validate_embedding_batch_pairs_keys_and_guards_shape() {
     let ragged_error = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.1, 0.2], vec![0.3]])
         .expect_err("ragged batch");
     assert!(ragged_error.to_string().contains("ragged batch"));
+
+    // F3 (0-byte honesty): an all-zero batch (right dim, no signal) is rejected, not counted.
+    let zero_error = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.0, 0.0], vec![0.0, 0.0]])
+        .expect_err("all-zero batch");
+    assert!(zero_error.to_string().contains("only zero vectors"));
+    // A batch with at least one real vector still passes (a single degenerate row is tolerated).
+    let (_, mixed) = validate_embedding_batch_for_keys(&[1, 2], &[vec![0.0, 0.0], vec![0.0, 1.0]])
+        .expect("mixed");
+    assert_eq!(mixed.len(), 2);
 }
 
 /// Builds a synthetic `IndexedVisit` for the pure dedup-selection tests (no archive needed).

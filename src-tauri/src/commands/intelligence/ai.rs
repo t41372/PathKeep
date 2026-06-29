@@ -167,6 +167,21 @@ pub(crate) async fn build_ai_index(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Recovers a wedged semantic-index build (clears stuck job(s) + re-enqueues a clean one), off the
+/// UI thread (F2).
+pub(crate) async fn reset_ai_index_build(
+    request: vault_core::AiIndexRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiIndexReport, String> {
+    let key = state.get_key();
+    run_blocking_command("reset_ai_index_build", move || {
+        worker_bridge::reset_ai_index_build_impl(request, key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Returns a read-only cost/time estimate for a re-embed run of the given scope (W-AI-9 Sub-block D).
 ///
 /// No model load, no embedding, no network: it sizes the work (bounded working-set length or unique
