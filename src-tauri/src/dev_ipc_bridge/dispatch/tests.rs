@@ -290,6 +290,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     );
     dispatch_for_coverage(&state, "set_session_database_key", json!({ "databaseKey": "key" }));
     dispatch_for_coverage(&state, "clear_session_database_key", json!({}));
+    dispatch_for_coverage(&state, "reconcile_archive_encryption", json!({}));
     dispatch_for_coverage(
         &state,
         "set_app_lock_passcode",
@@ -357,6 +358,7 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
     dispatch_for_coverage(&state, "mark_og_images_shown", json!({ "urls": [] }));
     dispatch_for_coverage(&state, "trigger_og_image_refetch", json!({ "urls": [] }));
     dispatch_for_coverage(&state, "get_og_image_storage_stats", json!({}));
+    dispatch_for_coverage(&state, "get_og_image_coverage_stats", json!({}));
     dispatch_for_coverage(&state, "clear_og_image_cache", json!({}));
     dispatch_for_coverage(&state, "run_og_image_cleanup", json!({}));
     dispatch_for_coverage(

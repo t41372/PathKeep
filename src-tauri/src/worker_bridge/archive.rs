@@ -30,6 +30,15 @@ pub(crate) fn rekey_archive_impl(
     Ok(snapshot)
 }
 
+/// Self-heals a drifted encryption-at-rest state (e.g. an encrypted config left
+/// over a plaintext source-evidence by an archive-only rekey) using the unlocked
+/// session key. Safe no-op when already consistent.
+pub(crate) fn reconcile_archive_encryption_impl(
+    state: &SessionState,
+) -> Result<vault_core::ReconcileReport, String> {
+    worker_result(vault_worker::reconcile_archive_encryption(session_key(state).as_deref()))
+}
+
 /// Previews the impact of an archive rekey/mode switch.
 pub(crate) fn preview_rekey_archive_impl(
     request: RekeyRequest,
@@ -166,6 +175,14 @@ pub(crate) fn og_image_storage_stats_impl(
     session_database_key: Option<&str>,
 ) -> Result<vault_core::OgImageStorageStats, String> {
     worker_result(vault_worker::og_image_storage_stats(session_database_key))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Reports og:image coverage (share of web pages with a preview) to Settings.
+pub(crate) fn og_image_coverage_stats_impl(
+    session_database_key: Option<&str>,
+) -> Result<vault_core::OgImageCoverageStats, String> {
+    worker_result(vault_worker::og_image_coverage_stats(session_database_key))
 }
 
 #[cfg_attr(test, allow(dead_code))]

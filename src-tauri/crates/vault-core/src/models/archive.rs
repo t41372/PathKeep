@@ -348,6 +348,23 @@ pub struct OgImageStorageStats {
     pub oldest_fetched_at: Option<String>,
 }
 
+/// Coverage of og:image fetching across the archive's web pages, surfaced in
+/// Settings → Link previews. Raw counts only — the UI derives the percentages so
+/// it can present both coverage (of all eligible pages) and the success rate (of
+/// pages actually checked) honestly.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgImageCoverageStats {
+    /// Distinct HTTPS pages in the archive — the eligible denominator. Only
+    /// https is counted: the fetcher never fetches http:// (it short-circuits to
+    /// `parse_error`), so http pages can never carry a preview.
+    pub eligible_pages: i64,
+    /// Distinct HTTPS pages an og:image fetch has been attempted for.
+    pub attempted_pages: i64,
+    /// Pages with a successfully fetched og:image (`fetch_status = 'ok'`).
+    pub pages_with_image: i64,
+}
+
 /// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
 /// and only manual "Clear cache" clears it.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

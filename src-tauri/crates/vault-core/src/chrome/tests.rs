@@ -882,6 +882,70 @@ fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
 }
 
 #[test]
+fn stage_profile_snapshot_reports_a_favicons_fallback_as_a_warning() {
+    use rusqlite::Connection;
+
+    let profile_dir = tempdir().expect("profile dir");
+    // A clean History takes the online-snapshot path (no warning)...
+    {
+        let db = Connection::open(profile_dir.path().join("History")).expect("open history");
+        db.execute_batch("CREATE TABLE meta (id INTEGER PRIMARY KEY);").expect("seed history");
+    }
+    // ...while a non-SQLite Favicons forces the raw-copy fallback, which must be
+    // surfaced as a per-source warning (the previously-uncovered favicons arm).
+    fs::write(profile_dir.path().join("Favicons"), b"this is not a favicons database")
+        .expect("write garbage favicons");
+
+    let staging_root = tempdir().expect("staging root");
+    let paths = sample_paths(staging_root.path());
+    fs::create_dir_all(&paths.staging_dir).expect("create staging dir");
+
+    let profile = BrowserProfile {
+        profile_id: "chrome:Default".to_string(),
+        profile_name: "Default".to_string(),
+        browser_family: "chromium".to_string(),
+        browser_name: "Google Chrome".to_string(),
+        user_name: None,
+        profile_path: profile_dir.path().display().to_string(),
+        history_path: Some(profile_dir.path().join("History").display().to_string()),
+        favicons_path: Some(profile_dir.path().join("Favicons").display().to_string()),
+        history_exists: true,
+        history_readable: true,
+        access_issue: None,
+        browser_version: None,
+        history_file_name: "History".to_string(),
+        history_bytes: 0,
+        favicons_bytes: 0,
+        supporting_bytes: 0,
+        retention_boundary: retention_boundary_for_browser("chromium"),
+    };
+
+    let staged = stage_profile_snapshot(&paths, &profile).expect("stage profile");
+    assert_eq!(staged.warnings.len(), 1, "the favicons fallback must be the only warning");
+    assert!(
+        staged.warnings[0].contains("Favicons"),
+        "the warning must name the Favicons source: {}",
+        staged.warnings[0]
+    );
+}
+
+#[test]
+fn recover_staged_database_errors_on_a_non_database_file() {
+    // recover_staged_database is normally guarded by an is_sqlite_database header
+    // check, but the journal-mode error context must still be exercised: a file
+    // that opens but is not a real database fails the PRAGMA journal_mode pass.
+    let dir = tempdir().expect("dir");
+    let path = dir.path().join("History");
+    fs::write(&path, b"definitely not a sqlite database file").expect("write garbage");
+    let error = recover_staged_database(&path).expect_err("a non-database must error");
+    let chain = format!("{error:#}");
+    assert!(
+        chain.contains("normalizing journal mode") || chain.contains("verifying recovered"),
+        "unexpected error chain: {chain}"
+    );
+}
+
+#[test]
 fn recover_staged_database_folds_a_captured_wal_into_the_main_file() {
     use rusqlite::{Connection, OpenFlags};
 

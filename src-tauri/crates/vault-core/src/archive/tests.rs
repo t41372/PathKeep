@@ -2467,6 +2467,63 @@ fn backup_progress_and_warning_helpers_preserve_failure_contracts() {
 }
 
 #[test]
+fn backup_surfaces_a_degraded_staging_fallback_as_a_run_warning() {
+    // A History captured mid-write (a hot rollback journal) cannot take the online
+    // snapshot, so staging falls back to the raw-copy + recover path. The recovered
+    // copy still parses (the uncommitted write rolls back), so the backup COMPLETES
+    // — but the degraded path must surface as a visible run warning, not be
+    // swallowed (the backup-level degraded-staging emit).
+    let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let history = chrome_root.join("Default").join("History");
+
+    // Freeze a hot rollback journal next to the fixture History (mirrors the
+    // chrome staging test's `capture_hot_journal_pair`): flush an uncommitted
+    // header write into a journal on a scratch copy, then snapshot the (db,
+    // journal) pair over the fixture.
+    {
+        let scratch = dir.path().join("History.hot");
+        fs::copy(&history, &scratch).expect("copy clean history");
+        let writer = Connection::open(&scratch).expect("reopen history");
+        writer
+            .execute_batch("BEGIN IMMEDIATE;\nUPDATE urls SET title = 'in-flight' WHERE id = 1;")
+            .expect("start uncommitted write");
+        writer.cache_flush().expect("flush dirty pages into the rollback journal");
+        let scratch_journal = PathBuf::from(format!("{}-journal", scratch.display()));
+        assert!(scratch_journal.exists(), "an uncommitted flush must leave a rollback journal");
+        fs::copy(&scratch, &history).expect("freeze hot db over fixture");
+        fs::copy(&scratch_journal, PathBuf::from(format!("{}-journal", history.display())))
+            .expect("freeze hot journal over fixture");
+        writer.execute_batch("ROLLBACK").ok();
+    }
+
+    let original_override = std::env::var_os("CHB_CHROME_USER_DATA_DIR");
+    unsafe {
+        std::env::set_var("CHB_CHROME_USER_DATA_DIR", &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        git_enabled: false,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let report = run_backup(&paths, &config, None, false);
+    restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_override.as_deref());
+    let report = report.expect("backup completes after recovering the hot-journal history");
+
+    assert!(
+        report.warnings.iter().any(|warning| warning.contains("recovered file copy")),
+        "a recovered hot-journal staging must be reported as a run warning: {:?}",
+        report.warnings
+    );
+}
+
+#[test]
 fn backup_marks_run_failed_when_readable_profile_cannot_be_staged() {
     let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");

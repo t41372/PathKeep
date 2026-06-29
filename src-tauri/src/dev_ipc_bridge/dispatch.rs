@@ -90,6 +90,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;
             json_value!(worker_bridge::rekey_archive_impl(payload.request, &state.session)?)
         }
+        "reconcile_archive_encryption" => {
+            json_value!(worker_bridge::reconcile_archive_encryption_impl(&state.session)?)
+        }
         "preview_snapshot_restore" => {
             let payload = parse_payload::<WrappedRequest<SnapshotRestoreRequest>>(payload)?;
             json_value!(worker_bridge::preview_snapshot_restore_impl(
@@ -178,6 +181,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "get_og_image_storage_stats" => {
             json_value!(worker_bridge::og_image_storage_stats_impl(
+                session_key(&state.session).as_deref()
+            )?)
+        }
+        "get_og_image_coverage_stats" => {
+            json_value!(worker_bridge::og_image_coverage_stats_impl(
                 session_key(&state.session).as_deref()
             )?)
         }

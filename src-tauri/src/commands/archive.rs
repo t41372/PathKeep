@@ -40,6 +40,19 @@ pub(crate) async fn rekey_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Self-heals a drifted encryption-at-rest state after unlock, off the UI thread.
+pub(crate) async fn reconcile_archive_encryption(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ReconcileReport, String> {
+    let session = state.inner().clone();
+    run_blocking_command("reconcile_archive_encryption", move || {
+        worker_bridge::reconcile_archive_encryption_impl(&session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Previews the archive rekey plan before any encryption-mode mutation happens, off the UI thread.
 pub(crate) async fn preview_rekey_archive(
     request: RekeyRequest,
@@ -223,6 +236,19 @@ pub(crate) async fn get_og_image_storage_stats(
     let session_database_key = state.get_key();
     run_blocking_command("get_og_image_storage_stats", move || {
         worker_bridge::og_image_storage_stats_impl(session_database_key.as_deref())
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reports og:image coverage (share of web pages with a preview image), off the UI thread.
+pub(crate) async fn get_og_image_coverage_stats(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::OgImageCoverageStats, String> {
+    let session_database_key = state.get_key();
+    run_blocking_command("get_og_image_coverage_stats", move || {
+        worker_bridge::og_image_coverage_stats_impl(session_database_key.as_deref())
     })
     .await
 }

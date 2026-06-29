@@ -825,6 +825,12 @@ mod tests {
             repair_health_impl(session_key(&session).as_deref()).expect("repair health report");
         assert!(repair.run_id.is_none() || repair.run_id > Some(run_id));
 
+        // Unlock-time encryption reconcile: a consistent archive needs no repair.
+        // Exercises the full glue chain (bridge → worker → vault-core).
+        let reconcile =
+            reconcile_archive_encryption_impl(&session).expect("reconcile archive encryption");
+        assert!(!reconcile.repaired, "a consistent archive needs no at-rest repair");
+
         // OPTIONAL key: Test-connection against a provider with NO stored key must PROBE it, not
         // pre-fail on PathKeep's own missing-key precondition. This crate links the REAL vault-core,
         // so the verdict is mode-dependent: under the coverage stub the keyless probe reports `ok`;
@@ -1053,6 +1059,10 @@ mod tests {
 
         let _initial_stats = super::og_image_storage_stats_impl(session_key(&session).as_deref())
             .expect("og:image storage stats");
+
+        let coverage = super::og_image_coverage_stats_impl(session_key(&session).as_deref())
+            .expect("og:image coverage stats");
+        assert!(coverage.eligible_pages >= coverage.pages_with_image);
 
         let _cleanup = super::run_og_image_cleanup_impl(session_key(&session).as_deref())
             .expect("og:image cleanup pass");

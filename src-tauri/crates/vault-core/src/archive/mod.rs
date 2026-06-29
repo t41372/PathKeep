@@ -24,6 +24,7 @@
 //!   copies and keep expensive work off the UI thread.
 
 mod artifacts;
+mod at_rest;
 mod backup;
 mod doctor;
 mod history;
@@ -48,6 +49,10 @@ pub(crate) use self::artifacts::{
     SnapshotArtifact, collect_schema_payload, create_snapshot_artifact,
     load_checkpoint_profile_snapshot, load_snapshot_record, record_snapshot_reference,
     serialize_payload,
+};
+pub use self::at_rest::{ReconcileReport, reconcile_archive_encryption};
+pub(crate) use self::at_rest::{
+    migrate_source_evidence_for_rekey, reconcile_source_evidence_with_archive,
 };
 pub use self::backup::{run_backup, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;

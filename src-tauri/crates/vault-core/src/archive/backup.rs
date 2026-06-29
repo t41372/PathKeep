@@ -104,6 +104,12 @@ where
     }
 
     let mut connection = super::open_archive_connection(paths, config, key)?;
+    // Self-heal a drifted at-rest mode (e.g. an encrypted config left over a
+    // plaintext source-evidence by an archive-only rekey) BEFORE opening
+    // source-evidence — otherwise `PRAGMA key` on the plaintext file makes
+    // SQLCipher decode the plaintext header as ciphertext and abort with
+    // SQLITE_NOMEM ("out of memory") on every backup. No-op when consistent.
+    super::reconcile_source_evidence_with_archive(&connection, paths, config, key)?;
     let mut source_evidence = super::open_source_evidence_connection(paths, config, key)?;
 
     if due_only && let Some(reason) = backup_due_skip_reason(&connection, config)? {

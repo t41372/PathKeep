@@ -18,7 +18,7 @@ use crate::context::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
-    AppConfig, AppSnapshot, ArchiveMode, RuntimeDiagnostics, archive_status,
+    AppConfig, AppSnapshot, ArchiveMode, ReconcileReport, RuntimeDiagnostics, archive_status,
     ensure_app_lock_unlocked, ensure_archive_initialized, hydrate_app_lock_config,
     load_import_batches, load_recent_runs, rekey_archive, save_config,
     validate_app_lock_config_with_biometric,
@@ -218,6 +218,16 @@ pub fn rekey_archive_database(
     next_config.initialized = true;
     save_config(&paths, &next_config)?;
     app_snapshot(request.new_key.as_deref().or(old_key))
+}
+
+/// Self-heals a drifted encryption-at-rest state proactively, right after the
+/// archive is unlocked, so the user does not have to wait for (and watch fail)
+/// their next backup. Converges `source-evidence` to the configured archive mode
+/// and reports whether anything was repaired. A cheap no-op when consistent.
+pub fn reconcile_archive_encryption(session_database_key: Option<&str>) -> Result<ReconcileReport> {
+    let paths = vault_core::project_paths()?;
+    let config = load_unlocked_config(&paths)?;
+    vault_core::reconcile_archive_encryption(&paths, &config, session_database_key)
 }
 
 #[cfg(test)]

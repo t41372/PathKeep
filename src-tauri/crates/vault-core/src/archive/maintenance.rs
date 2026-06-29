@@ -421,6 +421,12 @@ pub fn rekey_archive(
     let _ = fs::remove_file(&backup_path);
 
     match save_config(paths, &next_config)
+        // Migrate source-evidence to the new at-rest mode in lockstep with the
+        // archive. Historically the rekey migrated only the archive, which
+        // drifted source-evidence and broke every subsequent backup with
+        // SQLITE_NOMEM. Chained here so a migration failure finalizes THIS rekey
+        // run as failed instead of leaving a half-migrated, un-finalized run.
+        .and_then(|_| super::migrate_source_evidence_for_rekey(paths, old_key, target_key))
         .and_then(|_| archive_status(paths, &next_config, target_key))
     {
         Ok(status) => {
