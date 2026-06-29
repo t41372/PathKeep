@@ -170,6 +170,7 @@ export const jobsNamespaceCatalog = {
     headerSummaryRunningNotSafe: '{running} running',
     headerSummaryRunningWaiting: '{running} running · {queued} waiting',
     headerSummaryPausedQueued: 'Queue paused · {queued} waiting',
+    headerSummaryQueued: '{queued} waiting',
     headerSummaryAllCaughtUp: 'All caught up · last activity {time}',
     headerSummaryNoActivity: 'All caught up · no recent activity',
 
@@ -193,6 +194,7 @@ export const jobsNamespaceCatalog = {
     badgeSafeToClose: 'Safe to close · resumes where it left off',
     badgePerFileResume:
       'Restarts the current file if you quit (finished files are kept)',
+    badgeRestartWhole: 'Your data is safe, but this restarts if you quit',
     badgeCannotResume: "Can't resume — was interrupted",
 
     // Action buttons
@@ -376,6 +378,7 @@ export const jobsNamespaceCatalog = {
     headerSummaryRunningNotSafe: '{running} 个运行中',
     headerSummaryRunningWaiting: '{running} 个运行中 · {queued} 个等待中',
     headerSummaryPausedQueued: '队列已暂停 · {queued} 个等待中',
+    headerSummaryQueued: '{queued} 个等待中',
     headerSummaryAllCaughtUp: '一切就绪 · 最近活动 {time}',
     headerSummaryNoActivity: '一切就绪 · 暂无最近活动',
 
@@ -395,6 +398,7 @@ export const jobsNamespaceCatalog = {
 
     badgeSafeToClose: '可以关闭 · 下次会从中断处继续',
     badgePerFileResume: '退出会重新下载当前文件（已完成的文件不受影响）',
+    badgeRestartWhole: '数据安全，但退出后需重新开始',
     badgeCannotResume: '无法继续 — 已中断',
 
     actionRetry: '重试',
@@ -573,6 +577,7 @@ export const jobsNamespaceCatalog = {
     headerSummaryRunningNotSafe: '{running} 個執行中',
     headerSummaryRunningWaiting: '{running} 個執行中 · {queued} 個等待中',
     headerSummaryPausedQueued: '佇列已暫停 · {queued} 個等待中',
+    headerSummaryQueued: '{queued} 個等待中',
     headerSummaryAllCaughtUp: '一切就緒 · 最近活動 {time}',
     headerSummaryNoActivity: '一切就緒 · 暫無最近活動',
 
@@ -592,6 +597,7 @@ export const jobsNamespaceCatalog = {
 
     badgeSafeToClose: '可以關閉 · 下次會從中斷處繼續',
     badgePerFileResume: '退出會重新下載目前檔案（已完成的檔案不受影響）',
+    badgeRestartWhole: '資料安全，但退出後需重新開始',
     badgeCannotResume: '無法繼續 — 已中斷',
 
     actionRetry: '重試',

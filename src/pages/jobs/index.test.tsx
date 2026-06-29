@@ -1943,6 +1943,56 @@ describe('Activity center (JobsPage)', () => {
     ).toBeVisible()
   })
 
+  test('headerSummary shows queued-waiting when queued but nothing running yet (unpaused)', async () => {
+    // Integration-review fix: a queued-but-not-running, unpaused job (retry-backoff or a
+    // concurrency-limited build) must NOT read "All caught up" while the Running-now zone shows
+    // the queued rows.
+    const { snapshot } = await seedArchiveState()
+    const jobsT = createNamespaceTranslator('en', 'jobs')
+
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: {
+        paused: false,
+        concurrency: 1,
+        queued: 2,
+        running: 0,
+        failed: 0,
+        indexQueued: 2,
+        indexRunning: 0,
+        recentJobs: [],
+      },
+      intelligence: {
+        queue: {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          lastActivityAt: null,
+        },
+        plugins: [],
+        modules: [],
+        recentJobs: [],
+        notes: [],
+      },
+      loading: false,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(
+      screen.getByText(jobsT('headerSummaryQueued', { queued: 2 })),
+    ).toBeVisible()
+    expect(screen.queryByText(jobsT('headerSummaryNoActivity'))).toBeNull()
+  })
+
   test('headerSummary shows all-caught-up with last activity time', async () => {
     const { snapshot } = await seedArchiveState()
     const shellValue = createShellValue(snapshot)

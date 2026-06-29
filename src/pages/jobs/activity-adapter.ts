@@ -200,8 +200,11 @@ function shellTaskToActivity(task: ShellTask): Activity {
     totalCount: task.totalRecords ?? null,
   }
 
+  // An import/backup does NOT resume: a stale (already-interrupted) one is 'cannot-resume', and a
+  // RUNNING one is 'restart-whole' — quitting keeps the data safe but discards the task's progress
+  // (recovery is a fresh re-run, not a resume). It must never read "safe to close · resumes".
   const resumability: InterruptionResumability =
-    state === 'stale' ? 'cannot-resume' : 'safe'
+    state === 'stale' ? 'cannot-resume' : 'restart-whole'
 
   let taskNameKey: string
   if (kind === 'import') {

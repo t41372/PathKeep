@@ -96,14 +96,17 @@ function ActivityRunningRow({
   const { progress, resumability } = activity
   const isDeterminate = progress.value != null
 
-  /* v8 ignore next 5 -- adapter always produces resumability='safe' for running tasks;
-     per-file and cannot-resume are reserved for future activity kinds */
-  const resumabilityKey =
-    resumability === 'safe'
-      ? 'badgeSafeToClose'
-      : resumability === 'per-file'
-        ? 'badgePerFileResume'
-        : 'badgeCannotResume'
+  // A running row carries either 'safe' (index/content/re-embed/deterministic — durable cursor) or
+  // 'restart-whole' (a running import/backup — data safe, but the task restarts on quit). 'per-file'
+  // (the model download has its own dedicated row) and 'cannot-resume' (stale → Needs attention)
+  // never reach a running ActivityRunningRow, so anything-not-'safe' is the restart-whole signal.
+  const isResumeSafe = resumability === 'safe'
+  const resumabilityKey = isResumeSafe
+    ? 'badgeSafeToClose'
+    : 'badgeRestartWhole'
+  const badgeToneClass = isResumeSafe
+    ? 'activity-row__badge--safe'
+    : 'activity-row__badge--warning'
 
   return (
     <div className="activity-row">
@@ -159,7 +162,7 @@ function ActivityRunningRow({
             </span>
           )}
 
-        <span className="activity-row__badge" role="note">
+        <span className={`activity-row__badge ${badgeToneClass}`} role="note">
           {jobsT(resumabilityKey)}
         </span>
       </div>
@@ -249,7 +252,10 @@ function ModelDownloadRow({ modelDownload, jobsT }: ModelDownloadRowProps) {
           </span>
         )}
 
-        <span className="activity-row__badge" role="note">
+        <span
+          className="activity-row__badge activity-row__badge--warning"
+          role="note"
+        >
           {jobsT('badgePerFileResume')}
         </span>
       </div>

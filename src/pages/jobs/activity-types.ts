@@ -29,7 +29,21 @@ export type ActivityState =
   | 'succeeded'
   | 'cancelled'
 
-export type InterruptionResumability = 'safe' | 'per-file' | 'cannot-resume'
+/**
+ * How a task's progress survives the user quitting the app:
+ * - 'safe'          — resumes exactly where it left off (durable cursor): index build, content
+ *                     fetch, re-embed, deterministic rebuild.
+ * - 'per-file'      — the model download: finished files are kept, only the in-progress file restarts.
+ * - 'restart-whole' — import/backup while RUNNING: the data is safe, but the task itself does not
+ *                     resume — quitting means re-running it from the start. Must NOT be labeled "safe
+ *                     to close · resumes" (that task self-reports "can't resume" once interrupted).
+ * - 'cannot-resume' — an import/backup that was ALREADY interrupted (stale); its progress is gone.
+ */
+export type InterruptionResumability =
+  | 'safe'
+  | 'per-file'
+  | 'restart-whole'
+  | 'cannot-resume'
 
 export interface ActivityProgress {
   /** 0–1 clamped, or null for indeterminate */

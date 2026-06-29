@@ -233,20 +233,20 @@ describe('buildActivities', () => {
     expect(activities[0].id).toBe('stale-run-42')
   })
 
-  test('running import ShellTask → state=running, resumability=safe', () => {
-    const task = makeShellTask({
-      kind: 'import',
-      state: 'running',
-    })
-    const input: ActivityAdapterInput = {
-      ...emptyInput(),
-      archiveTasks: [task],
+  test('running import/backup ShellTask → resumability=restart-whole (data safe, task does not resume)', () => {
+    // A running import/backup must NOT read "safe to close · resumes" — the data is safe but the
+    // task itself re-runs from the start on quit (the same task self-reports cannot-resume once
+    // interrupted). Honesty fix from the cross-block integration review.
+    for (const kind of ['import', 'backup'] as const) {
+      const activities = buildActivities({
+        ...emptyInput(),
+        archiveTasks: [makeShellTask({ kind, state: 'running' })],
+      })
+      expect(activities).toHaveLength(1)
+      expect(activities[0].state).toBe('running')
+      expect(activities[0].kind).toBe(kind)
+      expect(activities[0].resumability).toBe('restart-whole')
     }
-    const activities = buildActivities(input)
-    expect(activities).toHaveLength(1)
-    expect(activities[0].state).toBe('running')
-    expect(activities[0].kind).toBe('import')
-    expect(activities[0].resumability).toBe('safe')
   })
 
   test('stale ShellTask → state=stale, resumability=cannot-resume', () => {

@@ -241,6 +241,17 @@
   line-height: 1.5;
 }
 
+/* Tone-code the resume signal: a fully-resumable ("safe to close") task reads calm/muted, while a
+   task that restarts on quit (model download per-file, or a running import/backup) reads as a
+   warning — so the honest interruption signal is visible at a glance, not just in the text. */
+.activity-row__badge--safe {
+  color: var(--ink-muted);
+}
+
+.activity-row__badge--warning {
+  color: var(--tone-warning);
+}
+
 .activity-row__actions {
   display: flex;
   flex-direction: column;

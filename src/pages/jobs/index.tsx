@@ -257,13 +257,21 @@ export function JobsPage() {
         queued: queueCounts.queued,
       })
     if (queueCounts.running > 0) {
-      // Only append "safe to close" when every running task is fully resumable.
-      // The model download is per-file: finished files survive a quit but the
-      // in-progress file restarts, so we must not tell the user it's safe to close.
-      return showModelDownload
-        ? jobsT('headerSummaryRunningNotSafe', { running: queueCounts.running })
-        : jobsT('headerSummaryRunning', { running: queueCounts.running })
+      // Only append "safe to close" when EVERY running task is fully resumable. The model download
+      // is per-file (the in-progress file restarts), and a running import/backup is 'restart-whole'
+      // (the task re-runs from the start), so either one present means we must not claim it's safe.
+      const allRunningResumable =
+        !showModelDownload &&
+        runningNow.every((activity) => activity.resumability === 'safe')
+      return allRunningResumable
+        ? jobsT('headerSummaryRunning', { running: queueCounts.running })
+        : jobsT('headerSummaryRunningNotSafe', { running: queueCounts.running })
     }
+    // Queued but nothing running yet (unpaused) — e.g. retry-backoff or a concurrency-limited job.
+    // Without this branch the summary would read "All caught up" while the Running-now zone shows
+    // the queued rows (a direct contradiction).
+    if (queueCounts.queued > 0)
+      return jobsT('headerSummaryQueued', { queued: queueCounts.queued })
     // All caught up
     const lastActivityAt =
       runtime?.queue.lastActivityAt ??
@@ -280,6 +288,7 @@ export function JobsPage() {
     language,
     queueCounts,
     queuePaused,
+    runningNow,
     runtime,
     showModelDownload,
   ])
