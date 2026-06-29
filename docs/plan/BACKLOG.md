@@ -648,6 +648,20 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。UI/UX 與文案交給 Opus 4.6 subagent。
   - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
 
+- [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
+  - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇本輪先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
+  - 讀先：`docs/architecture/`（at-rest posture，本輪新增/更新）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（本輪的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
+  - 設計問題（先評估再下結論，量測為準）：(1) **性能**——SQLCipher 對 14.4M 級 FTS5 / 向量 sidecar 的查詢/重建吞吐與 RAM 影響（目標機 4 核 / 8GB）；semantic plane（`.pkbin`/`.pki8`/`.pkvec`/`.pkmap` flat sidecar）本身不是 SQLite，是否一併加密、怎麼加密（檔案層 vs 應用層）。(2) **實現模型**——衍生資料可丟棄/可重建，加密它們 vs「鎖時不可讀、解鎖才解密」的取捨；rekey 時是否要連 sidecar 一起 lockstep（推廣 `migrate_*_for_rekey`）；明文→加密的遷移/重建路徑與 blast radius。(3) **威脅模型**——衍生明文到底洩漏多少（URL/標題/摘要/對話），是否值得這個性能與複雜度成本。
+  - 契約：先交 trade-off 設計文檔 + 性能量測（env-gated bench），使用者確認後才動代碼；不破壞非加密路徑；100% JS/Rust coverage；前端流暢度硬指標。
+  - 驗收：設計+量測文檔成立並獲使用者批准 → 若實作：開啟加密後 sidecar 不再明文落盤、查詢/備份/重建在目標機仍流暢、rekey lockstep、`bun run check` 綠。
+
+- [ ] **WORK-ENCRYPT-KEYDRIFT-A** — 回收以「舊密碼」加密的 source-evidence（passphrase 輪換殘留）
+  - 來源：2026-06-28 backup-OOM 修復的獨立審查 finding #4。本輪的 at-rest reconcile 只處理 **mode drift**（明文↔加密，靠檔頭偵測，無需金鑰）。它無法偵測/修復 **key drift**：在舊版「只 rekey archive」的時代做過 Encrypted→Encrypted 密碼輪換的安裝，其 `source-evidence.sqlite` 會以**舊密碼**加密、而 config/archive 用新密碼——檔頭看起來與正確金鑰的檔案完全相同，reconcile 視為一致而 no-op，之後 `open_source_evidence_connection` 用新金鑰開舊金鑰檔 → 仍 OOM；且後續 rekey 會因開不了該檔而 finalize 成 failed。
+  - 範圍/稀有度：只影響「舊代碼下輪換過密碼」的安裝（本次確診的使用者是 mode-drift，已修）。自動修復不可能無中生有舊密碼。
+  - 目標（設計優先）：偵測 key-drift（嘗試用目前金鑰開 source-evidence，失敗即 drift）→ 給誠實、可行動的 UX（提示輸入舊密碼以重新加密，或在確認資料可由 archive 重建時安全重建 source-evidence），而非靜默 OOM 或讓 rekey 失敗。
+  - 契約：絕不破壞既有資料；i18n×3；100% coverage；走 review pipeline。
+  - 驗收：對人工製造的 key-drift 安裝，app 給出清楚路徑回到可備份狀態，不再 OOM、不再讓 rekey 卡死。
+
 - [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
   - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。
   - 目標（release 工程）：

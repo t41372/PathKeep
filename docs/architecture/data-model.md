@@ -122,6 +122,17 @@
 - `sidecars/intelligence-blobs/`
   - W-ENRICH content-fetch 抓回的 readable body / caption blob（content-addressed）；可重抓、可能大，**排除出 export bundle**（capped `enrichment_summary` 改由 intelligence DB 攜帶，讓 target 仍能離線搜尋）
 
+### Encryption at rest（2026-06-28）
+
+當 `AppConfig.archive_mode == Encrypted` 時，**只有 canonical encrypted-tier 的兩個 DB 加密**（SQLCipher，`rusqlite` bundled-sqlcipher，每連線 `PRAGMA key`）：
+
+- **加密**：`archive/history-vault.sqlite` 與 `archive/source-evidence.sqlite`。兩者都是 archive contract、必須一起打包，因此必須一起以相同金鑰加密。
+- **明文（by design）**：`derived/` 下的 sidecar——`history-search.sqlite`（明文開啟，再由加密 archive 以 `ATTACH … KEY ''` 掛載）、`history-intelligence.sqlite`（明文開啟，attach 加密 archive）、`agent.sqlite`，以及 `derived/vectors/` 的 flat plane。它們是可丟棄/可重建的衍生狀態。**注意這是不完整的 at-rest 保護**：FTS / intelligence / chat 仍以明文存 URL / title / enrichment 摘要 / 對話。評估「全量加密」（性能 + 實作 + 威脅模型）見 [[WORK-ENCRYPT-AT-REST-ALL backlog]]。
+
+**Rekey 必須 lockstep 遷移兩個 encrypted-tier DB。** `archive::maintenance::rekey_archive` 透過 `archive::at_rest::migrate_source_evidence_for_rekey` 在切換模式/輪換金鑰時同時重寫 `source-evidence.sqlite`（偵測檔案實際 on-disk 模式以選開啟金鑰，再以新模式/金鑰 export+atomic swap）。歷史 bug：舊 rekey 只重寫 archive，留下明文 `source-evidence`，而 `open_source_evidence_connection` 在 Encrypted 模式對它套 `PRAGMA key` → SQLCipher 把明文檔頭當密文 → page size 亂掉 → 每次備份 `SQLITE_NOMEM`。
+
+**Auto-repair（self-heal drift）。** `archive::at_rest::reconcile_source_evidence_with_archive` 用 16-byte 檔頭（`SQLite format 3\0` = 明文，無需金鑰）偵測 `source-evidence` 的 at-rest 模式是否與 config 漂移，漂移就原地重新加密/解密（`sqlcipher_export`→atomic swap，`recover_interrupted_rewrite` 保證崩潰可復原且不留明文 backstop），並記一筆 `run_type='rekey'` / `trigger='repair'` run（PME 透明）。它**防禦性地**在 `run_backup_with_progress` 開 source-evidence 前先跑（修好 manual + scheduled 備份），並由 `reconcile_archive_encryption` 命令在解鎖後**主動**跑一次。**範圍限制**：只處理 MODE drift（明文↔加密），不處理 KEY drift（用舊密碼加密的檔，檔頭與正確金鑰檔無從區分）→ [[WORK-ENCRYPT-KEYDRIFT-A backlog]]。
+
 ### Run ledger 與 rollback visibility
 
 - canonical schema 採 **unified run ledger**：`backup`、`import`、`revert`、`doctor`、`snapshot_restore` 共用 `runs` 表，以 `run_type` 和 `trigger` 區分語義。
