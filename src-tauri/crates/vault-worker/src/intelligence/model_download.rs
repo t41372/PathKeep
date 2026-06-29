@@ -67,6 +67,14 @@ where
         });
     }
 
+    fn file_progress(&mut self, file: &str, downloaded_bytes: u64, total_bytes: u64) {
+        (self.emit)(ModelDownloadProgressEvent::FileProgress {
+            file: file.to_string(),
+            downloaded_bytes,
+            total_bytes,
+        });
+    }
+
     fn file_finished(&mut self, file: &str) {
         (self.emit)(ModelDownloadProgressEvent::FileFinished { file: file.to_string() });
     }
@@ -243,6 +251,7 @@ mod tests {
         let mut bridge = EmitProgress { emit: collect(&events), cancel: cancel.clone() };
         assert!(!bridge.cancelled());
         bridge.file_started("config.json", 727);
+        bridge.file_progress("config.json", 256, 727);
         bridge.file_finished("config.json");
         cancel.store(true, Ordering::SeqCst);
         assert!(bridge.cancelled());
@@ -256,6 +265,14 @@ mod tests {
         );
         assert_eq!(
             recorded[1],
+            ModelDownloadProgressEvent::FileProgress {
+                file: "config.json".to_string(),
+                downloaded_bytes: 256,
+                total_bytes: 727,
+            }
+        );
+        assert_eq!(
+            recorded[2],
             ModelDownloadProgressEvent::FileFinished { file: "config.json".to_string() }
         );
     }

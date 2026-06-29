@@ -119,8 +119,8 @@ pub use self::embedding_candle::{
 };
 pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
 pub use self::embedding_static::{
-    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_INAPP_BASE_URL,
-    STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
+    STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
     degrade_static_to_external, parse_static_config, runtime_uses_static, static_embed_ids,
     static_l2_normalize, static_repo_for_runtime,
 };
@@ -231,6 +231,12 @@ pub struct IndexBackfillProgress {
     pub next_history_id: i64,
     /// Vectors durably persisted so far across all chunks of this backfill.
     pub embedded_so_far: u64,
+    /// The determinate scan denominator: the max candidate `history_id` captured at the build's TRUE
+    /// start, so `next_history_id / scan_target` is honest scan progress that reaches ~100%. Reported
+    /// as the captured value on a fresh build and as `0` ("unknown — keep the stored target") on a
+    /// resume, so [`crate::ai_queue::persist_index_cursor`] preserves the original denominator rather
+    /// than chasing a corpus that grew under the build.
+    pub scan_target: i64,
 }
 
 /// Sink the embed loop calls to persist the resumable backfill watermark after each chunk.

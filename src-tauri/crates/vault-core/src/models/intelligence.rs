@@ -752,6 +752,21 @@ pub struct StaticEmbeddingStatus {
     pub selected: bool,
     /// Always `true`: the built-in static provider is the always-present fallback default.
     pub is_default: bool,
+    /// The static model's REAL embedding dimension ([`crate::ai::STATIC_EMBEDDING_DIM`] = 256).
+    ///
+    /// Carried so the Settings tier card states the honest width instead of the FE inferring 1536
+    /// from an absent `AiProviderConfig.dimensions` (the static dim is read from the safetensors at
+    /// load, never stored in the provider config). `#[serde(default)]` so a frozen payload without it
+    /// still deserializes (decodes to 0 = unknown).
+    #[serde(default)]
+    pub dimensions: u32,
+    /// Total on-disk size of the static model's files when present + verified, else 0.
+    ///
+    /// Sum of the three [`crate::DEFAULT_STATIC_MODEL_FILES`] sizes when `model_downloaded`; 0 before
+    /// download (the FE shows a static pre-download estimate instead). `#[serde(default)]` so a frozen
+    /// payload without it still deserializes.
+    #[serde(default)]
+    pub model_size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -898,6 +913,22 @@ pub struct AiQueueJob {
     pub heartbeat_at: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// Vectors durably embedded so far by a RUNNING/queued index build (the resumable cursor's
+    /// `embedded_so_far`). Populated ONLY for index-build/index-clear jobs (parsed from `payload_json`
+    /// in [`crate::ai_queue::load_ai_queue_status`]); `None` for assistant jobs and unparseable
+    /// payloads. Additive so a frozen payload still (de)serializes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_embedded: Option<u64>,
+    /// The scan watermark of an index build: the lowest `history_id` not yet processed (the cursor's
+    /// `next_history_id`). With [`Self::progress_scan_target`] this gives the Activity page a real
+    /// determinate bar. Index jobs only; `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_scanned: Option<i64>,
+    /// The determinate scan denominator: the max candidate `history_id` captured at the build's true
+    /// start (the cursor's `scan_target`; 0 = not yet known). `progress_scanned / progress_scan_target`
+    /// is honest scan progress that reaches ~100%. Index jobs only; `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_scan_target: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1220,8 +1251,19 @@ pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progr
 /// download progress to the UI without leaking hf-hub types across the IPC boundary. `kind`-tagged
 /// so the front end can route each phase (started / finished / done / error) into the right UI state.
 pub enum ModelDownloadProgressEvent {
-    /// One model file started downloading (`total_bytes` is 0 when the size is unknown).
+    /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
+    ///
+    /// The per-variant `rename_all` is LOAD-BEARING: serde's container-level `rename_all` renames only
+    /// the variant NAMES, not struct-variant FIELDS, so without this `total_bytes` wires as the
+    /// snake_case `total_bytes` and the camelCase FE contract reads `undefined` (same fix the sibling
+    /// `AiChatStreamChunk` applies to its multi-word fields).
+    #[serde(rename_all = "camelCase")]
     FileStarted { file: String, total_bytes: u64 },
+    /// Throttled byte progress for the in-flight file, so the UI renders a real moving bar instead of
+    /// a near-empty per-file indicator (the 90 MB safetensors dwarfs the other files). Emitted ~every
+    /// 1 MB plus a final 100% per file; `total_bytes` is 0 when the server gave no content-length.
+    #[serde(rename_all = "camelCase")]
+    FileProgress { file: String, downloaded_bytes: u64, total_bytes: u64 },
     /// One model file finished downloading + verifying.
     FileFinished { file: String },
     /// The whole model is present + verified; no more events follow for this run.
@@ -2005,6 +2047,53 @@ mod tests {
         assert_eq!(
             serde_json::to_value(AiChatStreamChunk::Citations { citations: vec![] }).unwrap(),
             json!({ "kind": "citations", "citations": [] })
+        );
+    }
+
+    #[test]
+    fn model_download_progress_event_wires_camel_case_fields() {
+        // The struct-variant FIELDS (total_bytes / downloaded_bytes) only wire as camelCase because
+        // each multi-word variant carries its OWN `#[serde(rename_all = "camelCase")]` — the
+        // container-level `rename_all` renames variant NAMES only, not struct-variant FIELDS (review
+        // H-1). Pin the EXACT wire shape so the camelCase FE contract (downloadedBytes/totalBytes) can
+        // never silently regress to snake_case `undefined` again.
+        assert_eq!(
+            serde_json::to_value(ModelDownloadProgressEvent::FileStarted {
+                file: "model.safetensors".to_string(),
+                total_bytes: 94_371_840,
+            })
+            .unwrap(),
+            json!({ "kind": "fileStarted", "file": "model.safetensors", "totalBytes": 94_371_840 })
+        );
+        assert_eq!(
+            serde_json::to_value(ModelDownloadProgressEvent::FileProgress {
+                file: "model.safetensors".to_string(),
+                downloaded_bytes: 47_185_920,
+                total_bytes: 94_371_840,
+            })
+            .unwrap(),
+            json!({
+                "kind": "fileProgress",
+                "file": "model.safetensors",
+                "downloadedBytes": 47_185_920,
+                "totalBytes": 94_371_840,
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(ModelDownloadProgressEvent::FileFinished {
+                file: "config.json".to_string(),
+            })
+            .unwrap(),
+            json!({ "kind": "fileFinished", "file": "config.json" })
+        );
+        assert_eq!(
+            serde_json::to_value(ModelDownloadProgressEvent::Done).unwrap(),
+            json!({ "kind": "done" })
+        );
+        assert_eq!(
+            serde_json::to_value(ModelDownloadProgressEvent::Error { message: "boom".to_string() })
+                .unwrap(),
+            json!({ "kind": "error", "message": "boom" })
         );
     }
 

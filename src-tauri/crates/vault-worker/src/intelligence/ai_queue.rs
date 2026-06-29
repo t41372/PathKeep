@@ -109,6 +109,9 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
         let cursor = ai_queue::IndexBackfillCursor {
             next_history_id: progress.next_history_id,
             embedded_so_far: progress.embedded_so_far,
+            // The determinate scan denominator (Change 1): the backfill reports the captured max on a
+            // fresh build and 0 on a resume; `persist_index_cursor` preserves the stored value on 0.
+            scan_target: progress.scan_target,
         };
         let summary = format!("Embedded {} row(s) so far.", progress.embedded_so_far);
         match ai_queue::persist_index_cursor(&connection, self.job_id, &cursor, Some(&summary))? {
@@ -1127,7 +1130,11 @@ mod tests {
         };
         let error = vault_core::IndexBackfillLedger::record(
             &ledger,
-            vault_core::IndexBackfillProgress { next_history_id: 5, embedded_so_far: 4 },
+            vault_core::IndexBackfillProgress {
+                next_history_id: 5,
+                embedded_so_far: 4,
+                ..Default::default()
+            },
         )
         .expect_err("lease loss must abort the backfill");
         assert!(error.to_string().contains("lost its queue lease"));
@@ -1156,7 +1163,11 @@ mod tests {
         };
         vault_core::IndexBackfillLedger::record(
             &ledger,
-            vault_core::IndexBackfillProgress { next_history_id: 9, embedded_so_far: 8 },
+            vault_core::IndexBackfillProgress {
+                next_history_id: 9,
+                embedded_so_far: 8,
+                scan_target: 12,
+            },
         )
         .expect("running job cursor persists");
 
@@ -1164,6 +1175,8 @@ mod tests {
             ai_queue::AiJobPayload::Index { cursor, .. } => {
                 assert_eq!(cursor.next_history_id, 9);
                 assert_eq!(cursor.embedded_so_far, 8);
+                // The worker ledger forwards the captured scan denominator into the persisted cursor.
+                assert_eq!(cursor.scan_target, 12);
             }
             other => panic!("expected index payload, got {other:?}"),
         }
@@ -1173,7 +1186,11 @@ mod tests {
     fn index_start_history_id_reads_cursor_and_defaults_non_index_payloads() {
         let index = ai_queue::AiJobPayload::Index {
             request: AiIndexRequest::default(),
-            cursor: ai_queue::IndexBackfillCursor { next_history_id: 77, embedded_so_far: 5 },
+            cursor: ai_queue::IndexBackfillCursor {
+                next_history_id: 77,
+                embedded_so_far: 5,
+                ..Default::default()
+            },
         };
         assert_eq!(index_start_history_id(&index), 77);
 

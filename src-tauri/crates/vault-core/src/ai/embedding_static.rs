@@ -91,6 +91,15 @@ pub const DEFAULT_STATIC_MODEL_FILES: &[ModelFile] = &[
     },
 ];
 
+/// The default static model's REAL embedding dimension (`minishlab/potion-multilingual-128M` = 256).
+///
+/// The pooled vector length is read from the safetensors at load (D4 — the engine NEVER assumes a
+/// dim), so this constant is NOT consulted by the inference path. It exists purely so the Settings
+/// read model ([`crate::models::StaticEmbeddingStatus::dimensions`]) can state the honest width
+/// without the FE inferring 1536 from an absent `AiProviderConfig.dimensions`. A model swap that
+/// changes the width updates this constant alongside [`DEFAULT_STATIC_MODEL_REPO`] + the pinned hashes.
+pub const STATIC_EMBEDDING_DIM: u32 = 256;
+
 /// Max input tokens the static engine keeps before truncation.
 ///
 /// DIVERGENCE FROM model2vec (documented, finding S7): model2vec's `StaticModel.encode` truncates at

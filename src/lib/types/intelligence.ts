@@ -225,6 +225,18 @@ export interface StaticEmbeddingStatus {
   selected: boolean
   /** Whether this provider is the system default when no explicit selection exists. */
   isDefault: boolean
+  /**
+   * The static model's REAL embedding dimension (256 for `potion-multilingual-128M`). Mirrors the Rust
+   * `dimensions` (`#[serde(default)]`); absent on older backends, treat as unknown (0). Use THIS for
+   * the Settings tier card instead of inferring 1536 from an absent `AiProviderConfig.dimensions`.
+   */
+  dimensions?: number
+  /**
+   * Total on-disk byte size of the model's files once present + verified, else 0 (pre-download the UI
+   * shows a static estimate). Mirrors the Rust `modelSizeBytes` (`#[serde(default)]`); absent on older
+   * backends.
+   */
+  modelSizeBytes?: number
 }
 
 /**
@@ -236,9 +248,19 @@ export interface StaticEmbeddingStatus {
  * stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
  * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
  * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
+ *
+ * `fileStarted` now carries the REAL HTTP content-length (0 only when the server omits it), and
+ * `fileProgress` reports throttled byte progress (~every 1 MB plus a final 100%) so the UI renders a
+ * real moving bar instead of a near-empty per-file indicator while the 90 MB safetensors streams.
  */
 export type ModelDownloadProgressEvent =
   | { kind: 'fileStarted'; file: string; totalBytes: number }
+  | {
+      kind: 'fileProgress'
+      file: string
+      downloadedBytes: number
+      totalBytes: number
+    }
   | { kind: 'fileFinished'; file: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
@@ -367,6 +389,20 @@ export interface AiQueueJob {
   heartbeatAt?: string | null
   errorCode?: string | null
   errorMessage?: string | null
+  /**
+   * Index-build progress parsed from the job's resumable cursor (Change 1). Populated ONLY for
+   * index-build/index-clear jobs; absent (undefined) for assistant jobs and unparseable payloads.
+   * Mirrors the Rust `AiQueueJob` (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
+   *
+   * - `progressEmbedded` — vectors durably embedded so far (the cursor's `embedded_so_far`).
+   * - `progressScanned` — the scan watermark: lowest `history_id` not yet processed (`next_history_id`).
+   * - `progressScanTarget` — the determinate scan denominator (max candidate `history_id` captured at
+   *   the build's true start; 0 = not yet known). `progressScanned / progressScanTarget` is an honest
+   *   determinate bar that reaches ~100%.
+   */
+  progressEmbedded?: number
+  progressScanned?: number
+  progressScanTarget?: number
 }
 
 /**

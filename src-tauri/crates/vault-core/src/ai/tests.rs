@@ -1896,8 +1896,12 @@ fn build_with_ledger_persists_last_durable_checkpoint_on_failure() {
     let progresses = ledger.snapshot();
     assert_eq!(
         progresses.last().copied(),
-        Some(IndexBackfillProgress { next_history_id: 0, embedded_so_far: 0 }),
-        "the failure path persisted the last-durable checkpoint (origin) through the ledger"
+        // The watermark is still the origin (the first chunk itself failed), but `scan_target` is the
+        // max candidate history id (1, the single seeded visit) captured at the build's TRUE start —
+        // proving the determinate denominator is recorded even when the build fails before any chunk
+        // completes (Change 1).
+        Some(IndexBackfillProgress { next_history_id: 0, embedded_so_far: 0, scan_target: 1 }),
+        "the failure path persisted the last-durable checkpoint (origin + captured scan target)"
     );
 }
 

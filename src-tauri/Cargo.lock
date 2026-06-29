@@ -8218,6 +8218,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokenizers",
  "tokio",
+ "ureq",
  "walkdir",
  "wasmtime",
  "wasmtime-wasi",

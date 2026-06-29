@@ -501,6 +501,40 @@ impl DedupTracker {
     }
 }
 
+/// The max candidate `history_id` in the archive right now — the determinate scan denominator.
+///
+/// One cheap `MAX` over the indexed `archive.visits` PK (the same `reverted_at IS NULL` predicate
+/// [`collect_visit_chunk`](super::candidates::collect_visit_chunk) scans), so `next_history_id /
+/// scan_target` is honest determinate progress. Captured ONCE at a build's true start; rows that
+/// arrive afterward are a later incremental pass's work, not this build's. Returns 0 for an empty
+/// archive (nothing to scan).
+fn max_candidate_history_id(connection: &Connection) -> Result<i64> {
+    connection
+        .query_row(
+            "SELECT COALESCE(MAX(visits.id), 0)
+             FROM archive.visits AS visits
+             WHERE visits.reverted_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .context("reading the max candidate history id for the index scan target")
+}
+
+/// Resolves the scan denominator to REPORT this run: the captured max on a fresh build, else 0.
+///
+/// On the TRUE start of a build (`start_history_id == 0`) it captures
+/// [`max_candidate_history_id`] so the cursor records the determinate denominator. On a RESUME
+/// (`start_history_id > 0`) it returns 0 ("unknown — preserve the stored target"), so
+/// [`crate::ai_queue::persist_index_cursor`] keeps the original `scan_target` rather than recomputing
+/// against a corpus that may have grown under the build. Pure decision over `start_history_id`; the
+/// fresh branch is the only one that touches the DB.
+fn scan_target_for(connection: &Connection, start_history_id: i64) -> Result<i64> {
+    if start_history_id > 0 {
+        return Ok(0);
+    }
+    max_candidate_history_id(connection)
+}
+
 /// Embeds candidate rows in resumable, cancellable chunks and persists them to the vector plane.
 ///
 /// The hot path of W-AI-4 (02 §C.6 R1). For each ascending-`history_id` chunk from
@@ -549,12 +583,19 @@ async fn run_embedding_backfill(
     visit_map.ensure_created(paths)?;
     let mut cursor = start_history_id;
     let mut embedded_total: u64 = 0;
+    // The determinate scan denominator the Activity page divides by (Change 1). Captured ONCE here, at
+    // the TRUE start of a build, and reported on every chunk's progress; a resume reports 0 so the
+    // stored target is preserved (see `scan_target_for` / `persist_index_cursor`).
+    let scan_target = scan_target_for(connection, start_history_id)?;
     // The cursor reflecting the last chunk whose vectors+map+SQLite are ALL durably persisted (F2.1).
     // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
     // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
     // (which advancing the scan `cursor` before the embed would do). Starts at the resume watermark.
-    let mut last_durable =
-        crate::ai::IndexBackfillProgress { next_history_id: start_history_id, embedded_so_far: 0 };
+    let mut last_durable = crate::ai::IndexBackfillProgress {
+        next_history_id: start_history_id,
+        embedded_so_far: 0,
+        scan_target,
+    };
 
     // The crash-window dedup state (CRITICAL-2 / MEDIUM-4 / MEDIUM-5) is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists
@@ -665,6 +706,7 @@ async fn run_embedding_backfill(
             last_durable = crate::ai::IndexBackfillProgress {
                 next_history_id: cursor,
                 embedded_so_far: embedded_total,
+                scan_target,
             };
             if let Some(ledger) = ledger {
                 ledger.record(last_durable)?;
@@ -972,5 +1014,53 @@ mod tests {
             EmbeddingPooling::Mean,
             None,
         )
+    }
+
+    /// Builds an in-memory connection with a minimal `archive.visits` table for scan-target tests.
+    fn archive_connection(rows: &[(i64, Option<&str>)]) -> Connection {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        connection
+            .execute_batch(
+                "ATTACH DATABASE ':memory:' AS archive;
+                 CREATE TABLE archive.visits (id INTEGER PRIMARY KEY, reverted_at TEXT);",
+            )
+            .expect("attach archive + create visits");
+        for (id, reverted_at) in rows {
+            connection
+                .execute(
+                    "INSERT INTO archive.visits (id, reverted_at) VALUES (?1, ?2)",
+                    rusqlite::params![id, reverted_at],
+                )
+                .expect("seed visit");
+        }
+        connection
+    }
+
+    #[test]
+    fn max_candidate_history_id_reads_max_non_reverted_id() {
+        // Change 1: the scan denominator is the MAX `history_id` of a NON-reverted candidate visit.
+        // Id 99 is reverted, so it is excluded even though it is numerically largest → max is 25.
+        let connection = archive_connection(&[
+            (10, None),
+            (25, None),
+            (7, None),
+            (99, Some("2026-01-01T00:00:00Z")),
+        ]);
+        assert_eq!(max_candidate_history_id(&connection).expect("max"), 25);
+
+        // An empty candidate set yields 0 (nothing to scan), never an error.
+        let empty = archive_connection(&[]);
+        assert_eq!(max_candidate_history_id(&empty).expect("empty max"), 0);
+    }
+
+    #[test]
+    fn scan_target_for_captures_on_fresh_start_and_preserves_on_resume() {
+        let connection = archive_connection(&[(5, None), (42, None)]);
+        // A build at its TRUE start (start_history_id == 0) captures the max candidate id as the
+        // determinate denominator the Activity bar divides by.
+        assert_eq!(scan_target_for(&connection, 0).expect("fresh start"), 42);
+        // A RESUME (start_history_id > 0) reports 0 ("unknown — keep the stored target"); it must NOT
+        // recompute, so persist_index_cursor preserves the original denominator from the true start.
+        assert_eq!(scan_target_for(&connection, 5).expect("resume"), 0);
     }
 }

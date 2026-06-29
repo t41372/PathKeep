@@ -303,15 +303,37 @@ fn static_embedding_status(
     } else {
         provider.default_model.as_str()
     };
-    let model_downloaded =
-        model_is_present_and_verified(&model_dir_for_repo(paths, repo), DEFAULT_STATIC_MODEL_FILES);
+    let model_dir = model_dir_for_repo(paths, repo);
+    let model_downloaded = model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
+    // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
+    // static pre-download estimate). Summed from the real files so the Settings card states the honest
+    // footprint instead of a guess.
+    let model_size_bytes = if model_downloaded { static_model_size_bytes(&model_dir) } else { 0 };
     Some(StaticEmbeddingStatus {
         provider_id: provider.id.clone(),
         model_repo: repo.to_string(),
         model_downloaded,
         selected: config.ai.embedding_provider_id.as_deref() == Some(provider.id.as_str()),
         is_default: true,
+        // The honest pooled width (D4: read from the safetensors at load, never the 1536 the FE would
+        // otherwise infer from an absent provider-config dimension).
+        dimensions: STATIC_EMBEDDING_DIM,
+        model_size_bytes,
     })
+}
+
+/// Sums the on-disk byte size of the static model's manifest files under `model_dir`.
+///
+/// A missing/unreadable file contributes 0 (defensive — the caller only calls this once the model is
+/// present + verified, so every file should exist; a transient stat failure must not panic the status
+/// read). One `stat` per file (3 files), so this is cheap.
+fn static_model_size_bytes(model_dir: &std::path::Path) -> u64 {
+    DEFAULT_STATIC_MODEL_FILES
+        .iter()
+        .map(|file| {
+            std::fs::metadata(model_dir.join(file.name)).map(|meta| meta.len()).unwrap_or(0)
+        })
+        .sum()
 }
 
 /// Loads the persisted AI queue read model.
@@ -784,5 +806,36 @@ mod tests {
         );
         assert_eq!(empty.0, "empty");
         assert!(empty.1.expect("empty warning").contains("Build index"));
+    }
+
+    #[test]
+    fn static_embedding_status_reports_dimension_and_on_disk_size() {
+        // Change 2: the static tier status carries the HONEST dim (256) and a real on-disk size.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let mut config = enabled_config();
+        config.ai.embedding_providers =
+            crate::models::merge_embedding_providers(&config.ai.embedding_providers);
+
+        // Before any download: dimension is the real 256, size is 0 (no files verified on disk).
+        let pre = static_embedding_status(&paths, &config).expect("static status present");
+        assert_eq!(pre.dimensions, STATIC_EMBEDDING_DIM);
+        assert_eq!(pre.dimensions, 256);
+        assert!(!pre.model_downloaded);
+        assert_eq!(pre.model_size_bytes, 0, "no verified files on disk yet → 0 bytes");
+
+        // The summing helper reflects the real on-disk byte total once files are present (the
+        // verified-gated wrapper takes the `0` branch above because the pinned digests can't be
+        // fabricated in a unit test; this proves the size math the wrapper delegates to).
+        let model_dir = model_dir_for_repo(&paths, DEFAULT_STATIC_MODEL_REPO);
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        let mut expected_total: u64 = 0;
+        for file in DEFAULT_STATIC_MODEL_FILES {
+            let bytes = format!("on-disk::{}", file.name).into_bytes();
+            std::fs::write(model_dir.join(file.name), &bytes).expect("seed file");
+            expected_total += bytes.len() as u64;
+        }
+        assert!(expected_total > 0);
+        assert_eq!(static_model_size_bytes(&model_dir), expected_total);
     }
 }

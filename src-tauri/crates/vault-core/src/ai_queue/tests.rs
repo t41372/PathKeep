@@ -417,7 +417,8 @@ fn persist_index_cursor_rewrites_running_index_payload_and_summary() {
         enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
     claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
 
-    let cursor = IndexBackfillCursor { next_history_id: 512, embedded_so_far: 480 };
+    let cursor =
+        IndexBackfillCursor { next_history_id: 512, embedded_so_far: 480, ..Default::default() };
     let outcome =
         persist_index_cursor(&connection, queued.id, &cursor, Some("Embedded 480 row(s) so far."))
             .expect("persist cursor");
@@ -458,7 +459,7 @@ fn persist_index_cursor_is_a_noop_for_missing_or_non_index_jobs() {
         persist_index_cursor(
             &connection,
             assistant.id,
-            &IndexBackfillCursor { next_history_id: 7, embedded_so_far: 7 },
+            &IndexBackfillCursor { next_history_id: 7, embedded_so_far: 7, ..Default::default() },
             Some("ignored"),
         )
         .expect("non-index no-op"),
@@ -488,7 +489,7 @@ fn persist_index_cursor_reports_lease_loss_when_job_left_running_state() {
     let outcome = persist_index_cursor(
         &connection,
         queued.id,
-        &IndexBackfillCursor { next_history_id: 99, embedded_so_far: 50 },
+        &IndexBackfillCursor { next_history_id: 99, embedded_so_far: 50, ..Default::default() },
         Some("Embedded 50 row(s) so far."),
     )
     .expect("persist returns Ok even on lease loss");
@@ -509,7 +510,7 @@ fn persist_index_cursor_disarms_full_rebuild_after_first_progress() {
     persist_index_cursor(
         &connection,
         queued.id,
-        &IndexBackfillCursor { next_history_id: 3, embedded_so_far: 2 },
+        &IndexBackfillCursor { next_history_id: 3, embedded_so_far: 2, ..Default::default() },
         None,
     )
     .expect("persist first cursor");
@@ -524,6 +525,84 @@ fn persist_index_cursor_disarms_full_rebuild_after_first_progress() {
 }
 
 #[test]
+fn persist_index_cursor_preserves_scan_target_across_a_resume() {
+    // Change 1: the scan denominator is captured ONCE at the build's TRUE start; a resume reports
+    // scan_target = 0 ("unknown"), and persist must KEEP the stored value rather than clobbering it.
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
+
+    // True start: the cursor carries the captured denominator.
+    persist_index_cursor(
+        &connection,
+        queued.id,
+        &IndexBackfillCursor { next_history_id: 10, embedded_so_far: 5, scan_target: 100 },
+        None,
+    )
+    .expect("persist fresh cursor");
+
+    // Resume: scan_target reported as 0, but the stored 100 must survive while the watermark advances.
+    persist_index_cursor(
+        &connection,
+        queued.id,
+        &IndexBackfillCursor { next_history_id: 40, embedded_so_far: 22, scan_target: 0 },
+        None,
+    )
+    .expect("persist resumed cursor");
+
+    match load_ai_job_payload(&connection, queued.id).expect("payload") {
+        AiJobPayload::Index { cursor, .. } => {
+            assert_eq!(cursor.next_history_id, 40);
+            assert_eq!(cursor.embedded_so_far, 22);
+            assert_eq!(cursor.scan_target, 100, "a resume must preserve the captured scan target");
+        }
+        other => panic!("expected index payload, got {other:?}"),
+    }
+}
+
+#[test]
+fn load_ai_queue_status_surfaces_index_progress_and_none_for_assistant() {
+    // Change 1: the Activity page reads a determinate index-build bar from the recent-jobs read model.
+    // An index job's cursor surfaces embedded/scanned/scan_target; an assistant job surfaces None.
+    let connection = connection();
+    let index = enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("index");
+    claim_next_ai_job(&connection, 60).expect("claim").expect("running index job");
+    persist_index_cursor(
+        &connection,
+        index.id,
+        &IndexBackfillCursor { next_history_id: 50, embedded_so_far: 30, scan_target: 100 },
+        None,
+    )
+    .expect("persist cursor");
+
+    let assistant = enqueue_assistant_job(
+        &connection,
+        &AiAssistantRequest { question: "q".to_string(), profile_id: None, domain: None },
+        "llm",
+        None,
+        false,
+    )
+    .expect("assistant");
+
+    let status = load_ai_queue_status(&connection, false, 1, 8).expect("status");
+    let index_job =
+        status.recent_jobs.iter().find(|job| job.id == index.id).expect("index job in recent");
+    assert_eq!(index_job.progress_embedded, Some(30));
+    assert_eq!(index_job.progress_scanned, Some(50));
+    assert_eq!(index_job.progress_scan_target, Some(100));
+
+    let assistant_job = status
+        .recent_jobs
+        .iter()
+        .find(|job| job.id == assistant.id)
+        .expect("assistant job in recent");
+    assert_eq!(assistant_job.progress_embedded, None);
+    assert_eq!(assistant_job.progress_scanned, None);
+    assert_eq!(assistant_job.progress_scan_target, None);
+}
+
+#[test]
 fn legacy_index_payload_without_cursor_defaults_to_start() {
     // MEDIUM-5: a pre-4a payload (`{"kind":"index","request":{...}}`, NO `cursor` field) must
     // deserialize with `cursor` defaulting to the origin so an upgraded build resumes from scratch
@@ -533,7 +612,10 @@ fn legacy_index_payload_without_cursor_defaults_to_start() {
         serde_json::from_str(legacy).expect("legacy index payload deserializes");
     match payload {
         AiJobPayload::Index { cursor, .. } => {
-            assert_eq!(cursor, IndexBackfillCursor { next_history_id: 0, embedded_so_far: 0 });
+            assert_eq!(
+                cursor,
+                IndexBackfillCursor { next_history_id: 0, embedded_so_far: 0, scan_target: 0 }
+            );
             assert_eq!(cursor, IndexBackfillCursor::default());
         }
         other => panic!("expected index payload, got {other:?}"),
@@ -627,8 +709,11 @@ fn durable_progress_resets_the_attempt_budget_so_interrupted_builds_keep_resumin
             .expect("claim")
             .expect("a progressing job stays claimable past the raw budget");
         assert_eq!(claimed.id, queued.id);
-        let cursor =
-            IndexBackfillCursor { next_history_id: round * 10, embedded_so_far: round as u64 };
+        let cursor = IndexBackfillCursor {
+            next_history_id: round * 10,
+            embedded_so_far: round as u64,
+            ..Default::default()
+        };
         assert_eq!(
             persist_index_cursor(&connection, queued.id, &cursor, Some("progress"))
                 .expect("persist"),

@@ -46,6 +46,11 @@ futures-core = "0.3.32"
 # Stable 0.x hf-hub for consent-gated, SHA-256-verified model download (§C.5); NOT the 1.0.0-rc.
 # Sync `ureq` transport only (ureq v3 bundles rustls) — no native-tls/OpenSSL, no tokio/reqwest pull.
 hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
+# ureq: PROMOTED from a hf-hub transitive dep to a DIRECT dep so the streaming model download
+# (`open_download_stream`) can GET the HF resolve URL with real byte progress. Same version + a SUBSET
+# of the features hf-hub already enables (defaults = rustls + gzip), so feature-unification leaves the
+# dependency graph (and Cargo.lock) unchanged — NO new crate enters the build. ureq v3 bundles rustls.
+ureq = "3.3.0"
 getrandom = "0.3.4"
 hex = "0.4.3"
 icu_normalizer = { version = "2.2.0", default-features = false, features = ["compiled_data"] }

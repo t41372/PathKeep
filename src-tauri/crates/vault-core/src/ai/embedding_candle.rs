@@ -378,9 +378,16 @@ pub fn verify_file_sha256(path: &std::path::Path, expected_sha256: &str) -> Resu
 pub trait ModelDownloadProgress: Send {
     /// Announces the start of one file's download with its total size in bytes (0 if unknown).
     fn file_started(&mut self, _file: &str, _total_bytes: u64) {}
+    /// Reports throttled byte progress for the in-flight file as bytes arrive.
+    ///
+    /// DEFAULT no-op so existing impls (and the offline/foreground path) need no change — that
+    /// back-compat is why this is additive on the trait. The streaming download
+    /// ([`stream_to_file`]) calls it ~every 1 MB plus a final 100%, so the UI renders a real moving
+    /// bar instead of a per-file indicator that sits near-empty while the 90 MB safetensors streams.
+    fn file_progress(&mut self, _file: &str, _downloaded_bytes: u64, _total_bytes: u64) {}
     /// Announces that one file finished downloading + verifying.
     fn file_finished(&mut self, _file: &str) {}
-    /// Returns whether the caller has asked to cancel; checked between files.
+    /// Returns whether the caller has asked to cancel; checked between files AND mid-stream.
     fn cancelled(&self) -> bool {
         false
     }
@@ -456,9 +463,12 @@ pub fn ensure_model_downloaded(
         if !download_needed(&model_dir, file) {
             continue; // Already present + verified (offline-first per-file reuse).
         }
-        progress.file_started(file.name, 0);
         let dest = model_dir.join(file.name);
-        fetch_one_file(file, &dest)?;
+        // `fetch_one_file` now owns the per-file lifecycle: it emits `file_started` with the REAL
+        // content-length (not a hardcoded 0) and streams the bytes to disk emitting throttled
+        // `file_progress`. It also honors `cancelled()` MID-stream, so a cancel during the 90 MB
+        // safetensors aborts without writing a partial blob, not only between files.
+        fetch_one_file(file, &dest, progress)?;
         // Verify the freshly written file; a mismatch removes the bad blob and errors.
         if let Err(error) = verify_file_sha256(&dest, file.sha256) {
             let _ = std::fs::remove_file(&dest);
@@ -471,34 +481,144 @@ pub fn ensure_model_downloaded(
     Ok(model_dir)
 }
 
-/// Downloads ONE file from its HF repo into `dest` (real network path).
+/// Read-buffer size for the streaming download (one `read` syscall fills at most this many bytes).
+const DOWNLOAD_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Emit a `file_progress` event at most ~once per this many bytes (plus a guaranteed final 100%).
 ///
-/// Uses hf-hub's blocking `ureq` (rustls) transport, then copies the cached blob into PathKeep's
-/// flat `models_dir/<repo-segment>/<file>` layout so the loader finds it by name. Each file declares
-/// its own source repo, so the tokenizer/config (base repo) and the GGUF weights (GGUF repo) are
-/// fetched from the right place. Kept tiny and gated so the surrounding consent/offline/cancel/
-/// verify logic is testable without a network.
-#[cfg(not(any(test, coverage)))]
-fn fetch_one_file(file: &ModelFile, dest: &std::path::Path) -> Result<()> {
-    let api = hf_hub::api::sync::ApiBuilder::new().build().context("building hf-hub api client")?;
-    let cached = api.model(file.repo.to_string()).get(file.name).map_err(|error| {
-        anyhow::anyhow!("downloading {} from {}: {error}", file.name, file.repo)
-    })?;
-    std::fs::copy(&cached, dest)
-        .with_context(|| format!("placing downloaded {} into {}", file.name, dest.display()))?;
+/// Throttling by bytes (not by chunk) bounds the event rate so a 90 MB file emits ~90 events, not
+/// thousands: a per-read event would flood the IPC channel and the renderer for no visible benefit.
+const DOWNLOAD_PROGRESS_STRIDE_BYTES: u64 = 1024 * 1024;
+
+/// Streams `reader` into `dest`, emitting throttled byte progress and honoring mid-stream cancel.
+///
+/// The PURE, ALWAYS-COMPILED heart of the streaming download (Change 3): it reads in
+/// [`DOWNLOAD_CHUNK_BYTES`] chunks, writes each to `dest`, and emits a `file_progress` event at most
+/// once per [`DOWNLOAD_PROGRESS_STRIDE_BYTES`] plus a guaranteed FINAL event at 100% — so the read /
+/// write / emit loop is exercised + covered with a [`std::io::Cursor`] rather than `cfg`-compiled out
+/// of the coverage binary (the only network seam is [`open_download_stream`]). `cancelled()` is
+/// checked at the TOP of every chunk, so a cancel mid-stream aborts and REMOVES the partial `dest`
+/// rather than leaving a truncated blob behind. `total_bytes` is the content-length (0 = unknown);
+/// it is only echoed into the events, never trusted as the read length.
+fn stream_to_file(
+    mut reader: impl std::io::Read,
+    total_bytes: u64,
+    dest: &std::path::Path,
+    file_name: &str,
+    progress: &mut dyn ModelDownloadProgress,
+) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(dest)
+        .with_context(|| format!("creating model file {}", dest.display()))?;
+    // Removes the half-written blob on EVERY error path (cancel, network read error, disk write
+    // error, flush error) so a failed download never leaves a truncated file in `models_dir` — the
+    // success path disarms it (review L-2). A leftover partial is already harmless (the SHA verify +
+    // `.pathkeep-verified` marker gate loading, and the next attempt truncates), but RAII keeps the
+    // cleanup symmetric across all exits without per-branch plumbing.
+    let mut partial = PartialFileGuard { dest, armed: true };
+    let mut buffer = vec![0_u8; DOWNLOAD_CHUNK_BYTES];
+    let mut downloaded: u64 = 0;
+    let mut last_emitted: u64 = 0;
+    loop {
+        if progress.cancelled() {
+            anyhow::bail!("model file download for {file_name} was cancelled");
+        }
+        let read = reader
+            .read(&mut buffer)
+            .with_context(|| format!("reading download stream for {file_name}"))?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])
+            .with_context(|| format!("writing model file {}", dest.display()))?;
+        downloaded += read as u64;
+        if downloaded - last_emitted >= DOWNLOAD_PROGRESS_STRIDE_BYTES {
+            progress.file_progress(file_name, downloaded, total_bytes);
+            last_emitted = downloaded;
+        }
+    }
+    file.flush().with_context(|| format!("flushing model file {}", dest.display()))?;
+    // Completed cleanly: keep the file (disarm) and emit a final event so the bar reaches the end
+    // even for a tiny/last sub-stride chunk.
+    partial.armed = false;
+    progress.file_progress(file_name, downloaded, total_bytes);
     Ok(())
 }
 
-/// Deterministic offline stub for the download fetch (tests/coverage): writes the expected bytes.
+/// Removes a half-written model file on drop unless it was disarmed by a clean completion.
 ///
-/// The tests drive `ensure_model_downloaded` with a manifest whose digests match these synthetic
-/// bytes, so the consent/offline/cancel/verify/progress logic runs end-to-end with no network. The
-/// real hf-hub path is compiled out under test/coverage.
+/// RAII so EVERY error exit of [`stream_to_file`] (cancel, read, write, flush) scrubs the partial
+/// blob without per-branch cleanup; the success path sets `armed = false`. Removing a still-open file
+/// is fine on the unix targets PathKeep ships (the directory entry goes immediately, the inode frees
+/// when the handle drops right after).
+struct PartialFileGuard<'a> {
+    dest: &'a std::path::Path,
+    armed: bool,
+}
+
+impl Drop for PartialFileGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(self.dest);
+        }
+    }
+}
+
+/// Downloads ONE file from its HF repo into `dest` (real network path), with byte progress.
+///
+/// Opens a streaming HTTP reader via [`open_download_stream`] (the ONLY `cfg`-gated network seam),
+/// emits `file_started` with the REAL content-length, then delegates to the pure [`stream_to_file`]
+/// for the read/write/throttled-emit loop. Each file declares its own source repo, so the
+/// tokenizer/config (base repo) and the GGUF weights (GGUF repo) are fetched from the right place.
+#[cfg(not(any(test, coverage)))]
+fn fetch_one_file(
+    file: &ModelFile,
+    dest: &std::path::Path,
+    progress: &mut dyn ModelDownloadProgress,
+) -> Result<()> {
+    let (reader, total_bytes) = open_download_stream(file)?;
+    progress.file_started(file.name, total_bytes);
+    stream_to_file(reader, total_bytes, dest, file.name, progress)
+}
+
+/// Opens a streaming HTTP reader for one model file + its content-length (the network seam).
+///
+/// The ONE irreducible socket seam (Change 3 methodology): GETs the HF resolve URL
+/// `https://huggingface.co/{repo}/resolve/main/{file}` over `ureq` (rustls, already in-tree via
+/// hf-hub) which follows the redirect to the CDN, and returns the body reader plus the content-length
+/// (0 when the server omits it). Everything ELSE — the read/write/throttle/cancel loop — lives in the
+/// pure [`stream_to_file`] so it is covered without a network. Compiled out under test/coverage.
+#[cfg(not(any(test, coverage)))]
+fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
+    let url = format!("https://huggingface.co/{}/resolve/main/{}", file.repo, file.name);
+    let response = ureq::get(&url).call().map_err(|error| {
+        anyhow::anyhow!("downloading {} from {}: {error}", file.name, file.repo)
+    })?;
+    let total_bytes = response
+        .headers()
+        .get("content-length")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    Ok((response.into_body().into_reader(), total_bytes))
+}
+
+/// Deterministic offline stub for the download fetch (tests/coverage): streams the expected bytes.
+///
+/// Mirrors the real path's call graph — emit `file_started`, then run the SAME pure
+/// [`stream_to_file`] over an in-memory [`std::io::Cursor`] — so the consent/offline/cancel/verify/
+/// progress logic AND the streaming loop run end-to-end with no network. The manifest digests match
+/// these synthetic bytes; the real `ureq` path is compiled out under test/coverage.
 #[cfg(any(test, coverage))]
-fn fetch_one_file(file: &ModelFile, dest: &std::path::Path) -> Result<()> {
-    std::fs::write(dest, stub_file_bytes(file.name))
-        .with_context(|| format!("writing stub model file {}", dest.display()))?;
-    Ok(())
+fn fetch_one_file(
+    file: &ModelFile,
+    dest: &std::path::Path,
+    progress: &mut dyn ModelDownloadProgress,
+) -> Result<()> {
+    let bytes = stub_file_bytes(file.name);
+    let total_bytes = bytes.len() as u64;
+    progress.file_started(file.name, total_bytes);
+    stream_to_file(std::io::Cursor::new(bytes), total_bytes, dest, file.name, progress)
 }
 
 /// The synthetic bytes the download stub writes for a given file name.
@@ -1857,7 +1977,80 @@ mod tests {
     fn noop_progress_defaults_are_inert() {
         let mut progress = NoopDownloadProgress;
         progress.file_started("x", 10);
+        progress.file_progress("x", 5, 10);
         progress.file_finished("x");
         assert!(!progress.cancelled());
+    }
+
+    /// Records `file_progress` events and can flip `cancelled()` true after N of them (for the
+    /// mid-stream cancel test).
+    #[derive(Default)]
+    struct StreamRecorder {
+        progress: Vec<(String, u64, u64)>,
+        cancel_after_emits: Option<usize>,
+    }
+
+    impl ModelDownloadProgress for StreamRecorder {
+        fn file_progress(&mut self, file: &str, downloaded_bytes: u64, total_bytes: u64) {
+            self.progress.push((file.to_string(), downloaded_bytes, total_bytes));
+        }
+        fn cancelled(&self) -> bool {
+            self.cancel_after_emits.is_some_and(|threshold| self.progress.len() >= threshold)
+        }
+    }
+
+    #[test]
+    fn stream_to_file_writes_bytes_and_emits_intermediate_and_final_progress() {
+        // Change 3 (the measured loop): streaming a multi-MB body must write every byte to disk AND
+        // emit at least one INTERMEDIATE event (downloaded < total) plus a FINAL 100% event.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dest = dir.path().join("model.safetensors");
+        // 2.5 MiB crosses the 1 MiB stride twice before the (sub-stride) tail, so there are real
+        // intermediate emits, exercising the throttle branch — not just the guaranteed final one.
+        let total = 2_621_440_usize; // 2.5 * 1024 * 1024, an exact multiple of the 64 KiB read buffer
+        let data = vec![7_u8; total];
+        let mut recorder = StreamRecorder::default();
+        stream_to_file(
+            std::io::Cursor::new(data.clone()),
+            total as u64,
+            &dest,
+            "model.safetensors",
+            &mut recorder,
+        )
+        .expect("stream");
+
+        // Every byte landed on disk, verbatim.
+        assert_eq!(std::fs::read(&dest).expect("read back"), data);
+        // At least one intermediate emit (downloaded strictly below total) proves the throttle fired.
+        assert!(
+            recorder.progress.iter().any(|(_, downloaded, t)| *downloaded < *t),
+            "expected an intermediate file_progress before completion, got {:?}",
+            recorder.progress
+        );
+        // The final emit reaches 100% (downloaded == total) so the bar completes.
+        let last = recorder.progress.last().expect("a final progress event");
+        assert_eq!((last.1, last.2), (total as u64, total as u64));
+    }
+
+    #[test]
+    fn stream_to_file_aborts_mid_stream_on_cancel_and_removes_partial() {
+        // A cancel observed MID-stream must stop the loop, error, and remove the partial file so no
+        // truncated blob is left in `models_dir`.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dest = dir.path().join("partial.gguf");
+        let data = vec![3_u8; 2_621_440]; // big enough to emit at least once before we cancel
+        // Cancel as soon as the first progress event has been emitted (~1 MiB in): mid-stream.
+        let mut recorder =
+            StreamRecorder { cancel_after_emits: Some(1), ..StreamRecorder::default() };
+        let error = stream_to_file(
+            std::io::Cursor::new(data),
+            2_621_440,
+            &dest,
+            "partial.gguf",
+            &mut recorder,
+        )
+        .expect_err("mid-stream cancel must error");
+        assert!(error.to_string().contains("cancelled"), "got: {error}");
+        assert!(!dest.exists(), "the partial file must be removed on cancel");
     }
 }

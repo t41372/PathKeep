@@ -65,6 +65,9 @@ thiserror.workspace = true
 # see the workspace dep comment for the full caveat.
 tokenizers.workspace = true
 tokio.workspace = true
+# Direct (not just transitive-via-hf-hub) so `open_download_stream` can GET the HF resolve URL with
+# byte progress (W-AI-4b streaming download); ureq v3 bundles rustls, no new crate in the graph.
+ureq.workspace = true
 walkdir.workspace = true
 # code-mode sandbox runtime (W-AI-8); pure-Rust Cranelift + a minimal scoped WASI (stdin/stdout-only
 # RPC channel, no fs/net/env/real-clock) so the Javy QuickJS→WASM guest can run real JS.

@@ -79,6 +79,15 @@ pub struct IndexBackfillCursor {
     pub next_history_id: i64,
     /// Count of vectors durably persisted so far across all chunks of this backfill.
     pub embedded_so_far: u64,
+    /// The max canonical `history_id` captured at the TRUE start of the build — the honest determinate
+    /// scan denominator, so `next_history_id / scan_target` reaches ~100% as the scan completes.
+    ///
+    /// `#[serde(default)]` (default 0 = unknown) keeps EXISTING persisted payloads back-compatible: a
+    /// cursor written before this field deserializes with `scan_target = 0`. Set ONCE at the build's
+    /// true start; a resume PRESERVES it (see [`persist_index_cursor`]) rather than recomputing against
+    /// a corpus that may have grown, so the bar measures the build's own original scan range.
+    #[serde(default)]
+    pub scan_target: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,16 +200,20 @@ pub fn load_ai_queue_status(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
     )?;
+    // `payload_json` is selected as the last column so the Activity page gets a determinate index-build
+    // bar: the index payload's resumable cursor (embedded/scanned/scan_target) is parsed per row in
+    // `decode_ai_job_row_with_progress`. Assistant jobs (and any unparseable payload) leave the three
+    // progress fields `None` — a bad row never wedges the read model.
     let mut statement = connection.prepare(
         "SELECT id, job_type, state, priority, attempt, max_attempts, run_id, summary,
                 created_at, available_at, started_at, finished_at, heartbeat_at,
-                error_code, error_message
+                error_code, error_message, payload_json
          FROM ai_jobs
          ORDER BY id DESC
          LIMIT ?1",
     )?;
     let recent_jobs = statement
-        .query_map([limit as i64], decode_ai_job_row)?
+        .query_map([limit as i64], decode_ai_job_row_with_progress)?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     Ok(AiQueueStatus {
         paused,
@@ -470,7 +483,12 @@ pub fn persist_index_cursor(
     let AiJobPayload::Index { request, cursor: stored } = &mut payload else {
         return Ok(CursorPersistOutcome::NotIndexJob);
     };
-    *stored = cursor.clone();
+    // PRESERVE the determinate scan denominator across resumes: the backfill captures `scan_target`
+    // ONCE at the build's true start and reports `0` ("unknown") on every resume, so a fresh build
+    // sets it here while a resume keeps the value already stored. Without this, a resumed cursor would
+    // clobber the original target with 0 and the Activity bar would lose its denominator mid-build.
+    let scan_target = if cursor.scan_target > 0 { cursor.scan_target } else { stored.scan_target };
+    *stored = IndexBackfillCursor { scan_target, ..cursor.clone() };
     // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
     // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
     // delete and lose every row already embedded below the cursor (CRITICAL-1). Flipping the stored
@@ -928,7 +946,32 @@ fn decode_ai_job_row(row: &Row<'_>) -> rusqlite::Result<AiQueueJob> {
         heartbeat_at: row.get(12)?,
         error_code: row.get(13)?,
         error_message: row.get(14)?,
+        // The row-only decode (no `payload_json`) leaves progress unknown; the status path uses
+        // `decode_ai_job_row_with_progress`, which fills these from the index cursor.
+        progress_embedded: None,
+        progress_scanned: None,
+        progress_scan_target: None,
     })
+}
+
+/// Decodes one queue row INCLUDING index-build progress parsed from `payload_json` (column index 15).
+///
+/// The Activity page renders a determinate bar for a running index build, so this enriches the base
+/// read model with the resumable cursor's `embedded_so_far` (vectors embedded), `next_history_id`
+/// (scan watermark), and `scan_target` (scan denominator). ONLY an [`AiJobPayload::Index`] carries a
+/// cursor, so an assistant job leaves all three `None`; a payload that fails to parse (schema drift /
+/// corruption) is treated the same way rather than erroring the whole status read on one bad row.
+fn decode_ai_job_row_with_progress(row: &Row<'_>) -> rusqlite::Result<AiQueueJob> {
+    let mut job = decode_ai_job_row(row)?;
+    let payload_json: String = row.get(15)?;
+    if let Ok(AiJobPayload::Index { cursor, .. }) =
+        serde_json::from_str::<AiJobPayload>(&payload_json)
+    {
+        job.progress_embedded = Some(cursor.embedded_so_far);
+        job.progress_scanned = Some(cursor.next_history_id);
+        job.progress_scan_target = Some(cursor.scan_target);
+    }
+    Ok(job)
 }
 
 fn parse_rfc3339(value: &str) -> Result<DateTime<Utc>> {
