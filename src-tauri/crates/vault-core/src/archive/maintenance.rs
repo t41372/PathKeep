@@ -18,6 +18,7 @@ use super::{
     },
     *,
 };
+use crate::durable_io::install_file_durably;
 
 /// Previews replaying one saved checkpoint or explains why the snapshot is manual-only.
 pub fn preview_snapshot_restore(
@@ -358,6 +359,31 @@ pub fn run_retention_prune(
 }
 
 /// Rekeys or rewrites the archive into a different at-rest mode.
+///
+/// Crash-safety contract (the 2026-06-30 incident + the data-integrity audit's
+/// CRIT-1/4/5 and incident-rootcause HIGHs). The steps are ordered so that an
+/// interruption at ANY point leaves a recoverable archive, and config is written
+/// LAST so a stale config is always the self-healable end state rather than a
+/// brick:
+///   1. hold the cross-process [`ArchiveWriteLock`] for the whole operation, so the
+///      out-of-process scheduled backup can never race the swap;
+///   2. take a VERIFIED safety snapshot of the canonical archive BEFORE any
+///      destructive write (checkpointed so the copy is WAL-complete, then re-opened
+///      and `quick_check`ed with the CURRENT key — an un-restorable backstop is
+///      worthless);
+///   3. export the new-keyed database to a temp in the SAME directory as the
+///      canonical file and VERIFY it (a KEYED `quick_check` with the TARGET key, which
+///      subsumes any salt check) before any swap — a bad/partial export aborts here;
+///   4. durably install the temp onto the canonical path (F_FULLFSYNC + rename +
+///      dir fsync) and scrub the swapped-in file's stale `-wal`/`-shm` so no foreign
+///      WAL can replay into the rekeyed database;
+///   5. migrate source-evidence to the new key in lockstep, then write config LAST
+///      and only then drop the backstop.
+///
+/// Run-ledger bookkeeping (`run_type='rekey'`, the before-rekey snapshot artifact,
+/// and the finalize manifest) is preserved for PME transparency. The fault-injection
+/// checkpoints are no-ops in production and let crash-window tests prove the
+/// recoverability invariant at each step.
 pub fn rekey_archive(
     paths: &ProjectPaths,
     current_config: &AppConfig,
@@ -370,18 +396,13 @@ pub fn rekey_archive(
         anyhow::bail!("archive database does not exist");
     }
 
+    // (1) Serialize the entire rekey against every other archive-mutating op —
+    // crucially the SEPARATE scheduled-backup process — until this guard drops.
+    let _write_lock =
+        ArchiveWriteLock::acquire(paths).context("acquiring the archive write lock for rekey")?;
+
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();
-    let source = open_archive_connection(paths, current_config, old_key)?;
-    let snapshot_path = create_rekey_snapshot(paths)?;
-    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
-    let backup_path = paths.archive_database_path.with_extension("backup.sqlite");
-    if temp_path.exists() {
-        fs::remove_file(&temp_path)?;
-    }
-    if backup_path.exists() {
-        fs::remove_file(&backup_path)?;
-    }
     let target_key = match new_mode {
         ArchiveMode::Encrypted => Some(new_key.context("new encryption key is required")?),
         ArchiveMode::Plaintext => None,
@@ -389,45 +410,34 @@ pub fn rekey_archive(
     let mut next_config = current_config.clone();
     next_config.initialized = true;
     next_config.archive_mode = new_mode.clone();
+
+    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
+    // Clear leftovers from a prior interrupted rekey. The canonical archive is
+    // confirmed present above, so a stale `.rekey.sqlite`/`.backup.sqlite` is a
+    // redundant remnant (the new flow installs in place and keeps no `.backup`),
+    // never the only live copy.
+    let _ = fs::remove_file(&temp_path);
+    let _ = fs::remove_file(paths.archive_database_path.with_extension("backup.sqlite"));
+
+    let source = open_archive_connection(paths, current_config, old_key)?;
+
+    // (2) Verified backstop of the canonical archive BEFORE any destructive write.
+    let snapshot_path = create_verified_rekey_snapshot(paths, &source, current_config, old_key)?;
+
+    // (3) Export the new-keyed database into a temp beside the canonical file, then
+    // VERIFY it opens with the target key + passes quick_check before any swap.
     export_archive_database(&source, &temp_path, target_key)?;
     drop(source);
+    verify_rekey_export(&temp_path, target_key)?;
 
-    let temp_connection =
-        Connection::open(&temp_path).with_context(|| format!("opening {}", temp_path.display()))?;
-    temp_connection.busy_timeout(StdDuration::from_secs(5))?;
-    temp_connection.pragma_update(None, "foreign_keys", true)?;
-    if let Some(key) = target_key {
-        apply_cipher_key(&temp_connection, key)?;
-    }
-    create_schema(&temp_connection)?;
-    temp_connection.execute(
-        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-         VALUES ('rekey', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
-        params![started_at, timezone],
-    )?;
-    let run_id = temp_connection.last_insert_rowid();
-    record_snapshot_reference(
-        &temp_connection,
-        run_id,
-        &snapshot_path,
-        "before-rekey",
-        &started_at,
-    )?;
-    drop(temp_connection);
+    // Seed the rekey run + before-rekey snapshot reference into the NEW database (it
+    // becomes canonical after the swap), folding its WAL into the main file so the
+    // durable install captures every row, then scrub the temp's WAL/-shm sidecars.
+    let run_id = seed_rekey_run(&temp_path, target_key, &started_at, &timezone, &snapshot_path)?;
+    super::at_rest::remove_stale_sidecars(&temp_path);
 
-    prepare_rekey_database_swap(&paths.archive_database_path, &temp_path, &backup_path)?;
-    replace_rekey_database(&paths.archive_database_path, &temp_path, &backup_path)?;
-
-    let _ = fs::remove_file(&backup_path);
-
-    match save_config(paths, &next_config)
-        // Migrate source-evidence to the new at-rest mode in lockstep with the
-        // archive. Historically the rekey migrated only the archive, which
-        // drifted source-evidence and broke every subsequent backup with
-        // SQLITE_NOMEM. Chained here so a migration failure finalizes THIS rekey
-        // run as failed instead of leaving a half-migrated, un-finalized run.
-        .and_then(|_| super::migrate_source_evidence_for_rekey(paths, old_key, target_key))
-        .and_then(|_| archive_status(paths, &next_config, target_key))
+    let mut swapped = false;
+    match rekey_swap_and_commit(paths, &temp_path, old_key, target_key, &next_config, &mut swapped)
     {
         Ok(status) => {
             let connection = open_archive_connection(paths, &next_config, target_key)?;
@@ -444,8 +454,18 @@ pub fn rekey_archive(
             Ok(status)
         }
         Err(error) => {
-            let run_error = format!("{error:#}");
-            if let Ok(connection) = open_archive_connection(paths, &next_config, target_key) {
+            // Pre-swap failure: the canonical archive + config are untouched, so the
+            // orphaned export is useless — drop it rather than leave a phantom swap.
+            if !swapped {
+                let _ = fs::remove_file(&temp_path);
+                super::at_rest::remove_stale_sidecars(&temp_path);
+            }
+            // Post-swap failure: the run row now lives in the (canonical) new
+            // database, so record the failure there for PME transparency. The backstop
+            // snapshot is intentionally KEPT for recovery.
+            if swapped
+                && let Ok(connection) = open_archive_connection(paths, &next_config, target_key)
+            {
                 let _ = finalize_rekey_run(
                     &connection,
                     paths,
@@ -454,7 +474,7 @@ pub fn rekey_archive(
                     &new_mode,
                     &snapshot_path,
                     "failed",
-                    Some(run_error.clone()),
+                    Some(format!("{error:#}")),
                 );
             }
             Err(error)
@@ -462,27 +482,156 @@ pub fn rekey_archive(
     }
 }
 
-fn prepare_rekey_database_swap(
-    archive_database_path: &Path,
+/// Performs the irreversible half of a rekey: durably install the verified export,
+/// scrub stale sidecars, convert source-evidence, and write config LAST.
+///
+/// `*swapped` is set the instant the canonical file has been replaced, so the
+/// caller can distinguish a pre-swap failure (original archive + config intact)
+/// from a post-swap one (new file on disk; a stale config is the self-healable lag).
+/// The fault-injection checkpoints mark the exact crash windows the audit calls out.
+fn rekey_swap_and_commit(
+    paths: &ProjectPaths,
     temp_path: &Path,
-    backup_path: &Path,
-) -> Result<()> {
-    if let Err(error) = fs::rename(archive_database_path, backup_path) {
-        let _ = fs::remove_file(temp_path);
-        return Err(error).context("preparing archive database swap for rekey export");
+    old_key: Option<&str>,
+    target_key: Option<&str>,
+    next_config: &AppConfig,
+    swapped: &mut bool,
+) -> Result<ArchiveStatus> {
+    // (4) A crash HERE must leave the ORIGINAL canonical database + config untouched.
+    crate::fault_inject::checkpoint("rekey.after_export_before_swap")?;
+
+    // (5) Durable swap (F_FULLFSYNC + rename + dir fsync), then scrub the swapped-in
+    // file's stale sidecars so a foreign `-wal` can never replay into the rekeyed DB.
+    install_file_durably(temp_path, &paths.archive_database_path)
+        .context("durably installing the rekeyed archive")?;
+    *swapped = true;
+    super::at_rest::remove_stale_sidecars(&paths.archive_database_path);
+
+    // (6) THE incident window: the file is converted but config still reflects the
+    // OLD mode. Writing config LAST makes this the recoverable, data-safe state — the
+    // verified backstop is still on disk and the new file is durably installed under
+    // the new key, so nothing is lost. NOTE: this is NOT auto-healed today. `at_rest`/
+    // `reconcile_*` only converge source-evidence and explicitly disclaim the canonical
+    // archive, so on the next launch this window currently surfaces as NOTADB
+    // (config=Plaintext over an Encrypted file) and needs manual recovery. A FUTURE
+    // Phase C reconcile of the canonical archive will auto-heal it — but Phase C is NOT
+    // YET LIVE, so do not assume the incident window self-heals in-app yet.
+    crate::fault_inject::checkpoint("rekey.after_swap_before_config")?;
+
+    // (7) Convert source-evidence in lockstep, BEFORE config/backstop are committed,
+    // so a failure here keeps the backstop.
+    super::migrate_source_evidence_for_rekey(paths, old_key, target_key)?;
+
+    // (8) Config LAST, atomically + durably, only after BOTH databases are converted
+    // and durable on disk.
+    save_config(paths, next_config)?;
+
+    // (9) The new state is now fully durable; finalize may drop the backstop.
+    crate::fault_inject::checkpoint("rekey.after_config")?;
+    archive_status(paths, next_config, target_key)
+}
+
+/// Creates the rekey safety snapshot and proves it is restorable.
+///
+/// Checkpoints the live archive (TRUNCATE) so the copy is not WAL-incomplete, copies
+/// it, then re-opens the copy with the CURRENT key and runs `quick_check`. A snapshot
+/// that cannot be re-opened is worthless as a backstop, so a verification failure
+/// aborts the rekey with the original archive still untouched.
+fn create_verified_rekey_snapshot(
+    paths: &ProjectPaths,
+    source: &Connection,
+    current_config: &AppConfig,
+    old_key: Option<&str>,
+) -> Result<PathBuf> {
+    checkpoint_truncate(source, "the archive before the rekey safety snapshot")?;
+    let snapshot_path = create_rekey_snapshot(paths)?;
+    let snapshot_key =
+        if matches!(current_config.archive_mode, ArchiveMode::Encrypted) { old_key } else { None };
+    // `verify_database_integrity` already names the snapshot file in its error, so no
+    // extra wrapping closure is needed (and none is left only-reachable-on-failure).
+    verify_database_integrity(&snapshot_path, snapshot_key)?;
+    super::at_rest::remove_stale_sidecars(&snapshot_path);
+    Ok(snapshot_path)
+}
+
+/// Seeds the `rekey` run row + before-rekey snapshot reference into the freshly
+/// exported database, then folds its WAL into the main file so the durable swap
+/// captures the bookkeeping. Returns the new run id.
+fn seed_rekey_run(
+    temp_path: &Path,
+    target_key: Option<&str>,
+    started_at: &str,
+    timezone: &str,
+    snapshot_path: &Path,
+) -> Result<i64> {
+    let connection =
+        Connection::open(temp_path).with_context(|| format!("opening {}", temp_path.display()))?;
+    connection.busy_timeout(StdDuration::from_secs(5))?;
+    if let Some(key) = target_key {
+        apply_cipher_key(&connection, key)?;
     }
+    connection.pragma_update(None, "foreign_keys", true)?;
+    create_schema(&connection)?;
+    connection.execute(
+        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
+         VALUES ('rekey', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
+        params![started_at, timezone],
+    )?;
+    let run_id = connection.last_insert_rowid();
+    record_snapshot_reference(&connection, run_id, snapshot_path, "before-rekey", started_at)?;
+    checkpoint_truncate(&connection, "the rekey export before swap")?;
+    Ok(run_id)
+}
+
+/// Folds a WAL-mode database's log back into its main file so a subsequent
+/// file-level copy/rename captures every committed row (and leaves no `-wal` behind
+/// for a swap to either miss or wrongly replay).
+fn checkpoint_truncate(connection: &Connection, what: &str) -> Result<()> {
+    connection
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_row| Ok(()))
+        .with_context(|| format!("checkpointing {what}"))?;
     Ok(())
 }
 
-fn replace_rekey_database(
-    archive_database_path: &Path,
-    temp_path: &Path,
-    backup_path: &Path,
-) -> Result<()> {
-    if let Err(error) = fs::rename(temp_path, archive_database_path) {
-        let _ = fs::rename(backup_path, archive_database_path);
-        let _ = fs::remove_file(temp_path);
-        return Err(error).context("replacing archive database after rekey export");
+/// Verifies a freshly exported rekey database is sound for `target_key` BEFORE it is
+/// allowed to overwrite the canonical archive.
+///
+/// The check is a KEYED `quick_check`: it opens the export with the exact key it will
+/// be served under and walks the b-tree, so a partial/zeroed export — the 2026-06-30
+/// incident, where an un-fsynced temp was swapped in and bricked every later open —
+/// fails here (it cannot be decrypted/read) with the original archive still intact.
+///
+/// (No explicit "salt is non-zero" assertion is made here — but NOT because zeros are
+/// normal. `sqlcipher_export` writes a RANDOM, non-zero 16-byte salt into page 1; a
+/// zeroed/partial salt is the CORRUPTION SIGNATURE of the 2026-06-30 incident — a
+/// stale `-wal` replay clobbering page 1 / un-fsynced page-1 writes — never a healthy
+/// export. The check is omitted for two reasons: (a) the keyed `quick_check` STRICTLY
+/// SUBSUMES it — a corrupt, partial, or wrong-key export cannot be decrypted and fails
+/// quick_check; and (b) the salt-zeroing in the incident happens at power-loss /
+/// next-open WAL replay, AFTER this pre-swap verify, so a salt check here could not
+/// have caught it anyway. The real defenses are the durability barrier
+/// (`install_file_durably`'s F_FULLFSYNC), the sidecar scrub, and this keyed
+/// quick_check.)
+fn verify_rekey_export(temp_path: &Path, target_key: Option<&str>) -> Result<()> {
+    verify_database_integrity(temp_path, target_key)
+        .with_context(|| format!("verifying the rekey export {}", temp_path.display()))
+}
+
+/// Confirms `path` opens with `key` and passes `PRAGMA quick_check`, using the SAME
+/// key the file will be served with so a wrong-key/corrupt file is caught here
+/// instead of bricking the next open.
+fn verify_database_integrity(path: &Path, key: Option<&str>) -> Result<()> {
+    let connection = Connection::open(path)
+        .with_context(|| format!("opening {} for verification", path.display()))?;
+    connection.busy_timeout(StdDuration::from_secs(5))?;
+    if let Some(key) = key {
+        apply_cipher_key(&connection, key)?;
+    }
+    let status: String = connection
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .with_context(|| format!("running quick_check on {}", path.display()))?;
+    if status != "ok" {
+        anyhow::bail!("integrity check of {} failed: {status}", path.display());
     }
     Ok(())
 }
@@ -558,36 +707,105 @@ mod tests {
     use crate::config::project_paths_with_root;
     use tempfile::tempdir;
 
-    #[test]
-    fn rekey_swap_preparation_removes_temp_file_when_backup_cannot_be_created() {
-        let dir = tempdir().expect("tempdir");
-        let archive_path = dir.path().join("missing.sqlite");
-        let temp_path = dir.path().join("archive.rekey.sqlite");
-        let backup_path = dir.path().join("archive.backup.sqlite");
-        fs::write(&temp_path, "temporary export").expect("write temp export");
+    const VERIFY_KEY: &str = "rekey-verify-test-key";
 
-        let error = prepare_rekey_database_swap(&archive_path, &temp_path, &backup_path)
-            .expect_err("missing archive cannot be swapped");
-
-        assert!(format!("{error:#}").contains("preparing archive database swap"));
-        assert!(!temp_path.exists());
-        assert!(!backup_path.exists());
+    /// Writes a valid SQLite database file at `path`, encrypted when `key` is set,
+    /// big enough to span several pages so a data-page corruption test has real
+    /// b-tree pages to damage beyond page 1 (header + schema).
+    fn seed_verifiable_database(path: &Path, key: Option<&str>) {
+        let connection = Connection::open(path).expect("open seed db");
+        connection.pragma_update(None, "page_size", 512).expect("small page size");
+        if let Some(key) = key {
+            apply_cipher_key(&connection, key).expect("apply key");
+        }
+        connection.execute_batch("CREATE TABLE t(a TEXT);").expect("create table");
+        for _ in 0..200 {
+            connection
+                .execute("INSERT INTO t VALUES (?1)", params!["x".repeat(100)])
+                .expect("seed");
+        }
+        drop(connection);
     }
 
     #[test]
-    fn rekey_swap_replacement_restores_backup_when_temp_move_fails() {
+    fn verify_database_integrity_accepts_valid_plaintext_and_encrypted_files() {
         let dir = tempdir().expect("tempdir");
-        let archive_path = dir.path().join("archive.sqlite");
-        let temp_path = dir.path().join("missing-rekey.sqlite");
-        let backup_path = dir.path().join("archive.backup.sqlite");
-        fs::write(&backup_path, "backup archive").expect("write backup archive");
+        let plain = dir.path().join("plain.sqlite");
+        seed_verifiable_database(&plain, None);
+        verify_database_integrity(&plain, None).expect("a valid plaintext db verifies");
 
-        let error = replace_rekey_database(&archive_path, &temp_path, &backup_path)
-            .expect_err("missing temp export cannot replace archive");
+        let encrypted = dir.path().join("enc.sqlite");
+        seed_verifiable_database(&encrypted, Some(VERIFY_KEY));
+        verify_database_integrity(&encrypted, Some(VERIFY_KEY))
+            .expect("a valid encrypted db verifies");
+    }
 
-        assert!(format!("{error:#}").contains("replacing archive database"));
-        assert_eq!(fs::read_to_string(&archive_path).expect("restored archive"), "backup archive");
-        assert!(!backup_path.exists());
+    #[test]
+    fn verify_database_integrity_rejects_a_corrupt_but_openable_database() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("corrupt.sqlite");
+        seed_verifiable_database(&path, None);
+
+        // Keep page 1 (header + sqlite_master) intact and garble every data page, so
+        // the file still OPENS but quick_check walks the table b-tree into corruption
+        // and returns a non-"ok" row — the branch that aborts a bad swap.
+        let mut bytes = fs::read(&path).expect("read seeded db");
+        for byte in bytes.iter_mut().skip(512) {
+            *byte = 0xAA;
+        }
+        fs::write(&path, &bytes).expect("write corrupted db");
+
+        let error =
+            verify_database_integrity(&path, None).expect_err("a corrupt database must not verify");
+        assert!(format!("{error:#}").contains("integrity check"), "got: {error:#}");
+    }
+
+    #[test]
+    fn verify_database_integrity_rejects_an_encrypted_file_opened_with_the_wrong_key() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("enc.sqlite");
+        seed_verifiable_database(&path, Some(VERIFY_KEY));
+
+        let error = verify_database_integrity(&path, Some("the-wrong-key"))
+            .expect_err("a wrong key must surface as a verification error");
+        assert!(format!("{error:#}").contains("quick_check"), "got: {error:#}");
+    }
+
+    #[test]
+    fn verify_rekey_export_keyed_quick_check_accepts_valid_and_rejects_corrupt() {
+        let dir = tempdir().expect("tempdir");
+
+        // Plaintext target: opens unkeyed + quick_check ok.
+        let plain = dir.path().join("plain.sqlite");
+        seed_verifiable_database(&plain, None);
+        verify_rekey_export(&plain, None).expect("a valid plaintext export verifies");
+
+        // Encrypted target: opens with the key + quick_check ok (the leading salt slot
+        // being zero or not is irrelevant — the keyed read is what matters).
+        let encrypted = dir.path().join("enc.sqlite");
+        seed_verifiable_database(&encrypted, Some(VERIFY_KEY));
+        verify_rekey_export(&encrypted, Some(VERIFY_KEY))
+            .expect("a valid encrypted export verifies");
+
+        // A corrupt body is rejected before any swap could happen.
+        let mut bytes = fs::read(&plain).expect("read seeded db");
+        for byte in bytes.iter_mut().skip(512) {
+            *byte = 0xAA;
+        }
+        fs::write(&plain, &bytes).expect("write corrupted db");
+        let error =
+            verify_rekey_export(&plain, None).expect_err("a corrupt export must be rejected");
+        assert!(format!("{error:#}").contains("verifying the rekey export"), "got: {error:#}");
+    }
+
+    #[test]
+    fn checkpoint_truncate_folds_the_wal_into_the_main_file() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("wal.sqlite");
+        let connection = Connection::open(&path).expect("open db");
+        connection.pragma_update(None, "journal_mode", "WAL").expect("wal mode");
+        connection.execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (1);").expect("seed");
+        checkpoint_truncate(&connection, "the test database").expect("checkpoint truncate");
     }
 
     #[test]

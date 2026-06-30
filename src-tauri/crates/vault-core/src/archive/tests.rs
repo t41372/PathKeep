@@ -19,6 +19,41 @@ fn sample_paths(root: &Path) -> ProjectPaths {
     project_paths_with_root(root)
 }
 
+/// Inserts a uniquely-tagged run row so a rekey test can prove the canonical
+/// rows survived (the export copies it forward, so it is present in BOTH the
+/// original and the rekeyed file). `runs` is a root table, so this needs no FK
+/// scaffolding.
+fn seed_rekey_marker(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) {
+    let connection =
+        open_archive_connection(paths, config, key).expect("open archive to seed rekey marker");
+    connection
+        .execute(
+            "INSERT INTO runs (run_type, trigger, started_at, status)
+             VALUES ('backup', 'rekey-marker', '2026-06-30T00:00:00Z', 'success')",
+            [],
+        )
+        .expect("seed rekey marker run");
+}
+
+/// Counts the seeded marker rows, opening the archive in the given mode/key.
+fn rekey_marker_count(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> i64 {
+    let connection =
+        open_archive_connection(paths, config, key).expect("open archive to count rekey marker");
+    connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE trigger = 'rekey-marker'", [], |row| row.get(0))
+        .expect("count rekey marker rows")
+}
+
+/// Counts the verified before-rekey safety snapshots on disk.
+fn rekey_snapshot_count(paths: &ProjectPaths) -> usize {
+    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::read_dir(&rekey_dir)
+        .map(|entries| {
+            entries.filter_map(|entry| entry.ok()).filter(|entry| entry.path().is_file()).count()
+        })
+        .unwrap_or(0)
+}
+
 fn seed_chrome_fixture(root: &Path) -> PathBuf {
     let chrome_root = root.join("chrome-user-data");
     let profile_dir = chrome_root.join("Default");
@@ -3691,6 +3726,114 @@ fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
         .expect("failed rekey run");
     assert_eq!(status, "failed");
     assert!(error_message.as_deref().is_some_and(|message| message.contains("writing")));
+}
+
+#[test]
+fn rekey_crash_after_export_before_swap_leaves_the_original_archive_recoverable() {
+    // Window (4): a crash AFTER the new-keyed export but BEFORE the swap must be a
+    // full no-op — the ORIGINAL canonical archive + config are untouched and the
+    // verified backstop already exists. This would FAIL on the old flow, which had
+    // no crash seam at all and swapped before writing config.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard =
+        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_export_before_swap");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash before the swap must abort the rekey");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_export_before_swap"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config never changed and the ORIGINAL archive still opens with the ORIGINAL key
+    // and holds the seeded rows.
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Plaintext
+    ));
+    assert_eq!(rekey_marker_count(&paths, &config, None), 1, "the original rows must survive");
+    assert_eq!(rekey_snapshot_count(&paths), 1, "the verified backstop must exist");
+}
+
+#[test]
+fn rekey_crash_after_swap_before_config_keeps_backstop_and_new_file_openable() {
+    // Window (6) — THE incident window: a crash AFTER the durable swap but BEFORE
+    // config is written. Config still reads the OLD mode (it is written LAST, so this
+    // is the self-healable lag, not a brick), the on-disk file is the converted one
+    // and opens with the NEW key, and the backstop snapshot is still present. The old
+    // flow deleted its rollback copy before config and had no durability barrier here.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard =
+        crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_swap_before_config");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash in the incident window must abort the rekey");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_swap_before_config"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config still reflects the OLD mode (config is written LAST).
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Plaintext
+    ));
+
+    // The on-disk archive was durably converted and opens with the NEW key, rows
+    // intact (forward-recoverable once config heals), and the backstop remains.
+    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
+    assert_eq!(
+        rekey_marker_count(&paths, &encrypted, Some("new-pass")),
+        1,
+        "the rekeyed file must open with the new key and preserve rows"
+    );
+    assert_eq!(rekey_snapshot_count(&paths), 1, "the backstop snapshot must remain after the swap");
+}
+
+#[test]
+fn rekey_crash_after_config_has_consistent_new_mode_and_openable_archive() {
+    // Window (9): a crash AFTER config is durably written (before the closeout)
+    // leaves config AND the on-disk file both at the NEW mode — a consistent,
+    // openable state.
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    seed_rekey_marker(&paths, &config, None);
+
+    let _guard = crate::fault_inject::FaultGuard::error_at_must_fire("rekey.after_config");
+    let error = rekey_archive(&paths, &config, None, ArchiveMode::Encrypted, Some("new-pass"))
+        .expect_err("a crash after the config write must abort closeout");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("rekey.after_config"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Config matches the NEW mode and the archive opens with the new key.
+    assert!(matches!(
+        crate::config::load_config(&paths).expect("load config").archive_mode,
+        ArchiveMode::Encrypted
+    ));
+    let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
+    assert_eq!(rekey_marker_count(&paths, &encrypted, Some("new-pass")), 1);
+    assert_eq!(rekey_snapshot_count(&paths), 1);
 }
 
 #[test]

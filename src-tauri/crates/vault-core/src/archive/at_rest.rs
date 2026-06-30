@@ -268,7 +268,10 @@ fn open_in_mode(path: &Path, key: Option<&str>) -> Result<Connection> {
 /// Removes stale rollback/WAL sidecars left next to the freshly swapped-in file.
 /// The exported copy is self-contained, so any sidecar present belongs to the
 /// previous file and would be wrongly replayed against the new one.
-fn remove_stale_sidecars(path: &Path) {
+///
+/// Shared with the archive rekey swap (`maintenance.rs`), which has the identical
+/// "scrub the swapped-in file's foreign WAL so it cannot replay" need.
+pub(crate) fn remove_stale_sidecars(path: &Path) {
     for suffix in ["-wal", "-shm", "-journal"] {
         let _ = fs::remove_file(std::path::PathBuf::from(format!("{}{}", path.display(), suffix)));
     }
