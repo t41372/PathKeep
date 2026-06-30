@@ -54,6 +54,21 @@ fn rekey_snapshot_count(paths: &ProjectPaths) -> usize {
         .unwrap_or(0)
 }
 
+/// Counts canonical visit rows on an open connection. Reopening the archive from disk
+/// and calling this is how the crash-window tests prove a backup left either the
+/// pre-backup state or the fully-applied state — never a torn half-write.
+fn canonical_visit_count(connection: &Connection) -> i64 {
+    connection.query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0)).expect("count visits")
+}
+
+/// Asserts the archive passes `PRAGMA integrity_check` (structurally consistent on disk).
+fn assert_archive_integrity_ok(connection: &Connection) {
+    let status: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .expect("integrity_check");
+    assert_eq!(status, "ok", "the archive must be structurally consistent after a crash");
+}
+
 fn seed_chrome_fixture(root: &Path) -> PathBuf {
     let chrome_root = root.join("chrome-user-data");
     let profile_dir = chrome_root.join("Default");
@@ -3834,6 +3849,159 @@ fn rekey_crash_after_config_has_consistent_new_mode_and_openable_archive() {
     let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..config.clone() };
     assert_eq!(rekey_marker_count(&paths, &encrypted, Some("new-pass")), 1);
     assert_eq!(rekey_snapshot_count(&paths), 1);
+}
+
+#[test]
+fn backup_crash_before_canonical_commit_rolls_back_to_pre_backup_state() {
+    // Crash window: the process dies AFTER every selected profile's rows are staged into
+    // the open write transaction but BEFORE it commits. SQLite must roll the transaction
+    // back, so the on-disk archive stays at its pre-backup (empty) state — never a torn
+    // half-write. The injected fault stands in for the kill/power-loss at that instant.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let _fault =
+        crate::fault_inject::FaultGuard::error_at_must_fire("backup.before_canonical_commit");
+    let error = run_backup(&paths, &config, None, false)
+        .expect_err("a crash before the canonical commit must abort the backup");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("backup.before_canonical_commit"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Reopen from disk (a fresh connection = the post-crash view): the staged rows rolled
+    // back, the archive opens cleanly, and integrity_check passes.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    assert_eq!(
+        canonical_visit_count(&connection),
+        0,
+        "the uncommitted visits must roll back to the pre-backup state"
+    );
+    assert_archive_integrity_ok(&connection);
+    // A backup must never fail silently: the aborted run is recorded as `failed`.
+    let failed_backups: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM runs WHERE run_type = 'backup' AND status = 'failed'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count failed backup runs");
+    assert_eq!(failed_backups, 1, "the aborted backup must record a visible failed run");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[test]
+fn backup_crash_after_canonical_commit_leaves_a_fully_applied_consistent_archive() {
+    // Crash window: the process dies AFTER the canonical history-vault transaction has
+    // committed but BEFORE the source-evidence, manifest, and finalize follow-ups run. The
+    // on-disk archive must be fully consistent at the newly-committed state — the canonical
+    // facts are durable and never torn; only the recoverable follow-ups are deferred.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let _fault =
+        crate::fault_inject::FaultGuard::error_at_must_fire("backup.after_canonical_commit");
+    let error = run_backup(&paths, &config, None, false)
+        .expect_err("a crash after the canonical commit must abort the backup");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("simulated error at checkpoint")
+            && rendered.contains("backup.after_canonical_commit"),
+        "the INJECTED fault must propagate, got: {rendered}"
+    );
+
+    // Reopen from disk: the canonical visits are present (fully applied) and consistent.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    assert_eq!(
+        canonical_visit_count(&connection),
+        2,
+        "the committed canonical visits must survive the crash, fully applied"
+    );
+    assert_archive_integrity_ok(&connection);
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[cfg(unix)]
+#[test]
+fn scheduled_backup_defers_when_another_process_holds_the_write_lock() {
+    // CRITICAL-1 / CRITICAL-5: a due (`due_only`) scheduled backup must DEFER — never race —
+    // when another OS process already holds the archive write lock (e.g. a foreground rekey
+    // mid-swap). We simulate the foreign process with a RAW second `flock` so THIS process's
+    // `try_acquire` is genuinely refused (an in-process guard would instead be handed back a
+    // reentrant guard and could not reproduce the defer). The run must step aside with a
+    // visible reason and write NOTHING — no archive open, no run row, no rows.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Hold the lock as if from another OS process (raw fd, NOT the reentrant manager).
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let report = run_backup(&paths, &config, None, true)
+        .expect("a contended scheduled backup defers cleanly; it must not error");
+    assert!(report.due_skipped, "the scheduled backup must defer while the lock is held");
+    assert!(
+        report.reason.as_deref().is_some_and(|reason| reason.contains("Another archive operation")),
+        "the deferral reason must be visible, got: {:?}",
+        report.reason
+    );
+    assert!(report.run.is_none(), "a deferred backup must not produce a run");
+
+    drop(foreign);
+
+    // The deferral happened BEFORE opening the archive: nothing was written.
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let backup_runs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE run_type = 'backup'", [], |row| row.get(0))
+        .expect("count backup runs");
+    assert_eq!(backup_runs, 0, "a deferred scheduled backup must not write any run");
+    assert_eq!(canonical_visit_count(&connection), 0, "a deferred backup must write nothing");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
 }
 
 #[test]

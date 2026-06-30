@@ -541,6 +541,27 @@ fn set_fstype_override(value: Option<String>) {
     FSTYPE_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
 }
 
+/// Test-only: holds the archive write lock via a RAW second open file description,
+/// bypassing this process's reentrant manager so the held lock looks like ANOTHER OS
+/// process owns it.
+///
+/// While the returned `File` stays alive, a [`ArchiveWriteLock::try_acquire`] from THIS
+/// process opens a DISTINCT open file description that the kernel refuses (`Ok(None)`) —
+/// exactly the cross-process contention the scheduled backup must defer on (an in-process
+/// `ArchiveWriteLock` guard would instead hand back a reentrant guard and could not
+/// reproduce the defer). Dropping the `File` releases the `flock`. Used by the
+/// backup-defer crash-window regression test in the sibling `backup`/`tests` modules.
+#[cfg(all(unix, test))]
+pub(crate) fn hold_write_lock_as_foreign_process_for_test(paths: &ProjectPaths) -> File {
+    let lock_path = lock_file_path(paths);
+    let file = open_lock_file(&lock_path).expect("open the archive write-lock sentinel");
+    assert!(
+        flock_try_exclusive(file.as_raw_fd()).expect("the foreign-holder flock must not error"),
+        "the simulated foreign process must win the uncontended write lock"
+    );
+    file
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;

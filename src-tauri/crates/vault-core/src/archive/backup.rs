@@ -103,6 +103,29 @@ where
         anyhow::bail!("archive has not been initialized");
     }
 
+    // CROSS-PROCESS WRITE SERIALIZATION (data-integrity audit CRITICAL-1 / CRITICAL-5):
+    // hold the archive write lock for the WHOLE backup so the out-of-process scheduled
+    // backup can never race a foreground rekey/import that `fs::rename`s the canonical
+    // `history-vault.sqlite` out from under this run's open write transaction (which on
+    // macOS would let the backup commit into a now-unlinked inode, report success, and
+    // silently lose the rows — and leave an orphaned `-wal` that bricks the next open).
+    // A manual run MUST complete, so it BLOCKS (polls) until any in-flight destructive
+    // op in another process releases the lock; a scheduled/automatic (`due_only`) run
+    // DEFERS instead of racing — it steps aside this tick and the next due window
+    // retries, surfaced through the existing `due_skipped` channel (no failure toast,
+    // no banner). The manager is process-reentrant, so a backup that later calls
+    // reconcile never self-deadlocks. The guard is held until this function returns.
+    let _write_lock = match acquire_backup_write_lock(paths, due_only)? {
+        Some(guard) => guard,
+        None => {
+            return Ok(BackupReport {
+                due_skipped: true,
+                reason: Some(BACKUP_DEFERRED_FOR_WRITE_LOCK.to_string()),
+                ..BackupReport::default()
+            });
+        }
+    };
+
     let mut connection = super::open_archive_connection(paths, config, key)?;
     // Self-heal a drifted at-rest mode (e.g. an encrypted config left over a
     // plaintext source-evidence by an archive-only rekey) BEFORE opening
@@ -360,6 +383,11 @@ where
             }
             .with_log_event("info", "backup.finalize"),
         );
+        // Crash window: every staged profile's rows are in the OPEN transaction but not
+        // yet committed. A kill/power-loss HERE must roll the transaction back so the
+        // on-disk archive stays at its pre-backup state — never a torn half-write. (No-op
+        // in production; armed only by the crash-window regression tests.)
+        crate::fault_inject::checkpoint("backup.before_canonical_commit")?;
         transaction.commit()?;
         Ok(selected_profiles.iter().map(|profile| profile.profile_id.clone()).collect())
     })();
@@ -371,6 +399,13 @@ where
             return Err(error);
         }
     };
+
+    // Crash window: the canonical history-vault rows are COMMITTED and durable, but
+    // source-evidence, the manifest, and the run finalize have not run yet. A
+    // kill/power-loss HERE must leave the archive fully consistent at the
+    // newly-committed state — the canonical facts are never torn; the follow-up
+    // artifacts are recoverable on a subsequent run. (No-op in production.)
+    crate::fault_inject::checkpoint("backup.after_canonical_commit")?;
 
     warnings.extend(
         persist_source_evidence_plans(&mut source_evidence, &connection, &source_evidence_plans)
@@ -448,6 +483,33 @@ where
         git_commit,
         warnings,
     })
+}
+
+/// Reason recorded when a scheduled (`due_only`) backup steps aside because another
+/// process already holds the archive write lock (e.g. a foreground rekey or import).
+///
+/// Surfaced through the normal `due_skipped` channel so the deferral is visible for PME
+/// transparency without raising a failure toast — a deferred tick is a no-op that the
+/// next due window retries, not a failed run.
+const BACKUP_DEFERRED_FOR_WRITE_LOCK: &str = "Another archive operation is in progress; deferring this scheduled backup until the next due window.";
+
+/// Acquires the cross-process archive write lock for the duration of a backup run.
+///
+/// A manual run (`due_only == false`) MUST execute, so it BLOCKS (polls) until any
+/// in-flight destructive op in another process releases the lock rather than racing it.
+/// A scheduled run (`due_only == true`) instead tries once and returns `Ok(None)` when
+/// another OS process holds the lock, so the caller can DEFER (skip-with-reason) instead
+/// of racing the rekey/import swap. The manager is process-reentrant, so this never
+/// self-deadlocks against an archive op already running in THIS process.
+fn acquire_backup_write_lock(
+    paths: &ProjectPaths,
+    due_only: bool,
+) -> Result<Option<super::ArchiveWriteLock>> {
+    if due_only {
+        super::ArchiveWriteLock::try_acquire(paths)
+    } else {
+        super::ArchiveWriteLock::acquire(paths).map(Some)
+    }
 }
 
 fn is_skippable_staging_access_error(profile: &BrowserProfile, error: &anyhow::Error) -> bool {
