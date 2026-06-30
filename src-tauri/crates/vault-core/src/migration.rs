@@ -14,11 +14,13 @@
 //!   old bundles work on newer binaries.
 //!
 //! ## Not responsible for
-//! - In-process worker quiescence around the swap. The cross-process
-//!   [`ArchiveWriteLock`] this module holds excludes the OUT-OF-PROCESS
-//!   scheduled backup; serializing against other IN-PROCESS workers
-//!   (e.g. a GUI command dispatched concurrently) remains the
-//!   lock-completion carry-in and is not yet wired (see MEDIUM-E).
+//! - Quiescing UNRELATED in-process background workers (AI queue, search/intelligence
+//!   projection rebuilds) around the swap. `apply_import` now holds BOTH the cross-process
+//!   [`ArchiveWriteLock`] (excludes the OUT-OF-PROCESS scheduled backup) AND the in-process
+//!   top-level [`ArchiveOpGate`] (excludes a SECOND same-process TOP-LEVEL destructive op —
+//!   a concurrently-dispatched backup/rekey/import/retention-prune/snapshot-restore/
+//!   reconcile), closing the lock-completion carry-in. Non-destructive workers that never
+//!   `fs::rename` a canonical DB are out of scope and are intentionally NOT gated.
 //! - Stronghold / App Lock secrets, scheduler artifacts, logs, diagnostics,
 //!   or any platform-specific state. Those are intentionally excluded from
 //!   the bundle (see `EXPORT_EXCLUSIONS_DOC` for the documented reasons).
@@ -60,9 +62,10 @@
 
 use crate::{
     archive::{
-        ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key, detect_disk_encryption_mode,
-        export_archive_database, max_schema_version, open_archive_connection,
-        open_source_evidence_connection, remove_stale_sidecars, run_migrations,
+        ArchiveOpGate, ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key,
+        detect_disk_encryption_mode, export_archive_database, max_schema_version,
+        open_archive_connection, open_source_evidence_connection, remove_stale_sidecars,
+        run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
     durable_io::{
@@ -498,30 +501,31 @@ pub fn preview_import(paths: &ProjectPaths, bundle_path: &Path) -> Result<Import
 ///
 /// [`recover_interrupted_import`] is the crash-recovery twin of the in-band
 /// rollback: it walks the SAME journal at next open and restores the consistent
-/// pre-import state. It is wired at THREE destructive pre-open sites today — the
-/// unlock-path [`crate::archive::reconcile_archive_encryption`], the backup pre-open
-/// path ([`crate::archive::run_backup_with_progress`], which closes the out-of-process
+/// pre-import state. As of the lock-completion block it is wired at EVERY destructive
+/// pre-open site, each holding the [`ArchiveWriteLock`] (and the in-process top-level
+/// [`crate::archive::ArchiveOpGate`]) when it recovers — the unlock-path
+/// [`crate::archive::reconcile_archive_encryption`], the backup pre-open path
+/// ([`crate::archive::run_backup_with_progress`], which closes the out-of-process
 /// scheduled-backup hole where a crashed import's same-mode half-state would otherwise
-/// be backed up and recorded as success), AND the rekey pre-open path
+/// be backed up and recorded as success), the rekey pre-open path
 /// ([`crate::archive::rekey_archive`], which closes the hole where a rekey on a PLAINTEXT
 /// archive — never reached by the encryption-gated launch reconcile — would rekey a
-/// half-applied import into a permanent config↔source-evidence mode-drift brick). The
-/// remaining destructive pre-open paths (retention-prune / snapshot-restore) do NOT yet
-/// hold the [`ArchiveWriteLock`], so they get recover-first wiring as part of the
-/// lock-completion carry-in (Phase-C, MEDIUM-E) rather than a half-measure
-/// recover-without-lock; until then the fail-closed
-/// [`ensure_recovered_modes_are_consistent`] guard keeps any eventual recovery from
-/// silently committing a mode-drifted config.
+/// half-applied import into a permanent config↔source-evidence mode-drift brick), AND the
+/// retention-prune ([`crate::archive::run_retention_prune`]) and snapshot-restore
+/// ([`crate::archive::run_snapshot_restore`]) pre-open paths. The fail-closed
+/// [`ensure_recovered_modes_are_consistent`] guard remains as defence-in-depth so any
+/// recovery still refuses to commit a mode-drifted config.
 ///
 /// The fault-injection checkpoints (`import.after_stage_before_swap`,
 /// `import.after_canonical_install`, `import.after_swap_before_config`,
 /// `import.after_config`) are no-ops in production and let crash-window tests prove
 /// the recoverability invariant at each step.
 ///
-/// In-process worker quiescence is NOT this function's responsibility: the
-/// cross-process [`ArchiveWriteLock`] covers the out-of-process scheduler; excluding
-/// concurrent IN-PROCESS workers is the lock-completion carry-in, not yet wired
-/// (MEDIUM-E).
+/// Same-process top-level exclusion IS now covered: `apply_import` holds the in-process
+/// [`ArchiveOpGate`] (taken before the [`ArchiveWriteLock`]), so a concurrently-dispatched
+/// TOP-LEVEL destructive op in THIS process serializes behind it. Quiescing UNRELATED
+/// non-destructive in-process workers (AI/search projection) is out of scope — they never
+/// rename a canonical DB.
 pub fn apply_import(
     paths: &ProjectPaths,
     // The imported config now comes from the bundle's own `config/config.json`
@@ -606,13 +610,18 @@ pub fn apply_import(
         None
     };
 
-    // (2) Serialize the entire destructive section against every other
-    // archive-mutating op — crucially the SEPARATE scheduled-backup process —
-    // until this guard drops at the end of the function. Acquired AFTER the
-    // read-only staging + source-key verification above so a refusal path never
-    // even materialises the archive directory (the lock sentinel lives there).
-    // The manager is process-reentrant, so any nested helper that re-acquires
-    // (none today) would be safe.
+    // (2) Serialize the entire destructive section against every other archive-mutating
+    // op until these guards drop at the end of the function. The in-process top-level
+    // [`ArchiveOpGate`] (taken FIRST) excludes a SECOND destructive op dispatched in THIS
+    // process — e.g. a manual backup mid-transaction (CRIT-5's same-process trigger),
+    // which the reentrant flock alone cannot exclude — and the cross-process
+    // [`ArchiveWriteLock`] excludes the SEPARATE scheduled-backup process. Acquired AFTER
+    // the read-only staging + source-key verification above so a refusal path never even
+    // materialises the archive directory (the lock sentinel lives there). The gate is
+    // non-reentrant and taken ONLY here at the top level; the flock is process-reentrant,
+    // so the nested in-band `rollback_import` below never self-deadlocks. Released in
+    // reverse order (lock first, then gate).
+    let _op_gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("acquiring the archive write lock for import")?;
 
@@ -1154,18 +1163,25 @@ fn ensure_recovered_modes_are_consistent(
 
 /// Crash-recovery twin of `apply_import`'s in-band rollback.
 ///
-/// Wired into the unlock-path reconcile (see
-/// [`crate::archive::reconcile_archive_encryption`]), it runs BEFORE the archive is
-/// opened: when an interrupted-import marker is present a crash cut a commit phase,
-/// so it restores the archive to the consistent PRE-IMPORT state over the SAME
-/// journal the in-band rollback uses, then clears the marker. Returns `true` only
-/// when it actually recovered something.
+/// A NESTED recover-first helper, wired at every destructive pre-open site — the
+/// unlock-path reconcile ([`crate::archive::reconcile_archive_encryption`]), backup
+/// ([`crate::archive::run_backup_with_progress`]), rekey ([`crate::archive::rekey_archive`]),
+/// retention-prune ([`crate::archive::run_retention_prune`]), and snapshot-restore
+/// ([`crate::archive::run_snapshot_restore`]) — each of which already holds the top-level
+/// gate + lock when it calls in. It runs BEFORE the archive is opened: when an
+/// interrupted-import marker is present a crash cut a commit phase, so it restores the
+/// archive to the consistent PRE-IMPORT state over the SAME journal the in-band rollback
+/// uses, then clears the marker. Returns `true` only when it actually recovered something.
 ///
-/// Cheap in the common case — a single `stat` of the marker path, no lock taken — so
-/// it is safe to call on every open. Only when the marker exists does it take the
-/// cross-process [`ArchiveWriteLock`] (recovery rewrites canonical DB files, a
-/// destructive archive op that must serialize against a concurrent scheduled backup)
-/// and re-read the journal (it may have been cleared while we waited for the lock).
+/// Cheap in the common case — a single `stat` of the marker path, no lock taken — so it is
+/// safe to call on every open. Only when the marker exists does it take the cross-process
+/// [`ArchiveWriteLock`] (recovery rewrites canonical DB files, a destructive archive op
+/// that must serialize against a concurrent scheduled backup) and re-read the journal (it
+/// may have been cleared while we waited for the lock). It takes ONLY the reentrant flock,
+/// never the non-reentrant top-level [`crate::archive::ArchiveOpGate`]: re-acquiring the
+/// flock its caller already holds yields a nested guard (no self-deadlock), while taking
+/// the gate its caller already holds WOULD self-deadlock — so this nested helper must
+/// never touch it.
 pub(crate) fn recover_interrupted_import(paths: &ProjectPaths) -> Result<bool> {
     if !import_journal_path(paths).exists() {
         return Ok(false);

@@ -29,7 +29,10 @@
 //! store. The fixed rekey prevents new key drift by migrating both DBs in
 //! lockstep; pre-existing key drift is tracked as a separate follow-up.
 
-use super::{apply_cipher_key, current_timezone_name, export_archive_database};
+use super::{
+    ArchiveOpGate, ArchiveWriteLock, apply_cipher_key, current_timezone_name,
+    export_archive_database,
+};
 use crate::{
     config::{ProjectPaths, ensure_paths},
     models::{AppConfig, ArchiveMode},
@@ -144,7 +147,31 @@ pub(crate) fn reconcile_source_evidence_with_archive(
 /// before the user's next backup. The backup path instead reuses its
 /// already-open archive connection via [`reconcile_source_evidence_with_archive`]
 /// to avoid re-opening the (potentially multi-GB) archive twice.
+///
+/// TOP-LEVEL destructive entry (lock-completion block): the at-rest rewrite this drives
+/// is a destructive source-evidence swap, so it takes the in-process [`ArchiveOpGate`]
+/// (FIRST — excludes a SECOND same-process top-level op, CRIT-5's trigger) + the cross-
+/// process [`ArchiveWriteLock`] (so the SEPARATE scheduled backup can never race it on
+/// source-evidence) for its whole duration, then delegates to the nested
+/// [`reconcile_archive_encryption_locked`].
 pub fn reconcile_archive_encryption(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<ReconcileReport> {
+    let _op_gate = ArchiveOpGate::acquire(paths);
+    let _write_lock = ArchiveWriteLock::acquire(paths)
+        .context("acquiring the archive write lock for at-rest reconcile")?;
+    reconcile_archive_encryption_locked(paths, config, key)
+}
+
+/// Recovers any interrupted import, then opens the archive and reconciles source-evidence
+/// — assuming the caller ALREADY holds the top-level [`ArchiveOpGate`] + [`ArchiveWriteLock`].
+///
+/// The nested variant: it takes only the reentrant [`ArchiveWriteLock`] transitively
+/// (through `recover_interrupted_import`), NEVER the non-reentrant [`ArchiveOpGate`], so a
+/// future in-op caller that already holds the gate cannot self-deadlock.
+pub(crate) fn reconcile_archive_encryption_locked(
     paths: &ProjectPaths,
     config: &AppConfig,
     key: Option<&str>,
@@ -153,12 +180,11 @@ pub fn reconcile_archive_encryption(
     // archive is opened: an interrupted-import marker means the two canonical
     // renames + config write did not all land, so restore the consistent pre-import
     // state first (mirrors how `recover_interrupted_rewrite` is woven into the
-    // reconcile family). This is ONE of the wired crash-recovery sites: the others are
-    // the backup pre-open path (`run_backup_with_progress`) and the rekey pre-open path
-    // (`rekey_archive`). The retention-prune / snapshot-restore pre-open paths are not
-    // wired yet — they get recover-first wiring when they take the `ArchiveWriteLock`
-    // (lock-completion / Phase-C block), guarded until then by the fail-closed mode
-    // check inside `recover_interrupted_import`.
+    // reconcile family). Recover-first now runs under the lock at ALL the destructive
+    // pre-open sites: the unlock-path reconcile (here), the backup pre-open path
+    // (`run_backup_with_progress`), the rekey pre-open path (`rekey_archive`), AND — as
+    // of the lock-completion block — the retention-prune (`run_retention_prune`) and
+    // snapshot-restore (`run_snapshot_restore`) pre-open paths.
     crate::migration::recover_interrupted_import(paths)?;
     ensure_paths(paths)?;
     let archive = super::open_archive_connection(paths, config, key)?;
@@ -484,6 +510,50 @@ mod tests {
         let report =
             reconcile_archive_encryption(&paths, &config, Some(KEY)).expect("reconcile entry");
         assert!(report.repaired);
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+    }
+
+    #[test]
+    fn reconcile_archive_encryption_locked_runs_under_a_held_gate_without_deadlock() {
+        // Self-deadlock guard (the #1 risk of the lock-completion block): the NESTED
+        // `_locked` variant must take ONLY the reentrant write lock, NEVER the non-
+        // reentrant top-level gate. We hold the gate + lock on THIS thread (as a real
+        // top-level op would) and run `_locked` on a worker; it must complete. If it
+        // mistakenly re-acquired the gate this thread holds, the worker would block
+        // forever — so a watchdog turns that regression into a fast failure, not a hang.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        seed_plaintext_source_evidence(&paths);
+        let config = encrypted_config();
+        drop(
+            open_archive_connection(&paths, &config, Some(KEY)).expect("create encrypted archive"),
+        );
+
+        // Hold the top-level guards on the main thread (gate FIRST, then the flock).
+        let _gate = ArchiveOpGate::acquire(&paths);
+        let _lock = ArchiveWriteLock::acquire(&paths).expect("top-level write lock");
+
+        let worker_paths = paths.clone();
+        let worker_config = config.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let report =
+                reconcile_archive_encryption_locked(&worker_paths, &worker_config, Some(KEY));
+            done_tx.send(report.map(|r| r.repaired)).expect("worker signals completion");
+        });
+
+        let repaired = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the nested _locked variant must not re-take the non-reentrant gate (deadlock)")
+            .expect("reconcile_locked under a held gate+lock must still succeed");
+        assert!(repaired, "the drifted plaintext source-evidence must be repaired");
+        worker.join().expect("worker thread");
         assert_eq!(
             detect_disk_encryption_mode(&paths.source_evidence_database_path),
             DiskEncryptionMode::Encrypted

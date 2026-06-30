@@ -1,29 +1,34 @@
 //! Cross-process EXCLUSIVE advisory lock that serializes destructive archive ops.
 //!
 //! ## Responsibilities
-//! - Provide one CROSS-PROCESS mutual-exclusion primitive for the canonical
-//!   archive: while a guard is held by this process, no OTHER OS process may hold
-//!   it. This is the single chokepoint that keeps the separate scheduled-backup
-//!   process from racing a GUI rekey / mode-toggle.
+//! - Provide one CROSS-PROCESS mutual-exclusion primitive ([`ArchiveWriteLock`])
+//!   for the canonical archive: while a guard is held by this process, no OTHER OS
+//!   process may hold it. This is the single chokepoint that keeps the separate
+//!   scheduled-backup process from racing a GUI rekey / mode-toggle.
 //! - Be PROCESS-REENTRANT: nested or concurrent acquisitions WITHIN one process
 //!   all share a single underlying `flock`. A backup that takes the lock and then
 //!   calls reconcile (which also takes it) must NOT deadlock against itself.
-//! - Expose an RAII guard whose lifetime IS the lock hold: the LAST live guard in
-//!   this process releases the OS lock when it drops.
+//! - Provide the COMPLEMENTARY in-process primitive ([`ArchiveOpGate`]): a
+//!   process-global, NON-reentrant, keyed-by-archive gate the TOP-LEVEL destructive
+//!   ops take so two of them dispatched in the SAME process serialize (the reentrant
+//!   flock cannot — see "The in-process top-level gate" below).
+//! - Expose RAII guards whose lifetime IS the hold: the LAST live [`ArchiveWriteLock`]
+//!   in this process releases the OS lock when it drops; an [`ArchiveOpGate`] frees
+//!   the in-process gate when it drops.
 //! - Offer a blocking acquire (callers that MUST run), a non-blocking try-acquire
 //!   (the scheduled backup uses this to DEFER instead of racing), and an
 //!   interruptible/timeout acquire (UI-facing waits that show "waiting for an
 //!   in-flight backup" and can be cancelled).
 //!
 //! ## Not responsible for
-//! - Deciding WHICH operations take the lock or wiring it into call sites. This
-//!   module only delivers the primitive; the rekey/backup/import/etc. call sites
-//!   are wired in a later block.
-//! - In-PROCESS serialization between unrelated threads. By design every
-//!   same-process acquirer SHARES the one lock (process-reentrant), so this lock
-//!   does NOT serialize two concurrent destructive ops inside one process — the
-//!   app's own command pipeline does that. The threat this primitive removes is
-//!   the OUT-OF-PROCESS scheduler racing the GUI.
+//! - Deciding WHICH operations take the lock. This module delivers the two
+//!   serialization PRIMITIVES (the cross-process [`ArchiveWriteLock`] and the
+//!   in-process [`ArchiveOpGate`]); the rekey/backup/import/retention-prune/
+//!   reconcile/snapshot-restore call sites choose to acquire them.
+//! - Serializing NON-destructive in-process work (background search/AI projection
+//!   rebuilds, read queries). [`ArchiveOpGate`] excludes only TOP-LEVEL DESTRUCTIVE
+//!   ops from each other in-process; unrelated workers that never `fs::rename` a
+//!   canonical DB are deliberately out of scope.
 //! - SQLite-internal locking (per-connection `BEGIN IMMEDIATE` / WAL). Those do
 //!   not cross the `fs::rename` swap and do not coordinate a separate process, so
 //!   they cannot prevent the corruption this lock exists to stop.
@@ -50,6 +55,27 @@
 //! Every operation that renames/replaces or transactionally rewrites a canonical
 //! archive database file MUST hold this lock for its whole duration:
 //! **rekey, backup, import, retention-prune, reconcile, and snapshot-restore.**
+//!
+//! ## The in-process top-level gate ([`ArchiveOpGate`]) — CRIT-5's same-process variant
+//! [`ArchiveWriteLock`] is process-REENTRANT BY DESIGN (so `backup -> reconcile`
+//! nesting never self-deadlocks), which means it serializes only ACROSS processes.
+//! Two destructive ops dispatched in the SAME GUI process — e.g. a manual backup
+//! running its canonical write transaction while the user toggles encryption (rekey)
+//! or triggers an import from Settings — each get a reentrant guard sharing ONE fd,
+//! so they are NOT mutually excluded. One op's `fs::rename` can then pull the
+//! canonical DB out from under the other's open write transaction; on macOS the
+//! committed rows land in the renamed-away inode = silent loss (CRIT-5, same-process
+//! trigger). The cross-process flock cannot close this — it IS the same process.
+//!
+//! [`ArchiveOpGate`] layers a second, NON-reentrant mutual exclusion ABOVE the
+//! reentrant flock. A TOP-LEVEL destructive op acquires the gate FIRST, then the
+//! [`ArchiveWriteLock`]; so two same-process top-level ops exclude on the gate while
+//! all processes still exclude on the flock. A NESTED helper (reconcile / migrate /
+//! `recover_interrupted_import` called WITHIN a top-level op) takes ONLY the reentrant
+//! flock, NEVER the gate — re-taking a non-reentrant gate it already holds would
+//! self-deadlock. The split is enforced TYPE-WISE: public `*` entries take the gate
+//! and delegate to a `*_locked`/`*_inner` variant that assumes the caller holds it,
+//! NOT by a fragile thread-local "am I nested?" flag.
 //!
 //! ## How process-reentrancy is achieved
 //! `flock` is associated with the OPEN FILE DESCRIPTION, not the path and not the
@@ -98,11 +124,11 @@
 
 use crate::config::ProjectPaths;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -311,6 +337,100 @@ impl ArchiveWriteLock {
         // `inner` is `None` only transiently inside `Drop`, never while a caller
         // can hold a `&self`, so this owner is always present here.
         &self.inner.as_ref().expect("a live archive write-lock guard always holds its owner").path
+    }
+}
+
+// --- in-process top-level op gate (NON-reentrant; CRIT-5 same-process variant) -------------------
+
+/// Process-global record of which archives have a TOP-LEVEL destructive op in flight
+/// IN THIS PROCESS, paired with a condvar so a blocking [`ArchiveOpGate::acquire`]
+/// parks (never busy-polls) until the in-flight op releases.
+///
+/// Keyed by the SAME resolved sentinel path as [`manager`] (via [`lock_file_path`]) so
+/// the two serialization layers agree on archive identity even though one process
+/// normally serves one archive. A path is present in the set for exactly as long as one
+/// [`ArchiveOpGate`] guard lives; absent means free. Mirrors the [`manager`] shape (a
+/// `OnceLock`-managed map keyed by archive path) so both layers self-clean their entries
+/// on release and a process that ever juggled two archive roots would still serialize
+/// each independently.
+fn op_gate() -> &'static (Mutex<HashSet<PathBuf>>, Condvar) {
+    static OP_GATE: OnceLock<(Mutex<HashSet<PathBuf>>, Condvar)> = OnceLock::new();
+    OP_GATE.get_or_init(|| (Mutex::new(HashSet::new()), Condvar::new()))
+}
+
+/// RAII guard for the in-process TOP-LEVEL archive-op gate.
+///
+/// ## Why this layer exists
+/// See the module-level "The in-process top-level gate" note: [`ArchiveWriteLock`] is
+/// process-REENTRANT, so two destructive ops dispatched in ONE process each get a
+/// reentrant guard and are NOT mutually excluded — the CRIT-5 same-process rename-out-
+/// from-under-an-open-transaction loss. This gate is a process-global, NON-reentrant,
+/// keyed-by-archive mutual exclusion the TOP-LEVEL ops take so two of them in one process
+/// serialize. The cross-process flock cannot do this (it is the same process).
+///
+/// ## Layering contract
+/// A TOP-LEVEL op acquires this gate FIRST, then [`ArchiveWriteLock`], releasing in the
+/// reverse order. A NESTED helper (reconcile / migrate / `recover_interrupted_import`
+/// called WITHIN a top-level op) takes ONLY the reentrant [`ArchiveWriteLock`], NEVER
+/// this gate: because the gate is non-reentrant, a nested re-acquire would self-deadlock.
+/// The split is enforced by the public-vs-`_locked` function variants, not a runtime flag.
+#[derive(Debug)]
+pub(crate) struct ArchiveOpGate {
+    /// The sentinel path this guard holds; removed from the held-set on Drop. Read by
+    /// [`Drop`] (and `Debug`), so the gate frees exactly its own archive's entry.
+    path: PathBuf,
+}
+
+impl ArchiveOpGate {
+    /// Blocks until no other TOP-LEVEL op holds the in-process gate for this archive,
+    /// then marks it held and returns the guard.
+    ///
+    /// Parks on a condvar rather than busy-polling. Unlike [`ArchiveWriteLock::acquire`],
+    /// which polls so the manager mutex never enters a multi-minute kernel `LOCK_EX`
+    /// wait, this gate is PURE in-process state: a condvar wait RELEASES the mutex while
+    /// parked, so other acquirers and `try_acquire` probes still run, and the waiter wakes
+    /// the instant the holder drops — no poll interval, no wasted wakeups. Infallible: it
+    /// does no I/O (the path derivation cannot fail), so there is no error arm to surface.
+    pub(crate) fn acquire(paths: &ProjectPaths) -> ArchiveOpGate {
+        let path = lock_file_path(paths);
+        let (mutex, condvar) = op_gate();
+        let mut held = mutex.lock().expect("archive op-gate mutex poisoned");
+        while held.contains(&path) {
+            held = condvar.wait(held).expect("archive op-gate mutex poisoned");
+        }
+        held.insert(path.clone());
+        ArchiveOpGate { path }
+    }
+
+    /// Non-blocking variant: `None` when another top-level op already holds the gate for
+    /// this archive (the in-process DEFER signal — the scheduled backup steps aside rather
+    /// than racing a foreground op in THIS process), or a guard when it just took it.
+    ///
+    /// Deterministic with no parking, so a unit test can prove the mutual exclusion
+    /// (held => `None`; free => `Some`) without any sleep-as-synchronization.
+    pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
+        let path = lock_file_path(paths);
+        let (mutex, _condvar) = op_gate();
+        let mut held = mutex.lock().expect("archive op-gate mutex poisoned");
+        if held.contains(&path) {
+            None
+        } else {
+            held.insert(path.clone());
+            Some(ArchiveOpGate { path })
+        }
+    }
+}
+
+impl Drop for ArchiveOpGate {
+    /// Frees this archive's gate entry and wakes every parked acquirer.
+    fn drop(&mut self) {
+        let (mutex, condvar) = op_gate();
+        let mut held = mutex.lock().expect("archive op-gate mutex poisoned");
+        held.remove(&self.path);
+        // `notify_all` (not `notify_one`): parked acquirers may key on DIFFERENT archive
+        // paths, so each must re-check ITS OWN path under the mutex; a waiter for another
+        // archive simply re-parks. With one archive per process this wakes the one waiter.
+        condvar.notify_all();
     }
 }
 
@@ -903,5 +1023,98 @@ mod tests {
         set_fstype_override(Some("apfs".to_string()));
         warn_if_archive_volume_non_local(&lock_path);
         set_fstype_override(None);
+    }
+
+    #[test]
+    fn op_gate_is_mutually_exclusive_in_process() {
+        // CRIT-5 (same-process): the in-process top-level gate is a NON-reentrant
+        // mutual exclusion. While one top-level op holds it, a SECOND top-level acquire
+        // for the same archive is refused; once the holder drops, the gate is free again.
+        // Proven with the deterministic `try_acquire` probe — no sleep-as-synchronization.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        let first = ArchiveOpGate::acquire(&paths);
+        assert!(format!("{first:?}").contains(ARCHIVE_WRITE_LOCK_FILE));
+        assert!(
+            ArchiveOpGate::try_acquire(&paths).is_none(),
+            "a second same-process top-level acquire must be excluded while the gate is held"
+        );
+
+        drop(first);
+        let _second = ArchiveOpGate::try_acquire(&paths)
+            .expect("the gate must be free for a fresh top-level acquire once the holder drops");
+    }
+
+    #[test]
+    fn op_gate_acquire_blocks_until_the_holder_drops() {
+        // The BLOCKING acquire (the manual-op path) must PARK until the in-flight
+        // top-level op releases, then proceed — proving the condvar wait/notify path. A
+        // second thread blocks on `acquire` while this one holds the gate; it can only
+        // complete AFTER the drop, asserted under a watchdog so a regression that never
+        // wakes fails fast instead of wedging the suite.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        let held = ArchiveOpGate::acquire(&paths);
+        let worker_paths = paths.clone();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            // Blocks here until the seed guard drops on the main thread.
+            let gate = ArchiveOpGate::acquire(&worker_paths);
+            acquired_tx.send(()).expect("worker signals it acquired the gate");
+            drop(gate);
+        });
+
+        // Release the only holder; the parked worker must now wake and acquire.
+        drop(held);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a blocked op-gate acquire must wake when the holder drops (condvar wedged)");
+        worker.join().expect("worker thread");
+
+        // The registry self-cleans, so a fresh top-level acquire still wins afterwards.
+        let _again = ArchiveOpGate::acquire(&paths);
+    }
+
+    #[test]
+    fn a_nested_lock_acquire_under_a_held_gate_does_not_deadlock() {
+        // The layering contract: a TOP-LEVEL op holds the gate + the cross-process lock,
+        // and a NESTED helper re-acquires ONLY the reentrant `ArchiveWriteLock` (never the
+        // gate). The reentrant lock must hand back a nested guard instantly, while a SECOND
+        // top-level gate acquire stays excluded. Run on a worker under a watchdog so a
+        // regression that made a nested helper take the non-reentrant gate fails fast.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let worker_paths = paths.clone();
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            // Top-level acquisition: gate FIRST, then the cross-process lock.
+            let _gate = ArchiveOpGate::acquire(&worker_paths);
+            let _lock = ArchiveWriteLock::acquire(&worker_paths).expect("top-level lock");
+
+            // A nested helper takes ONLY the reentrant lock — must be instant, not a hang.
+            let nested = ArchiveWriteLock::acquire(&worker_paths)
+                .expect("nested reentrant lock must not deadlock");
+            assert!(nested.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
+
+            // ...while a SECOND top-level op is still excluded on the non-reentrant gate.
+            assert!(
+                ArchiveOpGate::try_acquire(&worker_paths).is_none(),
+                "a nested helper must not free the top-level gate for another top-level op"
+            );
+
+            drop(nested);
+            done_tx.send(()).expect("signal completion");
+        });
+
+        done_rx.recv_timeout(Duration::from_secs(10)).expect(
+            "a nested reentrant lock under a held top-level gate must not deadlock (self-deadlock regression)",
+        );
+        handle.join().expect("worker thread");
+
+        // Once the top-level guards drop, the gate is free again.
+        let _after = ArchiveOpGate::acquire(&paths);
     }
 }

@@ -75,6 +75,16 @@ pub fn preview_snapshot_restore(
 }
 
 /// Replays one saved raw-source checkpoint into the canonical archive.
+///
+/// TOP-LEVEL destructive entry (lock-completion block): it takes the in-process
+/// [`ArchiveOpGate`] (FIRST — excludes a SECOND same-process top-level op, CRIT-5's
+/// trigger) + the cross-process [`ArchiveWriteLock`] (excludes the SEPARATE scheduled
+/// backup), then RECOVERS any interrupted whole-app import BEFORE opening the archive
+/// (recover-first). Recover-first does not fight the restore: it reverts a crashed
+/// import's half-state to a single consistent at-rest mode so the archive opens cleanly,
+/// and the restore then replays its checkpoint over the (now-coherent) visible facts —
+/// which it would overwrite regardless. Reentrancy-safe: recovery re-takes the reentrant
+/// lock as a nested guard and NEVER the non-reentrant gate.
 pub fn run_snapshot_restore(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -86,6 +96,22 @@ pub fn run_snapshot_restore(
         anyhow::bail!("archive has not been initialized");
     }
 
+    let _op_gate = ArchiveOpGate::acquire(paths);
+    let _write_lock = ArchiveWriteLock::acquire(paths)
+        .context("acquiring the archive write lock for snapshot restore")?;
+    crate::migration::recover_interrupted_import(paths)?;
+
+    run_snapshot_restore_locked(paths, config, key, request)
+}
+
+/// Replays the requested checkpoint, assuming the caller already holds the top-level
+/// [`ArchiveOpGate`] + [`ArchiveWriteLock`] and has recovered any interrupted import.
+fn run_snapshot_restore_locked(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &SnapshotRestoreRequest,
+) -> Result<BackupReport> {
     let mut connection = open_archive_connection(paths, config, key)?;
     let snapshot = load_snapshot_record(&connection, &request.snapshot_path)?
         .with_context(|| format!("snapshot {} was not found", request.snapshot_path))?;
@@ -238,6 +264,16 @@ pub fn preview_retention(
 }
 
 /// Executes the local retention prune flow for the selected buckets.
+///
+/// TOP-LEVEL destructive entry (lock-completion block): it serializes against every
+/// other archive-mutating op via the in-process [`ArchiveOpGate`] (acquired FIRST, so a
+/// SECOND same-process top-level op — CRIT-5's trigger — is excluded) + the cross-process
+/// [`ArchiveWriteLock`] (so the SEPARATE scheduled backup defers), then RECOVERS any
+/// interrupted whole-app import BEFORE it opens the archive (recover-first), reverting a
+/// crashed import's half-state to a consistent archive. Reentrancy-safe: recovery re-takes
+/// the reentrant lock as a nested guard and NEVER the non-reentrant gate. The cheap
+/// "no buckets selected" guard runs WITHOUT the lock — it neither opens nor mutates the
+/// archive — so only work that touches the archive runs under the lock + after recovery.
 pub fn run_retention_prune(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -257,6 +293,22 @@ pub fn run_retention_prune(
         });
     }
 
+    let _op_gate = ArchiveOpGate::acquire(paths);
+    let _write_lock = ArchiveWriteLock::acquire(paths)
+        .context("acquiring the archive write lock for retention prune")?;
+    crate::migration::recover_interrupted_import(paths)?;
+
+    run_retention_prune_locked(paths, config, key, request)
+}
+
+/// Prunes the selected retention buckets, assuming the caller already holds the top-level
+/// [`ArchiveOpGate`] + [`ArchiveWriteLock`] and has recovered any interrupted import.
+fn run_retention_prune_locked(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+    request: &RetentionPruneRequest,
+) -> Result<RetentionPruneResult> {
     let preview = preview_retention(paths, config, key)?;
     let selected = preview
         .buckets
@@ -399,8 +451,13 @@ pub fn rekey_archive(
         anyhow::bail!("archive database does not exist");
     }
 
-    // (1) Serialize the entire rekey against every other archive-mutating op —
-    // crucially the SEPARATE scheduled-backup process — until this guard drops.
+    // (1) Serialize the entire rekey against every other archive-mutating op until these
+    // guards drop. The in-process top-level [`ArchiveOpGate`] (acquired FIRST) excludes a
+    // SECOND destructive op dispatched in THIS process — e.g. a manual backup mid-
+    // transaction (CRIT-5's same-process trigger), which the reentrant flock alone cannot
+    // exclude — and the cross-process [`ArchiveWriteLock`] excludes the SEPARATE scheduled-
+    // backup process. Released in reverse order (lock first, then gate).
+    let _op_gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("acquiring the archive write lock for rekey")?;
 

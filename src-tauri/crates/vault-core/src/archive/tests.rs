@@ -4005,6 +4005,189 @@ fn scheduled_backup_defers_when_another_process_holds_the_write_lock() {
 }
 
 #[test]
+fn scheduled_backup_defers_when_a_same_process_top_level_op_holds_the_in_process_gate() {
+    // CRIT-5 (same-process): a due (`due_only`) scheduled backup must DEFER — never race —
+    // when a foreground TOP-LEVEL op in THIS process holds the in-process gate (e.g. a
+    // rekey/import the user just triggered). The cross-process flock alone could not catch
+    // this (it is the same process, so it would hand back a reentrant guard); the gate does.
+    // The run must step aside with a visible reason and write NOTHING.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    // Hold the in-process top-level gate, as a foreground rekey/import in THIS process would.
+    let gate = super::write_lock::ArchiveOpGate::acquire(&paths);
+
+    let report = run_backup(&paths, &config, None, true)
+        .expect("a contended scheduled backup defers cleanly; it must not error");
+    assert!(
+        report.due_skipped,
+        "the scheduled backup must defer while the in-process gate is held"
+    );
+    assert!(
+        report.reason.as_deref().is_some_and(|reason| reason.contains("Another archive operation")),
+        "the deferral reason must be visible, got: {:?}",
+        report.reason
+    );
+    assert!(report.run.is_none(), "a deferred backup must not produce a run");
+
+    drop(gate);
+
+    let connection = open_archive_connection(&paths, &config, None).expect("reopen archive");
+    let backup_runs: i64 = connection
+        .query_row("SELECT COUNT(*) FROM runs WHERE run_type = 'backup'", [], |row| row.get(0))
+        .expect("count backup runs");
+    assert_eq!(backup_runs, 0, "a gate-deferred scheduled backup must not write any run");
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[cfg(unix)]
+#[test]
+fn run_retention_prune_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: retention-prune is a destructive op that MUST hold the
+    // cross-process write lock for its duration. While another OS process holds it, the
+    // prune cannot proceed. We simulate the foreign holder with a raw second `flock`, run
+    // the prune on a worker, prove it is BLOCKED (it cannot finish), then release the lock
+    // and prove it completes. FAILS on pre-change code, which took no lock here and so ran
+    // to completion despite the foreign holder.
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = run_retention_prune(
+            &worker_paths,
+            &worker_config,
+            None,
+            &RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
+        );
+        done_tx.send(result.is_ok()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "retention prune ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    assert!(
+        done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("retention prune must finish once the foreign lock is released"),
+        "retention prune must succeed after the lock frees",
+    );
+    worker.join().expect("worker thread");
+}
+
+#[cfg(unix)]
+#[test]
+fn run_snapshot_restore_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: snapshot-restore is a destructive op that MUST hold the
+    // cross-process write lock. While another OS process holds it, it cannot even reach
+    // its snapshot lookup. We prove it is BLOCKED behind the foreign holder, then completes
+    // (here surfacing a benign "snapshot not found" once it can open) after the lock frees.
+    // FAILS on pre-change code, which took no lock and ran straight to the lookup.
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        // Errors at the missing snapshot once it can open — but only AFTER the lock frees.
+        let _ = run_snapshot_restore(
+            &worker_paths,
+            &worker_config,
+            None,
+            &SnapshotRestoreRequest { snapshot_path: "does-not-exist".to_string() },
+        );
+        done_tx.send(()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "snapshot restore ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    done_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("snapshot restore must reach its work once the foreign lock is released");
+    worker.join().expect("worker thread");
+}
+
+#[cfg(unix)]
+#[test]
+fn reconcile_archive_encryption_blocks_on_a_foreign_write_lock() {
+    // Lock-completion block: the unlock-path at-rest reconcile is a destructive rewrite
+    // that MUST hold the cross-process write lock so a scheduled backup can never race it
+    // on source-evidence. We prove it is BLOCKED behind a foreign holder, then completes
+    // once the lock frees. FAILS on pre-change code, which opened + reconciled without the
+    // lock and so finished despite the foreign holder (with no interrupted-import marker
+    // present, pre-change recovery was a lock-free no-op too).
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let dir = tempdir().expect("tempdir");
+    let paths = sample_paths(dir.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+
+    let foreign = super::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+    let worker_paths = paths.clone();
+    let worker_config = config.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let result = reconcile_archive_encryption(&worker_paths, &worker_config, None);
+        done_tx.send(result.is_ok()).ok();
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(500)).is_err(),
+        "at-rest reconcile ran without holding the cross-process write lock",
+    );
+
+    drop(foreign);
+    assert!(
+        done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("at-rest reconcile must finish once the foreign lock is released"),
+        "at-rest reconcile must succeed after the lock frees",
+    );
+    worker.join().expect("worker thread");
+}
+
+#[test]
 fn run_support_failed_runs_and_due_windows_stay_truthful() {
     let dir = tempdir().expect("tempdir");
     let paths = sample_paths(dir.path());

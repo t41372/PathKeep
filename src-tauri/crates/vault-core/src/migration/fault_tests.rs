@@ -17,17 +17,17 @@
 //!   journal/rollback/recovery helpers (`recover_interrupted_import`,
 //!   `final_archive_config`, `prune_previous_bak_generations`).
 //!
-//! - Pin that the destructive pre-open paths wired for crash-recovery actually
-//!   recover-first: the unlock-path reconcile, the backup pre-open path, AND the
-//!   rekey pre-open path (the rekey-on-a-half-import brick), plus the fail-closed
-//!   mode-consistency guard that backstops the not-yet-wired paths.
+//! - Pin that EVERY destructive pre-open path wired for crash-recovery actually
+//!   recover-first: the unlock-path reconcile, the backup pre-open path, the rekey
+//!   pre-open path (the rekey-on-a-half-import brick), AND — as of the lock-completion
+//!   block — the retention-prune and snapshot-restore pre-open paths, plus the
+//!   fail-closed mode-consistency guard that backstops recovery.
 //!
 //! ## Not responsible for
 //! - Full bundle round-trip coverage, which remains in the parent test module.
 //! - Scheduler, keyring, or app-lock fault contracts.
-//! - Wiring crash-recovery into the retention-prune / snapshot-restore pre-open
-//!   paths (lock-completion / Phase-C — see the `apply_import` doc); those stay
-//!   covered only by the fail-closed guard until they take the write lock.
+//! - The cross-process / in-process LOCK-HOLDING proofs for the destructive ops, which
+//!   live beside the other write-lock tests in `archive::tests` and `archive::write_lock`.
 //!
 //! ## Dependencies
 //! - Uses synthetic temp project roots and generated export bundles.
@@ -1456,6 +1456,112 @@ fn run_backup_recovers_an_interrupted_import_before_opening_the_archive() {
     assert!(
         !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
         "the NEW bundle content must NOT have been backed up (it was reverted first)",
+    );
+}
+
+/// Builds a dest archive carrying a half-applied import (marker + half-state on disk)
+/// over OLD starred content, returning the dest paths/config. The src bundle carries NEW
+/// starred content. Mirrors the backup/reconcile recover-first fixtures so the lock-
+/// completion ops (retention-prune / snapshot-restore) can be driven against it.
+fn seed_interrupted_import_over_old_content(
+    src_dir: &TempDir,
+    bundle_name: &str,
+) -> (TempDir, ProjectPaths, AppConfig) {
+    use std::panic::{self, AssertUnwindSafe};
+
+    let src_paths = project_paths_with_root(src_dir.path());
+    let src_config = seed_plain_archive(&src_paths, b"src marker");
+    star_url(&src_paths, &src_config, "https://new.example/keep");
+    let bundle_path = src_dir.path().join(bundle_name);
+    export_app_data(&src_paths, &src_config, None, &bundle_path).expect("export");
+
+    let dest_dir = TempDir::new().expect("tempdir");
+    let dest_paths = project_paths_with_root(dest_dir.path());
+    let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
+    star_url(&dest_paths, &dest_config, "https://old.example/keep");
+
+    crate::fault_inject::arm_panic_at("import.after_canonical_install");
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+        apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+        )
+    }));
+    crate::fault_inject::disarm("import.after_canonical_install");
+    assert!(outcome.is_err(), "the import must have crashed mid-commit");
+    assert!(import_journal_path(&dest_paths).exists(), "the half-import marker must be present");
+
+    (dest_dir, dest_paths, dest_config)
+}
+
+#[test]
+fn run_retention_prune_recovers_an_interrupted_import_before_opening() {
+    // Lock-completion block: retention-prune is a destructive op that must hold the
+    // write lock AND recover-first. Driven against a present half-import marker it must
+    // REVERT the crashed import to the consistent pre-import state BEFORE it opens the
+    // archive to prune — proving the recover-first wiring (FAILS on pre-change code,
+    // which neither recovered nor took the lock here, so the marker would survive).
+    let src_dir = TempDir::new().expect("tempdir");
+    let (_dest_dir, dest_paths, dest_config) =
+        seed_interrupted_import_over_old_content(&src_dir, "retention-recover.pathkeep");
+
+    // Drive the real retention-prune entry; it recovers FIRST (before opening), then
+    // prunes the (empty) exports bucket. The prune outcome is irrelevant here.
+    let _ = crate::archive::run_retention_prune(
+        &dest_paths,
+        &dest_config,
+        None,
+        &crate::models::RetentionPruneRequest { bucket_ids: vec!["exports".to_string()] },
+    );
+
+    assert!(
+        !import_journal_path(&dest_paths).exists(),
+        "retention-prune's pre-open path must have cleared the half-import marker via recovery",
+    );
+    assert!(
+        url_is_starred(&dest_paths, &dest_config, "https://old.example/keep"),
+        "the OLD pre-import content must be restored before retention-prune opens the archive",
+    );
+    assert!(
+        !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
+        "the NEW bundle content must NOT have survived the revert",
+    );
+}
+
+#[test]
+fn run_snapshot_restore_recovers_an_interrupted_import_before_opening() {
+    // Lock-completion block: snapshot-restore must hold the write lock AND recover-first.
+    // Driven against a present half-import marker it must REVERT the crashed import to a
+    // consistent pre-import state BEFORE opening the archive — even though it then errors
+    // on a non-existent snapshot, recovery has already run. (FAILS on pre-change code: it
+    // neither recovered nor took the lock, so the marker would survive.)
+    let src_dir = TempDir::new().expect("tempdir");
+    let (_dest_dir, dest_paths, dest_config) =
+        seed_interrupted_import_over_old_content(&src_dir, "snapshot-recover.pathkeep");
+
+    // Drive the real snapshot-restore entry with a missing snapshot: it recovers FIRST
+    // (before opening), then fails fast at "snapshot not found" — irrelevant to recovery.
+    let _ = crate::archive::run_snapshot_restore(
+        &dest_paths,
+        &dest_config,
+        None,
+        &crate::models::SnapshotRestoreRequest { snapshot_path: "does-not-exist".to_string() },
+    );
+
+    assert!(
+        !import_journal_path(&dest_paths).exists(),
+        "snapshot-restore's pre-open path must have cleared the half-import marker via recovery",
+    );
+    assert!(
+        url_is_starred(&dest_paths, &dest_config, "https://old.example/keep"),
+        "the OLD pre-import content must be restored before snapshot-restore opens the archive",
+    );
+    assert!(
+        !url_is_starred(&dest_paths, &dest_config, "https://new.example/keep"),
+        "the NEW bundle content must NOT have survived the revert",
     );
 }
 

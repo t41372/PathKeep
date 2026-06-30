@@ -224,6 +224,11 @@ pub fn rekey_archive_database(
 /// archive is unlocked, so the user does not have to wait for (and watch fail)
 /// their next backup. Converges `source-evidence` to the configured archive mode
 /// and reports whether anything was repaired. A cheap no-op when consistent.
+///
+/// The destructive at-rest rewrite is serialized: `vault_core::reconcile_archive_encryption`
+/// is the gated TOP-LEVEL entry that takes the in-process op gate + cross-process archive
+/// write lock for its whole duration, so a SEPARATE scheduled backup can never race it on
+/// source-evidence, and a SECOND same-process top-level op excludes on the gate.
 pub fn reconcile_archive_encryption(session_database_key: Option<&str>) -> Result<ReconcileReport> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;

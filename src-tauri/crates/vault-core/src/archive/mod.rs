@@ -89,9 +89,11 @@ pub(crate) use self::source_evidence_builder::{
     coverage_stats_json_from_parts,
 };
 // The cross-process archive write lock (W: serialize every destructive archive op so the
-// out-of-process scheduled backup can never race a GUI rekey/mode-toggle). Re-exported `pub` so the
-// later block can have backup/rekey/import/retention-prune/reconcile/restore acquire it; the primitive
-// ships here, the call-site wiring lands in a follow-up.
+// out-of-process scheduled backup can never race a GUI rekey/mode-toggle), plus the in-process
+// top-level [`ArchiveOpGate`] that serializes two same-process top-level destructive ops (CRIT-5's
+// same-process trigger, which the reentrant flock cannot exclude). backup/rekey/import/retention-prune/
+// reconcile/snapshot-restore take BOTH at their top-level entry; nested helpers take only the lock.
+pub(crate) use self::write_lock::ArchiveOpGate;
 pub use self::write_lock::ArchiveWriteLock;
 pub use self::{
     doctor::{doctor, repair_health_issues},

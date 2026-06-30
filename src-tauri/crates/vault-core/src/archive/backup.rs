@@ -103,18 +103,22 @@ where
         anyhow::bail!("archive has not been initialized");
     }
 
-    // CROSS-PROCESS WRITE SERIALIZATION (data-integrity audit CRITICAL-1 / CRITICAL-5):
-    // hold the archive write lock for the WHOLE backup so the out-of-process scheduled
-    // backup can never race a foreground rekey/import that `fs::rename`s the canonical
-    // `history-vault.sqlite` out from under this run's open write transaction (which on
-    // macOS would let the backup commit into a now-unlinked inode, report success, and
-    // silently lose the rows — and leave an orphaned `-wal` that bricks the next open).
-    // A manual run MUST complete, so it BLOCKS (polls) until any in-flight destructive
-    // op in another process releases the lock; a scheduled/automatic (`due_only`) run
-    // DEFERS instead of racing — it steps aside this tick and the next due window
-    // retries, surfaced through the existing `due_skipped` channel (no failure toast,
-    // no banner). The manager is process-reentrant, so a backup that later calls
-    // reconcile never self-deadlocks. The guard is held until this function returns.
+    // WRITE SERIALIZATION (data-integrity audit CRITICAL-1 / CRITICAL-5): hold BOTH
+    // serialization layers for the WHOLE backup. The in-process top-level
+    // [`ArchiveOpGate`] (taken FIRST) excludes a SECOND destructive op dispatched in THIS
+    // process — e.g. the user toggling encryption (rekey) / triggering an import from
+    // Settings while this run's canonical write transaction is open — which the reentrant
+    // flock alone cannot exclude (CRIT-5's same-process trigger). The cross-process
+    // [`ArchiveWriteLock`] excludes the OUT-OF-PROCESS scheduled backup. Either way a
+    // foreign `fs::rename` of `history-vault.sqlite` out from under the open transaction
+    // (committing into a now-unlinked inode, reporting success, silently losing the rows,
+    // and orphaning a `-wal` that bricks the next open) is prevented. A manual run MUST
+    // complete, so it BLOCKS until both layers free; a scheduled/automatic (`due_only`)
+    // run DEFERS if EITHER layer is held — it steps aside this tick and the next due
+    // window retries, surfaced through the existing `due_skipped` channel (no failure
+    // toast, no banner). The flock is process-reentrant, so a backup that later calls
+    // reconcile never self-deadlocks; the gate is taken ONLY here at the top level. The
+    // guards are held (lock released first, then gate) until this function returns.
     let _write_lock = match acquire_backup_write_lock(paths, due_only)? {
         Some(guard) => guard,
         None => {
@@ -505,22 +509,40 @@ where
 /// next due window retries, not a failed run.
 const BACKUP_DEFERRED_FOR_WRITE_LOCK: &str = "Another archive operation is in progress; deferring this scheduled backup until the next due window.";
 
-/// Acquires the cross-process archive write lock for the duration of a backup run.
+/// Acquires BOTH write-serialization layers for the duration of a backup run: the
+/// in-process top-level [`super::ArchiveOpGate`] (taken FIRST) and the cross-process
+/// [`super::ArchiveWriteLock`].
 ///
-/// A manual run (`due_only == false`) MUST execute, so it BLOCKS (polls) until any
-/// in-flight destructive op in another process releases the lock rather than racing it.
-/// A scheduled run (`due_only == true`) instead tries once and returns `Ok(None)` when
-/// another OS process holds the lock, so the caller can DEFER (skip-with-reason) instead
-/// of racing the rekey/import swap. The manager is process-reentrant, so this never
-/// self-deadlocks against an archive op already running in THIS process.
+/// A manual run (`due_only == false`) MUST execute, so it BLOCKS until both layers free.
+/// A scheduled run (`due_only == true`) instead tries once and DEFERS (`Ok(None)`) when
+/// EITHER layer is held — a foreground top-level op in THIS process (gate) or a
+/// destructive op in ANOTHER OS process (flock) — so the caller can skip-with-reason
+/// instead of racing the rekey/import swap. The flock is process-reentrant, so this never
+/// self-deadlocks against a nested archive helper running in THIS process; the gate is
+/// non-reentrant and taken ONLY here (no nested backup helper re-takes it).
+///
+/// The guards are returned as `(lock, gate)` so they RELEASE in that order — the reverse
+/// of acquisition — letting a parked same-process waiter wake to a gate it can take with
+/// the flock already free.
 fn acquire_backup_write_lock(
     paths: &ProjectPaths,
     due_only: bool,
-) -> Result<Option<super::ArchiveWriteLock>> {
+) -> Result<Option<(super::ArchiveWriteLock, super::ArchiveOpGate)>> {
     if due_only {
-        super::ArchiveWriteLock::try_acquire(paths)
+        // Probe the in-process gate first; if a foreground top-level op holds it, defer
+        // WITHOUT touching the flock. The gate guard drops on the early return, releasing
+        // it for that in-flight op.
+        let Some(gate) = super::ArchiveOpGate::try_acquire(paths) else {
+            return Ok(None);
+        };
+        match super::ArchiveWriteLock::try_acquire(paths)? {
+            Some(lock) => Ok(Some((lock, gate))),
+            None => Ok(None),
+        }
     } else {
-        super::ArchiveWriteLock::acquire(paths).map(Some)
+        let gate = super::ArchiveOpGate::acquire(paths);
+        let lock = super::ArchiveWriteLock::acquire(paths)?;
+        Ok(Some((lock, gate)))
     }
 }
 
