@@ -58,12 +58,13 @@ export interface ActivityProgress {
   label: string | null
   /**
    * How the zone should render the count label:
-   * - 'embedded' → progressEmbeddedLabel {count: label}
-   * - 'verbatim'  → render label directly (already human text from runtime)
-   * - 'records'   → progressRecordsLabel {processed: processedCount, total: totalCount}
-   * - null        → no count label shown
+   * - 'embedded'        → progressEmbeddedLabel {count: label}
+   * - 'embeddedOfTotal' → progressEmbeddedOfTotalLabel {processed: processedCount, total: totalCount}
+   * - 'verbatim'        → render label directly (already human text from runtime)
+   * - 'records'         → progressRecordsLabel {processed: processedCount, total: totalCount}
+   * - null              → no count label shown
    */
-  labelKind: 'embedded' | 'verbatim' | 'records' | null
+  labelKind: 'embedded' | 'embeddedOfTotal' | 'verbatim' | 'records' | null
   /** Used when labelKind='records': number of processed records */
   processedCount?: number | null
   /** Used when labelKind='records': total expected records */

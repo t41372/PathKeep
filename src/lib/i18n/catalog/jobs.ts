@@ -187,6 +187,7 @@ export const jobsNamespaceCatalog = {
 
     // Progress labels
     progressEmbeddedLabel: '{count} pages embedded',
+    progressEmbeddedOfTotalLabel: '{processed} / {total} pages embedded',
     progressRecordsLabel: '{processed} of {total} records',
     progressDownloadLabel: '{downloaded} / {total}',
 
@@ -393,6 +394,7 @@ export const jobsNamespaceCatalog = {
     taskBackupStale: '备份 — 已中断',
 
     progressEmbeddedLabel: '已嵌入 {count} 页',
+    progressEmbeddedOfTotalLabel: '已嵌入 {processed} / {total} 页',
     progressRecordsLabel: '{processed} / {total} 条记录',
     progressDownloadLabel: '{downloaded} / {total}',
 
@@ -592,6 +594,7 @@ export const jobsNamespaceCatalog = {
     taskBackupStale: '備份 — 已中斷',
 
     progressEmbeddedLabel: '已嵌入 {count} 頁',
+    progressEmbeddedOfTotalLabel: '已嵌入 {processed} / {total} 頁',
     progressRecordsLabel: '{processed} / {total} 筆紀錄',
     progressDownloadLabel: '{downloaded} / {total}',
 

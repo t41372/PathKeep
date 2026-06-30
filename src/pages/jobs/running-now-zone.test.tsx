@@ -81,4 +81,34 @@ describe('RunningNowZone interruption badge', () => {
     const badge = screen.getByText(jobsT('badgeSafeToClose'))
     expect(badge).toHaveClass('activity-row__badge--safe')
   })
+
+  test('an index build renders the honest embedded/total label with locale-grouped counts', () => {
+    const activity: Activity = {
+      id: 'index-1',
+      kind: 'index-build',
+      state: 'running',
+      taskNameKey: 'taskIndexBuild',
+      timestamp: '2026-04-07T10:01:00Z',
+      progress: {
+        value: 73536 / 118400,
+        label: null,
+        labelKind: 'embeddedOfTotal',
+        processedCount: 73536,
+        totalCount: 118400,
+      },
+      resumability: 'safe',
+    }
+
+    renderZone([activity])
+
+    // The count reads "{embedded} / {total} pages embedded" with thousands separators, not "73536".
+    expect(
+      screen.getByText(
+        jobsT('progressEmbeddedOfTotalLabel', {
+          processed: (73536).toLocaleString('en'),
+          total: (118400).toLocaleString('en'),
+        }),
+      ),
+    ).toBeVisible()
+  })
 })

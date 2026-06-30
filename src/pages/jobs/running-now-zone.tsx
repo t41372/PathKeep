@@ -44,6 +44,7 @@ export function RunningNowZone({
   onCancelRuntime,
   action,
   jobsT,
+  language,
 }: RunningNowZoneProps) {
   const hasContent =
     activities.length > 0 ||
@@ -67,6 +68,7 @@ export function RunningNowZone({
             onCancelRuntime={onCancelRuntime}
             action={action}
             jobsT={jobsT}
+            language={language}
           />
         ))}
 
@@ -84,6 +86,7 @@ interface ActivityRunningRowProps {
   onCancelRuntime: (jobId: number) => void
   action: string | null
   jobsT: (key: string, vars?: Record<string, string | number>) => string
+  language: ResolvedLanguage
 }
 
 function ActivityRunningRow({
@@ -92,6 +95,7 @@ function ActivityRunningRow({
   onCancelRuntime,
   action,
   jobsT,
+  language,
 }: ActivityRunningRowProps) {
   const { progress, resumability } = activity
   const isDeterminate = progress.value != null
@@ -148,6 +152,16 @@ function ActivityRunningRow({
             {jobsT('progressEmbeddedLabel', { count: progress.label })}
           </span>
         )}
+        {progress.labelKind === 'embeddedOfTotal' &&
+          progress.processedCount != null &&
+          progress.totalCount != null && (
+            <span className="activity-row__count">
+              {jobsT('progressEmbeddedOfTotalLabel', {
+                processed: progress.processedCount.toLocaleString(language),
+                total: progress.totalCount.toLocaleString(language),
+              })}
+            </span>
+          )}
         {progress.labelKind === 'verbatim' && progress.label !== null && (
           <span className="activity-row__count">{progress.label}</span>
         )}
@@ -156,8 +170,8 @@ function ActivityRunningRow({
           progress.totalCount != null && (
             <span className="activity-row__count">
               {jobsT('progressRecordsLabel', {
-                processed: progress.processedCount,
-                total: progress.totalCount,
+                processed: progress.processedCount.toLocaleString(language),
+                total: progress.totalCount.toLocaleString(language),
               })}
             </span>
           )}

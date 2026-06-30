@@ -148,13 +148,14 @@ function emptyInput(): ActivityAdapterInput {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('buildActivities', () => {
-  test('maps index-build running job → kind=index-build, state=running, progress from scanned/target', () => {
+  test('maps index-build running job → kind=index-build, state=running, scan fallback when no embedTarget', () => {
     const job = makeAiQueueJob({
       jobType: 'index-build',
       state: 'running',
       progressScanned: 5000,
       progressScanTarget: 10000,
       progressEmbedded: 4800,
+      // no progressEmbedTarget → scan ratio is the fallback
     })
     const input: ActivityAdapterInput = {
       ...emptyInput(),
@@ -613,6 +614,80 @@ describe('mapAiJobState — all terminal states', () => {
       aiQueue: makeAiQueueStatus({ recentJobs: [job] }),
     })
     expect(activities[0].progress.value).toBeNull()
+  })
+
+  test('progressEmbedded + progressEmbedTarget → value=embedded/embedTarget, labelKind=embeddedOfTotal', () => {
+    const job = makeAiQueueJob({
+      jobType: 'index-build',
+      state: 'running',
+      progressEmbedded: 73536,
+      progressEmbedTarget: 118400,
+      // scan fields present but must NOT drive the value
+      progressScanned: 1000,
+      progressScanTarget: 10000,
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      aiQueue: makeAiQueueStatus({ recentJobs: [job] }),
+    })
+    const { progress } = activities[0]
+    expect(progress.value).toBeCloseTo(73536 / 118400)
+    expect(progress.labelKind).toBe('embeddedOfTotal')
+    expect(progress.processedCount).toBe(73536)
+    expect(progress.totalCount).toBe(118400)
+  })
+
+  test('legacy job (no progressEmbedTarget) → scan-ratio fallback, labelKind=embedded', () => {
+    // Jobs that predate progressEmbedTarget still get a sensible bar via the scan cursor.
+    const job = makeAiQueueJob({
+      jobType: 'index-build',
+      state: 'running',
+      progressEmbedded: 4800,
+      progressScanned: 5000,
+      progressScanTarget: 10000,
+      // progressEmbedTarget intentionally absent
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      aiQueue: makeAiQueueStatus({ recentJobs: [job] }),
+    })
+    const { progress } = activities[0]
+    expect(progress.value).toBeCloseTo(0.5) // scan ratio, not embedded ratio
+    expect(progress.labelKind).toBe('embedded')
+    expect(progress.label).toBe('4800')
+  })
+
+  test('progressEmbedded > progressEmbedTarget → value clamped to 1', () => {
+    const job = makeAiQueueJob({
+      jobType: 'index-build',
+      state: 'running',
+      progressEmbedded: 150000,
+      progressEmbedTarget: 100000,
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      aiQueue: makeAiQueueStatus({ recentJobs: [job] }),
+    })
+    expect(activities[0].progress.value).toBe(1)
+    expect(activities[0].progress.labelKind).toBe('embeddedOfTotal')
+  })
+
+  test('progressEmbedTarget=0 → falls back to scan ratio (zero target treated as unknown)', () => {
+    const job = makeAiQueueJob({
+      jobType: 'index-build',
+      state: 'running',
+      progressEmbedded: 5000,
+      progressEmbedTarget: 0,
+      progressScanned: 3000,
+      progressScanTarget: 10000,
+    })
+    const activities = buildActivities({
+      ...emptyInput(),
+      aiQueue: makeAiQueueStatus({ recentJobs: [job] }),
+    })
+    const { progress } = activities[0]
+    expect(progress.value).toBeCloseTo(0.3) // scan ratio
+    expect(progress.labelKind).toBe('embedded') // no embedTarget, so single-count label
   })
 })
 

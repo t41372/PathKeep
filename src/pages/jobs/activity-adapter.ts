@@ -77,15 +77,45 @@ function terminalOutcomeKey(state: ActivityState): string | undefined {
 }
 
 function computeIndexBuildProgress(job: AiQueueJob): ActivityProgress {
-  const { progressScanned, progressScanTarget, progressEmbedded } = job
+  const {
+    progressScanned,
+    progressScanTarget,
+    progressEmbedded,
+    progressEmbedTarget,
+  } = job
   let value: number | null = null
+
   if (
+    progressEmbedTarget != null &&
+    progressEmbedTarget > 0 &&
+    progressEmbedded != null
+  ) {
+    // Prefer the honest embedded/total ratio when the backend supplies a true page-count target.
+    value = clamp(progressEmbedded / progressEmbedTarget, 0, 1)
+  } else if (
     progressScanTarget != null &&
     progressScanTarget > 0 &&
     progressScanned != null
   ) {
+    // Fallback: legacy scan-cursor ratio for jobs that predate progressEmbedTarget.
     value = clamp(progressScanned / progressScanTarget, 0, 1)
   }
+
+  if (
+    progressEmbedded != null &&
+    progressEmbedTarget != null &&
+    progressEmbedTarget > 0
+  ) {
+    // Show "{embedded} / {total} pages embedded" when we have a real total.
+    return {
+      value,
+      label: null,
+      labelKind: 'embeddedOfTotal',
+      processedCount: progressEmbedded,
+      totalCount: progressEmbedTarget,
+    }
+  }
+
   const label = progressEmbedded != null ? `${progressEmbedded}` : null
   return { value, label, labelKind: label !== null ? 'embedded' : null }
 }

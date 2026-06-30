@@ -399,10 +399,14 @@ export interface AiQueueJob {
    * - `progressScanTarget` — the determinate scan denominator (max candidate `history_id` captured at
    *   the build's true start; 0 = not yet known). `progressScanned / progressScanTarget` is an honest
    *   determinate bar that reaches ~100%.
+   * - `progressEmbedTarget` — total candidate pages captured at the build's true start; absent or 0 =
+   *   not yet known. `progressEmbedded / progressEmbedTarget` is the honest fill ratio preferred over
+   *   the scan-cursor fallback.
    */
   progressEmbedded?: number
   progressScanned?: number
   progressScanTarget?: number
+  progressEmbedTarget?: number
 }
 
 /**
