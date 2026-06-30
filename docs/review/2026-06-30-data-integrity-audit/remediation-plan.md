@@ -68,3 +68,25 @@ Reorder + harden, each with a kill-at-checkpoint test reproducing the relevant c
 3. Bundle import replays the previous archive's hot `-wal` into the new DB (Phase B).
 4. Rekey swap leaves a concurrent open's `-wal` to replay into the rekeyed DB (Phase B).
 5. No lock between rekey and in-flight backup → committed rows land in the renamed-away inode (Phase A.2 + B).
+
+## Phase-A done — foundation primitives (committed) + Phase-B carry-ins from reviews
+
+Phase A landed three review-clean primitives (`durable_io`, `archive::ArchiveWriteLock`, `fault_inject`). The
+per-block + integration reviews surfaced items that are NOT foundation defects but MUST be honored when Phase B
+wires the primitives into rekey / import / backup:
+
+- **`sweep_stale_temps` MUST run while holding `ArchiveWriteLock`** (MEDIUM): it deletes every `.pk-durable-*`
+  with no age/owner guard, so a sweep racing an out-of-process backup's in-flight durable temp would fail that
+  backup's `persist()`. Hold the lock first; document the contract on the fn at the call site.
+- **Sweep BOTH `root/` and `root/archive/`**: `config.json` durable temps land in `root/`, the DB/lock temps in
+  `root/archive/`. Sweeping only the archive dir leaks a SIGKILL'd config temp.
+- **Fault-seam "must-fire" guard before the first crash-window test**: add an opt-in guard that PANICS on drop if
+  its checkpoint was never hit, so an injection that silently misses (e.g. the destructive section ran on a
+  different thread than the arming thread) FAILS loudly instead of false-passing. Every crash-window test must
+  assert the _injected_ error propagated via `format!("{err:#}")` / `err.chain()` — never bare `is_err()` /
+  recoverability-only. Crash-window tests are in-crate `#[cfg(test)]` unit tests (the arming API is
+  `cfg(test) pub(crate)`), not `vault-core/tests/`. Confirm each op's destructive section runs on the arming thread.
+- **Call the seam qualified** (`fault_inject::checkpoint("rekey.after_swap")`) — `checkpoint` is overloaded in the
+  crate (AiRunControl / intelligence / SQLite). Optionally tighten `fault_inject::checkpoint` to `pub(crate)`.
+- **`install_file_durably` requires `built` in the SAME directory as `dest`** (only `dest`'s parent is fsynced) —
+  the rekey export temp must be built in `root/archive/`, not a system tempdir, or the unlink half isn't durable.

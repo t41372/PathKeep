@@ -25,6 +25,7 @@ pub mod config;
 pub mod diagnostics;
 pub mod durable_io;
 mod enrichment;
+pub mod fault_inject;
 pub mod git_audit;
 pub mod intelligence;
 mod intelligence_blobs;

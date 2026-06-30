@@ -44,6 +44,7 @@ mod search_projection;
 mod search_query;
 mod source_evidence;
 mod source_evidence_builder;
+mod write_lock;
 
 pub(crate) use self::artifacts::{
     SnapshotArtifact, collect_schema_payload, create_snapshot_artifact,
@@ -86,6 +87,11 @@ pub(crate) use self::source_evidence_builder::{
     DeferredSourceEvidenceBuilder, SourceEvidenceCounts, coverage_stats_json_from_counts,
     coverage_stats_json_from_parts,
 };
+// The cross-process archive write lock (W: serialize every destructive archive op so the
+// out-of-process scheduled backup can never race a GUI rekey/mode-toggle). Re-exported `pub` so the
+// later block can have backup/rekey/import/retention-prune/reconcile/restore acquire it; the primitive
+// ships here, the call-site wiring lands in a follow-up.
+pub use self::write_lock::ArchiveWriteLock;
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{
