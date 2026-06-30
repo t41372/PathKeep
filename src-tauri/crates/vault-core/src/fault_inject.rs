@@ -7,13 +7,21 @@
 //!   to prove recoverability claims like "killed AFTER the file swap but BEFORE
 //!   writing config => the archive is still recoverable" — the 2026-06-30 incident
 //!   window.
-//! - Stay a true no-op in production: nothing ever arms a fault, so [`checkpoint`]
-//!   consults an empty thread-local registry and returns `Ok(())` with no I/O, no
-//!   allocation, and no behavioural change.
-//! - Keep the consult/read path in the MEASURED (coverage/CI) build. It is NOT
-//!   `cfg`-compiled out, because the quality gate forbids stubbing production paths
-//!   out of coverage (that hides the real failure modes). Only the ARMING side —
-//!   the writers — is `#[cfg(test)]`, so production can never arm anything and test
+//! - Stay a true no-op in production: nothing ever arms a fault and nothing ever
+//!   registers a must-fire watch, so [`checkpoint`] consults two empty thread-local
+//!   registries (the armed-fault map and the must-fire hit map) and returns `Ok(())`
+//!   with no I/O, no allocation, and no behavioural change — each is a single
+//!   thread-local borrow plus a lookup miss.
+//! - Catch the inverse mistake too: a test that arms a fault at a checkpoint the op
+//!   NEVER reaches (a mis-typed name, or a destructive section that runs on a
+//!   different thread than the arming thread) would otherwise pass as a false "no
+//!   crash here". [`checkpoint`] records that a name was hit, and the must-fire
+//!   [`FaultGuard`] PANICS on drop if its armed checkpoint was never hit.
+//! - Keep the consult/read path (both [`consult`] and [`record_hit`]) in the MEASURED
+//!   (coverage/CI) build. It is NOT `cfg`-compiled out, because the quality gate
+//!   forbids stubbing production paths out of coverage (that hides the real failure
+//!   modes). Only the ARMING side — the writers, including the must-fire watch
+//!   registration — is `#[cfg(test)]`, so production can never arm anything and test
 //!   threads are isolated from each other for free.
 //!
 //! ## Not responsible for
@@ -70,6 +78,13 @@ thread_local! {
     /// the `#[cfg(test)]` arming helpers below, so production never arms anything and
     /// two test threads can never see each other's faults.
     static FAULTS: RefCell<HashMap<String, ArmedFault>> = RefCell::new(HashMap::new());
+
+    /// Per-thread map of `watched checkpoint name -> hit count`, used ONLY by the
+    /// must-fire [`FaultGuard`] to detect "armed a fault the op never reached". A name
+    /// is registered (count 0) only when a `#[cfg(test)]` must-fire guard is created;
+    /// [`record_hit`] then increments it on each [`checkpoint`] hit, and the guard's
+    /// Drop reads it back. Empty in production, so [`record_hit`] is a lookup miss.
+    static HITS: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
 }
 
 /// Looks up `name` in the thread-local registry, honoring fire-once auto-disarm.
@@ -88,6 +103,23 @@ fn consult(name: &str) -> Option<FaultKind> {
     })
 }
 
+/// Records that checkpoint `name` was reached, for any must-fire watch tracking it.
+///
+/// This is part of the PRODUCTION read path (deliberately NOT `#[cfg(test)]`): every
+/// [`checkpoint`] call routes through it so the must-fire accounting reflects REAL
+/// production control flow, not a test-only mirror. It stays inert in production — the
+/// watch map is registered ONLY by the `#[cfg(test)]` must-fire guard, so in a
+/// non-test build [`HITS`] is always empty and this is one thread-local borrow plus a
+/// lookup miss: no allocation, no write, no behavioural change. Only a name a guard is
+/// actively watching gets its counter bumped.
+fn record_hit(name: &str) {
+    HITS.with(|cell| {
+        if let Some(count) = cell.borrow_mut().get_mut(name) {
+            *count = count.saturating_add(1);
+        }
+    });
+}
+
 /// A named abort point a destructive op can hand control to.
 ///
 /// In production NOTHING ever arms a fault, so this consults an empty registry and
@@ -99,6 +131,7 @@ fn consult(name: &str) -> Option<FaultKind> {
 /// Phase B will sprinkle `checkpoint("...")` calls at the load-bearing seams inside
 /// rekey / import / backup; this module deliberately wires NONE of them yet.
 pub fn checkpoint(name: &str) -> Result<()> {
+    record_hit(name);
     match consult(name) {
         Some(FaultKind::Error) => {
             Err(anyhow::anyhow!("fault_inject: simulated error at checkpoint {name:?}"))
@@ -162,6 +195,25 @@ pub(crate) fn disarm_all() {
     FAULTS.with(|cell| cell.borrow_mut().clear());
 }
 
+/// Registers `name` for must-fire hit tracking (count 0). [`record_hit`] then bumps
+/// the counter on each [`checkpoint`] hit; the must-fire [`FaultGuard`] reads it back
+/// on drop. Test-only: production never registers a watch, so [`record_hit`] stays a
+/// pure lookup miss.
+#[cfg(test)]
+fn watch_must_fire(name: &str) {
+    HITS.with(|cell| {
+        cell.borrow_mut().insert(name.to_string(), 0);
+    });
+}
+
+/// Removes and returns `name`'s recorded hit count (0 if it was never registered or
+/// never hit). Called by the must-fire [`FaultGuard`]'s Drop to decide whether to
+/// panic, and to clean its entry out of [`HITS`].
+#[cfg(test)]
+fn take_hits(name: &str) -> u32 {
+    HITS.with(|cell| cell.borrow_mut().remove(name).unwrap_or(0))
+}
+
 /// RAII guard that disarms its checkpoint on drop.
 ///
 /// Prevents a test from leaking an armed fault into a later test on the same thread:
@@ -171,6 +223,11 @@ pub(crate) fn disarm_all() {
 #[cfg(test)]
 pub(crate) struct FaultGuard {
     name: String,
+    /// When `true`, Drop additionally PANICS if `name` was never hit while the guard
+    /// was alive (a fault armed at a checkpoint the op never reached). `false` for the
+    /// plain [`FaultGuard::error_at`] / [`FaultGuard::panic_at`] guards, which keep
+    /// their original "arm + disarm-on-drop, never panic" behaviour.
+    must_fire: bool,
 }
 
 #[cfg(test)]
@@ -178,13 +235,29 @@ impl FaultGuard {
     /// Arms a fire-once `Err` at `name` and returns a guard that disarms on drop.
     pub(crate) fn error_at(name: &str) -> Self {
         arm_error_at(name);
-        Self { name: name.to_string() }
+        Self { name: name.to_string(), must_fire: false }
     }
 
     /// Arms a fire-once `panic!` at `name` and returns a guard that disarms on drop.
     pub(crate) fn panic_at(name: &str) -> Self {
         arm_panic_at(name);
-        Self { name: name.to_string() }
+        Self { name: name.to_string(), must_fire: false }
+    }
+
+    /// Arms a fire-once `Err` at `name` AND requires it to be hit: if the guarded scope
+    /// ends without the op ever reaching `checkpoint(name)`, Drop PANICS.
+    ///
+    /// This makes a crash-window test fail LOUDLY instead of passing as a false "no
+    /// crash here" when the fault was armed at a name the op never visits — a mis-typed
+    /// checkpoint, or a destructive section that ran on a different thread than the one
+    /// that armed the fault (faults are thread-local). Use this whenever a test's whole
+    /// point is that a specific checkpoint MUST be exercised. The Drop panic is
+    /// suppressed if the thread is already unwinding (so an earlier assertion failure,
+    /// not this guard, surfaces — avoiding a double-panic abort).
+    pub(crate) fn error_at_must_fire(name: &str) -> Self {
+        arm_error_at(name);
+        watch_must_fire(name);
+        Self { name: name.to_string(), must_fire: true }
     }
 }
 
@@ -192,6 +265,16 @@ impl FaultGuard {
 impl Drop for FaultGuard {
     fn drop(&mut self) {
         disarm(&self.name);
+        if self.must_fire {
+            let hits = take_hits(&self.name);
+            assert!(
+                hits > 0 || std::thread::panicking(),
+                "fault_inject: must-fire checkpoint {:?} was never hit — the destructive \
+                 op never reached it (wrong checkpoint name, or it ran on a different \
+                 thread than the one that armed the fault)",
+                self.name
+            );
+        }
     }
 }
 
@@ -277,6 +360,43 @@ mod tests {
             assert!(caught.is_err(), "the panic guard must arm a panic fault");
         }
         checkpoint("pg").expect("the panic guard must disarm on drop");
+    }
+
+    #[test]
+    fn must_fire_guard_is_satisfied_when_its_checkpoint_is_hit() {
+        {
+            let _guard = FaultGuard::error_at_must_fire("reached");
+            // The op reaches the checkpoint: it records the hit AND fires the armed
+            // fire-once error, exactly as a real aborting op would.
+            checkpoint("reached").expect_err("the must-fire guard must arm the error");
+        }
+        // Drop saw the hit, so it must NOT panic, and it cleans up after itself: the
+        // fire-once fault disarmed and the HITS entry was taken, so a later checkpoint
+        // is a clean Ok.
+        checkpoint("reached").expect("a satisfied must-fire guard leaves no residue");
+    }
+
+    #[test]
+    fn must_fire_guard_panics_on_drop_when_its_checkpoint_is_never_hit() {
+        // Run on a spawned thread so its Drop-time panic is captured by `join` instead
+        // of failing this test thread. The guard arms a fault at "never_reached" but the
+        // closure never calls `checkpoint("never_reached")` — simulating a fault armed at
+        // a name the op never visits (a typo, or a different-thread destructive section).
+        let outcome = std::thread::spawn(|| {
+            let _guard = FaultGuard::error_at_must_fire("never_reached");
+        })
+        .join();
+
+        let payload = outcome.expect_err("dropping an un-hit must-fire guard must panic");
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("");
+        assert!(
+            message.contains("never_reached") && message.contains("never hit"),
+            "the panic must name the un-hit checkpoint, got: {message:?}"
+        );
     }
 
     #[test]

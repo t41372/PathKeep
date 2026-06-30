@@ -161,10 +161,17 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 }
 
 /// Saves the app config to disk after normalizing runtime defaults.
+///
+/// Persists through [`crate::durable_io::atomic_durable_write`] (temp -> F_FULLFSYNC
+/// -> rename -> dir fsync) rather than a bare `fs::write`, so a crash mid-save leaves
+/// `config.json` as EITHER the complete old config OR the complete new one — never the
+/// truncated/empty file that silently dropped a mode change in the 2026-06-30 incident.
+/// `ensure_paths` first guarantees the parent directory exists (the durable write
+/// renames a sibling temp onto the destination and does not create parents).
 pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     ensure_paths(paths)?;
     let content = serde_json::to_string_pretty(config)?;
-    fs::write(&paths.config_path, content)
+    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
         .with_context(|| format!("writing {}", paths.config_path.display()))?;
     Ok(())
 }
@@ -237,6 +244,47 @@ mod tests {
         assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
         let saved_content = fs::read_to_string(&paths.config_path).expect("read saved config");
         assert!(saved_content.contains(r#""archiveMode": "Encrypted""#));
+    }
+
+    #[test]
+    fn save_config_overwrite_round_trips_through_the_durable_path() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        let first = AppConfig {
+            initialized: false,
+            selected_profile_ids: vec!["chrome:First".to_string()],
+            ..AppConfig::default()
+        };
+        save_config(&paths, &first).expect("first save");
+        assert_eq!(
+            load_config(&paths).expect("load first").selected_profile_ids,
+            vec!["chrome:First".to_string()]
+        );
+
+        // A second save replaces the first via the atomic durable swap: load_config sees
+        // ONLY the new content, never a torn old+new mix.
+        let second = AppConfig {
+            initialized: true,
+            selected_profile_ids: vec!["chrome:Second".to_string(), "edge:Work".to_string()],
+            ..AppConfig::default()
+        };
+        save_config(&paths, &second).expect("second save");
+        let loaded = load_config(&paths).expect("load second");
+        assert!(loaded.initialized);
+        assert_eq!(
+            loaded.selected_profile_ids,
+            vec!["chrome:Second".to_string(), "edge:Work".to_string()]
+        );
+
+        // Routed through atomic_durable_write: its sibling temp is renamed onto
+        // config.json and never left behind in the project root.
+        let leftovers: Vec<_> = fs::read_dir(dir.path())
+            .expect("read_dir")
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pk-durable-"))
+            .collect();
+        assert!(leftovers.is_empty(), "save_config leaked a durable temp: {leftovers:?}");
     }
 
     #[test]
