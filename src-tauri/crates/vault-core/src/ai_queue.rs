@@ -88,6 +88,16 @@ pub struct IndexBackfillCursor {
     /// a corpus that may have grown, so the bar measures the build's own original scan range.
     #[serde(default)]
     pub scan_target: i64,
+    /// The number of candidate pages this build set out to embed, captured ONCE at the build's true
+    /// start (non-reverted visits NOT yet embedded for this provider — so a full rebuild, whose wipe
+    /// already cleared them, counts every candidate, while an incremental pass counts only the new
+    /// pages). `embedded_so_far / embed_target` is the HONEST progress the user reads as "{embedded} of
+    /// {N} pages" — it tracks vectors actually written, not a sparse history-id position. Same
+    /// back-compat + preserve-on-resume contract as [`Self::scan_target`]: `#[serde(default)]`
+    /// (0 = unknown) keeps legacy payloads valid, and a resume keeps the stored value rather than
+    /// recounting a corpus that grew (or got partially embedded) under the build.
+    #[serde(default)]
+    pub embed_target: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -238,6 +248,49 @@ pub fn load_queue_job_counts(
         running: count_jobs_for_types(connection, job_types, &["running"])? as u32,
         failed: count_jobs_for_types(connection, job_types, &["failed"])? as u32,
     })
+}
+
+/// Counts jobs a drain worker could make progress on RIGHT NOW — the signal that decides whether to
+/// spawn the background drain pool.
+///
+/// This is deliberately broader than the read-model `queued` count, which sees only `queued`/`stale`.
+/// The bug it fixes: a job orphaned in `running` (its worker died — stale heartbeat / expired lease)
+/// is invisible to a `queued`-gated kick, so the drain is never spawned, so `claim_next_ai_job` (which
+/// would `mark_stale_jobs` it back to `stale` and re-claim from its cursor) is never called. The job
+/// then sits in `running` forever across every app launch and never resumes. Counting orphaned
+/// `running` jobs here (mirroring EXACTLY the two orphan predicates `mark_stale_jobs` uses, so this
+/// count equals what the next claim will actually recover) lets the periodic status poll kick the
+/// drain and self-heal the wedge.
+///
+/// Read-only: it never mutates. The actual stale-sweep + reclaim still happens only inside the drain's
+/// `claim_next_ai_job`, so this changes WHETHER the drain runs, never the sweep timing.
+pub fn count_recoverable_ai_jobs(connection: &Connection, stale_after_seconds: i64) -> Result<u32> {
+    ensure_ai_queue_schema(connection)?;
+    let now = now_rfc3339();
+    let threshold = (Utc::now() - Duration::seconds(stale_after_seconds)).to_rfc3339();
+    let count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM ai_jobs
+         WHERE
+           -- claimable now: queued or already-stale work that is due
+           (state IN ('queued', 'stale') AND available_at <= ?1)
+           OR
+           -- orphaned running (mark_stale_jobs branch 2 → 'stale' → reclaim from cursor)
+           (state = 'running'
+              AND COALESCE(stop_requested, 0) = 0
+              AND heartbeat_at IS NOT NULL
+              AND heartbeat_at < ?2)
+           OR
+           -- orphaned running with a pending stop (mark_stale_jobs branch 1 → 'cancelled')
+           (state = 'running'
+              AND stop_requested = 1
+              AND (
+                (lease_expires_at IS NOT NULL AND lease_expires_at <= ?2)
+                OR (heartbeat_at IS NOT NULL AND heartbeat_at < ?2)
+              ))",
+        params![now, threshold],
+        |row| row.get(0),
+    )?;
+    Ok(count.max(0) as u32)
 }
 
 /// Claims the next runnable AI job, recovering stale running jobs first.
@@ -488,7 +541,11 @@ pub fn persist_index_cursor(
     // sets it here while a resume keeps the value already stored. Without this, a resumed cursor would
     // clobber the original target with 0 and the Activity bar would lose its denominator mid-build.
     let scan_target = if cursor.scan_target > 0 { cursor.scan_target } else { stored.scan_target };
-    *stored = IndexBackfillCursor { scan_target, ..cursor.clone() };
+    // Same preserve-on-resume contract for the embed denominator: a resume reports 0, so keep the
+    // value captured at the build's true start rather than clobbering it.
+    let embed_target =
+        if cursor.embed_target > 0 { cursor.embed_target } else { stored.embed_target };
+    *stored = IndexBackfillCursor { scan_target, embed_target, ..cursor.clone() };
     // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
     // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
     // delete and lose every row already embedded below the cursor (CRITICAL-1). Flipping the stored
@@ -951,6 +1008,7 @@ fn decode_ai_job_row(row: &Row<'_>) -> rusqlite::Result<AiQueueJob> {
         progress_embedded: None,
         progress_scanned: None,
         progress_scan_target: None,
+        progress_embed_target: None,
     })
 }
 
@@ -970,6 +1028,7 @@ fn decode_ai_job_row_with_progress(row: &Row<'_>) -> rusqlite::Result<AiQueueJob
         job.progress_embedded = Some(cursor.embedded_so_far);
         job.progress_scanned = Some(cursor.next_history_id);
         job.progress_scan_target = Some(cursor.scan_target);
+        job.progress_embed_target = Some(cursor.embed_target);
     }
     Ok(job)
 }

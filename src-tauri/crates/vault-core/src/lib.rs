@@ -72,7 +72,7 @@ pub use ai::{
     model_is_loadable, model_is_present_and_verified, parse_static_config, planes_are_stale,
     prepare_query, preview_ai_integrations, probe_tool_capability, provider_capabilities,
     provider_connection_failure_report, quantize_int8, reconcile_ai_queue_controls,
-    reembed_estimate_for, register_ai_chat_run, request_ai_chat_cancel,
+    recoverable_ai_jobs, reembed_estimate_for, register_ai_chat_run, request_ai_chat_cancel,
     resolve_agent_system_context, reverse_map_plane_bytes, run_code_in_sandbox,
     runtime_uses_candle, runtime_uses_static, score_candidate, select_embedding_provider,
     select_working_set, semantic_search_history, static_embed_ids, static_l2_normalize,

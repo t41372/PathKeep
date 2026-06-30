@@ -112,6 +112,9 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
             // The determinate scan denominator (Change 1): the backfill reports the captured max on a
             // fresh build and 0 on a resume; `persist_index_cursor` preserves the stored value on 0.
             scan_target: progress.scan_target,
+            // The honest embed-progress denominator (total candidate pages), same capture/preserve
+            // contract as `scan_target`.
+            embed_target: progress.embed_target,
         };
         let summary = format!("Embedded {} row(s) so far.", progress.embedded_so_far);
         match ai_queue::persist_index_cursor(&connection, self.job_id, &cursor, Some(&summary))? {
@@ -140,6 +143,18 @@ fn index_start_history_id(payload: &ai_queue::AiJobPayload) -> i64 {
     }
 }
 
+/// Resolves the cumulative count of pages already embedded by this build from a claimed job's payload.
+///
+/// Seeds the backfill's running total so a reclaim continues the persisted `embedded_so_far` instead of
+/// restarting it at this session's partial count (which would collapse the progress bar on resume). A
+/// non-index payload starts at 0.
+fn index_start_embedded(payload: &ai_queue::AiJobPayload) -> u64 {
+    match payload {
+        ai_queue::AiJobPayload::Index { cursor, .. } => cursor.embedded_so_far,
+        _ => 0,
+    }
+}
+
 /// Completes one claimed index job and persists the queue outcome.
 ///
 /// This keeps queue bookkeeping in one place so index-build callers do not have
@@ -154,8 +169,10 @@ pub(crate) fn complete_claimed_index_job(
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
     let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
-    // Resume from the persisted backfill watermark so a restart never re-embeds from scratch.
+    // Resume from the persisted backfill watermark so a restart never re-embeds from scratch, and seed
+    // the cumulative embedded count so the progress bar keeps climbing across the reclaim.
     let start_history_id = index_start_history_id(&claimed.payload);
+    let start_embedded = index_start_embedded(&claimed.payload);
     let run_control = start_ai_job_control(paths, config, session_database_key, claimed.id);
     let ledger: Arc<dyn vault_core::IndexBackfillLedger> = Arc::new(IndexCursorLedger {
         paths: paths.clone(),
@@ -171,6 +188,7 @@ pub(crate) fn complete_claimed_index_job(
         request,
         Some(run_control.clone()),
         start_history_id,
+        start_embedded,
         Some(ledger),
     ));
     run_control.shutdown();
@@ -420,7 +438,14 @@ pub fn load_ai_queue(session_database_key: Option<&str>) -> Result<AiQueueStatus
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let status = vault_core::ai_queue_status(&paths, &config, session_database_key)?;
-    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, status.queued);
+    // Kick the drain on RECOVERABLE work, not just `status.queued`. `queued` never includes a job
+    // orphaned in `running` by a dead worker (app quit/crash), so gating on it left an interrupted
+    // index build wedged forever — the drain that would reclaim it from its cursor was never spawned.
+    // `recoverable_ai_jobs` also counts those orphans, so the periodic status poll self-heals the wedge.
+    // It reads the same intelligence connection `ai_queue_status` just opened above, so propagating its
+    // error (rather than swallowing it) keeps the two reads consistent.
+    let drainable = vault_core::recoverable_ai_jobs(&paths, &config, session_database_key)?;
+    maybe_spawn_ai_queue_drain(&paths, &config, session_database_key, drainable);
     Ok(status)
 }
 
@@ -1167,6 +1192,7 @@ mod tests {
                 next_history_id: 9,
                 embedded_so_far: 8,
                 scan_target: 12,
+                embed_target: 30,
             },
         )
         .expect("running job cursor persists");
@@ -1175,8 +1201,9 @@ mod tests {
             ai_queue::AiJobPayload::Index { cursor, .. } => {
                 assert_eq!(cursor.next_history_id, 9);
                 assert_eq!(cursor.embedded_so_far, 8);
-                // The worker ledger forwards the captured scan denominator into the persisted cursor.
+                // The worker ledger forwards both captured denominators into the persisted cursor.
                 assert_eq!(cursor.scan_target, 12);
+                assert_eq!(cursor.embed_target, 30);
             }
             other => panic!("expected index payload, got {other:?}"),
         }
@@ -1193,6 +1220,8 @@ mod tests {
             },
         };
         assert_eq!(index_start_history_id(&index), 77);
+        // The cumulative embedded count is read from the same cursor to seed the resumed backfill.
+        assert_eq!(index_start_embedded(&index), 5);
 
         let assistant = ai_queue::AiJobPayload::Assistant {
             payload: ai_queue::AssistantJobPayload {
@@ -1205,7 +1234,8 @@ mod tests {
                 embedding_provider_id: None,
             },
         };
-        // A non-index payload defensively resumes from the beginning.
+        // A non-index payload defensively resumes from the beginning, with a 0 embedded seed.
         assert_eq!(index_start_history_id(&assistant), 0);
+        assert_eq!(index_start_embedded(&assistant), 0);
     }
 }

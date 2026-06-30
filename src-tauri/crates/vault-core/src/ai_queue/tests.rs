@@ -214,6 +214,92 @@ fn stale_jobs_are_reclaimed_and_replay_cancel_respect_boundaries() {
     assert_eq!(cancelled.state, "cancelled");
 }
 
+/// THE WEDGE REGRESSION: a job orphaned in `running` (its worker died — stale heartbeat) must be
+/// visible to the drain-kick signal, or it never resumes.
+///
+/// The real-machine bug: an index build was claimed, its worker process died, and the job sat in
+/// `running` with a 5-day-stale heartbeat. The drain pool is spawned only when there is recoverable
+/// work, and the OLD signal for that was the read-model `queued` count — which counts only
+/// `queued`/`paused`/`stale`, NEVER an orphaned `running` job. So `queued` stayed 0, the drain was
+/// never spawned, `claim_next_ai_job` (which would `mark_stale_jobs` it and re-claim from its cursor)
+/// was never called, and the build stayed wedged across every app launch. This asserts the new
+/// `count_recoverable_ai_jobs` signal sees the orphan (so the kick fires) while `queued` is blind to
+/// it, and that a claim then resumes it.
+#[test]
+fn orphaned_running_job_is_recoverable_even_though_queued_count_is_blind_to_it() {
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue index");
+    let claimed = claim_next_ai_job(&connection, 60).expect("claim").expect("job");
+    assert_eq!(claimed.id, queued.id);
+
+    let job_types =
+        [AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear, AiQueueJobType::Assistant];
+
+    // A HEALTHY running job (fresh heartbeat) must NOT register as recoverable — otherwise every
+    // status poll would spuriously kick a drain against a job a live worker already owns.
+    assert_eq!(
+        count_recoverable_ai_jobs(&connection, 60).expect("recoverable healthy"),
+        0,
+        "a freshly-claimed, actively-heartbeating job is not recoverable work"
+    );
+
+    // Orphan it: the owning worker died, so the heartbeat goes stale.
+    connection
+        .execute(
+            "UPDATE ai_jobs SET heartbeat_at = ?1 WHERE id = ?2",
+            params!["2000-01-01T00:00:00+00:00", claimed.id],
+        )
+        .expect("age heartbeat");
+
+    // The OLD kick signal is blind: the job is still `running`, so `queued` (queued/paused/stale) is 0
+    // and the drain would never have been spawned — the exact deadlock that wedged the build.
+    assert_eq!(
+        load_queue_job_counts(&connection, &job_types).expect("counts").queued,
+        0,
+        "an orphaned running job is invisible to the queued count (the wedge)"
+    );
+
+    // The NEW signal sees it, so the periodic status poll now kicks the drain.
+    assert_eq!(
+        count_recoverable_ai_jobs(&connection, 1).expect("recoverable orphan"),
+        1,
+        "an orphaned running job IS recoverable work and must trigger the drain kick"
+    );
+
+    // And once the drain runs, the claim reclaims the same job (resumes from its cursor).
+    let reclaimed = claim_next_ai_job(&connection, 1).expect("claim stale").expect("stale job");
+    assert_eq!(reclaimed.id, claimed.id);
+}
+
+/// `count_recoverable_ai_jobs`' third predicate (running + pending stop + dead worker) must also count
+/// as recoverable, mirroring `mark_stale_jobs` branch 1 → `cancelled`: the drain has to run to move a
+/// stop-requested-but-orphaned job to a terminal state instead of leaving it stuck `running` forever.
+#[test]
+fn count_recoverable_includes_a_stop_requested_orphan() {
+    let connection = connection();
+    let queued =
+        enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
+    let claimed = claim_next_ai_job(&connection, 60).expect("claim").expect("job");
+    assert_eq!(claimed.id, queued.id);
+
+    // A stop was requested, then the owning worker died (stale heartbeat AND expired lease).
+    connection
+        .execute(
+            "UPDATE ai_jobs
+             SET stop_requested = 1, heartbeat_at = ?1, lease_expires_at = ?1
+             WHERE id = ?2",
+            params!["2000-01-01T00:00:00+00:00", claimed.id],
+        )
+        .expect("orphan with a pending stop");
+
+    assert_eq!(
+        count_recoverable_ai_jobs(&connection, 1).expect("recoverable stop-orphan"),
+        1,
+        "a stop-requested job orphaned by a dead worker is recoverable (drain → cancelled)"
+    );
+}
+
 /// Ensures cancellation remains cooperative while a worker owns the running job.
 #[test]
 fn running_cancel_sets_stop_request_until_worker_finishes_cancel() {
@@ -533,20 +619,31 @@ fn persist_index_cursor_preserves_scan_target_across_a_resume() {
         enqueue_index_job(&connection, &AiIndexRequest::default(), false).expect("enqueue");
     claim_next_ai_job(&connection, 60).expect("claim").expect("running job");
 
-    // True start: the cursor carries the captured denominator.
+    // True start: the cursor carries both captured denominators.
     persist_index_cursor(
         &connection,
         queued.id,
-        &IndexBackfillCursor { next_history_id: 10, embedded_so_far: 5, scan_target: 100 },
+        &IndexBackfillCursor {
+            next_history_id: 10,
+            embedded_so_far: 5,
+            scan_target: 100,
+            embed_target: 200,
+        },
         None,
     )
     .expect("persist fresh cursor");
 
-    // Resume: scan_target reported as 0, but the stored 100 must survive while the watermark advances.
+    // Resume: both denominators reported as 0, but the stored values must survive while the watermark
+    // advances.
     persist_index_cursor(
         &connection,
         queued.id,
-        &IndexBackfillCursor { next_history_id: 40, embedded_so_far: 22, scan_target: 0 },
+        &IndexBackfillCursor {
+            next_history_id: 40,
+            embedded_so_far: 22,
+            scan_target: 0,
+            embed_target: 0,
+        },
         None,
     )
     .expect("persist resumed cursor");
@@ -556,6 +653,10 @@ fn persist_index_cursor_preserves_scan_target_across_a_resume() {
             assert_eq!(cursor.next_history_id, 40);
             assert_eq!(cursor.embedded_so_far, 22);
             assert_eq!(cursor.scan_target, 100, "a resume must preserve the captured scan target");
+            assert_eq!(
+                cursor.embed_target, 200,
+                "a resume must preserve the captured embed target"
+            );
         }
         other => panic!("expected index payload, got {other:?}"),
     }
@@ -571,7 +672,12 @@ fn load_ai_queue_status_surfaces_index_progress_and_none_for_assistant() {
     persist_index_cursor(
         &connection,
         index.id,
-        &IndexBackfillCursor { next_history_id: 50, embedded_so_far: 30, scan_target: 100 },
+        &IndexBackfillCursor {
+            next_history_id: 50,
+            embedded_so_far: 30,
+            scan_target: 100,
+            embed_target: 250,
+        },
         None,
     )
     .expect("persist cursor");
@@ -591,6 +697,7 @@ fn load_ai_queue_status_surfaces_index_progress_and_none_for_assistant() {
     assert_eq!(index_job.progress_embedded, Some(30));
     assert_eq!(index_job.progress_scanned, Some(50));
     assert_eq!(index_job.progress_scan_target, Some(100));
+    assert_eq!(index_job.progress_embed_target, Some(250));
 
     let assistant_job = status
         .recent_jobs
@@ -600,6 +707,7 @@ fn load_ai_queue_status_surfaces_index_progress_and_none_for_assistant() {
     assert_eq!(assistant_job.progress_embedded, None);
     assert_eq!(assistant_job.progress_scanned, None);
     assert_eq!(assistant_job.progress_scan_target, None);
+    assert_eq!(assistant_job.progress_embed_target, None);
 }
 
 #[test]
@@ -614,7 +722,12 @@ fn legacy_index_payload_without_cursor_defaults_to_start() {
         AiJobPayload::Index { cursor, .. } => {
             assert_eq!(
                 cursor,
-                IndexBackfillCursor { next_history_id: 0, embedded_so_far: 0, scan_target: 0 }
+                IndexBackfillCursor {
+                    next_history_id: 0,
+                    embedded_so_far: 0,
+                    scan_target: 0,
+                    embed_target: 0,
+                }
             );
             assert_eq!(cursor, IndexBackfillCursor::default());
         }

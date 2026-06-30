@@ -929,6 +929,13 @@ pub struct AiQueueJob {
     /// is honest scan progress that reaches ~100%. Index jobs only; `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress_scan_target: Option<i64>,
+    /// The honest user-facing progress denominator: total candidate pages captured at the build's true
+    /// start (the cursor's `embed_target`; 0 = not yet known). `progress_embedded /
+    /// progress_embed_target` is "{n} of {N} pages embedded" — what the Activity bar fills by. Preferred
+    /// over the scan ratio because it tracks vectors actually written, not a sparse history-id position.
+    /// Index jobs only; `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_embed_target: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

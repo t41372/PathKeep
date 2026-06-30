@@ -360,6 +360,32 @@ pub fn ai_queue_status(
     )
 }
 
+/// How long after its last heartbeat a running AI job is considered orphaned + recoverable.
+/// Mirrors the drain's `claim_next_ai_job(&conn, 300)` stale window so the kick signal and the
+/// eventual stale-sweep + reclaim agree on which running jobs are dead.
+const AI_QUEUE_RECOVERY_STALE_SECONDS: i64 = 300;
+
+/// Counts AI queue jobs a background drain could make progress on right now — queued/stale work AND
+/// jobs orphaned in `running` by a worker that died (app quit/crash).
+///
+/// This exists because the drain pool is spawned only when there is recoverable work; gating that on
+/// the read-model `queued` count (which never sees an orphaned `running` job) let an interrupted index
+/// build sit wedged across every launch and never resume. Polling this lets the next status tick kick
+/// the drain, which reclaims the orphaned job from its persisted cursor.
+pub fn recoverable_ai_jobs(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> Result<u32> {
+    if !config.initialized || !paths.archive_database_path.exists() {
+        return Ok(0);
+    }
+
+    let connection = open_intelligence_connection(paths, config, key)?;
+    ensure_ai_schema(&connection)?;
+    ai_queue::count_recoverable_ai_jobs(&connection, AI_QUEUE_RECOVERY_STALE_SECONDS)
+}
+
 /// Synchronizes persisted queue pause/resume controls with updated Settings.
 pub fn reconcile_ai_queue_controls(
     paths: &ProjectPaths,

@@ -85,7 +85,7 @@ pub use self::provider::test_provider_connection;
 pub use self::read_model::{
     ai_index_status, ai_queue_status, ensure_ai_schema, load_assistant_run_response,
     preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
-    reconcile_ai_queue_controls,
+    reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
 pub use self::search::{
     answer_history_question, answer_history_question_with_control, semantic_search_history,
@@ -237,6 +237,11 @@ pub struct IndexBackfillProgress {
     /// resume, so [`crate::ai_queue::persist_index_cursor`] preserves the original denominator rather
     /// than chasing a corpus that grew under the build.
     pub scan_target: i64,
+    /// The total candidate pages this build set out to embed, captured at the build's TRUE start
+    /// (`COUNT(visits WHERE reverted_at IS NULL)`). Drives the user-facing `embedded_so_far /
+    /// embed_target` progress. Same fresh-capture / resume-preserve contract as `scan_target` (0 on a
+    /// resume so the stored value is kept).
+    pub embed_target: u64,
 }
 
 /// Sink the embed loop calls to persist the resumable backfill watermark after each chunk.

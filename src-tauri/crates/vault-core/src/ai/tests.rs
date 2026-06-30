@@ -881,6 +881,54 @@ fn ai_queue_status_reflects_config_and_recent_jobs() {
     assert!(still_default.recent_jobs.is_empty());
 }
 
+/// `recoverable_ai_jobs` is the drain-kick signal that fixes the wedged-build bug: it must see
+/// queued work AND a job orphaned in `running` by a dead worker, while reporting 0 for a missing /
+/// uninitialized archive (no work to recover) and 0 for a job a live worker is actively heartbeating.
+#[test]
+fn recoverable_ai_jobs_sees_queued_and_orphaned_running_work() {
+    // No archive on disk yet → nothing to recover (the early guard).
+    let missing_paths = test_paths();
+    let config = base_config();
+    assert_eq!(
+        recoverable_ai_jobs(&missing_paths, &config, None).expect("missing archive recoverable"),
+        0
+    );
+
+    let (paths, config, connection) = prepared_archive();
+
+    // An empty queue has nothing to recover.
+    assert_eq!(recoverable_ai_jobs(&paths, &config, None).expect("empty recoverable"), 0);
+
+    // A queued job is recoverable work (the drain should be kicked to run it).
+    let queued = ai_queue::enqueue_index_job(&connection, &AiIndexRequest::default(), false)
+        .expect("enqueue queued job");
+    assert_eq!(recoverable_ai_jobs(&paths, &config, None).expect("queued recoverable"), 1);
+
+    // Once claimed and actively heartbeating, it is NOT recoverable (a live worker owns it) — so a
+    // status poll won't spuriously kick a second drain at it.
+    let claimed = ai_queue::claim_next_ai_job(&connection, 60).expect("claim").expect("job");
+    assert_eq!(claimed.id, queued.id);
+    assert_eq!(recoverable_ai_jobs(&paths, &config, None).expect("running recoverable"), 0);
+
+    // Orphan it (the worker died → stale heartbeat). Now it is recoverable again, so the next poll
+    // re-kicks the drain and the build resumes from its cursor.
+    connection
+        .execute(
+            "UPDATE ai_jobs SET heartbeat_at = ?1 WHERE id = ?2",
+            params!["2000-01-01T00:00:00+00:00", claimed.id],
+        )
+        .expect("age heartbeat");
+    assert_eq!(recoverable_ai_jobs(&paths, &config, None).expect("orphan recoverable"), 1);
+
+    // An uninitialized config short-circuits to 0 even with a job present (the second guard branch).
+    let mut uninitialized = config.clone();
+    uninitialized.initialized = false;
+    assert_eq!(
+        recoverable_ai_jobs(&paths, &uninitialized, None).expect("uninitialized recoverable"),
+        0
+    );
+}
+
 #[test]
 fn reconcile_ai_queue_controls_pauses_resumes_and_noops() {
     let (paths, config, connection) = prepared_archive();
@@ -1667,6 +1715,7 @@ fn build_ai_index_with_control_stops_at_batch_boundaries() {
             &AiIndexRequest::default(),
             Some(control),
             0,
+            0,
             None,
         ))
         .expect_err("controlled build should cancel");
@@ -1889,6 +1938,7 @@ fn build_with_ledger_persists_last_durable_checkpoint_on_failure() {
             &AiIndexRequest::default(),
             None,
             0,
+            0,
             Some(dyn_ledger),
         ))
         .expect_err("zero-dim build fails");
@@ -1896,12 +1946,17 @@ fn build_with_ledger_persists_last_durable_checkpoint_on_failure() {
     let progresses = ledger.snapshot();
     assert_eq!(
         progresses.last().copied(),
-        // The watermark is still the origin (the first chunk itself failed), but `scan_target` is the
-        // max candidate history id (1, the single seeded visit) captured at the build's TRUE start —
-        // proving the determinate denominator is recorded even when the build fails before any chunk
-        // completes (Change 1).
-        Some(IndexBackfillProgress { next_history_id: 0, embedded_so_far: 0, scan_target: 1 }),
-        "the failure path persisted the last-durable checkpoint (origin + captured scan target)"
+        // The watermark is still the origin (the first chunk itself failed), but the denominators are
+        // captured at the build's TRUE start: `scan_target` = max candidate history id (1) and
+        // `embed_target` = candidate page COUNT (1, the single seeded visit) — proving both determinate
+        // denominators are recorded even when the build fails before any chunk completes.
+        Some(IndexBackfillProgress {
+            next_history_id: 0,
+            embedded_so_far: 0,
+            scan_target: 1,
+            embed_target: 1,
+        }),
+        "the failure path persisted the last-durable checkpoint (origin + captured denominators)"
     );
 }
 
@@ -2296,6 +2351,7 @@ fn build_ai_index_resumes_from_cursor_and_records_progress() {
             &AiIndexRequest::default(),
             None,
             3,
+            0,
             Some(dyn_ledger),
         ))
         .expect("resumed build");
@@ -2321,6 +2377,54 @@ fn build_ai_index_resumes_from_cursor_and_records_progress() {
         assert!(window[1].next_history_id >= window[0].next_history_id);
         assert!(window[1].embedded_so_far >= window[0].embedded_so_far);
     }
+}
+
+#[test]
+fn build_ai_index_resume_carries_cumulative_embedded_so_far() {
+    // HIGH regression: the persisted `embedded_so_far` (and the embedded/embed_target progress bar)
+    // must be CUMULATIVE across a reclaim. A worker that died after embedding some pages resumes with a
+    // non-zero `start_embedded_so_far`; the count must continue from there, not restart at this
+    // session's partial count — which would collapse the bar to ~0% on the very recovery path the
+    // orphan-recovery fix enables.
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    for id in 1..=5 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    drop(connection);
+
+    let ledger = Arc::new(RecordingLedger::default());
+    let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
+    // Simulate a reclaim: resume from history_id 3 (rows 3,4,5 remain) with 2 pages already embedded in
+    // the prior session.
+    runtime
+        .block_on(build_ai_index_with_control(
+            &paths,
+            &config,
+            None,
+            &provider,
+            &AiIndexRequest::default(),
+            None,
+            3,
+            2,
+            Some(dyn_ledger),
+        ))
+        .expect("resumed build");
+
+    // 2 (carried from the prior session) + 3 (embedded this session) = 5 cumulative — NOT 3.
+    let last = ledger.snapshot().last().copied().expect("final progress");
+    assert_eq!(
+        last.embedded_so_far, 5,
+        "embedded_so_far must carry the resume seed, not reset to 3"
+    );
 }
 
 /// Embeds rows [start, …] capped by `limit` and returns the resulting MAPPED VISIT id set + the last
@@ -2349,6 +2453,7 @@ fn run_backfill_chunk(
             request,
             None,
             start_history_id,
+            0,
             Some(dyn_ledger),
         ))
         .expect("backfill chunk");

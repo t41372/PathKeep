@@ -74,7 +74,7 @@ pub async fn build_ai_index(
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    build_ai_index_with_control(paths, config, key, provider, request, None, 0, None).await
+    build_ai_index_with_control(paths, config, key, provider, request, None, 0, 0, None).await
 }
 
 /// Builds the semantic index while honoring optional cooperative stop checkpoints.
@@ -97,6 +97,7 @@ pub async fn build_ai_index_with_control(
     request: &AiIndexRequest,
     run_control: Option<Arc<dyn AiRunControl>>,
     start_history_id: i64,
+    start_embedded_so_far: u64,
     ledger: Option<Arc<dyn IndexBackfillLedger>>,
 ) -> Result<AiIndexReport> {
     validate_provider(provider, AiProviderPurpose::Embedding)?;
@@ -246,6 +247,7 @@ pub async fn build_ai_index_with_control(
             request,
             run_control,
             start_history_id,
+            start_embedded_so_far,
             ledger.as_ref(),
             perform_wipe,
             gpu_enabled,
@@ -535,6 +537,47 @@ fn scan_target_for(connection: &Connection, start_history_id: i64) -> Result<i64
     max_candidate_history_id(connection)
 }
 
+/// The number of candidate pages this build still has to embed — the HONEST progress denominator.
+///
+/// Counts the `reverted_at IS NULL` candidate set (the same predicate as [`max_candidate_history_id`])
+/// minus the pages already embedded for this provider (`NOT EXISTS` against `ai_embeddings`). Because a
+/// full rebuild's wipe clears this provider's `ai_embeddings` rows BEFORE the backfill runs, at a
+/// build's true start this is "every candidate" for a full rebuild and "only the un-embedded new pages"
+/// for an incremental pass — exactly what `embedded_so_far` (cumulative changed visits) climbs to, so
+/// `embedded_so_far / embed_target` reaches ~100% on either. (Like the scan denominator it skips the
+/// `urls`/`source_profiles` join, so a rare visit with an orphaned FK is counted but never embedded —
+/// the bar can finish a hair short, which the job's completion then clears.)
+fn candidate_page_count(connection: &Connection, provider_id: &str) -> Result<u64> {
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM archive.visits AS visits
+             WHERE visits.reverted_at IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM ai_embeddings AS e
+                 WHERE e.provider_id = ?1 AND e.history_id = visits.id
+               )",
+            params![provider_id],
+            |row| row.get(0),
+        )
+        .context("counting candidate pages needing embedding for the index embed target")?;
+    Ok(count.max(0) as u64)
+}
+
+/// Resolves the embed-progress denominator to REPORT this run: the captured candidate count on a
+/// fresh build, else 0 ("unknown — preserve the stored target"). Mirrors [`scan_target_for`] so a
+/// resume never recounts a corpus that grew (or got partially embedded) under the build.
+fn embed_target_for(
+    connection: &Connection,
+    provider_id: &str,
+    start_history_id: i64,
+) -> Result<u64> {
+    if start_history_id > 0 {
+        return Ok(0);
+    }
+    candidate_page_count(connection, provider_id)
+}
+
 /// Embeds candidate rows in resumable, cancellable chunks and persists them to the vector plane.
 ///
 /// The hot path of W-AI-4 (02 §C.6 R1). For each ascending-`history_id` chunk from
@@ -556,6 +599,7 @@ async fn run_embedding_backfill(
     request: &AiIndexRequest,
     run_control: Option<&Arc<dyn AiRunControl>>,
     start_history_id: i64,
+    start_embedded_so_far: u64,
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
     gpu_enabled: bool,
@@ -582,19 +626,29 @@ async fn run_embedding_backfill(
     // writes a fresh map; on a resume it leaves the existing map (and its prior visit rows) intact.
     visit_map.ensure_created(paths)?;
     let mut cursor = start_history_id;
-    let mut embedded_total: u64 = 0;
+    // CUMULATIVE across resumes: seed from the cursor's stored `embedded_so_far` so the persisted
+    // count (and the `embedded / embed_target` progress bar) keeps climbing after a reclaim instead of
+    // collapsing to this session's partial count. A fresh build passes 0.
+    let mut embedded_total: u64 = start_embedded_so_far;
     // The determinate scan denominator the Activity page divides by (Change 1). Captured ONCE here, at
     // the TRUE start of a build, and reported on every chunk's progress; a resume reports 0 so the
     // stored target is preserved (see `scan_target_for` / `persist_index_cursor`).
     let scan_target = scan_target_for(connection, start_history_id)?;
+    // The HONEST progress denominator: how many candidate pages this build will embed — captured at the
+    // TRUE start and preserved across resumes exactly like `scan_target`. Counts pages NOT yet embedded
+    // for this provider, so it is correct for BOTH a full rebuild (the wipe at the build's true start
+    // cleared this provider's embeddings, so every candidate counts) AND an incremental pass (only the
+    // un-embedded new pages count) — matching what `embedded_total` (cumulative changed visits) climbs to.
+    let embed_target = embed_target_for(connection, &provider.config.id, start_history_id)?;
     // The cursor reflecting the last chunk whose vectors+map+SQLite are ALL durably persisted (F2.1).
     // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
     // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
     // (which advancing the scan `cursor` before the embed would do). Starts at the resume watermark.
     let mut last_durable = crate::ai::IndexBackfillProgress {
         next_history_id: start_history_id,
-        embedded_so_far: 0,
+        embedded_so_far: start_embedded_so_far,
         scan_target,
+        embed_target,
     };
 
     // The crash-window dedup state (CRITICAL-2 / MEDIUM-4 / MEDIUM-5) is encapsulated in
@@ -707,6 +761,7 @@ async fn run_embedding_backfill(
                 next_history_id: cursor,
                 embedded_so_far: embedded_total,
                 scan_target,
+                embed_target,
             };
             if let Some(ledger) = ledger {
                 ledger.record(last_durable)?;
@@ -1022,9 +1077,11 @@ mod tests {
         connection
             .execute_batch(
                 "ATTACH DATABASE ':memory:' AS archive;
-                 CREATE TABLE archive.visits (id INTEGER PRIMARY KEY, reverted_at TEXT);",
+                 CREATE TABLE archive.visits (id INTEGER PRIMARY KEY, reverted_at TEXT);
+                 -- Minimal shape for the embed-target anti-join (provider_id, history_id).
+                 CREATE TABLE ai_embeddings (provider_id TEXT, history_id INTEGER);",
             )
-            .expect("attach archive + create visits");
+            .expect("attach archive + create visits + ai_embeddings");
         for (id, reverted_at) in rows {
             connection
                 .execute(
@@ -1062,5 +1119,41 @@ mod tests {
         // A RESUME (start_history_id > 0) reports 0 ("unknown — keep the stored target"); it must NOT
         // recompute, so persist_index_cursor preserves the original denominator from the true start.
         assert_eq!(scan_target_for(&connection, 5).expect("resume"), 0);
+    }
+
+    #[test]
+    fn embed_target_for_counts_pages_needing_embedding_on_fresh_start_and_preserves_on_resume() {
+        // The HONEST denominator is the COUNT of NON-reverted candidate pages NOT yet embedded for this
+        // provider — id 99 is reverted (excluded), so 3 candidates remain (5, 42, 7).
+        let connection = archive_connection(&[
+            (5, None),
+            (42, None),
+            (7, None),
+            (99, Some("2026-01-01T00:00:00Z")),
+        ]);
+        assert_eq!(candidate_page_count(&connection, "lm-studio").expect("count"), 3);
+
+        // A page already embedded for THIS provider drops out of the denominator (incremental builds
+        // only count the un-embedded new pages). An embedding for a DIFFERENT provider does not.
+        connection
+            .execute(
+                "INSERT INTO ai_embeddings (provider_id, history_id) VALUES ('lm-studio', 5), ('other', 42)",
+                [],
+            )
+            .expect("seed embeddings");
+        assert_eq!(
+            candidate_page_count(&connection, "lm-studio").expect("count after embed"),
+            2,
+            "page 5 (this provider) drops; page 42 (other provider) still counts"
+        );
+
+        // True start captures the count; a resume reports 0 so persist_index_cursor preserves the value
+        // captured at the build's true start (mirrors scan_target).
+        assert_eq!(embed_target_for(&connection, "lm-studio", 0).expect("fresh start"), 2);
+        assert_eq!(embed_target_for(&connection, "lm-studio", 5).expect("resume"), 0);
+
+        // An empty candidate set yields 0 (nothing to embed), never an error.
+        let empty = archive_connection(&[]);
+        assert_eq!(candidate_page_count(&empty, "lm-studio").expect("empty count"), 0);
     }
 }
