@@ -41,11 +41,42 @@ Reorder + harden, each with a kill-at-checkpoint test reproducing the relevant c
   `recover_interrupted_rewrite`); scrub the target's pre-existing `-wal`/`-shm` before installing (CRIT 3).
 - **backup** (`backup.rs`): atomic + lock-held writes; no second backup concurrent.
 
-## Phase C — Reconcile + crash-recovery on launch (Track 1)
+## Phase C — Reconcile + crash-recovery on launch (Track 1) — DONE
 
-- **Full at-rest reconcile for BOTH DBs** (extend `at_rest.rs`): detect ANY config↔file mode/key drift
-  (try-open, salt check, rekey-journal) → self-heal from the kept backstop/snapshot instead of dead-ending at
-  `NOTADB`. Recover interrupted swaps for rekey + import.
+- **[DONE] Launch-time at-rest reconcile for BOTH DBs + recover interrupted rekey/import on launch**
+  (`at_rest::recover_archive_on_launch`, wired in `vault-worker::app::initialize_archive_database` after the
+  config save and BEFORE `ensure_archive_initialized`). LAUNCH MUST NEVER FREEZE: the overwhelmingly common
+  HEALTHY launch takes NO lock — a cheap unlocked pre-check (`launch_is_provably_healthy`: two marker `stat`s +
+  the canonical history-vault's 16-byte header + the small `config.json`, NO gate/flock/DB-open) returns
+  `Healthy` immediately, so a healthy GUI launch is never blocked behind an out-of-process scheduled backup
+  holding the cross-process write lock. ONLY when a crash marker is present OR config↔file at-rest drift is
+  detected does it take the in-process op-gate FIRST, then the cross-process write lock (blocking — correct and
+  rare; it does NOT try-and-defer, since the config↔file reconcile has no other actor and deferring could leave
+  launch to open a known half-state), and run the authoritative locked recovery that: (1) runs
+  `recover_interrupted_import`, (2) runs `maintenance::recover_interrupted_rekey` (keyed on a durable
+  `.pk-rekey-journal.json` written just before the rekey swap and cleared after the config commit), then (3)
+  reconciles a STALE `config.json` to the canonical history-vault's REAL on-disk at-rest mode — HEADER READS
+  ONLY, no key, no DB open (the 14.4M-row constraint). This heals THE incident (encrypted files under a
+  `Plaintext` config, no journal → `NOTADB` dead-end) into the graceful locked unlock-prompt instead of bricking
+  launch. `recover_interrupted_rekey` is KEY-FREE and fail-closed: swap-didn't-land → roll config back to the
+  captured pre-rekey state + drop the orphaned export temp; canonical archive missing → bail and LEAVE the
+  marker. Swap-LANDED converges config to `to_mode` in the ENCRYPT direction; the DECRYPT direction
+  (`to_mode == Plaintext`) is ASYMMETRIC — it FAILS CLOSED when source-evidence is still Encrypted on disk
+  (decryptable only with the now-unprompted old key), leaving the marker rather than silently committing a
+  Plaintext config over an Encrypted source-evidence. Every fail-closed bail is surfaced as a structured
+  `archive_recovery_required:`-prefixed, JSON-carrying error (`LaunchRecovery::Unrecoverable` /
+  `ArchiveRecoveryReport`) the Phase-D recovery screen routes on. Source-evidence convergence otherwise stays
+  DEFERRED to the keyed on-unlock `reconcile_archive_encryption` (it needs a key not held at launch) and
+  self-heals only in the ENCRYPT direction — the documented division of labor. Every branch is covered by
+  kill-at-checkpoint regression tests (`rekey.after_swap_before_config`) plus the worker headline test that
+  FAILS on HEAD, and watchdog tests proving the healthy launch never blocks on a held foreign write lock.
+- **[LOW carry-in, from the MEDIUM-fix review]** discriminant-vs-write asymmetry: the locked path's
+  `Healed`/`Healthy` DISCRIMINANT compares the PASSED in-memory config to the header, while the write decision and
+  the unlocked fast path compare the ON-DISK `config.json`. They agree only because the sole production caller
+  (`initialize_archive_database`) saves config to disk immediately before calling. Safe today; if a future caller
+  ever passes a config diverging from the just-saved on-disk one, the fast path could return `Healthy` while the
+  locked path would `Healed`, and an Encrypted+no-key shape would then force-open the stale mode → `NOTADB`. Harden
+  by keying the discriminant on the on-disk config (or asserting the save-before-call invariant). Non-blocking.
 
 ## Phase D — Snapshot + Recovery GUI (Track 3)
 

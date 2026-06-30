@@ -2960,3 +2960,151 @@ fn security_status_keeps_last_rekey_review_visible_when_archive_is_locked() {
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
     }
 }
+
+#[test]
+fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked() {
+    // THE 2026-06-30 incident at the real launch entry point: an encrypted archive on disk while
+    // config.json says Plaintext and there is NO journal. On HEAD `ensure_archive_initialized`
+    // opens the encrypted file with no key -> NOTADB -> dead-end error page. With Phase C wired,
+    // `initialize_archive_database` heals config -> Encrypted and surfaces the locked unlock
+    // prompt instead of bricking.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    // Materialise an encrypted archive on disk.
+    let mut encrypted = initialized_config();
+    encrypted.archive_mode = ArchiveMode::Encrypted;
+    let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
+    assert!(init.archive_status.unlocked);
+
+    // Overwrite config.json back to Plaintext while the file on disk stays encrypted (no journal):
+    // the interrupted-rekey end state that bricked the open.
+    let paths = project_paths().expect("project paths");
+    let stale = initialized_config(); // Plaintext
+    vault_core::save_config(&paths, &stale).expect("overwrite config to plaintext");
+
+    // Re-launch with NO key: launch recovery heals config and surfaces the unlock prompt.
+    let snapshot =
+        initialize_archive_database(&stale, None).expect("launch recovery heals, no brick");
+    assert!(snapshot.config.initialized);
+    assert!(snapshot.archive_status.initialized);
+    assert!(snapshot.archive_status.encrypted, "config healed to the encrypted file's real mode");
+    assert!(!snapshot.archive_status.unlocked, "no key in hand -> locked, never bricked");
+    assert!(
+        snapshot
+            .archive_status
+            .warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains("database key is required")),
+        "the healed state must be the unlock prompt, not a NOTADB dead-end",
+    );
+    assert!(matches!(
+        vault_core::load_config(&paths).expect("load healed config").archive_mode,
+        ArchiveMode::Encrypted,
+    ));
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+#[test]
+fn launch_recovery_surfaces_an_unrecoverable_interrupted_rekey_to_the_worker() {
+    // Fail-closed at the launch entry point: a rekey marker claims a Plaintext->Encrypted swap but
+    // the canonical history-vault is gone, so the worker must return a STRUCTURED, prefix-tagged
+    // error Phase D can route to the recovery screen — not an opaque bootstrap failure.
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let config = initialized_config();
+    initialize_archive_database(&config, None).expect("init plaintext archive");
+    let paths = project_paths().expect("project paths");
+
+    let archive_dir = paths.archive_database_path.parent().expect("archive parent");
+    let rekey_marker = archive_dir.join(".pk-rekey-journal.json");
+    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
+    let snapshot_path = snapshot_dir.join("archive-before-rekey-fixture.sqlite");
+    fs::write(&snapshot_path, b"SQLite format 3\0snapshot").expect("seed snapshot");
+    let journal = serde_json::json!({
+        "version": 1,
+        "timestamp": "2026-06-30T00-00-00Z",
+        "from_mode": "Plaintext",
+        "to_mode": "Encrypted",
+        "snapshot_ref": snapshot_path.to_string_lossy(),
+        "previous_config": serde_json::Value::Null,
+    });
+    fs::write(&rekey_marker, serde_json::to_vec(&journal).expect("serialize journal"))
+        .expect("seed rekey marker");
+    fs::remove_file(&paths.archive_database_path).expect("remove history-vault");
+
+    let error = initialize_archive_database(&config, None)
+        .expect_err("a fail-closed interrupted rekey must surface as an error");
+    let rendered = error.to_string();
+    assert!(
+        rendered.starts_with(vault_core::ARCHIVE_RECOVERY_REQUIRED_PREFIX),
+        "the worker must tag the launch-recovery failure with the recovery-required prefix, got: {rendered}",
+    );
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+#[test]
+fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
+    // The Healed-then-OPEN path the other two launch-recovery worker tests skip: the headline test
+    // heals with NO key (the skip branch), the other is Unrecoverable. Here the encrypted archive
+    // is healed from a stale Plaintext config AND the key is in hand, so `initialize_archive_database`
+    // runs `ensure_archive_initialized` on the healed (Encrypted) config and opens it UNLOCKED —
+    // exercising the Healed non-skip branch (`app::initialize_archive_database`).
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    // Materialise an encrypted archive on disk.
+    let mut encrypted = initialized_config();
+    encrypted.archive_mode = ArchiveMode::Encrypted;
+    let init = initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted");
+    assert!(init.archive_status.unlocked);
+
+    // Overwrite config.json back to Plaintext (the stale-config incident shape) while the file on
+    // disk stays encrypted.
+    let paths = project_paths().expect("project paths");
+    let stale = initialized_config(); // Plaintext
+    vault_core::save_config(&paths, &stale).expect("overwrite config to plaintext");
+
+    // Re-launch WITH the key: launch recovery heals config -> Encrypted AND, because the key is in
+    // hand, the Healed arm runs `ensure_archive_initialized` and opens the healed archive unlocked.
+    let snapshot = initialize_archive_database(&stale, Some("000000"))
+        .expect("launch recovery heals then opens");
+    assert!(snapshot.config.initialized);
+    assert!(snapshot.archive_status.initialized, "the healed archive is initialized");
+    assert!(snapshot.archive_status.encrypted, "config healed to the encrypted file's real mode");
+    assert!(snapshot.archive_status.unlocked, "the in-hand key opened the healed archive");
+    assert!(matches!(
+        vault_core::load_config(&paths).expect("load healed config").archive_mode,
+        ArchiveMode::Encrypted,
+    ));
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}

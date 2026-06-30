@@ -51,11 +51,14 @@ pub(crate) use self::artifacts::{
     load_checkpoint_profile_snapshot, load_snapshot_record, record_snapshot_reference,
     serialize_payload,
 };
+pub use self::at_rest::{
+    ARCHIVE_RECOVERY_REQUIRED_PREFIX, ArchiveRecoveryKind, ArchiveRecoveryReport, LaunchRecovery,
+    ReconcileReport, reconcile_archive_encryption, recover_archive_on_launch,
+};
 pub(crate) use self::at_rest::{
     DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
     reconcile_source_evidence_with_archive, remove_stale_sidecars,
 };
-pub use self::at_rest::{ReconcileReport, reconcile_archive_encryption};
 pub use self::backup::{run_backup, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;
@@ -95,6 +98,10 @@ pub(crate) use self::source_evidence_builder::{
 // reconcile/snapshot-restore take BOTH at their top-level entry; nested helpers take only the lock.
 pub(crate) use self::write_lock::ArchiveOpGate;
 pub use self::write_lock::ArchiveWriteLock;
+// Phase C crash-recovery twin of the rekey swap+commit, called by the launch-time at-rest
+// reconcile (`at_rest::recover_archive_on_launch`). NESTED helper: takes ONLY the reentrant
+// `ArchiveWriteLock`, never the top-level `ArchiveOpGate`.
+pub(crate) use self::maintenance::{interrupted_rekey_marker_present, recover_interrupted_rekey};
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{

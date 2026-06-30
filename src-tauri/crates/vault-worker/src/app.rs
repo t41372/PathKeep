@@ -18,9 +18,10 @@ use crate::context::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
-    AppConfig, AppSnapshot, ArchiveMode, ReconcileReport, RuntimeDiagnostics, archive_status,
-    ensure_app_lock_unlocked, ensure_archive_initialized, hydrate_app_lock_config,
-    load_import_batches, load_recent_runs, rekey_archive, save_config,
+    ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
+    LaunchRecovery, ReconcileReport, RuntimeDiagnostics, archive_status, ensure_app_lock_unlocked,
+    ensure_archive_initialized, hydrate_app_lock_config, load_config, load_import_batches,
+    load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
     validate_app_lock_config_with_biometric,
 };
 use vault_platform::{discover_browser_profiles, keyring_status};
@@ -201,8 +202,39 @@ pub fn initialize_archive_database(
         current_app_lock_biometric_state(),
     )?;
     save_config(&paths, &next_config)?;
-    ensure_archive_initialized(&paths, &next_config, database_key)?;
+    // Phase C: auto-heal a stale config / interrupted import or rekey BEFORE opening the archive,
+    // so the 2026-06-30 NOTADB dead-end (encrypted files under a Plaintext config) self-heals to
+    // the locked unlock-prompt instead of bricking launch.
+    match recover_archive_on_launch(&paths, &next_config, database_key)? {
+        LaunchRecovery::Healthy => {
+            ensure_archive_initialized(&paths, &next_config, database_key)?;
+        }
+        LaunchRecovery::Healed { to_mode, .. } => {
+            // config.json was corrected to the canonical file's real at-rest mode; reload it,
+            // but force the mode from the authoritative `to_mode` so a transient load_config
+            // failure can never re-open with the stale (NOTADB-shaped) mode.
+            let mut healed = load_config(&paths).unwrap_or_else(|_| next_config.clone());
+            healed.archive_mode = to_mode.clone();
+            // Healed Plaintext->Encrypted with no key: do NOT force-open (that IS the NOTADB
+            // dead-end); app_snapshot surfaces the locked state so the UI prompts for the key.
+            if !(matches!(to_mode, ArchiveMode::Encrypted) && database_key.is_none()) {
+                ensure_archive_initialized(&paths, &healed, database_key)?;
+            }
+        }
+        LaunchRecovery::Unrecoverable(report) => {
+            return Err(archive_recovery_required_error(report));
+        }
+    }
     app_snapshot(database_key)
+}
+
+/// Wraps an unrecoverable launch state in a STRUCTURED, prefix-tagged, JSON-carrying error so
+/// Phase D can route it to the recovery screen rather than treat it as opaque. Mirrors the
+/// `IMPORT_SOURCE_KEY_REQUIRED_PREFIX` convention: a stable prefix the FE matches, then the
+/// serialized [`ArchiveRecoveryReport`].
+fn archive_recovery_required_error(report: ArchiveRecoveryReport) -> anyhow::Error {
+    let payload = serde_json::to_string(&report).unwrap_or_default();
+    anyhow::anyhow!("{ARCHIVE_RECOVERY_REQUIRED_PREFIX}: {payload}")
 }
 
 /// Executes a rekey/mode-switch request and returns the post-rewrite snapshot.

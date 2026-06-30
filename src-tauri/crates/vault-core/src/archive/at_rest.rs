@@ -5,11 +5,23 @@
 //!   from the configured `archive_mode`, and converge it in place (encrypt a
 //!   plaintext file, or decrypt an encrypted one) atomically and verifiably.
 //! - Migrate `source-evidence.sqlite` in lockstep with an archive rekey.
+//! - Phase C launch-time auto-heal ([`recover_archive_on_launch`]): on every app
+//!   start, recover any interrupted import/rekey, then reconcile a STALE `config.json`
+//!   to the canonical history-vault's REAL on-disk at-rest mode (header reads only, no
+//!   key, no DB open). This is the case the source-evidence reconcile above CANNOT heal —
+//!   when the config itself is the wrong one (the 2026-06-30 incident: both canonical
+//!   DBs encrypted on disk while config says `Plaintext` and there is no journal, so
+//!   the open hit `SQLITE_NOTADB` and dead-ended). Healing config to the history-vault's
+//!   real mode un-bricks the CANONICAL archive and turns that brick into the graceful
+//!   locked unlock-prompt. Source-evidence at-rest convergence is left to the keyed
+//!   on-unlock reconcile and self-heals only in the ENCRYPT direction (see
+//!   [`recover_archive_on_launch`] for the decrypt-direction caveat).
 //!
 //! ## Not responsible for
-//! - The canonical archive (`history-vault.sqlite`) itself — owned by the rekey
-//!   flow in `maintenance.rs`, which calls this module to migrate
-//!   source-evidence alongside it.
+//! - Re-keying or migrating the canonical archive (`history-vault.sqlite`) bytes —
+//!   owned by the rekey flow in `maintenance.rs`. The launch heal only corrects the
+//!   config's recorded at-rest MODE to match the bytes already on disk; it never
+//!   rewrites a canonical DB.
 //! - The derived sidecars (search / intelligence / agent) — plaintext by design.
 //!
 //! ## Why this exists
@@ -34,7 +46,7 @@ use super::{
     export_archive_database,
 };
 use crate::{
-    config::{ProjectPaths, ensure_paths},
+    config::{ProjectPaths, ensure_paths, load_config, save_config},
     models::{AppConfig, ArchiveMode},
     utils::now_rfc3339,
 };
@@ -69,6 +81,294 @@ pub(crate) fn detect_disk_encryption_mode(path: &Path) -> DiskEncryptionMode {
         Ok(()) if &header == SQLITE_FILE_HEADER => DiskEncryptionMode::Plaintext,
         Ok(()) => DiskEncryptionMode::Encrypted,
         Err(_) => DiskEncryptionMode::Absent,
+    }
+}
+
+// --- Phase C: launch-time at-rest reconcile + crash-recovery -------------------------------------
+
+/// Error-message prefix the worker tags a launch-recovery failure with so the FE can route it
+/// to the Phase-D recovery screen instead of treating it as an opaque bootstrap error. Mirrors
+/// `IMPORT_SOURCE_KEY_REQUIRED_PREFIX`; the JSON [`ArchiveRecoveryReport`] rides after the colon.
+pub const ARCHIVE_RECOVERY_REQUIRED_PREFIX: &str = "archive_recovery_required";
+
+/// Why a launch-time recovery could not safely self-heal — the Phase-D recovery-screen
+/// classification. Serializable; `DiskEncryptionMode` is deliberately NOT exposed (the public
+/// surface speaks [`ArchiveMode`], mapping an absent/unreadable file to `None`).
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArchiveRecoveryKind {
+    /// An interrupted whole-app import could not reach one consistent at-rest mode.
+    InterruptedImportModeDrift,
+    /// An interrupted rekey could not be resolved (e.g. the canonical archive is gone).
+    InterruptedRekeyUnresolved,
+    /// Config↔file at-rest drift that could not be safely reconciled (reserved for Phase D;
+    /// the launch heal converges every observable drift, so this is not produced today).
+    AtRestDriftUnresolved,
+}
+
+/// The structured, serializable feed the worker turns into the Phase-D recovery screen when a
+/// launch recovery cannot self-heal. Carries the detected modes + the verified safety snapshots
+/// a one-click restore can choose from, plus the underlying error chain for the screen and logs.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveRecoveryReport {
+    /// What kind of unrecoverable state was found.
+    pub kind: ArchiveRecoveryKind,
+    /// The at-rest mode `config.json` currently declares.
+    pub config_mode: ArchiveMode,
+    /// The canonical history-vault's real on-disk mode (`None` = absent / unreadable).
+    pub history_vault_mode: Option<ArchiveMode>,
+    /// The source-evidence DB's real on-disk mode (`None` = absent / unreadable).
+    pub source_evidence_mode: Option<ArchiveMode>,
+    /// Verified rekey safety-snapshot paths a Phase-D one-click restore can offer.
+    pub available_snapshots: Vec<String>,
+    /// The underlying error chain (`format!("{err:#}")`), for the recovery screen + logs.
+    pub detail: String,
+}
+
+/// Outcome of the launch-time at-rest reconcile.
+///
+/// Internally tagged (`outcome`) so the FE can switch on a single discriminant. `Healed` and
+/// `Unrecoverable` carry the data Phase D needs; `Healthy` is the overwhelmingly common path.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "outcome")]
+pub enum LaunchRecovery {
+    /// Config already matches the canonical file's real at-rest mode, OR the archive is
+    /// uninitialized (nothing on disk yet). The cheap no-op path.
+    Healthy,
+    /// `config.json` was corrected to the canonical files' real on-disk at-rest mode (the
+    /// 2026-06-30 incident: a stale `Plaintext` config over encrypted files).
+    Healed {
+        /// The stale mode the config declared before the heal.
+        from_mode: ArchiveMode,
+        /// The real on-disk mode the config was corrected to.
+        to_mode: ArchiveMode,
+    },
+    /// The state cannot be safely reconciled at launch — feeds the Phase-D recovery screen.
+    Unrecoverable(ArchiveRecoveryReport),
+}
+
+/// Maps a key-free on-disk detection to the public [`ArchiveMode`], collapsing
+/// `Absent`/unreadable to `None` so `DiskEncryptionMode` never crosses the public surface.
+fn disk_mode_to_archive_mode(mode: DiskEncryptionMode) -> Option<ArchiveMode> {
+    match mode {
+        DiskEncryptionMode::Plaintext => Some(ArchiveMode::Plaintext),
+        DiskEncryptionMode::Encrypted => Some(ArchiveMode::Encrypted),
+        DiskEncryptionMode::Absent => None,
+    }
+}
+
+/// Lists the verified rekey safety-snapshot files (`raw-snapshots/rekey/*.sqlite`) a Phase-D
+/// restore could offer. Best-effort + cheap: a directory listing, never a DB open. Sorted for
+/// a stable, newest-last presentation.
+fn available_verified_snapshots(paths: &ProjectPaths) -> Vec<String> {
+    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+    let Ok(entries) = fs::read_dir(&rekey_dir) else {
+        return Vec::new();
+    };
+    let mut snapshots: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sqlite"))
+        .map(|path| path.display().to_string())
+        .collect();
+    snapshots.sort();
+    snapshots
+}
+
+/// Builds the recovery-screen report for an unrecoverable launch state, reading both canonical
+/// DBs' real on-disk modes (header-only) and the available safety snapshots.
+fn build_recovery_report(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    kind: ArchiveRecoveryKind,
+    error: &anyhow::Error,
+) -> ArchiveRecoveryReport {
+    ArchiveRecoveryReport {
+        kind,
+        config_mode: config.archive_mode.clone(),
+        history_vault_mode: disk_mode_to_archive_mode(detect_disk_encryption_mode(
+            &paths.archive_database_path,
+        )),
+        source_evidence_mode: disk_mode_to_archive_mode(detect_disk_encryption_mode(
+            &paths.source_evidence_database_path,
+        )),
+        available_snapshots: available_verified_snapshots(paths),
+        detail: format!("{error:#}"),
+    }
+}
+
+/// Launch-time auto-heal for the canonical archive's config↔file at-rest drift.
+///
+/// THE 2026-06-30 incident this closes: both canonical DBs SQLCipher-encrypted ON DISK while
+/// `config.json` says `archive_mode = "Plaintext"` and there is NO journal — a rekey
+/// (Plaintext→Encrypted) interrupted AFTER the file swap but BEFORE config was durably updated.
+/// The next open applied no key to an encrypted file → `SQLITE_NOTADB` → a dead-end error page.
+/// This converges the STALE config to the canonical history-vault's real at-rest mode so the open
+/// instead reaches the graceful locked unlock-prompt (encrypted) or plaintext open — the CANONICAL
+/// archive is un-bricked in BOTH rekey directions (config always ends up matching the history-vault
+/// header, so no NOTADB).
+///
+/// SCOPE — source-evidence: only the canonical archive (history-vault) is reconciled at this
+/// keyless launch. Source-evidence at-rest drift left by an interrupted rekey self-heals on the
+/// next KEYED open ONLY in the ENCRYPT direction (config now Encrypted → the on-unlock
+/// [`reconcile_archive_encryption`] re-encrypts a plaintext source-evidence under the unlock key).
+/// The DECRYPT direction (config now Plaintext, source-evidence still Encrypted) needs the OLD key,
+/// unavailable at a keyless plaintext launch, so it surfaces as recurring backup failures and is
+/// tracked as the key/decrypt-direction follow-up — it does NOT silently self-heal.
+///
+/// LOCK-FREE FAST PATH — launch must NEVER freeze: the overwhelmingly common HEALTHY launch
+/// acquires NO lock. A cheap unlocked pre-check ([`launch_is_provably_healthy`]) — two marker
+/// `stat`s + the canonical history-vault's 16-byte header + the small `config.json`, with NO
+/// gate, NO flock, NO DB open/scan — returns [`LaunchRecovery::Healthy`] immediately when no crash
+/// marker is present AND config already matches the file's real at-rest mode. So even while an
+/// out-of-process scheduled backup holds the cross-process write lock for the minutes-long
+/// duration of a 14.4M-row backup, a healthy GUI launch is never blocked behind it.
+///
+/// LOCKED RECOVERY — only when the pre-check finds a marker OR config↔file drift does it take the
+/// in-process [`ArchiveOpGate`] FIRST, then the cross-process [`ArchiveWriteLock`] (BLOCKING), and
+/// run [`recover_archive_on_launch_locked`]. Blocking here is correct and rare: an archive that
+/// genuinely needs recovery MUST serialize against concurrent writers, and we deliberately do NOT
+/// try-and-defer — the config↔file step-3 reconcile has no other actor, so deferring could leave
+/// launch to open a known half-state (the NOTADB brick) that nothing else would heal. The locked
+/// body RE-READS every signal under the lock and is the SOLE source of truth, so the unlocked
+/// pre-check is purely a fast-path gate (TOCTOU-safe).
+///
+/// FAIL-CLOSED decrypt direction: an interrupted Encrypted→Plaintext rekey whose history-vault
+/// swap landed but left source-evidence still Encrypted is NOT silently completed (that would
+/// commit a Plaintext config decryptable only with the now-unprompted old key); it surfaces as
+/// [`LaunchRecovery::Unrecoverable`] with the marker LEFT (see [`super::recover_interrupted_rekey`]).
+/// The encrypt direction (Plaintext→Encrypted) self-heals as before.
+///
+/// `_database_key` is currently UNUSED: every detection here is header-only / key-free, so the
+/// heal needs no key. It is threaded so a future keyed convergence (migrating source-evidence
+/// at launch when the key is already in hand) can use it without a signature change.
+/// The cheap, UNLOCKED launch pre-check: `true` when the archive is provably healthy so the full
+/// locked recovery can be skipped having taken NO lock — the 99.9% launch.
+///
+/// Reads ONLY a few `stat`s + the canonical history-vault's 16-byte header + the small
+/// `config.json`: NO gate, NO flock, NO DB open/scan. Returns `false` (pay for the lock and run
+/// the authoritative locked recovery) the moment ANY crash marker is present OR the canonical
+/// history-vault's real on-disk at-rest mode disagrees with the recorded config. It is the source
+/// of truth for NOTHING — the locked body re-reads every signal and decides — so a `false` here
+/// only ever means "let the locked body confirm", never a heal by itself. It reads the ON-DISK
+/// config (the worker saved it immediately before calling, so it equals the passed `config`;
+/// falling back to the passed config keeps the check correct if `config.json` is briefly
+/// unreadable).
+fn launch_is_provably_healthy(paths: &ProjectPaths, config: &AppConfig) -> bool {
+    if crate::migration::interrupted_import_marker_present(paths)
+        || super::interrupted_rekey_marker_present(paths)
+    {
+        return false;
+    }
+    let recorded = load_config(paths)
+        .map(|on_disk| on_disk.archive_mode)
+        .unwrap_or_else(|_| config.archive_mode.clone());
+    match detect_disk_encryption_mode(&paths.archive_database_path) {
+        // Absent: uninitialized / fresh — nothing on disk to drift from.
+        DiskEncryptionMode::Absent => true,
+        DiskEncryptionMode::Plaintext => recorded == ArchiveMode::Plaintext,
+        DiskEncryptionMode::Encrypted => recorded == ArchiveMode::Encrypted,
+    }
+}
+
+pub fn recover_archive_on_launch(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    _database_key: Option<&str>,
+) -> Result<LaunchRecovery> {
+    // FAST PATH (no lock): a provably-healthy launch must never block, even while an
+    // out-of-process scheduled backup holds the cross-process write lock for minutes.
+    if launch_is_provably_healthy(paths, config) {
+        return Ok(LaunchRecovery::Healthy);
+    }
+    // A marker is present OR config↔file at-rest drift was detected: this archive genuinely needs
+    // recovery, which MUST serialize against concurrent writers. Take the in-process gate FIRST,
+    // then the cross-process flock (BLOCKING — correct and rare). The locked body RE-READS every
+    // signal under the lock and is the SOLE source of truth (TOCTOU-safe).
+    let _op_gate = ArchiveOpGate::acquire(paths);
+    let _write_lock = ArchiveWriteLock::acquire(paths)
+        .context("acquiring the archive write lock for launch-time at-rest recovery")?;
+    recover_archive_on_launch_locked(paths, config, _database_key)
+}
+
+/// Runs the launch-time recovery assuming the caller already holds the top-level
+/// [`ArchiveOpGate`] + [`ArchiveWriteLock`].
+///
+/// The nested helpers it calls (`recover_interrupted_import`, `recover_interrupted_rekey`) take
+/// ONLY the reentrant [`ArchiveWriteLock`] transitively, NEVER the non-reentrant
+/// [`ArchiveOpGate`], so they cannot self-deadlock against the gate held above. It is reached
+/// ONLY after the unlocked pre-check found a marker or config↔file drift (or as the TOCTOU
+/// re-check under the lock). On a healthy
+/// archive this is a cheap no-op: two marker `stat`s, one 16-byte history-vault header read, and
+/// one small `config.json` read, with NO `open_archive_connection`, NO migration, NO scan, and
+/// NO config write. (The second header read — source-evidence — happens only inside
+/// `build_recovery_report` on the Unrecoverable branch.)
+fn recover_archive_on_launch_locked(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    _database_key: Option<&str>,
+) -> Result<LaunchRecovery> {
+    // (1) Recover a whole-app import whose commit phase was cut by a crash. `recover_interrupted_import`
+    // leaves its marker on Err, so we surface — never clear — an unrecoverable import.
+    if let Err(error) = crate::migration::recover_interrupted_import(paths) {
+        return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
+            paths,
+            config,
+            ArchiveRecoveryKind::InterruptedImportModeDrift,
+            &error,
+        )));
+    }
+
+    // (2) Recover an interrupted rekey (the marker the rekey swap writes). Fail-closed when the
+    // canonical archive is gone — `recover_interrupted_rekey` leaves the marker on Err.
+    if let Err(error) = super::recover_interrupted_rekey(paths) {
+        return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
+            paths,
+            config,
+            ArchiveRecoveryKind::InterruptedRekeyUnresolved,
+            &error,
+        )));
+    }
+
+    // (3) Config↔file at-rest drift, HEADER READS ONLY (never open/scan the DB — the 14.4M-row
+    // constraint). The canonical history-vault is the authority for whether the next open needs a
+    // key, so reconciling config to its real on-disk mode un-bricks the canonical archive in BOTH
+    // rekey directions (config always ends up matching the history-vault header — no NOTADB).
+    // Source-evidence at-rest drift is NOT reconciled here (it needs a key not held at a keyless
+    // launch): it self-heals on the next KEYED open ONLY in the ENCRYPT direction (config now
+    // Encrypted -> the unlock key re-encrypts a plaintext source-evidence via the on-unlock
+    // `reconcile_archive_encryption`). The DECRYPT direction (config now Plaintext, source-evidence
+    // still Encrypted) needs the OLD key, which is not available at a keyless plaintext launch, so
+    // it surfaces as recurring backup failures and is tracked as the key/decrypt-direction
+    // follow-up — it does NOT silently self-heal.
+    let history = detect_disk_encryption_mode(&paths.archive_database_path);
+    let target = match history {
+        DiskEncryptionMode::Absent => {
+            // Absent: uninitialized / fresh — `ensure_archive_initialized` will create it.
+            return Ok(LaunchRecovery::Healthy);
+        }
+        DiskEncryptionMode::Plaintext => ArchiveMode::Plaintext,
+        DiskEncryptionMode::Encrypted => ArchiveMode::Encrypted,
+    };
+    // Step 2 (interrupted import/rekey recovery) may already have rewritten config.json
+    // (e.g. complete_rekey_config preserves the pre-rekey settings + initialized=true).
+    // Reconcile against the POST-RECOVERY on-disk config so we never clobber that
+    // reconstruction with the stale in-memory `config`, and only write when the canonical
+    // archive's real on-disk header STILL disagrees with config.json.
+    let on_disk = load_config(paths).unwrap_or_else(|_| config.clone());
+    if on_disk.archive_mode != target {
+        let mut healed = on_disk.clone();
+        healed.archive_mode = target.clone();
+        save_config(paths, &healed)?;
+    }
+    // Signal the caller to reload whenever the FINAL canonical mode differs from what it
+    // passed in (whether step 2 or this step changed it), so it never reopens with a
+    // stale-mode config (the NOTADB brick).
+    if config.archive_mode == target {
+        Ok(LaunchRecovery::Healthy)
+    } else {
+        Ok(LaunchRecovery::Healed { from_mode: config.archive_mode.clone(), to_mode: target })
     }
 }
 
@@ -343,11 +643,33 @@ fn finalize_repair_run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archive::{open_archive_connection, open_source_evidence_connection};
-    use crate::config::project_paths_with_root;
+    use crate::archive::{open_archive_connection, open_source_evidence_connection, rekey_archive};
+    use crate::config::{load_config, project_paths_with_root};
     use tempfile::tempdir;
 
     const KEY: &str = "at-rest-reconcile-test-key";
+
+    /// True when the durable interrupted-rekey marker is present beside the archive DB. The
+    /// marker path is private to `maintenance.rs`, so launch-recovery tests assert on the
+    /// stable on-disk filename directly.
+    fn rekey_journal_present(paths: &ProjectPaths) -> bool {
+        paths
+            .archive_database_path
+            .parent()
+            .expect("archive parent")
+            .join(".pk-rekey-journal.json")
+            .exists()
+    }
+
+    /// True when the durable interrupted-import marker is present beside the archive DB.
+    fn import_journal_present(paths: &ProjectPaths) -> bool {
+        paths
+            .archive_database_path
+            .parent()
+            .expect("archive parent")
+            .join(".pk-import-journal.json")
+            .exists()
+    }
 
     fn encrypted_config() -> AppConfig {
         AppConfig {
@@ -703,5 +1025,614 @@ mod tests {
         // Nothing to do when the file is already clean.
         recover_interrupted_rewrite(&path);
         assert!(path.exists());
+    }
+
+    // --- Phase C: recover_archive_on_launch ----------------------------------------------------
+
+    #[test]
+    fn launch_recovery_heals_a_stale_plaintext_config_over_both_encrypted_dbs() {
+        // THE 2026-06-30 incident: both canonical DBs encrypted on disk while config says
+        // Plaintext and there is NO journal -> the open hit NOTADB and dead-ended.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted history-vault"),
+        );
+        drop(
+            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted source-evidence"),
+        );
+        save_config(&paths, &plaintext_config()).expect("write stale plaintext config");
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        assert!(
+            matches!(
+                outcome,
+                LaunchRecovery::Healed {
+                    from_mode: ArchiveMode::Plaintext,
+                    to_mode: ArchiveMode::Encrypted,
+                }
+            ),
+            "got {outcome:?}",
+        );
+
+        assert!(matches!(load_config(&paths).expect("load").archive_mode, ArchiveMode::Encrypted));
+        assert!(!rekey_journal_present(&paths), "the heal must not fabricate a rekey marker");
+        assert!(!import_journal_present(&paths), "the heal must not fabricate an import marker");
+
+        // The heal un-bricks the open: encrypted+no-key is now the graceful "key required"
+        // unlock prompt (NOT a NOTADB brick), and the key opens it cleanly.
+        let healed = load_config(&paths).expect("load healed config");
+        let locked_error = open_archive_connection(&paths, &healed, None)
+            .expect_err("an encrypted archive opened with no key must error");
+        let rendered = format!("{locked_error:#}");
+        assert!(rendered.contains("database key is required"), "got: {rendered}");
+        drop(
+            open_archive_connection(&paths, &healed, Some(KEY))
+                .expect("the healed encrypted archive opens with the key"),
+        );
+    }
+
+    #[test]
+    fn launch_recovery_completes_an_interrupted_rekey_swap() {
+        // A rekey crashed AFTER the swap but BEFORE config -> launch recovery completes it.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        // Plaintext history-vault only (no source-evidence -> SE stays Absent = consistent).
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("seed plaintext config");
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Absent
+        );
+
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(
+                "rekey.after_swap_before_config",
+            );
+            let error =
+                rekey_archive(&paths, &plaintext_config(), None, ArchiveMode::Encrypted, Some(KEY))
+                    .expect_err("the injected crash must abort the rekey");
+            let rendered = format!("{error:#}");
+            assert!(
+                rendered.contains("simulated error at checkpoint")
+                    && rendered.contains("rekey.after_swap_before_config"),
+                "the INJECTED fault must propagate, got: {rendered}",
+            );
+        }
+
+        // Post-crash on disk: history Encrypted, marker present, config still Plaintext.
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+        assert!(rekey_journal_present(&paths), "the crashed rekey must leave its marker");
+        assert!(matches!(load_config(&paths).expect("load").archive_mode, ArchiveMode::Plaintext));
+
+        let outcome = recover_archive_on_launch(&paths, &load_config(&paths).expect("load"), None)
+            .expect("launch recovery");
+        assert!(matches!(outcome, LaunchRecovery::Healed { .. }), "got {outcome:?}");
+        assert!(!rekey_journal_present(&paths), "recovery must clear the rekey marker");
+        assert!(matches!(load_config(&paths).expect("load").archive_mode, ArchiveMode::Encrypted));
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Absent
+        );
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("the recovered encrypted archive opens with the key"),
+        );
+    }
+
+    #[test]
+    fn launch_recovery_consumes_an_interrupted_import_marker() {
+        // A real durable interrupted-import journal (fresh install, no prior) is consumed by the
+        // launch path's recover-first, which removes the half-installed DB and clears the marker.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("half-installed history-vault"),
+        );
+        let marker =
+            paths.archive_database_path.parent().expect("parent").join(".pk-import-journal.json");
+        let journal = serde_json::json!({
+            "version": 1,
+            "timestamp": "2026-06-30T03-00-00Z",
+            "canonical": [{
+                "target": paths.archive_database_path.to_string_lossy(),
+                "had_previous": false,
+            }],
+            "subtrees": [],
+            "previous_config": serde_json::Value::Null,
+        });
+        fs::write(&marker, serde_json::to_vec(&journal).expect("serialize journal"))
+            .expect("seed import marker");
+        assert!(import_journal_present(&paths));
+
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        // The fresh-install rollback removed the half-installed history-vault, so the archive is
+        // now Absent (uninitialized) and the reconcile reports Healthy.
+        assert!(matches!(outcome, LaunchRecovery::Healthy), "got {outcome:?}");
+        assert!(!import_journal_present(&paths), "the import marker must be consumed by recovery");
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Absent
+        );
+    }
+
+    #[test]
+    fn launch_recovery_reports_unrecoverable_import_mode_drift_with_no_snapshots() {
+        // An interrupted whole-app import that left the two canonical DBs at DIFFERENT at-rest
+        // modes (history-vault Plaintext, source-evidence Encrypted) cannot reach one consistent
+        // mode, so `recover_interrupted_import` -> `ensure_recovered_modes_are_consistent` bails
+        // and the launch reconcile surfaces `InterruptedImportModeDrift` (the import-side
+        // Unrecoverable arm) with the marker LEFT and config UNTOUCHED. With NO `raw-snapshots/
+        // rekey/` dir, `available_verified_snapshots` also hits its read-dir-Err `Vec::new()` branch.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        // history-vault Plaintext, source-evidence Encrypted: the drifted-apart canonical pair the
+        // consistency guard refuses to commit a single config over.
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        drop(
+            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted source-evidence"),
+        );
+        save_config(&paths, &plaintext_config()).expect("write plaintext config");
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Plaintext
+        );
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+
+        // Hand-seed an interrupted-import marker (its `ImportJournal` schema is private to
+        // migration.rs, so mirror the existing `launch_recovery_consumes_an_interrupted_import_marker`
+        // bytes): BOTH canonical paths `had_previous: true` so `rollback_import` leaves them
+        // untouched, and `previous_config` = the Plaintext config so the recovery's required mode is
+        // Plaintext -> the still-Encrypted source-evidence trips `ensure_recovered_modes_are_consistent`.
+        let marker =
+            paths.archive_database_path.parent().expect("parent").join(".pk-import-journal.json");
+        let previous_config =
+            serde_json::to_string(&plaintext_config()).expect("serialize previous config");
+        let journal = serde_json::json!({
+            "version": 1,
+            "timestamp": "2026-06-30T03-00-00Z",
+            "canonical": [
+                { "target": paths.archive_database_path.to_string_lossy(), "had_previous": true },
+                {
+                    "target": paths.source_evidence_database_path.to_string_lossy(),
+                    "had_previous": true,
+                },
+            ],
+            "subtrees": [],
+            "previous_config": previous_config,
+        });
+        fs::write(&marker, serde_json::to_vec(&journal).expect("serialize journal"))
+            .expect("seed import marker");
+        assert!(import_journal_present(&paths));
+        // No `raw-snapshots/rekey/` dir -> `available_verified_snapshots` reads-dir-Err branch.
+        assert!(!paths.raw_snapshots_dir.join("rekey").exists());
+
+        let config_before = fs::read(&paths.config_path).expect("read config before");
+
+        let outcome = recover_archive_on_launch(&paths, &plaintext_config(), None)
+            .expect("recovery returns Ok(Unrecoverable), never Err");
+        let report = match outcome {
+            LaunchRecovery::Unrecoverable(report) => report,
+            other => panic!("expected Unrecoverable, got {other:?}"),
+        };
+        assert!(
+            matches!(report.kind, ArchiveRecoveryKind::InterruptedImportModeDrift),
+            "got {:?}",
+            report.kind,
+        );
+        assert!(!report.detail.is_empty(), "the report must carry the underlying error chain");
+        assert!(
+            report.available_snapshots.is_empty(),
+            "with no rekey snapshots dir the restore list is empty",
+        );
+
+        assert!(import_journal_present(&paths), "the import marker must be LEFT for retry");
+        let config_after = fs::read(&paths.config_path).expect("read config after");
+        assert_eq!(config_before, config_after, "config.json must NOT be rewritten on the bail");
+    }
+
+    #[test]
+    fn launch_recovery_falls_back_to_the_passed_config_when_config_json_is_corrupt() {
+        // Step 3's on-disk reconcile cannot read a CORRUPT config.json (load_config errors, unlike
+        // a merely-absent one which defaults), so it falls back to the in-memory config the caller
+        // passed (`unwrap_or_else(|_| config.clone())`) and still heals the mode to the encrypted
+        // archive on disk.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted history-vault"),
+        );
+        // Seed the config dir, then overwrite with bytes that fail to parse so load_config errors.
+        save_config(&paths, &plaintext_config()).expect("seed config dir");
+        fs::write(&paths.config_path, b"{ not valid json").expect("corrupt config");
+
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        assert!(
+            matches!(
+                outcome,
+                LaunchRecovery::Healed {
+                    from_mode: ArchiveMode::Plaintext,
+                    to_mode: ArchiveMode::Encrypted,
+                }
+            ),
+            "got {outcome:?}",
+        );
+        // The corrupt config was overwritten with a healed Encrypted config.
+        assert!(matches!(
+            load_config(&paths).expect("load healed config").archive_mode,
+            ArchiveMode::Encrypted,
+        ));
+    }
+
+    #[test]
+    fn launch_recovery_reports_an_unrecoverable_interrupted_rekey_when_history_vault_is_gone() {
+        // Fail-closed: a real rekey crash leaves a marker + safety snapshot, then the canonical
+        // history-vault is removed so `resolve_interrupted_rekey` bails -> Unrecoverable, marker
+        // LEFT, config NOT rewritten.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("seed plaintext config");
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(
+                "rekey.after_swap_before_config",
+            );
+            rekey_archive(&paths, &plaintext_config(), None, ArchiveMode::Encrypted, Some(KEY))
+                .expect_err("the injected crash must abort the rekey");
+        }
+        assert!(rekey_journal_present(&paths));
+        // Remove the canonical archive so detect == Absent -> the recovery fails closed.
+        fs::remove_file(&paths.archive_database_path).expect("remove history-vault");
+        remove_stale_sidecars(&paths.archive_database_path);
+
+        let config_before = fs::read(&paths.config_path).expect("read config before");
+
+        let outcome = recover_archive_on_launch(&paths, &load_config(&paths).expect("load"), None)
+            .expect("recovery returns Ok(Unrecoverable), never Err");
+        let report = match outcome {
+            LaunchRecovery::Unrecoverable(report) => report,
+            other => panic!("expected Unrecoverable, got {other:?}"),
+        };
+        assert!(matches!(report.kind, ArchiveRecoveryKind::InterruptedRekeyUnresolved));
+        assert!(!report.detail.is_empty(), "the report must carry the underlying error chain");
+        assert!(
+            !report.available_snapshots.is_empty(),
+            "the rekey safety snapshot must be offered for restore",
+        );
+        assert!(report.history_vault_mode.is_none(), "the removed history-vault reads as None");
+
+        assert!(rekey_journal_present(&paths), "the marker must be LEFT on a fail-closed bail");
+        let config_after = fs::read(&paths.config_path).expect("read config after");
+        assert_eq!(config_before, config_after, "config.json must NOT be rewritten on fail-closed");
+    }
+
+    #[test]
+    fn launch_recovery_is_a_noop_on_a_consistent_archive() {
+        // A consistent Plaintext archive: Healthy, config byte-for-byte unchanged, no markers.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("write plaintext config");
+        let config_before = fs::read(&paths.config_path).expect("config before");
+
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        assert!(matches!(outcome, LaunchRecovery::Healthy), "got {outcome:?}");
+        assert_eq!(
+            fs::read(&paths.config_path).expect("config after"),
+            config_before,
+            "config.json must be untouched on the Healthy path",
+        );
+        assert!(!rekey_journal_present(&paths));
+        assert!(!import_journal_present(&paths));
+        assert!(
+            !paths.raw_snapshots_dir.join("rekey").exists(),
+            "the Healthy no-op must not touch the rekey snapshots dir",
+        );
+
+        // The `history == Absent` (uninitialized) branch is also Healthy.
+        let empty = tempdir().expect("tempdir");
+        let empty_paths = project_paths_with_root(empty.path());
+        let uninitialized = recover_archive_on_launch(&empty_paths, &plaintext_config(), None)
+            .expect("uninitialized recovery");
+        assert!(matches!(uninitialized, LaunchRecovery::Healthy), "got {uninitialized:?}");
+    }
+
+    #[test]
+    fn recover_interrupted_rekey_runs_under_a_held_gate_without_deadlock() {
+        // Self-deadlock guard: the NESTED `recover_interrupted_rekey` must take ONLY the reentrant
+        // write lock, NEVER the non-reentrant top-level gate. We hold the gate + lock on THIS
+        // thread (as the gated `recover_archive_on_launch` does) and run the nested helper on a
+        // worker; it must complete. A watchdog turns a self-deadlock regression into a fast fail.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("seed plaintext config");
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(
+                "rekey.after_swap_before_config",
+            );
+            rekey_archive(&paths, &plaintext_config(), None, ArchiveMode::Encrypted, Some(KEY))
+                .expect_err("the injected crash must abort the rekey");
+        }
+        assert!(rekey_journal_present(&paths));
+
+        // Hold the top-level guards on the main thread (gate FIRST, then the flock).
+        let _gate = ArchiveOpGate::acquire(&paths);
+        let _lock = ArchiveWriteLock::acquire(&paths).expect("top-level write lock");
+
+        let worker_paths = paths.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let recovered = crate::archive::recover_interrupted_rekey(&worker_paths)
+                .map_err(|error| format!("{error:#}"));
+            done_tx.send(recovered).expect("worker signals completion");
+        });
+
+        let recovered = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the nested recover_interrupted_rekey must not re-take the non-reentrant gate")
+            .expect("recovery under a held gate+lock must still succeed");
+        assert!(recovered, "the interrupted rekey must be recovered");
+        worker.join().expect("worker thread");
+        assert!(!rekey_journal_present(&paths), "the marker must be cleared after recovery");
+    }
+
+    // --- Phase C FIX 1: launch must not freeze on the healthy path -----------------------------
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_recovery_does_not_block_on_a_foreign_lock_when_healthy() {
+        // FIX 1 (launch must never freeze): a HEALTHY launch takes NO lock, so it returns promptly
+        // EVEN while another OS process holds the cross-process write lock (a minutes-long
+        // scheduled backup). A consistent ENCRYPTED archive also exercises the fast path's
+        // Encrypted-matches branch. A watchdog turns a regression that re-introduced the blocking
+        // acquire into a fast failure instead of a hung suite.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted history-vault"),
+        );
+        save_config(&paths, &encrypted_config()).expect("consistent encrypted config");
+
+        // A SEPARATE OS process holds the write lock for the whole test.
+        let _foreign =
+            crate::archive::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+        let worker_paths = paths.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let outcome = recover_archive_on_launch(&worker_paths, &encrypted_config(), None)
+                .map(|outcome| matches!(outcome, LaunchRecovery::Healthy))
+                .map_err(|error| format!("{error:#}"));
+            done_tx.send(outcome).expect("worker signals completion");
+        });
+
+        let healthy = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a HEALTHY launch must NOT block on a foreign write lock (FIX 1 regression)")
+            .expect("launch recovery must not error");
+        assert!(healthy, "a consistent archive must be Healthy without taking the lock");
+        worker.join().expect("worker thread");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_recovery_takes_the_lock_when_drift_is_present() {
+        // FIX 1 (other half): when config↔file at-rest drift IS present the launch MUST serialize
+        // against concurrent writers — so with a foreign process holding the write lock it BLOCKS
+        // until released, then heals. Proves the non-healthy path actually acquires the lock (vs.
+        // the healthy fast path, which takes none). While `foreign` lives the worker can NEVER win
+        // the lock, so the short non-blocking probe deterministically times out (still parked);
+        // releasing the lock lets it heal.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        // Encrypted on disk, stale Plaintext config = a real config↔file drift.
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("stale plaintext config");
+
+        let foreign =
+            crate::archive::write_lock::hold_write_lock_as_foreign_process_for_test(&paths);
+
+        let worker_paths = paths.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let outcome = recover_archive_on_launch(&worker_paths, &plaintext_config(), None)
+                .map(|outcome| matches!(outcome, LaunchRecovery::Healed { .. }))
+                .map_err(|error| format!("{error:#}"));
+            done_tx.send(outcome).expect("worker signals completion");
+        });
+
+        // The foreign lock is held, so the drift recovery is parked acquiring it: it CANNOT have
+        // completed yet (deterministic — the worker can never win the lock while `foreign` lives).
+        assert!(
+            matches!(
+                done_rx.recv_timeout(Duration::from_millis(300)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "drift recovery must BLOCK on the foreign write lock, proving it takes the lock",
+        );
+
+        // Release the foreign lock; the recovery now acquires it and heals.
+        drop(foreign);
+        let healed = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("recovery must complete once the foreign lock releases")
+            .expect("launch recovery must not error");
+        assert!(healed, "the drift must heal to Healed once the lock is acquired");
+        worker.join().expect("worker thread");
+        assert!(matches!(load_config(&paths).expect("load").archive_mode, ArchiveMode::Encrypted));
+    }
+
+    #[test]
+    fn launch_recovery_is_healthy_after_recovering_a_consistent_interrupted_import() {
+        // After FIX 1 the cheap fast path short-circuits a provably-healthy launch, so the locked
+        // body's bottom `Healthy` branch is reached only when a marker is present yet recovery
+        // lands a state already consistent with the passed config. An interrupted import with
+        // `had_previous: true` (rollback leaves the existing DB untouched) + a Plaintext
+        // `previous_config` over a consistent Plaintext archive does exactly that: the marker takes
+        // the lock, recovery restores the Plaintext config, step 3 finds no drift, and the passed
+        // Plaintext config already matches the file -> Healthy, marker consumed.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None)
+                .expect("plaintext history-vault"),
+        );
+        save_config(&paths, &plaintext_config()).expect("plaintext config");
+
+        let marker =
+            paths.archive_database_path.parent().expect("parent").join(".pk-import-journal.json");
+        let previous_config =
+            serde_json::to_string(&plaintext_config()).expect("serialize previous config");
+        let journal = serde_json::json!({
+            "version": 1,
+            "timestamp": "2026-06-30T03-00-00Z",
+            "canonical": [
+                { "target": paths.archive_database_path.to_string_lossy(), "had_previous": true },
+            ],
+            "subtrees": [],
+            "previous_config": previous_config,
+        });
+        fs::write(&marker, serde_json::to_vec(&journal).expect("serialize journal"))
+            .expect("seed import marker");
+        assert!(import_journal_present(&paths));
+
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        assert!(matches!(outcome, LaunchRecovery::Healthy), "got {outcome:?}");
+        assert!(
+            !import_journal_present(&paths),
+            "the consumed marker recovers to a consistent archive",
+        );
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Plaintext
+        );
+        assert!(matches!(load_config(&paths).expect("load").archive_mode, ArchiveMode::Plaintext));
+    }
+
+    // --- Phase C FIX 2: fail-closed Encrypted->Plaintext at launch -----------------------------
+
+    #[test]
+    fn launch_recovery_is_unrecoverable_for_an_interrupted_decrypt_leaving_encrypted_source_evidence()
+     {
+        // FIX 2 (fail-closed decrypt direction) at the launch entry: an Encrypted->Plaintext rekey
+        // crashed AFTER the history-vault swap (now Plaintext) but BEFORE source-evidence was
+        // decrypted (still Encrypted) and BEFORE config committed. Silently completing it would
+        // write a Plaintext config + CLEAR the marker while source-evidence stays Encrypted
+        // (decryptable only with the now-unprompted old key) -> a drift that surfaces only as
+        // repeated backup failures. Launch recovery must FAIL CLOSED: Unrecoverable, marker LEFT,
+        // config unchanged.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted history-vault"),
+        );
+        drop(
+            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("encrypted source-evidence"),
+        );
+        save_config(&paths, &encrypted_config()).expect("encrypted config");
+
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(
+                "rekey.after_swap_before_config",
+            );
+            rekey_archive(&paths, &encrypted_config(), Some(KEY), ArchiveMode::Plaintext, None)
+                .expect_err("the injected crash must abort the decrypt rekey");
+        }
+        // Post-crash on disk: history Plaintext (swapped), source-evidence STILL Encrypted, config
+        // Encrypted (not committed), marker present.
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Plaintext
+        );
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+        assert!(rekey_journal_present(&paths), "the crashed rekey must leave its marker");
+        let config_before = fs::read(&paths.config_path).expect("read config before");
+
+        let outcome = recover_archive_on_launch(&paths, &load_config(&paths).expect("load"), None)
+            .expect("recovery returns Ok(Unrecoverable), never Err");
+        let report = match outcome {
+            LaunchRecovery::Unrecoverable(report) => report,
+            other => panic!("expected Unrecoverable, got {other:?}"),
+        };
+        assert!(
+            matches!(report.kind, ArchiveRecoveryKind::InterruptedRekeyUnresolved),
+            "got {:?}",
+            report.kind,
+        );
+        assert!(
+            report.detail.contains("decrypt direction"),
+            "the report must explain the decrypt-direction bail: {}",
+            report.detail,
+        );
+
+        assert!(
+            rekey_journal_present(&paths),
+            "the marker must be LEFT so the state stays flagged"
+        );
+        assert_eq!(
+            fs::read(&paths.config_path).expect("read config after"),
+            config_before,
+            "config must NOT be cleared/healed on the fail-closed bail",
+        );
     }
 }

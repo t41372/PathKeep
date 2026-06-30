@@ -510,9 +510,11 @@ pub fn preview_import(paths: &ProjectPaths, bundle_path: &Path) -> Result<Import
 /// be backed up and recorded as success), the rekey pre-open path
 /// ([`crate::archive::rekey_archive`], which closes the hole where a rekey on a PLAINTEXT
 /// archive — never reached by the encryption-gated launch reconcile — would rekey a
-/// half-applied import into a permanent config↔source-evidence mode-drift brick), AND the
+/// half-applied import into a permanent config↔source-evidence mode-drift brick), the
 /// retention-prune ([`crate::archive::run_retention_prune`]) and snapshot-restore
-/// ([`crate::archive::run_snapshot_restore`]) pre-open paths. The fail-closed
+/// ([`crate::archive::run_snapshot_restore`]) pre-open paths, AND — as of Phase C — the
+/// launch-time at-rest reconcile ([`crate::archive::recover_archive_on_launch`]), the very
+/// first destructive pre-open site on every app start. The fail-closed
 /// [`ensure_recovered_modes_are_consistent`] guard remains as defence-in-depth so any
 /// recovery still refuses to commit a mode-drifted config.
 ///
@@ -963,6 +965,14 @@ fn import_journal_path(paths: &ProjectPaths) -> PathBuf {
         .join(IMPORT_JOURNAL_FILE)
 }
 
+/// `true` when the durable interrupted-import marker is present beside the canonical archive —
+/// a single `stat`, no lock. The launch-time fast path
+/// ([`crate::archive::recover_archive_on_launch`]) uses it to decide whether to take the gate +
+/// flock at all, so the overwhelmingly common no-marker launch never touches a lock.
+pub(crate) fn interrupted_import_marker_present(paths: &ProjectPaths) -> bool {
+    import_journal_path(paths).exists()
+}
+
 /// Durably writes `journal` to the marker path (atomic temp + F_FULLFSYNC + rename
 /// + dir fsync), so its presence is itself durable before the first swap runs.
 fn write_import_journal(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> {
@@ -1166,8 +1176,9 @@ fn ensure_recovered_modes_are_consistent(
 /// A NESTED recover-first helper, wired at every destructive pre-open site — the
 /// unlock-path reconcile ([`crate::archive::reconcile_archive_encryption`]), backup
 /// ([`crate::archive::run_backup_with_progress`]), rekey ([`crate::archive::rekey_archive`]),
-/// retention-prune ([`crate::archive::run_retention_prune`]), and snapshot-restore
-/// ([`crate::archive::run_snapshot_restore`]) — each of which already holds the top-level
+/// retention-prune ([`crate::archive::run_retention_prune`]), snapshot-restore
+/// ([`crate::archive::run_snapshot_restore`]), and (Phase C) the launch-time at-rest reconcile
+/// ([`crate::archive::recover_archive_on_launch`]) — each of which already holds the top-level
 /// gate + lock when it calls in. It runs BEFORE the archive is opened: when an
 /// interrupted-import marker is present a crash cut a commit phase, so it restores the
 /// archive to the consistent PRE-IMPORT state over the SAME journal the in-band rollback
