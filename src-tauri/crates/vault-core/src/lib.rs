@@ -23,6 +23,7 @@ mod browser_retention;
 pub mod chrome;
 pub mod config;
 pub mod diagnostics;
+pub mod durable_io;
 mod enrichment;
 pub mod git_audit;
 pub mod intelligence;
