@@ -2371,6 +2371,26 @@ fn retention_helpers_fall_back_to_filesystem_counts_when_archive_is_unreadable()
 }
 
 #[test]
+fn remove_path_except_skips_a_nonexistent_path() {
+    // The `!path.exists()` defensive arm of the D3 last-good-keep recursion: a path that does not
+    // exist removes nothing and counts nothing.
+    assert_eq!(
+        remove_path_except(Path::new("/nonexistent/pathkeep-x"), None).expect("missing path"),
+        (0, 0),
+    );
+}
+
+#[test]
+fn remove_directory_contents_except_skips_a_missing_root() {
+    // The `!root.exists()` guard of the D3 last-good-keep helper: a missing root removes nothing.
+    assert_eq!(
+        remove_directory_contents_except(Path::new("/nonexistent/pathkeep-root"), None)
+            .expect("missing root"),
+        (0, 0),
+    );
+}
+
+#[test]
 fn stats_with_archive_totals_replaces_non_object_inputs_with_totals() {
     let connection = Connection::open_in_memory().expect("sqlite");
     create_schema(&connection).expect("schema");
@@ -3568,9 +3588,11 @@ fn maintenance_guards_manual_snapshots_and_retention_edge_cases() {
     )
     .expect("manual safety snapshot preview");
     assert_eq!(preview.snapshot_kind, "archive-safety-snapshot");
-    assert!(!preview.execute_supported);
+    // D1: the full-archive safety snapshot is now one-click restorable (quarantine + install +
+    // reconcile), so the preview advertises execute support and describes the restore.
+    assert!(preview.execute_supported);
     assert_eq!(preview.source_profile_id.as_deref(), Some("profile-a"));
-    assert!(preview.warnings[0].contains("manual recovery"));
+    assert!(preview.warnings[0].contains("One-click restore"));
     let run_error = run_snapshot_restore(
         &paths,
         &config,

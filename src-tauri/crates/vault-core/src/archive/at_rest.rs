@@ -47,12 +47,12 @@ use super::{
 };
 use crate::{
     config::{ProjectPaths, ensure_paths, load_config, save_config},
-    models::{AppConfig, ArchiveMode},
+    models::{AppConfig, ArchiveMode, RecoverySnapshot},
     utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
-use serde::Serialize;
+use rusqlite::{Connection, OpenFlags, params};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{fs, io::Read, path::Path, time::Duration as StdDuration};
 
@@ -94,13 +94,16 @@ pub const ARCHIVE_RECOVERY_REQUIRED_PREFIX: &str = "archive_recovery_required";
 /// Why a launch-time recovery could not safely self-heal — the Phase-D recovery-screen
 /// classification. Serializable; `DiskEncryptionMode` is deliberately NOT exposed (the public
 /// surface speaks [`ArchiveMode`], mapping an absent/unreadable file to `None`).
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiveRecoveryKind {
     /// An interrupted whole-app import could not reach one consistent at-rest mode.
     InterruptedImportModeDrift,
     /// An interrupted rekey could not be resolved (e.g. the canonical archive is gone).
     InterruptedRekeyUnresolved,
+    /// An interrupted full-archive restore could not be completed or rolled back (snapshot +
+    /// quarantined originals both unusable).
+    InterruptedRestoreUnresolved,
     /// Config↔file at-rest drift that could not be safely reconciled (reserved for Phase D;
     /// the launch heal converges every observable drift, so this is not produced today).
     AtRestDriftUnresolved,
@@ -109,7 +112,7 @@ pub enum ArchiveRecoveryKind {
 /// The structured, serializable feed the worker turns into the Phase-D recovery screen when a
 /// launch recovery cannot self-heal. Carries the detected modes + the verified safety snapshots
 /// a one-click restore can choose from, plus the underlying error chain for the screen and logs.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveRecoveryReport {
     /// What kind of unrecoverable state was found.
@@ -120,8 +123,12 @@ pub struct ArchiveRecoveryReport {
     pub history_vault_mode: Option<ArchiveMode>,
     /// The source-evidence DB's real on-disk mode (`None` = absent / unreadable).
     pub source_evidence_mode: Option<ArchiveMode>,
-    /// Verified rekey safety-snapshot paths a Phase-D one-click restore can offer.
+    /// Verified rekey safety-snapshot paths a Phase-D one-click restore can offer. Legacy
+    /// rekey-only path-string list, kept for the existing wire contract.
     pub available_snapshots: Vec<String>,
+    /// Rich, keyless metadata for every verified full-archive safety snapshot (rekey/reconcile/
+    /// import) the Phase-D recovery screen can offer. Superset of `available_snapshots`.
+    pub recovery_snapshots: Vec<RecoverySnapshot>,
     /// The underlying error chain (`format!("{err:#}")`), for the recovery screen + logs.
     pub detail: String,
 }
@@ -176,6 +183,103 @@ fn available_verified_snapshots(paths: &ProjectPaths) -> Vec<String> {
     snapshots
 }
 
+/// Lists every verified full-archive safety snapshot the Phase-D recovery GUI can offer, with
+/// rich KEYLESS metadata (capture time, size, a cheap "does it open?" signal, which whole-archive
+/// rewrite op produced it).
+///
+/// Why it exists separately from [`available_verified_snapshots`]: the legacy helper feeds the
+/// existing `available_snapshots: Vec<String>` field (rekey-only, path strings) that older tests
+/// pin; this richer surface drives the recovery SCREEN, which needs per-snapshot metadata to let
+/// the user choose a backstop confidently.
+///
+/// PERFORMANCE: best-effort + cheap. A directory scan, then per file a 16-byte header read and —
+/// for plaintext files ONLY — a page-1 `PRAGMA schema_version` (NEVER a 14.4M-row b-tree walk).
+/// Encrypted snapshots get a structural size-only check because we hold no key here; the
+/// authoritative keyed `quick_check` runs at restore time (D1). Sorted NEWEST FIRST so the
+/// recovery screen defaults to the freshest backstop. A missing/empty `raw-snapshots/` yields an
+/// empty list rather than an error.
+pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
+    /// Bucket subdirectory names mapped to a known `source_op`; anything else is `"unknown"`.
+    const KNOWN_OPS: [&str; 4] = ["rekey", "reconcile", "import", "periodic"];
+
+    let mut snapshots: Vec<RecoverySnapshot> = Vec::new();
+    let Ok(buckets) = fs::read_dir(&paths.raw_snapshots_dir) else {
+        return snapshots;
+    };
+    for bucket in buckets.flatten() {
+        let bucket_path = bucket.path();
+        if !bucket_path.is_dir() {
+            continue;
+        }
+        let source_op = bucket_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| KNOWN_OPS.contains(name))
+            .map(str::to_string)
+            .unwrap_or_else(|| "unknown".to_string());
+        // `Result::into_iter().flatten().flatten()` skips an unreadable bucket dir AND any
+        // per-entry read error without an extra branch (both are vanishingly rare here).
+        for entry in fs::read_dir(&bucket_path).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("sqlite") {
+                continue;
+            }
+            // `fs::metadata` follows symlinks, so a dangling snapshot symlink errors here and is
+            // skipped (rather than surfacing a bogus zero-size entry).
+            let Ok(metadata) = fs::metadata(&path) else {
+                continue;
+            };
+            let size_bytes = metadata.len();
+            let created_at = metadata
+                .modified()
+                .ok()
+                .map(|mtime| chrono::DateTime::<chrono::Utc>::from(mtime).to_rfc3339());
+            let path_string = path.display().to_string();
+            snapshots.push(RecoverySnapshot {
+                id: path_string.clone(),
+                verified_openable: snapshot_is_openable_keyless(&path, size_bytes),
+                // Short, stable English fallback. The FE localizes from `source_op` + `created_at`.
+                label: format!("Safety snapshot ({source_op})"),
+                source_op: source_op.clone(),
+                size_bytes,
+                created_at,
+                path: path_string,
+            });
+        }
+    }
+    // Newest first (created_at desc), path desc as a stable tiebreak so equal mtimes still order
+    // deterministically. `None` mtimes sort last under the descending compare.
+    snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
+    snapshots
+}
+
+/// KEYLESS "does this snapshot open?" probe. Plaintext: a page-1 `PRAGMA schema_version` (header
+/// only — it does NOT walk the b-tree, so a 14.4M-row file is as cheap as a tiny one). Encrypted:
+/// structural-only (`>= 512` bytes = at least one small page) because we hold no key to decrypt
+/// it here; the authoritative keyed `quick_check` runs at restore time. `Absent`/unreadable header
+/// is never openable.
+fn snapshot_is_openable_keyless(path: &Path, size_bytes: u64) -> bool {
+    match detect_disk_encryption_mode(path) {
+        DiskEncryptionMode::Absent => false,
+        DiskEncryptionMode::Encrypted => size_bytes >= 512,
+        DiskEncryptionMode::Plaintext => {
+            // READ-ONLY open: the default RW+CREATE flags would mislabel a valid-but-read-only
+            // plaintext snapshot as un-openable, which both hides a good backstop from the recovery
+            // GUI AND lets `prune_snapshot_bucket` compute `protected = None` and delete the
+            // last-good snapshot. Snapshots are checkpoint-TRUNCATE'd, so a read-only open needs no
+            // WAL. A single fallible chain (open -> busy_timeout -> header-only `schema_version`)
+            // folds every failure mode into one `is_ok()` — a malformed/truncated/unreadable file
+            // surfaces as `false` here without an extra, list-unreachable early-return branch.
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .and_then(|connection| {
+                    connection.busy_timeout(BUSY_TIMEOUT)?;
+                    connection.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+                })
+                .is_ok()
+        }
+    }
+}
+
 /// Builds the recovery-screen report for an unrecoverable launch state, reading both canonical
 /// DBs' real on-disk modes (header-only) and the available safety snapshots.
 fn build_recovery_report(
@@ -194,6 +298,7 @@ fn build_recovery_report(
             &paths.source_evidence_database_path,
         )),
         available_snapshots: available_verified_snapshots(paths),
+        recovery_snapshots: list_recovery_snapshots(paths),
         detail: format!("{error:#}"),
     }
 }
@@ -248,8 +353,10 @@ fn build_recovery_report(
 ///
 /// Reads ONLY a few `stat`s + the canonical history-vault's 16-byte header + the small
 /// `config.json`: NO gate, NO flock, NO DB open/scan. Returns `false` (pay for the lock and run
-/// the authoritative locked recovery) the moment ANY crash marker is present OR the canonical
-/// history-vault's real on-disk at-rest mode disagrees with the recorded config. It is the source
+/// the authoritative locked recovery) the moment ANY crash marker (import / rekey / restore) is
+/// present OR the canonical history-vault's real on-disk at-rest mode disagrees with the recorded
+/// config. The marker check returns early, so the `Absent => true` shortcut below CANNOT fire while
+/// a restore marker exists (a crash mid-restore left the canonical absent on purpose). It is the source
 /// of truth for NOTHING — the locked body re-reads every signal and decides — so a `false` here
 /// only ever means "let the locked body confirm", never a heal by itself. It reads the ON-DISK
 /// config (the worker saved it immediately before calling, so it equals the passed `config`;
@@ -258,6 +365,7 @@ fn build_recovery_report(
 fn launch_is_provably_healthy(paths: &ProjectPaths, config: &AppConfig) -> bool {
     if crate::migration::interrupted_import_marker_present(paths)
         || super::interrupted_rekey_marker_present(paths)
+        || super::interrupted_restore_marker_present(paths)
     {
         return false;
     }
@@ -295,11 +403,11 @@ pub fn recover_archive_on_launch(
 /// Runs the launch-time recovery assuming the caller already holds the top-level
 /// [`ArchiveOpGate`] + [`ArchiveWriteLock`].
 ///
-/// The nested helpers it calls (`recover_interrupted_import`, `recover_interrupted_rekey`) take
-/// ONLY the reentrant [`ArchiveWriteLock`] transitively, NEVER the non-reentrant
-/// [`ArchiveOpGate`], so they cannot self-deadlock against the gate held above. It is reached
-/// ONLY after the unlocked pre-check found a marker or config↔file drift (or as the TOCTOU
-/// re-check under the lock). On a healthy
+/// The nested helpers it calls (`recover_interrupted_import`, `recover_interrupted_rekey`,
+/// `recover_interrupted_restore`) take ONLY the reentrant [`ArchiveWriteLock`] transitively, NEVER
+/// the non-reentrant [`ArchiveOpGate`], so they cannot self-deadlock against the gate held above. It
+/// is reached ONLY after the unlocked pre-check found a marker (import / rekey / restore) or
+/// config↔file drift (or as the TOCTOU re-check under the lock). On a healthy
 /// archive this is a cheap no-op: two marker `stat`s, one 16-byte history-vault header read, and
 /// one small `config.json` read, with NO `open_archive_connection`, NO migration, NO scan, and
 /// NO config write. (The second header read — source-evidence — happens only inside
@@ -309,29 +417,53 @@ fn recover_archive_on_launch_locked(
     config: &AppConfig,
     _database_key: Option<&str>,
 ) -> Result<LaunchRecovery> {
-    // (1) Recover a whole-app import whose commit phase was cut by a crash. `recover_interrupted_import`
-    // leaves its marker on Err, so we surface — never clear — an unrecoverable import.
-    if let Err(error) = crate::migration::recover_interrupted_import(paths) {
+    // A pending full-archive restore SUPERSEDES any interrupted import/rekey: it replaces the whole
+    // canonical archive, so steps (1)+(2) are SKIPPED while it is pending. Running them first would
+    // let one that fails closed on the restore's absent-canonical window (e.g. rekey recovery hitting
+    // the Absent history-vault) surface Unrecoverable and STARVE the auto-completable restore — stuck
+    // on every launch. The restore's own quarantine + `clear_superseded_crash_markers` retire those
+    // stale markers, so skipping their recovery here loses nothing.
+    let restore_pending = super::interrupted_restore_marker_present(paths);
+    if !restore_pending {
+        // (1) Recover a whole-app import whose commit phase was cut by a crash. `recover_interrupted_import`
+        // leaves its marker on Err, so we surface — never clear — an unrecoverable import.
+        if let Err(error) = crate::migration::recover_interrupted_import(paths) {
+            return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
+                paths,
+                config,
+                ArchiveRecoveryKind::InterruptedImportModeDrift,
+                &error,
+            )));
+        }
+
+        // (2) Recover an interrupted rekey (the marker the rekey swap writes). Fail-closed when the
+        // canonical archive is gone — `recover_interrupted_rekey` leaves the marker on Err.
+        if let Err(error) = super::recover_interrupted_rekey(paths) {
+            return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
+                paths,
+                config,
+                ArchiveRecoveryKind::InterruptedRekeyUnresolved,
+                &error,
+            )));
+        }
+    }
+
+    // (3) Complete or roll back a full-archive restore whose quarantine→install→commit window was cut
+    // by a crash. `recover_interrupted_restore` leaves its marker on Err, so we surface — never clear —
+    // an unrecoverable restore (rather than letting step 4 see an Absent canonical and boot an EMPTY
+    // archive). It is KEY-FREE: it re-installs the still-available snapshot (a file copy) or rolls back
+    // the quarantined originals, then converges config; the keyed verify + source-evidence rebuild are
+    // deferred to the next keyed open (mirrors the rekey source-evidence deferral).
+    if let Err(error) = super::recover_interrupted_restore(paths) {
         return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
             paths,
             config,
-            ArchiveRecoveryKind::InterruptedImportModeDrift,
+            ArchiveRecoveryKind::InterruptedRestoreUnresolved,
             &error,
         )));
     }
 
-    // (2) Recover an interrupted rekey (the marker the rekey swap writes). Fail-closed when the
-    // canonical archive is gone — `recover_interrupted_rekey` leaves the marker on Err.
-    if let Err(error) = super::recover_interrupted_rekey(paths) {
-        return Ok(LaunchRecovery::Unrecoverable(build_recovery_report(
-            paths,
-            config,
-            ArchiveRecoveryKind::InterruptedRekeyUnresolved,
-            &error,
-        )));
-    }
-
-    // (3) Config↔file at-rest drift, HEADER READS ONLY (never open/scan the DB — the 14.4M-row
+    // (4) Config↔file at-rest drift, HEADER READS ONLY (never open/scan the DB — the 14.4M-row
     // constraint). The canonical history-vault is the authority for whether the next open needs a
     // key, so reconciling config to its real on-disk mode un-bricks the canonical archive in BOTH
     // rekey directions (config always ends up matching the history-vault header — no NOTADB).
@@ -351,11 +483,11 @@ fn recover_archive_on_launch_locked(
         DiskEncryptionMode::Plaintext => ArchiveMode::Plaintext,
         DiskEncryptionMode::Encrypted => ArchiveMode::Encrypted,
     };
-    // Step 2 (interrupted import/rekey recovery) may already have rewritten config.json
-    // (e.g. complete_rekey_config preserves the pre-rekey settings + initialized=true).
-    // Reconcile against the POST-RECOVERY on-disk config so we never clobber that
-    // reconstruction with the stale in-memory `config`, and only write when the canonical
-    // archive's real on-disk header STILL disagrees with config.json.
+    // Steps 1–3 (interrupted import/rekey/restore recovery) may already have rewritten config.json
+    // (e.g. complete_rekey_config / reconcile_restore_config preserve the prior settings +
+    // initialized=true). Reconcile against the POST-RECOVERY on-disk config so we never clobber that
+    // reconstruction with the stale in-memory `config`, and only write when the canonical archive's
+    // real on-disk header STILL disagrees with config.json.
     let on_disk = load_config(paths).unwrap_or_else(|_| config.clone());
     if on_disk.archive_mode != target {
         let mut healed = on_disk.clone();
@@ -363,7 +495,7 @@ fn recover_archive_on_launch_locked(
         save_config(paths, &healed)?;
     }
     // Signal the caller to reload whenever the FINAL canonical mode differs from what it
-    // passed in (whether step 2 or this step changed it), so it never reopens with a
+    // passed in (whether an earlier step or this step changed it), so it never reopens with a
     // stale-mode config (the NOTADB brick).
     if config.archive_mode == target {
         Ok(LaunchRecovery::Healthy)
@@ -488,7 +620,33 @@ pub(crate) fn reconcile_archive_encryption_locked(
     crate::migration::recover_interrupted_import(paths)?;
     ensure_paths(paths)?;
     let archive = super::open_archive_connection(paths, config, key)?;
+    // D3: capture a VERIFIED full-archive safety snapshot BEFORE the whole-archive rewrite, but
+    // ONLY when a rewrite is actually pending. A no-op reconcile (and the frequent BACKUP path,
+    // which calls `reconcile_source_evidence_with_archive` directly) stays snapshot-free, so we
+    // never copy + quick_check the 14.4M-row DB on a hot path for zero added safety.
+    if source_evidence_rewrite_pending(paths, config, key) {
+        super::create_verified_safety_snapshot(paths, &archive, config, key, "reconcile")?;
+    }
     reconcile_source_evidence_with_archive(&archive, paths, config, key)
+}
+
+/// `true` when [`reconcile_source_evidence_with_archive`] is about to REWRITE the source-evidence
+/// file — the only case worth a verified backstop: config↔source-evidence at-rest drift in either
+/// direction AND a key in hand. A cheap header read that replicates the reconcile `plan` match, so
+/// the common no-op reconcile pays nothing.
+fn source_evidence_rewrite_pending(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    key: Option<&str>,
+) -> bool {
+    if key.is_none() {
+        return false;
+    }
+    matches!(
+        (&config.archive_mode, detect_disk_encryption_mode(&paths.source_evidence_database_path)),
+        (ArchiveMode::Encrypted, DiskEncryptionMode::Plaintext)
+            | (ArchiveMode::Plaintext, DiskEncryptionMode::Encrypted)
+    )
 }
 
 /// Migrates source-evidence to the post-rekey at-rest mode, in lockstep with the
@@ -1633,6 +1791,223 @@ mod tests {
             fs::read(&paths.config_path).expect("read config after"),
             config_before,
             "config must NOT be cleared/healed on the fail-closed bail",
+        );
+    }
+
+    // --- D2: list_recovery_snapshots rich metadata ----------------------------------------------
+
+    /// Seeds a tiny but REAL plaintext SQLite database at `path` (so the keyless openability probe
+    /// passes), creating parent dirs as needed.
+    fn seed_plaintext_snapshot(path: &Path) {
+        fs::create_dir_all(path.parent().expect("snapshot parent")).expect("snapshot dir");
+        let connection = Connection::open(path).expect("open snapshot db");
+        connection
+            .execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (1);")
+            .expect("seed snapshot db");
+    }
+
+    /// Pins `path`'s mtime to a fixed instant so newest-first ordering is deterministic.
+    fn set_snapshot_mtime(path: &Path, secs: u64) {
+        let file = fs::File::options().write(true).open(path).expect("open for mtime");
+        file.set_modified(std::time::SystemTime::UNIX_EPOCH + StdDuration::from_secs(secs))
+            .expect("set mtime");
+    }
+
+    #[test]
+    fn list_recovery_snapshots_reports_validity_and_newest_first() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+
+        // A valid plaintext snapshot (real db) and a corrupt one (SQLite header + garbage body so it
+        // is detected Plaintext but `PRAGMA schema_version` errors).
+        let valid = rekey_dir.join("archive-before-rekey-valid.sqlite");
+        seed_plaintext_snapshot(&valid);
+        let corrupt = rekey_dir.join("archive-before-rekey-corrupt.sqlite");
+        fs::write(&corrupt, b"SQLite format 3\0\x01\x02\x03corrupt-body").expect("write corrupt");
+
+        // Pin mtimes so newest-first ordering is deterministic: the valid one is newer.
+        set_snapshot_mtime(&corrupt, 1_000_000_000);
+        set_snapshot_mtime(&valid, 2_000_000_000);
+
+        let snapshots = list_recovery_snapshots(&paths);
+        assert_eq!(snapshots.len(), 2, "both snapshots are listed");
+        assert_eq!(snapshots[0].path, valid.display().to_string(), "newest (valid) leads");
+        assert_eq!(snapshots[1].path, corrupt.display().to_string());
+        assert!(snapshots[0].verified_openable, "a real plaintext db opens");
+        assert!(!snapshots[1].verified_openable, "a corrupt plaintext file does not open");
+        for snapshot in &snapshots {
+            assert_eq!(snapshot.source_op, "rekey");
+            assert_eq!(snapshot.id, snapshot.path, "id == path");
+            assert!(snapshot.size_bytes > 0, "size is read from metadata");
+            assert!(snapshot.created_at.is_some(), "created_at comes from mtime");
+            assert!(snapshot.label.contains("rekey"), "label encodes the op");
+        }
+    }
+
+    #[test]
+    fn list_recovery_snapshots_classifies_encrypted_unknown_and_skips_noise() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+
+        // Encrypted-looking (non-SQLite header) >= 512 bytes under import/ -> structurally openable.
+        let import_dir = paths.raw_snapshots_dir.join("import");
+        fs::create_dir_all(&import_dir).expect("import dir");
+        fs::write(import_dir.join("archive-before-import-big.sqlite"), vec![0xAB; 1024])
+            .expect("write encrypted snapshot");
+
+        // A tiny (< 512B) encrypted-looking file under rekey/ -> structurally NOT openable.
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        fs::create_dir_all(&rekey_dir).expect("rekey dir");
+        fs::write(rekey_dir.join("archive-before-rekey-tiny.sqlite"), vec![0xCD; 100])
+            .expect("write tiny snapshot");
+
+        // A snapshot under an UNKNOWN bucket -> source_op "unknown".
+        seed_plaintext_snapshot(&paths.raw_snapshots_dir.join("mystery").join("whatever.sqlite"));
+
+        // Noise that MUST be ignored: a non-.sqlite file in a bucket, and a plain file directly
+        // under raw-snapshots/ (not a bucket directory).
+        fs::write(import_dir.join("notes.txt"), b"ignore me").expect("write non-sqlite");
+        fs::write(paths.raw_snapshots_dir.join("loose.sqlite"), b"loose")
+            .expect("write loose file");
+
+        let snapshots = list_recovery_snapshots(&paths);
+        assert_eq!(snapshots.len(), 3, "only the three bucketed .sqlite files are listed");
+        let find = |needle: &str| {
+            snapshots.iter().find(|s| s.path.contains(needle)).expect("snapshot present").clone()
+        };
+        let big = find("big.sqlite");
+        assert_eq!(big.source_op, "import");
+        assert!(big.verified_openable, ">= 512B encrypted is structurally openable");
+        assert!(!find("tiny.sqlite").verified_openable, "< 512B encrypted is not openable");
+        assert_eq!(find("whatever.sqlite").source_op, "unknown");
+    }
+
+    #[test]
+    fn list_recovery_snapshots_empty_for_missing_and_empty_dirs() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        assert!(list_recovery_snapshots(&paths).is_empty(), "missing dir -> empty");
+        fs::create_dir_all(&paths.raw_snapshots_dir).expect("raw snapshots dir");
+        assert!(list_recovery_snapshots(&paths).is_empty(), "empty dir -> empty");
+    }
+
+    #[test]
+    fn list_recovery_snapshots_marks_a_sub_header_sized_file_unopenable() {
+        // A `.sqlite` smaller than the 16-byte header makes `detect_disk_encryption_mode` read fewer
+        // than 16 bytes and classify it `Absent`, driving the `Absent` arm of
+        // `snapshot_is_openable_keyless` (verified_openable == false) — a truncated/empty snapshot
+        // file is never a usable backstop.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        fs::create_dir_all(&rekey_dir).expect("rekey dir");
+        fs::write(rekey_dir.join("tiny.sqlite"), b"abcde").expect("write 5-byte snapshot");
+
+        let snapshots = list_recovery_snapshots(&paths);
+        assert_eq!(snapshots.len(), 1, "the sub-header file is still listed");
+        assert!(
+            !snapshots[0].verified_openable,
+            "a <16-byte (Absent) file is never verified_openable",
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_recovery_snapshots_skips_a_dangling_symlink() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+        fs::create_dir_all(&rekey_dir).expect("rekey dir");
+        // A .sqlite symlink whose target does not exist: it passes the extension filter, then
+        // `fs::metadata` (which follows links) errors, so the entry is skipped.
+        std::os::unix::fs::symlink(
+            rekey_dir.join("missing-target.sqlite"),
+            rekey_dir.join("dangling.sqlite"),
+        )
+        .expect("create dangling symlink");
+        assert!(
+            list_recovery_snapshots(&paths).is_empty(),
+            "a dangling snapshot symlink contributes nothing",
+        );
+    }
+
+    // --- D3: verified safety snapshot captured before a reconcile rewrite ------------------------
+
+    #[test]
+    fn reconcile_captures_a_verified_snapshot_only_when_a_rewrite_is_pending() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        // Drift that FORCES a rewrite: an encrypted archive + config over a PLAINTEXT source-evidence.
+        drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
+        seed_plaintext_source_evidence(&paths);
+
+        let report = reconcile_archive_encryption(&paths, &encrypted_config(), Some(KEY))
+            .expect("reconcile");
+        assert!(report.repaired, "the drift forces a source-evidence rewrite");
+
+        let captured = list_recovery_snapshots(&paths)
+            .into_iter()
+            .find(|snapshot| snapshot.source_op == "reconcile")
+            .expect("a reconcile safety snapshot must be captured before the rewrite");
+        assert!(captured.verified_openable, "the captured backstop must be restorable");
+    }
+
+    #[test]
+    fn reconcile_without_drift_captures_no_snapshot() {
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        // Already consistent: encrypted archive + encrypted source-evidence under an encrypted config.
+        drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
+        drop(
+            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("enc source-evidence"),
+        );
+
+        let report = reconcile_archive_encryption(&paths, &encrypted_config(), Some(KEY))
+            .expect("reconcile");
+        assert!(!report.repaired, "no drift -> no rewrite");
+        assert!(
+            list_recovery_snapshots(&paths).iter().all(|s| s.source_op != "reconcile"),
+            "a no-op reconcile must NOT capture a snapshot (perf: never copy the full DB on a hot path)",
+        );
+    }
+
+    #[test]
+    fn launch_is_provably_healthy_is_false_when_a_restore_marker_is_present() {
+        // The Phase-D restore marker must force the locked recovery path so a crash mid-restore is
+        // completed/rolled back — and so the `Absent => true` shortcut cannot boot an empty archive.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+            .expect("archive dir");
+
+        // A plaintext canonical + a matching Plaintext config -> normally provably healthy.
+        fs::write(&paths.archive_database_path, b"SQLite format 3\0plaintext body")
+            .expect("write canonical");
+        save_config(&paths, &plaintext_config()).expect("save config");
+        assert!(
+            launch_is_provably_healthy(&paths, &plaintext_config()),
+            "a matching plaintext config + canonical is provably healthy without a marker",
+        );
+
+        // A restore marker beside the archive forces the locked recovery path.
+        let marker = paths
+            .archive_database_path
+            .parent()
+            .expect("archive parent")
+            .join(".pk-restore-journal.json");
+        fs::write(&marker, b"{}").expect("write restore marker");
+        assert!(
+            !launch_is_provably_healthy(&paths, &plaintext_config()),
+            "a present restore marker makes the launch NOT provably healthy",
+        );
+
+        // Even with an ABSENT canonical, the marker must keep the Absent -> Healthy shortcut from firing.
+        fs::remove_file(&paths.archive_database_path).expect("remove canonical");
+        assert!(
+            !launch_is_provably_healthy(&paths, &plaintext_config()),
+            "an absent canonical + a restore marker must NOT shortcut to healthy",
         );
     }
 }

@@ -63,9 +63,9 @@
 use crate::{
     archive::{
         ArchiveOpGate, ArchiveWriteLock, DiskEncryptionMode, apply_cipher_key,
-        detect_disk_encryption_mode, export_archive_database, max_schema_version,
-        open_archive_connection, open_source_evidence_connection, remove_stale_sidecars,
-        run_migrations,
+        create_verified_safety_snapshot, detect_disk_encryption_mode, export_archive_database,
+        max_schema_version, open_archive_connection, open_source_evidence_connection,
+        remove_stale_sidecars, run_migrations,
     },
     config::{ProjectPaths, load_config, save_config},
     durable_io::{
@@ -535,14 +535,19 @@ pub fn apply_import(
     // reloaded through `load_config`. `config` survives only as the last-resort
     // fallback if that reload somehow fails.
     config: &AppConfig,
-    // Codex C4: the caller's session key is no longer consulted by
-    // `apply_import`. Encrypted bundles use
-    // `options.source_archive_key`; plaintext bundles need no key. The
-    // parameter stays in the public signature so all existing callers
-    // (commands/migration.rs, worker_bridge::apply_app_data_import_impl,
-    // dev_ipc_bridge dispatch) keep compiling without churn, and we
-    // mark it `_key` so the compiler doesn't warn about it being
-    // unused.
+    // Codex C4: the caller's session key is no longer consulted for the
+    // IMPORT itself. Encrypted bundles use `options.source_archive_key`;
+    // plaintext bundles need no key. The parameter stays in the public
+    // signature so all existing callers (commands/migration.rs,
+    // worker_bridge::apply_app_data_import_impl, dev_ipc_bridge dispatch)
+    // keep compiling without churn.
+    //
+    // D3 (best-effort): it IS now read for ONE narrow purpose — to open an
+    // EXISTING ENCRYPTED history-vault so a verified safety snapshot of the
+    // pre-import archive can be captured into `raw-snapshots/import/` before
+    // the import overwrites it. That capture is strictly best-effort (an
+    // absent key just skips it), so it never gates or fails the import; the
+    // name stays `_key` to avoid churning every call site.
     _key: Option<&str>,
     bundle_path: &Path,
     options: &ApplyImportOptions,
@@ -689,6 +694,14 @@ pub fn apply_import(
     }
     write_import_journal(paths, &journal)?;
 
+    // D3 (best-effort, NO lock): capture a VERIFIED full-archive safety snapshot of the EXISTING
+    // pre-import history-vault into `raw-snapshots/import/` before the swap overwrites it. This is
+    // belt-and-suspenders on top of the `.bak-<ts>` units the swap keeps, and it feeds the D1
+    // one-click restore. It is deliberately downgraded to a no-op on any failure (fresh install,
+    // an encrypted archive whose key is not in hand, or a snapshot error) so it can never abort an
+    // import the user asked for.
+    capture_pre_import_safety_snapshot(paths, _key);
+
     // ---- COMMIT. Run inside a closure so ANY `?` failure routes through the SAME
     // in-band rollback below — the canonical set is one commit unit.
     let commit = (|| -> Result<bool> {
@@ -805,6 +818,41 @@ pub fn apply_import(
         final_schema_version,
         preserved_previous_as_bak: preserved_previous,
     })
+}
+
+/// Best-effort capture of a VERIFIED full-archive safety snapshot of the EXISTING (pre-import)
+/// history-vault into `raw-snapshots/import/`, before [`apply_import`] overwrites it.
+///
+/// Strictly best-effort (D3): every non-happy path is DOWNGRADED to a silent no-op so it can never
+/// abort the import. A fresh install (`Absent` archive) has nothing to back up; an `Encrypted`
+/// archive whose session key is not in hand cannot be opened to verify the copy, so it is skipped
+/// (the import's `.bak-<ts>` units still protect the user); and a snapshot failure on a present DB
+/// is swallowed. Takes NO lock — `apply_import` already holds the gate + flock.
+fn capture_pre_import_safety_snapshot(paths: &ProjectPaths, key: Option<&str>) {
+    let (config, snapshot_key) = match detect_disk_encryption_mode(&paths.archive_database_path) {
+        // Fresh install: nothing on disk to back up.
+        DiskEncryptionMode::Absent => return,
+        DiskEncryptionMode::Plaintext => {
+            (AppConfig { archive_mode: ArchiveMode::Plaintext, ..AppConfig::default() }, None)
+        }
+        DiskEncryptionMode::Encrypted => match key {
+            Some(key) => (
+                AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() },
+                Some(key),
+            ),
+            // Encrypted but no session key: cannot open to verify a copy, so skip the best-effort
+            // backstop. The `.bak-<ts>` units the import keeps are the user's recovery path here.
+            None => return,
+        },
+    };
+    let captured = (|| -> Result<()> {
+        let source = open_archive_connection(paths, &config, snapshot_key)?;
+        create_verified_safety_snapshot(paths, &source, &config, snapshot_key, "import")?;
+        Ok(())
+    })();
+    // Downgrade any failure to a no-op: a missing backstop must NOT abort an import the user asked
+    // for (the `.bak-<ts>` units remain the authoritative undo-import path).
+    let _ = captured;
 }
 
 fn open_archive_for_migration(
@@ -957,7 +1005,11 @@ struct ImportJournal {
 }
 
 /// Path of the interrupted-import marker (beside the canonical archive database).
-fn import_journal_path(paths: &ProjectPaths) -> PathBuf {
+///
+/// `pub(crate)` so the Phase-D full-archive restore can quarantine a superseded import marker
+/// alongside the broken canonical files (a stale marker must not drive a confusing recovery on
+/// the next launch after a one-click restore has already healed the archive).
+pub(crate) fn import_journal_path(paths: &ProjectPaths) -> PathBuf {
     paths
         .archive_database_path
         .parent()
@@ -2908,6 +2960,116 @@ mod tests {
             writer.write_all(bytes).unwrap();
         }
         writer.finish().unwrap();
+    }
+
+    // --- D3: verified safety snapshot captured before an import rewrite --------------------------
+
+    /// Counts `*.sqlite` files under `raw-snapshots/import/` (0 when the dir is absent).
+    fn import_snapshot_count(paths: &ProjectPaths) -> usize {
+        fs::read_dir(paths.raw_snapshots_dir.join("import"))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("sqlite")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn apply_import_captures_a_pre_import_safety_snapshot_of_the_existing_archive() {
+        let (src_dir, src_paths) = fresh_paths();
+        let config = seed_archive(&src_paths);
+        let bundle_path = src_dir.path().join("import-snapshot.pathkeep");
+        export_app_data(&src_paths, &config, None, &bundle_path).expect("export bundle");
+
+        // The DEST already has a plaintext history-vault, so the import must snapshot it first.
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = seed_archive(&dest_paths);
+
+        apply_import(
+            &dest_paths,
+            &dest_config,
+            None,
+            &bundle_path,
+            &ApplyImportOptions { confirm_overwrite: true, ..Default::default() },
+        )
+        .expect("apply import");
+
+        assert_eq!(
+            import_snapshot_count(&dest_paths),
+            1,
+            "the pre-import archive is captured under raw-snapshots/import/",
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_skips_when_no_archive_exists() {
+        let (_dir, paths) = fresh_paths();
+        // Absent archive (fresh install) -> nothing to back up.
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(import_snapshot_count(&paths), 0, "a fresh install captures no snapshot");
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_captures_an_existing_plaintext_archive() {
+        let (_dir, paths) = fresh_paths();
+        seed_archive(&paths); // a real plaintext archive
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(
+            import_snapshot_count(&paths),
+            1,
+            "an existing plaintext archive is snapshotted"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_captures_an_existing_encrypted_archive_with_key() {
+        let (_dir, paths) = fresh_paths();
+        let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        drop(
+            crate::archive::open_archive_connection(&paths, &encrypted, Some("k"))
+                .expect("seed encrypted archive"),
+        );
+        capture_pre_import_safety_snapshot(&paths, Some("k"));
+        assert_eq!(
+            import_snapshot_count(&paths),
+            1,
+            "an encrypted archive with a key is snapshotted"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_skips_an_encrypted_archive_without_a_key() {
+        let (_dir, paths) = fresh_paths();
+        let encrypted = AppConfig { archive_mode: ArchiveMode::Encrypted, ..AppConfig::default() };
+        drop(
+            crate::archive::open_archive_connection(&paths, &encrypted, Some("k"))
+                .expect("seed encrypted archive"),
+        );
+        // No key in hand: cannot open to verify a copy, so the best-effort capture is skipped (the
+        // import is NOT aborted by a missing backstop).
+        capture_pre_import_safety_snapshot(&paths, None);
+        assert_eq!(
+            import_snapshot_count(&paths),
+            0,
+            "an encrypted archive without a key is skipped"
+        );
+    }
+
+    #[test]
+    fn capture_pre_import_safety_snapshot_downgrades_a_failure_to_a_noop() {
+        let (_dir, paths) = fresh_paths();
+        crate::config::ensure_paths(&paths).expect("ensure paths");
+        // A plaintext-HEADER file that is NOT a valid database: detected Plaintext, but
+        // `open_archive_connection` fails to bootstrap it, so the capture closure errors and is
+        // downgraded to a no-op (the import is never aborted).
+        fs::write(&paths.archive_database_path, b"SQLite format 3\0not a real database body")
+            .expect("write garbage archive");
+        capture_pre_import_safety_snapshot(&paths, None); // must not panic / must not bail
+        assert_eq!(import_snapshot_count(&paths), 0, "a snapshot failure leaves no snapshot");
     }
 }
 

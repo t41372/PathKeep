@@ -237,6 +237,17 @@ fn archive_recovery_required_error(report: ArchiveRecoveryReport) -> anyhow::Err
     anyhow::anyhow!("{ARCHIVE_RECOVERY_REQUIRED_PREFIX}: {payload}")
 }
 
+/// Parses a launch-recovery-required error message back into its [`ArchiveRecoveryReport`].
+///
+/// The inverse of [`archive_recovery_required_error`]. It exists to DOCUMENT + TEST the exact wire
+/// contract the FE recovery screen parses: the stable `ARCHIVE_RECOVERY_REQUIRED_PREFIX`, a `": "`
+/// separator, then the JSON report (which now carries `recoverySnapshots`). Returns `None` for any
+/// message that is not this shape, so a generic error handler can fall through unchanged.
+pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryReport> {
+    let payload = message.strip_prefix(ARCHIVE_RECOVERY_REQUIRED_PREFIX)?.strip_prefix(": ")?;
+    serde_json::from_str::<ArchiveRecoveryReport>(payload).ok()
+}
+
 /// Executes a rekey/mode-switch request and returns the post-rewrite snapshot.
 pub fn rekey_archive_database(
     old_key: Option<&str>,

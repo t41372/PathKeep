@@ -76,8 +76,10 @@ fn dir_open_fault() -> Option<i32> {
 }
 
 /// Queues per-`full_fsync` fault directives for the current test thread (replacing any prior queue).
+/// `pub(crate)` so a sibling module's `#[cfg(test)]` can drive a dir-fsync failure behaviourally
+/// (e.g. `quarantine_canonical_archive`'s `fsync_dir`), not just for coverage.
 #[cfg(all(unix, test))]
-fn inject_fsync_faults(faults: Vec<Option<i32>>) {
+pub(crate) fn inject_fsync_faults(faults: Vec<Option<i32>>) {
     FSYNC_FAULTS.with(|queue| {
         let mut queue = queue.borrow_mut();
         queue.clear();
@@ -152,13 +154,14 @@ fn full_fsync(file: &File) -> Result<()> {
     real_full_fsync(file)
 }
 
-/// Fsyncs the directory that holds `path`, so a freshly renamed entry survives a crash. Routes the
-/// directory handle through [`full_fsync`] (same platter barrier as data); if the filesystem rejects
-/// `F_FULLFSYNC` on a directory fd it degrades to `sync_all`. A no-op on non-unix targets (Windows
-/// rename durability is handled by the OS differently and there is no portable directory fsync).
+/// Fsyncs the directory at `dir` itself (its own metadata), routing the handle through the same
+/// platter barrier as data. Used to make a freshly-populated directory's new entries durable — e.g.
+/// the cross-directory `rename` that moves the canonical DBs into `quarantine/<ts>/` only becomes
+/// crash-durable once the destination directory is fsynced (otherwise a power loss can leave the
+/// moved file in NEITHER directory). On a filesystem that rejects F_FULLFSYNC on a directory fd it
+/// degrades to `sync_all` (see `handle_fsync_errno`). A no-op on non-unix targets.
 #[cfg(unix)]
-fn fsync_parent_dir(path: &Path) -> Result<()> {
-    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+pub(crate) fn fsync_dir(dir: &Path) -> Result<()> {
     if let Some(errno) = dir_open_fault() {
         return Err(io::Error::from_raw_os_error(errno))
             .with_context(|| format!("open dir {} for fsync", dir.display()));
@@ -166,6 +169,21 @@ fn fsync_parent_dir(path: &Path) -> Result<()> {
     let handle =
         File::open(dir).with_context(|| format!("open dir {} for fsync", dir.display()))?;
     full_fsync(&handle).with_context(|| format!("fsync dir {}", dir.display()))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn fsync_dir(_dir: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Fsyncs the directory that holds `path`, so a freshly renamed entry survives a crash. Delegates to
+/// [`fsync_dir`] (same platter barrier as data); if the filesystem rejects `F_FULLFSYNC` on a
+/// directory fd it degrades to `sync_all`. A no-op on non-unix targets (Windows rename durability is
+/// handled by the OS differently and there is no portable directory fsync).
+#[cfg(unix)]
+fn fsync_parent_dir(path: &Path) -> Result<()> {
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    fsync_dir(dir)
 }
 
 #[cfg(not(unix))]
@@ -505,6 +523,39 @@ mod tests {
         // 1st full_fsync (temp) runs for real; 2nd (the directory) hits a fatal injected errno.
         inject_fsync_faults(vec![None, Some(libc::EIO)]);
         let error = atomic_durable_write(&path, b"x").expect_err("dir fsync failure must surface");
+        assert!(error.to_string().contains("fsync dir"));
+    }
+
+    // --- MEDIUM-1: directory fsync helper (durable cross-dir move) --------------------------------
+    //
+    // `fsync_dir` is what the Phase-D restore's `quarantine_canonical_archive` calls to make the
+    // cross-directory rename into `quarantine/<ts>/` crash-durable. These exercise it DIRECTLY (the
+    // `fsync_parent_dir` tests above reach it transitively through `atomic_durable_write`).
+
+    #[cfg(unix)]
+    #[test]
+    fn fsync_dir_flushes_a_real_directory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fsync_dir(dir.path()).expect("fsync of a real directory must succeed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fsync_dir_reports_a_directory_open_failure() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        inject_dir_open_fault(libc::EACCES);
+        let error = fsync_dir(dir.path()).expect_err("an injected dir-open failure must surface");
+        assert!(error.to_string().contains("open dir"));
+        assert!(error.to_string().contains("for fsync"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fsync_dir_reports_a_directory_fsync_failure() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // The dir opens for real, then the injected fatal errno hits the directory fsync.
+        inject_fsync_faults(vec![Some(libc::EIO)]);
+        let error = fsync_dir(dir.path()).expect_err("an injected dir-fsync failure must surface");
         assert!(error.to_string().contains("fsync dir"));
     }
 }

@@ -194,6 +194,61 @@ pub struct SnapshotRestoreRequest {
     pub snapshot_path: String,
 }
 
+/// Result of a one-click full-archive restore from a verified safety snapshot.
+///
+/// Exists so the Phase-D recovery GUI can report, in one transparent payload, exactly what the
+/// headline restore did: which snapshot it reinstalled (and in which at-rest mode), where it
+/// quarantined the broken canonical files it superseded, whether it had to rebuild an empty
+/// source-evidence, and any non-fatal warnings — never a black-box "fixed it".
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FullArchiveRestoreReport {
+    /// The `archive_restore` run-ledger row id recorded in the restored archive. `None` when the
+    /// archive was already restored + reconciled + verified-healthy but the audit-run bookkeeping
+    /// (ledger INSERT/UPDATE or manifest write) failed — that is downgraded to a `warnings` entry
+    /// rather than failing an already-healed restore, so a `None` here always carries a matching
+    /// warning.
+    pub run_id: Option<i64>,
+    /// The safety snapshot the canonical archive was restored from.
+    pub restored_snapshot_path: String,
+    /// The at-rest mode the restored canonical archive really opens in (config reconciled to match).
+    pub restored_mode: ArchiveMode,
+    /// The dated `quarantine/<ts>/` directory the superseded broken canonical files were moved into.
+    pub quarantine_dir: String,
+    /// True when a previous source-evidence database was quarantined and replaced with a fresh
+    /// empty one consistent with the restored history-vault + config.
+    pub source_evidence_rebuilt: bool,
+    /// Non-fatal notes for the recovery screen (the FE localizes around them).
+    pub warnings: Vec<String>,
+}
+
+/// One verified full-archive safety snapshot the Phase-D recovery GUI can offer as a restore source.
+///
+/// Exists to give the recovery screen rich, keyless metadata (date / size / which op produced it /
+/// whether it even opens) WITHOUT a full-DB scan, so the user picks a restore point from honest
+/// information. `verified_openable` is a cheap header-only check; the authoritative keyed
+/// `quick_check` runs at restore time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverySnapshot {
+    /// Stable identity for the FE list — the snapshot's display path.
+    pub id: String,
+    /// The snapshot file's path (the value a restore request echoes back).
+    pub path: String,
+    /// RFC 3339 creation time from the file mtime (`None` when the mtime is unreadable).
+    pub created_at: Option<String>,
+    /// On-disk size in bytes.
+    pub size_bytes: u64,
+    /// KEYLESS header-only openability signal (never a b-tree walk). For an encrypted snapshot
+    /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore.
+    pub verified_openable: bool,
+    /// Which whole-archive rewrite produced it: `"rekey"`, `"reconcile"`, `"import"`, `"periodic"`,
+    /// or `"unknown"` for an unexpected bucket.
+    pub source_op: String,
+    /// Short English fallback descriptor; the FE localizes it.
+    pub label: String,
+}
+
 /// Preview payload for a checkpoint restore before execution.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

@@ -88,6 +88,16 @@ pub fn run_backup(
 /// the most recent successful backup is still fresh enough. The callback sees
 /// phase-local progress only; the returned report remains the single source of
 /// truth for persisted run state, warnings, and manifest paths.
+///
+/// D3 — DELIBERATE DEFERRAL of a per-backup whole-DB safety snapshot. Backup does NOT capture a
+/// verified full-archive snapshot, by design. Backup is APPEND-ONLY and already crash-atomic
+/// (Phase B): it appends canonical rows IN PLACE inside one transaction and NEVER REWRITES the
+/// canonical history-vault. Copying + `quick_check`-ing the full 14.4M-row archive before every
+/// (frequent) backup would cost minutes of I/O for ZERO added safety. The restore backstop is kept
+/// fresh instead by the deliberate whole-DB REWRITE ops — rekey / at-rest reconcile / whole-app
+/// import — which DO capture a verified snapshot (D3). The `RecoverySnapshot::source_op == "periodic"`
+/// value is reserved for a future scheduled-snapshot policy and is not produced today (mirroring how
+/// `ArchiveRecoveryKind::AtRestDriftUnresolved` is a reserved-but-unproduced variant).
 pub fn run_backup_with_progress<F>(
     paths: &ProjectPaths,
     config: &AppConfig,

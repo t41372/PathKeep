@@ -3108,3 +3108,150 @@ fn launch_recovery_heals_then_opens_the_archive_when_the_key_is_in_hand() {
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
     restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
 }
+
+// --- D4: recovery worker commands + startup recovery surface ------------------------------------
+
+#[test]
+fn list_recovery_snapshots_worker_fn_returns_seeded_metadata() {
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let paths = project_paths().expect("project paths");
+    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
+    let snapshot_path = snapshot_dir.join("archive-before-rekey-good.sqlite");
+    {
+        let connection = Connection::open(&snapshot_path).expect("open snapshot db");
+        connection.execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (1);").expect("seed");
+    }
+
+    let snapshots = crate::list_recovery_snapshots().expect("list recovery snapshots");
+    assert_eq!(snapshots.len(), 1, "the worker fn returns the seeded snapshot");
+    let snapshot = &snapshots[0];
+    assert_eq!(snapshot.source_op, "rekey");
+    assert_eq!(snapshot.path, snapshot_path.display().to_string());
+    assert!(snapshot.verified_openable, "a real plaintext db opens");
+    assert!(snapshot.size_bytes > 0);
+    assert!(snapshot.created_at.is_some());
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+#[test]
+fn parse_archive_recovery_required_round_trips_the_startup_report() {
+    // The fail-closed launch surfaces the recovery-required prefix; the FE-facing parser must turn
+    // that wire string back into the report (now carrying the rekey snapshot).
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let config = initialized_config();
+    initialize_archive_database(&config, None).expect("init plaintext archive");
+    let paths = project_paths().expect("project paths");
+
+    // A verified rekey snapshot + an interrupted-rekey marker whose history-vault is gone -> the
+    // launch fails closed with the recovery report.
+    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
+    let snapshot_path = snapshot_dir.join("archive-before-rekey-good.sqlite");
+    {
+        let connection = Connection::open(&snapshot_path).expect("open snapshot db");
+        connection.execute_batch("CREATE TABLE t(a); INSERT INTO t VALUES (1);").expect("seed");
+    }
+    let rekey_marker = paths
+        .archive_database_path
+        .parent()
+        .expect("archive parent")
+        .join(".pk-rekey-journal.json");
+    let journal = serde_json::json!({
+        "version": 1,
+        "timestamp": "2026-06-30T00-00-00Z",
+        "from_mode": "Plaintext",
+        "to_mode": "Encrypted",
+        "snapshot_ref": snapshot_path.to_string_lossy(),
+        "previous_config": serde_json::Value::Null,
+    });
+    fs::write(&rekey_marker, serde_json::to_vec(&journal).expect("serialize journal"))
+        .expect("seed rekey marker");
+    fs::remove_file(&paths.archive_database_path).expect("remove history-vault");
+
+    let error = initialize_archive_database(&config, None)
+        .expect_err("a fail-closed interrupted rekey must surface as an error");
+    let rendered = error.to_string();
+    assert!(rendered.starts_with(vault_core::ARCHIVE_RECOVERY_REQUIRED_PREFIX));
+
+    let report = crate::parse_archive_recovery_required(&rendered)
+        .expect("the recovery-required error parses back into a report");
+    assert!(
+        report
+            .recovery_snapshots
+            .iter()
+            .any(|snapshot| snapshot.path == snapshot_path.display().to_string())
+            || report
+                .available_snapshots
+                .iter()
+                .any(|path| path == &snapshot_path.display().to_string()),
+        "the report must carry the rekey snapshot in recovery_snapshots and/or available_snapshots",
+    );
+    // A non-matching message yields None (the fall-through contract).
+    assert!(crate::parse_archive_recovery_required("some other error").is_none());
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}
+
+#[test]
+fn run_full_archive_restore_worker_fn_revives_a_broken_archive() {
+    // The worker wrapper pins paths+config+key correctly: an encrypted archive is bricked, then the
+    // one-click restore from a verified snapshot revives it (the core test does the deep assertions).
+    let _guard = lock_env();
+    let dir = tempdir().expect("tempdir");
+    let keyring_root = dir.path().join("test-keyring");
+    let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let original_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+
+    let mut encrypted = initialized_config();
+    encrypted.archive_mode = ArchiveMode::Encrypted;
+    initialize_archive_database(&encrypted, Some("000000")).expect("init encrypted archive");
+    let paths = project_paths().expect("project paths");
+
+    let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
+    fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
+    let snapshot_path = snapshot_dir.join("archive-before-rekey-good.sqlite");
+    fs::copy(&paths.archive_database_path, &snapshot_path).expect("copy snapshot");
+
+    // Break the canonical history-vault so it can no longer open.
+    fs::write(&paths.archive_database_path, vec![0u8; 4096]).expect("brick canonical archive");
+
+    let request =
+        vault_core::SnapshotRestoreRequest { snapshot_path: snapshot_path.display().to_string() };
+    let report =
+        crate::run_full_archive_restore(Some("000000"), &request).expect("worker restore succeeds");
+    assert!(report.run_id.is_some(), "an audit run was recorded");
+    assert!(matches!(report.restored_mode, ArchiveMode::Encrypted));
+
+    // The archive opens afterward (the wrapper reconciled config + restored the file).
+    let snapshot = app_snapshot(Some("000000")).expect("app snapshot");
+    assert!(snapshot.archive_status.unlocked, "the restored archive opens unlocked");
+
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, original_keyring.as_deref());
+}

@@ -85,12 +85,52 @@ Reorder + harden, each with a kill-at-checkpoint test reproducing the relevant c
 - **Corruption-detected-on-launch → calm in-app "Restore from snapshot"** (dated/sized/verified list, preview,
   one-click, broken state auto-quarantined). Build on existing `run_snapshot_restore`; FE by Sonnet 4.6.
 
+### Phase D BACKEND — DONE (data + command layer)
+
+- **D1 — full-archive one-click restore** (`run_full_archive_snapshot_restore`, maintenance.rs): validates the
+  chosen snapshot BY FILE (security-guarded to `.sqlite` under `raw-snapshots/`) + keyed `quick_check` BEFORE
+  touching the live archive, QUARANTINES the broken canonical files + stale crash markers (move, never delete),
+  durably installs the verified snapshot, rebuilds an empty source-evidence, reconciles config LAST, verifies
+  after, and records an `archive_restore` audit run. `preview_snapshot_restore` now returns
+  `executeSupported: true` for the safety-snapshot kind. Deliberately does NOT recover-first (D1 supersedes an
+  interrupted import/rekey). D1 is now a **crash-recoverable commit unit** guarded by a durable
+  `.pk-restore-journal.json` (written before quarantine, cleared after the post-restore verify): a crash in the
+  absent-canonical quarantine→install window can no longer boot an empty archive. The launch recovery sequence
+  (`recover_archive_on_launch_locked`) now runs `recover_interrupted_restore` (key-free: re-install from the
+  still-available snapshot, or roll back the quarantined originals; fail-closed `Unrecoverable` when neither is
+  possible — never an empty archive) alongside import/rekey recovery. `quarantine_canonical_archive` also fsyncs
+  the quarantine subdir (MEDIUM-1: the cross-dir move is now crash-durable).
+- **D2 — `list_recovery_snapshots`** (at_rest.rs): rich keyless metadata (date/size/`verifiedOpenable`/`sourceOp`)
+  per snapshot, NEVER a full-DB scan (plaintext: page-1 `PRAGMA schema_version`; encrypted: structural size). A
+  new `recoverySnapshots` field rides the startup `ArchiveRecoveryReport`.
+- **D3 — verified safety snapshot before whole-archive REWRITES**: the rekey-only helper is generalized to
+  `create_verified_safety_snapshot(op)` and now also fires before the at-rest reconcile rewrite and (best-effort)
+  before a whole-app import, each landing in `raw-snapshots/<op>/`. Retention keeps the last-good verified
+  snapshot (never prunes the freshest restorable backstop).
+- **BACKLOG**: retention's last-good guard trusts the keyless structural check (`size >= 512`) for ENCRYPTED
+  snapshots — the authoritative keyed `quick_check` runs only at restore (D1). A keyed verify or a
+  keep-N-newest policy for encrypted mode is a follow-up.
+- **Backup whole-DB-snapshot DEFERRAL (deliberate)**: backup does NOT snapshot the archive. Backup is
+  append-only + crash-atomic (Phase B) and NEVER REWRITES the canonical history-vault, so a per-backup
+  copy + `quick_check` of the 14.4M-row DB would cost minutes for zero added safety. The backstop is kept fresh
+  by the REWRITE ops (rekey/reconcile/import). `sourceOp = "periodic"` is reserved, not produced today.
+- **D4 — worker commands + startup surface**: `list_recovery_snapshots`, `run_full_archive_restore`, and
+  `parse_archive_recovery_required` (parses the `ARCHIVE_RECOVERY_REQUIRED_PREFIX` wire string the FE reads).
+- **FE-pending (separate block)**: the recovery screen UI + desktop Tauri-bridge command wiring.
+
 ## Phase E — Test infrastructure sweep + methodology (Track 4)
 
 - Real-encrypted-file round-trips (encrypt→kill→reopen); **config↔on-disk invariant checker** run in the suite;
   tests use `load_config` not hand-built config; concurrency/torture + property tests over interleavings.
 - Update `quality-matrix.md`: durability (fsync/atomic), config↔disk consistency, crash-window, and
   "no production I/O cfg-compiled-out" rules. The direct answer to "why didn't we test this".
+- **[carry-in, from the Phase-D restore review]** flaky test
+  `diagnostics::tests::rust_panic_payloads_keep_owned_strings_and_fallback_text`: `capture_panic_summary` installs
+  a PROCESS-GLOBAL panic hook guarded only against its sibling diagnostics test, not the rest of the suite, so
+  concurrent panic-injecting tests (migration/fault, fault_inject, the new restore crash tests) race it (~3/8
+  full-suite runs; reproduces WITHOUT the restore tests — root cause predates this work in unmodified
+  `diagnostics.rs`). Filtered gate runs (`archive::`/`migration`/`worker`) don't hit it. Fix in this sweep:
+  isolate the global-hook test (serialize it, or scope the guard to the whole suite).
 
 ## Confirmed CRITICALs this must close
 
