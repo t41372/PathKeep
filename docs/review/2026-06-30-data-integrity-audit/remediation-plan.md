@@ -90,3 +90,44 @@ wires the primitives into rekey / import / backup:
   crate (AiRunControl / intelligence / SQLite). Optionally tighten `fault_inject::checkpoint` to `pub(crate)`.
 - **`install_file_durably` requires `built` in the SAME directory as `dest`** (only `dest`'s parent is fsynced) —
   the rekey export temp must be built in `root/archive/`, not a system tempdir, or the unlink half isn't durable.
+
+## Lock-completion block (carry-ins from rekey + backup reviews)
+
+`ArchiveWriteLock` is wired into rekey (`69bb3c28`) and backup (`fcd334eb`); the import block adds it too. A
+dedicated block must finish the lock contract:
+
+- **In-process top-level serialization (MEDIUM, backup review):** the lock is process-REENTRANT, so it serializes
+  only ACROSS processes. Two ops dispatched in the SAME GUI process (e.g. a manual backup mid-transaction while the
+  user toggles encryption/rekey from Settings) each get a reentrant guard sharing one fd → NOT mutually excluded →
+  the same rename-out-from-under-open-txn loss (CRIT-5's same-process trigger). Add a process-wide archive-op gate
+  that the TOP-LEVEL ops (backup, rekey, import) take exclusively, while NESTED helpers (reconcile/migrate called
+  within a top-level op) do NOT take it (so backup→reconcile can't self-deadlock). Likely a `_locked` variant for
+  reconcile: the public entry takes the gate, the nested entry assumes the caller holds it.
+- **`reconcile_archive_encryption` must hold the lock (MEDIUM, backup review):** the unlock-path
+  `reconcile_archive_encryption` (vault-worker app.rs ~230) is a destructive at-rest rewrite that does NOT take the
+  lock, against `write_lock.rs`'s own contract — a scheduled backup can race it on source-evidence. Wrap it.
+- **Wire the lock into retention-prune + snapshot-restore** too (the module doc lists them as MUST-hold ops). When
+  the lock is added to each, also add the `crate::migration::recover_interrupted_import(paths)?` recover-first call
+  under that lock (mirroring rekey/backup/unlock) — these are the only destructive pre-open paths still missing it.
+  Do NOT add a recover-WITHOUT-lock half-measure in the meantime: recovery rewrites canonical DB files and must
+  serialize against a concurrent scheduled backup, so the recover-first wiring lands WITH the lock, not before it.
+- **`apply_import` in-process quiescence + crash-recovery wiring (import block carry-in):** `apply_import` holds the
+  cross-process `ArchiveWriteLock`, which excludes only the OUT-OF-PROCESS scheduled backup — there is NO in-process
+  worker quiescence in the `apply_app_data_import` → `worker_bridge::apply_app_data_import_impl` →
+  `vault_worker::apply_import` → `vault_core::apply_import` chain (the old doc claim that "the Tauri command façade
+  stopped background workers" was inaccurate; corrected). `recover_interrupted_import` (the crash-recovery twin of
+  `apply_import`'s in-band rollback over the durable `.pk-import-journal.json`) is now wired at THREE destructive
+  pre-open sites: the unlock-path `reconcile_archive_encryption`, the backup pre-open path
+  (`run_backup_with_progress`) — closing the out-of-process scheduled-backup hole where a crashed import's same-mode
+  half-state would be backed up and recorded as a SUCCESSFUL backup of corrupt state — AND the rekey pre-open path
+  (`rekey_archive`), closing the hole where a rekey on a PLAINTEXT archive (never reached by the encryption-gated
+  launch reconcile) would rekey a half-applied import into a permanent config↔source-evidence mode-drift brick.
+  `recover_interrupted_import` is itself now fail-closed: after restoring, `ensure_recovered_modes_are_consistent`
+  refuses (leaving the marker + surfacing a recoverable error) if the two canonical DBs cannot reach one at-rest mode
+  the about-to-be-written config can serve, so even the not-yet-wired paths can never silently commit a drift brick.
+  Still TODO for this block: wire recover-first into the retention-prune + snapshot-restore pre-open paths (with the
+  lock, per the bullet above; user-initiated, in-process ops that do not silently auto-record success — lower
+  residual risk, and the fail-closed guard backstops them until then).
+- **LOW polish:** manual backup uses blocking `acquire` with no "waiting for another archive operation" UI state —
+  switch to `acquire_interruptible` with a busy/cancel state; correct the findings note that the source-evidence
+  after-commit orphan is "permanently orphaned for that batch" (watermark advanced), not "rebuildable".

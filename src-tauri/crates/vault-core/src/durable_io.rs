@@ -221,6 +221,34 @@ pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
     fsync_parent_dir(dest)
 }
 
+/// Flushes the already-built file at `path` to the platter (no rename).
+///
+/// WHY: `apply_import` swaps the two canonical databases back-to-back behind a
+/// durable interrupted-import marker. The slow platter barrier (`F_FULLFSYNC` on
+/// macOS) is paid HERE, in a "prepare" pass over the staged copies, so the swap
+/// renames themselves issue with that barrier already paid — shrinking the window
+/// in which a crash leaves one canonical DB swapped and the other not.
+pub(crate) fn fsync_file_durably(path: &Path) -> Result<()> {
+    let file = File::open(path).with_context(|| format!("open {} for fsync", path.display()))?;
+    full_fsync(&file)
+}
+
+/// Durably removes the file at `path`: a no-op when already absent (idempotent),
+/// otherwise unlink + fsync the parent directory so the removal survives a crash.
+///
+/// WHY: `apply_import` clears the interrupted-import marker at its commit point. If
+/// that unlink reached only the directory's write cache, a power loss could
+/// RESURRECT the marker and crash-recovery would then roll back an import that
+/// actually committed. Fsyncing the parent makes "the marker is gone" durable, so
+/// recovery is a no-op exactly when the import succeeded.
+pub(crate) fn remove_file_durably(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    fs::remove_file(path).with_context(|| format!("remove {}", path.display()))?;
+    fsync_parent_dir(path)
+}
+
 /// Removes orphaned `.pk-durable-*` temp files left in `dir` when the process was killed between
 /// temp-create and persist (a `SIGKILL` skips `NamedTempFile`'s Drop, so the temp leaks). Returns
 /// the number removed. A missing `dir` is not an error (nothing to sweep). Startup / archive-open
@@ -299,6 +327,65 @@ mod tests {
         let dest = dir.path().join("dest.sqlite");
         let error = install_file_durably(&built, &dest).expect_err("missing built file must error");
         assert!(error.to_string().contains("open built file"));
+    }
+
+    // --- prepare-fsync + durable-remove helpers (apply_import commit barrier) ---------------------
+
+    #[test]
+    fn fsync_file_durably_flushes_a_real_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("staged.sqlite");
+        fs::write(&path, b"SQLite format 3\0staged bytes").expect("seed staged");
+        fsync_file_durably(&path).expect("fsync a real file must succeed");
+        // The file is untouched by the barrier (no rename, no truncation).
+        assert_eq!(fs::read(&path).expect("read"), b"SQLite format 3\0staged bytes");
+    }
+
+    #[test]
+    fn fsync_file_durably_errors_on_a_missing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("never-existed.sqlite");
+        let error = fsync_file_durably(&missing).expect_err("fsync of a missing file must error");
+        assert!(error.to_string().contains("open"), "got {error}");
+    }
+
+    #[test]
+    fn remove_file_durably_removes_an_existing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join(".pk-import-journal.json");
+        fs::write(&marker, b"{\"version\":1}").expect("seed marker");
+        remove_file_durably(&marker).expect("remove an existing file durably");
+        assert!(!marker.exists(), "the file must be removed");
+    }
+
+    #[test]
+    fn remove_file_durably_is_idempotent_on_a_missing_path() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("already-gone");
+        // No file there: a clean Ok with no side effect.
+        remove_file_durably(&missing).expect("removing a missing path must be a clean Ok");
+        assert!(!missing.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_file_durably_surfaces_an_unlink_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let parent = dir.path().join("locked");
+        fs::create_dir(&parent).expect("mkdir parent");
+        let victim = parent.join("marker");
+        fs::write(&victim, b"x").expect("seed victim");
+
+        let original = fs::metadata(&parent).expect("perms").permissions();
+        let mut locked = original.clone();
+        locked.set_mode(0o500); // r-x: stat (exists) still works, unlink is denied.
+        fs::set_permissions(&parent, locked).expect("lock parent");
+        let result = remove_file_durably(&victim);
+        fs::set_permissions(&parent, original).expect("restore perms");
+
+        let error = result.expect_err("an unlink in a read-only directory must surface");
+        assert!(error.to_string().contains("remove"), "got {error}");
     }
 
     // --- MEDIUM-4: orphaned temp sweep -----------------------------------------------------------

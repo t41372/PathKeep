@@ -149,6 +149,17 @@ pub fn reconcile_archive_encryption(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Result<ReconcileReport> {
+    // Heal a whole-app import whose commit phase was cut by a crash BEFORE the
+    // archive is opened: an interrupted-import marker means the two canonical
+    // renames + config write did not all land, so restore the consistent pre-import
+    // state first (mirrors how `recover_interrupted_rewrite` is woven into the
+    // reconcile family). This is ONE of the wired crash-recovery sites: the others are
+    // the backup pre-open path (`run_backup_with_progress`) and the rekey pre-open path
+    // (`rekey_archive`). The retention-prune / snapshot-restore pre-open paths are not
+    // wired yet — they get recover-first wiring when they take the `ArchiveWriteLock`
+    // (lock-completion / Phase-C block), guarded until then by the fail-closed mode
+    // check inside `recover_interrupted_import`.
+    crate::migration::recover_interrupted_import(paths)?;
     ensure_paths(paths)?;
     let archive = super::open_archive_connection(paths, config, key)?;
     reconcile_source_evidence_with_archive(&archive, paths, config, key)

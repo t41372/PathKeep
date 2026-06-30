@@ -366,7 +366,10 @@ pub fn run_retention_prune(
 /// LAST so a stale config is always the self-healable end state rather than a
 /// brick:
 ///   1. hold the cross-process [`ArchiveWriteLock`] for the whole operation, so the
-///      out-of-process scheduled backup can never race the swap;
+///      out-of-process scheduled backup can never race the swap, then RECOVER any
+///      interrupted whole-app import FIRST (`recover_interrupted_import`): a plaintext
+///      archive never reaches the encryption-gated launch reconcile, so rekeying a
+///      half-applied import would brick it on a config↔source-evidence mode drift;
 ///   2. take a VERIFIED safety snapshot of the canonical archive BEFORE any
 ///      destructive write (checkpointed so the copy is WAL-complete, then re-opened
 ///      and `quick_check`ed with the CURRENT key — an un-restorable backstop is
@@ -400,6 +403,21 @@ pub fn rekey_archive(
     // crucially the SEPARATE scheduled-backup process — until this guard drops.
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("acquiring the archive write lock for rekey")?;
+
+    // (1a) Heal a whole-app import whose commit phase was cut by a crash BEFORE this
+    // rekey opens / snapshots / rewrites anything. A PLAINTEXT archive never reaches the
+    // encryption-gated launch reconcile, so a half-applied import (e.g. new history-vault
+    // installed, source-evidence not yet) can still be on disk when the user enables
+    // encryption. Rekeying that half-state would convert ONE canonical DB to Encrypted
+    // while leaving the marker + the other DB's plaintext `.bak` behind, so the NEXT
+    // `recover_interrupted_import` would restore one DB to plaintext and leave the other
+    // Encrypted — a permanent config↔source-evidence mode-drift brick. Recovering FIRST
+    // restores the consistent pre-import state so the rekey operates on a coherent
+    // archive (the post-rekey archive is then already a recovered, consistent state).
+    // Reentrancy-safe: the write-lock manager is process-reentrant, so re-acquiring the
+    // lock we already hold yields a nested guard sharing the one fd (no self-deadlock);
+    // and a clean archive makes this a cheap marker `stat` no-op.
+    crate::migration::recover_interrupted_import(paths)?;
 
     let started_at = now_rfc3339();
     let timezone = current_timezone_name();

@@ -126,6 +126,18 @@ where
         }
     };
 
+    // Heal a whole-app import whose commit phase was cut by a crash BEFORE this backup
+    // opens the archive (data-integrity audit, HIGH residual). A crashed GUI import
+    // frees its `flock` when the process dies; the SEPARATE scheduled-backup process can
+    // then win the lock and would otherwise open — and record SUCCESS for — a silently
+    // half-applied (e.g. new history-vault + old source-evidence) archive, never hitting
+    // the unlock-path reconcile. Recovering here reverts to the consistent pre-import
+    // state first. The acquire inside is process-reentrant (we already hold the lock) and
+    // gated on a cheap marker `stat`, so this is a no-op when no import was interrupted.
+    // Placed AFTER the lock acquire so a scheduled run still DEFERS (above) rather than
+    // blocking when another process holds the lock mid-import.
+    crate::migration::recover_interrupted_import(paths)?;
+
     let mut connection = super::open_archive_connection(paths, config, key)?;
     // Self-heal a drifted at-rest mode (e.g. an encrypted config left over a
     // plaintext source-evidence by an archive-only rekey) BEFORE opening

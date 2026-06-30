@@ -51,10 +51,11 @@ pub(crate) use self::artifacts::{
     load_checkpoint_profile_snapshot, load_snapshot_record, record_snapshot_reference,
     serialize_payload,
 };
-pub use self::at_rest::{ReconcileReport, reconcile_archive_encryption};
 pub(crate) use self::at_rest::{
-    migrate_source_evidence_for_rekey, reconcile_source_evidence_with_archive,
+    DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
+    reconcile_source_evidence_with_archive, remove_stale_sidecars,
 };
+pub use self::at_rest::{ReconcileReport, reconcile_archive_encryption};
 pub use self::backup::{run_backup, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;
