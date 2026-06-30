@@ -70,6 +70,63 @@ describe('Activity center (JobsPage)', () => {
     expect(screen.getByTestId('activity-page-skeleton')).toBeInTheDocument()
   })
 
+  // ── 1b. First runtime load (no data yet) shows the activity skeleton ────────
+  //
+  // This is the first-load correctness test (and covers the new `aiQueue === null` skeleton
+  // branch). It is NOT the regression guard for the every-3s flash — both the old and the new
+  // gate return true here, so 1b alone cannot catch a revert. Test 1c below is that guard.
+
+  test('first runtime load (aiQueue/runtime still null) renders the activity skeleton', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    const shellValue = createShellValue(snapshot)
+    shellValue.runtimeStatus = {
+      aiQueue: null,
+      intelligence: null,
+      loading: true,
+      error: null,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(screen.getByTestId('activity-page-skeleton')).toBeInTheDocument()
+  })
+
+  // ── 1c. Background poll must NOT re-show the skeleton (no flash / no reset) ──
+  //
+  // Regression: the shell re-flips runtimeStatus.loading to true on every 3s poll. The page
+  // used to gate its full-page skeleton on that flag, so it unmounted + remounted the whole
+  // tree every few seconds — the visible flash, and the reason all child state reset. With
+  // data already present, a loading:true poll must keep the page mounted and content visible.
+
+  test('background poll (loading:true with data present) keeps content mounted, no skeleton flash', async () => {
+    const { snapshot } = await seedArchiveState()
+
+    const shellValue = createShellValue(snapshot)
+    // Same populated queue data createShellValue seeds, but with a refresh in flight.
+    shellValue.runtimeStatus = {
+      ...shellValue.runtimeStatus!,
+      loading: true,
+    }
+
+    renderSurface(<JobsPage />, {
+      language: 'en',
+      route: '/jobs',
+      shellValue,
+      snapshot,
+    })
+
+    expect(
+      screen.queryByTestId('activity-page-skeleton'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByTestId('jobs-page')).toBeInTheDocument()
+  })
+
   // ── 2. Not-initialized gate ────────────────────────────────────────────────
 
   test('not-initialized renders EmptyState with setupTitle visible', async () => {

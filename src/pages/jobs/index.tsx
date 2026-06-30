@@ -125,9 +125,18 @@ export function JobsPage() {
 
   const aiQueue = runtimeStatus.aiQueue
   const runtime = runtimeStatus.intelligence
-  const runtimeLoading =
-    runtimeStatus.loading ||
-    (!runtimeStatus.error && aiQueue === null && runtime === null)
+  // Show the full-page skeleton ONLY on the genuine first load — no runtime data has arrived yet
+  // and there's no error to surface instead. We deliberately do NOT gate on `runtimeStatus.loading`:
+  // the shell re-flips that flag to `true` on every background poll (every 3s while work is active,
+  // see shell-runtime-status.ts). Gating the skeleton on it would unmount the entire page on each
+  // tick — the visible "flash", and the reason every child's local state (Recent toggle, scroll)
+  // reset to its initial value. Once data (or an error) is present we keep the page mounted and let
+  // the zones reconcile in place, so a refresh updates numbers without tearing the page down.
+  //
+  // `aiQueue` and `runtime` are always populated and cleared together (one Promise.all in
+  // shell-runtime-status; both null on reset/error), so a null `aiQueue` is a sufficient
+  // "first read hasn't resolved" signal — no need to re-check `runtime` separately.
+  const runtimeLoading = !runtimeStatus.error && aiQueue === null
 
   // Stale archive detection (reuse from old code)
   const staleArchiveTasks = useMemo(
