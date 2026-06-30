@@ -1179,9 +1179,11 @@ function BaseTierPanel({
               className="h-[6px] w-full overflow-hidden rounded-full bg-ink-faint"
               data-testid="ai-base-tier-progress-bar"
             >
-              {/* Indeterminate: pulses normally; under reduced motion it stays a static partial fill
-                  (not hidden) so a sighted reduced-motion user still sees an in-progress indicator. */}
-              <div className="h-full w-1/3 animate-pulse bg-ink-accent motion-reduce:animate-none" />
+              {/* Indeterminate: the shared canonical sweep (pk-indeterminate-bar) — the same
+                  treatment every other progress bar in the app uses, so the model download looks
+                  identical here and on the Activity page. Under reduced motion the class falls back
+                  to a static partial fill, so a sighted reduced-motion user still sees activity. */}
+              <div className="h-full bg-ink-accent pk-indeterminate-bar" />
             </div>
           )}
           {/* Current file (basename only, mono) */}

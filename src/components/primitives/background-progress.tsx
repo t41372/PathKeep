@@ -79,9 +79,7 @@ export function BackgroundProgress({
         <span
           className={cn(
             'block h-full bg-accent transition-[width] duration-200 ease-out',
-            progress === null
-              ? 'animate-[background-progress-glide_1.4s_ease-in-out_infinite] w-1/3'
-              : null,
+            progress === null ? 'pk-indeterminate-bar' : null,
           )}
           style={
             progress === null

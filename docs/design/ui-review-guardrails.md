@@ -198,7 +198,7 @@ Explorer 是 canonical evidence workbench，不是靜態內容頁。
 
 ## 9. Reviewer 快速清單
 
-看一個新 UI 或改版時，至少問完這 8 題：
+看一個新 UI 或改版時，至少問完這 9 題：
 
 1. 這是 summary card，還是其實該獨立成 workbench surface？
 2. 它如果做成 full-width，有沒有落在白名單內？
@@ -208,5 +208,13 @@ Explorer 是 canonical evidence workbench，不是靜態內容頁。
 6. 這個結論能不能回到 Explorer / Audit / evidence drawer？
 7. 這個行為是不是只在 preview 成立，桌面真機還沒驗？
 8. 如果是 Explorer 相關，pagination / sticky detail rail / scroll position 有沒有被破壞？
+9. 進度/載入動畫誠實嗎？
 
 任何一題答不清楚，就不要把 UI 當成完成。
+
+### 進度條與不確定動畫紅線（第 9 題展開）
+
+- **不確定進度只准用唯一的正典 sweep**：`pk-indeterminate-bar` / `@keyframes pk-indeterminate-sweep`（定義在 `src/styles/app/progress.css`，30% 寬、`linear`、`translateX(-100%)→333.333%`、兩端都掃到、不停頓）。**不准再手搓新的 `@keyframes …-sweep/-glide/-shimmer`**——歷史上五個各自手搓的版本都壞掉（有的 `ease-in-out` 在兩端卡住像「停住」、有的中途 `translateX` hold 住一半週期凍結、有的 bar 永遠掃不到最左緣），就是這條紅線的由來。
+- **transform-only**：keyframe 只動 `transform`（必要時 `opacity`），不准動 `width`/`left`/`right` 等觸發 layout 的屬性（compositor-only）。determinate（真實 %）那條路用 inline `style.width` + `transition`，與不確定動畫互不干擾。
+- **誠實**：有真實進度（位元組數、scan target…）就走 determinate 真實 %；沒有才退不確定 sweep。不確定 bar 不准長得像「停在 X% 的 determinate 進度」。
+- **reduced-motion**：所有 looping 動畫都要 `@media (prefers-reduced-motion: no-preference)` gate；reduced-motion fallback 是誠實的靜態局部填充（30%），不准是空軌（看起來壞了）或滿軌（看起來做完了）。

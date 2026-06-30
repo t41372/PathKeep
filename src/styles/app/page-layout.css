@@ -207,9 +207,15 @@
   position: relative;
 }
 
+/* Reduced-motion static fallback: 30 % partial fill */
 .busy-overlay__progress-fill--indeterminate {
-  width: 36%;
-  animation: busy-overlay-progress-sweep 1.1s ease-in-out infinite;
+  width: 30%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .busy-overlay__progress-fill--indeterminate {
+    animation: pk-indeterminate-sweep 1.4s linear infinite;
+  }
 }
 
 .busy-overlay__steps {
@@ -267,16 +273,6 @@
   50% {
     transform: scale(1);
     opacity: 1;
-  }
-}
-
-@keyframes busy-overlay-progress-sweep {
-  0% {
-    transform: translateX(-105%);
-  }
-
-  100% {
-    transform: translateX(285%);
   }
 }
 

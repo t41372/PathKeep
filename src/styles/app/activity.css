@@ -44,15 +44,6 @@
   }
 }
 
-@keyframes activity-shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(250%);
-  }
-}
-
 @keyframes activity-skeleton-pulse {
   0%,
   100% {
@@ -303,15 +294,15 @@
   transition: width 300ms ease;
 }
 
-/* Indeterminate: partial fill to show activity, shimmer when motion allowed */
+/* Indeterminate: reduced-motion static fallback is a calm 30 % partial fill —
+ * never empty (looks broken), never full (looks complete). */
 .activity-progress--indeterminate .activity-progress__bar--indeterminate {
-  width: 40%;
+  width: 30%;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .activity-progress--indeterminate .activity-progress__bar--indeterminate {
-    width: 28%;
-    animation: activity-shimmer 1.6s ease-in-out infinite;
+    animation: pk-indeterminate-sweep 1.4s linear infinite;
   }
 }
 
