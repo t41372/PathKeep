@@ -54,6 +54,12 @@ export const archiveClient = {
     call<ExportResult>('export_history', { request }),
   listRecoverySnapshots: () =>
     call<RecoverySnapshot[]>('list_recovery_snapshots'),
-  runFullArchiveRestore: (request: SnapshotRestoreRequest) =>
-    call<FullArchiveRestoreReport>('run_full_archive_restore', { request }),
+  runFullArchiveRestore: (
+    request: SnapshotRestoreRequest,
+    key?: string | null,
+  ) =>
+    call<FullArchiveRestoreReport>('run_full_archive_restore', {
+      request,
+      key,
+    }),
 }

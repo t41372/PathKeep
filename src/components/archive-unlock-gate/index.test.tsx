@@ -34,6 +34,7 @@ import type {
   AppConfig,
   KeyringStatusReport,
   ReconcileReport,
+  RecoverySnapshot,
 } from '../../lib/types'
 import { ArchiveUnlockGate } from './index'
 
@@ -65,6 +66,9 @@ vi.mock('../../lib/backend-client', async (importOriginal) => {
         fromMode: null,
         toMode: 'Encrypted',
       } satisfies ReconcileReport),
+      // Used by the SnapshotRecoveryPanel rendered inside the recover-mode escape hatch.
+      listRecoverySnapshots: vi.fn().mockResolvedValue([]),
+      revealLogs: vi.fn().mockResolvedValue(undefined),
     },
   }
 })
@@ -225,7 +229,26 @@ beforeEach(() => {
     fromMode: null,
     toMode: 'Encrypted',
   })
+  vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([])
+  vi.mocked(backend.revealLogs).mockResolvedValue('' as never)
 })
+
+// A minimal recovery snapshot fixture for the recover-mode escape-hatch tests.
+function recoverySnapshotFixture(
+  overrides: Partial<RecoverySnapshot> = {},
+): RecoverySnapshot {
+  return {
+    id: 'snap-1',
+    path: '/snap.sqlite',
+    createdAt: '2026-06-01T10:00:00Z',
+    sizeBytes: 1024 * 1024,
+    verifiedOpenable: true,
+    encrypted: false,
+    sourceOp: 'rekey',
+    label: 'Encryption change',
+    ...overrides,
+  }
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -285,7 +308,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'correct-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() =>
       expect(backend.setSessionDatabaseKey).toHaveBeenCalledWith('correct-pw'),
@@ -307,7 +330,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'my-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() =>
       expect(backend.keyringStoreDatabaseKey).toHaveBeenCalledWith('my-pw'),
@@ -331,7 +354,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText('PASSWORD'), {
       target: { value: 'my-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() =>
       expect(backend.setSessionDatabaseKey).toHaveBeenCalledWith('my-pw'),
@@ -357,7 +380,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'wrong-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     // Gate is still visible (no refresh happened).
@@ -366,7 +389,7 @@ describe('ArchiveUnlockGate', () => {
 
   test('empty password: shows required error without calling backend', async () => {
     renderGate()
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(backend.setSessionDatabaseKey).not.toHaveBeenCalled()
@@ -400,7 +423,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'correct-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(refreshAppData).toHaveBeenCalled())
     expect(onRetryBackup).toHaveBeenCalledTimes(1)
@@ -421,7 +444,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'correct-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(refreshAppData).toHaveBeenCalled())
     expect(backend.reconcileArchiveEncryption).toHaveBeenCalled()
@@ -441,7 +464,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'correct-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(refreshAppData).toHaveBeenCalled())
   })
@@ -491,7 +514,7 @@ describe('ArchiveUnlockGate', () => {
     fireEvent.change(screen.getByLabelText(/PASSWORD/i), {
       target: { value: 'wrong-pw' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /unlock/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(backend.clearSessionDatabaseKey).toHaveBeenCalled()
@@ -599,5 +622,196 @@ describe('ArchiveUnlockGate', () => {
     unmount()
     expect(document.activeElement).toBe(trigger)
     document.body.removeChild(trigger)
+  })
+
+  // ── Recovery escape hatch: "Can't unlock? Recover from a snapshot" ─────────────
+
+  test('unlock mode always shows the "Can\'t unlock? Recover" escape hatch', () => {
+    renderGate()
+    expect(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  test('clicking the escape hatch routes to recover mode and lists snapshots', async () => {
+    vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([
+      recoverySnapshotFixture(),
+    ])
+    renderGate()
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+
+    // Recover-mode title + reassuring body are shown in the SAME dialog shell.
+    expect(
+      screen.getByRole('dialog', { name: /restore from a snapshot/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/locked out/i)).toBeInTheDocument()
+    // The SnapshotRecoveryPanel loaded and listed the snapshot.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /restore from this snapshot/i }),
+      ).toBeInTheDocument(),
+    )
+    expect(backend.listRecoverySnapshots).toHaveBeenCalled()
+  })
+
+  test('recover mode prefills the archive key from the typed password', async () => {
+    vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([
+      recoverySnapshotFixture({ encrypted: true }),
+    ])
+    renderGate()
+
+    // Type a password in unlock mode first, then jump to recover.
+    fireEvent.change(screen.getByLabelText('PASSWORD'), {
+      target: { value: 'typed-pw' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /restore from this snapshot/i }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    // The panel seeded its key field from the password the user already typed.
+    expect(screen.getByLabelText('Archive key')).toHaveValue('typed-pw')
+  })
+
+  test('"Back to unlock" returns to the password form', () => {
+    renderGate()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+    expect(
+      screen.getByRole('dialog', { name: /restore from a snapshot/i }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /go back to the unlock form/i }),
+    )
+    expect(
+      screen.getByRole('dialog', { name: /archive locked/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('PASSWORD')).toBeInTheDocument()
+  })
+
+  test('a successful encrypted restore returns the user to unlock mode', async () => {
+    vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([
+      recoverySnapshotFixture({ encrypted: true }),
+    ])
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    renderGate(snapshotFixture(), { runFullArchiveRestore })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /restore from this snapshot/i }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    fireEvent.change(screen.getByLabelText('Archive key'), {
+      target: { value: 'my-key' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /confirm and restore from this snapshot/i,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(runFullArchiveRestore).toHaveBeenCalledWith(
+        '/snap.sqlite',
+        'my-key',
+      ),
+    )
+    // onRestored flips the gate back to unlock mode so the user can enter their key once.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('dialog', { name: /archive locked/i }),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  test('switching to recover mode keeps focus inside the dialog (trap intact)', () => {
+    renderGate()
+    // Simulate a keyboard user who tabbed onto the escape hatch before activating it.
+    const hatch = screen.getByRole('button', {
+      name: /recover from a saved snapshot instead/i,
+    })
+    hatch.focus()
+    fireEvent.click(hatch)
+
+    // The escape-hatch button unmounts with the unlock body; without explicit focus
+    // management focus would drop to document.body and Tab could escape the modal.
+    const dialog = screen.getByRole('dialog', {
+      name: /restore from a snapshot/i,
+    })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { name: /restore from a snapshot/i }),
+    )
+  })
+
+  test('"Back to unlock" returns focus to the password field', () => {
+    renderGate()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+    const back = screen.getByRole('button', {
+      name: /go back to the unlock form/i,
+    })
+    back.focus()
+    fireEvent.click(back)
+
+    // Mirrors the mount autofocus: returning to unlock lands on the password input.
+    expect(document.activeElement).toBe(screen.getByLabelText('PASSWORD'))
+  })
+
+  test('recover mode recaptures focus that escapes to a control behind the locked gate', () => {
+    renderGate()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /recover from a saved snapshot instead/i,
+      }),
+    )
+    const dialog = screen.getByRole('dialog', {
+      name: /restore from a snapshot/i,
+    })
+
+    // A focusable control "behind" the locked gate (e.g. a sidebar button in the
+    // still-focusable shell) steals focus.
+    const behind = document.createElement('button')
+    behind.textContent = 'sidebar'
+    document.body.appendChild(behind)
+    behind.focus()
+
+    // The recapture guard pulls focus straight back inside the dialog, so it can
+    // never rest on a control behind the locked gate.
+    expect(document.activeElement).not.toBe(behind)
+    expect(dialog.contains(document.activeElement)).toBe(true)
+
+    document.body.removeChild(behind)
   })
 })

@@ -60,6 +60,7 @@ function makeSnapshot(
     createdAt: '2026-06-01T10:00:00Z',
     sizeBytes: 1024 * 1024,
     verifiedOpenable: true,
+    encrypted: false,
     sourceOp: 'rekey',
     label: 'Encryption change',
     ...overrides,
@@ -237,7 +238,7 @@ describe('ArchiveRecoveryScreen', () => {
     )
 
     await waitFor(() =>
-      expect(runFullArchiveRestore).toHaveBeenCalledWith('/snap.sqlite'),
+      expect(runFullArchiveRestore).toHaveBeenCalledWith('/snap.sqlite', null),
     )
   })
 
@@ -692,5 +693,74 @@ describe('ArchiveRecoveryScreen', () => {
     // emptyReassurance contains "quarantine" and "not deleted"
     expect(screen.getByText(/quarantine/i)).toBeInTheDocument()
     expect(screen.getByText(/not deleted/i)).toBeInTheDocument()
+  })
+
+  // ── Encrypted-snapshot recovery gap: honest badge + key entry + keyed restore ──
+
+  test('encrypted headline snapshot shows the honest "needs your key" badge', () => {
+    renderScreen(
+      makeReport({
+        recoverySnapshots: [makeSnapshot({ encrypted: true })],
+      }),
+    )
+    expect(screen.getByText(/needs your key/i)).toBeInTheDocument()
+    expect(screen.queryByText('Verified')).toBeNull()
+  })
+
+  test('encrypted snapshot confirm shows the ArchiveKeyField and threads the entered key', async () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    renderScreen(
+      makeReport({ recoverySnapshots: [makeSnapshot({ encrypted: true })] }),
+      { runFullArchiveRestore },
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    const keyInput = screen.getByLabelText('Archive key')
+    expect(keyInput).toBeInTheDocument()
+    fireEvent.change(keyInput, { target: { value: 'the-key' } })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /confirm and restore from this snapshot/i,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(runFullArchiveRestore).toHaveBeenCalledWith(
+        '/snap.sqlite',
+        'the-key',
+      ),
+    )
+  })
+
+  test('plaintext snapshot confirm shows no key field', () => {
+    renderScreen()
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    expect(screen.queryByLabelText('Archive key')).toBeNull()
+  })
+
+  test('encrypted confirm moves focus to the key field, not the destructive button', () => {
+    renderScreen(
+      makeReport({ recoverySnapshots: [makeSnapshot({ encrypted: true })] }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    // Focus lands on the field the user must fill, not the "Restore now" button.
+    expect(document.activeElement).toBe(screen.getByLabelText('Archive key'))
+  })
+
+  test('main panel exposes a persistent "Reveal logs" forward path', async () => {
+    renderScreen()
+    const reveal = screen.getByRole('button', {
+      name: /open the pathkeep logs/i,
+    })
+    expect(reveal).toBeInTheDocument()
+    fireEvent.click(reveal)
+    await waitFor(() => expect(backend.revealLogs).toHaveBeenCalled())
   })
 })

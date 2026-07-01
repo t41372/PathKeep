@@ -48,6 +48,16 @@ pub(super) struct WrappedRequest<T> {
     pub(super) request: T,
 }
 
+/// Mirrors `run_full_archive_restore`, which unlike the other snapshot ops takes an explicit
+/// user-entered archive key alongside the request (the recovery/unlock session holds no ambient key).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct FullArchiveRestorePayload {
+    pub(super) request: vault_core::SnapshotRestoreRequest,
+    #[serde(default)]
+    pub(super) key: Option<String>,
+}
+
 /// Accepts the in-memory session key used by dev automation when the native
 /// app session should be unlocked without touching keyring storage.
 #[derive(Deserialize)]

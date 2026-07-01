@@ -39,7 +39,7 @@ import { useShellData } from '../../app/shell-data-context'
 import { backend } from '../../lib/backend-client'
 import { useI18n } from '../../lib/i18n'
 import type { ArchiveRecoveryReport, RecoverySnapshot } from '../../lib/types'
-import { SnapshotCard } from '../snapshot-restore'
+import { ArchiveKeyField, SnapshotCard } from '../snapshot-restore'
 import { useSnapshotRestore } from '../snapshot-restore/use-snapshot-restore'
 
 interface ArchiveRecoveryScreenProps {
@@ -58,13 +58,18 @@ export function ArchiveRecoveryScreen({ report }: ArchiveRecoveryScreenProps) {
   const [expanded, setExpanded] = useState(false)
   const primaryBtnRef = useRef<HTMLButtonElement | null>(null)
   const confirmBtnRef = useRef<HTMLButtonElement | null>(null)
+  const confirmKeyRef = useRef<HTMLInputElement | null>(null)
   const restoringStatusRef = useRef<HTMLParagraphElement | null>(null)
 
   const restore = useSnapshotRestore({ runFullArchiveRestore })
 
-  // Compute snapshot subsets
+  // Compute snapshot subsets. An encrypted snapshot can NEVER be verified without
+  // its key (its `verifiedOpenable` is only a size heuristic — the authoritative
+  // keyed check runs at restore time), so it does NOT count as "verified" here:
+  // that keeps the aggregate count honest and prefers a genuinely-verifiable
+  // headline. Encrypted snapshots are still listed and restorable via the key field.
   const snapshots = report.recoverySnapshots
-  const verified = snapshots.filter((s) => s.verifiedOpenable)
+  const verified = snapshots.filter((s) => !s.encrypted && s.verifiedOpenable)
   const newest: RecoverySnapshot | null = verified[0] ?? snapshots[0] ?? null
   const remaining = snapshots.filter((s) => s !== newest)
 
@@ -80,12 +85,19 @@ export function ArchiveRecoveryScreen({ report }: ArchiveRecoveryScreenProps) {
     }
   }, [])
 
-  // When the confirm step opens, move focus to its primary "Restore now" button so
-  // keyboard users land on the destructive confirmation rather than nowhere.
+  // When the confirm step opens, move focus to its primary control. For an
+  // encrypted snapshot that is the key field (the thing the user must fill), not
+  // the destructive button; for a plaintext one it is the "Restore now" button.
+  // Either way keyboard users land inside the confirm step rather than nowhere.
   useEffect(() => {
     if (restore.confirming) {
-      // Stryker disable next-line OptionalChaining: defensive — element may be gone.
-      confirmBtnRef.current?.focus?.()
+      if (restore.confirming.encrypted) {
+        // Stryker disable next-line OptionalChaining: defensive — element may be gone.
+        confirmKeyRef.current?.focus?.()
+      } else {
+        // Stryker disable next-line OptionalChaining: defensive — element may be gone.
+        confirmBtnRef.current?.focus?.()
+      }
     }
   }, [restore.confirming])
 
@@ -308,6 +320,16 @@ export function ArchiveRecoveryScreen({ report }: ArchiveRecoveryScreenProps) {
                   )
                 : t('confirmBodyDateUnknown')}
             </p>
+            {restore.confirming.encrypted ? (
+              <ArchiveKeyField
+                id="recovery-key"
+                inputRef={confirmKeyRef}
+                value={restore.archiveKey}
+                onChange={restore.setArchiveKey}
+                t={t}
+                disabled={restore.restoring}
+              />
+            ) : null}
             <div className="archive-recovery-screen__actions">
               <button
                 type="button"
@@ -378,6 +400,19 @@ export function ArchiveRecoveryScreen({ report }: ArchiveRecoveryScreenProps) {
             ) : null}
           </>
         ) : null}
+
+        {/* Persistent forward path: always reachable so the user is never stuck —
+            even when every snapshot is encrypted and no key has been entered. */}
+        <div className="archive-recovery-screen__actions">
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => void backend.revealLogs()}
+            aria-label={t('revealLogsAria')}
+          >
+            {t('revealLogs')}
+          </button>
+        </div>
       </div>
     </div>
   )

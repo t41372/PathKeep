@@ -108,11 +108,12 @@ pub(crate) async fn list_recovery_snapshots() -> Result<Vec<vault_core::Recovery
 /// Runs the one-click full-archive restore from a verified snapshot, off the UI thread.
 pub(crate) async fn run_full_archive_restore(
     request: vault_core::SnapshotRestoreRequest,
+    key: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::FullArchiveRestoreReport, String> {
     let session = state.inner().clone();
     run_blocking_command("run_full_archive_restore", move || {
-        worker_bridge::run_full_archive_restore_impl(request, &session)
+        worker_bridge::run_full_archive_restore_impl(request, key, &session)
     })
     .await
 }

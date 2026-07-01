@@ -288,6 +288,12 @@ fn dispatch_command_decodes_all_browser_mirror_command_payloads() {
         "run_full_archive_restore",
         wrapped(SnapshotRestoreRequest { snapshot_path: "/nonexistent.sqlite".to_string() }),
     );
+    // Exercise the explicit-key branch (`key = Some`) of the restore payload / `or_else` fallback.
+    dispatch_for_coverage(
+        &state,
+        "run_full_archive_restore",
+        json!({ "request": { "snapshotPath": "/nonexistent.sqlite" }, "key": "abc" }),
+    );
     dispatch_for_coverage(&state, "preview_retention_prune", json!({}));
     dispatch_for_coverage(
         &state,

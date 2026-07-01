@@ -76,11 +76,17 @@ pub(crate) fn list_recovery_snapshots_impl() -> Result<Vec<vault_core::RecoveryS
 
 #[cfg_attr(test, allow(dead_code))]
 /// Runs the one-click full-archive restore from a verified safety snapshot.
+///
+/// Prefers an explicit user-entered archive key (the recovery/unlock escape hatch holds no
+/// ambient session key), falling back to the session key when none is supplied. The key is
+/// never logged or echoed back in the report.
 pub(crate) fn run_full_archive_restore_impl(
     request: vault_core::SnapshotRestoreRequest,
+    key: Option<String>,
     state: &SessionState,
 ) -> Result<vault_core::FullArchiveRestoreReport, String> {
-    worker_result(vault_worker::run_full_archive_restore(session_key(state).as_deref(), &request))
+    let effective_key = key.or_else(|| session_key(state));
+    worker_result(vault_worker::run_full_archive_restore(effective_key.as_deref(), &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

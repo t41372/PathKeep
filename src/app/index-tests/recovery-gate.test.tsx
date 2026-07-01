@@ -93,6 +93,7 @@ function makeRecovery(): ArchiveRecoveryReport {
         createdAt: '2026-06-01T10:00:00Z',
         sizeBytes: 1024,
         verifiedOpenable: true,
+        encrypted: false,
         sourceOp: 'backup',
         label: 'Backup',
       },

@@ -796,8 +796,11 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   })
 
   const runFullArchiveRestore = useCallback(
-    async (snapshotPath: string) => {
-      const report = await backend.runFullArchiveRestore({ snapshotPath })
+    async (snapshotPath: string, key?: string | null) => {
+      const report = await backend.runFullArchiveRestore(
+        { snapshotPath },
+        key ?? null,
+      )
       // Refresh first so a failure keeps the recovery screen visible (setRecovery
       // inside refreshAppData also clears it on success, so the explicit call below
       // is redundant on the happy path but ensures cleanup on a partial failure).

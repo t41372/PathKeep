@@ -34,7 +34,10 @@ import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useShellData } from '../../app/shell-data-context'
 import type { RecoverySnapshot } from '../../lib/types'
-import { SnapshotCard } from '../../components/snapshot-restore'
+import {
+  ArchiveKeyField,
+  SnapshotCard,
+} from '../../components/snapshot-restore'
 import { useSnapshotRestore } from '../../components/snapshot-restore/use-snapshot-restore'
 import type { SettingsSectionNavItem } from './section-nav-items'
 
@@ -194,6 +197,15 @@ export function SnapshotRestoreSection({
                   )
                 : t('confirmBodyDateUnknown')}
             </p>
+            {restore.confirming.encrypted ? (
+              <ArchiveKeyField
+                id="settings-restore-key"
+                value={restore.archiveKey}
+                onChange={restore.setArchiveKey}
+                t={t}
+                disabled={restore.restoring}
+              />
+            ) : null}
             <div className="archive-recovery-screen__actions">
               <button
                 type="button"

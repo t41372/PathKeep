@@ -62,6 +62,7 @@ describe('archive client', () => {
         createdAt: null,
         sizeBytes: 1024,
         verifiedOpenable: true,
+        encrypted: false,
         sourceOp: 'backup',
         label: 'Backup snapshot',
       },
@@ -96,6 +97,30 @@ describe('archive client', () => {
 
     expect(invokeCommandMock).toHaveBeenCalledWith('run_full_archive_restore', {
       request: { snapshotPath: '/snap.sqlite' },
+    })
+    expect(result).toEqual(report)
+  })
+
+  test('runFullArchiveRestore forwards an explicit archive key', async () => {
+    const report = {
+      runId: 7,
+      restoredSnapshotPath: '/s.sqlite',
+      restoredMode: 'Encrypted',
+      quarantineDir: '/quarantine',
+      sourceEvidenceRebuilt: false,
+      warnings: [],
+    }
+    invokeCommandMock.mockResolvedValueOnce(report)
+
+    const { archiveClient } = await import('./archive')
+    const result = await archiveClient.runFullArchiveRestore(
+      { snapshotPath: '/s.sqlite' },
+      'secret',
+    )
+
+    expect(invokeCommandMock).toHaveBeenCalledWith('run_full_archive_restore', {
+      request: { snapshotPath: '/s.sqlite' },
+      key: 'secret',
     })
     expect(result).toEqual(report)
   })

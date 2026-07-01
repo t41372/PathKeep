@@ -5,12 +5,16 @@
  *
  * ## Responsibilities
  * - Render `SnapshotCard` — a single snapshot card with date, size, badge, sourceOp,
- *   and a Restore action button.
+ *   and a Restore action button. Encrypted snapshots get an honest "needs your key"
+ *   badge instead of the green "Verified" one.
  * - Render `SnapshotRestoreList` — list of snapshot cards with loading / error / empty states.
+ * - Render `ArchiveKeyField` — the shared password input used to collect the archive
+ *   key before verifying/restoring an encrypted snapshot.
  *
  * ## Not responsible for
  * - Owning the restore state machine (see `use-snapshot-restore.ts`).
  * - Loading snapshot data from the backend.
+ * - Deciding when a key is required (callers gate on `snap.encrypted`).
  *
  * ## Dependencies
  * - `formatBytes` for file size display.
@@ -26,6 +30,8 @@ import { useI18n } from '../../lib/i18n'
 import { formatBytes } from '../../lib/format'
 import type { RecoverySnapshot } from '../../lib/types'
 import { sourceOpLabel } from './use-snapshot-restore'
+
+export { SnapshotRecoveryPanel } from './recovery-panel'
 
 // ─── SnapshotCard ─────────────────────────────────────────────────────────────
 
@@ -61,16 +67,25 @@ export function SnapshotCard({
       )
     : t('snapshotDateUnknown')
 
-  const badgeClass = snap.verifiedOpenable
-    ? 'archive-recovery-screen__badge archive-recovery-screen__badge--verified'
-    : 'archive-recovery-screen__badge archive-recovery-screen__badge--unverified'
+  // Encrypted snapshots can NEVER be verified keyless, so an honest "needs your key"
+  // badge replaces the green "Verified" one regardless of the size-only `verifiedOpenable`
+  // heuristic — the authoritative keyed check only runs at restore time.
+  const badgeClass = snap.encrypted
+    ? 'archive-recovery-screen__badge archive-recovery-screen__badge--needs-key'
+    : snap.verifiedOpenable
+      ? 'archive-recovery-screen__badge archive-recovery-screen__badge--verified'
+      : 'archive-recovery-screen__badge archive-recovery-screen__badge--unverified'
+
+  const badgeLabel = snap.encrypted
+    ? t('encryptedNeedsKeyBadge')
+    : snap.verifiedOpenable
+      ? t('verifiedBadge')
+      : t('notVerifiedBadge')
 
   return (
     <div className={className}>
       <div className="archive-recovery-screen__snapshot-meta">
-        <span className={badgeClass}>
-          {snap.verifiedOpenable ? t('verifiedBadge') : t('notVerifiedBadge')}
-        </span>
+        <span className={badgeClass}>{badgeLabel}</span>
         <span className="archive-recovery-screen__detail-mono">
           {dateLabel}
         </span>
@@ -160,5 +175,57 @@ export function SnapshotRestoreList({
         </div>
       ))}
     </div>
+  )
+}
+
+// ─── ArchiveKeyField ──────────────────────────────────────────────────────────
+
+export interface ArchiveKeyFieldProps {
+  value: string
+  onChange: (value: string) => void
+  t: (k: string) => string
+  id: string
+  disabled?: boolean
+  /**
+   * Optional ref forwarded to the underlying `<input>` so a parent can move
+   * keyboard focus onto the key field when the encrypted confirm step opens —
+   * the field is the thing the user must fill, so it (not the destructive
+   * button) is the correct focus target for keyboard/AT users.
+   */
+  inputRef?: Ref<HTMLInputElement>
+}
+
+/**
+ * Renders the shared archive-key password input shown in the confirm step for an
+ * encrypted snapshot. Purely presentational — the caller owns the value and gates
+ * on `snap.encrypted`. The value flows straight into the restore call and is never
+ * logged.
+ */
+export function ArchiveKeyField({
+  value,
+  onChange,
+  t,
+  id,
+  disabled,
+  inputRef,
+}: ArchiveKeyFieldProps) {
+  return (
+    <label className="field-stack archive-recovery-screen__key-field">
+      <span className="mono-kicker">{t('keyFieldLabel')}</span>
+      <input
+        ref={inputRef}
+        id={id}
+        type="password"
+        autoComplete="current-password"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t('keyFieldPlaceholder')}
+        aria-label={t('keyFieldLabel')}
+        disabled={disabled}
+      />
+      <span className="archive-recovery-screen__key-hint">
+        {t('keyFieldHint')}
+      </span>
+    </label>
   )
 }

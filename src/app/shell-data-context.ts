@@ -179,6 +179,7 @@ export interface ShellDataContextValue {
    */
   runFullArchiveRestore: (
     snapshotPath: string,
+    key?: string | null,
   ) => Promise<FullArchiveRestoreReport>
   clearNotice: () => void
   clearError: () => void

@@ -22,7 +22,7 @@ import {
 import { describe, expect, test, vi } from 'vitest'
 import { I18nProvider } from '../../lib/i18n'
 import type { RecoverySnapshot } from '../../lib/types'
-import { SnapshotCard, SnapshotRestoreList } from './index'
+import { ArchiveKeyField, SnapshotCard, SnapshotRestoreList } from './index'
 import { useSnapshotRestore } from './use-snapshot-restore'
 
 function makeSnapshot(
@@ -34,6 +34,7 @@ function makeSnapshot(
     createdAt: '2026-06-01T10:00:00Z',
     sizeBytes: 1024 * 1024,
     verifiedOpenable: true,
+    encrypted: false,
     sourceOp: 'rekey',
     label: 'Encryption change',
     ...overrides,
@@ -48,6 +49,11 @@ function makeTranslator() {
     snapshotSize: '{size}',
     verifiedBadge: 'Verified',
     notVerifiedBadge: 'Not verified',
+    encryptedNeedsKeyBadge: 'Encrypted · needs your key',
+    keyFieldLabel: 'Archive key',
+    keyFieldPlaceholder: 'Enter your archive key',
+    keyFieldHint:
+      'This snapshot is encrypted. Enter your archive key so PathKeep can verify and restore it. A wrong key fails safely — nothing is changed.',
     restoreThis: 'Restore this',
     restoreThisAria: 'Restore from this snapshot',
     'sourceOp.rekey': 'Encryption change',
@@ -169,6 +175,52 @@ describe('SnapshotCard', () => {
       />,
     )
     expect(screen.getByText(/automatic snapshot/i)).toBeInTheDocument()
+  })
+
+  test('encrypted snapshot shows the honest "needs your key" badge, never the green "Verified"', () => {
+    renderWithI18n(
+      <SnapshotCard
+        // verifiedOpenable is only a size heuristic for encrypted snapshots, so
+        // even when true the card must NOT claim the snapshot is verified.
+        snap={makeSnapshot({ encrypted: true, verifiedOpenable: true })}
+        onRestore={vi.fn()}
+        busy={false}
+        t={t}
+      />,
+    )
+    expect(screen.getByText(/needs your key/i)).toBeInTheDocument()
+    expect(screen.queryByText('Verified')).toBeNull()
+  })
+})
+
+describe('ArchiveKeyField', () => {
+  const t = makeTranslator()
+
+  test('renders the label, placeholder, and hint', () => {
+    renderWithI18n(<ArchiveKeyField id="k" value="" onChange={vi.fn()} t={t} />)
+    expect(screen.getByText('Archive key')).toBeInTheDocument()
+    const input = screen.getByLabelText('Archive key')
+    expect(input).toHaveAttribute('placeholder', 'Enter your archive key')
+    expect(input).toHaveAttribute('type', 'password')
+    expect(screen.getByText(/fails safely/i)).toBeInTheDocument()
+  })
+
+  test('onChange fires with the typed value', () => {
+    const onChange = vi.fn()
+    renderWithI18n(
+      <ArchiveKeyField id="k" value="" onChange={onChange} t={t} />,
+    )
+    fireEvent.change(screen.getByLabelText('Archive key'), {
+      target: { value: 'secret' },
+    })
+    expect(onChange).toHaveBeenCalledWith('secret')
+  })
+
+  test('honors the disabled prop', () => {
+    renderWithI18n(
+      <ArchiveKeyField id="k" value="x" onChange={vi.fn()} t={t} disabled />,
+    )
+    expect(screen.getByLabelText('Archive key')).toBeDisabled()
   })
 })
 
@@ -356,5 +408,115 @@ describe('useSnapshotRestore', () => {
       result.current.resetError()
     })
     expect(result.current.restoreSucceeded).toBe(false)
+  })
+
+  test('initialKey seeds the archiveKey state', () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore, initialKey: 'seeded' }),
+    )
+    expect(result.current.archiveKey).toBe('seeded')
+  })
+
+  test('setArchiveKey updates the archiveKey state', () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+    expect(result.current.archiveKey).toBe('')
+    act(() => {
+      result.current.setArchiveKey('typed')
+    })
+    expect(result.current.archiveKey).toBe('typed')
+  })
+
+  test('confirmRestore passes the trimmed key and clears it on success', async () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+    const snap = makeSnapshot({ encrypted: true })
+
+    act(() => {
+      result.current.setArchiveKey('  my-key  ')
+    })
+    await act(async () => {
+      await result.current.confirmRestore(snap)
+    })
+
+    expect(runFullArchiveRestore).toHaveBeenCalledWith(snap.path, 'my-key')
+    // The key is never kept past a successful restore.
+    expect(result.current.archiveKey).toBe('')
+  })
+
+  test('confirmRestore passes null when the key field is blank', async () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+    const snap = makeSnapshot()
+
+    act(() => {
+      result.current.setArchiveKey('   ')
+    })
+    await act(async () => {
+      await result.current.confirmRestore(snap)
+    })
+
+    expect(runFullArchiveRestore).toHaveBeenCalledWith(snap.path, null)
+  })
+
+  test('confirmRestore keeps confirming AND the key on error so the user can retry', async () => {
+    const runFullArchiveRestore = vi
+      .fn()
+      .mockRejectedValue(new Error('wrong key'))
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+    const snap = makeSnapshot({ encrypted: true })
+
+    act(() => {
+      result.current.startRestore(snap)
+      result.current.setArchiveKey('bad-key')
+    })
+    await act(async () => {
+      await result.current.confirmRestore(snap)
+    })
+
+    expect(result.current.restoreError).not.toBeNull()
+    // Both the snapshot AND the entered key survive so the user can correct and retry.
+    expect(result.current.confirming).toEqual(snap)
+    expect(result.current.archiveKey).toBe('bad-key')
+  })
+
+  test('cancelRestore and resetError both clear the archiveKey', () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+
+    act(() => {
+      result.current.setArchiveKey('key-a')
+      result.current.cancelRestore()
+    })
+    expect(result.current.archiveKey).toBe('')
+
+    act(() => {
+      result.current.setArchiveKey('key-b')
+      result.current.resetError()
+    })
+    expect(result.current.archiveKey).toBe('')
+  })
+
+  test('startRestore does NOT clear a key the user already typed', () => {
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    const { result } = renderHook(() =>
+      useSnapshotRestore({ runFullArchiveRestore }),
+    )
+    act(() => {
+      result.current.setArchiveKey('carry-me')
+      result.current.startRestore(makeSnapshot({ encrypted: true }))
+    })
+    expect(result.current.archiveKey).toBe('carry-me')
   })
 })

@@ -108,9 +108,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::list_recovery_snapshots_impl()?)
         }
         "run_full_archive_restore" => {
-            let payload = parse_payload::<WrappedRequest<SnapshotRestoreRequest>>(payload)?;
+            let payload = parse_payload::<FullArchiveRestorePayload>(payload)?;
             json_value!(worker_bridge::run_full_archive_restore_impl(
                 payload.request,
+                payload.key,
                 &state.session
             )?)
         }

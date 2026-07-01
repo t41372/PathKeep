@@ -63,6 +63,7 @@ function makeSnapshot(
     createdAt: '2026-06-01T10:00:00Z',
     sizeBytes: 1024 * 1024,
     verifiedOpenable: true,
+    encrypted: false,
     sourceOp: 'rekey',
     label: 'Encryption change',
     ...overrides,
@@ -243,7 +244,7 @@ describe('SnapshotRestoreSection', () => {
     )
 
     await waitFor(() =>
-      expect(runFullArchiveRestore).toHaveBeenCalledWith('/snap.sqlite'),
+      expect(runFullArchiveRestore).toHaveBeenCalledWith('/snap.sqlite', null),
     )
   })
 
@@ -453,5 +454,58 @@ describe('SnapshotRestoreSection', () => {
     )
     // The referenced element must be in the DOM
     expect(document.getElementById('settings-confirm-body')).toBeInTheDocument()
+  })
+
+  // ── Encrypted snapshot: key entry in the confirm panel ──────────────────────
+
+  test('encrypted snapshot confirm shows the ArchiveKeyField and threads the key', async () => {
+    vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([
+      makeSnapshot({ encrypted: true }),
+    ])
+    const runFullArchiveRestore = vi.fn().mockResolvedValue({})
+    renderSection({ runFullArchiveRestore })
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /restore from this snapshot/i }),
+      ).toBeInTheDocument(),
+    )
+    // The card shows the honest "needs your key" badge, not "Verified".
+    expect(screen.getByText(/needs your key/i)).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    const keyInput = screen.getByLabelText('Archive key')
+    expect(keyInput).toBeInTheDocument()
+    fireEvent.change(keyInput, { target: { value: 'settings-key' } })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /confirm and restore from this snapshot/i,
+      }),
+    )
+
+    await waitFor(() =>
+      expect(runFullArchiveRestore).toHaveBeenCalledWith(
+        '/snap.sqlite',
+        'settings-key',
+      ),
+    )
+  })
+
+  test('plaintext snapshot confirm shows no key field', async () => {
+    vi.mocked(backend.listRecoverySnapshots).mockResolvedValue([makeSnapshot()])
+    renderSection()
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /restore from this snapshot/i }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore from this snapshot/i }),
+    )
+    expect(screen.queryByLabelText('Archive key')).toBeNull()
   })
 })

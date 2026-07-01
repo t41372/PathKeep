@@ -187,9 +187,10 @@ describe('ShellDataProvider — archive recovery paths', () => {
     })
 
     await waitFor(() =>
-      expect(runRestoreSpy).toHaveBeenCalledWith({
-        snapshotPath: '/snap.sqlite',
-      }),
+      expect(runRestoreSpy).toHaveBeenCalledWith(
+        { snapshotPath: '/snap.sqlite' },
+        null,
+      ),
     )
   })
 })

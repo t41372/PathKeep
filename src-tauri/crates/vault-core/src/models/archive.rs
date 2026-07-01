@@ -242,6 +242,10 @@ pub struct RecoverySnapshot {
     /// KEYLESS header-only openability signal (never a b-tree walk). For an encrypted snapshot
     /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore.
     pub verified_openable: bool,
+    /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
+    /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
+    /// before it can verify + restore — `verified_openable` is only a size heuristic for these.
+    pub encrypted: bool,
     /// Which whole-archive rewrite produced it: `"rekey"`, `"reconcile"`, `"import"`, `"periodic"`,
     /// or `"unknown"` for an unexpected bucket.
     pub source_op: String,

@@ -74,6 +74,14 @@ export const securityNamespaceCatalog = {
       'This archive is encrypted. Enter your password to unlock this session.',
     unlockGateBackupRetryBody:
       'The last backup could not run — the archive was locked. Unlock it to retry.',
+    cantUnlockRecover: "Can't unlock? Recover from a snapshot",
+    cantUnlockRecoverAria:
+      "Can't unlock — recover from a saved snapshot instead",
+    recoverTitle: 'Restore from a snapshot',
+    recoverBody:
+      'Locked out? Your history is safe in your saved snapshots — restore one to get back in.',
+    backToUnlock: 'Back to unlock',
+    backToUnlockAria: 'Go back to the unlock form',
     rememberOnThisDevice: 'Remember on this device',
     rememberOnThisDeviceNamed: 'Remember on this device ({backend})',
     keychainSectionTitle: 'ARCHIVE KEY',
@@ -142,6 +150,13 @@ export const securityNamespaceCatalog = {
     unlockGateTitle: '存档已锁定',
     unlockGateBody: '这个存档已加密，请输入密码解锁当前会话。',
     unlockGateBackupRetryBody: '上次备份因存档锁定而中止，解锁后将自动重试。',
+    cantUnlockRecover: '无法解锁？从快照恢复',
+    cantUnlockRecoverAria: '无法解锁——改为从已保存的快照恢复',
+    recoverTitle: '从快照恢复',
+    recoverBody:
+      '被锁在外面了？你的历史记录安全地保存在快照里——恢复其中一个即可重新进入。',
+    backToUnlock: '返回解锁',
+    backToUnlockAria: '返回解锁表单',
     rememberOnThisDevice: '在此设备上记住',
     rememberOnThisDeviceNamed: '在此设备上记住（{backend}）',
     keychainSectionTitle: '存档密钥',
@@ -209,6 +224,13 @@ export const securityNamespaceCatalog = {
     unlockGateTitle: '封存已鎖定',
     unlockGateBody: '此封存已加密，請輸入密碼解鎖目前工作階段。',
     unlockGateBackupRetryBody: '上次備份因封存鎖定而中止，解鎖後將自動重試。',
+    cantUnlockRecover: '無法解鎖？從快照還原',
+    cantUnlockRecoverAria: '無法解鎖——改為從已儲存的快照還原',
+    recoverTitle: '從快照還原',
+    recoverBody:
+      '被鎖在外面了？你的歷史記錄安全地保存在快照裡——還原其中一個即可重新進入。',
+    backToUnlock: '返回解鎖',
+    backToUnlockAria: '返回解鎖表單',
     rememberOnThisDevice: '在此裝置上記住',
     rememberOnThisDeviceNamed: '在此裝置上記住（{backend}）',
     keychainSectionTitle: '封存密鑰',

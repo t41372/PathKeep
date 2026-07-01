@@ -511,6 +511,11 @@ export interface RecoverySnapshot {
   createdAt?: string | null
   sizeBytes: number
   verifiedOpenable: boolean
+  /**
+   * At-rest signal (keyless): the snapshot is SQLCipher-encrypted on disk. When true the recovery UI
+   * must collect the archive key before it can verify/restore — `verifiedOpenable` is size-only here.
+   */
+  encrypted: boolean
   sourceOp: string
   label: string
 }

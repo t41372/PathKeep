@@ -235,9 +235,11 @@ pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
                 .ok()
                 .map(|mtime| chrono::DateTime::<chrono::Utc>::from(mtime).to_rfc3339());
             let path_string = path.display().to_string();
+            let disk_mode = detect_disk_encryption_mode(&path);
             snapshots.push(RecoverySnapshot {
                 id: path_string.clone(),
-                verified_openable: snapshot_is_openable_keyless(&path, size_bytes),
+                verified_openable: snapshot_is_openable_keyless(disk_mode, &path, size_bytes),
+                encrypted: matches!(disk_mode, DiskEncryptionMode::Encrypted),
                 // Short, stable English fallback. The FE localizes from `source_op` + `created_at`.
                 label: format!("Safety snapshot ({source_op})"),
                 source_op: source_op.clone(),
@@ -258,8 +260,8 @@ pub fn list_recovery_snapshots(paths: &ProjectPaths) -> Vec<RecoverySnapshot> {
 /// structural-only (`>= 512` bytes = at least one small page) because we hold no key to decrypt
 /// it here; the authoritative keyed `quick_check` runs at restore time. `Absent`/unreadable header
 /// is never openable.
-fn snapshot_is_openable_keyless(path: &Path, size_bytes: u64) -> bool {
-    match detect_disk_encryption_mode(path) {
+fn snapshot_is_openable_keyless(mode: DiskEncryptionMode, path: &Path, size_bytes: u64) -> bool {
+    match mode {
         DiskEncryptionMode::Absent => false,
         DiskEncryptionMode::Encrypted => size_bytes >= 512,
         DiskEncryptionMode::Plaintext => {
@@ -1879,8 +1881,13 @@ mod tests {
         let big = find("big.sqlite");
         assert_eq!(big.source_op, "import");
         assert!(big.verified_openable, ">= 512B encrypted is structurally openable");
+        assert!(big.encrypted, "a 0xAB header is a SQLCipher salt, not the SQLite magic");
         assert!(!find("tiny.sqlite").verified_openable, "< 512B encrypted is not openable");
         assert_eq!(find("whatever.sqlite").source_op, "unknown");
+        assert!(
+            !find("whatever.sqlite").encrypted,
+            "a seeded plaintext snapshot is not flagged encrypted",
+        );
     }
 
     #[test]
