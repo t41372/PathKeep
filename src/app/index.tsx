@@ -16,6 +16,7 @@
 
 import { RouterProvider } from 'react-router-dom'
 import { ArchiveRecoveryScreen } from '../components/archive-recovery-screen'
+import { ArchiveUpgradeScreen } from '../components/archive-upgrade-screen'
 import { I18nProvider } from '../lib/i18n'
 import { ProfileScopeProvider } from '../lib/profile-scope'
 import { createDesktopRouter, type AppRouter } from './router-factory'
@@ -33,14 +34,23 @@ interface AppProps {
 }
 
 /**
- * Renders the router or — when the archive cannot open on launch and recovery
- * snapshots are available — the full-screen `ArchiveRecoveryScreen` in its
- * place. The provider stack is identical in both cases so shell-data hooks work
- * inside `ArchiveRecoveryScreen`.
+ * Renders the router or, in precedence order, a full-screen gate in its place:
+ * the `ArchiveRecoveryScreen` when the archive cannot open on launch and
+ * recovery snapshots are available, or the `ArchiveUpgradeScreen` when a
+ * healthy archive is version-behind and the one-time upgrade migration is
+ * pending. The provider stack is identical in every case so shell-data hooks
+ * work inside each gate.
  */
 export function AppBody({ router }: { router: AppRouter }) {
-  const { recovery } = useShellData()
+  const { recovery, archiveUpgrade } = useShellData()
   if (recovery) return <ArchiveRecoveryScreen report={recovery} />
+  if (archiveUpgrade)
+    return (
+      <ArchiveUpgradeScreen
+        assessment={archiveUpgrade.assessment}
+        config={archiveUpgrade.config}
+      />
+    )
   return <RouterProvider router={router} />
 }
 

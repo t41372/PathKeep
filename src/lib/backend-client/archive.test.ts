@@ -101,6 +101,33 @@ describe('archive client', () => {
     expect(result).toEqual(report)
   })
 
+  test('assessArchiveUpgrade calls the cheap pre-check command with no extra args', async () => {
+    const assessment = {
+      pending: true,
+      currentSchemaVersion: 14,
+      targetSchemaVersion: 16,
+      phases: [
+        {
+          phase: 'registrableDomainBackfill',
+          phaseLabel: 'archiveUpgrade.phase.registrableDomainBackfill',
+          pending: true,
+          streamed: true,
+          estimatedTotal: 12000,
+        },
+      ],
+    }
+    invokeCommandMock.mockResolvedValueOnce(assessment)
+
+    const { archiveClient } = await import('./archive')
+    const result = await archiveClient.assessArchiveUpgrade()
+
+    expect(invokeCommandMock).toHaveBeenCalledWith(
+      'assess_archive_upgrade',
+      undefined,
+    )
+    expect(result).toEqual(assessment)
+  })
+
   test('runFullArchiveRestore forwards an explicit archive key', async () => {
     const report = {
       runId: 7,

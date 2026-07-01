@@ -33,9 +33,11 @@ import { useProfileScope } from '../lib/profile-scope-context'
 import { waitForNextPaint } from '../lib/wait-for-next-paint'
 import type {
   AppBuildInfo,
+  AppConfig,
   AppLockStatus,
   AppSnapshot,
   ArchiveRecoveryReport,
+  ArchiveUpgradeAssessment,
   BackupProgressEvent,
   BackupReport,
   ImportProgressEvent,
@@ -110,6 +112,13 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
   )
   const [refreshKey, setRefreshKey] = useState(0)
   const [recovery, setRecovery] = useState<ArchiveRecoveryReport | null>(null)
+  const [archiveUpgrade, setArchiveUpgrade] = useState<{
+    assessment: ArchiveUpgradeAssessment
+    config: AppConfig
+  } | null>(null)
+  // Latches once the cheap upgrade pre-check has confirmed the archive is at the
+  // target schema, so a healthy shell never re-assesses on every refresh.
+  const upgradeResolvedRef = useRef(false)
   const idleTimerRef = useRef<number | null>(null)
   const archiveTasksRef = useRef<ShellTask[]>([])
   const attemptedKeyringAutoUnlockRef = useRef(false)
@@ -444,6 +453,7 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
       }
       setError(null)
       setRecovery(null)
+      setArchiveUpgrade(null)
 
       try {
         const [nextLockStatus, nextBuildInfo] = await Promise.all([
@@ -498,6 +508,39 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
             }
             throw recoveryError
           }
+        }
+
+        // Best-effort one-time upgrade gate. `assess_archive_upgrade` is cheap
+        // (COUNTs only); when it reports a pending v0.2.0 → v0.3.0 migration we
+        // hand off to the blocking `ArchiveUpgradeScreen` (which drives
+        // `initialize_archive` with live progress) instead of freezing behind an
+        // opaque busy overlay. Latched via `upgradeResolvedRef` so a healthy
+        // shell never re-assesses on every refresh.
+        if (
+          !upgradeResolvedRef.current &&
+          nextSnapshot.config.initialized &&
+          nextSnapshot.archiveStatus.unlocked
+        ) {
+          let assessment: ArchiveUpgradeAssessment | null = null
+          try {
+            assessment = await backend.assessArchiveUpgrade()
+          } catch {
+            // Best-effort: an assess failure (e.g. the browser-preview fixture,
+            // which throws on unknown commands) must never block launch — treat
+            // as not-pending and continue the normal flow.
+          }
+          if (assessment && assessment.pending) {
+            setLanguagePreference(nextSnapshot.config.preferredLanguage, {
+              persist: false,
+            })
+            setArchiveUpgrade({ assessment, config: nextSnapshot.config })
+            setBuildInfo(nextBuildInfo)
+            setAppLockStatus(nextSnapshot.appLockStatus)
+            setSnapshot(nextSnapshot)
+            setRefreshKey((value) => value + 1)
+            return
+          }
+          upgradeResolvedRef.current = true
         }
 
         setLanguagePreference(nextSnapshot.config.preferredLanguage, {
@@ -795,6 +838,12 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
     },
   })
 
+  const finishArchiveUpgrade = useCallback(async () => {
+    // refreshAppData clears archiveUpgrade at its start, re-assesses (now not
+    // pending → migration done), and drives the normal shell.
+    await refreshAppData(false)
+  }, [refreshAppData])
+
   const runFullArchiveRestore = useCallback(
     async (snapshotPath: string, key?: string | null) => {
       const report = await backend.runFullArchiveRestore(
@@ -844,6 +893,8 @@ export function ShellDataProvider({ children }: { children: ReactNode }) {
         lockAppSession,
         unlockAppSession,
         recovery,
+        archiveUpgrade,
+        finishArchiveUpgrade,
         runFullArchiveRestore,
         clearNotice: () => setNotice(null),
         clearError: () => setError(null),

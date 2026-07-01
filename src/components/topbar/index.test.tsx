@@ -150,6 +150,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -221,6 +223,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -310,6 +314,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -383,6 +389,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -470,6 +478,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
       dismissNotification,
@@ -564,6 +574,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -635,6 +647,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
       markNotificationsRead,
     }
@@ -701,6 +715,8 @@ describe('Topbar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 

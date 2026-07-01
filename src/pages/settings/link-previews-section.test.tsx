@@ -1030,6 +1030,8 @@ function withShell(overrides: {
     errorKind: null,
     clearError: vi.fn(),
     recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
     runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   } as ShellDataContextValue
 
@@ -1069,6 +1071,8 @@ function withNullSnapshotShell(overrides: {
     errorKind: null,
     clearError: vi.fn(),
     recovery: null,
+    archiveUpgrade: null,
+    finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
     runFullArchiveRestore: vi.fn().mockResolvedValue({}),
   } as ShellDataContextValue
 

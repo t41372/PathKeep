@@ -184,6 +184,7 @@ describe('i18n helpers', () => {
       'platform',
       'onboarding',
       'recovery',
+      'archiveUpgrade',
     ])
   })
 

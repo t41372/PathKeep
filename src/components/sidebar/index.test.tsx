@@ -249,6 +249,8 @@ describe('Sidebar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -316,6 +318,8 @@ describe('Sidebar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
@@ -388,6 +392,8 @@ describe('Sidebar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
     const router = createMemoryRouter(
@@ -470,6 +476,8 @@ describe('Sidebar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 
@@ -606,6 +614,8 @@ describe('Sidebar', () => {
       errorKind: null,
       clearError: vi.fn(),
       recovery: null,
+      archiveUpgrade: null,
+      finishArchiveUpgrade: vi.fn().mockResolvedValue(undefined),
       runFullArchiveRestore: vi.fn().mockResolvedValue({}),
     }
 

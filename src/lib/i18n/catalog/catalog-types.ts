@@ -45,6 +45,7 @@ export type TranslationNamespace =
   | 'platform'
   | 'onboarding'
   | 'recovery'
+  | 'archiveUpgrade'
 
 /**
  * Leaves room for legacy flat-key callers while still documenting that translator keys are string paths.
@@ -77,4 +78,5 @@ export const translationNamespaces: TranslationNamespace[] = [
   'platform',
   'onboarding',
   'recovery',
+  'archiveUpgrade',
 ]

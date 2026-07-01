@@ -23,6 +23,7 @@
  */
 
 import type { LanguagePreference } from '../../types'
+import { archiveUpgradeNamespaceCatalog } from './archive-upgrade'
 import { assistantNamespaceCatalog } from './assistant'
 import { auditNamespaceCatalog } from './audit'
 import { commonNamespaceCatalog } from './common'
@@ -97,6 +98,7 @@ const catalog = {
     platform: platformNamespaceCatalog.en,
     onboarding: onboardingNamespaceCatalog.en,
     recovery: recoveryNamespaceCatalog.en,
+    archiveUpgrade: archiveUpgradeNamespaceCatalog.en,
   },
   'zh-CN': {
     common: commonNamespaceCatalog['zh-CN'],
@@ -129,6 +131,7 @@ const catalog = {
     platform: platformNamespaceCatalog['zh-CN'],
     onboarding: onboardingNamespaceCatalog['zh-CN'],
     recovery: recoveryNamespaceCatalog['zh-CN'],
+    archiveUpgrade: archiveUpgradeNamespaceCatalog['zh-CN'],
   },
   'zh-TW': {
     common: commonNamespaceCatalog['zh-TW'],
@@ -161,6 +164,7 @@ const catalog = {
     platform: platformNamespaceCatalog['zh-TW'],
     onboarding: onboardingNamespaceCatalog['zh-TW'],
     recovery: recoveryNamespaceCatalog['zh-TW'],
+    archiveUpgrade: archiveUpgradeNamespaceCatalog['zh-TW'],
   },
 } as const satisfies TranslationCatalog
 

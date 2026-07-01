@@ -16,6 +16,7 @@
 import type {
   AppSnapshot,
   AppConfig,
+  ArchiveUpgradeAssessment,
   BackupReport,
   ExportRequest,
   ExportResult,
@@ -40,6 +41,8 @@ export const archiveClient = {
       config,
       databaseKey,
     }),
+  assessArchiveUpgrade: () =>
+    call<ArchiveUpgradeAssessment>('assess_archive_upgrade'),
   runBackupNow: (dueOnly = false) =>
     call<BackupReport>('run_backup_now', { dueOnly }),
   previewSnapshotRestore: (request: SnapshotRestoreRequest) =>

@@ -59,6 +59,7 @@ export const backend = {
   getAppSnapshot: appClient.getSnapshot,
   saveConfig: appClient.saveConfig,
   initializeArchive: archiveClient.initializeArchive,
+  assessArchiveUpgrade: archiveClient.assessArchiveUpgrade,
   rekeyArchive: securityClient.executeRekey,
   previewRekeyArchive: securityClient.previewRekey,
   previewSnapshotRestore: archiveClient.previewSnapshotRestore,

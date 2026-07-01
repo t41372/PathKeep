@@ -24,6 +24,7 @@ import type {
   AppLockStatus,
   AppSnapshot,
   ArchiveRecoveryReport,
+  ArchiveUpgradeAssessment,
   BackupReport,
   BrowserHistoryImportRequest,
   DashboardSnapshot,
@@ -172,6 +173,22 @@ export interface ShellDataContextValue {
    * the archive is healthy or after a successful restore.
    */
   recovery: ArchiveRecoveryReport | null
+  /**
+   * Set when a healthy archive is version-behind and the one-time upgrade
+   * migration is pending. Null otherwise. Seeds the blocking
+   * `ArchiveUpgradeScreen` with the cheap pre-check breakdown + the config that
+   * drives `initialize_archive`.
+   */
+  archiveUpgrade: {
+    assessment: ArchiveUpgradeAssessment
+    config: AppConfig
+  } | null
+  /**
+   * Runs after the upgrade screen's `initialize_archive` resolves: clears the
+   * gate and re-bootstraps the shell (which re-assesses as not-pending and
+   * drives the normal flow).
+   */
+  finishArchiveUpgrade: () => Promise<void>
   /**
    * Replaces the live archive with a verified safety snapshot, quarantining the
    * broken state (moved, not deleted). Clears `recovery` and re-bootstraps the

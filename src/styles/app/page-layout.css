@@ -605,6 +605,173 @@
   font-size: 13px;
 }
 
+/* ═══ ARCHIVE UPGRADE SCREEN ═══
+ *
+ * Calm, full-screen first-run gate for the one-time v0.2.0 → v0.3.0 migration.
+ * Mirrors the recovery gate's paper overlay. Sits BELOW recovery (9998) and the
+ * unlock gate (9999) — they never co-occur, but the ordering stays sane. */
+.archive-upgrade-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.archive-upgrade-screen__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(4px);
+  animation: pk-fade-in 160ms ease-out both;
+}
+
+.archive-upgrade-screen__panel {
+  position: relative;
+  z-index: 1;
+  width: min(560px, calc(100vw - var(--space-8)));
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 4px 24px color-mix(in srgb, #000 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--border) 60%, transparent);
+  animation: pk-gate-panel-in 200ms ease-out both;
+  max-height: calc(100dvh - var(--space-8));
+  overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archive-upgrade-screen__backdrop,
+  .archive-upgrade-screen__panel {
+    animation: none;
+  }
+}
+
+.archive-upgrade-screen__eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.archive-upgrade-screen__title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-bright);
+  margin: 0;
+}
+
+.archive-upgrade-screen__status {
+  display: grid;
+  gap: var(--space-3);
+  outline: none;
+}
+
+.archive-upgrade-screen__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.archive-upgrade-screen__reassurances {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.archive-upgrade-screen__step {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.archive-upgrade-screen__phase {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  color: var(--text-bright);
+}
+
+.archive-upgrade-screen__bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+}
+
+.archive-upgrade-screen__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--transition);
+}
+
+.archive-upgrade-screen__count {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.archive-upgrade-screen__info {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.archive-upgrade-screen__error {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--error-soft);
+  border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.archive-upgrade-screen__detail-mono {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Visually-hidden polite live region: announcements reach screen readers
+ * without duplicating the visible phase/count copy on screen. */
+.archive-upgrade-screen__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ═══ STATS ROW ═══ */
 .stats-row {
   display: grid;

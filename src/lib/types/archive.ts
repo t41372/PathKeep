@@ -548,3 +548,68 @@ export interface ArchiveRecoveryReport {
   recoverySnapshots: RecoverySnapshot[]
   detail: string
 }
+
+/**
+ * Names the distinct heavy phases a first-run v0.2.0 → v0.3.0 archive upgrade
+ * migration walks through inside `initialize_archive`.
+ *
+ * Mirrors `vault_core::ArchiveUpgradePhase` (serde camelCase). The shell maps
+ * each value to a localized `archiveUpgrade.phase.{...}` label so the upgrade
+ * screen can name its current phase honestly instead of showing an opaque
+ * busy overlay. `intelligence` forward-applies lazily outside the upgrade path,
+ * so it is surfaced as an informational line rather than a streamed bar.
+ */
+export type ArchiveUpgradePhase =
+  | 'schemaMigration'
+  | 'registrableDomainBackfill'
+  | 'searchReprojection'
+  | 'intelligence'
+  | 'finalizing'
+
+/**
+ * One streamed progress tick emitted on `pathkeep://archive-upgrade` while the
+ * one-time upgrade migration runs.
+ *
+ * `processed`/`total` are honest unit counts for phases with a countable unit;
+ * opaque single-statement work (index builds / finalize) carries `0/0` as an
+ * explicit indeterminate marker. `done` marks the single terminal event so the
+ * shell can transition without inferring completion from the counters.
+ */
+export interface ArchiveUpgradeProgress {
+  phase: ArchiveUpgradePhase
+  phaseLabel: string
+  processed: number
+  total: number
+  done: boolean
+}
+
+/**
+ * One phase entry in the cheap upgrade pre-check breakdown.
+ *
+ * `streamed` is `true` for phases that emit live ticks (schema/backfill/
+ * reprojection) and `false` for `intelligence`, which the shell renders as an
+ * informational line instead of a bar stuck at zero. `estimatedTotal` seeds the
+ * progress UI before the first live tick arrives.
+ */
+export interface ArchiveUpgradePhaseAssessment {
+  phase: ArchiveUpgradePhase
+  phaseLabel: string
+  pending: boolean
+  streamed: boolean
+  estimatedTotal: number
+}
+
+/**
+ * Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
+ *
+ * The shell reads `pending` at bootstrap to decide whether to show the upgrade
+ * screen at all: a fresh install or already-migrated archive reports
+ * `pending === false` (no screen), while a genuine version-behind archive
+ * reports `pending === true` plus the per-phase breakdown seeding the UI.
+ */
+export interface ArchiveUpgradeAssessment {
+  pending: boolean
+  currentSchemaVersion: number
+  targetSchemaVersion: number
+  phases: ArchiveUpgradePhaseAssessment[]
+}
