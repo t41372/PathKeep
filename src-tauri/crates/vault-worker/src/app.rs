@@ -19,13 +19,16 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use vault_core::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
-    ArchiveUpgradeAssessment, ArchiveUpgradeProgress, LaunchRecovery, ReconcileReport,
-    RuntimeDiagnostics, archive_status, ensure_app_lock_unlocked,
-    ensure_archive_initialized_with_progress, hydrate_app_lock_config, load_config,
+    ArchiveUpgradeAssessment, ArchiveUpgradeProgress, DISCOVERY_ISSUE_DISCOVERY_ERROR,
+    DISCOVERY_ISSUE_FULL_DISK_ACCESS, LaunchRecovery, ReconcileReport, RuntimeDiagnostics,
+    archive_status, ensure_app_lock_unlocked, ensure_archive_initialized_with_progress,
+    full_disk_access_applies, hydrate_app_lock_config, is_permission_denied, load_config,
     load_import_batches, load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
     validate_app_lock_config_with_biometric,
 };
-use vault_platform::{discover_browser_profiles, keyring_status};
+use vault_platform::{
+    FullDiskAccessProbe, discover_browser_profiles, keyring_status, probe_full_disk_access,
+};
 
 /// Rekey request payload used by desktop and worker command surfaces.
 ///
@@ -62,23 +65,102 @@ fn runtime_diagnostics_fallback(
     }
 }
 
-fn snapshot_browser_profiles() -> Vec<vault_core::BrowserProfile> {
+/// Browser discovery plus the reason the list is what it is.
+///
+/// Bundling the two lets [`app_snapshot`] tell a genuine "no browsers installed" apart
+/// from a permission wall: the profile list ALONE cannot, because a Full Disk Access
+/// denial yields the SAME empty list a fresh machine does. `issue` carries the stable
+/// marker the onboarding UI keys on (see [`resolve_browser_discovery_issue_core`]).
+struct BrowserDiscovery {
+    profiles: Vec<vault_core::BrowserProfile>,
+    issue: Option<String>,
+}
+
+/// Discovers browser profiles and classifies WHY the result is what it is, combining the
+/// discovery outcome with an INDEPENDENT Full Disk Access probe.
+///
+/// The probe matters even when discovery does not error: on some macOS setups a TCC wall
+/// makes discovery silently skip a browser (its path "does not exist") instead of
+/// surfacing an error, so an empty list with no error can still be a permission problem.
+fn snapshot_browser_profiles() -> BrowserDiscovery {
+    let probe = probe_full_disk_access();
     match discover_browser_profiles() {
-        Ok(profiles) => profiles,
-        Err(error) => browser_profiles_fallback(&error),
+        Ok(profiles) => {
+            let issue = resolve_browser_discovery_issue(Ok(profiles.len()), false, probe);
+            BrowserDiscovery { profiles, issue }
+        }
+        Err(error) => browser_profiles_fallback(&error, probe),
     }
 }
 
-fn browser_profiles_fallback(error: &anyhow::Error) -> Vec<vault_core::BrowserProfile> {
+/// Records a discovery failure and returns an empty list carrying the CLASSIFIED reason,
+/// so an onboarding user sees WHY (a Full Disk Access wall, or a surfaced error) instead
+/// of a silent "found 0 browsers". `vault-core` stays log-free, so the warning is emitted
+/// here as before — but the signal is no longer swallowed.
+fn browser_profiles_fallback(
+    error: &anyhow::Error,
+    probe: FullDiskAccessProbe,
+) -> BrowserDiscovery {
     log::warn!(target: "pathkeep::app_snapshot", "browser discovery fallback during shell bootstrap: {error:#}");
-    Vec::new()
+    let issue = resolve_browser_discovery_issue(Err(()), is_permission_denied(error), probe);
+    BrowserDiscovery { profiles: Vec::new(), issue }
+}
+
+/// Thin host wrapper over [`resolve_browser_discovery_issue_core`] that supplies the real
+/// OS facts: whether Full Disk Access applies on this host, and whether the probe
+/// concluded `Denied`.
+fn resolve_browser_discovery_issue(
+    discovery: Result<usize, ()>,
+    error_is_permission_denied: bool,
+    probe: FullDiskAccessProbe,
+) -> Option<String> {
+    resolve_browser_discovery_issue_core(
+        discovery,
+        error_is_permission_denied,
+        full_disk_access_applies(),
+        probe == FullDiskAccessProbe::Denied,
+    )
+}
+
+/// Decides the snapshot's `browser_discovery_issue` marker from a discovery outcome plus
+/// an INDEPENDENT Full Disk Access probe. Every OS-specific fact is injected so the
+/// precedence is fully unit-testable on any host without real TCC.
+///
+/// Precedence (the exact contract the front end consumes):
+/// 1. Discovery ERRORED and the error is a permission denial on a Full-Disk-Access host
+///    (macOS), OR the probe independently reports `Denied` ⇒ `Some("macos-full-disk-access")`.
+/// 2. Discovery ERRORED for any other reason ⇒ `Some("discovery-error")` (surfaced, never
+///    hidden as "no browsers").
+/// 3. Discovery SUCCEEDED but returned ZERO profiles AND the probe reports `Denied` ⇒
+///    `Some("macos-full-disk-access")` — the headline silent-skip case, where a TCC wall
+///    made discovery find nothing without erroring.
+/// 4. Otherwise ⇒ `None`. A populated list is neutral, and a genuinely empty list with
+///    Full Disk Access granted / inconclusive / not-applicable stays `None`, so a fresh
+///    install is never mistaken for a permission wall (no false nag).
+fn resolve_browser_discovery_issue_core(
+    discovery: Result<usize, ()>,
+    error_is_permission_denied: bool,
+    fda_applies: bool,
+    probe_denied: bool,
+) -> Option<String> {
+    match discovery {
+        Err(()) => {
+            if (error_is_permission_denied && fda_applies) || probe_denied {
+                Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS.to_string())
+            } else {
+                Some(DISCOVERY_ISSUE_DISCOVERY_ERROR.to_string())
+            }
+        }
+        Ok(profile_count) => (profile_count == 0 && probe_denied)
+            .then(|| DISCOVERY_ISSUE_FULL_DISK_ACCESS.to_string()),
+    }
 }
 
 /// Builds the canonical desktop snapshot for the current unlocked session.
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let browser_profiles = snapshot_browser_profiles();
+    let browser_discovery = snapshot_browser_profiles();
     let archive_status = archive_status(&paths, &config, session_database_key)?;
     let ai_status = derive_ai_status(&paths, &config, session_database_key);
     let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
@@ -126,7 +208,8 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         keyring_status: keyring_status(),
         ai_status,
         intelligence_status,
-        browser_profiles,
+        browser_profiles: browser_discovery.profiles,
+        browser_discovery_issue: browser_discovery.issue,
         recent_runs,
         recent_import_batches,
     })
@@ -363,8 +446,15 @@ mod tests {
         unsafe {
             std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &invalid_root);
         }
-        assert!(snapshot_browser_profiles().is_empty());
-        assert!(browser_profiles_fallback(&anyhow::anyhow!("discovery failed")).is_empty());
+        assert!(snapshot_browser_profiles().profiles.is_empty());
+        assert!(
+            browser_profiles_fallback(
+                &anyhow::anyhow!("discovery failed"),
+                FullDiskAccessProbe::Inconclusive,
+            )
+            .profiles
+            .is_empty()
+        );
 
         let restore_root = tempdir().expect("restore tempdir");
         let restore_paths = project_paths_with_root(restore_root.path());
@@ -380,5 +470,93 @@ mod tests {
         assert!(restored_config.initialized);
 
         restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome_root.as_deref());
+    }
+
+    #[test]
+    fn snapshot_surfaces_a_permission_denial_instead_of_swallowing_it() {
+        // The exact shape onboarding used to turn into a silent empty-with-None: an FDA
+        // denial (`Operation not permitted`) while reading a browser data directory.
+        let denied = anyhow::Error::new(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Operation not permitted",
+        ))
+        .context("reading /Users/me/Library/Application Support/Google/Chrome");
+
+        let fallback = browser_profiles_fallback(&denied, FullDiskAccessProbe::Inconclusive);
+        assert!(fallback.profiles.is_empty(), "a denied discovery still yields no profiles");
+        assert!(
+            fallback.issue.is_some(),
+            "the swallow is fixed: a discovery failure must carry a reason, never a silent None"
+        );
+
+        // On a Full-Disk-Access host that reason is the actionable FDA marker. The core
+        // proves the verdict independent of the test host's own OS.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Err(()), true, true, false).as_deref(),
+            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS),
+            "a permission denial on a Full Disk Access host is the headline FDA case"
+        );
+    }
+
+    #[test]
+    fn empty_browser_list_nags_only_when_the_probe_proves_a_denial() {
+        // Zero browsers with access granted / inconclusive / not-applicable is a genuine
+        // empty machine — never a nag (no false positive).
+        assert_eq!(
+            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Granted),
+            None,
+            "zero browsers with access granted is a real empty machine, not a permission wall"
+        );
+        assert_eq!(
+            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Inconclusive),
+            None,
+            "an inconclusive probe must never nag"
+        );
+        assert_eq!(
+            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::NotApplicable),
+            None,
+            "off macOS there is no Full Disk Access to blame"
+        );
+        // Empty list behind a PROVEN denial ⇒ the silent-skip Full Disk Access case.
+        assert_eq!(
+            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Denied).as_deref(),
+            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS),
+            "an empty list behind a denied probe is a Full Disk Access wall"
+        );
+    }
+
+    #[test]
+    fn resolve_browser_discovery_issue_core_covers_precedence() {
+        // 1. Discovery errored with a permission denial on a Full-Disk-Access host ⇒ FDA.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Err(()), true, true, false).as_deref(),
+            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
+        );
+        // 1b. Any discovery error while the probe independently reports denied ⇒ FDA,
+        //     even if the error itself was not a permission denial.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Err(()), false, true, true).as_deref(),
+            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
+        );
+        // 2. A permission denial off a Full-Disk-Access host is a surfaced discovery
+        //    error, not a (macOS-only) Full Disk Access nag.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Err(()), true, false, false).as_deref(),
+            Some(DISCOVERY_ISSUE_DISCOVERY_ERROR)
+        );
+        // 2b. A non-permission discovery error is surfaced as a discovery error.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Err(()), false, false, false).as_deref(),
+            Some(DISCOVERY_ISSUE_DISCOVERY_ERROR)
+        );
+        // 3. Zero browsers + a denied probe ⇒ the headline silent-skip FDA case.
+        assert_eq!(
+            resolve_browser_discovery_issue_core(Ok(0), false, true, true).as_deref(),
+            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
+        );
+        // 4a. Zero browsers with the probe NOT denied stays neutral.
+        assert_eq!(resolve_browser_discovery_issue_core(Ok(0), false, true, false), None);
+        // 4b. A populated list is neutral regardless of the probe.
+        assert_eq!(resolve_browser_discovery_issue_core(Ok(3), false, true, true), None);
     }
 }

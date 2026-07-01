@@ -388,6 +388,17 @@ pub struct AppSnapshot {
     pub intelligence_status: IntelligenceStatus,
     #[serde(alias = "chromeProfiles")]
     pub browser_profiles: Vec<BrowserProfile>,
+    /// Why `browser_profiles` is what it is, so the front end can tell a genuine "no
+    /// browsers installed" apart from a permission wall. `None` means discovery
+    /// succeeded (even with zero browsers); a marker string means it did not. Marker
+    /// values: `"macos-full-disk-access"` (a Full Disk Access denial was detected) and
+    /// `"discovery-error"` (discovery failed for some other, surfaced reason). See
+    /// `vault_worker::app::resolve_browser_discovery_issue_core` for the precedence.
+    ///
+    /// `#[serde(default)]` so older persisted snapshots and the frozen browser-preview
+    /// fixture keep deserializing without carrying this field.
+    #[serde(default)]
+    pub browser_discovery_issue: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
     pub recent_import_batches: Vec<ImportBatchOverview>,
 }

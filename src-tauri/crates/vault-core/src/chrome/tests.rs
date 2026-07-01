@@ -133,7 +133,7 @@ fn discover_safari_profile_marks_missing_history_without_hiding_the_profile() {
 
 #[cfg(unix)]
 #[test]
-fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() {
+fn discover_safari_profile_classifies_unreadable_history_by_host() {
     let _guard = lock_env();
     let dir = tempdir().expect("tempdir");
     let history_path = dir.path().join("History.db");
@@ -155,14 +155,21 @@ fn discover_safari_profile_marks_unreadable_history_as_full_disk_access_issue() 
     restore_permissions.set_mode(0o600);
     fs::set_permissions(&history_path, restore_permissions).expect("restore read");
 
+    // A permission-denied Safari history is a Full Disk Access problem where TCC applies
+    // (macOS); off a TCC host the same denial is a plain unreadable file.
+    let expected = if crate::browser_access::full_disk_access_applies() {
+        "macos-full-disk-access"
+    } else {
+        "history-file-not-readable"
+    };
     assert!(profile.history_exists);
     assert!(!profile.history_readable);
-    assert_eq!(profile.access_issue.as_deref(), Some("macos-full-disk-access"));
+    assert_eq!(profile.access_issue.as_deref(), Some(expected));
 }
 
 #[cfg(unix)]
 #[test]
-fn history_access_state_reports_generic_unreadable_browser_files() {
+fn history_access_state_classifies_unreadable_history_by_host() {
     let dir = tempdir().expect("tempdir");
     let history_path = dir.path().join("History");
     fs::write(&history_path, b"history").expect("write history");
@@ -170,15 +177,23 @@ fn history_access_state_reports_generic_unreadable_browser_files() {
     permissions.set_mode(0o000);
     fs::set_permissions(&history_path, permissions).expect("deny read");
 
-    let (readable, issue) = history_access_state(&history_path, true, "chromium");
+    let (readable, issue) = history_access_state(&history_path, true);
 
     let mut restore_permissions =
         fs::metadata(&history_path).expect("metadata for restore").permissions();
     restore_permissions.set_mode(0o600);
     fs::set_permissions(&history_path, restore_permissions).expect("restore read");
 
+    // The stale classifier only flagged Safari; the fix flags EVERY family's
+    // permission denial as Full Disk Access on macOS (this file is a plain "History",
+    // i.e. a Chromium-style database, not Safari). Off a TCC host it stays unreadable.
+    let expected = if crate::browser_access::full_disk_access_applies() {
+        "macos-full-disk-access"
+    } else {
+        "history-file-not-readable"
+    };
     assert!(!readable);
-    assert_eq!(issue.as_deref(), Some("history-file-not-readable"));
+    assert_eq!(issue.as_deref(), Some(expected));
 }
 
 #[test]

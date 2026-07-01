@@ -55,12 +55,7 @@ use std::collections::BTreeMap;
 /// pass through unchanged. The "Full Disk Access" marker is the stable signal the front end keys on
 /// to render its localized, actionable guidance.
 pub(super) fn classify_browser_access_error(error: anyhow::Error) -> anyhow::Error {
-    let permission_denied = error.chain().any(|cause| {
-        cause
-            .downcast_ref::<std::io::Error>()
-            .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
-    }) || format!("{error:#}").contains("Operation not permitted");
-    if permission_denied {
+    if crate::browser_access::is_permission_denied(&error) {
         error.context(
             "PathKeep needs Full Disk Access to read your browser history. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, then run the backup again.",
         )

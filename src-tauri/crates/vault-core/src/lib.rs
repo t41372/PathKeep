@@ -19,6 +19,7 @@ pub mod ai_sidecar;
 pub mod annotations;
 pub mod app_lock;
 pub mod archive;
+pub mod browser_access;
 mod browser_retention;
 pub mod chrome;
 pub mod config;
@@ -101,6 +102,11 @@ pub use archive::{
     reconcile_archive_encryption, recover_archive_on_launch, rekey_archive, repair_health_issues,
     run_backup, run_backup_with_progress, run_full_archive_snapshot_restore, run_retention_prune,
     run_snapshot_restore,
+};
+pub use browser_access::{
+    DISCOVERY_ISSUE_DISCOVERY_ERROR, DISCOVERY_ISSUE_FULL_DISK_ACCESS,
+    HISTORY_ISSUE_FILE_NOT_READABLE, classify_history_access_core, full_disk_access_applies,
+    is_permission_denied,
 };
 pub use chrome::discover_profiles;
 pub use config::{ProjectPaths, load_config, project_paths, project_paths_with_root, save_config};
