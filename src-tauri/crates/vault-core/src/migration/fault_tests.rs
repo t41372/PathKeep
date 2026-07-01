@@ -1817,3 +1817,117 @@ fn disk_mode_for_maps_each_archive_mode() {
     assert_eq!(disk_mode_for(&ArchiveMode::Plaintext), DiskEncryptionMode::Plaintext);
     assert_eq!(disk_mode_for(&ArchiveMode::Encrypted), DiskEncryptionMode::Encrypted);
 }
+
+// --- E1/E3: config<->disk invariant post-conditions for whole-app import -------------------------
+//
+// `check_config_disk_consistency` is the cross-FILE behavioral assertion the 100%-coverage gate
+// never had. Threading it into import's SUCCESS post-condition proves import commits config LAST +
+// consistent; the exhaustive per-checkpoint crash torture proves EVERY import crash window recovers
+// to a consistent-or-fail-closed state, never a mode-mixed brick (CRIT-3's shape). Import writes
+// config LAST, so it always ends matching the installed DBs — the exact ordering the incident broke.
+
+/// Opens the recovered archive in whatever mode `config.json` now records and asserts it is
+/// structurally sound — the "openable, not bricked" half of consistent-or-fail-closed.
+fn assert_recovered_archive_opens(dest_paths: &ProjectPaths, source_key: &str) {
+    let recovered = crate::config::load_config(dest_paths).expect("load recovered config");
+    let key = match recovered.archive_mode {
+        ArchiveMode::Encrypted => Some(source_key),
+        ArchiveMode::Plaintext => None,
+    };
+    let connection = crate::archive::open_archive_connection(dest_paths, &recovered, key)
+        .expect("the recovered archive must open in its recorded mode");
+    let integrity: String =
+        connection.query_row("PRAGMA integrity_check", [], |row| row.get(0)).expect("integrity");
+    assert_eq!(integrity, "ok", "the recovered archive must be structurally consistent");
+}
+
+#[test]
+fn apply_import_success_leaves_config_matching_the_installed_dbs() {
+    // E1 post-condition: a successful whole-app import of an ENCRYPTED bundle onto a PLAINTEXT dest
+    // must end with config.json (read through the REAL load_config) matching the installed encrypted
+    // DBs on disk — the invariant the 2026-06-30 incident violated (config lagged the files).
+    let source_key = "phase-e-import-success-key";
+    let (src_dir, _src) = fresh_paths();
+    let bundle_path = src_dir.path().join("import-success.pathkeep");
+    export_encrypted_bundle(&bundle_path, source_key);
+
+    let (_dest_dir, dest_paths) = fresh_paths();
+    let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
+    apply_import(
+        &dest_paths,
+        &dest_config,
+        None,
+        &bundle_path,
+        &ApplyImportOptions {
+            confirm_overwrite: true,
+            source_archive_key: Some(source_key.to_string()),
+        },
+    )
+    .expect("the encrypted bundle must import");
+
+    crate::archive::check_config_disk_consistency(&dest_paths)
+        .expect("a successful import must leave config matching the installed DBs");
+    assert_eq!(
+        detect_disk_encryption_mode(&dest_paths.archive_database_path),
+        DiskEncryptionMode::Encrypted,
+        "the imported encrypted bundle installs an encrypted canonical archive",
+    );
+    assert_recovered_archive_opens(&dest_paths, source_key);
+}
+
+#[test]
+fn apply_import_crash_at_every_checkpoint_recovers_consistent_or_fail_closed() {
+    // E3 torture (deterministic, exhaustive): a crash at EACH named import checkpoint, followed by
+    // launch recovery, must reach a state whose config matches the installed DBs — either rolled back
+    // to the consistent pre-import archive or committed forward to the new one — never the mode-mixed
+    // half-import the pre-hardening flow could ship. The fixed checkpoint enumeration keeps it
+    // reproducible (no RNG / wall-clock).
+    let source_key = "phase-e-import-torture-key";
+    let (src_dir, _src) = fresh_paths();
+    let bundle_path = src_dir.path().join("import-torture.pathkeep");
+    export_encrypted_bundle(&bundle_path, source_key);
+
+    for checkpoint in [
+        "import.after_stage_before_swap",
+        "import.after_canonical_install",
+        "import.after_swap_before_config",
+        "import.after_config",
+    ] {
+        let (_dest_dir, dest_paths) = fresh_paths();
+        let dest_config = seed_plain_archive(&dest_paths, b"dest marker");
+
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(checkpoint);
+            let error = apply_import(
+                &dest_paths,
+                &dest_config,
+                None,
+                &bundle_path,
+                &ApplyImportOptions {
+                    confirm_overwrite: true,
+                    source_archive_key: Some(source_key.to_string()),
+                },
+            )
+            .expect_err(&format!("the injected crash at {checkpoint} must abort the import"));
+            let rendered = format!("{error:#}");
+            assert!(
+                rendered.contains(checkpoint),
+                "the INJECTED fault must propagate at {checkpoint}, got: {rendered}",
+            );
+        }
+
+        let outcome = crate::archive::recover_archive_on_launch(&dest_paths, &dest_config, None)
+            .unwrap_or_else(|error| panic!("launch recovery at {checkpoint} errored: {error:#}"));
+        // A plaintext-dest + encrypted-bundle import self-heals in every window here (rollback to the
+        // consistent plaintext dest, or roll forward to the committed encrypted archive) — never
+        // fail-closed — so recovery must not surface Unrecoverable.
+        assert!(
+            !matches!(outcome, crate::archive::LaunchRecovery::Unrecoverable(_)),
+            "import crash at {checkpoint} must recover, got {outcome:?}",
+        );
+        crate::archive::check_config_disk_consistency(&dest_paths).unwrap_or_else(|error| {
+            panic!("the invariant must hold after recovering an import crash at {checkpoint}: {error:#}")
+        });
+        assert_recovered_archive_opens(&dest_paths, source_key);
+    }
+}

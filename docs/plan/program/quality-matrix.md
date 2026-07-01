@@ -121,3 +121,20 @@ whole-workspace mutation 是 deep/release investigation gate；若成本或 surv
 5. **新功能 review 必問**：「使用者實際操作有沒有一條測試從真實入口斷言預期結果？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
 
 待辦（見 BACKLOG，2026-06-28 立項）：external embedding transport 改可注入 seam + fake-HTTP `/v1/embeddings` 整合測試（mid-batch 500 / 空 `data[]` / timeout）；`dispatch_for_coverage` 的 fire-and-forget walk 改成 per-command 契約斷言。
+
+---
+
+## 資料完整性：「為什麼沒測到」與此後的 blocking 鐵律（2026-06-30）
+
+> 教訓：一個會 **整個 app 變磚** 的缺陷在「100%-GREEN gate」下溜給了使用者——磁碟上兩個 canonical DB 都被 SQLCipher 加密，`config.json` 卻寫 `Plaintext`，salt 被歸零、又沒有 journal，下一次開檔命中 `SQLITE_NOTADB` 直接死在啟動。根因和 2026-06-28 同源、但更嚴重：gate 量的是 **EXECUTION（coverage）**，不是 **BEHAVIOR / INVARIANT**。具體四個漏洞：(a) 沒有任何測試斷言跨檔不變式「`config.json` 記的 at-rest mode == canonical DB 磁碟上的真實 at-rest mode」；(b) 測試手搓 `AppConfig` struct，不走 `load_config`，真正的 config-load/drift 路徑從沒被跑過；(c) 部分真實 I/O 引擎被 `#[cfg(not(any(test, coverage)))]` **從 coverage binary 編譯掉**、換成永遠成功的 stub；(d) 完全沒有 crash-window / 併發 / 交錯測試。Phase A–D 補了真正的 crash-window 測試（`fault_inject` seam + 真 SQLCipher round-trip），Phase E 把它系統化成可複用方法論並補齊剩餘缺口。
+
+鐵律（文檔怎麼寫，repo 就怎麼擋；每條都要能被 check 兌現）：
+
+1. **Durability（原子 + F_FULLFSYNC + dir-fsync）。** 所有 archive 寫入路徑必須走原子持久化路徑——`durable_io::atomic_durable_write` / `install_file_durably`（temp → `F_FULLFSYNC` → rename → parent-dir fsync）與 `save_config` / `remove_file_durably`；archive 寫入路徑內 **不得** 出現裸 `fs::write` / 裸 `fs::rename` 去落地一個 canonical 檔或 `config.json`。crash 中斷只能留下「完整舊值」或「完整新值」，絕不是把 mode 改動悄悄吞掉的截斷/空檔。
+2. **Config↔disk consistency（跨檔不變式）。** 每一個 archive-mutation 測試（rekey / reconcile / import / restore / backup）的 post-condition 都要斷言 `archive::at_rest::check_config_disk_consistency`（經 **真正的** `load_config` 讀 `config.json`，用 `detect_disk_encryption_mode` 讀兩個 canonical DB 的真實磁碟 at-rest mode，header-only、key-free）。config 記的 at-rest mode **永遠不得** 和已安裝的 DB 分歧——這就是能擋下本次事故的那條 check。專屬的事故重現測試（加密檔 + `Plaintext` config）斷言 checker **FAIL**；crash-window 測試（`rekey.after_swap_before_config`）斷言 checker + launch recovery **一起** 抓到「config 落後於已安裝的檔案」。
+3. **Crash-window coverage。** 每個破壞性 archive op 都要有一條 kill-at-checkpoint regression（`fault_inject` 具名 checkpoint + `FaultGuard::error_at_must_fire`），且該測試在 **未硬化的舊碼** 上會 FAIL（舊碼沒有 crash seam、在 swap 前就寫 config）。測試必須斷言 **被注入的** 錯誤有沿 `format!("{err:#}")` / `err.chain()` 傳播，不能只 `is_err()` / 只驗「可恢復」。每個 op 還要有 per-checkpoint 的 **窮舉** torture：對每個 checkpoint 注入 crash → launch recovery → 斷言收斂到 **consistent-or-fail-closed**（config 對得上檔案、canonical rows 還在，或 marker 留著 fail-closed），永不 empty/mixed。torture 必須 **DETERMINISTIC**：以固定 checkpoint 列舉或固定 seed 驅動，禁止 wall-clock / `Math.random` / thread-timing 造成的 flakiness（gate 會跑這些）。
+4. **不得把 production I/O 用 `cfg` 編譯出 coverage binary。** 真正的 compute / I/O 路徑要留在 **被量測** 的 build 裡；只有最外層 endpoint（socket / syscall fd）可以 seam，且 seam 用的 thread-local FIFO 在 production 恆為空（見 `fault_inject`、`write_lock` 的 `next_flock_fault`、`durable_io` 的 `inject_fsync_faults`）。**Coverage 量的是執行，不是行為**：每個 user-facing invariant 都要一條明確的 behavioral 斷言（負→正：斷言「被 heal / 被 restore / rows 還在」，不是只斷言「沒丟錯」）。
+
+新功能 / 硬化 review 必問：「破壞性 op 有沒有 kill-at-checkpoint 測試、且在舊碼上會 FAIL？成功路徑有沒有斷言 `check_config_disk_consistency`？測試走的是 `load_config` 還是手搓 config？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
+
+對應實作（Phase E 交付，`vault-core`）：`archive::at_rest::check_config_disk_consistency`（+ 事故重現 / crash-window / 窮舉 torture / 同進程雙 op 併發序列化測試）；`migration::fault_tests` 的 import 成功 post-condition + per-checkpoint torture；`archive::maintenance` restore 成功 + interrupted-restore recovery post-condition；`archive::tests` backup 成功 post-condition + crash-window suite banner；flaky `diagnostics::tests::rust_panic_payloads_keep_owned_strings_and_fallback_text` 以 thread-local opt-in 隔離 process-global panic hook（外來 thread 的 panic forward 給 previous hook，不再污染擷取）。

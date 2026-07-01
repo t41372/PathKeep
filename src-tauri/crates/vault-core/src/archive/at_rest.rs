@@ -165,6 +165,64 @@ fn disk_mode_to_archive_mode(mode: DiskEncryptionMode) -> Option<ArchiveMode> {
     }
 }
 
+/// The FULLY-CONVERGED-end-state cross-file at-rest invariant: the mode recorded in `config.json`
+/// equals the REAL on-disk at-rest mode of every canonical database (`history-vault` AND
+/// `source-evidence`) that exists on disk.
+///
+/// This is the check that would have caught the 2026-06-30 incident BEFORE it shipped through a
+/// 100%-green gate: encrypted history-vault + source-evidence on disk under a `Plaintext` config (a
+/// rekey cut AFTER the file swap but BEFORE config was written), which bricked the next open with
+/// `SQLITE_NOTADB`. The gate measured code EXECUTION (line/function coverage), never this cross-FILE
+/// BEHAVIOR, so nothing tripped — the methodology hole this checker + its post-condition tests close.
+/// Asserting BOTH canonical DBs also re-catches the SOURCE-EVIDENCE drift mode of the incident (an
+/// encrypted config over a plaintext source-evidence → the `SQLITE_NOMEM` backup failures).
+///
+/// It reads through the REAL [`load_config`] (never a hand-built `AppConfig`, so the true config-load
+/// path is exercised) and each canonical DB's ACTUAL on-disk mode via [`detect_disk_encryption_mode`]
+/// — HEADER-ONLY, KEY-FREE, no DB open — so it is cheap enough to assert after every archive-mutation
+/// test even on a 14.4M-row archive. An ABSENT canonical database is skipped (uninitialized /
+/// rebuildable — nothing to diverge from); every PRESENT one must match. Returns `Err` naming the
+/// exact divergence so a post-condition `.expect(...)` prints the offending shape.
+///
+/// SCOPE — this asserts the FULLY-CONVERGED end state that a SUCCESSFUL mutation (or a completed
+/// encrypt-direction / rollback recovery) reaches, NOT the production LAUNCH invariant. The production
+/// self-heal [`recover_archive_on_launch`] converges only the canonical history-vault; source-evidence
+/// decrypt-direction drift (source-evidence still Encrypted under a healed Plaintext config) is a
+/// deliberately-DEFERRED, known-degraded follow-up that [`super::recover_interrupted_rekey`]
+/// fail-closes rather than silently completes. So this checker is STRICTER than the launch guarantee
+/// and must NOT be promoted into a production launch assertion as-is, nor threaded as a post-condition
+/// after a decrypt-direction recovery that legitimately leaves source-evidence still-encrypted — every
+/// caller here runs it only after a fully-converged success/rollback, where both DBs must match.
+///
+/// It is therefore `#[cfg(test)]` — compiled into the MEASURED test/coverage build (its own tests
+/// cover both arms) but not the production `lib`, mirroring `fault_inject`'s `#[cfg(test)]` arming
+/// helpers; keeping it test-facing also avoids paying a second header read on every launch.
+#[cfg(test)]
+pub(crate) fn check_config_disk_consistency(paths: &ProjectPaths) -> Result<()> {
+    let config = load_config(paths)
+        .context("loading config.json for the config\u{2194}disk at-rest invariant check")?;
+    let expected = config.archive_mode;
+    for (label, path) in [
+        ("history-vault", &paths.archive_database_path),
+        ("source-evidence", &paths.source_evidence_database_path),
+    ] {
+        // Absent / unreadable header => not yet created (or rebuildable): nothing to diverge from.
+        let Some(on_disk) = disk_mode_to_archive_mode(detect_disk_encryption_mode(path)) else {
+            continue;
+        };
+        if on_disk != expected {
+            anyhow::bail!(
+                "config\u{2194}disk at-rest invariant violated: config.json declares {expected:?} but \
+                 the {label} database on disk is {on_disk:?} ({}). This is the 2026-06-30 incident \
+                 shape (encrypted files under a Plaintext config brick the next open with \
+                 SQLITE_NOTADB); a committed archive must never diverge from its config.",
+                path.display(),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Lists the verified rekey safety-snapshot files (`raw-snapshots/rekey/*.sqlite`) a Phase-D
 /// restore could offer. Best-effort + cheap: a directory listing, never a DB open. Sorted for
 /// a stable, newest-last presentation.
@@ -2016,5 +2074,287 @@ mod tests {
             !launch_is_provably_healthy(&paths, &plaintext_config()),
             "an absent canonical + a restore marker must NOT shortcut to healthy",
         );
+    }
+
+    // --- E1/E3: config\u{2194}disk at-rest invariant + crash-window torture --------------------------
+    //
+    // These are the Phase-E answer to "WHY DIDN'T WE CATCH THIS?". `check_config_disk_consistency`
+    // is the cross-FILE behavioral assertion the 100%-coverage gate never had: it reads the persisted
+    // `config.json` through the REAL `load_config` and compares it to the canonical DBs' ACTUAL on-disk
+    // at-rest mode. The incident-reproduction test proves it FAILS on the exact shipped shape; the
+    // crash-window test proves it + launch recovery together catch "config lags the installed files";
+    // and the exhaustive per-checkpoint torture test proves every rekey crash window recovers to a
+    // consistent-or-fail-closed state, never a silent brick. All are deterministic (fixed checkpoint
+    // enumeration, no wall-clock / RNG / thread-timing dependence).
+
+    /// Seeds one uniquely-tagged canonical `runs` row so a crash-window test can prove the canonical
+    /// facts survived the abort + recovery (the rekey export copies it forward, so it is present in
+    /// BOTH the original and the rekeyed file).
+    fn seed_canonical_marker(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) {
+        let connection = open_archive_connection(paths, config, key).expect("open archive to seed");
+        connection
+            .execute(
+                "INSERT INTO runs (run_type, trigger, started_at, status)
+                 VALUES ('backup', 'e2e-marker', '2026-06-30T00:00:00Z', 'success')",
+                [],
+            )
+            .expect("seed canonical marker row");
+    }
+
+    /// Counts the seeded marker rows, opening the archive in the given mode/key. Reopening from disk
+    /// and counting is how these tests prove the canonical rows are intact + the archive is openable.
+    fn canonical_marker_count(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> i64 {
+        let connection =
+            open_archive_connection(paths, config, key).expect("open archive to count");
+        connection
+            .query_row("SELECT COUNT(*) FROM runs WHERE trigger = 'e2e-marker'", [], |row| {
+                row.get(0)
+            })
+            .expect("count marker rows")
+    }
+
+    #[test]
+    fn config_disk_consistency_passes_on_consistent_plaintext_encrypted_and_uninitialized() {
+        // Plaintext: history-vault + source-evidence both plaintext under a persisted Plaintext config.
+        let plain_dir = tempdir().expect("tempdir");
+        let plain = project_paths_with_root(plain_dir.path());
+        drop(
+            open_archive_connection(&plain, &plaintext_config(), None).expect("plaintext archive"),
+        );
+        seed_plaintext_source_evidence(&plain);
+        save_config(&plain, &plaintext_config()).expect("save plaintext config");
+        check_config_disk_consistency(&plain).expect("a consistent plaintext archive must pass");
+
+        // Encrypted: both canonical DBs encrypted under a persisted Encrypted config.
+        let enc_dir = tempdir().expect("tempdir");
+        let enc = project_paths_with_root(enc_dir.path());
+        drop(open_archive_connection(&enc, &encrypted_config(), Some(KEY)).expect("enc archive"));
+        drop(
+            open_source_evidence_connection(&enc, &encrypted_config(), Some(KEY)).expect("enc SE"),
+        );
+        save_config(&enc, &encrypted_config()).expect("save encrypted config");
+        check_config_disk_consistency(&enc).expect("a consistent encrypted archive must pass");
+
+        // Uninitialized: no config file (load_config defaults Plaintext) + both DBs absent -> the
+        // Absent arm is skipped and the invariant holds vacuously.
+        let empty_dir = tempdir().expect("tempdir");
+        let empty = project_paths_with_root(empty_dir.path());
+        check_config_disk_consistency(&empty).expect("an uninitialized layout must pass");
+    }
+
+    #[test]
+    fn config_disk_consistency_fails_on_the_incident_shape_then_launch_recovery_heals_it() {
+        // THE headline: both canonical DBs SQLCipher-encrypted on disk while the persisted config says
+        // Plaintext and there is NO journal — the exact 2026-06-30 shape that shipped through a
+        // 100%-green gate and bricked the next open with NOTADB. The checker MUST fail on it.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
+        drop(
+            open_source_evidence_connection(&paths, &encrypted_config(), Some(KEY))
+                .expect("enc SE"),
+        );
+        save_config(&paths, &plaintext_config()).expect("write the stale Plaintext config");
+
+        let error = check_config_disk_consistency(&paths)
+            .expect_err("encrypted files under a Plaintext config MUST fail the invariant");
+        let rendered = format!("{error:#}");
+        assert!(
+            rendered.contains("invariant violated")
+                && rendered.contains("history-vault")
+                && rendered.contains("SQLITE_NOTADB"),
+            "the failure must name the divergence + the incident, got: {rendered}",
+        );
+
+        // Launch recovery converges config to the files' real mode; the invariant then holds.
+        let outcome =
+            recover_archive_on_launch(&paths, &plaintext_config(), None).expect("launch recovery");
+        assert!(matches!(outcome, LaunchRecovery::Healed { .. }), "got {outcome:?}");
+        check_config_disk_consistency(&paths)
+            .expect("after the launch heal the config\u{2194}disk invariant must hold");
+    }
+
+    #[test]
+    fn config_disk_consistency_catches_config_lagging_installed_files_in_the_rekey_crash_window() {
+        // THE proof that the checker catches the CLASS: reproduce, on disk, the exact intermediate
+        // state a rekey crash leaves (the file swapped to Encrypted, config still Plaintext because it
+        // is written LAST). This is also precisely what the PRE-HARDENING ordering — which wrote config
+        // BEFORE / independently of the file swap and had no launch heal — would ship PERMANENTLY. The
+        // checker MUST trip on that "config lags the installed files" divergence, and launch recovery
+        // MUST restore the invariant. Together they make this class un-shippable-green.
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        drop(
+            open_archive_connection(&paths, &plaintext_config(), None).expect("plaintext archive"),
+        );
+        save_config(&paths, &plaintext_config()).expect("seed plaintext config");
+        seed_canonical_marker(&paths, &plaintext_config(), None);
+
+        {
+            let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(
+                "rekey.after_swap_before_config",
+            );
+            let error =
+                rekey_archive(&paths, &plaintext_config(), None, ArchiveMode::Encrypted, Some(KEY))
+                    .expect_err("the injected crash must abort the rekey");
+            assert!(
+                format!("{error:#}").contains("rekey.after_swap_before_config"),
+                "the INJECTED fault must propagate, got: {error:#}",
+            );
+        }
+        // On disk now: history-vault Encrypted, config still Plaintext -> the divergence the checker
+        // exists to catch. This assertion FAILS (checker returns Ok) if the file-swap-then-config-last
+        // ordering were reverted to committing config independently of the installed files.
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.archive_database_path),
+            DiskEncryptionMode::Encrypted
+        );
+        let lag = check_config_disk_consistency(&paths)
+            .expect_err("config lagging the installed files MUST trip the invariant");
+        assert!(format!("{lag:#}").contains("invariant violated"), "got: {lag:#}");
+
+        // Launch recovery heals the lag; the invariant holds and the canonical rows survive.
+        recover_archive_on_launch(&paths, &load_config(&paths).expect("load"), None)
+            .expect("launch recovery");
+        check_config_disk_consistency(&paths).expect("recovery must restore the invariant");
+        assert_eq!(
+            canonical_marker_count(&paths, &encrypted_config(), Some(KEY)),
+            1,
+            "the canonical rows must survive the crash + recovery",
+        );
+    }
+
+    #[test]
+    fn rekey_crash_at_every_checkpoint_recovers_to_a_consistent_openable_archive() {
+        // E3 torture (deterministic, exhaustive): a crash at EACH named rekey checkpoint, followed by
+        // launch recovery, must land a consistent + openable archive whose config matches the files on
+        // disk and whose canonical rows survive — never an empty/mixed/bricked state. Enumerating the
+        // fixed checkpoint list (no RNG, no timing) keeps it reproducible and fast.
+        for checkpoint in [
+            "rekey.after_export_before_swap",
+            "rekey.after_swap_before_config",
+            "rekey.after_config",
+        ] {
+            let dir = tempdir().expect("tempdir");
+            let paths = project_paths_with_root(dir.path());
+            drop(
+                open_archive_connection(&paths, &plaintext_config(), None)
+                    .expect("plaintext archive"),
+            );
+            save_config(&paths, &plaintext_config()).expect("seed plaintext config");
+            seed_canonical_marker(&paths, &plaintext_config(), None);
+
+            {
+                let _guard = crate::fault_inject::FaultGuard::error_at_must_fire(checkpoint);
+                let error = rekey_archive(
+                    &paths,
+                    &plaintext_config(),
+                    None,
+                    ArchiveMode::Encrypted,
+                    Some(KEY),
+                )
+                .expect_err(&format!("the injected crash at {checkpoint} must abort rekey"));
+                assert!(
+                    format!("{error:#}").contains(checkpoint),
+                    "the INJECTED fault must propagate at {checkpoint}, got: {error:#}",
+                );
+            }
+
+            let outcome =
+                recover_archive_on_launch(&paths, &load_config(&paths).expect("load"), None)
+                    .unwrap_or_else(|error| {
+                        panic!("launch recovery at {checkpoint} errored: {error:#}")
+                    });
+            // A plaintext->encrypted rekey self-heals in every window (encrypt direction), so no
+            // window is fail-closed here; the recovery must reach a healed/healthy consistent state.
+            assert!(
+                !matches!(outcome, LaunchRecovery::Unrecoverable(_)),
+                "the encrypt-direction crash at {checkpoint} must self-heal, got {outcome:?}",
+            );
+            check_config_disk_consistency(&paths).unwrap_or_else(|error| {
+                panic!(
+                    "the invariant must hold after recovering a crash at {checkpoint}: {error:#}"
+                )
+            });
+
+            // Open in the RECOVERED mode and prove the canonical rows are intact + the archive opens.
+            let recovered = load_config(&paths).expect("load recovered config");
+            let key = match recovered.archive_mode {
+                ArchiveMode::Encrypted => Some(KEY),
+                ArchiveMode::Plaintext => None,
+            };
+            assert_eq!(
+                canonical_marker_count(&paths, &recovered, key),
+                1,
+                "the canonical rows must survive a crash at {checkpoint} + recovery",
+            );
+        }
+    }
+
+    #[test]
+    fn two_same_process_top_level_reconciles_serialize_and_leave_a_consistent_archive() {
+        // E3 concurrency: two TOP-LEVEL destructive ops dispatched in ONE process against the SAME
+        // archive must serialize on the in-process `ArchiveOpGate` (the reentrant flock alone cannot
+        // exclude them) and leave a single consistent archive — never a half-converted source-evidence
+        // or a mode-drifted config. Two concurrent `reconcile_archive_encryption` calls over a seeded
+        // drift: the first repairs it, the second is a no-op; both must complete (watchdog guards a
+        // serialization regression that would deadlock/hang) and the invariant must hold afterwards.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        // Drift that forces a rewrite: encrypted archive + config, PLAINTEXT source-evidence.
+        drop(open_archive_connection(&paths, &encrypted_config(), Some(KEY)).expect("enc archive"));
+        seed_plaintext_source_evidence(&paths);
+        save_config(&paths, &encrypted_config()).expect("save encrypted config");
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let worker_paths = paths.clone();
+            let worker_config = encrypted_config();
+            let worker_done = done_tx.clone();
+            workers.push(std::thread::spawn(move || {
+                let outcome =
+                    reconcile_archive_encryption(&worker_paths, &worker_config, Some(KEY))
+                        .map(|report| report.repaired)
+                        .map_err(|error| format!("{error:#}"));
+                worker_done.send(outcome).expect("worker signals completion");
+            }));
+        }
+        drop(done_tx);
+
+        // Both must finish (a serialization/deadlock regression trips the watchdog), collecting each
+        // reconcile's `repaired` flag.
+        let mut repaired_flags = Vec::new();
+        for _ in 0..2 {
+            let repaired = done_rx
+                .recv_timeout(Duration::from_secs(20))
+                .expect("both same-process reconciles must complete (op-gate serialization)")
+                .expect("neither concurrent reconcile may error");
+            repaired_flags.push(repaired);
+        }
+        for worker in workers {
+            worker.join().expect("worker thread");
+        }
+
+        // EXACTLY-ONCE repair: because the gate fully serializes them, the winner repairs the drift
+        // (repaired == true) and the loser then re-detects a now-consistent archive (repaired ==
+        // false) — never both repairing (a double-rewrite) or both skipping (a lost repair).
+        assert_eq!(
+            repaired_flags.iter().filter(|&&repaired| repaired).count(),
+            1,
+            "exactly one serialized reconcile repairs the drift; the other is a no-op, got: {repaired_flags:?}",
+        );
+
+        // A consistent end state: source-evidence is encrypted and the config\u{2194}disk invariant holds.
+        assert_eq!(
+            detect_disk_encryption_mode(&paths.source_evidence_database_path),
+            DiskEncryptionMode::Encrypted,
+            "the drifted source-evidence must end encrypted, matching the archive + config",
+        );
+        check_config_disk_consistency(&paths)
+            .expect("two serialized reconciles must leave a consistent archive");
     }
 }

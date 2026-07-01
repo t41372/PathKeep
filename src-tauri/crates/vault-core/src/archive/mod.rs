@@ -60,6 +60,11 @@ pub(crate) use self::at_rest::{
     DiskEncryptionMode, detect_disk_encryption_mode, migrate_source_evidence_for_rekey,
     reconcile_source_evidence_with_archive, remove_stale_sidecars,
 };
+// The config↔disk at-rest invariant checker is a TEST-facing post-condition (threaded into every
+// archive-mutation success/crash test), never a production hot path — so it + its re-export exist
+// only in the measured test build, mirroring `fault_inject`'s `#[cfg(test)]` arming helpers.
+#[cfg(test)]
+pub(crate) use self::at_rest::check_config_disk_consistency;
 pub use self::backup::{run_backup, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
 pub use self::intelligence_projection::open_intelligence_connection;

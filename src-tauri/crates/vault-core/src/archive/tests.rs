@@ -3765,6 +3765,17 @@ fn rekey_archive_records_failed_run_when_config_save_fails_after_swap() {
     assert!(error_message.as_deref().is_some_and(|message| message.contains("writing")));
 }
 
+// --- Crash-window regression suite (Phase B/E) ---------------------------------------------------
+//
+// The named, legible home for the archive-mutation crash-window tests: each destructive op (rekey,
+// backup; import lives in `migration::fault_tests`, restore + launch recovery in `maintenance`) has a
+// kill-at-EXACT-checkpoint regression that (a) FAILS on the un-hardened code (no crash seam, config
+// written before the swap) and (b) asserts the INJECTED fault propagated via `format!("{err:#}")`,
+// never a bare `is_err()`. Phase E adds the config<->disk invariant post-condition (see
+// `config_disk_invariant_holds_after_a_successful_backup` here, plus the enumerated torture + the
+// `check_config_disk_consistency` checker in `archive::at_rest`) so a crash can never ship a config
+// that lags the installed files.
+
 #[test]
 fn rekey_crash_after_export_before_swap_leaves_the_original_archive_recoverable() {
     // Window (4): a crash AFTER the new-keyed export but BEFORE the swap must be a
@@ -3971,6 +3982,40 @@ fn backup_crash_after_canonical_commit_leaves_a_fully_applied_consistent_archive
         "the committed canonical visits must survive the crash, fully applied"
     );
     assert_archive_integrity_ok(&connection);
+
+    restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
+}
+
+#[test]
+fn config_disk_invariant_holds_after_a_successful_backup() {
+    // E1 post-condition for backup: a full, successful backup (real chrome fixture -> canonical
+    // commit) must leave config.json — read through the REAL load_config — matching the canonical
+    // DBs' actual on-disk at-rest mode. Backup never rewrites the mode, so this pins that it also
+    // never leaves the config lagging the files (the incident shape) for its own reasons.
+    let _env = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempdir().expect("tempdir");
+    let chrome_root = seed_chrome_fixture(dir.path());
+    let original_override = std::env::var_os(TEST_CHROME_USER_DATA_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, &chrome_root);
+    }
+
+    let paths = sample_paths(dir.path());
+    let config = AppConfig {
+        initialized: true,
+        selected_profile_ids: vec!["chrome:Default".to_string()],
+        ..AppConfig::default()
+    };
+    ensure_archive_initialized(&paths, &config, None).expect("init archive");
+    // Persist the config so the invariant check exercises the REAL config-load path (E2), not a
+    // hand-built struct that would mask a load-time drift.
+    crate::config::save_config(&paths, &config).expect("persist config");
+
+    let report = run_backup(&paths, &config, None, false).expect("run backup");
+    assert_eq!(report.run.as_ref().expect("run").new_visits, 2, "the backup applied the fixture");
+
+    check_config_disk_consistency(&paths)
+        .expect("a successful backup must leave config matching the canonical DBs on disk");
 
     restore_test_env_var(TEST_CHROME_USER_DATA_OVERRIDE_ENV, original_override.as_deref());
 }

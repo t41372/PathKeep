@@ -2207,6 +2207,10 @@ mod tests {
             crate::config::load_config(&paths).expect("config").archive_mode,
             ArchiveMode::Encrypted,
         ));
+        // E1 post-condition: the config (read through the REAL load_config) matches the restored
+        // files' actual on-disk at-rest mode — the invariant the 2026-06-30 incident violated.
+        crate::archive::check_config_disk_consistency(&paths)
+            .expect("a successful full-archive restore must leave config matching disk");
         // A fresh source-evidence opens.
         drop(
             open_source_evidence_connection(&paths, &config, Some(RESTORE_KEY))
@@ -2966,6 +2970,9 @@ mod tests {
         verify_database_integrity(&paths.archive_database_path, None)
             .expect("the restored canonical archive passes quick_check");
         assert!(!restore_journal_path(&paths).exists(), "the marker is cleared after recovery");
+        // E1 post-condition: recovering an interrupted restore leaves config matching the files.
+        crate::archive::check_config_disk_consistency(&paths)
+            .expect("recovering an interrupted restore must leave config matching disk");
         assert_eq!(
             sentinel_backup_run_count(&paths, &plaintext_archive_config(), None),
             1,
